@@ -1,0 +1,692 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============== USERS & AUTH ==============
+
+model User {
+  id                String          @id @default(cuid())
+  email             String          @unique
+  phoneNumber       String?         @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  avatar            String?
+  bio               String?
+  birthDate         DateTime?
+  
+  role              UserRole        @default(STUDENT)
+  status            UserStatus      @default(ACTIVE)
+  
+  emailVerified     Boolean         @default(false)
+  phoneVerified     Boolean         @default(false)
+  
+  twoFactorEnabled  Boolean         @default(false)
+  twoFactorSecret   String?
+  
+  university        University?     @relation("UniversityUsers", fields: [universityId], references: [id], onDelete: SetNull)
+  universityId      String?
+  
+  // Студент-специфичное
+  student           Student?
+  
+  // Преподаватель-специфичное
+  teacher           Teacher?
+  
+  // Университет-специфичное
+  universityAdmin   UniversityAdmin?
+  
+  // Социальное взаимодействие
+  sentFriendRequests   FriendRequest[] @relation("SentRequests")
+  receivedFriendRequests FriendRequest[] @relation("ReceivedRequests")
+  friends           User[]          @relation("Friends")
+  friendOf          User[]          @relation("Friends")
+  
+  // Контент
+  posts             Post[]
+  stories           Story[]
+  comments          Comment[]
+  reactions         Reaction[]
+  
+  // Сообщения
+  sentMessages      Message[]       @relation("SentMessages")
+  receivedMessages  Message[]       @relation("ReceivedMessages")
+  conversations     Conversation[]  @relation("ConversationUsers")
+  
+  // Уведомления
+  notifications     Notification[]
+  
+  // Документы
+  documents         Document[]
+  
+  // Группы
+  groupMemberships  GroupMember[]
+  createdGroups     Group[]         @relation("GroupCreator")
+  groupMessages     GroupMessage[]
+  
+  // Просмотры сторисов
+  storyViews        StoryView[]
+  
+  // Реакции на сообщения
+  messageReactions  MessageReaction[]
+  
+  // Члены команды (для ассистентов)
+  assistantTo       Teacher?        @relation("TeacherAssistants", fields: [assistantToId], references: [id], onDelete: SetNull)
+  assistantToId     String?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([universityId])
+  @@index([role])
+  @@index([status])
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  UNIVERSITY_ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  DELETED
+}
+
+// ============== STUDENTS ==============
+
+model Student {
+  id                String          @id @default(cuid())
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String          @unique
+  
+  studentId         String          @unique
+  enrollmentDate    DateTime
+  expectedGraduation DateTime?
+  
+  academicStatus    AcademicStatus  @default(ACTIVE)
+  gpa               Float?
+  
+  groupMemberships  GroupMember[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([userId])
+}
+
+enum AcademicStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+  EXPELLED
+  ON_LEAVE
+}
+
+// ============== TEACHERS ==============
+
+model Teacher {
+  id                String          @id @default(cuid())
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String          @unique
+  
+  department        String
+  specialization    String
+  employeeId        String          @unique
+  
+  qualifications    String[]
+  
+  groups            Group[]         @relation("TeacherGroups")
+  
+  assistants        User[]          @relation("TeacherAssistants")
+  
+  registrationStatus TeacherRegStatus @default(PENDING)
+  registeredAt      DateTime?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([userId])
+  @@index([registrationStatus])
+}
+
+enum TeacherRegStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+// ============== UNIVERSITIES ==============
+
+model University {
+  id                String          @id @default(cuid())
+  name              String          @unique
+  shortName         String
+  logo              String?
+  description       String?
+  
+  email             String          @unique
+  website           String?
+  
+  country           String
+  city              String
+  address           String
+  
+  founded           Int?
+  studentCount      Int             @default(0)
+  teacherCount      Int             @default(0)
+  
+  users             User[]          @relation("UniversityUsers")
+  admins            UniversityAdmin[]
+  departments       Department[]
+  groups            Group[]
+  events            Event[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([name])
+}
+
+model UniversityAdmin {
+  id                String          @id @default(cuid())
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String          @unique
+  
+  university        University      @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  universityId      String
+  
+  role              AdminRole       @default(MODERATOR)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@unique([universityId, userId])
+  @@index([universityId])
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+}
+
+model Department {
+  id                String          @id @default(cuid())
+  university        University      @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  universityId      String
+  
+  name              String
+  code              String
+  description       String?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// ============== GROUPS ==============
+
+model Group {
+  id                String          @id @default(cuid())
+  name              String
+  description       String?
+  avatar            String?
+  
+  university        University      @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  universityId      String
+  
+  creator           User            @relation("GroupCreator", fields: [creatorId], references: [id])
+  creatorId         String
+  
+  teachers          Teacher[]       @relation("TeacherGroups")
+  
+  members           GroupMember[]
+  
+  messages          GroupMessage[]
+  
+  events            Event[]
+  
+  isArchived        Boolean         @default(false)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([universityId])
+  @@index([creatorId])
+}
+
+model GroupMember {
+  id                String          @id @default(cuid())
+  group             Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId           String
+  
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  
+  student           Student?        @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  studentId         String?
+  
+  role              GroupRole       @default(MEMBER)
+  
+  joinedAt          DateTime        @default(now())
+  
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+enum GroupRole {
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+// ============== POSTS & CONTENT ==============
+
+model Post {
+  id                String          @id @default(cuid())
+  author            User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId          String
+  
+  content           String
+  media             Media[]
+  
+  visibility        PostVisibility  @default(PUBLIC)
+  isPinned          Boolean         @default(false)
+  
+  comments          Comment[]
+  reactions         Reaction[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([authorId])
+  @@index([visibility])
+  @@index([createdAt])
+}
+
+model Story {
+  id                String          @id @default(cuid())
+  author            User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId          String
+  
+  content           String?
+  media             Media           @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId           String
+  
+  viewedBy          StoryView[]
+  
+  expiresAt         DateTime
+  
+  createdAt         DateTime        @default(now())
+  
+  @@index([authorId])
+  @@index([expiresAt])
+}
+
+model StoryView {
+  id                String          @id @default(cuid())
+  story             Story           @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  storyId           String
+  
+  viewer            User            @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  viewerId          String
+  
+  viewedAt          DateTime        @default(now())
+  
+  @@unique([storyId, viewerId])
+  @@index([storyId])
+}
+
+enum PostVisibility {
+  PUBLIC
+  FRIENDS_ONLY
+  PRIVATE
+}
+
+model Comment {
+  id                String          @id @default(cuid())
+  post              Post            @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId            String
+  
+  author            User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId          String
+  
+  content           String
+  media             Media[]
+  
+  reactions         Reaction[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([postId])
+  @@index([authorId])
+}
+
+model Reaction {
+  id                String          @id @default(cuid())
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  
+  post              Post?           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId            String?
+  
+  comment           Comment?        @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId         String?
+  
+  type              ReactionType    @default(LIKE)
+  
+  createdAt         DateTime        @default(now())
+  
+  @@unique([userId, postId, type])
+  @@unique([userId, commentId, type])
+  @@index([userId])
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  HAHA
+  WOW
+  SAD
+  ANGRY
+}
+
+// ============== MEDIA ==============
+
+model Media {
+  id                String          @id @default(cuid())
+  
+  url               String
+  type              MediaType
+  size              Int
+  mimeType          String
+  
+  posts             Post[]
+  comments          Comment[]
+  stories           Story[]
+  groupMessages     GroupMessage[]
+  messages          Message[]
+  
+  uploadedAt        DateTime        @default(now())
+  
+  @@index([type])
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  FILE
+}
+
+// ============== MESSAGES ==============
+
+model Message {
+  id                String          @id @default(cuid())
+  
+  conversation      Conversation    @relation("ConversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId    String
+  
+  sender            User            @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  senderId          String
+  
+  receiver          User            @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  receiverId        String
+  
+  content           String?
+  media             Media?          @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  mediaId           String?
+  
+  isEdited          Boolean         @default(false)
+  isDeleted         Boolean         @default(false)
+  
+  reactions         MessageReaction[]
+  
+  lastMessageConversations Conversation[] @relation("LastMessage")
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+model MessageReaction {
+  id                String          @id @default(cuid())
+  message           Message         @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId         String
+  
+  groupMessage      GroupMessage?   @relation(fields: [groupMessageId], references: [id], onDelete: Cascade)
+  groupMessageId    String?
+  
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  
+  type              ReactionType    @default(LIKE)
+  
+  createdAt         DateTime        @default(now())
+  
+  @@unique([messageId, userId, type])
+  @@index([messageId])
+}
+
+model Conversation {
+  id                String          @id @default(cuid())
+  
+  type              ConversationType @default(PRIVATE)
+  name              String?
+  avatar            String?
+  
+  participants      User[]          @relation("ConversationUsers")
+  messages          Message[]       @relation("ConversationMessages")
+  
+  lastMessage       Message?        @relation("LastMessage", fields: [lastMessageId], references: [id], onDelete: SetNull)
+  lastMessageId     String?         @unique
+  
+  isArchived        Boolean         @default(false)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([type])
+  @@index([updatedAt])
+}
+
+enum ConversationType {
+  PRIVATE
+  GROUP
+}
+
+model GroupMessage {
+  id                String          @id @default(cuid())
+  group             Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId           String
+  
+  sender            User            @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderId          String
+  
+  content           String?
+  media             Media[]
+  
+  isEdited          Boolean         @default(false)
+  isDeleted         Boolean         @default(false)
+  
+  reactions         MessageReaction[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([groupId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+// ============== NOTIFICATIONS ==============
+
+model Notification {
+  id                String          @id @default(cuid())
+  
+  recipient         User            @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  recipientId       String
+  
+  type              NotificationType
+  title             String
+  message           String
+  data              Json?
+  
+  isRead            Boolean         @default(false)
+  
+  createdAt         DateTime        @default(now())
+  
+  @@index([recipientId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  MESSAGE
+  POST_COMMENT
+  POST_REACTION
+  STORY_VIEW
+  GROUP_INVITE
+  EVENT
+  TEACHER_MESSAGE
+  DOCUMENT_REQUEST
+  DOCUMENT_UPDATED
+}
+
+// ============== DOCUMENTS ==============
+
+model Document {
+  id                String          @id @default(cuid())
+  
+  owner             User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId           String
+  
+  type              DocumentType
+  fileName          String
+  fileUrl           String
+  fileSize          Int
+  
+  expiryDate        DateTime?
+  
+  status            DocumentStatus  @default(PENDING)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([ownerId])
+  @@index([type])
+  @@index([status])
+}
+
+enum DocumentType {
+  PASSPORT
+  ID_CARD
+  STUDENT_CARD
+  MEDICAL_CERTIFICATE
+  DIPLOMA
+  TRANSCRIPT
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+// ============== EVENTS ==============
+
+model Event {
+  id                String          @id @default(cuid())
+  
+  title             String
+  description       String?
+  image             String?
+  
+  university        University      @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  universityId      String
+  
+  group             Group?          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId           String?
+  
+  startDate         DateTime
+  endDate           DateTime?
+  
+  location          String?
+  isOnline          Boolean         @default(false)
+  
+  eventType         EventType       @default(ANNOUNCEMENT)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([universityId])
+  @@index([groupId])
+  @@index([startDate])
+}
+
+enum EventType {
+  LECTURE
+  SEMINAR
+  WORKSHOP
+  CONFERENCE
+  ANNOUNCEMENT
+  DEADLINE
+  OTHER
+}
+
+// ============== FRIEND SYSTEM ==============
+
+model FriendRequest {
+  id                String          @id @default(cuid())
+  
+  sender            User            @relation("SentRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  senderId          String
+  
+  receiver          User            @relation("ReceivedRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+  receiverId        String
+  
+  status            FriendStatus    @default(PENDING)
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
