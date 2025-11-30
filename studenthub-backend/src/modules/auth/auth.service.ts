@@ -16,6 +16,9 @@ import {
   TwoFactorRequiredException,
   InvalidTwoFactorCodeException,
   SamePasswordException,
+  TwoFactorAlreadyEnabledException,
+  TwoFactorNotEnabledException,
+  TwoFactorSetupExpiredException,
 } from '../../common/exceptions/auth.exceptions';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -79,10 +82,10 @@ export class AuthService {
       code,
     );
 
-    this.logger.log(`New user registered: ${user.email} (${user.id})`);
+    this.logger.log(`Новый пользователь зарегистрирован: ${user.email} (${user.id})`);
 
     return {
-      message: 'Registration successful. Please check your email for verification code.',
+      message: 'Регистрация успешна. Пожалуйста, проверьте вашу почту для получения кода подтверждения.',
       email: user.email,
     };
   }
@@ -98,9 +101,9 @@ export class AuthService {
       data: { emailVerified: true },
     });
 
-    this.logger.log(`Email verified: ${email}`);
+    this.logger.log(`Email подтвержден: ${email}`);
 
-    return { message: 'Email verified successfully' };
+    return { message: 'Email успешно подтвержден' };
   }
 
   /**
@@ -113,11 +116,11 @@ export class AuthService {
 
     if (!user) {
       // Don't reveal if email exists for security
-      return { message: 'If email exists, verification code has been sent' };
+      return { message: 'Если email существует, код подтверждения был отправлен' };
     }
 
     if (user.emailVerified) {
-      return { message: 'Email is already verified' };
+      return { message: 'Email уже подтвержден' };
     }
 
     const code = await this.emailVerificationService.generateVerificationCode(
@@ -125,9 +128,9 @@ export class AuthService {
     );
     await this.emailVerificationService.sendVerificationEmail(email, code);
 
-    this.logger.log(`Verification email resent: ${email}`);
+    this.logger.log(`Код подтверждения повторно отправлен: ${email}`);
 
-    return { message: 'Verification code has been sent to your email' };
+    return { message: 'Код подтверждения был отправлен на ваш email' };
   }
 
   /**
@@ -153,7 +156,7 @@ export class AuthService {
 
     // Check if user is active
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Account is not active');
+      throw new UnauthorizedException('Аккаунт неактивен');
     }
 
     // Don't return password hash
@@ -164,7 +167,7 @@ export class AuthService {
   /**
    * Login user
    */
-  async login(loginDto: LoginDto, ip: string): Promise<AuthResponse | { requiresTwoFactor: boolean; temporaryToken: string }> {
+  async login(loginDto: LoginDto, ip: string): Promise<AuthResponse | { requiresTwoFactor: boolean; temporaryToken: string; userId: string }> {
     // Rate limiting is handled by ThrottlerGuard with @Throttle decorator
 
     const user = await this.prisma.user.findUnique({
@@ -172,7 +175,7 @@ export class AuthService {
     });
 
     if (!user) {
-      this.logger.warn(`Failed login attempt for email: ${loginDto.email} (user not found)`);
+      this.logger.warn(`Неудачная попытка входа для email: ${loginDto.email} (пользователь не найден)`);
       throw new InvalidCredentialsException();
     }
 
@@ -182,12 +185,12 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      this.logger.warn(`Failed login attempt for email: ${loginDto.email} (invalid password)`);
+      this.logger.warn(`Неудачная попытка входа для email: ${loginDto.email} (неверный пароль)`);
       throw new InvalidCredentialsException();
     }
 
     if (user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Account is not active');
+      throw new UnauthorizedException('Аккаунт неактивен');
     }
 
     if (!user.emailVerified) {
@@ -210,6 +213,7 @@ export class AuthService {
         return {
           requiresTwoFactor: true,
           temporaryToken,
+          userId: user.id,
         };
       }
 
@@ -225,7 +229,7 @@ export class AuthService {
       );
 
       if (!isValid) {
-        this.logger.warn(`Failed 2FA verification for user: ${user.id}`);
+        this.logger.warn(`Неудачная проверка 2FA для пользователя: ${user.id}`);
         throw new InvalidTwoFactorCodeException();
       }
 
@@ -241,7 +245,7 @@ export class AuthService {
     );
     const refreshToken = await this.tokenService.generateRefreshToken(user.id);
 
-    this.logger.log(`User logged in: ${user.email} (${user.id})`);
+    this.logger.log(`Пользователь вошел в систему: ${user.email} (${user.id})`);
 
     const { passwordHash, ...userWithoutPassword } = user;
 
@@ -294,7 +298,7 @@ export class AuthService {
     );
     const refreshToken = await this.tokenService.generateRefreshToken(user.id);
 
-    this.logger.log(`2FA login successful: ${user.email} (${user.id})`);
+    this.logger.log(`Успешный вход с 2FA: ${user.email} (${user.id})`);
 
     const { passwordHash, ...userWithoutPassword } = user;
 
@@ -344,9 +348,9 @@ export class AuthService {
   async logout(refreshToken: string, userId?: string): Promise<{ message: string }> {
     await this.tokenService.revokeRefreshToken(refreshToken);
     
-    this.logger.log(`User logged out: ${userId || 'unknown'}`);
+    this.logger.log(`Пользователь вышел из системы: ${userId || 'неизвестно'}`);
 
-    return { message: 'Logged out successfully' };
+    return { message: 'Выход выполнен успешно' };
   }
 
   /**
@@ -355,9 +359,9 @@ export class AuthService {
   async logoutAll(userId: string): Promise<{ message: string }> {
     await this.tokenService.revokeAllRefreshTokens(userId);
     
-    this.logger.log(`User logged out from all devices: ${userId}`);
+    this.logger.log(`Пользователь вышел из всех устройств: ${userId}`);
 
-    return { message: 'Logged out from all devices successfully' };
+    return { message: 'Выход со всех устройств выполнен успешно' };
   }
 
   /**
@@ -387,7 +391,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('Пользователь не найден');
     }
 
     return user;
@@ -406,7 +410,7 @@ export class AuthService {
     if (!user) {
       // Don't reveal if email exists for security
       return {
-        message: 'If email exists, password reset code has been sent',
+        message: 'Если email существует, код сброса пароля был отправлен',
       };
     }
 
@@ -415,10 +419,10 @@ export class AuthService {
     );
     await this.emailVerificationService.sendPasswordResetEmail(email, code);
 
-    this.logger.log(`Password reset code sent: ${email}`);
+    this.logger.log(`Код сброса пароля отправлен: ${email}`);
 
     return {
-      message: 'If email exists, password reset code has been sent',
+      message: 'Если email существует, код сброса пароля был отправлен',
     };
   }
 
@@ -467,9 +471,9 @@ export class AuthService {
     // Revoke all refresh tokens for security
     await this.tokenService.revokeAllRefreshTokens(user.id);
 
-    this.logger.log(`Password reset successful: ${email}`);
+    this.logger.log(`Пароль успешно сброшен: ${email}`);
 
-    return { message: 'Password reset successfully' };
+    return { message: 'Пароль успешно сброшен' };
   }
 
   /**
@@ -485,7 +489,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('Пользователь не найден');
     }
 
     // Verify current password
@@ -495,7 +499,7 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      throw new InvalidCredentialsException('Current password is incorrect');
+      throw new InvalidCredentialsException('Текущий пароль неверен');
     }
 
     // Validate new password strength
@@ -520,9 +524,9 @@ export class AuthService {
       data: { passwordHash },
     });
 
-    this.logger.log(`Password changed for user: ${userId}`);
+    this.logger.log(`Пароль изменен для пользователя: ${userId}`);
 
-    return { message: 'Password changed successfully' };
+    return { message: 'Пароль успешно изменен' };
   }
 
   /**
@@ -535,11 +539,11 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException('Пользователь не найден');
     }
 
     if (user.twoFactorEnabled) {
-      throw new Error('2FA is already enabled');
+      throw new TwoFactorAlreadyEnabledException();
     }
 
     const secret = this.twoFactorService.generateSecret(user.email);
@@ -564,7 +568,7 @@ export class AuthService {
     // Get temporary secret
     const secret = await this.redis.get(`2fa:setup:${userId}`);
     if (!secret) {
-      throw new Error('2FA setup session expired. Please generate a new QR code.');
+      throw new TwoFactorSetupExpiredException();
     }
 
     // Verify code
@@ -579,9 +583,9 @@ export class AuthService {
     // Clean up temporary secret
     await this.redis.del(`2fa:setup:${userId}`);
 
-    this.logger.log(`2FA enabled for user: ${userId}`);
+    this.logger.log(`2FA включена для пользователя: ${userId}`);
 
-    return { message: '2FA enabled successfully' };
+    return { message: '2FA успешно включена' };
   }
 
   /**
@@ -594,7 +598,7 @@ export class AuthService {
     });
 
     if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
-      throw new Error('2FA is not enabled');
+      throw new TwoFactorNotEnabledException();
     }
 
     // Verify code
@@ -609,9 +613,9 @@ export class AuthService {
     // Disable 2FA
     await this.twoFactorService.disableTwoFactor(userId);
 
-    this.logger.log(`2FA disabled for user: ${userId}`);
+    this.logger.log(`2FA отключена для пользователя: ${userId}`);
 
-    return { message: '2FA disabled successfully' };
+    return { message: '2FA успешно отключена' };
   }
 }
 

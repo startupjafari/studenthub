@@ -16,7 +16,7 @@ export class TwoFactorGuard implements CanActivate {
     const user = request.user;
 
     if (!user) {
-      throw new UnauthorizedException('User not authenticated');
+      throw new UnauthorizedException('Пользователь не аутентифицирован');
     }
 
     // If 2FA is enabled, it should have been verified during login

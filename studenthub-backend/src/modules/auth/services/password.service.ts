@@ -42,21 +42,21 @@ export class PasswordService {
     // Check minimum length
     if (password.length < 8) {
       throw new PasswordTooWeakException(
-        'Password must be at least 8 characters long',
+        'Пароль должен содержать минимум 8 символов',
       );
     }
 
     // Check for at least one letter
     if (!/[A-Za-z]/.test(password)) {
       throw new PasswordTooWeakException(
-        'Password must contain at least one letter',
+        'Пароль должен содержать хотя бы одну букву',
       );
     }
 
     // Check for at least one number
     if (!/\d/.test(password)) {
       throw new PasswordTooWeakException(
-        'Password must contain at least one number',
+        'Пароль должен содержать хотя бы одну цифру',
       );
     }
 
@@ -64,7 +64,7 @@ export class PasswordService {
     const lowerPassword = password.toLowerCase();
     if (this.COMMON_PASSWORDS.includes(lowerPassword)) {
       throw new PasswordTooWeakException(
-        'Password is too common. Please choose a stronger password',
+        'Пароль слишком распространенный. Пожалуйста, выберите более надежный пароль',
       );
     }
 

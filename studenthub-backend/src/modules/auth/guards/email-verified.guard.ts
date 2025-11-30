@@ -31,7 +31,7 @@ export class EmailVerifiedGuard implements CanActivate {
 
     if (!user.emailVerified) {
       throw new ForbiddenException(
-        'Email verification required. Please verify your email address.',
+        'Требуется подтверждение email. Пожалуйста, подтвердите ваш email адрес.',
       );
     }
 

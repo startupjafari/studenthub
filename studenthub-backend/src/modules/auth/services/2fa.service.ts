@@ -41,7 +41,7 @@ export class TwoFactorService {
     try {
       return await QRCode.toDataURL(otpauthUrl);
     } catch (error) {
-      throw new Error('Failed to generate QR code');
+      throw new Error('Не удалось сгенерировать QR-код');
     }
   }
 

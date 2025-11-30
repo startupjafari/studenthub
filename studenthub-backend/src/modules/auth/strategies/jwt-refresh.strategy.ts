@@ -28,7 +28,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
     const refreshToken = req.body?.refreshToken;
 
     if (!refreshToken) {
-      throw new UnauthorizedException('Refresh token is required');
+      throw new UnauthorizedException('Требуется refresh token');
     }
 
     const user = await this.prisma.user.findUnique({
@@ -50,7 +50,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
     });
 
     if (!user || user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('User not found or inactive');
+      throw new UnauthorizedException('Пользователь не найден или неактивен');
     }
 
     return { ...user, refreshToken, tokenId: payload.tokenId };
