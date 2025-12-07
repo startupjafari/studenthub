@@ -9,9 +9,19 @@ export default () => ({
   
   // JWT
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+    secret: process.env.JWT_SECRET || (() => {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET is required in production');
+      }
+      return 'dev-secret-key-change-in-production';
+    })(),
     expiration: process.env.JWT_EXPIRATION || '15m',
-    refreshSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production',
+    refreshSecret: process.env.JWT_REFRESH_SECRET || (() => {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_REFRESH_SECRET is required in production');
+      }
+      return 'dev-refresh-secret-key-change-in-production';
+    })(),
     refreshExpiration: process.env.JWT_REFRESH_EXPIRATION || '7d',
   },
   
@@ -39,12 +49,20 @@ export default () => ({
   
   // Frontend
   frontend: {
-    url: process.env.FRONTEND_URL || 'http://localhost:3001',
+    url: process.env.FRONTEND_URL || 'http://localhost:4000',
   },
   
   // App
   app: {
     name: process.env.APP_NAME || 'StudentHub',
+  },
+  
+  // AWS S3
+  aws: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    region: process.env.AWS_REGION || 'us-east-1',
+    s3Bucket: process.env.AWS_S3_BUCKET || 'studenthub-media',
   },
 });
 

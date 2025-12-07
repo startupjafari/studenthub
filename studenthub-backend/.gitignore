@@ -79,6 +79,9 @@ prisma/migrations/*/migration.sql
 docker-compose.override.yml
 .dockerignore
 
+# Docker data volumes
+data/
+
 # Temporary files
 *.tmp
 *.temp

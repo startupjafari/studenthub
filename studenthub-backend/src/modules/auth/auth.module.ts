@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { PasswordService } from './services/password.service';
 import { TokenService } from './services/token.service';
+import { TokenBlacklistService } from '../../common/services/token-blacklist.service';
 import { EmailVerificationService } from './services/email-verification.service';
 import { TwoFactorService } from './services/2fa.service';
 
@@ -42,6 +43,7 @@ import { RedisModule } from '../../common/modules/redis.module';
     PrismaService,
     PasswordService,
     TokenService,
+    TokenBlacklistService,
     EmailVerificationService,
     TwoFactorService,
     JwtStrategy,

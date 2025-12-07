@@ -60,12 +60,14 @@ export class PasswordService {
       );
     }
 
-    // Check against common passwords (case-insensitive)
+    // Check against common passwords (case-insensitive) using constant-time comparison
     const lowerPassword = password.toLowerCase();
-    if (this.COMMON_PASSWORDS.includes(lowerPassword)) {
-      throw new PasswordTooWeakException(
-        'Пароль слишком распространенный. Пожалуйста, выберите более надежный пароль',
-      );
+    for (const commonPassword of this.COMMON_PASSWORDS) {
+      if (this.constantTimeCompare(lowerPassword, commonPassword)) {
+        throw new PasswordTooWeakException(
+          'Пароль слишком распространенный. Пожалуйста, выберите более надежный пароль',
+        );
+      }
     }
 
     // Optional: Check for mixed case and special characters (can be enabled for stricter validation)
@@ -75,6 +77,22 @@ export class PasswordService {
     // if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
     //   throw new PasswordTooWeakException('Password should contain at least one special character');
     // }
+  }
+
+  /**
+   * Constant-time string comparison to prevent timing attacks
+   */
+  private constantTimeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+      return false;
+    }
+
+    let result = 0;
+    for (let i = 0; i < a.length; i++) {
+      result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+
+    return result === 0;
   }
 }
 

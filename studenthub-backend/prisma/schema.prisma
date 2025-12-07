@@ -85,6 +85,9 @@ model User {
   assistantTo       Teacher?        @relation("TeacherAssistants", fields: [assistantToId], references: [id], onDelete: SetNull)
   assistantToId     String?
   
+  // Устройства для push уведомлений
+  devices           UserDevice[]
+  
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
@@ -415,7 +418,7 @@ enum ReactionType {
 // ============== MEDIA ==============
 
 model Media {
-  id                String          @id @default(cuid())
+  id                String          @id @default(uuid())
   
   url               String
   type              MediaType
@@ -578,6 +581,7 @@ enum NotificationType {
   TEACHER_MESSAGE
   DOCUMENT_REQUEST
   DOCUMENT_UPDATED
+  ROLE_CHANGED
 }
 
 // ============== DOCUMENTS ==============
@@ -689,4 +693,50 @@ enum FriendStatus {
   ACCEPTED
   REJECTED
   BLOCKED
+}
+
+// ============== AUDIT LOG ==============
+
+model AuditLog {
+  id                String          @id @default(uuid())
+  
+  userId            String?
+  action            String          // LOGIN, POST_CREATE, etc.
+  resource          String?         // posts, users, etc.
+  resourceId        String?
+  details           String?         // JSON данные
+  ip                String?
+  userAgent         String?
+  success           Boolean         @default(true)
+  errorMessage      String?
+  
+  createdAt         DateTime        @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([resource])
+}
+
+// ============== USER DEVICES (для Push уведомлений) ==============
+
+model UserDevice {
+  id                String          @id @default(uuid())
+  
+  userId            String
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  fcmToken          String?         // Firebase Cloud Messaging токен
+  deviceId          String          // Уникальный ID устройства
+  platform          String          // ios, android, web
+  deviceName        String?
+  pushEnabled       Boolean         @default(true)
+  
+  lastActiveAt      DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@index([fcmToken])
 }

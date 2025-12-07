@@ -3,74 +3,120 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:14-alpine
+    image: postgres:16-alpine
     container_name: studenthub_postgres
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: studenthub
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-studenthub}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - '5432:5432'
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - studenthub_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-studenthub}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
 
-  # Redis Cache
+  # Redis Cache & Queue
   redis:
     image: redis:7-alpine
     container_name: studenthub_redis
-    restart: always
-    command: redis-server --appendonly yes
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-}
     ports:
-      - '6379:6379'
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:
       - studenthub_network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 5s
 
-  # PgAdmin - Database Management UI (опционально)
+  # PgAdmin - Database Management UI (опционально, только для разработки)
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: studenthub_pgadmin
-    restart: always
+    restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@studenthub.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@studenthub.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
       PGADMIN_LISTEN_PORT: 80
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
     ports:
-      - '5050:80'
+      - "${PGADMIN_PORT:-5050}:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     networks:
       - studenthub_network
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
 
-  # Redis Commander - Redis Management UI (опционально)
+  # Redis Commander - Redis Management UI (опционально, только для разработки)
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: studenthub_redis_commander
-    restart: always
+    restart: unless-stopped
     environment:
       REDIS_HOSTS: local:studenthub_redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      HTTP_USER: ${REDIS_COMMANDER_USER:-admin}
+      HTTP_PASSWORD: ${REDIS_COMMANDER_PASSWORD:-admin}
     ports:
-      - '8081:8081'
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
     networks:
       - studenthub_network
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    profiles:
+      - tools
 
 # Volumes для сохранения данных
 volumes:
@@ -85,3 +131,4 @@ volumes:
 networks:
   studenthub_network:
     driver: bridge
+    name: studenthub_network

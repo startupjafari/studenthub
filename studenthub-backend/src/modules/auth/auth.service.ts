@@ -26,6 +26,8 @@ import { AuthResponse, TokenResponse } from '../../common/interfaces/auth-respon
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../common/modules/redis.module';
 import { UserRole, UserStatus } from '../../common/constants/prisma-enums';
+import { TokenBlacklistService } from '../../common/services/token-blacklist.service';
+import { sanitizeEmailForLogging } from '../../common/utils/security.util';
 
 @Injectable()
 export class AuthService {
@@ -37,6 +39,7 @@ export class AuthService {
     private readonly tokenService: TokenService,
     private readonly emailVerificationService: EmailVerificationService,
     private readonly twoFactorService: TwoFactorService,
+    private readonly tokenBlacklistService: TokenBlacklistService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -82,7 +85,7 @@ export class AuthService {
       code,
     );
 
-    this.logger.log(`Новый пользователь зарегистрирован: ${user.email} (${user.id})`);
+    this.logger.log(`Новый пользователь зарегистрирован: ${sanitizeEmailForLogging(user.email)} (${user.id})`);
 
     return {
       message: 'Регистрация успешна. Пожалуйста, проверьте вашу почту для получения кода подтверждения.',
@@ -101,7 +104,7 @@ export class AuthService {
       data: { emailVerified: true },
     });
 
-    this.logger.log(`Email подтвержден: ${email}`);
+    this.logger.log(`Email подтвержден: ${sanitizeEmailForLogging(email)}`);
 
     return { message: 'Email успешно подтвержден' };
   }
@@ -128,7 +131,7 @@ export class AuthService {
     );
     await this.emailVerificationService.sendVerificationEmail(email, code);
 
-    this.logger.log(`Код подтверждения повторно отправлен: ${email}`);
+    this.logger.log(`Код подтверждения повторно отправлен: ${sanitizeEmailForLogging(email)}`);
 
     return { message: 'Код подтверждения был отправлен на ваш email' };
   }
@@ -175,7 +178,7 @@ export class AuthService {
     });
 
     if (!user) {
-      this.logger.warn(`Неудачная попытка входа для email: ${loginDto.email} (пользователь не найден)`);
+      this.logger.warn(`Неудачная попытка входа для email: ${sanitizeEmailForLogging(loginDto.email)} (пользователь не найден)`);
       throw new InvalidCredentialsException();
     }
 
@@ -185,7 +188,7 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      this.logger.warn(`Неудачная попытка входа для email: ${loginDto.email} (неверный пароль)`);
+      this.logger.warn(`Неудачная попытка входа для email: ${sanitizeEmailForLogging(loginDto.email)} (неверный пароль)`);
       throw new InvalidCredentialsException();
     }
 
@@ -245,7 +248,7 @@ export class AuthService {
     );
     const refreshToken = await this.tokenService.generateRefreshToken(user.id);
 
-    this.logger.log(`Пользователь вошел в систему: ${user.email} (${user.id})`);
+    this.logger.log(`Пользователь вошел в систему: ${sanitizeEmailForLogging(user.email)} (${user.id})`);
 
     const { passwordHash, ...userWithoutPassword } = user;
 
@@ -298,7 +301,7 @@ export class AuthService {
     );
     const refreshToken = await this.tokenService.generateRefreshToken(user.id);
 
-    this.logger.log(`Успешный вход с 2FA: ${user.email} (${user.id})`);
+    this.logger.log(`Успешный вход с 2FA: ${sanitizeEmailForLogging(user.email)} (${user.id})`);
 
     const { passwordHash, ...userWithoutPassword } = user;
 
@@ -419,7 +422,7 @@ export class AuthService {
     );
     await this.emailVerificationService.sendPasswordResetEmail(email, code);
 
-    this.logger.log(`Код сброса пароля отправлен: ${email}`);
+    this.logger.log(`Код сброса пароля отправлен: ${sanitizeEmailForLogging(email)}`);
 
     return {
       message: 'Если email существует, код сброса пароля был отправлен',
@@ -471,7 +474,7 @@ export class AuthService {
     // Revoke all refresh tokens for security
     await this.tokenService.revokeAllRefreshTokens(user.id);
 
-    this.logger.log(`Пароль успешно сброшен: ${email}`);
+    this.logger.log(`Пароль успешно сброшен: ${sanitizeEmailForLogging(email)}`);
 
     return { message: 'Пароль успешно сброшен' };
   }
@@ -524,9 +527,13 @@ export class AuthService {
       data: { passwordHash },
     });
 
-    this.logger.log(`Пароль изменен для пользователя: ${userId}`);
+    // Blacklist all user tokens (force logout on all devices)
+    await this.tokenBlacklistService.blacklistUserTokens(userId);
+    await this.tokenService.revokeAllRefreshTokens(userId);
 
-    return { message: 'Пароль успешно изменен' };
+    this.logger.log(`Пароль изменен, все сессии отозваны для пользователя: ${userId}`);
+
+    return { message: 'Пароль успешно изменен. Все сессии завершены.' };
   }
 
   /**
