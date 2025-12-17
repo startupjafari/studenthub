@@ -360,3 +360,5 @@ docker compose logs -f        # Просмотр логов
 9. Используйте dependency injection
 10. Тестируйте критичный код
 
+
+

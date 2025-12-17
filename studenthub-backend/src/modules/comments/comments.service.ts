@@ -3,17 +3,22 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { CacheService } from '../../common/services/cache.service';
 import { CreateCommentDto, UpdateCommentDto, GetCommentsDto } from './dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
+import { MentionsService } from '../mentions/mentions.service';
 
 @Injectable()
 export class CommentsService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheService,
+    @Inject(forwardRef(() => MentionsService))
+    private mentionsService: MentionsService,
   ) {}
 
   /**
@@ -74,6 +79,9 @@ export class CommentsService {
         },
       },
     });
+
+    // Process mentions
+    await this.mentionsService.createCommentMentions(comment.id, dto.content, userId);
 
     // Create notification for post author
     if (post.authorId !== userId) {

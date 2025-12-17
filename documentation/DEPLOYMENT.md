@@ -325,3 +325,5 @@ find $BACKUP_DIR -name "studenthub_*.sql" -mtime +7 -delete
 2. Проверьте пароль
 3. Проверьте логи Redis
 
+
+

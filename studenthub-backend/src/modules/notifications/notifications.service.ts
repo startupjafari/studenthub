@@ -139,5 +139,38 @@ export class NotificationsService {
 
     return { message: 'All notifications cleared' };
   }
+
+  /**
+   * Create notification
+   */
+  async createNotification(data: {
+    recipientId: string;
+    type: string;
+    title: string;
+    message: string;
+    data?: any;
+  }) {
+    const notification = await this.prisma.notification.create({
+      data: {
+        recipientId: data.recipientId,
+        type: data.type as any,
+        title: data.title,
+        message: data.message,
+        data: data.data || null,
+      },
+    });
+
+    // Invalidate cache
+    await this.cache.delete(`notifications:unread:${data.recipientId}`);
+
+    // Send via WebSocket
+    try {
+      this.notificationsGateway.emitNewNotification(data.recipientId, notification);
+    } catch (error) {
+      // WebSocket might not be connected, that's okay
+    }
+
+    return notification;
+  }
 }
 

@@ -26,6 +26,11 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { HealthModule } from './modules/health/health.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { PushModule } from './modules/push/push.module';
+import { TagsModule } from './modules/tags/tags.module';
+import { MentionsModule } from './modules/mentions/mentions.module';
+import { PresenceModule } from './modules/presence/presence.module';
+import { ModerationModule } from './modules/moderation/moderation.module';
+import { SchedulesModule } from './modules/schedules/schedules.module';
 import { PrismaService } from './common/services/prisma.service';
 import { RedisModule } from './common/modules/redis.module';
 import { CacheService } from './common/services/cache.service';
@@ -89,6 +94,11 @@ import configuration from './config/configuration';
     HealthModule,
     AuditModule,
     PushModule,
+    TagsModule,
+    MentionsModule,
+    PresenceModule,
+    ModerationModule,
+    SchedulesModule,
   ],
   controllers: [AppController],
   providers: [

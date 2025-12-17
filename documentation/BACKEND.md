@@ -283,3 +283,5 @@ http://localhost:3000/api/docs
 - `npm run db:push` - Применение изменений схемы без миграций
 - `npm run db:studio` - Открыть Prisma Studio
 
+
+

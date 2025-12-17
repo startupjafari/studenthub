@@ -316,3 +316,5 @@ docker compose exec -T postgres psql -U postgres studenthub < backup.sql
 
 Используйте Prisma Studio или pgAdmin для мониторинга производительности запросов.
 
+
+

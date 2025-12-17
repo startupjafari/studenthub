@@ -3,18 +3,26 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { CacheService } from '../../common/services/cache.service';
 import { CreatePostDto, UpdatePostDto, GetPostsDto } from './dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 import { PostVisibility } from '@prisma/client';
+import { TagsService } from '../tags/tags.service';
+import { MentionsService } from '../mentions/mentions.service';
 
 @Injectable()
 export class PostsService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheService,
+    @Inject(forwardRef(() => TagsService))
+    private tagsService: TagsService,
+    @Inject(forwardRef(() => MentionsService))
+    private mentionsService: MentionsService,
   ) {}
 
   /**
@@ -55,6 +63,11 @@ export class PostsService {
           },
         },
         media: true,
+        tags: {
+          include: {
+            tag: true,
+          },
+        },
         _count: {
           select: {
             comments: true,
@@ -63,6 +76,24 @@ export class PostsService {
         },
       },
     });
+
+    // Process tags
+    const tagNames = this.tagsService.extractTagsFromText(dto.content);
+    if (tagNames.length > 0) {
+      for (const tagName of tagNames) {
+        const tag = await this.tagsService.createOrGetTag({ name: tagName });
+        await this.prisma.postTag.create({
+          data: {
+            postId: post.id,
+            tagId: tag.id,
+          },
+        });
+        await this.tagsService.incrementUsageCount(tag.id);
+      }
+    }
+
+    // Process mentions
+    await this.mentionsService.createPostMentions(post.id, dto.content, userId);
 
     // Invalidate feed cache
     await this.cache.deletePattern('feed:*');
