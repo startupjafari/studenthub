@@ -1,13 +1,11 @@
-version: '3.8'
-
 # Docker Compose для тестирования Load Balancer
-# Использование: docker-compose -f docker-compose.loadbalancer.yml up
+# Использование: docker compose -f docker-compose.loadbalancer.yml up
 
 services:
-  # PostgreSQL Database (общий для всех инстансов)
-  postgres:
+  # PostgreSQL Master Database (для записи)
+  postgres-master:
     image: postgres:16-alpine
-    container_name: studenthub_postgres_lb
+    container_name: studenthub_postgres_master_lb
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -17,15 +15,53 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data_lb:/var/lib/postgresql/data
+      - postgres_master_data_lb:/var/lib/postgresql/data
     networks:
       - studenthub_lb_network
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=3"
+      - "-c"
+      - "max_replication_slots=3"
+      - "-c"
+      - "hot_standby=on"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-studenthub}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # PostgreSQL Read Replica (для чтения)
+  postgres-replica-1:
+    image: postgres:16-alpine
+    container_name: studenthub_postgres_replica_1_lb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "${POSTGRES_REPLICA_PORT:-5433}:5432"
+    volumes:
+      - postgres_replica_1_data_lb:/var/lib/postgresql/data
+      - ./docker/postgres-replication/entrypoint-replica.sh:/usr/local/bin/entrypoint-replica.sh
+    networks:
+      - studenthub_lb_network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint-replica.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   # Redis Cache (общий для всех инстансов)
   redis:
@@ -74,7 +110,8 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       INSTANCE_ID: app1
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-master:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_READ_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-replica-1:5432/${POSTGRES_DB:-studenthub}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -83,7 +120,7 @@ services:
     networks:
       - studenthub_lb_network
     depends_on:
-      postgres:
+      postgres-master:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -105,7 +142,8 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       INSTANCE_ID: app2
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-master:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_READ_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-replica-1:5432/${POSTGRES_DB:-studenthub}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -114,7 +152,7 @@ services:
     networks:
       - studenthub_lb_network
     depends_on:
-      postgres:
+      postgres-master:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -136,7 +174,8 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       INSTANCE_ID: app3
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-master:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_READ_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-replica-1:5432/${POSTGRES_DB:-studenthub}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -145,7 +184,7 @@ services:
     networks:
       - studenthub_lb_network
     depends_on:
-      postgres:
+      postgres-master:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -179,7 +218,9 @@ services:
       start_period: 10s
 
 volumes:
-  postgres_data_lb:
+  postgres_master_data_lb:
+    driver: local
+  postgres_replica_1_data_lb:
     driver: local
   redis_data_lb:
     driver: local
