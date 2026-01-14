@@ -362,3 +362,5 @@ docker compose logs -f        # Просмотр логов
 
 
 
+
+
