@@ -60,7 +60,8 @@ export class HealthController {
   }
 
   /**
-   * Живость сервиса - для Kubernetes liveness probe
+   * Живость сервиса - для Kubernetes liveness probe и Load Balancer
+   * Быстрая проверка без зависимостей
    */
   @Get('live')
   @Public()
@@ -71,7 +72,12 @@ export class HealthController {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      memoryUsage: process.memoryUsage(),
+      instanceId: process.env.INSTANCE_ID || 'unknown',
+      memoryUsage: {
+        heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+        rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      },
     };
   }
 

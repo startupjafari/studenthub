@@ -5,6 +5,7 @@ export default () => ({
   // Database
   database: {
     url: process.env.DATABASE_URL,
+    readUrl: process.env.DATABASE_READ_URL || process.env.DATABASE_URL, // Fallback to write URL if not set
   },
   
   // JWT

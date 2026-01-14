@@ -5,6 +5,9 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { v4 as uuidv4 } from 'uuid';
+import { ResponseInterceptor } from './common/protocol/interceptors/response.interceptor';
+import { HttpExceptionFilter } from './common/protocol/filters/http-exception.filter';
 
 async function bootstrap() {
   // CORS origins - support multiple frontend URLs
@@ -65,6 +68,14 @@ async function bootstrap() {
   // Cookie parser for CSRF tokens
   app.use(cookieParser());
 
+  // Request ID middleware - must be before other middleware
+  app.use((req: any, res: any, next: any) => {
+    const requestId = req.headers['x-request-id'] || uuidv4();
+    req.id = requestId;
+    res.setHeader('X-Request-ID', requestId);
+    next();
+  });
+
   // Security - Helmet configured to work with CORS
   app.use(
     helmet({
@@ -90,6 +101,12 @@ async function bootstrap() {
       },
     }),
   );
+
+  // Application Level Protocol - Response Interceptor
+  app.useGlobalInterceptors(new ResponseInterceptor());
+
+  // Application Level Protocol - Exception Filter
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   // Swagger configuration
   const config = new DocumentBuilder()
