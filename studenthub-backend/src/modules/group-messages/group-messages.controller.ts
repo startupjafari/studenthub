@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -21,11 +11,7 @@ import { GroupMessagesService } from './group-messages.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GroupMemberGuard } from '../../common/guards/group-member.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import {
-  CreateGroupMessageDto,
-  GetGroupMessagesDto,
-  UpdateGroupMessageDto,
-} from './dto';
+import { CreateGroupMessageDto, GetGroupMessagesDto, UpdateGroupMessageDto } from './dto';
 import { User } from '@prisma/client';
 
 @ApiTags('Group Messages')
@@ -38,7 +24,8 @@ export class GroupMessagesController {
   @Post()
   @ApiOperation({
     summary: 'Send message to group (only members)',
-    description: 'Sends a message to a group. Message is broadcasted to all group members via WebSocket.',
+    description:
+      'Sends a message to a group. Message is broadcasted to all group members via WebSocket.',
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
   @ApiResponse({ status: 201, description: 'Message sent successfully' })
@@ -55,11 +42,22 @@ export class GroupMessagesController {
   @Get()
   @ApiOperation({
     summary: 'Get group messages (only members)',
-    description: 'Returns paginated list of group messages, sorted by creation date (newest first).',
+    description:
+      'Returns paginated list of group messages, sorted by creation date (newest first).',
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 50, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 50, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Messages retrieved successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - You are not a member of this group' })
   async getMessages(
@@ -73,7 +71,8 @@ export class GroupMessagesController {
   @Put(':msgId')
   @ApiOperation({
     summary: 'Update message (only author)',
-    description: 'Updates group message content. Sets isEdited flag to true. Only the message author can update their own messages.',
+    description:
+      'Updates group message content. Sets isEdited flag to true. Only the message author can update their own messages.',
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
   @ApiParam({ name: 'msgId', description: 'Message ID', type: String })
@@ -86,12 +85,7 @@ export class GroupMessagesController {
     @CurrentUser() user: User,
     @Body() dto: UpdateGroupMessageDto,
   ) {
-    return this.groupMessagesService.updateMessage(
-      groupId,
-      messageId,
-      user.id,
-      dto,
-    );
+    return this.groupMessagesService.updateMessage(groupId, messageId, user.id, dto);
   }
 
   @Delete(':msgId')
@@ -102,7 +96,10 @@ export class GroupMessagesController {
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
   @ApiParam({ name: 'msgId', description: 'Message ID', type: String })
   @ApiResponse({ status: 200, description: 'Message deleted successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - You can only delete your own messages or be an admin' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - You can only delete your own messages or be an admin',
+  })
   @ApiResponse({ status: 404, description: 'Message not found' })
   async deleteMessage(
     @Param('id') groupId: string,
@@ -112,4 +109,3 @@ export class GroupMessagesController {
     return this.groupMessagesService.deleteMessage(groupId, messageId, user.id);
   }
 }
-

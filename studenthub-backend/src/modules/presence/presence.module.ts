@@ -9,7 +9,3 @@ import { PrismaService } from '../../common/services/prisma.service';
   exports: [PresenceService],
 })
 export class PresenceModule {}
-
-
-
-

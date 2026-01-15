@@ -9,13 +9,7 @@ import { WebSocketModule } from '../websocket/websocket.module';
 @Module({
   imports: [forwardRef(() => WebSocketModule)],
   controllers: [GroupMessagesController],
-  providers: [
-    GroupMessagesService,
-    PrismaService,
-    CacheService,
-    GroupMemberGuard,
-  ],
+  providers: [GroupMessagesService, PrismaService, CacheService, GroupMemberGuard],
   exports: [GroupMessagesService],
 })
 export class GroupMessagesModule {}
-

@@ -6,17 +6,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import {
-  CreateReportDto,
-  GetReportsDto,
-  ModerateReportDto,
-} from './dto';
+import { CreateReportDto, GetReportsDto, ModerateReportDto } from './dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
-import {
-  ReportResourceType,
-  ReportStatus,
-  ModerationAction,
-} from '@prisma/client';
+import { ReportResourceType, ReportStatus, ModerationAction } from '@prisma/client';
 
 @Injectable()
 export class ModerationService {
@@ -167,11 +159,7 @@ export class ModerationService {
   /**
    * Moderate a report
    */
-  async moderateReport(
-    reportId: string,
-    dto: ModerateReportDto,
-    moderatorId: string,
-  ) {
+  async moderateReport(reportId: string, dto: ModerateReportDto, moderatorId: string) {
     const report = await this.prisma.contentReport.findUnique({
       where: { id: reportId },
     });
@@ -260,7 +248,3 @@ export class ModerationService {
     return new PaginatedResponse(reports, total, dto);
   }
 }
-
-
-
-

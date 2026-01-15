@@ -38,11 +38,7 @@ export class OwnershipGuard implements CanActivate {
     }
 
     // Check ownership based on resource type
-    const isOwner = await this.checkOwnership(
-      ownership.resource,
-      resourceId,
-      user.id,
-    );
+    const isOwner = await this.checkOwnership(ownership.resource, resourceId, user.id);
 
     if (!isOwner) {
       throw new ForbiddenException('You can only access your own resources');
@@ -57,49 +53,55 @@ export class OwnershipGuard implements CanActivate {
     userId: string,
   ): Promise<boolean> {
     switch (resource) {
-      case 'post':
+      case 'post': {
         const post = await this.prisma.post.findUnique({
           where: { id: resourceId },
           select: { authorId: true },
         });
         return post?.authorId === userId;
+      }
 
-      case 'comment':
+      case 'comment': {
         const comment = await this.prisma.comment.findUnique({
           where: { id: resourceId },
           select: { authorId: true },
         });
         return comment?.authorId === userId;
+      }
 
-      case 'story':
+      case 'story': {
         const story = await this.prisma.story.findUnique({
           where: { id: resourceId },
           select: { authorId: true },
         });
         return story?.authorId === userId;
+      }
 
-      case 'message':
+      case 'message': {
         const message = await this.prisma.message.findUnique({
           where: { id: resourceId },
           select: { senderId: true },
         });
         return message?.senderId === userId;
+      }
 
-      case 'groupMessage':
+      case 'groupMessage': {
         const groupMessage = await this.prisma.groupMessage.findUnique({
           where: { id: resourceId },
           select: { senderId: true },
         });
         return groupMessage?.senderId === userId;
+      }
 
-      case 'document':
+      case 'document': {
         const document = await this.prisma.document.findUnique({
           where: { id: resourceId },
           select: { ownerId: true },
         });
         return document?.ownerId === userId;
+      }
 
-      case 'event':
+      case 'event': {
         const event = await this.prisma.event.findUnique({
           where: { id: resourceId },
           select: { universityId: true },
@@ -113,10 +115,10 @@ export class OwnershipGuard implements CanActivate {
           },
         });
         return !!userAdmin;
+      }
 
       default:
         return false;
     }
   }
 }
-

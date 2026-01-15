@@ -18,8 +18,3 @@ export class SearchStudentsDto extends PaginationDto {
   @IsEnum(AcademicStatus)
   academicStatus?: AcademicStatus;
 }
-
-
-
-
-

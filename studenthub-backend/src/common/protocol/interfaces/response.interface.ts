@@ -35,4 +35,3 @@ export interface PaginatedData<T> {
     totalPages: number;
   };
 }
-

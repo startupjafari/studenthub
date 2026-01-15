@@ -162,11 +162,7 @@ export class UniversitiesService {
   /**
    * Update university (SUPER_ADMIN only)
    */
-  async updateUniversity(
-    id: string,
-    dto: UpdateUniversityDto,
-    adminId: string,
-  ) {
+  async updateUniversity(id: string, dto: UpdateUniversityDto, adminId: string) {
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
     });
@@ -200,9 +196,7 @@ export class UniversitiesService {
       });
 
       if (existing) {
-        throw new BadRequestException(
-          'University with this email already exists',
-        );
+        throw new BadRequestException('University with this email already exists');
       }
     }
 
@@ -217,11 +211,7 @@ export class UniversitiesService {
   /**
    * Assign admin to university (SUPER_ADMIN only)
    */
-  async assignAdmin(
-    universityId: string,
-    dto: AssignAdminDto,
-    adminId: string,
-  ) {
+  async assignAdmin(universityId: string, dto: AssignAdminDto, adminId: string) {
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
     });
@@ -322,8 +312,3 @@ export class UniversitiesService {
     });
   }
 }
-
-
-
-
-

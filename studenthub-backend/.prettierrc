@@ -5,6 +5,10 @@
   "semi": true,
   "printWidth": 100,
   "arrowParens": "always",
-  "endOfLine": "lf"
+  "endOfLine": "lf",
+  "bracketSpacing": true,
+  "bracketSameLine": false,
+  "useTabs": false,
+  "quoteProps": "as-needed"
 }
 

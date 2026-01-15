@@ -12,8 +12,3 @@ import { MentionsModule } from '../mentions/mentions.module';
   exports: [CommentsService],
 })
 export class CommentsModule {}
-
-
-
-
-

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { CacheService } from '../../common/services/cache.service';
 import { CreateReactionDto } from './dto';
@@ -18,11 +14,7 @@ export class ReactionsService {
   /**
    * Add reaction to post
    */
-  async addPostReaction(
-    postId: string,
-    userId: string,
-    dto: CreateReactionDto,
-  ) {
+  async addPostReaction(postId: string, userId: string, dto: CreateReactionDto) {
     // Check if post exists
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
@@ -168,11 +160,7 @@ export class ReactionsService {
   /**
    * Add reaction to comment
    */
-  async addCommentReaction(
-    commentId: string,
-    userId: string,
-    dto: CreateReactionDto,
-  ) {
+  async addCommentReaction(commentId: string, userId: string, dto: CreateReactionDto) {
     // Check if comment exists
     const comment = await this.prisma.comment.findUnique({
       where: { id: commentId },
@@ -224,11 +212,7 @@ export class ReactionsService {
   /**
    * Remove reaction from comment
    */
-  async removeCommentReaction(
-    commentId: string,
-    userId: string,
-    type: ReactionType,
-  ) {
+  async removeCommentReaction(commentId: string, userId: string, type: ReactionType) {
     const reaction = await this.prisma.reaction.findUnique({
       where: {
         userId_commentId_type: {
@@ -327,8 +311,3 @@ export class ReactionsService {
     });
   }
 }
-
-
-
-
-

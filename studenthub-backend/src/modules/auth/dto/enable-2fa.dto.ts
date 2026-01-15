@@ -13,4 +13,3 @@ export class Enable2FADto {
   @Length(6, 6, { message: '2FA code must be 6 digits' })
   code: string;
 }
-

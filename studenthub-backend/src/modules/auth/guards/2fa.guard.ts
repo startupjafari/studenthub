@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 
 /**
  * This guard checks if 2FA is enabled and verified for the user
@@ -24,4 +19,3 @@ export class TwoFactorGuard implements CanActivate {
     return true;
   }
 }
-

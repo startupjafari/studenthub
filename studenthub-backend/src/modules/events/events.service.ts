@@ -204,8 +204,3 @@ export class EventsService {
     return { message: 'Event deleted successfully' };
   }
 }
-
-
-
-
-

@@ -1,9 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../services/prisma.service';
 
 @Injectable()
@@ -39,8 +34,3 @@ export class GroupMemberGuard implements CanActivate {
     return true;
   }
 }
-
-
-
-
-

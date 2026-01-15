@@ -8,8 +8,3 @@ import { PrismaService } from '../../common/services/prisma.service';
   providers: [StoriesCleanupService, PrismaService],
 })
 export class JobsModule {}
-
-
-
-
-

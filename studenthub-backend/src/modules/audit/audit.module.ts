@@ -11,8 +11,3 @@ import { RedisModule } from '../../common/modules/redis.module';
   exports: [AuditService, AuditInterceptor],
 })
 export class AuditModule {}
-
-
-
-
-

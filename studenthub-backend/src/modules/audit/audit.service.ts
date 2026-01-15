@@ -15,58 +15,58 @@ export enum AuditAction {
   PASSWORD_RESET = 'PASSWORD_RESET',
   TWO_FACTOR_ENABLED = 'TWO_FACTOR_ENABLED',
   TWO_FACTOR_DISABLED = 'TWO_FACTOR_DISABLED',
-  
+
   // Регистрация
   REGISTER = 'REGISTER',
   EMAIL_VERIFIED = 'EMAIL_VERIFIED',
-  
+
   // Пользователи
   USER_CREATE = 'USER_CREATE',
   USER_UPDATE = 'USER_UPDATE',
   USER_DELETE = 'USER_DELETE',
   USER_BLOCK = 'USER_BLOCK',
   USER_UNBLOCK = 'USER_UNBLOCK',
-  
+
   // Посты
   POST_CREATE = 'POST_CREATE',
   POST_UPDATE = 'POST_UPDATE',
   POST_DELETE = 'POST_DELETE',
   POST_VIEW = 'POST_VIEW',
-  
+
   // Комментарии
   COMMENT_CREATE = 'COMMENT_CREATE',
   COMMENT_UPDATE = 'COMMENT_UPDATE',
   COMMENT_DELETE = 'COMMENT_DELETE',
-  
+
   // Реакции
   REACTION_ADD = 'REACTION_ADD',
   REACTION_REMOVE = 'REACTION_REMOVE',
-  
+
   // Друзья
   FRIEND_REQUEST_SEND = 'FRIEND_REQUEST_SEND',
   FRIEND_REQUEST_ACCEPT = 'FRIEND_REQUEST_ACCEPT',
   FRIEND_REQUEST_REJECT = 'FRIEND_REQUEST_REJECT',
   FRIEND_REMOVE = 'FRIEND_REMOVE',
-  
+
   // Сообщения
   MESSAGE_SEND = 'MESSAGE_SEND',
   MESSAGE_DELETE = 'MESSAGE_DELETE',
-  
+
   // Группы
   GROUP_CREATE = 'GROUP_CREATE',
   GROUP_UPDATE = 'GROUP_UPDATE',
   GROUP_DELETE = 'GROUP_DELETE',
   GROUP_JOIN = 'GROUP_JOIN',
   GROUP_LEAVE = 'GROUP_LEAVE',
-  
+
   // Файлы
   FILE_UPLOAD = 'FILE_UPLOAD',
   FILE_DELETE = 'FILE_DELETE',
-  
+
   // Админ действия
   ADMIN_ACTION = 'ADMIN_ACTION',
   SETTINGS_CHANGE = 'SETTINGS_CHANGE',
-  
+
   // API
   API_REQUEST = 'API_REQUEST',
   API_ERROR = 'API_ERROR',
@@ -91,7 +91,7 @@ export interface AuditLogData {
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
-  
+
   // Буфер для batch записи (оптимизация)
   private logBuffer: AuditLogData[] = [];
   private readonly BUFFER_SIZE = 100;
@@ -120,10 +120,7 @@ export class AuditService {
       this.logBuffer.push(logEntry);
 
       // Записываем в Redis для быстрого доступа (последние 1000 записей)
-      await this.redis.lpush(
-        'audit:recent',
-        JSON.stringify(logEntry),
-      );
+      await this.redis.lpush('audit:recent', JSON.stringify(logEntry));
       await this.redis.ltrim('audit:recent', 0, 999);
 
       // Если буфер полон, записываем в БД
@@ -150,7 +147,7 @@ export class AuditService {
 
     try {
       await this.prisma.auditLog.createMany({
-        data: logsToWrite.map(log => ({
+        data: logsToWrite.map((log) => ({
           userId: log.userId,
           action: log.action,
           resource: log.resource,
@@ -163,7 +160,7 @@ export class AuditService {
           createdAt: log.timestamp || new Date(),
         })),
       });
-      
+
       this.logger.debug(`Записано ${logsToWrite.length} записей в аудит лог`);
     } catch (error) {
       // Возвращаем логи в буфер при ошибке
@@ -177,7 +174,7 @@ export class AuditService {
    */
   async getRecentLogs(limit: number = 100): Promise<AuditLogData[]> {
     const logs = await this.redis.lrange('audit:recent', 0, limit - 1);
-    return logs.map(log => JSON.parse(log));
+    return logs.map((log) => JSON.parse(log));
   }
 
   /**
@@ -189,7 +186,7 @@ export class AuditService {
     limit: number = 50,
   ): Promise<{ data: any[]; total: number }> {
     const skip = (page - 1) * limit;
-    
+
     const [data, total] = await Promise.all([
       this.prisma.auditLog.findMany({
         where: { userId },
@@ -212,7 +209,7 @@ export class AuditService {
     limit: number = 50,
   ): Promise<{ data: any[]; total: number }> {
     const skip = (page - 1) * limit;
-    
+
     const [data, total] = await Promise.all([
       this.prisma.auditLog.findMany({
         where: { action },
@@ -234,7 +231,7 @@ export class AuditService {
     endDate?: Date,
   ): Promise<{ action: string; count: number }[]> {
     const where: any = {};
-    
+
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = startDate;
@@ -248,7 +245,7 @@ export class AuditService {
       orderBy: { _count: { action: 'desc' } },
     });
 
-    return stats.map(s => ({
+    return stats.map((s) => ({
       action: s.action,
       count: s._count.action,
     }));
@@ -274,7 +271,7 @@ export class AuditService {
       },
     });
 
-    return suspicious.map(s => ({
+    return suspicious.map((s) => ({
       userId: s.userId!,
       actionCount: s._count.id,
       ip: s.ip || 'unknown',
@@ -296,4 +293,3 @@ export class AuditService {
     return result.count;
   }
 }
-

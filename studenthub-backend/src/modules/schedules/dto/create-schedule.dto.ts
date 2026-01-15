@@ -82,7 +82,3 @@ export class CreateScheduleDto {
   @MaxLength(500)
   meetingLink?: string;
 }
-
-
-
-

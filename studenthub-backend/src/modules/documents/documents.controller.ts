@@ -40,7 +40,8 @@ export class DocumentsController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Upload document',
-    description: 'Uploads a document (PDF, JPEG, PNG). Max size: 10MB. Document status is set to PENDING until verified by admin.',
+    description:
+      'Uploads a document (PDF, JPEG, PNG). Max size: 10MB. Document status is set to PENDING until verified by admin.',
   })
   @ApiBody({
     schema: {
@@ -52,7 +53,15 @@ export class DocumentsController {
         },
         type: {
           type: 'string',
-          enum: ['PASSPORT', 'ID_CARD', 'STUDENT_CARD', 'MEDICAL_CERTIFICATE', 'DIPLOMA', 'TRANSCRIPT', 'OTHER'],
+          enum: [
+            'PASSPORT',
+            'ID_CARD',
+            'STUDENT_CARD',
+            'MEDICAL_CERTIFICATE',
+            'DIPLOMA',
+            'TRANSCRIPT',
+            'OTHER',
+          ],
         },
       },
     },
@@ -95,7 +104,8 @@ export class DocumentsController {
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete document',
-    description: 'Deletes a document from S3 and database. Only the document owner can delete their own documents.',
+    description:
+      'Deletes a document from S3 and database. Only the document owner can delete their own documents.',
   })
   @ApiParam({ name: 'id', description: 'Document ID', type: String })
   @ApiResponse({ status: 200, description: 'Document deleted successfully' })
@@ -110,7 +120,8 @@ export class DocumentsController {
   @Roles('UNIVERSITY_ADMIN')
   @ApiOperation({
     summary: 'Verify document (ADMIN only)',
-    description: 'Verifies a document. Changes status to VERIFIED and sends notification to document owner.',
+    description:
+      'Verifies a document. Changes status to VERIFIED and sends notification to document owner.',
   })
   @ApiParam({ name: 'id', description: 'Document ID', type: String })
   @ApiResponse({ status: 200, description: 'Document verified successfully' })
@@ -125,7 +136,8 @@ export class DocumentsController {
   @Roles('UNIVERSITY_ADMIN')
   @ApiOperation({
     summary: 'Reject document (ADMIN only)',
-    description: 'Rejects a document. Changes status to REJECTED and sends notification to document owner.',
+    description:
+      'Rejects a document. Changes status to REJECTED and sends notification to document owner.',
   })
   @ApiParam({ name: 'id', description: 'Document ID', type: String })
   @ApiResponse({ status: 200, description: 'Document rejected successfully' })
@@ -135,4 +147,3 @@ export class DocumentsController {
     return this.documentsService.rejectDocument(id, user.id);
   }
 }
-

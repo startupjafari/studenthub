@@ -12,7 +12,3 @@ export class GetReportsDto extends PaginationDto {
   @IsEnum(ReportStatus)
   status?: ReportStatus;
 }
-
-
-
-

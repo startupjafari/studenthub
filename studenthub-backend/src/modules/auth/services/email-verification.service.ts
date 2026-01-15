@@ -25,9 +25,7 @@ export class EmailVerificationService {
       this.configService.get<string>('SMTP_FROM_EMAIL') ||
       this.configService.get<string>('SENDGRID_FROM_EMAIL') ||
       'noreply@studenthub.com';
-    this.frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') ||
-      'http://localhost:3001';
+    this.frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3001';
 
     // Configure email transporter (supports SendGrid, Gmail, Mail.ru, Yandex, etc.)
     this.transporter = this.createEmailTransporter();
@@ -38,8 +36,9 @@ export class EmailVerificationService {
    * Create email transporter based on configuration
    */
   private createEmailTransporter(): nodemailer.Transporter | null {
-    const useConsoleTransport = this.configService.get<string>('USE_CONSOLE_EMAIL_TRANSPORT') === 'true';
-    
+    const useConsoleTransport =
+      this.configService.get<string>('USE_CONSOLE_EMAIL_TRANSPORT') === 'true';
+
     if (useConsoleTransport) {
       this.logger.warn('Используется консольный транспорт (USE_CONSOLE_EMAIL_TRANSPORT=true)');
       return null as any; // Will be handled in send methods
@@ -63,7 +62,9 @@ export class EmailVerificationService {
         },
       });
 
-      this.logger.log(`Используется SMTP сервер: ${smtpHost}:${smtpPort || (smtpSecure ? 465 : 587)}`);
+      this.logger.log(
+        `Используется SMTP сервер: ${smtpHost}:${smtpPort || (smtpSecure ? 465 : 587)}`,
+      );
       return transporter;
     }
 
@@ -111,9 +112,7 @@ export class EmailVerificationService {
     const storedCode = await this.redis.get(key);
 
     if (!storedCode) {
-      throw new InvalidVerificationCodeException(
-        'Код подтверждения истек или не существует',
-      );
+      throw new InvalidVerificationCodeException('Код подтверждения истек или не существует');
     }
 
     if (storedCode !== code) {
@@ -147,9 +146,7 @@ export class EmailVerificationService {
     const storedCode = await this.redis.get(key);
 
     if (!storedCode) {
-      throw new InvalidVerificationCodeException(
-        'Код сброса истек или не существует',
-      );
+      throw new InvalidVerificationCodeException('Код сброса истек или не существует');
     }
 
     if (storedCode !== code) {
@@ -194,10 +191,10 @@ export class EmailVerificationService {
       this.logger.log(`✅ Письмо с кодом подтверждения отправлено на ${email}`);
     } catch (error) {
       this.logger.error(`❌ Не удалось отправить письмо с кодом подтверждения на ${email}`, error);
-      
+
       // Выводим код в консоль как fallback
       this.logCodeToConsole('EMAIL VERIFICATION (FALLBACK)', email, code);
-      
+
       // В production можно выбрать - бросать ошибку или только логировать
       const failSilently = this.configService.get<string>('EMAIL_FAIL_SILENTLY') === 'true';
       if (!failSilently && this.nodeEnv === 'production') {
@@ -238,10 +235,10 @@ export class EmailVerificationService {
       this.logger.log(`✅ Письмо с кодом сброса пароля отправлено на ${email}`);
     } catch (error) {
       this.logger.error(`❌ Не удалось отправить письмо с кодом сброса пароля на ${email}`, error);
-      
+
       // Выводим код в консоль как fallback
       this.logCodeToConsole('PASSWORD RESET (FALLBACK)', email, code);
-      
+
       // В production можно выбрать - бросать ошибку или только логировать
       const failSilently = this.configService.get<string>('EMAIL_FAIL_SILENTLY') === 'true';
       if (!failSilently && this.nodeEnv === 'production') {
@@ -270,4 +267,3 @@ export class EmailVerificationService {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 }
-

@@ -8,8 +8,3 @@ export class UpdateMemberRoleDto {
   @IsNotEmpty()
   role: GroupRole;
 }
-
-
-
-
-

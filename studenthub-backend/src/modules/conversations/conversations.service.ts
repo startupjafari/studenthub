@@ -96,10 +96,7 @@ export class ConversationsService {
           type: ConversationType.GROUP,
           name: dto.name,
           participants: {
-            connect: [
-              { id: userId },
-              ...dto.participantIds.map((id) => ({ id })),
-            ],
+            connect: [{ id: userId }, ...dto.participantIds.map((id) => ({ id }))],
           },
         },
         include: {
@@ -233,4 +230,3 @@ export class ConversationsService {
     return { message: 'Conversation archived' };
   }
 }
-

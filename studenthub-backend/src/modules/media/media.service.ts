@@ -18,11 +18,7 @@ export class MediaService {
   /**
    * Upload media file
    */
-  async uploadMedia(
-    userId: string,
-    file: Express.Multer.File,
-    type: MediaType,
-  ) {
+  async uploadMedia(userId: string, file: Express.Multer.File, type: MediaType) {
     // Validate file based on type
     this.validateMediaFile(file, type);
 
@@ -199,8 +195,3 @@ export class MediaService {
     return folders[type];
   }
 }
-
-
-
-
-

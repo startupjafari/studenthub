@@ -9,8 +9,3 @@ export class GetMembersDto extends PaginationDto {
   @Min(1)
   limit?: number = 20;
 }
-
-
-
-
-

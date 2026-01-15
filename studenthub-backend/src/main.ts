@@ -22,14 +22,14 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-      
+
       // In development, allow localhost on any port
       if (process.env.NODE_ENV !== 'production') {
         if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
           return callback(null, true);
         }
       }
-      
+
       // Security: Never allow wildcard in production
       if (allowedOrigins.includes('*')) {
         if (process.env.NODE_ENV === 'production') {
@@ -40,7 +40,7 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      
+
       if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {
@@ -150,7 +150,7 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  
+
   // Security: Disable Swagger in production or protect it
   if (process.env.NODE_ENV !== 'production') {
     SwaggerModule.setup('api/docs', app, document, {
@@ -168,4 +168,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-

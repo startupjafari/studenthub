@@ -1,12 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsEmail,
-  MaxLength,
-  IsInt,
-  Min,
-} from 'class-validator';
+import { IsString, IsOptional, IsEmail, MaxLength, IsInt, Min } from 'class-validator';
 
 export class UpdateUniversityDto {
   @ApiProperty({ required: false })
@@ -62,8 +55,3 @@ export class UpdateUniversityDto {
   @Min(1000)
   founded?: number;
 }
-
-
-
-
-

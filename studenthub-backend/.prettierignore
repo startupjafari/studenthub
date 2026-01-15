@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Logs
+*.log
+logs
+
+# Environment
+.env
+.env.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Prisma
+prisma/migrations
+
+# Docker
+docker-compose*.yml
+Dockerfile
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files
+*.generated.ts
+coverage
+
+# Scripts
+scripts/*.sh
+
+# Nginx
+nginx/*.conf

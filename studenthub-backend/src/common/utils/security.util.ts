@@ -30,11 +30,7 @@ export function hashEmailForLogging(email: string): string {
   }
 
   const visiblePart = localPart.substring(0, 3);
-  const hash = crypto
-    .createHash('sha256')
-    .update(email)
-    .digest('hex')
-    .substring(0, 8);
+  const hash = crypto.createHash('sha256').update(email).digest('hex').substring(0, 8);
 
   return `${visiblePart}***@${domain} (hash: ${hash})`;
 }

@@ -42,10 +42,7 @@ export class GroupsController {
   @ApiOperation({ summary: 'Create group (only TEACHER)' })
   @ApiResponse({ status: 201, description: 'Group created' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
-  async createGroup(
-    @CurrentUser() user: User,
-    @Body() dto: CreateGroupDto,
-  ) {
+  async createGroup(@CurrentUser() user: User, @Body() dto: CreateGroupDto) {
     return this.groupsService.createGroup(user.id, dto);
   }
 
@@ -60,16 +57,14 @@ export class GroupsController {
   @UseGuards(GroupMemberGuard)
   @ApiOperation({
     summary: 'Get group details (only members)',
-    description: 'Returns group details including members, teachers, and statistics. Only accessible to group members.',
+    description:
+      'Returns group details including members, teachers, and statistics. Only accessible to group members.',
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
   @ApiResponse({ status: 200, description: 'Group retrieved successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - You are not a member of this group' })
   @ApiResponse({ status: 404, description: 'Group not found' })
-  async getGroupById(
-    @Param('id') id: string,
-    @CurrentUser() user: User,
-  ) {
+  async getGroupById(@Param('id') id: string, @CurrentUser() user: User) {
     return this.groupsService.getGroupById(id, user.id);
   }
 
@@ -108,18 +103,18 @@ export class GroupsController {
   @UseGuards(GroupMemberGuard)
   @ApiOperation({
     summary: 'Add member to group (only ADMIN/TEACHER)',
-    description: 'Adds a user to the group. Only group admins, moderators, and teachers can add members.',
+    description:
+      'Adds a user to the group. Only group admins, moderators, and teachers can add members.',
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
   @ApiResponse({ status: 201, description: 'Member added successfully' })
   @ApiResponse({ status: 400, description: 'Bad request - User is already a member' })
-  @ApiResponse({ status: 403, description: 'Forbidden - Only admins, moderators, and teachers can add members' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Only admins, moderators, and teachers can add members',
+  })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async addMember(
-    @Param('id') id: string,
-    @CurrentUser() user: User,
-    @Body() dto: AddMemberDto,
-  ) {
+  async addMember(@Param('id') id: string, @CurrentUser() user: User, @Body() dto: AddMemberDto) {
     return this.groupsService.addMember(id, user.id, dto);
   }
 
@@ -130,8 +125,18 @@ export class GroupsController {
     description: 'Returns paginated list of group members with their roles.',
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Members retrieved successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - You are not a member of this group' })
   async getMembers(
@@ -165,12 +170,16 @@ export class GroupsController {
   @UseGuards(GroupMemberGuard)
   @ApiOperation({
     summary: 'Update member role (only ADMIN)',
-    description: 'Updates a member\'s role in the group (ADMIN, MODERATOR, MEMBER). Only group admins can update roles.',
+    description:
+      "Updates a member's role in the group (ADMIN, MODERATOR, MEMBER). Only group admins can update roles.",
   })
   @ApiParam({ name: 'id', description: 'Group ID', type: String })
   @ApiParam({ name: 'userId', description: 'User ID', type: String })
   @ApiResponse({ status: 200, description: 'Role updated successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - Only group admins can update member roles' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Only group admins can update member roles',
+  })
   @ApiResponse({ status: 404, description: 'Member not found' })
   async updateMemberRole(
     @Param('id') id: string,
@@ -181,4 +190,3 @@ export class GroupsController {
     return this.groupsService.updateMemberRole(id, memberUserId, user.id, dto);
   }
 }
-

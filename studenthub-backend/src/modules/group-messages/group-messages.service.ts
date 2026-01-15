@@ -8,11 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { CacheService } from '../../common/services/cache.service';
-import {
-  CreateGroupMessageDto,
-  GetGroupMessagesDto,
-  UpdateGroupMessageDto,
-} from './dto';
+import { CreateGroupMessageDto, GetGroupMessagesDto, UpdateGroupMessageDto } from './dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 import { GroupRole } from '@prisma/client';
 import { GroupsGateway } from '../websocket/gateways/groups.gateway';
@@ -29,11 +25,7 @@ export class GroupMessagesService {
   /**
    * Send message to group (only members)
    */
-  async sendMessage(
-    groupId: string,
-    userId: string,
-    dto: CreateGroupMessageDto,
-  ) {
+  async sendMessage(groupId: string, userId: string, dto: CreateGroupMessageDto) {
     // Check if user is a member
     const membership = await this.prisma.groupMember.findUnique({
       where: {
@@ -230,13 +222,8 @@ export class GroupMessagesService {
       },
     });
 
-    if (
-      message.senderId !== userId &&
-      (!membership || membership.role !== GroupRole.ADMIN)
-    ) {
-      throw new ForbiddenException(
-        'You can only delete your own messages or be an admin',
-      );
+    if (message.senderId !== userId && (!membership || membership.role !== GroupRole.ADMIN)) {
+      throw new ForbiddenException('You can only delete your own messages or be an admin');
     }
 
     await this.prisma.groupMessage.update({
@@ -252,4 +239,3 @@ export class GroupMessagesService {
     return { message: 'Message deleted successfully' };
   }
 }
-

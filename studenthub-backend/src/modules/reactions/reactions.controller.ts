@@ -1,19 +1,5 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ReactionsService } from './reactions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -31,7 +17,8 @@ export class ReactionsController {
   @Post('posts/:id/reactions')
   @ApiOperation({
     summary: 'Add reaction to post',
-    description: 'Adds a reaction (LIKE, LOVE, HAHA, WOW, SAD, ANGRY) to a post. Sends notification to post author.',
+    description:
+      'Adds a reaction (LIKE, LOVE, HAHA, WOW, SAD, ANGRY) to a post. Sends notification to post author.',
   })
   @ApiParam({ name: 'id', description: 'Post ID', type: String })
   @ApiResponse({ status: 201, description: 'Reaction added successfully' })
@@ -119,4 +106,3 @@ export class ReactionsController {
     return this.reactionsService.getCommentReactions(commentId);
   }
 }
-

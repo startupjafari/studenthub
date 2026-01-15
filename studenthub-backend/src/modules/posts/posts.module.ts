@@ -13,8 +13,3 @@ import { MentionsModule } from '../mentions/mentions.module';
   exports: [PostsService],
 })
 export class PostsModule {}
-
-
-
-
-

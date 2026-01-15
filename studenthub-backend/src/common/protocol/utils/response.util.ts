@@ -1,10 +1,7 @@
 import { ApiSuccessResponse, ApiMeta } from '../interfaces/response.interface';
 
 export class ResponseUtil {
-  static success<T>(
-    data: T,
-    meta?: Partial<ApiMeta>,
-  ): ApiSuccessResponse<T> {
+  static success<T>(data: T, meta?: Partial<ApiMeta>): ApiSuccessResponse<T> {
     return {
       success: true,
       data,

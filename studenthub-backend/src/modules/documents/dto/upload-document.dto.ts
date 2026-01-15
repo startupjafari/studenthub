@@ -8,8 +8,3 @@ export class UploadDocumentDto {
   @IsNotEmpty()
   type: DocumentType;
 }
-
-
-
-
-

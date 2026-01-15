@@ -11,8 +11,3 @@ import { GroupMemberGuard } from '../../common/guards/group-member.guard';
   exports: [GroupsService],
 })
 export class GroupsModule {}
-
-
-
-
-

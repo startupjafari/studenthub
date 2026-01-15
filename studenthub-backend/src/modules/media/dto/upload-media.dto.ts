@@ -12,8 +12,3 @@ export class UploadMediaDto {
   @IsNotEmpty()
   type: MediaType;
 }
-
-
-
-
-

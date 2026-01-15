@@ -1,12 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsEnum,
-  IsArray,
-  IsUUID,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsArray, IsUUID, MaxLength } from 'class-validator';
 import { PostVisibility } from '@prisma/client';
 
 export class UpdatePostDto {
@@ -27,8 +20,3 @@ export class UpdatePostDto {
   @IsUUID('4', { each: true })
   mediaIds?: string[];
 }
-
-
-
-
-

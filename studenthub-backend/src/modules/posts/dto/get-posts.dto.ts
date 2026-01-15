@@ -9,8 +9,3 @@ export class GetPostsDto extends PaginationDto {
   @Min(1)
   limit?: number = 20;
 }
-
-
-
-
-

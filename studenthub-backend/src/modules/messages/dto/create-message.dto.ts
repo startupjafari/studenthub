@@ -1,10 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsUUID,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateMessageDto {
   @ApiProperty({ description: 'Message content', required: false, maxLength: 5000 })
@@ -18,8 +13,3 @@ export class CreateMessageDto {
   @IsUUID('4')
   mediaId?: string;
 }
-
-
-
-
-

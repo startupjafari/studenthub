@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -33,11 +23,15 @@ export class EventsController {
   @Post()
   @ApiOperation({
     summary: 'Create event (ADMIN or TEACHER)',
-    description: 'Creates a new university or group event. Only university admins and teachers can create events.',
+    description:
+      'Creates a new university or group event. Only university admins and teachers can create events.',
   })
   @ApiResponse({ status: 201, description: 'Event created successfully' })
   @ApiResponse({ status: 400, description: 'Bad request - End date must be after start date' })
-  @ApiResponse({ status: 403, description: 'Forbidden - Only admins and teachers can create events' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Only admins and teachers can create events',
+  })
   async createEvent(@CurrentUser() user: User, @Body() dto: CreateEventDto) {
     return this.eventsService.createEvent(user.id, dto);
   }
@@ -45,13 +39,34 @@ export class EventsController {
   @Get()
   @ApiOperation({
     summary: 'Get events (future only)',
-    description: 'Returns paginated list of future events. Supports filtering by university, group, and event type.',
+    description:
+      'Returns paginated list of future events. Supports filtering by university, group, and event type.',
   })
-  @ApiQuery({ name: 'universityId', required: false, type: String, description: 'Filter by university ID' })
+  @ApiQuery({
+    name: 'universityId',
+    required: false,
+    type: String,
+    description: 'Filter by university ID',
+  })
   @ApiQuery({ name: 'groupId', required: false, type: String, description: 'Filter by group ID' })
-  @ApiQuery({ name: 'eventType', required: false, enum: ['LECTURE', 'SEMINAR', 'WORKSHOP', 'CONFERENCE', 'ANNOUNCEMENT', 'DEADLINE', 'OTHER'], description: 'Filter by event type' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({
+    name: 'eventType',
+    required: false,
+    enum: ['LECTURE', 'SEMINAR', 'WORKSHOP', 'CONFERENCE', 'ANNOUNCEMENT', 'DEADLINE', 'OTHER'],
+    description: 'Filter by event type',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Events retrieved successfully' })
   async getEvents(@Query() dto: GetEventsDto) {
     return this.eventsService.getEvents(dto);
@@ -99,4 +114,3 @@ export class EventsController {
     return this.eventsService.deleteEvent(id, user.id);
   }
 }
-

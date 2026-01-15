@@ -1,11 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEnum,
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  MaxLength,
-} from 'class-validator';
+import { IsEnum, IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 import { ReportResourceType, ReportReason } from '@prisma/client';
 
 export class CreateReportDto {
@@ -45,7 +39,3 @@ export class CreateReportDto {
   @MaxLength(500)
   description?: string;
 }
-
-
-
-

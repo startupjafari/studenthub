@@ -12,8 +12,3 @@ export class CreateReactionDto {
   @IsNotEmpty()
   type: ReactionType;
 }
-
-
-
-
-

@@ -10,13 +10,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiBody,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -80,10 +74,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 400, description: 'Invalid or expired verification code' })
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
-    return this.authService.verifyEmail(
-      verifyEmailDto.email,
-      verifyEmailDto.code,
-    );
+    return this.authService.verifyEmail(verifyEmailDto.email, verifyEmailDto.code);
   }
 
   @Public()
@@ -143,7 +134,10 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 403, description: 'Email not verified' })
-  async login(@Body() loginDto: LoginDto, @Ip() ip: string): Promise<AuthResponse | { requiresTwoFactor: boolean; temporaryToken: string }> {
+  async login(
+    @Body() loginDto: LoginDto,
+    @Ip() ip: string,
+  ): Promise<AuthResponse | { requiresTwoFactor: boolean; temporaryToken: string }> {
     return this.authService.login(loginDto, ip);
   }
 
@@ -222,10 +216,7 @@ export class AuthController {
     },
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async logout(
-    @Body() refreshTokenDto: RefreshTokenDto,
-    @CurrentUser('id') userId: string,
-  ) {
+  async logout(@Body() refreshTokenDto: RefreshTokenDto, @CurrentUser('id') userId: string) {
     return this.authService.logout(refreshTokenDto.refreshToken, userId);
   }
 
@@ -279,10 +270,7 @@ export class AuthController {
       },
     },
   })
-  async forgotPassword(
-    @Body() forgotPasswordDto: ForgotPasswordDto,
-    @Ip() ip: string,
-  ) {
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto, @Ip() ip: string) {
     return this.authService.forgotPassword(forgotPasswordDto.email, ip);
   }
 
@@ -355,7 +343,9 @@ export class AuthController {
   })
   @ApiResponse({ status: 400, description: '2FA is already enabled' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async generate2FA(@CurrentUser('id') userId: string): Promise<{ secret: string; qrCode: string }> {
+  async generate2FA(
+    @CurrentUser('id') userId: string,
+  ): Promise<{ secret: string; qrCode: string }> {
     return this.authService.generate2FA(userId);
   }
 
@@ -376,10 +366,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 400, description: 'Invalid 2FA code' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async enable2FA(
-    @Body() enable2FADto: Enable2FADto,
-    @CurrentUser('id') userId: string,
-  ) {
+  async enable2FA(@Body() enable2FADto: Enable2FADto, @CurrentUser('id') userId: string) {
     return this.authService.enable2FA(userId, enable2FADto.code);
   }
 
@@ -400,11 +387,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 400, description: 'Invalid 2FA code or 2FA not enabled' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async disable2FA(
-    @Body() disable2FADto: Disable2FADto,
-    @CurrentUser('id') userId: string,
-  ) {
+  async disable2FA(@Body() disable2FADto: Disable2FADto, @CurrentUser('id') userId: string) {
     return this.authService.disable2FA(userId, disable2FADto.code);
   }
 }
-

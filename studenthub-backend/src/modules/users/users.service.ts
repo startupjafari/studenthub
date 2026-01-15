@@ -105,10 +105,7 @@ export class UsersService {
   /**
    * Update user profile
    */
-  async updateProfile(
-    userId: string,
-    dto: UpdateUserDto | UpdateStudentDto | UpdateTeacherDto,
-  ) {
+  async updateProfile(userId: string, dto: UpdateUserDto | UpdateStudentDto | UpdateTeacherDto) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { student: true, teacher: true },
@@ -153,11 +150,7 @@ export class UsersService {
 
     if (user.role === UserRole.TEACHER && user.teacher) {
       const teacherDto = dto as UpdateTeacherDto;
-      if (
-        teacherDto.department ||
-        teacherDto.specialization ||
-        teacherDto.qualifications
-      ) {
+      if (teacherDto.department || teacherDto.specialization || teacherDto.qualifications) {
         await this.prisma.teacher.update({
           where: { userId },
           data: {
@@ -247,9 +240,7 @@ export class UsersService {
     // Validate file
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!this.fileUpload.validateFileType(file, allowedTypes)) {
-      throw new BadRequestException(
-        'Invalid file type. Only JPEG, PNG, and WebP are allowed.',
-      );
+      throw new BadRequestException('Invalid file type. Only JPEG, PNG, and WebP are allowed.');
     }
 
     const maxSize = 5 * 1024 * 1024; // 5MB
@@ -271,10 +262,7 @@ export class UsersService {
       buffer: processedImage,
     };
 
-    const avatarUrl = await this.fileUpload.uploadFile(
-      fileToUpload,
-      'avatars',
-    );
+    const avatarUrl = await this.fileUpload.uploadFile(fileToUpload, 'avatars');
 
     // Delete old avatar if exists
     const user = await this.prisma.user.findUnique({
@@ -324,8 +312,3 @@ export class UsersService {
     return { message: 'Account deleted successfully' };
   }
 }
-
-
-
-
-

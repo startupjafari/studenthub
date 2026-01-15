@@ -68,7 +68,11 @@ export class DocumentsService {
       select: { role: true },
     });
 
-    if (document.ownerId !== userId && user?.role !== 'SUPER_ADMIN' && user?.role !== 'UNIVERSITY_ADMIN') {
+    if (
+      document.ownerId !== userId &&
+      user?.role !== 'SUPER_ADMIN' &&
+      user?.role !== 'UNIVERSITY_ADMIN'
+    ) {
       throw new ForbiddenException('Access denied');
     }
 
@@ -155,8 +159,3 @@ export class DocumentsService {
     return document;
   }
 }
-
-
-
-
-

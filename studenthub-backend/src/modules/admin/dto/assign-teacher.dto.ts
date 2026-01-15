@@ -1,11 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsNotEmpty,
-  IsArray,
-  MaxLength,
-  ArrayMinSize,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsArray, MaxLength, ArrayMinSize } from 'class-validator';
 
 export class AssignTeacherDto {
   @ApiProperty({ description: 'Employee ID' })
@@ -36,8 +30,3 @@ export class AssignTeacherDto {
   @IsString({ each: true })
   qualifications: string[];
 }
-
-
-
-
-

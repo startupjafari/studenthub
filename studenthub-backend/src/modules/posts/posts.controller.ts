@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -35,20 +25,28 @@ export class PostsController {
   @ApiResponse({ status: 201, description: 'Post created' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async createPost(
-    @CurrentUser() user: User,
-    @Body() dto: CreatePostDto,
-  ) {
+  async createPost(@CurrentUser() user: User, @Body() dto: CreatePostDto) {
     return this.postsService.createPost(user.id, dto);
   }
 
   @Get()
   @ApiOperation({
     summary: 'Get posts feed',
-    description: 'Returns paginated feed of posts. Shows PUBLIC posts, FRIENDS_ONLY posts from friends, and user\'s own posts.',
+    description:
+      "Returns paginated feed of posts. Shows PUBLIC posts, FRIENDS_ONLY posts from friends, and user's own posts.",
   })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Posts retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getPostsFeed(@Query() dto: GetPostsDto, @CurrentUser() user: User) {
@@ -71,11 +69,22 @@ export class PostsController {
   @Get('users/:id/posts')
   @ApiOperation({
     summary: "Get user's posts",
-    description: 'Returns paginated list of user\'s posts. Respects visibility settings and friendship status.',
+    description:
+      "Returns paginated list of user's posts. Respects visibility settings and friendship status.",
   })
   @ApiParam({ name: 'id', description: 'User ID', type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Posts retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getUserPosts(
@@ -91,11 +100,7 @@ export class PostsController {
   @ApiResponse({ status: 200, description: 'Post updated' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
   @ApiResponse({ status: 404, description: 'Post not found' })
-  async updatePost(
-    @Param('id') id: string,
-    @CurrentUser() user: User,
-    @Body() dto: UpdatePostDto,
-  ) {
+  async updatePost(@Param('id') id: string, @CurrentUser() user: User, @Body() dto: UpdatePostDto) {
     return this.postsService.updatePost(id, user.id, dto);
   }
 
@@ -108,4 +113,3 @@ export class PostsController {
     return this.postsService.deletePost(id, user.id);
   }
 }
-

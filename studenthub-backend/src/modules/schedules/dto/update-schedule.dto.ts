@@ -1,11 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsString,
-  IsDateString,
-  IsOptional,
-  IsBoolean,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsDateString, IsOptional, IsBoolean, MaxLength } from 'class-validator';
 
 export class UpdateScheduleDto {
   @ApiPropertyOptional({
@@ -72,7 +66,3 @@ export class UpdateScheduleDto {
   @MaxLength(500)
   meetingLink?: string;
 }
-
-
-
-

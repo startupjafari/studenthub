@@ -24,10 +24,8 @@ export class TokenService {
     private readonly configService: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
-    this.accessTokenExpiration =
-      this.configService.get<string>('JWT_EXPIRATION') || '15m';
-    this.refreshTokenExpiration =
-      this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d';
+    this.accessTokenExpiration = this.configService.get<string>('JWT_EXPIRATION') || '15m';
+    this.refreshTokenExpiration = this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d';
     this.jwtSecret = this.configService.get<string>('JWT_SECRET') || 'secret';
     this.jwtRefreshSecret =
       this.configService.get<string>('JWT_REFRESH_SECRET') || 'refresh-secret';
@@ -64,14 +62,8 @@ export class TokenService {
     });
 
     // Store refresh token in Redis with expiration
-    const expiresInSeconds = this.parseExpirationToSeconds(
-      this.refreshTokenExpiration,
-    );
-    await this.redis.setex(
-      `refresh:${userId}:${tokenId}`,
-      expiresInSeconds,
-      '1',
-    );
+    const expiresInSeconds = this.parseExpirationToSeconds(this.refreshTokenExpiration);
+    await this.redis.setex(`refresh:${userId}:${tokenId}`, expiresInSeconds, '1');
 
     // Store in session list
     await this.redis.sadd(`session:${userId}`, tokenId);
@@ -112,9 +104,7 @@ export class TokenService {
       const payload = jwt.verify(token, this.jwtRefreshSecret) as JwtRefreshPayload;
 
       // Check if refresh token exists and is valid in Redis
-      const exists = await this.redis.exists(
-        `refresh:${payload.sub}:${payload.tokenId}`,
-      );
+      const exists = await this.redis.exists(`refresh:${payload.sub}:${payload.tokenId}`);
       if (!exists) {
         throw new TokenBlacklistedException();
       }
@@ -140,14 +130,8 @@ export class TokenService {
       await this.redis.srem(`session:${payload.sub}`, payload.tokenId);
 
       // Add to blacklist
-      const expiresInSeconds = this.parseExpirationToSeconds(
-        this.refreshTokenExpiration,
-      );
-      await this.redis.setex(
-        `blacklist:${payload.tokenId}`,
-        expiresInSeconds,
-        '1',
-      );
+      const expiresInSeconds = this.parseExpirationToSeconds(this.refreshTokenExpiration);
+      await this.redis.setex(`blacklist:${payload.tokenId}`, expiresInSeconds, '1');
     } catch (error) {
       // Token might be invalid, but we don't throw to allow logout even with invalid tokens
     }
@@ -158,7 +142,7 @@ export class TokenService {
    */
   async revokeAllRefreshTokens(userId: string): Promise<void> {
     const sessionTokens = await this.redis.smembers(`session:${userId}`);
-    
+
     for (const tokenId of sessionTokens) {
       await this.redis.del(`refresh:${userId}:${tokenId}`);
       await this.redis.setex(`blacklist:${tokenId}`, 7 * 24 * 60 * 60, '1');
@@ -178,7 +162,7 @@ export class TokenService {
         const exists = await this.redis.exists(`blacklist:${payload.tokenId}`);
         return exists === 1;
       }
-      
+
       // For access tokens, we might need to track them differently
       // For now, we rely on refresh token blacklisting
       return false;
@@ -208,4 +192,3 @@ export class TokenService {
     }
   }
 }
-

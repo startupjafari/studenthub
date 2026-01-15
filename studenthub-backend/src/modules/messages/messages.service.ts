@@ -24,11 +24,7 @@ export class MessagesService {
   /**
    * Send message in conversation
    */
-  async sendMessage(
-    conversationId: string,
-    userId: string,
-    dto: CreateMessageDto,
-  ) {
+  async sendMessage(conversationId: string, userId: string, dto: CreateMessageDto) {
     // Check if conversation exists and user is participant
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -66,8 +62,7 @@ export class MessagesService {
     // Get receiver (for PRIVATE conversations)
     let receiverId: string | null = null;
     if (conversation.type === 'PRIVATE') {
-      receiverId =
-        conversation.participants.find((p) => p.id !== userId)?.id || null;
+      receiverId = conversation.participants.find((p) => p.id !== userId)?.id || null;
     }
 
     // Create message
@@ -102,9 +97,7 @@ export class MessagesService {
     });
 
     // Create notification for other participants
-    const otherParticipants = conversation.participants.filter(
-      (p) => p.id !== userId,
-    );
+    const otherParticipants = conversation.participants.filter((p) => p.id !== userId);
 
     for (const participant of otherParticipants) {
       await this.prisma.notification.create({
@@ -133,11 +126,7 @@ export class MessagesService {
   /**
    * Get messages in conversation
    */
-  async getMessages(
-    conversationId: string,
-    userId: string,
-    dto: GetMessagesDto,
-  ) {
+  async getMessages(conversationId: string, userId: string, dto: GetMessagesDto) {
     // Check if user is participant
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -261,4 +250,3 @@ export class MessagesService {
     return { message: 'Message deleted successfully' };
   }
 }
-

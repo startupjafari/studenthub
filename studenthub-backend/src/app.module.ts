@@ -52,7 +52,7 @@ import configuration from './config/configuration';
     }),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => [
+      useFactory: (_configService: ConfigService) => [
         {
           name: 'short',
           ttl: 60000, // 1 minute
@@ -131,4 +131,3 @@ import configuration from './config/configuration';
   ],
 })
 export class AppModule {}
-

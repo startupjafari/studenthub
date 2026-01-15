@@ -53,4 +53,3 @@ import { RedisModule } from '../../common/modules/redis.module';
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}
-

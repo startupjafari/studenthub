@@ -60,8 +60,3 @@ export class CreateEventDto {
   @IsUUID('4')
   groupId?: string;
 }
-
-
-
-
-

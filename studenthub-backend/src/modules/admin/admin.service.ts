@@ -6,12 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { CacheService } from '../../common/services/cache.service';
-import {
-  AssignTeacherDto,
-  AdminSearchUsersDto,
-  SearchTeachersDto,
-  SearchStudentsDto,
-} from './dto';
+import { AssignTeacherDto, AdminSearchUsersDto, SearchTeachersDto, SearchStudentsDto } from './dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 import { UserRole, TeacherRegStatus } from '@prisma/client';
 
@@ -103,9 +98,7 @@ export class AdminService {
     }
 
     if (user.universityId !== admin.universityId) {
-      throw new ForbiddenException(
-        'User must belong to the same university as admin',
-      );
+      throw new ForbiddenException('User must belong to the same university as admin');
     }
 
     if (user.role === UserRole.TEACHER) {
@@ -189,9 +182,7 @@ export class AdminService {
     }
 
     if (teacher.user.universityId !== admin.universityId) {
-      throw new ForbiddenException(
-        'Teacher must belong to the same university as admin',
-      );
+      throw new ForbiddenException('Teacher must belong to the same university as admin');
     }
 
     // Transaction: Delete Teacher, Update User role, Create Student
@@ -434,8 +425,3 @@ export class AdminService {
     });
   }
 }
-
-
-
-
-

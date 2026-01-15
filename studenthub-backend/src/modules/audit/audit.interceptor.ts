@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { AuditService, AuditAction } from './audit.service';
@@ -27,7 +21,7 @@ export class AuditInterceptor implements NestInterceptor {
 
     // Определяем действие на основе метода и URL
     const action = this.getActionFromRequest(method, url);
-    
+
     // Пропускаем логирование для некоторых endpoints
     if (this.shouldSkipLogging(url)) {
       return next.handle();
@@ -40,7 +34,7 @@ export class AuditInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(async (response) => {
         const duration = Date.now() - startTime;
-        
+
         await this.auditService.log({
           userId: user?.id,
           action,
@@ -61,7 +55,7 @@ export class AuditInterceptor implements NestInterceptor {
       }),
       catchError(async (error) => {
         const duration = Date.now() - startTime;
-        
+
         await this.auditService.log({
           userId: user?.id,
           action,
@@ -169,9 +163,7 @@ export class AuditInterceptor implements NestInterceptor {
    */
   private extractResourceId(url: string): string | undefined {
     // Ищем UUID или CUID в URL
-    const uuidMatch = url.match(
-      /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i,
-    );
+    const uuidMatch = url.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
     if (uuidMatch) return uuidMatch[0];
 
     const cuidMatch = url.match(/c[a-z0-9]{24}/i);
@@ -184,7 +176,7 @@ export class AuditInterceptor implements NestInterceptor {
    * Извлечь название ресурса из URL
    */
   private extractResource(url: string): string {
-    const parts = url.split('/').filter(p => p && !p.match(/^(api|v1|v2)$/));
+    const parts = url.split('/').filter((p) => p && !p.match(/^(api|v1|v2)$/));
     return parts[0] || 'unknown';
   }
 
@@ -192,15 +184,9 @@ export class AuditInterceptor implements NestInterceptor {
    * Пропустить логирование для некоторых endpoints
    */
   private shouldSkipLogging(url: string): boolean {
-    const skipPatterns = [
-      '/health',
-      '/metrics',
-      '/favicon',
-      '/swagger',
-      '/docs',
-    ];
-    
-    return skipPatterns.some(pattern => url.includes(pattern));
+    const skipPatterns = ['/health', '/metrics', '/favicon', '/swagger', '/docs'];
+
+    return skipPatterns.some((pattern) => url.includes(pattern));
   }
 
   /**
@@ -208,7 +194,7 @@ export class AuditInterceptor implements NestInterceptor {
    */
   private sanitizeBody(body: any): any {
     if (!body) return undefined;
-    
+
     const sensitiveFields = [
       'password',
       'passwordHash',
@@ -222,7 +208,7 @@ export class AuditInterceptor implements NestInterceptor {
     ];
 
     const sanitized = { ...body };
-    
+
     for (const field of sensitiveFields) {
       if (sanitized[field]) {
         sanitized[field] = '[HIDDEN]';
@@ -245,8 +231,3 @@ export class AuditInterceptor implements NestInterceptor {
     );
   }
 }
-
-
-
-
-

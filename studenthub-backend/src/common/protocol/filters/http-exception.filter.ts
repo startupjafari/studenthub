@@ -45,7 +45,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
       errorCode = ErrorCode.INTERNAL_SERVER_ERROR;
       message = ERROR_MESSAGES[ErrorCode.INTERNAL_SERVER_ERROR];
-      
+
       this.logger.error(
         `Unexpected error: ${exception}`,
         (exception as Error).stack,
@@ -99,4 +99,3 @@ export class HttpExceptionFilter implements ExceptionFilter {
     return ERROR_MESSAGES[code as ErrorCode] || defaultMessage;
   }
 }
-

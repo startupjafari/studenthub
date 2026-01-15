@@ -246,7 +246,3 @@ export class MentionsService {
     return { count };
   }
 }
-
-
-
-

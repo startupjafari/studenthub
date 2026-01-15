@@ -13,7 +13,3 @@ export class GetMentionsDto extends PaginationDto {
   @IsBoolean()
   isRead?: boolean;
 }
-
-
-
-

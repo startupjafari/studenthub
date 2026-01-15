@@ -133,10 +133,7 @@ export class PostsService {
         { authorId: userId },
         // Friends-only posts from friends
         {
-          AND: [
-            { visibility: PostVisibility.FRIENDS_ONLY },
-            { authorId: { in: friendIds } },
-          ],
+          AND: [{ visibility: PostVisibility.FRIENDS_ONLY }, { authorId: { in: friendIds } }],
         },
       ],
     };
@@ -421,4 +418,3 @@ export class PostsService {
     return user?.friends && user.friends.length > 0;
   }
 }
-

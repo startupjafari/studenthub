@@ -22,17 +22,13 @@ export class FileUploadService {
       secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY'),
       region: this.configService.get<string>('AWS_REGION') || 'us-east-1',
     });
-    this.bucketName =
-      this.configService.get<string>('AWS_S3_BUCKET') || 'studenthub';
+    this.bucketName = this.configService.get<string>('AWS_S3_BUCKET') || 'studenthub';
   }
 
   /**
    * Upload file to S3
    */
-  async uploadFile(
-    file: Express.Multer.File,
-    folder: string,
-  ): Promise<string> {
+  async uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
     const fileExtension = file.originalname.split('.').pop();
     const fileName = `${folder}/${uuidv4()}.${fileExtension}`;
 
@@ -56,9 +52,7 @@ export class FileUploadService {
    */
   async deleteFile(key: string): Promise<void> {
     // Extract key from full URL if provided
-    const s3Key = key.includes('amazonaws.com/')
-      ? key.split('amazonaws.com/')[1]
-      : key;
+    const s3Key = key.includes('amazonaws.com/') ? key.split('amazonaws.com/')[1] : key;
 
     const params: AWS.S3.DeleteObjectRequest = {
       Bucket: this.bucketName,
@@ -76,9 +70,7 @@ export class FileUploadService {
    * Get signed URL for temporary access
    */
   async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
-    const s3Key = key.includes('amazonaws.com/')
-      ? key.split('amazonaws.com/')[1]
-      : key;
+    const s3Key = key.includes('amazonaws.com/') ? key.split('amazonaws.com/')[1] : key;
 
     const params = {
       Bucket: this.bucketName,
@@ -89,25 +81,15 @@ export class FileUploadService {
     try {
       return this.s3.getSignedUrl('getObject', params);
     } catch (error) {
-      throw new BadRequestException(
-        `Failed to generate signed URL: ${error.message}`,
-      );
+      throw new BadRequestException(`Failed to generate signed URL: ${error.message}`);
     }
   }
 
   /**
    * Process and optimize image
    */
-  async processImage(
-    file: Express.Multer.File,
-    options: ImageOptions = {},
-  ): Promise<Buffer> {
-    const {
-      width = 500,
-      height = 500,
-      quality = 80,
-      format = 'webp',
-    } = options;
+  async processImage(file: Express.Multer.File, options: ImageOptions = {}): Promise<Buffer> {
+    const { width = 500, height = 500, quality = 80, format = 'webp' } = options;
 
     try {
       let image = sharp(file.buffer);
@@ -133,19 +115,14 @@ export class FileUploadService {
 
       return await image.toBuffer();
     } catch (error) {
-      throw new BadRequestException(
-        `Failed to process image: ${error.message}`,
-      );
+      throw new BadRequestException(`Failed to process image: ${error.message}`);
     }
   }
 
   /**
    * Validate file type
    */
-  validateFileType(
-    file: Express.Multer.File,
-    allowedTypes: string[],
-  ): boolean {
+  validateFileType(file: Express.Multer.File, allowedTypes: string[]): boolean {
     return allowedTypes.includes(file.mimetype);
   }
 
@@ -156,4 +133,3 @@ export class FileUploadService {
     return file.size <= maxSize;
   }
 }
-

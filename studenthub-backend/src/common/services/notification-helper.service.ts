@@ -40,8 +40,3 @@ export class NotificationHelperService {
     return notification;
   }
 }
-
-
-
-
-

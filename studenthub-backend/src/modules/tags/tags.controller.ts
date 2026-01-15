@@ -1,19 +1,5 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Param,
-  Query,
-  Body,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { Controller, Get, Post, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { TagsService } from './tags.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateTagDto, GetTagsDto } from './dto';
@@ -56,7 +42,3 @@ export class TagsController {
     return this.tagsService.getTagBySlug(slug);
   }
 }
-
-
-
-

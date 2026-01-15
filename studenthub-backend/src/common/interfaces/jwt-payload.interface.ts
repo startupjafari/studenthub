@@ -12,4 +12,3 @@ export interface JwtRefreshPayload {
   iat?: number;
   exp?: number;
 }
-

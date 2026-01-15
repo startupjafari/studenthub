@@ -109,17 +109,20 @@ export class StoriesService {
     });
 
     // Group by author
-    const grouped = stories.reduce((acc, story) => {
-      const authorId = story.authorId;
-      if (!acc[authorId]) {
-        acc[authorId] = {
-          author: story.author,
-          stories: [],
-        };
-      }
-      acc[authorId].stories.push(story);
-      return acc;
-    }, {} as Record<string, any>);
+    const grouped = stories.reduce(
+      (acc, story) => {
+        const authorId = story.authorId;
+        if (!acc[authorId]) {
+          acc[authorId] = {
+            author: story.author,
+            stories: [],
+          };
+        }
+        acc[authorId].stories.push(story);
+        return acc;
+      },
+      {} as Record<string, any>,
+    );
 
     return Object.values(grouped);
   }
@@ -268,8 +271,3 @@ export class StoriesService {
     });
   }
 }
-
-
-
-
-

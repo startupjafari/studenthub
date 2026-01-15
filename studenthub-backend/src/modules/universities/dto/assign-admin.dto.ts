@@ -17,8 +17,3 @@ export class AssignAdminDto {
   @IsNotEmpty()
   role: AdminRole;
 }
-
-
-
-
-

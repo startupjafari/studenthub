@@ -15,7 +15,7 @@ export class TokenBlacklistService {
     // Время жизни access токена (по умолчанию 15 минут)
     const accessExpiration = this.configService.get<string>('JWT_EXPIRATION') || '15m';
     this.accessTokenTTL = this.parseExpiration(accessExpiration);
-    
+
     // Время жизни refresh токена (по умолчанию 7 дней)
     const refreshExpiration = this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d';
     this.refreshTokenTTL = this.parseExpiration(refreshExpiration);
@@ -58,11 +58,11 @@ export class TokenBlacklistService {
   async wasPasswordChangedAfterToken(userId: string, tokenIssuedAt: number): Promise<boolean> {
     const key = `password_changed:${userId}`;
     const passwordChangedAt = await this.redis.get(key);
-    
+
     if (!passwordChangedAt) {
       return false; // Пароль не был изменен
     }
-    
+
     return parseInt(passwordChangedAt) > tokenIssuedAt;
   }
 

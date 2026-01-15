@@ -13,8 +13,3 @@ export class SearchTeachersDto extends PaginationDto {
   @IsString()
   department?: string;
 }
-
-
-
-
-

@@ -1,0 +1,50 @@
+name: PR Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-check:
+    name: PR Quality Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: studenthub-backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./studenthub-backend
+        run: npm ci
+
+      - name: Check for console.log
+        working-directory: ./studenthub-backend
+        run: |
+          if git diff origin/main...HEAD --name-only | grep -E '\.(ts|js)$' | xargs grep -n "console\.log" 2>/dev/null; then
+            echo "❌ Found console.log statements. Please use console.warn or console.error instead."
+            exit 1
+          fi
+        continue-on-error: true
+
+      - name: Check for TODO/FIXME
+        working-directory: ./studenthub-backend
+        run: |
+          if git diff origin/main...HEAD --name-only | grep -E '\.(ts|js)$' | xargs grep -nE "(TODO|FIXME)" 2>/dev/null; then
+            echo "⚠️ Found TODO/FIXME comments. Please review before merging."
+          fi
+        continue-on-error: true
+
+      - name: Check commit messages
+        uses: "commitlint/action@v1.0.0"
+        with:
+          configFile: "./commitlint.config.js"
+        continue-on-error: true

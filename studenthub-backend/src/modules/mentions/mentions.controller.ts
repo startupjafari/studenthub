@@ -1,18 +1,5 @@
-import {
-  Controller,
-  Get,
-  Put,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { Controller, Get, Put, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { MentionsService } from './mentions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -29,10 +16,7 @@ export class MentionsController {
   @Get()
   @ApiOperation({ summary: 'Get user mentions' })
   @ApiResponse({ status: 200, description: 'Mentions retrieved' })
-  async getMentions(
-    @CurrentUser() user: User,
-    @Query() dto: GetMentionsDto,
-  ) {
+  async getMentions(@CurrentUser() user: User, @Query() dto: GetMentionsDto) {
     return this.mentionsService.getUserMentions(user.id, dto);
   }
 
@@ -48,14 +32,7 @@ export class MentionsController {
   @ApiParam({ name: 'id', description: 'Mention ID' })
   @ApiResponse({ status: 200, description: 'Mention marked as read' })
   @ApiResponse({ status: 404, description: 'Mention not found' })
-  async markAsRead(
-    @Param('id') mentionId: string,
-    @CurrentUser() user: User,
-  ) {
+  async markAsRead(@Param('id') mentionId: string, @CurrentUser() user: User) {
     return this.mentionsService.markAsRead(mentionId, user.id);
   }
 }
-
-
-
-

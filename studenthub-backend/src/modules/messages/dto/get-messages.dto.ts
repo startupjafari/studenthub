@@ -9,8 +9,3 @@ export class GetMessagesDto extends PaginationDto {
   @Min(1)
   limit?: number = 50;
 }
-
-
-
-
-

@@ -1,12 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsNotEmpty,
-  IsArray,
-  IsUUID,
-  IsOptional,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsArray, IsUUID, IsOptional, MaxLength } from 'class-validator';
 
 export class CreateCommentDto {
   @ApiProperty({ description: 'Comment content', maxLength: 2000 })
@@ -25,8 +18,3 @@ export class CreateCommentDto {
   @IsOptional()
   mediaIds?: string[];
 }
-
-
-
-
-

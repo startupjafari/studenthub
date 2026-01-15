@@ -11,7 +11,3 @@ export class UpdatePresenceDto {
   @IsEnum(PresenceStatus)
   status: PresenceStatus;
 }
-
-
-
-

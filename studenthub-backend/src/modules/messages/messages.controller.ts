@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -34,12 +24,16 @@ export class MessagesController {
   @Post()
   @ApiOperation({
     summary: 'Send message in conversation',
-    description: 'Sends a message in a conversation. Updates conversation lastMessage and sends notifications to other participants via WebSocket.',
+    description:
+      'Sends a message in a conversation. Updates conversation lastMessage and sends notifications to other participants via WebSocket.',
   })
   @ApiParam({ name: 'id', description: 'Conversation ID', type: String })
   @ApiResponse({ status: 201, description: 'Message sent successfully' })
   @ApiResponse({ status: 400, description: 'Bad request - Message must have content or media' })
-  @ApiResponse({ status: 403, description: 'Forbidden - You are not a participant of this conversation' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - You are not a participant of this conversation',
+  })
   @ApiResponse({ status: 404, description: 'Conversation or media not found' })
   async sendMessage(
     @Param('id') conversationId: string,
@@ -52,13 +46,27 @@ export class MessagesController {
   @Get()
   @ApiOperation({
     summary: 'Get messages in conversation',
-    description: 'Returns paginated list of messages in a conversation, sorted by creation date (newest first).',
+    description:
+      'Returns paginated list of messages in a conversation, sorted by creation date (newest first).',
   })
   @ApiParam({ name: 'id', description: 'Conversation ID', type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 50, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 50, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Messages retrieved successfully' })
-  @ApiResponse({ status: 403, description: 'Forbidden - You are not a participant of this conversation' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - You are not a participant of this conversation',
+  })
   @ApiResponse({ status: 404, description: 'Conversation not found' })
   async getMessages(
     @Param('id') conversationId: string,
@@ -71,7 +79,8 @@ export class MessagesController {
   @Put(':msgId')
   @ApiOperation({
     summary: 'Update message (only author)',
-    description: 'Updates message content. Sets isEdited flag to true. Only the message author can update their own messages.',
+    description:
+      'Updates message content. Sets isEdited flag to true. Only the message author can update their own messages.',
   })
   @ApiParam({ name: 'id', description: 'Conversation ID', type: String })
   @ApiParam({ name: 'msgId', description: 'Message ID', type: String })
@@ -90,18 +99,15 @@ export class MessagesController {
   @Delete(':msgId')
   @ApiOperation({
     summary: 'Delete message (only author)',
-    description: 'Soft deletes a message (sets isDeleted flag to true). Only the message author can delete their own messages.',
+    description:
+      'Soft deletes a message (sets isDeleted flag to true). Only the message author can delete their own messages.',
   })
   @ApiParam({ name: 'id', description: 'Conversation ID', type: String })
   @ApiParam({ name: 'msgId', description: 'Message ID', type: String })
   @ApiResponse({ status: 200, description: 'Message deleted successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - You can only delete your own messages' })
   @ApiResponse({ status: 404, description: 'Message not found' })
-  async deleteMessage(
-    @Param('msgId') messageId: string,
-    @CurrentUser() user: User,
-  ) {
+  async deleteMessage(@Param('msgId') messageId: string, @CurrentUser() user: User) {
     return this.messagesService.deleteMessage(messageId, user.id);
   }
 }
-

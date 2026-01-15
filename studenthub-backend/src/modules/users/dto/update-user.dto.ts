@@ -1,11 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsDateString,
-  MaxLength,
-  IsEnum,
-} from 'class-validator';
+import { IsString, IsOptional, IsDateString, MaxLength, IsEnum } from 'class-validator';
 import { UserRole } from '@prisma/client';
 
 export class UpdateUserDto {
@@ -64,8 +58,3 @@ export class UpdateTeacherDto extends UpdateUserDto {
   @IsString({ each: true })
   qualifications?: string[];
 }
-
-
-
-
-

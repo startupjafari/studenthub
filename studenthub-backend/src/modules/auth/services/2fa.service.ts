@@ -13,8 +13,7 @@ export class TwoFactorService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {
-    this.appName =
-      this.configService.get<string>('APP_NAME') || 'StudentHub';
+    this.appName = this.configService.get<string>('APP_NAME') || 'StudentHub';
   }
 
   /**
@@ -32,7 +31,7 @@ export class TwoFactorService {
    */
   async generateQRCode(secret: string, email: string): Promise<string> {
     const otpauthUrl = speakeasy.otpauthURL({
-      secret: secret,
+      secret,
       label: `${this.appName} (${email})`,
       issuer: this.appName,
       encoding: 'base32',
@@ -50,9 +49,9 @@ export class TwoFactorService {
    */
   verifyToken(secret: string, token: string): boolean {
     return speakeasy.totp.verify({
-      secret: secret,
+      secret,
       encoding: 'base32',
-      token: token,
+      token,
       window: 2, // Allow 2 time steps (60 seconds) tolerance
     });
   }
@@ -98,11 +97,7 @@ export class TwoFactorService {
   /**
    * Verify and enable 2FA (used during setup)
    */
-  async verifyAndEnableTwoFactor(
-    userId: string,
-    secret: string,
-    code: string,
-  ): Promise<void> {
+  async verifyAndEnableTwoFactor(userId: string, secret: string, code: string): Promise<void> {
     const isValid = this.verifyToken(secret, code);
     if (!isValid) {
       throw new InvalidTwoFactorCodeException();
@@ -111,4 +106,3 @@ export class TwoFactorService {
     await this.enableTwoFactor(userId, secret);
   }
 }
-

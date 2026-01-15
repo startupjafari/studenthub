@@ -1,0 +1,44 @@
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  auto-merge:
+    name: Auto-merge Dependabot PRs
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: studenthub-backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./studenthub-backend
+        run: npm ci
+
+      - name: Run lint check
+        working-directory: ./studenthub-backend
+        run: npm run lint:check
+        continue-on-error: true
+
+      - name: Run build
+        working-directory: ./studenthub-backend
+        run: npm run build
+        continue-on-error: true
+
+      - name: Auto-merge PR
+        if: success()
+        uses: fastify/github-action-merge-dependabot@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          target: minor
+          merge-method: squash

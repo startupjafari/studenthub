@@ -6,11 +6,9 @@ import { PrismaClient } from '@prisma/client';
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readClient: PrismaClient | null = null;
 
-  constructor(
-    @Optional() private readonly configService?: ConfigService,
-  ) {
+  constructor(@Optional() private readonly configService?: ConfigService) {
     const writeUrl = configService?.get<string>('database.url');
-    
+
     super({
       datasources: {
         db: {
@@ -24,7 +22,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     // Создаем отдельный клиент для чтения, если указан DATABASE_READ_URL
     const readUrl = configService?.get<string>('database.readUrl');
-    
+
     if (readUrl && readUrl !== writeUrl) {
       this.readClient = new PrismaClient({
         datasources: {
@@ -68,4 +66,3 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     return this;
   }
 }
-

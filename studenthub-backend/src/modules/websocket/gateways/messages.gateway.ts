@@ -24,9 +24,7 @@ import { PrismaService } from '../../../common/services/prisma.service';
 })
 @UseGuards(WsJwtGuard, WsRateLimitGuard)
 @UsePipes(new ValidationPipe())
-export class MessagesGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -96,10 +94,7 @@ export class MessagesGateway
       },
     });
 
-    if (
-      conversation &&
-      conversation.participants.some((p) => p.id === user.sub)
-    ) {
+    if (conversation && conversation.participants.some((p) => p.id === user.sub)) {
       const room = `conversation:${conversationId}`;
       client.join(room);
       if (!this.userRooms.has(user.sub)) {
@@ -168,9 +163,6 @@ export class MessagesGateway
 
   // Method to emit message delete
   emitMessageDelete(conversationId: string, messageId: string) {
-    this.server
-      .to(`conversation:${conversationId}`)
-      .emit('message:delete', { messageId });
+    this.server.to(`conversation:${conversationId}`).emit('message:delete', { messageId });
   }
 }
-

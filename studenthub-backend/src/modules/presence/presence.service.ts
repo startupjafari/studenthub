@@ -64,18 +64,18 @@ export class PresenceService {
     });
 
     // Create a map for quick lookup
-    const presenceMap = new Map(
-      presences.map((p) => [p.userId, p]),
-    );
+    const presenceMap = new Map(presences.map((p) => [p.userId, p]));
 
     // Return presence for all requested users
     return userIds.map((userId) => {
       const presence = presenceMap.get(userId);
-      return presence || {
-        userId,
-        status: PresenceStatus.OFFLINE,
-        lastSeenAt: null,
-      };
+      return (
+        presence || {
+          userId,
+          status: PresenceStatus.OFFLINE,
+          lastSeenAt: null,
+        }
+      );
     });
   }
 
@@ -93,7 +93,3 @@ export class PresenceService {
     await this.updatePresence(userId, PresenceStatus.ONLINE);
   }
 }
-
-
-
-

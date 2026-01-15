@@ -11,8 +11,3 @@ import { FileUploadService } from '../../common/services/file-upload.service';
   exports: [UsersService],
 })
 export class UsersModule {}
-
-
-
-
-

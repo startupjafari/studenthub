@@ -24,10 +24,7 @@ export class PasswordService {
   /**
    * Compare a plain text password with a hashed password
    */
-  async comparePasswords(
-    plainPassword: string,
-    hashedPassword: string,
-  ): Promise<boolean> {
+  async comparePasswords(plainPassword: string, hashedPassword: string): Promise<boolean> {
     return bcrypt.compare(plainPassword, hashedPassword);
   }
 
@@ -41,23 +38,17 @@ export class PasswordService {
   validatePasswordStrength(password: string): void {
     // Check minimum length
     if (password.length < 8) {
-      throw new PasswordTooWeakException(
-        'Пароль должен содержать минимум 8 символов',
-      );
+      throw new PasswordTooWeakException('Пароль должен содержать минимум 8 символов');
     }
 
     // Check for at least one letter
     if (!/[A-Za-z]/.test(password)) {
-      throw new PasswordTooWeakException(
-        'Пароль должен содержать хотя бы одну букву',
-      );
+      throw new PasswordTooWeakException('Пароль должен содержать хотя бы одну букву');
     }
 
     // Check for at least one number
     if (!/\d/.test(password)) {
-      throw new PasswordTooWeakException(
-        'Пароль должен содержать хотя бы одну цифру',
-      );
+      throw new PasswordTooWeakException('Пароль должен содержать хотя бы одну цифру');
     }
 
     // Check against common passwords (case-insensitive) using constant-time comparison
@@ -95,4 +86,3 @@ export class PasswordService {
     return result === 0;
   }
 }
-

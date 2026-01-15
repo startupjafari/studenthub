@@ -9,8 +9,3 @@ import { PrismaService } from '../../common/services/prisma.service';
   exports: [EventsService],
 })
 export class EventsModule {}
-
-
-
-
-

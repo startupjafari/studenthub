@@ -1,9 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
-import {
-  HealthIndicator,
-  HealthIndicatorResult,
-  HealthCheckError,
-} from '@nestjs/terminus';
+import { HealthIndicator, HealthIndicatorResult, HealthCheckError } from '@nestjs/terminus';
 import { REDIS_CLIENT } from '../../../common/modules/redis.module';
 import Redis from 'ioredis';
 
@@ -20,18 +16,18 @@ export class RedisHealthIndicator extends HealthIndicator {
     try {
       // Выполняем PING для проверки соединения
       const result = await this.redis.ping();
-      
+
       if (result === 'PONG') {
         // Получаем информацию о Redis
         const info = await this.redis.info('memory');
         const usedMemory = info.match(/used_memory_human:(\S+)/)?.[1] || 'unknown';
-        
+
         return this.getStatus(key, true, {
           message: 'Redis подключен',
           usedMemory,
         });
       }
-      
+
       throw new Error('Неожиданный ответ от Redis');
     } catch (error) {
       throw new HealthCheckError(
@@ -44,8 +40,3 @@ export class RedisHealthIndicator extends HealthIndicator {
     }
   }
 }
-
-
-
-
-

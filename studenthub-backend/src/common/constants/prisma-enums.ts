@@ -15,6 +15,5 @@ export const UserStatus = {
   DELETED: 'DELETED' as const,
 };
 
-export type UserRoleType = typeof UserRole[keyof typeof UserRole];
-export type UserStatusType = typeof UserStatus[keyof typeof UserStatus];
-
+export type UserRoleType = (typeof UserRole)[keyof typeof UserRole];
+export type UserStatusType = (typeof UserStatus)[keyof typeof UserStatus];

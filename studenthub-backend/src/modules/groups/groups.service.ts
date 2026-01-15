@@ -60,7 +60,7 @@ export class GroupsService {
       await tx.groupMember.create({
         data: {
           groupId: newGroup.id,
-          userId: userId,
+          userId,
           role: GroupRole.ADMIN,
           studentId: (user as any).student?.id || null,
         },
@@ -302,10 +302,7 @@ export class GroupsService {
       throw new ForbiddenException('You are not a member of this group');
     }
 
-    if (
-      membership.role !== GroupRole.ADMIN &&
-      membership.role !== GroupRole.MODERATOR
-    ) {
+    if (membership.role !== GroupRole.ADMIN && membership.role !== GroupRole.MODERATOR) {
       // Check if user is a teacher
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -313,9 +310,7 @@ export class GroupsService {
       });
 
       if (user?.role !== UserRole.TEACHER) {
-        throw new ForbiddenException(
-          'Only admins, moderators, and teachers can add members',
-        );
+        throw new ForbiddenException('Only admins, moderators, and teachers can add members');
       }
     }
 
@@ -537,4 +532,3 @@ export class GroupsService {
     });
   }
 }
-

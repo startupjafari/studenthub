@@ -10,8 +10,3 @@ import { CacheService } from '../../common/services/cache.service';
   exports: [UniversitiesService],
 })
 export class UniversitiesModule {}
-
-
-
-
-

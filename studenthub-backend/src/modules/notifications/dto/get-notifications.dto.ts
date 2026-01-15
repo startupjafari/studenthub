@@ -14,8 +14,3 @@ export class GetNotificationsDto extends PaginationDto {
   @IsEnum(NotificationType)
   type?: NotificationType;
 }
-
-
-
-
-

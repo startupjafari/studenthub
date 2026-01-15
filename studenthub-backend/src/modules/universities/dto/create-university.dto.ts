@@ -1,13 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsNotEmpty,
-  IsEmail,
-  IsOptional,
-  MaxLength,
-  IsInt,
-  Min,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsEmail, IsOptional, MaxLength, IsInt, Min } from 'class-validator';
 
 export class CreateUniversityDto {
   @ApiProperty({ description: 'University name' })
@@ -63,8 +55,3 @@ export class CreateUniversityDto {
   @Min(1000)
   founded?: number;
 }
-
-
-
-
-

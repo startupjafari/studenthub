@@ -75,7 +75,8 @@ export class MediaController {
   @Public()
   @ApiOperation({
     summary: 'Get media (returns signed URL)',
-    description: 'Returns media information with a signed URL for temporary access. Images are automatically optimized.',
+    description:
+      'Returns media information with a signed URL for temporary access. Images are automatically optimized.',
   })
   @ApiParam({ name: 'id', description: 'Media ID', type: String })
   @ApiQuery({
@@ -86,10 +87,7 @@ export class MediaController {
   })
   @ApiResponse({ status: 200, description: 'Media retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Media not found' })
-  async getMedia(
-    @Param('id') id: string,
-    @Query('expiresIn') expiresIn?: number,
-  ) {
+  async getMedia(@Param('id') id: string, @Query('expiresIn') expiresIn?: number) {
     return this.mediaService.getMedia(id, expiresIn ? Number(expiresIn) : 3600);
   }
 
@@ -108,4 +106,3 @@ export class MediaController {
     return this.mediaService.deleteMedia(id, user.id);
   }
 }
-

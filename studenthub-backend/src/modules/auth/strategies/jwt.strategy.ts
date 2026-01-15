@@ -28,7 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         payload.sub,
         payload.iat * 1000, // Convert to milliseconds
       );
-      
+
       if (passwordChanged) {
         throw new UnauthorizedException('Сессия истекла. Пожалуйста, войдите снова.');
       }
@@ -59,4 +59,3 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     return user;
   }
 }
-

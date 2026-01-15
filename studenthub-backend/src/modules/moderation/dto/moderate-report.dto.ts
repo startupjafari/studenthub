@@ -1,11 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEnum,
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  MaxLength,
-} from 'class-validator';
+import { IsEnum, IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 import { ModerationAction } from '@prisma/client';
 
 export class ModerateReportDto {
@@ -28,7 +22,3 @@ export class ModerateReportDto {
   @MaxLength(500)
   note?: string;
 }
-
-
-
-

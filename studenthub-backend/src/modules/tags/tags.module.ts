@@ -10,7 +10,3 @@ import { CacheService } from '../../common/services/cache.service';
   exports: [TagsService],
 })
 export class TagsModule {}
-
-
-
-

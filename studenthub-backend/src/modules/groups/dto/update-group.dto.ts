@@ -14,8 +14,3 @@ export class UpdateGroupDto {
   @MaxLength(1000)
   description?: string;
 }
-
-
-
-
-

@@ -50,7 +50,8 @@ export class UsersController {
   @Get(':id')
   @ApiOperation({
     summary: 'Get user profile (public)',
-    description: 'Returns public user profile information. Sensitive data (email, phone, password) is hidden.',
+    description:
+      'Returns public user profile information. Sensitive data (email, phone, password) is hidden.',
   })
   @ApiParam({ name: 'id', description: 'User ID', type: String })
   @ApiResponse({ status: 200, description: 'User profile retrieved successfully' })
@@ -77,15 +78,26 @@ export class UsersController {
     description: 'Search users by name or email. Supports pagination and role filtering.',
   })
   @ApiQuery({ name: 'q', required: false, description: 'Search query (name or email)' })
-  @ApiQuery({ name: 'role', required: false, enum: ['STUDENT', 'TEACHER', 'UNIVERSITY_ADMIN', 'SUPER_ADMIN'] })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({
+    name: 'role',
+    required: false,
+    enum: ['STUDENT', 'TEACHER', 'UNIVERSITY_ADMIN', 'SUPER_ADMIN'],
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Users found successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async searchUsers(
-    @Query() dto: SearchUsersDto,
-    @CurrentUser() user: User,
-  ) {
+  async searchUsers(@Query() dto: SearchUsersDto, @CurrentUser() user: User) {
     return this.usersService.searchUsers(dto, user.id);
   }
 
@@ -107,10 +119,7 @@ export class UsersController {
   @ApiResponse({ status: 400, description: 'Invalid file' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @UseInterceptors(FileInterceptor('file'))
-  async uploadAvatar(
-    @CurrentUser() user: User,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
+  async uploadAvatar(@CurrentUser() user: User, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('File is required');
     }
@@ -126,4 +135,3 @@ export class UsersController {
     return this.usersService.deleteAccount(user.id);
   }
 }
-

@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -33,7 +23,8 @@ export class CommentsController {
   @Post()
   @ApiOperation({
     summary: 'Add comment to post',
-    description: 'Creates a new comment on a post. Automatically sends notification to post author.',
+    description:
+      'Creates a new comment on a post. Automatically sends notification to post author.',
   })
   @ApiParam({ name: 'postId', description: 'Post ID', type: String })
   @ApiResponse({ status: 201, description: 'Comment created successfully' })
@@ -50,17 +41,25 @@ export class CommentsController {
   @Get()
   @ApiOperation({
     summary: 'Get comments for post',
-    description: 'Returns paginated list of comments for a post, sorted by creation date (oldest first).',
+    description:
+      'Returns paginated list of comments for a post, sorted by creation date (oldest first).',
   })
   @ApiParam({ name: 'postId', description: 'Post ID', type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
   @ApiResponse({ status: 200, description: 'Comments retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Post not found' })
-  async getComments(
-    @Param('postId') postId: string,
-    @Query() dto: GetCommentsDto,
-  ) {
+  async getComments(@Param('postId') postId: string, @Query() dto: GetCommentsDto) {
     return this.commentsService.getComments(postId, dto);
   }
 
@@ -94,4 +93,3 @@ export class CommentsController {
     return this.commentsService.deleteComment(id, user.id);
   }
 }
-

@@ -196,4 +196,3 @@ export class TwoFactorSetupExpiredException extends HttpException {
     );
   }
 }
-

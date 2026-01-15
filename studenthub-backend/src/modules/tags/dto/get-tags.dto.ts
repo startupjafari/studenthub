@@ -12,7 +12,3 @@ export class GetTagsDto extends PaginationDto {
   @IsString()
   search?: string;
 }
-
-
-
-

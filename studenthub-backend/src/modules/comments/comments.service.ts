@@ -24,11 +24,7 @@ export class CommentsService {
   /**
    * Create comment on post
    */
-  async createComment(
-    postId: string,
-    userId: string,
-    dto: CreateCommentDto,
-  ) {
+  async createComment(postId: string, userId: string, dto: CreateCommentDto) {
     // Check if post exists
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
@@ -264,8 +260,3 @@ export class CommentsService {
     });
   }
 }
-
-
-
-
-

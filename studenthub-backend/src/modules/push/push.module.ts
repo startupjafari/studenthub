@@ -10,8 +10,3 @@ import { PrismaService } from '../../common/services/prisma.service';
   exports: [PushService],
 })
 export class PushModule {}
-
-
-
-
-

@@ -10,8 +10,3 @@ import { FileUploadService } from '../../common/services/file-upload.service';
   exports: [MediaService],
 })
 export class MediaModule {}
-
-
-
-
-

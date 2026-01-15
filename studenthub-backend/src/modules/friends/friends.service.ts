@@ -362,8 +362,3 @@ export class FriendsService {
     });
   }
 }
-
-
-
-
-

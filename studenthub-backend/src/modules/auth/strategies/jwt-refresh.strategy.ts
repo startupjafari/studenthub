@@ -8,10 +8,7 @@ import { PrismaService } from '../../../common/services/prisma.service';
 import { UserStatus } from '../../../common/constants/prisma-enums';
 
 @Injectable()
-export class JwtRefreshStrategy extends PassportStrategy(
-  Strategy,
-  'jwt-refresh',
-) {
+export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
@@ -56,4 +53,3 @@ export class JwtRefreshStrategy extends PassportStrategy(
     return { ...user, refreshToken, tokenId: payload.tokenId };
   }
 }
-

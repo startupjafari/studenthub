@@ -13,13 +13,7 @@ import { PrismaService } from '../../common/services/prisma.service';
 import { RedisModule } from '../../common/modules/redis.module';
 
 @Module({
-  imports: [
-    JwtModule,
-    ConfigModule,
-    RedisModule,
-    forwardRef(() => MessagesModule),
-    PresenceModule,
-  ],
+  imports: [JwtModule, ConfigModule, RedisModule, forwardRef(() => MessagesModule), PresenceModule],
   providers: [
     MessagesGateway,
     GroupsGateway,
@@ -32,4 +26,3 @@ import { RedisModule } from '../../common/modules/redis.module';
   exports: [MessagesGateway, GroupsGateway, NotificationsGateway, PresenceGateway],
 })
 export class WebSocketModule {}
-

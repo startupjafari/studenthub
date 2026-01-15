@@ -9,7 +9,7 @@ import Redis from 'ioredis';
 @Injectable()
 export class FeedCacheService {
   private readonly logger = new Logger(FeedCacheService.name);
-  
+
   // Время жизни кэша
   private readonly FEED_TTL = 300; // 5 минут для ленты
   private readonly POST_TTL = 3600; // 1 час для отдельных постов
@@ -26,12 +26,12 @@ export class FeedCacheService {
   async getUserFeed(userId: string, page: number): Promise<any[] | null> {
     const key = `feed:user:${userId}:page:${page}`;
     const cached = await this.redis.get(key);
-    
+
     if (cached) {
       this.logger.debug(`Кэш ленты найден: ${key}`);
       return JSON.parse(cached);
     }
-    
+
     return null;
   }
 
@@ -50,7 +50,7 @@ export class FeedCacheService {
   async invalidateUserFeed(userId: string): Promise<void> {
     const pattern = `feed:user:${userId}:*`;
     const keys = await this.redis.keys(pattern);
-    
+
     if (keys.length > 0) {
       await this.redis.del(...keys);
       this.logger.debug(`Инвалидировано ${keys.length} ключей ленты для пользователя ${userId}`);
@@ -62,13 +62,13 @@ export class FeedCacheService {
    */
   async invalidateFriendFeeds(friendIds: string[]): Promise<void> {
     const pipeline = this.redis.pipeline();
-    
+
     for (const friendId of friendIds) {
       const pattern = `feed:user:${friendId}:*`;
       const keys = await this.redis.keys(pattern);
-      keys.forEach(key => pipeline.del(key));
+      keys.forEach((key) => pipeline.del(key));
     }
-    
+
     await pipeline.exec();
     this.logger.debug(`Инвалидированы ленты ${friendIds.length} друзей`);
   }
@@ -81,11 +81,11 @@ export class FeedCacheService {
   async getPost(postId: string): Promise<any | null> {
     const key = `post:${postId}`;
     const cached = await this.redis.get(key);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     return null;
   }
 
@@ -113,11 +113,11 @@ export class FeedCacheService {
   async getTrendingPosts(): Promise<any[] | null> {
     const key = 'feed:trending';
     const cached = await this.redis.get(key);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     return null;
   }
 
@@ -175,7 +175,7 @@ export class FeedCacheService {
   async clearAllFeeds(): Promise<void> {
     const pattern = 'feed:*';
     const keys = await this.redis.keys(pattern);
-    
+
     if (keys.length > 0) {
       await this.redis.del(...keys);
       this.logger.log(`Очищен весь кэш лент: ${keys.length} ключей`);
@@ -188,7 +188,7 @@ export class FeedCacheService {
   async clearAllPosts(): Promise<void> {
     const pattern = 'post:*';
     const keys = await this.redis.keys(pattern);
-    
+
     if (keys.length > 0) {
       await this.redis.del(...keys);
       this.logger.log(`Очищен весь кэш постов: ${keys.length} ключей`);
@@ -217,8 +217,3 @@ export class FeedCacheService {
     };
   }
 }
-
-
-
-
-

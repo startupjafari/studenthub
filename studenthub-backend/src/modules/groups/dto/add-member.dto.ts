@@ -18,8 +18,3 @@ export class AddMemberDto {
   @IsOptional()
   role?: GroupRole = GroupRole.MEMBER;
 }
-
-
-
-
-

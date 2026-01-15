@@ -1,11 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsArray,
-  IsUUID,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsArray, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateGroupMessageDto {
   @ApiProperty({ description: 'Message content', required: false, maxLength: 5000 })
@@ -24,8 +18,3 @@ export class CreateGroupMessageDto {
   @IsOptional()
   mediaIds?: string[];
 }
-
-
-
-
-

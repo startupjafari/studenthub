@@ -12,8 +12,3 @@ import { RedisModule } from '../../common/modules/redis.module';
   providers: [PrismaHealthIndicator, RedisHealthIndicator, PrismaService],
 })
 export class HealthModule {}
-
-
-
-
-

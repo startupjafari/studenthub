@@ -1,11 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsUUID,
-  IsNotEmpty,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsNotEmpty, MaxLength } from 'class-validator';
 
 export class CreateStoryDto {
   @ApiProperty({ description: 'Story content', required: false, maxLength: 500 })
@@ -19,8 +13,3 @@ export class CreateStoryDto {
   @IsNotEmpty()
   mediaId: string;
 }
-
-
-
-
-

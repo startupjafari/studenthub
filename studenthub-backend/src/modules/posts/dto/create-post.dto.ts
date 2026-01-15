@@ -37,8 +37,3 @@ export class CreatePostDto {
   @IsOptional()
   mediaIds?: string[];
 }
-
-
-
-
-

@@ -18,9 +18,7 @@ import { WsRateLimitGuard } from '../guards/ws-rate-limit.guard';
   },
 })
 @UseGuards(WsJwtGuard, WsRateLimitGuard)
-export class NotificationsGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -50,4 +48,3 @@ export class NotificationsGateway
     this.server.to(`user:${userId}`).emit('notification:new', notification);
   }
 }
-

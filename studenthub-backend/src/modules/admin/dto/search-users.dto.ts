@@ -8,8 +8,3 @@ export class AdminSearchUsersDto extends PaginationDto {
   @IsString()
   q?: string;
 }
-
-
-
-
-

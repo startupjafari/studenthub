@@ -13,8 +13,3 @@ export class SearchUniversitiesDto extends PaginationDto {
   @IsString()
   city?: string;
 }
-
-
-
-
-

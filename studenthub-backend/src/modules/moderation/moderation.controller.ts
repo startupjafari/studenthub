@@ -1,30 +1,11 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Param,
-  Query,
-  Body,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ModerationService } from './moderation.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import {
-  CreateReportDto,
-  GetReportsDto,
-  ModerateReportDto,
-} from './dto';
+import { CreateReportDto, GetReportsDto, ModerateReportDto } from './dto';
 import { User } from '@prisma/client';
 
 @ApiTags('Moderation')
@@ -38,10 +19,7 @@ export class ModerationController {
   @ApiOperation({ summary: 'Create a content report' })
   @ApiResponse({ status: 201, description: 'Report created' })
   @ApiResponse({ status: 400, description: 'Invalid input' })
-  async createReport(
-    @CurrentUser() user: User,
-    @Body() dto: CreateReportDto,
-  ) {
+  async createReport(@CurrentUser() user: User, @Body() dto: CreateReportDto) {
     return this.moderationService.createReport(user.id, dto);
   }
 
@@ -51,20 +29,14 @@ export class ModerationController {
   @ApiResponse({ status: 403, description: 'Access denied' })
   @UseGuards(RolesGuard)
   @Roles('SUPER_ADMIN', 'UNIVERSITY_ADMIN')
-  async getReports(
-    @CurrentUser() user: User,
-    @Query() dto: GetReportsDto,
-  ) {
+  async getReports(@CurrentUser() user: User, @Query() dto: GetReportsDto) {
     return this.moderationService.getReports(dto, user.id);
   }
 
   @Get('reports/my')
-  @ApiOperation({ summary: 'Get user\'s own reports' })
+  @ApiOperation({ summary: "Get user's own reports" })
   @ApiResponse({ status: 200, description: 'Reports retrieved' })
-  async getUserReports(
-    @CurrentUser() user: User,
-    @Query() dto: GetReportsDto,
-  ) {
+  async getUserReports(@CurrentUser() user: User, @Query() dto: GetReportsDto) {
     return this.moderationService.getUserReports(user.id, dto);
   }
 
@@ -83,7 +55,3 @@ export class ModerationController {
     return this.moderationService.moderateReport(reportId, dto, user.id);
   }
 }
-
-
-
-

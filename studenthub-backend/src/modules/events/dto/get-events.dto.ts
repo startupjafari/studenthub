@@ -19,8 +19,3 @@ export class GetEventsDto extends PaginationDto {
   @IsEnum(EventType)
   eventType?: EventType;
 }
-
-
-
-
-

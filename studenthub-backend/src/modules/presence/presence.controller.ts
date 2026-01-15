@@ -1,17 +1,5 @@
-import {
-  Controller,
-  Get,
-  Put,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-} from '@nestjs/swagger';
+import { Controller, Get, Put, Body, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { PresenceService } from './presence.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -35,10 +23,7 @@ export class PresenceController {
   @Put()
   @ApiOperation({ summary: 'Update user presence status' })
   @ApiResponse({ status: 200, description: 'Presence updated' })
-  async updatePresence(
-    @CurrentUser() user: User,
-    @Body() dto: UpdatePresenceDto,
-  ) {
+  async updatePresence(@CurrentUser() user: User, @Body() dto: UpdatePresenceDto) {
     return this.presenceService.updatePresence(user.id, dto.status);
   }
 
@@ -50,7 +35,3 @@ export class PresenceController {
     return this.presenceService.getMultiplePresence(ids);
   }
 }
-
-
-
-

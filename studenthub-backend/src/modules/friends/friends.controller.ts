@@ -1,20 +1,5 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
-} from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { FriendsService } from './friends.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -32,10 +17,7 @@ export class FriendsController {
   @ApiOperation({ summary: 'Send friend request' })
   @ApiResponse({ status: 201, description: 'Friend request sent' })
   @ApiResponse({ status: 400, description: 'Invalid request' })
-  async sendFriendRequest(
-    @CurrentUser() user: User,
-    @Body() dto: SendFriendRequestDto,
-  ) {
+  async sendFriendRequest(@CurrentUser() user: User, @Body() dto: SendFriendRequestDto) {
     return this.friendsService.sendFriendRequest(user.id, dto);
   }
 
@@ -56,16 +38,14 @@ export class FriendsController {
   @Patch('requests/:id/accept')
   @ApiOperation({
     summary: 'Accept friend request',
-    description: 'Accepts a friend request. Updates request status to ACCEPTED and creates bidirectional friendship.',
+    description:
+      'Accepts a friend request. Updates request status to ACCEPTED and creates bidirectional friendship.',
   })
   @ApiParam({ name: 'id', description: 'Friend request ID', type: String })
   @ApiResponse({ status: 200, description: 'Friend request accepted successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - You can only accept requests sent to you' })
   @ApiResponse({ status: 404, description: 'Friend request not found' })
-  async acceptRequest(
-    @Param('id') id: string,
-    @CurrentUser() user: User,
-  ) {
+  async acceptRequest(@Param('id') id: string, @CurrentUser() user: User) {
     return this.friendsService.acceptRequest(id, user.id);
   }
 
@@ -78,10 +58,7 @@ export class FriendsController {
   @ApiResponse({ status: 200, description: 'Friend request rejected successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - You can only reject requests sent to you' })
   @ApiResponse({ status: 404, description: 'Friend request not found' })
-  async rejectRequest(
-    @Param('id') id: string,
-    @CurrentUser() user: User,
-  ) {
+  async rejectRequest(@Param('id') id: string, @CurrentUser() user: User) {
     return this.friendsService.rejectRequest(id, user.id);
   }
 
@@ -100,7 +77,7 @@ export class FriendsController {
   @Get('users/:id/friends')
   @ApiOperation({
     summary: "Get user's friends",
-    description: 'Returns list of user\'s friends with their profile information.',
+    description: "Returns list of user's friends with their profile information.",
   })
   @ApiParam({ name: 'id', description: 'User ID', type: String })
   @ApiResponse({ status: 200, description: 'Friends retrieved successfully' })
@@ -109,4 +86,3 @@ export class FriendsController {
     return this.friendsService.getUserFriends(id);
   }
 }
-

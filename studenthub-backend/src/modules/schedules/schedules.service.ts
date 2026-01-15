@@ -1,15 +1,7 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import {
-  CreateScheduleDto,
-  UpdateScheduleDto,
-  GetSchedulesDto,
-} from './dto';
+import { CreateScheduleDto, UpdateScheduleDto, GetSchedulesDto } from './dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 
 @Injectable()
@@ -130,11 +122,7 @@ export class SchedulesService {
   /**
    * Update schedule
    */
-  async updateSchedule(
-    scheduleId: string,
-    userId: string,
-    dto: UpdateScheduleDto,
-  ) {
+  async updateSchedule(scheduleId: string, userId: string, dto: UpdateScheduleDto) {
     const schedule = await this.prisma.groupSchedule.findUnique({
       where: { id: scheduleId },
       include: {
@@ -405,7 +393,3 @@ export class SchedulesService {
     return { message: 'Schedule deleted' };
   }
 }
-
-
-
-

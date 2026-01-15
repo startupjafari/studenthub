@@ -27,7 +27,3 @@ export class GetSchedulesDto extends PaginationDto {
   @IsDateString()
   toDate?: string;
 }
-
-
-
-

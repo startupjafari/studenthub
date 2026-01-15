@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { Request } from 'express';
@@ -12,10 +7,7 @@ import { ResponseUtil } from '../utils/response.util';
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, ApiSuccessResponse<T>> {
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<ApiSuccessResponse<T>> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<ApiSuccessResponse<T>> {
     const request = context.switchToHttp().getRequest<Request & { id?: string }>();
     const requestId = (request as any).id || request.headers['x-request-id'];
 
@@ -35,4 +27,3 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiSuccessResp
     );
   }
 }
-

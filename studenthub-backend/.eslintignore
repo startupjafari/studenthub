@@ -1,0 +1,34 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Configuration files
+*.config.js
+*.config.ts
+.eslintrc.js
+nest-cli.json
+
+# Prisma
+prisma
+
+# Docker
+docker
+docker-compose*.yml
+Dockerfile
+
+# Scripts
+scripts
+
+# Nginx
+nginx
+
+# Generated files
+*.generated.ts
+
+# Test files (if you want to ignore them)
+# **/*.spec.ts
+# **/*.test.ts

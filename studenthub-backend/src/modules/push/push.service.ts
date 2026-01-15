@@ -102,7 +102,7 @@ export class PushService implements OnModuleInit {
         return false;
       }
 
-      const tokens = devices.map(d => d.fcmToken!).filter(Boolean);
+      const tokens = devices.map((d) => d.fcmToken!).filter(Boolean);
 
       // Формируем сообщение
       const message: admin.messaging.MulticastMessage = {
@@ -191,8 +191,8 @@ export class PushService implements OnModuleInit {
         select: { fcmToken: true },
       });
 
-      const tokens = devices.map(d => d.fcmToken!).filter(Boolean);
-      
+      const tokens = devices.map((d) => d.fcmToken!).filter(Boolean);
+
       if (tokens.length === 0) {
         return { success: 0, failed: 0 };
       }
@@ -204,7 +204,7 @@ export class PushService implements OnModuleInit {
 
       for (let i = 0; i < tokens.length; i += batchSize) {
         const batch = tokens.slice(i, i + batchSize);
-        
+
         const message: admin.messaging.MulticastMessage = {
           tokens: batch,
           notification: {
@@ -326,7 +326,7 @@ export class PushService implements OnModuleInit {
         where: { id: { in: invalidTokenIds } },
         data: { fcmToken: null, pushEnabled: false },
       });
-      
+
       this.logger.debug(`Удалено ${invalidTokenIds.length} невалидных токенов`);
     }
   }
@@ -357,11 +357,7 @@ export class PushService implements OnModuleInit {
   /**
    * Уведомление о новом комментарии
    */
-  async notifyNewComment(
-    userId: string,
-    commenterName: string,
-    postId: string,
-  ): Promise<void> {
+  async notifyNewComment(userId: string, commenterName: string, postId: string): Promise<void> {
     await this.sendToUser({
       userId,
       type: PushNotificationType.NEW_COMMENT,
@@ -377,11 +373,7 @@ export class PushService implements OnModuleInit {
   /**
    * Уведомление о новой реакции
    */
-  async notifyNewReaction(
-    userId: string,
-    reactorName: string,
-    postId: string,
-  ): Promise<void> {
+  async notifyNewReaction(userId: string, reactorName: string, postId: string): Promise<void> {
     await this.sendToUser({
       userId,
       type: PushNotificationType.NEW_REACTION,
@@ -397,11 +389,7 @@ export class PushService implements OnModuleInit {
   /**
    * Уведомление о запросе в друзья
    */
-  async notifyFriendRequest(
-    userId: string,
-    senderName: string,
-    senderId: string,
-  ): Promise<void> {
+  async notifyFriendRequest(userId: string, senderName: string, senderId: string): Promise<void> {
     await this.sendToUser({
       userId,
       type: PushNotificationType.NEW_FRIEND_REQUEST,
@@ -434,8 +422,3 @@ export class PushService implements OnModuleInit {
     });
   }
 }
-
-
-
-
-

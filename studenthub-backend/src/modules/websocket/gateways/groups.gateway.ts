@@ -23,9 +23,7 @@ import { PrismaService } from '../../../common/services/prisma.service';
 })
 @UseGuards(WsJwtGuard, WsRateLimitGuard)
 @UsePipes(new ValidationPipe())
-export class GroupsGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+export class GroupsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -160,4 +158,3 @@ export class GroupsGateway
     this.server.to(`group:${groupId}`).emit('group:message:delete', { messageId });
   }
 }
-

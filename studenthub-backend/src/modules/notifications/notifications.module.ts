@@ -12,4 +12,3 @@ import { WebSocketModule } from '../websocket/websocket.module';
   exports: [NotificationsService],
 })
 export class NotificationsModule {}
-

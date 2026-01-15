@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  UnauthorizedException,
-  Inject,
-} from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { PasswordService } from './services/password.service';
 import { TokenService } from './services/token.service';
@@ -60,9 +55,7 @@ export class AuthService {
     }
 
     // Hash password
-    const passwordHash = await this.passwordService.hashPassword(
-      registerDto.password,
-    );
+    const passwordHash = await this.passwordService.hashPassword(registerDto.password);
 
     // Create user
     const user = await this.prisma.user.create({
@@ -77,18 +70,16 @@ export class AuthService {
     });
 
     // Generate and send verification code
-    const code = await this.emailVerificationService.generateVerificationCode(
-      registerDto.email,
-    );
-    await this.emailVerificationService.sendVerificationEmail(
-      registerDto.email,
-      code,
-    );
+    const code = await this.emailVerificationService.generateVerificationCode(registerDto.email);
+    await this.emailVerificationService.sendVerificationEmail(registerDto.email, code);
 
-    this.logger.log(`Новый пользователь зарегистрирован: ${sanitizeEmailForLogging(user.email)} (${user.id})`);
+    this.logger.log(
+      `Новый пользователь зарегистрирован: ${sanitizeEmailForLogging(user.email)} (${user.id})`,
+    );
 
     return {
-      message: 'Регистрация успешна. Пожалуйста, проверьте вашу почту для получения кода подтверждения.',
+      message:
+        'Регистрация успешна. Пожалуйста, проверьте вашу почту для получения кода подтверждения.',
       email: user.email,
     };
   }
@@ -126,9 +117,7 @@ export class AuthService {
       return { message: 'Email уже подтвержден' };
     }
 
-    const code = await this.emailVerificationService.generateVerificationCode(
-      email,
-    );
+    const code = await this.emailVerificationService.generateVerificationCode(email);
     await this.emailVerificationService.sendVerificationEmail(email, code);
 
     this.logger.log(`Код подтверждения повторно отправлен: ${sanitizeEmailForLogging(email)}`);
@@ -170,7 +159,12 @@ export class AuthService {
   /**
    * Login user
    */
-  async login(loginDto: LoginDto, ip: string): Promise<AuthResponse | { requiresTwoFactor: boolean; temporaryToken: string; userId: string }> {
+  async login(
+    loginDto: LoginDto,
+    ip: string,
+  ): Promise<
+    AuthResponse | { requiresTwoFactor: boolean; temporaryToken: string; userId: string }
+  > {
     // Rate limiting is handled by ThrottlerGuard with @Throttle decorator
 
     const user = await this.prisma.user.findUnique({
@@ -178,7 +172,9 @@ export class AuthService {
     });
 
     if (!user) {
-      this.logger.warn(`Неудачная попытка входа для email: ${sanitizeEmailForLogging(loginDto.email)} (пользователь не найден)`);
+      this.logger.warn(
+        `Неудачная попытка входа для email: ${sanitizeEmailForLogging(loginDto.email)} (пользователь не найден)`,
+      );
       throw new InvalidCredentialsException();
     }
 
@@ -188,7 +184,9 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      this.logger.warn(`Неудачная попытка входа для email: ${sanitizeEmailForLogging(loginDto.email)} (неверный пароль)`);
+      this.logger.warn(
+        `Неудачная попытка входа для email: ${sanitizeEmailForLogging(loginDto.email)} (неверный пароль)`,
+      );
       throw new InvalidCredentialsException();
     }
 
@@ -209,7 +207,7 @@ export class AuthService {
           user.email,
           user.role,
         );
-        
+
         // Store temporary token in Redis for 2FA verification (short TTL)
         await this.redis.setex(`2fa:temp:${user.id}`, 300, temporaryToken); // 5 minutes
 
@@ -226,10 +224,7 @@ export class AuthService {
         throw new InvalidTwoFactorCodeException();
       }
 
-      const isValid = this.twoFactorService.verifyToken(
-        secret,
-        loginDto.twoFactorCode,
-      );
+      const isValid = this.twoFactorService.verifyToken(secret, loginDto.twoFactorCode);
 
       if (!isValid) {
         this.logger.warn(`Неудачная проверка 2FA для пользователя: ${user.id}`);
@@ -241,14 +236,12 @@ export class AuthService {
     }
 
     // Generate tokens
-    const accessToken = this.tokenService.generateAccessToken(
-      user.id,
-      user.email,
-      user.role,
-    );
+    const accessToken = this.tokenService.generateAccessToken(user.id, user.email, user.role);
     const refreshToken = await this.tokenService.generateRefreshToken(user.id);
 
-    this.logger.log(`Пользователь вошел в систему: ${sanitizeEmailForLogging(user.email)} (${user.id})`);
+    this.logger.log(
+      `Пользователь вошел в систему: ${sanitizeEmailForLogging(user.email)} (${user.id})`,
+    );
 
     const { passwordHash, ...userWithoutPassword } = user;
 
@@ -281,10 +274,7 @@ export class AuthService {
       throw new InvalidTwoFactorCodeException();
     }
 
-    const isValid = this.twoFactorService.verifyToken(
-      user.twoFactorSecret,
-      code,
-    );
+    const isValid = this.twoFactorService.verifyToken(user.twoFactorSecret, code);
 
     if (!isValid) {
       throw new InvalidTwoFactorCodeException();
@@ -294,11 +284,7 @@ export class AuthService {
     await this.redis.del(`2fa:temp:${userId}`);
 
     // Generate tokens
-    const accessToken = this.tokenService.generateAccessToken(
-      user.id,
-      user.email,
-      user.role,
-    );
+    const accessToken = this.tokenService.generateAccessToken(user.id, user.email, user.role);
     const refreshToken = await this.tokenService.generateRefreshToken(user.id);
 
     this.logger.log(`Успешный вход с 2FA: ${sanitizeEmailForLogging(user.email)} (${user.id})`);
@@ -332,11 +318,7 @@ export class AuthService {
     await this.tokenService.revokeRefreshToken(refreshToken);
 
     // Generate new tokens
-    const newAccessToken = this.tokenService.generateAccessToken(
-      user.id,
-      user.email,
-      user.role,
-    );
+    const newAccessToken = this.tokenService.generateAccessToken(user.id, user.email, user.role);
     const newRefreshToken = await this.tokenService.generateRefreshToken(user.id);
 
     return {
@@ -350,7 +332,7 @@ export class AuthService {
    */
   async logout(refreshToken: string, userId?: string): Promise<{ message: string }> {
     await this.tokenService.revokeRefreshToken(refreshToken);
-    
+
     this.logger.log(`Пользователь вышел из системы: ${userId || 'неизвестно'}`);
 
     return { message: 'Выход выполнен успешно' };
@@ -361,7 +343,7 @@ export class AuthService {
    */
   async logoutAll(userId: string): Promise<{ message: string }> {
     await this.tokenService.revokeAllRefreshTokens(userId);
-    
+
     this.logger.log(`Пользователь вышел из всех устройств: ${userId}`);
 
     return { message: 'Выход со всех устройств выполнен успешно' };
@@ -417,9 +399,7 @@ export class AuthService {
       };
     }
 
-    const code = await this.emailVerificationService.generatePasswordResetCode(
-      email,
-    );
+    const code = await this.emailVerificationService.generatePasswordResetCode(email);
     await this.emailVerificationService.sendPasswordResetEmail(email, code);
 
     this.logger.log(`Код сброса пароля отправлен: ${sanitizeEmailForLogging(email)}`);
@@ -554,10 +534,7 @@ export class AuthService {
     }
 
     const secret = this.twoFactorService.generateSecret(user.email);
-    const qrCode = await this.twoFactorService.generateQRCode(
-      secret,
-      user.email,
-    );
+    const qrCode = await this.twoFactorService.generateQRCode(secret, user.email);
 
     // Store secret temporarily (will be saved after verification)
     await this.redis.setex(`2fa:setup:${userId}`, 600, secret); // 10 minutes
@@ -609,10 +586,7 @@ export class AuthService {
     }
 
     // Verify code
-    const isValid = this.twoFactorService.verifyToken(
-      user.twoFactorSecret,
-      code,
-    );
+    const isValid = this.twoFactorService.verifyToken(user.twoFactorSecret, code);
     if (!isValid) {
       throw new InvalidTwoFactorCodeException();
     }
@@ -625,4 +599,3 @@ export class AuthService {
     return { message: '2FA успешно отключена' };
   }
 }
-

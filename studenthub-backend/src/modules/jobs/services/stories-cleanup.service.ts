@@ -58,16 +58,9 @@ export class StoriesCleanupService {
         });
       });
 
-      this.logger.log(
-        `Successfully deleted ${expiredStories.length} expired stories`,
-      );
+      this.logger.log(`Successfully deleted ${expiredStories.length} expired stories`);
     } catch (error) {
       this.logger.error('Error cleaning up expired stories:', error);
     }
   }
 }
-
-
-
-
-

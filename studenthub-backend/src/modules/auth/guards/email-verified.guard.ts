@@ -1,13 +1,6 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import {
-  SKIP_EMAIL_VERIFICATION_KEY,
-} from '../../../common/decorators/skip-email-verification.decorator';
+import { SKIP_EMAIL_VERIFICATION_KEY } from '../../../common/decorators/skip-email-verification.decorator';
 
 @Injectable()
 export class EmailVerifiedGuard implements CanActivate {
@@ -38,4 +31,3 @@ export class EmailVerifiedGuard implements CanActivate {
     return true;
   }
 }
-

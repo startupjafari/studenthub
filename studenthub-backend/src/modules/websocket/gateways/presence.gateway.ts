@@ -21,9 +21,7 @@ import { PresenceStatus } from '@prisma/client';
   },
 })
 @UseGuards(WsJwtGuard, WsRateLimitGuard)
-export class PresenceGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+export class PresenceGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -85,10 +83,7 @@ export class PresenceGateway
   }
 
   @SubscribeMessage('presence:update')
-  async handlePresenceUpdate(
-    client: Socket,
-    payload: { status: PresenceStatus },
-  ) {
+  async handlePresenceUpdate(client: Socket, payload: { status: PresenceStatus }) {
     const user = client.data.user;
     if (!user) return;
 
@@ -123,7 +118,3 @@ export class PresenceGateway
     return this.onlineUsers.size;
   }
 }
-
-
-
-

@@ -7,8 +7,3 @@ export class SendFriendRequestDto {
   @IsNotEmpty()
   receiverId: string;
 }
-
-
-
-
-
