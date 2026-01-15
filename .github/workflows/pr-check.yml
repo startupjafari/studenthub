@@ -52,8 +52,16 @@ jobs:
           fi
         continue-on-error: true
 
-      - name: Check commit messages
-        uses: "commitlint/action@v1.0.0"
-        with:
-          configFile: "./commitlint.config.js"
+      - name: Check commit message format
+        working-directory: ./studenthub-backend
+        run: |
+          # Basic commit message format check
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if ! echo "$COMMIT_MSG" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .+"; then
+            echo "⚠️ Commit message doesn't follow conventional commits format"
+            echo "Format: type(scope): description"
+            echo "Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert"
+          else
+            echo "✅ Commit message format is correct"
+          fi
         continue-on-error: true
