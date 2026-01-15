@@ -26,14 +26,13 @@ jobs:
         run: |
           sudo rm -rf ~/.npm
           sudo rm -rf /root/.npm
-          mkdir -p ~/.npm
-          sudo chown -R $USER:$USER ~/.npm || true
+          mkdir -p ./studenthub-backend/.npm-cache
 
       - name: Install dependencies
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
-        run: npm ci --prefer-offline=false
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
+        run: npm ci --cache .npm-cache
 
       - name: Check for console.log
         working-directory: ./studenthub-backend

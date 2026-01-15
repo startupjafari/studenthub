@@ -57,26 +57,26 @@ jobs:
         run: |
           sudo rm -rf ~/.npm
           sudo rm -rf /root/.npm
-          mkdir -p ~/.npm
-          sudo chown -R $USER:$USER ~/.npm || true
+          # Use cache in working directory to avoid permission issues
+          mkdir -p ./studenthub-backend/.npm-cache
 
       - name: Install dependencies
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
-        run: npm ci --prefer-offline=false
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
+        run: npm ci --cache .npm-cache
 
       - name: Generate Prisma Client
         working-directory: ./studenthub-backend
         run: npm run db:generate
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studenthub_test
-          npm_config_cache: ~/.npm
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
 
       - name: Build project
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
         run: npm run build
 
   test:
@@ -124,14 +124,14 @@ jobs:
         run: |
           sudo rm -rf ~/.npm
           sudo rm -rf /root/.npm
-          mkdir -p ~/.npm
-          sudo chown -R $USER:$USER ~/.npm || true
+          # Use cache in working directory to avoid permission issues
+          mkdir -p ./studenthub-backend/.npm-cache
 
       - name: Install dependencies
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
-        run: npm ci --prefer-offline=false
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
+        run: npm ci --cache .npm-cache
 
       - name: Generate Prisma Client
         working-directory: ./studenthub-backend
@@ -144,7 +144,7 @@ jobs:
         run: npm run db:migrate:prod
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studenthub_test
-          npm_config_cache: ~/.npm
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
 
       - name: Run tests
         working-directory: ./studenthub-backend
@@ -156,7 +156,7 @@ jobs:
           REDIS_PORT: 6379
           JWT_SECRET: test-secret-key-for-ci
           JWT_REFRESH_SECRET: test-refresh-secret-key-for-ci
-          npm_config_cache: ~/.npm
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v3
@@ -185,19 +185,19 @@ jobs:
         run: |
           sudo rm -rf ~/.npm
           sudo rm -rf /root/.npm
-          mkdir -p ~/.npm
-          sudo chown -R $USER:$USER ~/.npm || true
+          # Use cache in working directory to avoid permission issues
+          mkdir -p ./studenthub-backend/.npm-cache
 
       - name: Install dependencies
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
-        run: npm ci --prefer-offline=false
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
+        run: npm ci --cache .npm-cache
 
       - name: Run npm audit
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
         run: npm audit --audit-level=moderate
         continue-on-error: true
 
@@ -220,17 +220,17 @@ jobs:
         run: |
           sudo rm -rf ~/.npm
           sudo rm -rf /root/.npm
-          mkdir -p ~/.npm
-          sudo chown -R $USER:$USER ~/.npm || true
+          # Use cache in working directory to avoid permission issues
+          mkdir -p ./studenthub-backend/.npm-cache
 
       - name: Install dependencies
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
-        run: npm ci --prefer-offline=false
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
+        run: npm ci --cache .npm-cache
 
       - name: Type check
         working-directory: ./studenthub-backend
         env:
-          npm_config_cache: ~/.npm
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
         run: npx tsc --noEmit
