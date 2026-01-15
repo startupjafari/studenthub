@@ -16,18 +16,51 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_master_data_lb:/var/lib/postgresql/data
+      - ./docker/postgres-replication/entrypoint-master.sh:/usr/local/bin/entrypoint-master.sh:ro
+      - ./docker/postgres-replication/init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh:ro
     networks:
       - studenthub_lb_network
+    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint-master.sh"]
     command:
       - "postgres"
       - "-c"
       - "wal_level=replica"
       - "-c"
-      - "max_wal_senders=3"
+      - "max_wal_senders=10"
       - "-c"
-      - "max_replication_slots=3"
+      - "max_replication_slots=10"
       - "-c"
       - "hot_standby=on"
+      - "-c"
+      - "max_connections=1000"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=8GB"
+      - "-c"
+      - "maintenance_work_mem=256MB"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=32MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "min_wal_size=2GB"
+      - "-c"
+      - "max_wal_size=8GB"
+      - "-c"
+      - "max_worker_processes=8"
+      - "-c"
+      - "max_parallel_workers_per_gather=4"
+      - "-c"
+      - "max_parallel_workers=8"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-studenthub}"]
       interval: 10s
@@ -35,7 +68,7 @@ services:
       retries: 5
       start_period: 10s
 
-  # PostgreSQL Read Replica (для чтения)
+  # PostgreSQL Read Replica 1 (для чтения)
   postgres-replica-1:
     image: postgres:16-alpine
     container_name: studenthub_postgres_replica_1_lb
@@ -56,6 +89,80 @@ services:
       postgres-master:
         condition: service_healthy
     entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint-replica.sh"]
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=1000"
+      - "-c"
+      - "hot_standby=on"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # PostgreSQL Read Replica 2 (для чтения)
+  postgres-replica-2:
+    image: postgres:16-alpine
+    container_name: studenthub_postgres_replica_2_lb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "${POSTGRES_REPLICA_2_PORT:-5434}:5432"
+    volumes:
+      - postgres_replica_2_data_lb:/var/lib/postgresql/data
+      - ./docker/postgres-replication/entrypoint-replica.sh:/usr/local/bin/entrypoint-replica.sh
+    networks:
+      - studenthub_lb_network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint-replica.sh"]
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=1000"
+      - "-c"
+      - "hot_standby=on"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # PostgreSQL Read Replica 3 (для чтения)
+  postgres-replica-3:
+    image: postgres:16-alpine
+    container_name: studenthub_postgres_replica_3_lb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "${POSTGRES_REPLICA_3_PORT:-5435}:5432"
+    volumes:
+      - postgres_replica_3_data_lb:/var/lib/postgresql/data
+      - ./docker/postgres-replication/entrypoint-replica.sh:/usr/local/bin/entrypoint-replica.sh
+    networks:
+      - studenthub_lb_network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint-replica.sh"]
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=1000"
+      - "-c"
+      - "hot_standby=on"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
@@ -75,7 +182,7 @@ services:
       redis-server
       --appendonly yes
       --appendfsync everysec
-      --maxmemory 512mb
+      --maxmemory 8gb
       --maxmemory-policy allkeys-lru
       $${REDIS_PASSWORD:+--requirepass $${REDIS_PASSWORD}}
       "
@@ -99,6 +206,38 @@ services:
       retries: 5
       start_period: 5s
 
+  # PgBouncer - Connection Pooler
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    container_name: studenthub_pgbouncer_lb
+    restart: unless-stopped
+    environment:
+      DATABASES_HOST: postgres-master
+      DATABASES_PORT: 5432
+      DATABASES_USER: ${POSTGRES_USER:-postgres}
+      DATABASES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DATABASES_DBNAME: ${POSTGRES_DB:-studenthub}
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 50
+      PGBOUNCER_MIN_POOL_SIZE: 10
+      PGBOUNCER_RESERVE_POOL_SIZE: 5
+      PGBOUNCER_MAX_DB_CONNECTIONS: 100
+      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits,search_path
+    ports:
+      - "6432:6432"
+    networks:
+      - studenthub_lb_network
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 6432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # Backend Application Instance 1
   app1:
     build:
@@ -110,7 +249,7 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       INSTANCE_ID: app1
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-master:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@pgbouncer:6432/${POSTGRES_DB:-studenthub}?schema=public&connection_limit=50&pool_timeout=20&pgbouncer=true
       DATABASE_READ_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-replica-1:5432/${POSTGRES_DB:-studenthub}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -120,7 +259,7 @@ services:
     networks:
       - studenthub_lb_network
     depends_on:
-      postgres-master:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -142,7 +281,7 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       INSTANCE_ID: app2
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-master:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@pgbouncer:6432/${POSTGRES_DB:-studenthub}?schema=public&connection_limit=50&pool_timeout=20&pgbouncer=true
       DATABASE_READ_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-replica-1:5432/${POSTGRES_DB:-studenthub}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -152,7 +291,7 @@ services:
     networks:
       - studenthub_lb_network
     depends_on:
-      postgres-master:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -174,7 +313,7 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       INSTANCE_ID: app3
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-master:5432/${POSTGRES_DB:-studenthub}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@pgbouncer:6432/${POSTGRES_DB:-studenthub}?schema=public&connection_limit=50&pool_timeout=20&pgbouncer=true
       DATABASE_READ_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-replica-1:5432/${POSTGRES_DB:-studenthub}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -184,7 +323,7 @@ services:
     networks:
       - studenthub_lb_network
     depends_on:
-      postgres-master:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -211,7 +350,7 @@ services:
       - app2
       - app3
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/nginx-health"]
+      test: ["CMD-SHELL", "curl -f http://localhost/nginx-health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -221,6 +360,10 @@ volumes:
   postgres_master_data_lb:
     driver: local
   postgres_replica_1_data_lb:
+    driver: local
+  postgres_replica_2_data_lb:
+    driver: local
+  postgres_replica_3_data_lb:
     driver: local
   redis_data_lb:
     driver: local

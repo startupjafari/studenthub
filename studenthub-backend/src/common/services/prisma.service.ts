@@ -17,6 +17,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           url: writeUrl,
         },
       },
+      // Отключаем prepared statements для работы с PgBouncer в режиме transaction pooling
+      // PgBouncer не поддерживает prepared statements в transaction pooling режиме
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     });
 
     // Создаем отдельный клиент для чтения, если указан DATABASE_READ_URL

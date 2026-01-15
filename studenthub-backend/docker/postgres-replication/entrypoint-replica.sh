@@ -14,7 +14,7 @@ echo "Master is ready!"
 # Если данные уже существуют и это реплика, просто запускаем PostgreSQL
 if [ -f "$PGDATA/PG_VERSION" ] && [ -f "$PGDATA/standby.signal" ]; then
   echo "Replica data already exists, starting PostgreSQL in standby mode..."
-  exec /usr/local/bin/docker-entrypoint.sh postgres
+  exec /usr/local/bin/docker-entrypoint.sh "$@"
 fi
 
 # Если данные уже есть, но это не реплика, очищаем
@@ -42,5 +42,5 @@ if [ ! -f "$PGDATA/PG_VERSION" ]; then
   echo "Replica initialized successfully!"
 fi
 
-# Запускаем PostgreSQL
-exec /usr/local/bin/docker-entrypoint.sh postgres
+# Запускаем PostgreSQL с переданными аргументами
+exec /usr/local/bin/docker-entrypoint.sh "$@"
