@@ -25,16 +25,29 @@ jobs:
           cache: 'npm'
           cache-dependency-path: studenthub-backend/package-lock.json
 
+      - name: Fix npm cache permissions
+        run: |
+          sudo rm -rf ~/.npm
+          sudo rm -rf /root/.npm
+          # Use cache in working directory to avoid permission issues
+          mkdir -p ./studenthub-backend/.npm-cache
+
       - name: Install dependencies
         working-directory: ./studenthub-backend
-        run: npm ci
+        env:
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
+        run: npm ci --cache .npm-cache
 
       - name: Run ESLint
         working-directory: ./studenthub-backend
+        env:
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
         run: npm run lint:check
 
       - name: Check Prettier formatting
         working-directory: ./studenthub-backend
+        env:
+          npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
         run: npm run format:check
 
   build:
@@ -159,7 +172,7 @@ jobs:
           npm_config_cache: ${{ github.workspace }}/studenthub-backend/.npm-cache
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         if: always()
         with:
           files: ./studenthub-backend/coverage/lcov.info
