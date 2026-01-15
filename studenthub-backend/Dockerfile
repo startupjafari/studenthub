@@ -1,5 +1,5 @@
 # Multi-stage build для оптимизации размера образа
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # Production stage
-FROM node:20-alpine
+FROM node:25-alpine
 
 WORKDIR /app
 
