@@ -22,14 +22,18 @@ jobs:
           cache: 'npm'
           cache-dependency-path: studenthub-backend/package-lock.json
 
-      - name: Clear npm cache (fix permissions)
+      - name: Fix npm cache permissions
         run: |
           sudo rm -rf ~/.npm
           sudo rm -rf /root/.npm
+          mkdir -p ~/.npm
+          sudo chown -R $USER:$USER ~/.npm || true
 
       - name: Install dependencies
         working-directory: ./studenthub-backend
-        run: npm ci
+        env:
+          npm_config_cache: ~/.npm
+        run: npm ci --prefer-offline=false
 
       - name: Check for console.log
         working-directory: ./studenthub-backend
