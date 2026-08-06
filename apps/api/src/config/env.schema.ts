@@ -43,6 +43,16 @@ export const envSchema = z.object({
   // Документы (Ф15) — приватный бакет, доступ только по presigned-URL.
   MINIO_BUCKET_DOCUMENTS: z.string().default('documents'),
 
+  // Публичный адрес MinIO для presigned-ссылок, отдаваемых в браузер (напр. домен
+  // Railway у minio-сервиса). Если не задан — presigned генерятся на внутренний
+  // MINIO_ENDPOINT (ок для dev, но в проде браузер его не резолвит).
+  MINIO_PUBLIC_ENDPOINT: z.string().optional(),
+  MINIO_PUBLIC_PORT: z.coerce.number().int().positive().default(443),
+  MINIO_PUBLIC_USE_SSL: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+
   // SMTP используется с Фазы 3 — пока необязателен.
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
