@@ -23,10 +23,13 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_APP_NAME
+# Цель прокси /api/* (единый origin). Читается в next.config rewrites на этапе build.
+ARG API_PROXY_TARGET
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME}
+ENV API_PROXY_TARGET=${API_PROXY_TARGET}
 # turbo собирает workspace-зависимости web (shared-*) по графу ^build, затем сам web.
 # Прямой `pnpm --filter web build` их пропускает → web не находит dist shared-пакетов.
 RUN pnpm exec turbo run build --filter=web
