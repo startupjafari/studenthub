@@ -33,7 +33,8 @@ describe('FileService (integration, реальный MinIO)', () => {
       accessKey: process.env.MINIO_ACCESS_KEY ?? '',
       secretKey: process.env.MINIO_SECRET_KEY ?? '',
     })
-    service = new FileService(prisma, minio)
+    // В тесте внутренний и «публичный» клиент совпадают (presigned на тот же MinIO).
+    service = new FileService(prisma, minio, minio)
 
     if (!(await minio.bucketExists(TEST_BUCKET))) {
       await minio.makeBucket(TEST_BUCKET)
