@@ -2,6 +2,9 @@
 **/.next
 **/dist
 **/.turbo
+# tsc -b incremental cache: если скопировать локальный buildinfo в образ, tsc сочтёт
+# проекты собранными и не создаст dist → shared-* не отдают типы. Собираем с нуля.
+**/*.tsbuildinfo
 .git
 **/*.log
 **/.env
