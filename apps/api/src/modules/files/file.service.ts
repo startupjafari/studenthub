@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Client as MinioClient } from 'minio'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
-import { MINIO_CLIENT } from '../../common/minio/minio.constants'
+import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
 import { AppException } from '../../common/exceptions/app.exception'
 import { detectAllowedFileType } from './mime-detector'
 
@@ -51,6 +51,8 @@ export class FileService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(MINIO_CLIENT) private readonly minio: MinioClient,
+    // Отдельный клиент на публичный адрес — только для presigned-ссылок в браузер.
+    @Inject(MINIO_PUBLIC_CLIENT) private readonly minioPublic: MinioClient,
   ) {}
 
   /**
@@ -119,7 +121,11 @@ export class FileService {
   async presignPut(bucket: string, mime: string): Promise<{ key: string; url: string }> {
     const ext = (mime.split('/')[1] ?? 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 10) || 'bin'
     const key = `${randomUUID()}.${ext}`
-    const url = await this.minio.presignedPutObject(bucket, key, TTL.PRESIGNED_URL_MINUTES * 60)
+    const url = await this.minioPublic.presignedPutObject(
+      bucket,
+      key,
+      TTL.PRESIGNED_URL_MINUTES * 60,
+    )
     return { key, url }
   }
 
@@ -191,7 +197,11 @@ export class FileService {
   async getPresignedUrl(fileId: string, requesterId?: string): Promise<string> {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
-    return this.minio.presignedGetObject(file.bucket, file.key, TTL.PRESIGNED_URL_MINUTES * 60)
+    return this.minioPublic.presignedGetObject(
+      file.bucket,
+      file.key,
+      TTL.PRESIGNED_URL_MINUTES * 60,
+    )
   }
 
   /**
