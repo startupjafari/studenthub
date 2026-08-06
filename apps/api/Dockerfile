@@ -20,8 +20,17 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 COPY . .
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
-RUN pnpm --filter api exec prisma generate
-RUN pnpm --filter api build
+# Схема и prisma.config.ts — в КОРНЕ монорепо, поэтому generate запускается из /repo,
+# а не из apps/api (иначе Prisma не находит prisma/schema).
+RUN pnpm exec prisma generate
+# С pnpm сгенерированный клиент оседает в виртуальном сторе
+# (node_modules/.pnpm/@prisma+client@.../node_modules/.prisma) и не попадает в `pnpm deploy`.
+# Кладём его в стабильный путь node_modules/.prisma (glob вместо хардкода хэша),
+# откуда runner заберёт его в /app.
+RUN cp -r /repo/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma /repo/node_modules/.prisma
+# turbo собирает workspace-зависимости api (shared-*) по графу ^build, затем сам api.
+# Прямой `pnpm --filter api build` их пропускает → api не находит dist shared-пакетов.
+RUN pnpm exec turbo run build --filter=api
 # prod-зависимости для runner
 RUN pnpm --filter api --prod deploy /app --legacy
 
@@ -32,7 +41,10 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/prisma ./prisma
-# Prisma Client сгенерирован в node_modules (deploy тянет его).
+# Сгенерированный Prisma Client (+ query engine) лежит в /repo/node_modules/.prisma —
+# это артефакт генерации, а не зависимость, поэтому `pnpm deploy` его не переносит.
+# Копируем вручную, иначе @prisma/client падает с MODULE_NOT_FOUND '.prisma/client'.
+COPY --from=build /repo/node_modules/.prisma ./node_modules/.prisma
 EXPOSE 3001
 # Миграции применяются отдельным шагом (migrate deploy) до старта, не в CMD.
 CMD ["node", "dist/main.js"]
