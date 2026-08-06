@@ -30,12 +30,27 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studenthub_ci
       DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/studenthub_ci
       # Нечувствительные CI-значения (не секреты): нужны только для валидации env и сборки.
       JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-32ch
       JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-32
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
       MINIO_ACCESS_KEY: ci-access
       MINIO_SECRET_KEY: ci-secret
       NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
@@ -55,6 +70,26 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # MinIO нельзя поднять через `services:` — образу нужен аргумент `server /data`,
+      # который в service-контейнере не передать. Поэтому запускаем шагом.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=ci-access \
+            -e MINIO_ROOT_PASSWORD=ci-secret \
+            minio/minio server /data
+          echo "Waiting for MinIO to become healthy..."
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
+              echo "MinIO is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO did not become healthy in time" >&2
+          docker logs minio >&2 || true
+          exit 1
 
       - name: Generate Prisma Client
         run: pnpm db:generate
