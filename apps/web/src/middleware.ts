@@ -60,5 +60,7 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.).*)'],
+  // /api/* исключены: это прокси на бэкенд (next.config rewrites), а не страницы —
+  // без исключения middleware редиректил бы API-запросы на /login.
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
 }
