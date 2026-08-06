@@ -36,6 +36,7 @@ config-as-code (`apps/api/railway.json`, `apps/web/railway.json`).
    | `MINIO_USE_SSL` | `false` (MinIO по приватной сети) или `true` (S3/R2) |
    | `MINIO_ACCESS_KEY` | ключ хранилища |
    | `MINIO_SECRET_KEY` | секрет хранилища |
+   | `MINIO_PUBLIC_ENDPOINT` | публичный домен MinIO для presigned-ссылок (см. ниже) |
    | `CORS_ORIGIN` | публичный URL web-сервиса (после шага 3) |
 
    Опционально: `SMTP_HOST/PORT/USER/PASS/SMTP_FROM`, `SENTRY_DSN`.
@@ -78,6 +79,12 @@ config-as-code (`apps/api/railway.json`, `apps/web/railway.json`).
 5. В `api` указать `MINIO_ENDPOINT` = приватный домен этого сервиса
    (`<minio>.railway.internal`), `MINIO_PORT=9000`, `MINIO_USE_SSL=false`,
    ключи = root-креды MinIO.
+6. **Generate Domain** на minio-сервисе (порт `9000`) → публичный адрес. Задать в `api`
+   `MINIO_PUBLIC_ENDPOINT=<minio>.up.railway.app` (без схемы и порта). Presigned-ссылки
+   отдаются в браузер, а он не резолвит `*.railway.internal`; хост входит в подпись S3,
+   поэтому ссылки генерятся отдельным клиентом сразу на публичный адрес. `MINIO_PUBLIC_PORT`
+   (по умолчанию `443`) и `MINIO_PUBLIC_USE_SSL` (по умолчанию `true`) обычно не трогать.
+   Без этой переменной presigned укажут на внутренний хост → в браузере `ERR_NAME_NOT_RESOLVED`.
 
 **Вариант Б — внешний S3 (Cloudflare R2, 10 ГБ бесплатно):**
 код читает эндпоинт из env (path-style, официальный `minio`-клиент), замены кода не нужно:
