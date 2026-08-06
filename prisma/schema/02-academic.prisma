@@ -1,0 +1,106 @@
+// Домен «Академическая структура» (docs/PROJECT.md §6): University, Faculty, Group, Room.
+// Иерархия University → Faculty → Group; Room привязан к университету.
+// onDelete: Restrict — удаление родителя при наличии детей запрещено на уровне БД
+// (дублируется сервис-гвардами задач 5.2–5.4). Scope-поля User связаны отсюда.
+
+model University {
+  id        String           @id @default(uuid())
+  name      String
+  shortName String?          @map("short_name")
+  status    UniversityStatus @default(PENDING)
+  country   String?
+  city      String?
+  // Таймзона вуза для расписания/событий (docs/PROJECT.md §6.2; используется с Ф6).
+  timezone  String           @default("Asia/Almaty")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  faculties        Faculty[]
+  specialties      Specialty[]
+  rooms            Room[]
+  users            User[]
+  posts            Post[]
+  chats            Chat[]
+  events           Event[]
+  complaints       Complaint[]
+  documents        Document[]
+  documentRequests DocumentRequest[]
+  documentTypes    DocumentType[]
+
+  @@index([status])
+  @@map("universities")
+}
+
+// Справочник специальностей вуза (ведёт админ вуза). В профиле хранится строкой-названием.
+model Specialty {
+  id           String   @id @default(uuid())
+  name         String
+  universityId String   @map("university_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([universityId, name])
+  @@index([universityId])
+  @@map("specialties")
+}
+
+model Faculty {
+  id           String   @id @default(uuid())
+  name         String
+  universityId String   @map("university_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  university   University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groups       Group[]
+  users        User[]
+  applications ApplicationRequest[]
+  posts        Post[]
+  chats        Chat[]
+  events       Event[]
+
+  @@index([universityId])
+  @@map("faculties")
+}
+
+model Group {
+  id         String   @id @default(uuid())
+  name       String
+  // Год набора / курс (опционально).
+  year       Int?
+  facultyId  String   @map("faculty_id")
+  // Староста группы: не более одной группы на пользователя (@unique).
+  starostaId String?  @unique @map("starosta_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  faculty   Faculty    @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  starosta  User?      @relation("GroupStarosta", fields: [starostaId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  students  User[]     @relation("GroupMembers")
+  schedules Schedule[]
+  pairs     Pair[]
+  posts     Post[]
+  chats     Chat[]
+  events    Event[]
+  materials Material[]
+
+  @@index([facultyId])
+  @@map("groups")
+}
+
+model Room {
+  id           String   @id @default(uuid())
+  name         String
+  capacity     Int?
+  universityId String   @map("university_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  university      University       @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pairs           Pair[]
+  scheduleChanges ScheduleChange[] @relation("ScheduleChangeNewRoom")
+
+  @@index([universityId])
+  @@map("rooms")
+}

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: lint · typecheck · test · build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studenthub_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studenthub_ci
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/studenthub_ci
+      # Нечувствительные CI-значения (не секреты): нужны только для валидации env и сборки.
+      JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-32ch
+      JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-32
+      MINIO_ACCESS_KEY: ci-access
+      MINIO_SECRET_KEY: ci-secret
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      - name: Apply migrations (CI database)
+        run: pnpm db:deploy
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test (unit)
+        run: pnpm test
+
+      - name: Test (e2e)
+        run: pnpm --filter api test:e2e
+
+      - name: Build
+        run: pnpm build

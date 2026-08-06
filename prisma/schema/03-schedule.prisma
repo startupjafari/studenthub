@@ -1,0 +1,101 @@
+// Домен «Расписание» (docs/PROJECT.md §3.1, §6; docs/BACKEND_RULES.md §19 #8).
+// Разграничение Schedule/Pair (решение §19 #8):
+//   Schedule — контейнер расписания одной группы на семестр (версия/публикация);
+//   Pair     — конкретное еженедельное занятие внутри контейнера.
+//
+// Часовой пояс (задача 6.2): пары повторяются еженедельно и не привязаны к календарной дате,
+// поэтому время хранится как локальное «настенное» "HH:mm" (24ч) относительно University.timezone.
+// Клиенту время отдаётся как есть — в таймзоне вуза (docs/FRONTEND_RULES.md §9), без конвертации в
+// таймзону браузера. Календарная дата фигурирует только у ScheduleChange (разовое изменение) → @db.Date.
+//
+// Enum'ы WeekType/ScheduleChangeType — в _enums.prisma.
+
+model Schedule {
+  id        String   @id @default(uuid())
+  groupId   String   @map("group_id")
+  // Отображаемое имя контейнера, напр. «Осенний семестр 2026/27».
+  name      String
+  // Активное расписание группы (студентам показывается активное). Единственность активного
+  // на группу обеспечивает сервис (задача 6.3/6.4), не БД.
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  group Group  @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pairs Pair[]
+
+  @@index([groupId])
+  @@map("schedules")
+}
+
+model Pair {
+  id         String   @id @default(uuid())
+  scheduleId String   @map("schedule_id")
+  // Денормализация: groupId дублирует schedule.groupId ради индекса [groupId, dayOfWeek]
+  // (docs/PROJECT.md §6.2) и scope-проверки без join. Инвариант pair.groupId == schedule.groupId
+  // держит сервис в транзакции создания/переноса пары.
+  groupId    String   @map("group_id")
+  subject    String
+  // Преподаватель занятия. Опционален: занятие может быть без закреплённого преподавателя
+  // из системы (внешний лектор, дедлайн/консультация без ведущего).
+  teacherId  String?  @map("teacher_id")
+  roomId     String?  @map("room_id")
+  // День недели по ISO-8601: 1 = понедельник … 7 = воскресенье (валидация в shared-schemas).
+  dayOfWeek  Int      @map("day_of_week")
+  // Локальное «настенное» время в таймзоне вуза, формат "HH:mm" (24ч).
+  startTime  String   @map("start_time")
+  endTime    String   @map("end_time")
+  // Чётная/нечётная/каждая неделя.
+  weekType   WeekType @default(BOTH) @map("week_type")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  schedule Schedule         @relation(fields: [scheduleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  group    Group            @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  teacher  User?            @relation("PairTeacher", fields: [teacherId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  room     Room?            @relation(fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  changes  ScheduleChange[]
+
+  // Ролевая выборка и детектор конфликтов (docs/PROJECT.md §6.2, задача 6.4):
+  // студент → [groupId, dayOfWeek]; преподаватель → [teacherId, dayOfWeek]; аудитория → [roomId, dayOfWeek].
+  @@index([scheduleId])
+  @@index([groupId, dayOfWeek])
+  @@index([teacherId, dayOfWeek])
+  @@index([roomId, dayOfWeek])
+  @@map("pairs")
+}
+
+model ScheduleChange {
+  id           String             @id @default(uuid())
+  pairId       String             @map("pair_id")
+  type         ScheduleChangeType
+  // Конкретная календарная дата, к которой применяется изменение (в календаре вуза). @db.Date —
+  // без времени; время берётся из полей new* либо из самой пары.
+  date         DateTime           @map("date") @db.Date
+  // Новые значения для соответствующего типа изменения:
+  //   MOVED        → newStartTime/newEndTime (+ опц. newRoomId);
+  //   ROOM_CHANGED → newRoomId;
+  //   SUBSTITUTED  → newTeacherId;
+  //   CANCELLED    → все new* пустые.
+  newRoomId    String?            @map("new_room_id")
+  newTeacherId String?            @map("new_teacher_id")
+  newStartTime String?            @map("new_start_time")
+  newEndTime   String?            @map("new_end_time")
+  // Комментарий/причина (напр. «преподаватель на конференции»).
+  note         String?
+  createdById  String             @map("created_by_id")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  pair       Pair  @relation(fields: [pairId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  newRoom    Room? @relation("ScheduleChangeNewRoom", fields: [newRoomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  newTeacher User? @relation("ScheduleChangeNewTeacher", fields: [newTeacherId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy  User  @relation("ScheduleChangeCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([pairId])
+  @@index([date])
+  @@index([createdById])
+  @@index([newRoomId])
+  @@index([newTeacherId])
+  @@map("schedule_changes")
+}

@@ -1,0 +1,37 @@
+// Домен «Жалобы» (docs/PROJECT.md §3, §11; задачи Ф11).
+// Complaint — жалоба на контент/пользователя. targetType+targetId — полиморфная ссылка
+// (модели Story нет до Ф14 — STORY-жалобы пока не принимаются). universityId — денормализованный
+// scope цели: модератор вуза видит только свой вуз (§2.2). Разрешение пишется в AuditLog.
+// Enum ComplaintTargetType/ComplaintStatus — в _enums.prisma.
+
+model Complaint {
+  id         String              @id @default(uuid())
+  reporterId String              @map("reporter_id")
+  targetType ComplaintTargetType @map("target_type")
+  targetId   String              @map("target_id")
+  reason     String
+  status     ComplaintStatus     @default(PENDING)
+
+  // Scope цели для очереди модератора (вычисляется при создании из сущности-цели).
+  universityId String? @map("university_id")
+
+  // Кто и как разрешил.
+  resolvedById String?   @map("resolved_by_id")
+  resolution   String?
+  resolvedAt   DateTime? @map("resolved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  reporter   User        @relation("ComplaintReporter", fields: [reporterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  resolvedBy User?       @relation("ComplaintResolver", fields: [resolvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([status])
+  @@index([universityId, status])
+  @@index([targetType, targetId])
+  @@index([reporterId])
+  @@index([resolvedById])
+  @@index([createdAt])
+  @@map("complaints")
+}

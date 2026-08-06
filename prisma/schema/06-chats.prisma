@@ -1,0 +1,120 @@
+// Домен «Чаты» (docs/PROJECT.md §3.6, §9; задачи Ф9).
+// Chat — беседа (личная, групповая, официальная). ChatMember — членство (+ lastReadAt для статусов
+// прочтения). Message — сообщение (soft delete §5.1, thread-ответы replyToId, вложения File.messageId).
+// Официальные чаты (GROUP_OFFICIAL/SUBJECT/FACULTY/DEAN/SUPPORT) привязаны к academic-скоупу.
+// Транспорт — socket.io (ChatGateway); REST — история и управление участниками. Enum ChatType — в _enums.prisma.
+
+model Chat {
+  id          String   @id @default(uuid())
+  type        ChatType
+  title       String?
+  // Аватар группы (Ф9+): публичный URL в бакете avatars. Только для пользовательских GROUP-чатов.
+  avatarUrl   String?  @map("avatar_url")
+  // Создатель пользовательского GROUP-чата (Ф9+): «админ» группы — может банить участников и менять аватар.
+  createdById String?  @map("created_by_id")
+
+  // Academic-скоуп официальных чатов (для авто-создания и адресации).
+  universityId String? @map("university_id")
+  facultyId    String? @map("faculty_id")
+  groupId      String? @map("group_id")
+  subject      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  university University?  @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty    Faculty?     @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group      Group?       @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  members    ChatMember[]
+  messages   Message[]
+
+  @@index([type])
+  @@index([universityId])
+  @@index([facultyId])
+  @@index([groupId])
+  @@map("chats")
+}
+
+model ChatMember {
+  id         String    @id @default(uuid())
+  chatId     String    @map("chat_id")
+  userId     String    @map("user_id")
+  // Время последнего прочтения — база для непрочитанных и статусов message:read.
+  lastReadAt DateTime? @map("last_read_at")
+  // Отключение уведомлений о новых сообщениях для этого участника (Ф9+): не null — заглушено.
+  mutedAt    DateTime? @map("muted_at")
+  // Бан участника в группе (Ф9+): не null — забанен создателем, не может писать и не видит чат.
+  bannedAt   DateTime? @map("banned_at")
+  // Админ группы (Ф9+): может банить, менять аватар/название, добавлять/убирать участников.
+  isAdmin    Boolean   @default(false) @map("is_admin")
+  // Очистка истории «для меня» (Ф9+): сообщения с createdAt <= clearedAt скрыты у этого участника.
+  clearedAt  DateTime? @map("cleared_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([userId])
+  @@map("chat_members")
+}
+
+model Message {
+  id              String    @id @default(uuid())
+  chatId          String    @map("chat_id")
+  senderId        String    @map("sender_id")
+  content         String
+  // Thread-ответ на другое сообщение того же чата.
+  replyToId       String?   @map("reply_to_id")
+  // Пересылка (Ф9+): ссылка на исходное сообщение-источник (может быть из другого чата).
+  forwardedFromId String?   @map("forwarded_from_id")
+  editedAt        DateTime? @map("edited_at")
+  deletedAt       DateTime? @map("deleted_at")
+  // Закрепление сообщения в чате (Ф9+): кто и когда закрепил.
+  pinnedAt        DateTime? @map("pinned_at")
+  pinnedById      String?   @map("pinned_by_id")
+  // Расшаренный пост (Ф9+ share-to-chat): превью-карточка поста в сообщении.
+  sharedPostId    String?   @map("shared_post_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  chat          Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sender        User              @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  replyTo       Message?          @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  replies       Message[]         @relation("MessageReply")
+  forwardedFrom Message?          @relation("MessageForward", fields: [forwardedFromId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  forwards      Message[]         @relation("MessageForward")
+  pinnedBy      User?             @relation("MessagePinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  sharedPost    Post?             @relation("MessageSharedPost", fields: [sharedPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  media         File[]
+  reactions     MessageReaction[]
+
+  // История сообщений — cursor-пагинация по [chatId, createdAt] (docs/PROJECT.md §6.2).
+  @@index([chatId, createdAt])
+  @@index([senderId])
+  @@index([replyToId])
+  @@index([forwardedFromId])
+  @@index([pinnedById])
+  @@index([sharedPostId])
+  // Закреплённые сообщения чата.
+  @@index([chatId, pinnedAt])
+  @@index([deletedAt])
+  @@map("messages")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  userId    String   @map("user_id")
+  // Эмодзи-реакция; один пользователь может поставить несколько разных эмодзи на сообщение.
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Идемпотентность: один и тот же эмодзи от пользователя к сообщению — один раз.
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+  @@map("message_reactions")
+}

@@ -1,0 +1,55 @@
+// Домен «Заявки в деканат» (docs/PROJECT.md §3.2, §6; задачи Ф7).
+// ApplicationRequest — заявка студента в деканат своего факультета; ApplicationStatusHistory —
+// журнал переходов конечного автомата статусов (docs/PROJECT.md §3.2). Каждый переход через
+// transitionStatus() пишет строку истории в одной транзакции с обновлением заявки (задача 7.2).
+// Вложения — записи File в бакете `applications`, связанные полем File.applicationId (docs/BACKEND_RULES.md §8).
+// Enum'ы ApplicationStatus/AppType — в _enums.prisma.
+
+model ApplicationRequest {
+  id        String            @id @default(uuid())
+  // Автор — только STUDENT (проверка в сервисе). facultyId фиксируется из факультета студента
+  // при создании: заявка адресована деканату этого факультета.
+  studentId String            @map("student_id")
+  facultyId String            @map("faculty_id")
+  type      AppType
+  subject   String
+  body      String
+  status    ApplicationStatus @default(NEW)
+  // Soft delete (docs/BACKEND_RULES.md §5.1): любой запрос содержит where deletedAt: null.
+  deletedAt DateTime?         @map("deleted_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  student     User                       @relation("StudentApplications", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  faculty     Faculty                    @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  history     ApplicationStatusHistory[]
+  attachments File[]
+
+  // Очередь декана по факультету и статусу; список студента по нему самому; сортировка по времени.
+  @@index([studentId])
+  @@index([facultyId, status])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("application_requests")
+}
+
+model ApplicationStatusHistory {
+  id            String             @id @default(uuid())
+  applicationId String             @map("application_id")
+  // fromStatus = null для начальной записи (создание заявки в NEW).
+  fromStatus    ApplicationStatus? @map("from_status")
+  toStatus      ApplicationStatus  @map("to_status")
+  // Кто выполнил переход (студент при создании/отзыве; декан/админ при обработке).
+  changedById   String             @map("changed_by_id")
+  // Комментарий перехода: причина отклонения, запрос уточнения и т.п.
+  comment       String?
+  createdAt     DateTime           @default(now()) @map("created_at")
+
+  application ApplicationRequest @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  changedBy   User               @relation("AppStatusChangedBy", fields: [changedById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@index([changedById])
+  @@map("application_status_history")
+}
