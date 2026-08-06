@@ -37,6 +37,15 @@ const nextConfig = {
   output: 'standalone',
   // Монорепо: трейсинг зависимостей от корня воркспейса.
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
+  // Единый origin: браузер ходит на /api/* СВОЕГО домена, web проксирует их на api.
+  // Так auth-cookie (sh_refresh, sh_role) становятся first-party и видны middleware,
+  // а CORS для HTTP не нужен. Цель читается на этапе build (Dockerfile ARG
+  // API_PROXY_TARGET). Без неё (dev) rewrite не добавляется — ходим напрямую.
+  async rewrites() {
+    const target = process.env.API_PROXY_TARGET?.replace(/\/$/, '')
+    if (!target) return []
+    return [{ source: '/api/:path*', destination: `${target}/api/:path*` }]
+  },
 }
 
 export default withPWA(withNextIntl(nextConfig))

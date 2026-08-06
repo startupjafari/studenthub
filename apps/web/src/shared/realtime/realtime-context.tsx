@@ -9,8 +9,19 @@ import { useAppSelector } from '../store/hooks'
 
 const RealtimeContext = createContext<Socket | null>(null)
 
-// Origin WS-сервера = origin API без пути /api/v1 (socket.io слушает на /socket.io того же хоста).
+// Origin WS-сервера. Сокет всегда идёт ПРЯМО на api (авторизация токеном, не cookie),
+// даже когда HTTP проксируется через web (единый origin) — поэтому берём отдельный
+// NEXT_PUBLIC_WS_URL. Фолбэк — вывести origin из NEXT_PUBLIC_API_URL (актуально в dev,
+// где он абсолютный: http://localhost:3001/api/v1).
 function wsOrigin(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_URL
+  if (explicit) {
+    try {
+      return new URL(explicit).origin
+    } catch {
+      /* игнорируем битый WS_URL, пробуем API_URL ниже */
+    }
+  }
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1'
   try {
     return new URL(apiUrl).origin
