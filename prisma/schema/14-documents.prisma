@@ -1,0 +1,200 @@
+// Домен «Документы» (Фаза 15): защищённое хранилище документов пользователя.
+// Файлы — через File.documentId (приватный бакет documents). Полный номер (Document.number)
+// наружу НЕ отдаётся — API возвращает только маску из numberLast4 (docs/IMPLEMENTATION_PLAN.md §15).
+// Модели запросов вуза (DocumentRequest/…) появятся в под-фазе C (задачи 15.14+).
+
+model Document {
+  id           String  @id @default(uuid())
+  ownerId      String  @map("owner_id")
+  universityId String? @map("university_id") // scope владельца на момент создания
+
+  category           String // PERSONAL | ACADEMIC | CERTIFICATE | ISSUED_BY_UNIVERSITY
+  type               String // ID_CARD | PASSPORT | DIPLOMA | TRANSCRIPT | ...
+  title              String
+  number             String? // полный номер — НАРУЖУ НЕ ОТДАётся (как passwordHash)
+  numberLast4        String?   @map("number_last4") // для маски ******4821
+  issuedBy           String?   @map("issued_by")
+  issuedAt           DateTime? @map("issued_at")
+  expiresAt          DateTime? @map("expires_at")
+  comment            String?
+  // DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EXPIRING|EXPIRED|ARCHIVED
+  status             String    @default("DRAFT")
+  rejectionReason    String?   @map("rejection_reason")
+  issuedByUniversity Boolean   @default(false) @map("issued_by_university")
+  archivedAt         DateTime? @map("archived_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner           User                     @relation("UserDocuments", fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university      University?              @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  files           File[] // File.documentId (порядок страниц — File.order)
+  access          DocumentAccess[]
+  events          DocumentEvent[]
+  submissionItems DocumentSubmissionItem[] // где документ приложен к ответу на запрос
+
+  @@index([ownerId, status])
+  @@index([universityId])
+  @@index([expiresAt])
+  @@map("documents")
+}
+
+// Грант доступа к документу (кому/на каком основании/до какого срока; с возможностью отзыва).
+model DocumentAccess {
+  id          String    @id @default(uuid())
+  documentId  String    @map("document_id")
+  granteeType String    @map("grantee_type") // UNIVERSITY | DEPARTMENT | USER
+  granteeId   String?   @map("grantee_id") // facultyId/офис или userId; null для UNIVERSITY
+  reason      String
+  grantedById String    @map("granted_by_id") // кто выдал (обычно владелец) — скаляр, без FK
+  grantedAt   DateTime  @default(now()) @map("granted_at")
+  expiresAt   DateTime? @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([documentId])
+  @@index([granteeType, granteeId])
+  @@map("document_access")
+}
+
+// Пер-документ/пер-запрос журнал действий (ТЗ §10). actorId/requestId — скаляры (без FK на этом шаге).
+model DocumentEvent {
+  id         String   @id @default(uuid())
+  documentId String?  @map("document_id")
+  requestId  String?  @map("request_id")
+  actorId    String   @map("actor_id")
+  // UPLOAD|VIEW|DOWNLOAD|EDIT|REPLACE|GRANT|REVOKE|REVIEW|ACCEPT|REJECT|ARCHIVE|DELETE
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  document Document? @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([documentId, createdAt])
+  @@index([requestId, createdAt])
+  @@map("document_events")
+}
+
+// ── Под-фаза D: управление типами документов вузом (задача 15.20) ─────────────
+// Гибрид: базовый каталог из 25 типов живёт в @studenthub/shared-config, а вуз хранит
+// здесь ТОЛЬКО правки/добавления — включить/выключить тип, задать срок хранения,
+// либо добавить собственный (custom) тип. Сервис отдаёт merge(static, overrides).
+model DocumentType {
+  id            String   @id @default(uuid())
+  universityId  String   @map("university_id")
+  typeId        String   @map("type_id") // id из каталога shared-config ИЛИ код custom-типа
+  custom        Boolean  @default(false) // true — тип добавлен вузом (нет в статике)
+  enabled       Boolean  @default(true) // false — тип скрыт для вуза
+  category      String? // обязателен для custom (PERSONAL|ACADEMIC|CERTIFICATE|ISSUED_BY_UNIVERSITY)
+  label         String? // название custom-типа (у статических берётся из i18n)
+  fields        String[] @default([]) // поля мастера для custom; пусто → набор по умолчанию
+  retentionDays Int?     @map("retention_days") // срок хранения после истечения (дни)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([universityId, typeId])
+  @@map("document_types")
+}
+
+// ── Под-фаза C: запросы университета (ТЗ §5) ──────────────────────────────────
+// Сотрудник (деканат/офис) создаёт запрос на комплект документов, адресует его
+// подразделению/группе/студентам; студент отвечает комплектом (submission),
+// сотрудник проверяет каждую позицию (accept/reject с причиной).
+
+// Запрос вуза на комплект документов.
+model DocumentRequest {
+  id           String    @id @default(uuid())
+  universityId String    @map("university_id") // scope: запрос принадлежит вузу
+  createdById  String    @map("created_by_id") // сотрудник-автор
+  title        String
+  description  String?
+  dueAt        DateTime? @map("due_at")
+  status       String    @default("OPEN") // OPEN | CLOSED
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  university  University              @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy   User                    @relation("DocumentRequestsAuthored", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  items       DocumentRequestItem[]
+  targets     DocumentRequestTarget[]
+  submissions DocumentSubmission[]
+
+  @@index([universityId, status])
+  @@index([createdById])
+  @@map("document_requests")
+}
+
+// Одна требуемая позиция в запросе (тип документа + обязательность).
+model DocumentRequestItem {
+  id           String  @id @default(uuid())
+  requestId    String  @map("request_id")
+  documentType String  @map("document_type") // id из каталога DOCUMENT_TYPES
+  title        String
+  required     Boolean @default(true)
+  order        Int     @default(0)
+
+  request         DocumentRequest          @relation(fields: [requestId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  submissionItems DocumentSubmissionItem[]
+
+  @@index([requestId])
+  @@map("document_request_items")
+}
+
+// Адресат запроса (весь вуз / факультет / группа / конкретный студент).
+model DocumentRequestTarget {
+  id         String  @id @default(uuid())
+  requestId  String  @map("request_id")
+  targetType String  @map("target_type") // UNIVERSITY | FACULTY | GROUP | USER
+  targetId   String? @map("target_id") // facultyId/groupId/userId; null для UNIVERSITY
+
+  request DocumentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([requestId])
+  @@index([targetType, targetId])
+  @@map("document_request_targets")
+}
+
+// Ответ студента на запрос (комплект документов).
+model DocumentSubmission {
+  id           String    @id @default(uuid())
+  requestId    String    @map("request_id")
+  studentId    String    @map("student_id")
+  status       String    @default("DRAFT") // DRAFT | SUBMITTED | PARTIAL | ACCEPTED | REJECTED
+  submittedAt  DateTime? @map("submitted_at")
+  reviewedById String?   @map("reviewed_by_id")
+  reviewedAt   DateTime? @map("reviewed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  request DocumentRequest          @relation(fields: [requestId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student User                     @relation("DocumentSubmissionsMade", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  items   DocumentSubmissionItem[]
+
+  @@unique([requestId, studentId]) // один комплект на студента и запрос
+  @@index([studentId])
+  @@map("document_submissions")
+}
+
+// Позиция ответа: привязка загруженного документа к требуемой позиции запроса + вердикт.
+model DocumentSubmissionItem {
+  id              String    @id @default(uuid())
+  submissionId    String    @map("submission_id")
+  requestItemId   String    @map("request_item_id")
+  documentId      String?   @map("document_id") // выбранный/загруженный документ студента
+  status          String    @default("PENDING") // PENDING | ACCEPTED | REJECTED
+  rejectionReason String?   @map("rejection_reason")
+  reviewedById    String?   @map("reviewed_by_id")
+  reviewedAt      DateTime? @map("reviewed_at")
+
+  submission  DocumentSubmission  @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requestItem DocumentRequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  document    Document?           @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([submissionId, requestItemId]) // одна позиция ответа на требование
+  @@index([documentId])
+  @@map("document_submission_items")
+}

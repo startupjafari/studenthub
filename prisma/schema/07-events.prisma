@@ -1,0 +1,59 @@
+// Домен «События» (docs/PROJECT.md §3.5, §6; задачи Ф10).
+// Event — событие с аудиторией (переиспользуем PostAudience — видимость как у постов, §3.5).
+// EventParticipant — регистрация участника. reminderSentAt — дедуп напоминаний за час (§9.3).
+// Скоуп (universityId/facultyId/groupId) — как у постов; onDelete SetNull.
+
+model Event {
+  id          String       @id @default(uuid())
+  organizerId String       @map("organizer_id")
+  audience    PostAudience
+  title       String
+  description String
+
+  universityId String? @map("university_id")
+  facultyId    String? @map("faculty_id")
+  groupId      String? @map("group_id")
+
+  // Место (или ссылка на онлайн-встречу).
+  location String?
+  isOnline Boolean @default(false) @map("is_online")
+
+  startsAt DateTime  @map("starts_at")
+  endsAt   DateTime? @map("ends_at")
+
+  // Момент отправки напоминания за час — защита от повторной рассылки (docs/BACKEND_RULES.md §9.3).
+  reminderSentAt DateTime? @map("reminder_sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organizer    User               @relation("EventOrganizer", fields: [organizerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university   University?        @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty      Faculty?           @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group        Group?             @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  participants EventParticipant[]
+
+  // Фильтр видимости по audience-скоупу + выборка ближайших/для напоминаний по времени.
+  @@index([audience])
+  @@index([organizerId])
+  @@index([universityId])
+  @@index([facultyId])
+  @@index([groupId])
+  @@index([startsAt])
+  @@index([reminderSentAt])
+  @@map("events")
+}
+
+model EventParticipant {
+  id        String   @id @default(uuid())
+  eventId   String   @map("event_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@map("event_participants")
+}

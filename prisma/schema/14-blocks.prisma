@@ -1,0 +1,16 @@
+// Блокировки пользователей (Ф9+).
+
+// Блокировка пользователя пользователем: блокирующий (blocker) не хочет переписываться с
+// заблокированным (blocked). В PRIVATE-чате запрет симметричен — если между двумя есть любая
+// блокировка (в любую сторону), отправка сообщений и создание чата запрещены.
+// Скаляр-модель без relation'ов — чтобы не расширять модель User обратными связями.
+model UserBlock {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}

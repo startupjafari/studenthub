@@ -1,0 +1,114 @@
+// Домен «Посты и лента» (docs/PROJECT.md §3.3, §6; задачи Ф8).
+// Post — публикация с аудиторией (PostAudience). Reaction/Comment — вовлечение.
+// Видимость (задача 8.2): пользователь видит ALL + свой вуз/факультет/группу + адресованное лично
+// (+ преподаватели для TEACHERS). Аудитория-скоуп (universityId/facultyId/groupId/targetUserId/subject)
+// проставляется сервисом из scope автора; роль автора ограничивает набор аудиторий.
+// Медиа/файлы — записи File с File.postId (docs/BACKEND_RULES.md §8). Soft delete у Post/Comment (§5.1).
+// Enum PostAudience — в _enums.prisma.
+
+model Post {
+  id       String       @id @default(uuid())
+  authorId String       @map("author_id")
+  audience PostAudience
+  content  String
+
+  // Аудитория-скоуп: заполняется по типу audience (UNIVERSITY→universityId и т.д.).
+  universityId String? @map("university_id")
+  facultyId    String? @map("faculty_id")
+  groupId      String? @map("group_id")
+  // PERSONAL — адресат; SUBJECT — название предмета (модели Subject нет, MVP).
+  targetUserId String? @map("target_user_id")
+  subject      String?
+
+  // Приоритет в ленте (docs/PROJECT.md §3.3): выставляется при создании из audience/роли автора.
+  priority Int @default(0)
+
+  // Счётчик просмотров (инкремент при открытии публикации в лайтбоксе).
+  views Int @default(0)
+
+  // Черновики и отложенная публикация: DRAFT / SCHEDULED / PUBLISHED.
+  // scheduledAt — когда крон опубликует; publishedAt — фактический момент публикации.
+  status      String    @default("PUBLISHED")
+  scheduledAt DateTime? @map("scheduled_at")
+  publishedAt DateTime? @map("published_at")
+
+  // Закрепление (задача 8.6): только роль выше автора. Репост — ссылка на оригинал.
+  pinnedAt       DateTime? @map("pinned_at")
+  pinnedById     String?   @map("pinned_by_id")
+  originalPostId String?   @map("original_post_id")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  author           User        @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  targetUser       User?       @relation("PostTarget", fields: [targetUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  pinnedBy         User?       @relation("PostPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university       University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty          Faculty?    @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group            Group?      @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  original         Post?       @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reposts          Post[]      @relation("PostRepost")
+  media            File[]
+  reactions        Reaction[]
+  comments         Comment[]
+  // Сообщения, в которых этот пост расшарен превью-карточкой (Ф9+ share-to-chat).
+  sharedInMessages Message[]   @relation("MessageSharedPost")
+
+  // Фильтр видимости по audience-скоупу + cursor-пагинация по времени (docs/PROJECT.md §6.2).
+  @@index([audience])
+  @@index([authorId])
+  @@index([universityId])
+  @@index([facultyId])
+  @@index([groupId])
+  @@index([targetUserId])
+  @@index([originalPostId])
+  @@index([pinnedById])
+  @@index([deletedAt])
+  @@index([createdAt])
+  // Составной ключ ленты: закреплённые и приоритетные сверху, затем по времени (стабильный cursor по id).
+  @@index([pinnedAt, priority, createdAt])
+  @@map("posts")
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  postId    String   @map("post_id")
+  userId    String   @map("user_id")
+  // Эмодзи-реакция; на один пост пользователь может поставить несколько разных эмодзи.
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Идемпотентность реакции: один и тот же эмодзи от пользователя к посту — один раз.
+  @@unique([postId, userId, emoji])
+  @@index([postId])
+  @@index([userId])
+  @@map("reactions")
+}
+
+model Comment {
+  id       String  @id @default(uuid())
+  postId   String  @map("post_id")
+  authorId String  @map("author_id")
+  // Thread-ответы: parentId ссылается на комментарий-родитель (один уровень вложенности в UI).
+  parentId String? @map("parent_id")
+  content  String
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  post    Post      @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  author  User      @relation(fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  parent  Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  replies Comment[] @relation("CommentThread")
+
+  @@index([postId, createdAt])
+  @@index([parentId])
+  @@index([authorId])
+  @@index([deletedAt])
+  @@map("comments")
+}

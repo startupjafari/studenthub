@@ -1,0 +1,110 @@
+// Все перечисления платформы. Источник истины — docs/PROJECT.md §6.1.
+// Определяются один раз здесь; модели ссылаются на них из NN-<domain>.prisma.
+
+enum Role {
+  PLATFORM_ADMIN
+  PLATFORM_MODERATOR
+  UNIVERSITY_ADMIN
+  UNIVERSITY_MODERATOR
+  DEAN
+  TEACHER
+  STAROSTA
+  STUDENT
+}
+
+enum UniversityStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+}
+
+enum InviteStatus {
+  PENDING
+  USED
+  EXPIRED
+  REVOKED
+}
+
+enum ApplicationStatus {
+  NEW
+  PROCESSING
+  CLARIFICATION
+  APPROVED
+  REJECTED
+  READY
+  CLOSED
+}
+
+enum AppType {
+  CERTIFICATE
+  MILITARY
+  UNIVERSAL
+  ACADEMIC
+  FINANCIAL
+  TECHNICAL
+  OTHER
+}
+
+enum PostAudience {
+  ALL
+  UNIVERSITY
+  FACULTY
+  GROUP
+  SUBJECT
+  TEACHERS
+  PERSONAL
+}
+
+enum ChatType {
+  PRIVATE
+  GROUP
+  GROUP_OFFICIAL
+  SUBJECT
+  FACULTY
+  DEAN
+  SUPPORT
+  EVENT
+}
+
+enum WeekType {
+  ODD
+  EVEN
+  BOTH
+}
+
+enum NotificationType {
+  SCHEDULE_CHANGE
+  APP_UPDATE
+  MESSAGE
+  POST
+  EVENT
+  SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+}
+
+enum ScheduleChangeType {
+  MOVED
+  ROOM_CHANGED
+  CANCELLED
+  SUBSTITUTED
+}
+
+enum ComplaintTargetType {
+  POST
+  STORY
+  COMMENT
+  MESSAGE
+  USER
+}
+
+enum ComplaintStatus {
+  PENDING
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}

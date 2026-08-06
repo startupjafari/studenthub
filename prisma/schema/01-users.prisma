@@ -1,0 +1,191 @@
+// Домен «Пользователи и доступ»: User, RefreshToken, Invite (docs/PROJECT.md §6).
+// Enum Role/InviteStatus — в _enums.prisma. Скоуп-поля university/faculty/group —
+// пока скаляры; FK-связи с академическими моделями добавит Фаза 5.
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  firstName         String    @map("first_name")
+  lastName          String    @map("last_name")
+  avatarUrl         String?   @map("avatar_url")
+  role              Role
+  // Настройка приватности: показывать ли email другим пользователям (docs/PROJECT.md §3.7).
+  showEmail         Boolean   @default(false) @map("show_email")
+  // Видимость профиля целиком («закрытый профиль»): PUBLIC/UNIVERSITY/FACULTY/GROUP/PRIVATE
+  // (docs/PROJECT.md §3.7). Хранится строкой (как visibility контента); дефолт по роли ставит сервис.
+  profileVisibility String    @default("UNIVERSITY") @map("profile_visibility")
+  universityId      String?   @map("university_id")
+  facultyId         String?   @map("faculty_id")
+  groupId           String?   @map("group_id")
+  isBlocked         Boolean   @default(false) @map("is_blocked")
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // ── Профиль (общие поля, у всех ролей) ──────────────────────────────────────
+  middleName String?   @map("middle_name")
+  phone      String?
+  showPhone  Boolean   @default(false) @map("show_phone")
+  bio        String?
+  birthDate  DateTime? @map("birth_date")
+  gender     String?
+  languages  String[]  @default([])
+  telegram   String?
+  instagram  String?
+  website    String?
+  headline   String?
+  timezone   String?
+  country    String?
+
+  // ── Профиль студента/старосты ───────────────────────────────────────────────
+  course            Int?
+  enrollmentYear    Int?      @map("enrollment_year")
+  graduationYear    Int?      @map("graduation_year")
+  educationLevel    String?   @map("education_level")
+  studyForm         String?   @map("study_form")
+  fundingType       String?   @map("funding_type")
+  specialty         String?
+  studentCardNumber String?   @map("student_card_number")
+  academicStatus    String?   @map("academic_status")
+  gpa               Float?
+  interests         String[]  @default([])
+  skills            String[]  @default([])
+  dormitory         String?
+  address           String?
+  starostaSince     DateTime? @map("starosta_since")
+  duties            String?
+
+  // ── Профиль сотрудников (преподаватель/декан/админ/модератор) ────────────────
+  position          String?
+  academicDegree    String?   @map("academic_degree")
+  academicTitle     String?   @map("academic_title")
+  department        String?
+  subjects          String[]  @default([])
+  officeRoom        String?   @map("office_room")
+  officeHours       String?   @map("office_hours")
+  employeeNumber    String?   @map("employee_number")
+  researchInterests String?   @map("research_interests")
+  publicationsUrl   String?   @map("publications_url")
+  appointmentDate   DateTime? @map("appointment_date")
+  workPhone         String?   @map("work_phone")
+  jobTitle          String?   @map("job_title")
+  responsibilities  String?
+  moderationAreas   String?   @map("moderation_areas")
+
+  refreshTokens        RefreshToken[]
+  invitesCreated       Invite[]              @relation("InviteCreatedBy")
+  invitesUsed          Invite[]              @relation("InviteUsedBy")
+  files                File[]
+  notifications        Notification[]
+  notificationSettings NotificationSettings?
+
+  // Расписание (Ф6): пары, которые ведёт преподаватель; изменения расписания, где он замена/автор.
+  pairsTaught            Pair[]           @relation("PairTeacher")
+  scheduleChangesAsNew   ScheduleChange[] @relation("ScheduleChangeNewTeacher")
+  scheduleChangesCreated ScheduleChange[] @relation("ScheduleChangeCreatedBy")
+
+  // Заявки (Ф7): поданные студентом; переходы статусов, выполненные пользователем.
+  applications       ApplicationRequest[]       @relation("StudentApplications")
+  applicationChanges ApplicationStatusHistory[] @relation("AppStatusChangedBy")
+
+  // Посты (Ф8): авторство, адресные посты, закрепления; комментарии и реакции.
+  posts         Post[]     @relation("PostAuthor")
+  postsTargeted Post[]     @relation("PostTarget")
+  postsPinned   Post[]     @relation("PostPinnedBy")
+  comments      Comment[]
+  reactions     Reaction[]
+
+  // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
+  chatMemberships  ChatMember[]
+  messages         Message[]
+  messagesPinned   Message[]         @relation("MessagePinnedBy")
+  messageReactions MessageReaction[]
+
+  // События (Ф10): организованные события и участия.
+  eventsOrganized     Event[]            @relation("EventOrganizer")
+  eventParticipations EventParticipant[]
+
+  // Жалобы (Ф11): поданные и разрешённые пользователем.
+  complaintsReported Complaint[] @relation("ComplaintReporter")
+  complaintsResolved Complaint[] @relation("ComplaintResolver")
+
+  // Материалы (Ф12): опубликованные преподавателем.
+  materials Material[] @relation("MaterialAuthor")
+
+  // Контент профиля (вкладки): статьи и опросы. Фото/видео — через File (бакет profile-media).
+  profileArticles ProfileArticle[] @relation("UserProfileArticles")
+  albums          Album[]          @relation("UserAlbums")
+  contentComments ContentComment[] @relation("UserContentComments")
+  bookmarks       Bookmark[]       @relation("UserBookmarks")
+
+  // Документы (Ф15): владелец. grantedById/actorId в доступе/журнале — скаляры (без обратной связи).
+  documents                Document[]           @relation("UserDocuments")
+  // Запросы вуза (Ф15C): сотрудник-автор запросов и студент-ответчик.
+  documentRequestsAuthored DocumentRequest[]    @relation("DocumentRequestsAuthored")
+  documentSubmissions      DocumentSubmission[] @relation("DocumentSubmissionsMade")
+  polls                    Poll[]               @relation("UserPolls")
+  pollVotes                PollVote[]           @relation("UserPollVotes")
+
+  // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
+  // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).
+  university      University? @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  faculty         Faculty?    @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  group           Group?      @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groupAsStarosta Group?      @relation("GroupStarosta")
+
+  @@index([role])
+  @@index([universityId])
+  @@index([facultyId])
+  @@index([groupId])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  // familyId = цепочка одной сессии/устройства; повторное использование
+  // инвалидированного токена рвёт всю цепочку (docs/BACKEND_RULES.md §6.2).
+  familyId  String    @map("family_id")
+  // Только bcrypt-хэш секрета; сам refresh в открытом виде в БД не хранится.
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Invite {
+  id           String       @id @default(uuid())
+  // Одноразовый токен из ссылки-приглашения; уникален, ключ для preview/регистрации.
+  token        String       @unique
+  role         Role
+  email        String?
+  universityId String?      @map("university_id")
+  facultyId    String?      @map("faculty_id")
+  groupId      String?      @map("group_id")
+  status       InviteStatus @default(PENDING)
+  expiresAt    DateTime     @map("expires_at")
+  createdById  String       @map("created_by_id")
+  usedById     String?      @map("used_by_id")
+  usedAt       DateTime?    @map("used_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  createdBy User  @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  usedBy    User? @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([status])
+  @@index([expiresAt])
+  @@index([createdById])
+  @@index([usedById])
+  @@index([email])
+  @@map("invites")
+}

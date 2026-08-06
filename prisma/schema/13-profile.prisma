@@ -1,0 +1,136 @@
+// Домен «Контент профиля»: статьи (расширенные) и опросы.
+// Фото/видео — File в бакете profile-media; обложки статей — profile-covers.
+// Видимость (visibility) — область охвата: ALL/UNIVERSITY/FACULTY/GROUP.
+
+model ProfileArticle {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  title          String
+  description    String?
+  content        String // markdown
+  coverUrl       String?   @map("cover_url")
+  coverGradient  String?   @map("cover_gradient")
+  category       String?
+  tags           String[]  @default([])
+  visibility     String    @default("ALL")
+  allowComments  Boolean   @default(true) @map("allow_comments")
+  status         String    @default("PUBLISHED")
+  readingMinutes Int?      @map("reading_minutes")
+  views          Int       @default(0)
+  publishedAt    DateTime? @map("published_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User             @relation("UserProfileArticles", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  comments  ContentComment[]
+  bookmarks Bookmark[]
+
+  @@index([userId, createdAt])
+  @@map("profile_articles")
+}
+
+// Комментарий к контенту профиля (статья/опрос). Отдельно от Comment (тот привязан к Post).
+model ContentComment {
+  id        String   @id @default(uuid())
+  authorId  String   @map("author_id")
+  articleId String?  @map("article_id")
+  pollId    String?  @map("poll_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  author  User            @relation("UserContentComments", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  article ProfileArticle? @relation(fields: [articleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  poll    Poll?           @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([articleId, createdAt])
+  @@index([pollId, createdAt])
+  @@map("content_comments")
+}
+
+// Закладка на статью (сохранить в закладки). Уникальна на пару пользователь-статья.
+model Bookmark {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  articleId String   @map("article_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User           @relation("UserBookmarks", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  article ProfileArticle @relation(fields: [articleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([userId])
+  @@map("bookmarks")
+}
+
+// Альбом фото профиля: группирует File (бакет profile-media) через File.albumId; обложка — coverFileId.
+model Album {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  title       String
+  coverFileId String?  @map("cover_file_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user  User   @relation("UserAlbums", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  cover File?  @relation("AlbumCover", fields: [coverFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  files File[] @relation("AlbumFiles")
+
+  @@index([userId])
+  @@map("albums")
+}
+
+model Poll {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  question          String
+  multiple          Boolean   @default(false)
+  anonymous         Boolean   @default(true)
+  allowRevote       Boolean   @default(false) @map("allow_revote")
+  resultsVisibility String    @default("AFTER_VOTE") @map("results_visibility")
+  visibility        String    @default("ALL")
+  status            String    @default("PUBLISHED")
+  closesAt          DateTime? @map("closes_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User             @relation("UserPolls", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  options  PollOption[]
+  votes    PollVote[]
+  comments ContentComment[]
+
+  @@index([userId, createdAt])
+  @@map("polls")
+}
+
+model PollOption {
+  id     String @id @default(uuid())
+  pollId String @map("poll_id")
+  text   String
+  order  Int
+
+  poll  Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  votes PollVote[]
+
+  @@index([pollId])
+  @@map("poll_options")
+}
+
+model PollVote {
+  id        String   @id @default(uuid())
+  pollId    String   @map("poll_id")
+  optionId  String   @map("option_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  poll   Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  option PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user   User       @relation("UserPollVotes", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Один голос на пользователя за конкретный вариант (несколько вариантов при multiple).
+  @@unique([optionId, userId])
+  @@index([pollId])
+  @@index([userId])
+  @@map("poll_votes")
+}

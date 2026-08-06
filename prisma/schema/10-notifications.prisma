@@ -1,0 +1,60 @@
+// Домен «Уведомления» (docs/PROJECT.md §5, §8, §9; docs/BACKEND_RULES.md §9).
+// Notification — запись в БД, создаётся процессором очереди `notifications` и
+// доставляется онлайн-клиенту WS-событием `notification:new`. NotificationSettings —
+// пользовательские настройки каналов: одна строка на пользователя.
+// Enum'ы NotificationType/NotificationChannel — в _enums.prisma.
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  body      String
+  // Полезная нагрузка: только идентификаторы для перехода (chatId, postId,
+  // applicationId, eventId, url и т.п.). Целые сущности не храним.
+  data      Json?
+  isRead    Boolean          @default(false) @map("is_read")
+  readAt    DateTime?        @map("read_at")
+  // Ключ идемпотентности: стабильный идентификатор источника (например `new-message:{messageId}`).
+  // Уникален в пределах пользователя — повторный запуск job'а не создаёт дубликат (docs/PROJECT.md §10.1).
+  // NULL разрешён для уведомлений без источника; Postgres считает NULL-значения различными.
+  dedupeKey String?          @map("dedupe_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Список уведомлений пользователя по времени; частичный запрос непрочитанных;
+  // [isRead, createdAt] — для cron cleanOldNotifications (прочитанные старше 30 дней).
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
+  @@index([isRead, createdAt])
+  @@map("notifications")
+}
+
+model NotificationSettings {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  // Мастер-переключатели каналов доставки. IN_APP (колокол) доставляется всегда,
+  // отдельного флага не имеет. PUSH выключен по умолчанию до Ф13.3.
+  emailEnabled Boolean @default(true) @map("email_enabled")
+  pushEnabled  Boolean @default(false) @map("push_enabled")
+
+  // Пер-тип отключение: если тип выключен — уведомление не создаётся и не рассылается
+  // ни по одному каналу (кроме SYSTEM, который сервис доставляет принудительно).
+  scheduleChangeEnabled Boolean @default(true) @map("schedule_change_enabled")
+  appUpdateEnabled      Boolean @default(true) @map("app_update_enabled")
+  messageEnabled        Boolean @default(true) @map("message_enabled")
+  postEnabled           Boolean @default(true) @map("post_enabled")
+  eventEnabled          Boolean @default(true) @map("event_enabled")
+  systemEnabled         Boolean @default(true) @map("system_enabled")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("notification_settings")
+}
