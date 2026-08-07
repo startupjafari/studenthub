@@ -10,7 +10,8 @@ import {
   profileContentKeys,
   uploadProfileMediaAuto,
 } from '../../../entities/profile-content'
-import { Button } from '../../../shared/ui'
+import { Button, FormAlert } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
 import { AvatarCropModal } from './avatar-crop-modal'
@@ -131,8 +132,8 @@ export function PhotoCreateModal({ userId, onClose }: CreateModalProps) {
 // ── Видео: загрузка + раскадровка (выбор обложки) → публикация ─────────────────
 export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
   const t = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [file, setFile] = useState<File | null>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [cover, setCover] = useState<VideoCover | null>(null)
@@ -169,16 +170,18 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
       }
       return media
     },
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
       toast.success(t('mediaUploaded'))
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => showApiError(e),
   })
 
   return (
     <ContentModal title={t('uploadVideo')} onClose={onClose} size="upload">
+      <FormAlert error={apiError} />
       {file && url ? (
         <>
           <video

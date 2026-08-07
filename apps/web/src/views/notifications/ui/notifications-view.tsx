@@ -331,7 +331,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                         )}
                       </div>
                     </button>
-                    <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+                    {/* Меню действий — вне потока (absolute), чтобы не «съедать» ширину строки:
+                        иначе время уведомления не доходит до правого края (особенно на мобильном, где нет hover). */}
+                    <div className="absolute right-1 top-1.5 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <NotificationMenu
                         isRead={n.isRead}
                         onMarkRead={() => readMut.mutate(n.id)}

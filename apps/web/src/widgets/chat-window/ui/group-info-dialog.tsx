@@ -186,17 +186,17 @@ export function GroupInfoDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 duration-150 animate-in fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 duration-150 animate-in fade-in md:p-4"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-lg duration-150 animate-in zoom-in-95"
+        className="flex h-full w-full flex-col overflow-hidden border-border bg-background shadow-lg duration-150 animate-in slide-in-from-bottom-4 md:h-auto md:max-h-[85vh] md:max-w-sm md:rounded-2xl md:border md:slide-in-from-bottom-0 md:zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Шапка */}
-        <div className="relative flex flex-col items-center gap-2 border-b border-border p-5">
+        <div className="relative flex flex-col items-center gap-2 border-b border-border p-5 pt-[calc(1.25rem+env(safe-area-inset-top))] md:pt-5">
           <button
             type="button"
             aria-label={t('cancel')}
@@ -357,7 +357,7 @@ export function GroupInfoDialog({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-2 pb-3">
+        <div className="flex-1 overflow-y-auto px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           {members.isLoading ? (
             <div className="flex flex-col gap-2 p-2">
               <Skeleton className="h-11 w-full" />

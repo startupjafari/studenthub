@@ -13,6 +13,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -21,11 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 
 export function SubmitApplicationForm({ onCreated }: { onCreated?: (id: string) => void }) {
   const t = useTranslations('Applications')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const form = useForm<CreateApplicationInput>({
     resolver: zodResolver(CreateApplicationSchema),
@@ -34,13 +36,14 @@ export function SubmitApplicationForm({ onCreated }: { onCreated?: (id: string) 
 
   const mutation = useMutation({
     mutationFn: createApplicationRequest,
+    onMutate: () => resetApiError(),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: applicationKeys.all })
       form.reset({ type: 'CERTIFICATE', subject: '', body: '' })
       toast.success(t('created'))
       onCreated?.(created.id)
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => showApiError(e),
   })
 
   return (
@@ -53,6 +56,7 @@ export function SubmitApplicationForm({ onCreated }: { onCreated?: (id: string) 
           onSubmit={form.handleSubmit((v) => mutation.mutate(v))}
           className="flex flex-col gap-3"
         >
+          <FormAlert error={apiError} />
           <div className="flex flex-col gap-2">
             <Label>{t('type')}</Label>
             <Controller
