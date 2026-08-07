@@ -89,25 +89,28 @@ async function main() {
     faculty: { universityId: SEED_UNIVERSITY_ID, facultyId: faculty.id },
     group: { universityId: SEED_UNIVERSITY_ID, facultyId: faculty.id, groupId: 'seed-group-001' },
   }
+  // Реалистичные имена: роль показывается отдельным бейджем, поэтому имя-плейсхолдер
+  // из слов роли («Декан Факультета») читалось некорректно в любом порядке — заменено.
   const devUsers = [
-    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Платформенный', 'Модератор', {}],
+    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Марат', 'Сулейменов', {}],
     [
       'UNIVERSITY_ADMIN',
       'university-admin@studenthub.app',
-      'Администратор',
-      'Вуза',
+      'Айгуль',
+      'Нурланова',
       scope.university,
     ],
-    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Модератор', 'Вуза', scope.university], // prettier-ignore
-    ['DEAN', 'dean@studenthub.app', 'Декан', 'Факультета', scope.faculty],
-    ['TEACHER', 'teacher@studenthub.app', 'Преподаватель', 'Демонстрационный', scope.faculty],
-    ['STAROSTA', 'starosta@studenthub.app', 'Староста', 'Группы', scope.group],
-    ['STUDENT', 'student@studenthub.app', 'Студент', 'Демонстрационный', scope.group],
+    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Тимур', 'Байжанов', scope.university], // prettier-ignore
+    ['DEAN', 'dean@studenthub.app', 'Дамир', 'Ахметов', scope.faculty],
+    ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty],
+    ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group],
+    ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group],
   ]
   for (const [role, email, firstName, lastName, userScope] of devUsers) {
     await prisma.user.upsert({
       where: { email },
-      update: {},
+      // Синхронизируем имя на существующих dev-аккаунтах (иначе старые плейсхолдеры остаются).
+      update: { firstName, lastName },
       create: { email, passwordHash, firstName, lastName, role, ...userScope },
     })
   }

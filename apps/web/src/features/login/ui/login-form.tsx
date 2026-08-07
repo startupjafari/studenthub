@@ -8,16 +8,17 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Eye, EyeOff } from 'lucide-react'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
-import { Button, Input, Label } from '../../../shared/ui'
+import { Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { loginRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
 
 export function LoginForm() {
   const t = useTranslations('Auth')
-  const tErr = useTranslations('Errors')
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const {
     register,
     handleSubmit,
@@ -25,13 +26,14 @@ export function LoginForm() {
   } = useForm<LoginInput>({ resolver: zodResolver(LoginSchema) })
 
   async function onSubmit(values: LoginInput) {
+    resetApiError()
     try {
       const token = await loginRequest(values.email, values.password)
       const role = await establishSession(token)
       router.replace(ROLE_HOME[role])
     } catch (err) {
-      // Серверные ошибки (401/429/500) — тостом справа внизу; полевые zod — под полями (§7).
-      toast.error(tErr((err as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      // Серверные ошибки (в т.ч. VALIDATION_ERROR с details[]) — в Alert над формой (§5.4/§7).
+      showApiError(err)
     }
   }
 
@@ -43,6 +45,7 @@ export function LoginForm() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+        <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
           <Label htmlFor="email">{t('email')}</Label>
           <Input

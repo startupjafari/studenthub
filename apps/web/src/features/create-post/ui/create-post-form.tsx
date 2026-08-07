@@ -14,6 +14,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
+import { useFormAlert } from '../../../shared/lib'
 import { uploadFileRequest } from '../../../shared/api'
 import { createPostRequest, postKeys } from '../../../entities/post'
 import { fetchGroups, groupKeys } from '../../../entities/group'
@@ -24,6 +25,7 @@ import {
   Card,
   CardContent,
   DateTimePicker,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -65,6 +67,7 @@ export function CreatePostForm({
   const tPeople = useTranslations('People')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const role = useAppSelector((s) => s.auth.role)
   const [media, setMedia] = useState<UploadedMedia[]>([])
   const [uploading, setUploading] = useState(false)
@@ -104,6 +107,7 @@ export function CreatePostForm({
   const mutation = useMutation({
     mutationFn: (input: CreatePostInput) =>
       createPostRequest({ ...input, mediaIds: media.map((m) => m.id), targetUserId: target?.id }),
+    onMutate: () => resetApiError(),
     onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       form.reset({ audience: audiences[0], content: '' })
@@ -120,7 +124,7 @@ export function CreatePostForm({
       )
       onCreated?.()
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => showApiError(e),
   })
 
   // Отложенная публикация: значение datetime-local (пусто — опубликовать сразу).
@@ -168,6 +172,7 @@ export function CreatePostForm({
       }}
       className="flex flex-col gap-6 py-2 sm:px-2"
     >
+      <FormAlert error={apiError} />
       {/* 1. Одна область загрузки (фото и видео) */}
       <input
         ref={fileRef}

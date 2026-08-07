@@ -12,6 +12,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
+import { useFormAlert } from '../../../shared/lib'
 import { createEventRequest, eventKeys } from '../../../entities/event'
 import { fetchGroups, groupKeys } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
@@ -22,6 +23,7 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -49,8 +51,8 @@ function toIso(local: string): string {
 
 export function CreateEventForm() {
   const t = useTranslations('Events')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const role = useAppSelector((s) => s.auth.role)
   const audiences = role ? (UI_AUDIENCES[role] ?? []) : []
 
@@ -75,12 +77,13 @@ export function CreateEventForm() {
 
   const mutation = useMutation({
     mutationFn: (input: CreateEventInput) => createEventRequest(input),
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: eventKeys.all })
       form.reset({ audience: audiences[0], isOnline: false })
       toast.success(t('created'))
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => showApiError(e),
   })
 
   if (audiences.length === 0) return null
@@ -95,6 +98,11 @@ export function CreateEventForm() {
           onSubmit={form.handleSubmit((v) => mutation.mutate(v))}
           className="grid gap-3 sm:grid-cols-2"
         >
+          {apiError && (
+            <div className="sm:col-span-2">
+              <FormAlert error={apiError} />
+            </div>
+          )}
           <div className="flex flex-col gap-2 sm:col-span-2">
             <Label htmlFor="ev-title">{t('eventTitle')}</Label>
             <Input id="ev-title" {...form.register('title')} />

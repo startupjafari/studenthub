@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -26,6 +27,7 @@ import {
   SelectValue,
   Skeleton,
 } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { fetchGroups, groupKeys } from '../../../entities/group'
@@ -55,6 +57,7 @@ export function CreateInvite() {
   const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [created, setCreated] = useState<CreatedInvite | null>(null)
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
@@ -71,13 +74,14 @@ export function CreateInvite() {
 
   const createMut = useMutation({
     mutationFn: createInviteRequest,
+    onMutate: () => resetApiError(),
     onSuccess: (invite) => {
       setCreated(invite)
       void qc.invalidateQueries({ queryKey: inviteKeys.list() })
       form.reset({ role: undefined, email: undefined, facultyId: undefined, groupId: undefined })
       toast.success(t('created'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => showApiError(e),
   })
 
   const revokeMut = useMutation({
@@ -131,6 +135,7 @@ export function CreateInvite() {
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+            <FormAlert error={apiError} />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <Label>{t('roleLabel')}</Label>
