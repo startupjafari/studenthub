@@ -19,6 +19,9 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT')
           host: config.get('REDIS_HOST', { infer: true }),
           port: config.get('REDIS_PORT', { infer: true }),
           password: config.get('REDIS_PASSWORD', { infer: true }) || undefined,
+          // family: 0 — dual-stack DNS: приватная сеть Railway (*.railway.internal) отдаёт
+          // только IPv6, а ioredis по умолчанию идёт по IPv4 → connect ETIMEDOUT. Локально безвредно.
+          family: 0,
           lazyConnect: true,
           maxRetriesPerRequest: null,
         }),

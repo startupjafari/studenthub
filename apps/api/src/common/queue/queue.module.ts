@@ -19,6 +19,8 @@ import { QueueService } from './queue.service'
           host: config.get('REDIS_HOST', { infer: true }),
           port: config.get('REDIS_PORT', { infer: true }),
           password: config.get('REDIS_PASSWORD', { infer: true }) || undefined,
+          // family: 0 — dual-stack DNS для IPv6-приватной сети Railway (см. RedisModule).
+          family: 0,
           maxRetriesPerRequest: null,
         },
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
