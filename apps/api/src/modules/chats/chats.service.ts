@@ -152,13 +152,17 @@ export class ChatsService {
             select: {
               chatId: true,
               userId: true,
-              user: { select: { avatarUrl: true } },
+              user: { select: { avatarUrl: true, firstName: true, lastName: true } },
             },
           })
         : []
     const otherMap = new Map(others.map((o) => [o.chatId, o.userId]))
     // Аватар собеседника — для показа в личных чатах вместо инициалов.
     const otherAvatarMap = new Map(others.map((o) => [o.chatId, o.user?.avatarUrl ?? null]))
+    // Имя собеседника — заголовок PRIVATE-чата (у самой сущности chat.title = null).
+    const otherNameMap = new Map(
+      others.map((o) => [o.chatId, `${o.user?.lastName ?? ''} ${o.user?.firstName ?? ''}`.trim()]),
+    )
     const otherIds = [...new Set(others.map((o) => o.userId))]
     const blocks =
       otherIds.length > 0
@@ -225,7 +229,8 @@ export class ChatsService {
       return {
         id: c.id,
         type: c.type,
-        title: c.title,
+        // Личный чат — имя собеседника (в сущности chat.title = null); групповой/официальный — своё название.
+        title: c.type === ChatType.PRIVATE ? otherNameMap.get(c.id) || c.title : c.title,
         // Личный чат — аватар собеседника; групповой — аватар группы.
         avatarUrl: c.type === ChatType.PRIVATE ? (otherAvatarMap.get(c.id) ?? null) : c.avatarUrl,
         subject: c.subject,

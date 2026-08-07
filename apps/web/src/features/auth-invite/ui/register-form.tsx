@@ -12,7 +12,8 @@ import { toast } from 'sonner'
 import { Eye, EyeOff, Loader2, ShieldAlert, Upload, X } from 'lucide-react'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { RegisterByInviteSchema, type RegisterByInviteInput } from '@studenthub/shared-schemas'
-import { Badge, Button, Input, Label } from '../../../shared/ui'
+import { Badge, Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
 import { establishSession } from '../../../shared/session'
@@ -41,7 +42,6 @@ const AVATAR_MIMES = FILE_UPLOAD.ALLOWED_MIME.IMAGE as readonly string[]
 
 export function RegisterByInviteForm({ token }: { token: string }) {
   const t = useTranslations('Auth')
-  const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
   const tCommon = useTranslations('Common')
   const tStrength = useTranslations('Auth.passwordStrength')
@@ -50,6 +50,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [avatarError, setAvatarError] = useState<string | null>(null)
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const preview = useQuery({
     queryKey: ['invite-preview', token],
@@ -97,6 +98,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   }
 
   async function onSubmit(values: RegisterByInviteInput) {
+    resetApiError()
     try {
       const accessToken = await registerByInviteRequest(values)
       const role = await establishSession(accessToken)
@@ -110,8 +112,8 @@ export function RegisterByInviteForm({ token }: { token: string }) {
       }
       router.replace(ROLE_HOME[role])
     } catch (err) {
-      // Серверные ошибки — тостом справа внизу (§7 полевые ошибки остаются под полями).
-      toast.error(tErr((err as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      // Серверные ошибки (в т.ч. VALIDATION_ERROR с details[]) — в Alert над формой (§5.4/§7).
+      showApiError(err)
     }
   }
 
@@ -167,6 +169,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
 
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <input type="hidden" {...register('token')} />
+        <FormAlert error={apiError} />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">

@@ -10,6 +10,7 @@ import { createPoll, pollKeys, updatePoll, type PollView } from '../../../entiti
 import {
   Button,
   Checkbox,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -18,12 +19,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
-
-function errCode(e: unknown): string {
-  return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
-}
 
 type ClosePreset = 'none' | '1d' | '3d' | '7d' | 'custom'
 
@@ -35,8 +33,8 @@ interface Props {
 
 export function PollCreateModal({ userId, initial, onClose }: Props) {
   const t = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const [question, setQuestion] = useState(initial?.question ?? '')
   const [options, setOptions] = useState<string[]>(
@@ -70,12 +68,13 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
       }
       return initial ? updatePoll(initial.id, input) : createPoll(input)
     },
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: pollKeys.byUser(userId) })
       toast.success(t('saved'))
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => showApiError(e),
   })
 
   function closesAt(): Date | null {
@@ -98,6 +97,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
 
   return (
     <ContentModal title={initial ? t('editPoll') : t('addPoll')} onClose={onClose} size="lg">
+      <FormAlert error={apiError} />
       {/* Вопрос */}
       <div className="flex flex-col gap-2">
         <Label htmlFor="poll-q">{t('pollQuestion')}</Label>

@@ -19,6 +19,7 @@ import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   Button,
   EmptyState,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -28,6 +29,7 @@ import {
   SelectValue,
   Skeleton,
 } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { fetchGroups, groupKeys } from '../../../entities/group'
 import { fetchRooms, roomKeys } from '../../../entities/room'
 import { fetchMe, userKeys } from '../../../entities/user'
@@ -65,8 +67,8 @@ function addMinutes(hhmm: string, delta: number): string {
 export function ManageSchedule() {
   const t = useTranslations('Schedule')
   const tPeople = useTranslations('People')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
@@ -105,9 +107,13 @@ export function ManageSchedule() {
   }
 
   // ── контейнеры ─────────────────────────────────────────────────────────
+  // Отдельный alert для диалога создания контейнера: он рендерится выше боковой панели,
+  // где живёт основной FormAlert, и может быть открыт ещё до появления контейнера.
+  const containerAlert = useFormAlert()
   const [newContainerName, setNewContainerName] = useState('')
   const createContainer = useMutation({
     mutationFn: () => createScheduleRequest({ groupId, name: newContainerName.trim() }),
+    onMutate: () => containerAlert.reset(),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       setContainerId(created.id)
@@ -115,16 +121,17 @@ export function ManageSchedule() {
       setNewContainerOpen(false)
       toast.success(t('containerCreated'))
     },
-    onError: (e) => toast.error(tErr(apiErr(e).code)),
+    onError: (e) => containerAlert.show(e),
   })
 
   const activateContainer = useMutation({
     mutationFn: (id: string) => updateScheduleRequest(id, { isActive: true }),
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       toast.success(t('containerActivated'))
     },
-    onError: (e) => toast.error(tErr(apiErr(e).code)),
+    onError: (e) => showApiError(e),
   })
 
   // ── добавление пары ──────────────────────────────────────────────────────
@@ -139,6 +146,7 @@ export function ManageSchedule() {
 
   const createPair = useMutation({
     mutationFn: (input: CreatePairInput) => createPairRequest(input),
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidateContainer()
       pairForm.reset({ scheduleId: containerId, weekType: 'BOTH', dayOfWeek: 1 })
@@ -151,19 +159,20 @@ export function ManageSchedule() {
         const msgs = err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric')
         toast.error(t('conflictTitle'), { description: msgs })
       } else {
-        toast.error(tErr(err.code))
+        showApiError(e)
       }
     },
   })
 
   const deletePair = useMutation({
     mutationFn: (id: string) => deletePairRequest(id),
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidateContainer()
       setSelectedPair(null)
       toast.success(t('pairDeleted'))
     },
-    onError: (e) => toast.error(tErr(apiErr(e).code)),
+    onError: (e) => showApiError(e),
   })
 
   // ── создание замены ──────────────────────────────────────────────────────
@@ -176,13 +185,14 @@ export function ManageSchedule() {
 
   const createChange = useMutation({
     mutationFn: (input: CreateScheduleChangeInput) => createScheduleChangeRequest(input),
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.all })
       changeForm.reset({ type: 'CANCELLED', pairId: selectedPair?.id })
       setChangeTeacher(null)
       toast.success(t('changeCreated'))
     },
-    onError: (e) => toast.error(tErr(apiErr(e).code)),
+    onError: (e) => showApiError(e),
   })
 
   const roomItems = rooms.data ?? []
@@ -288,24 +298,27 @@ export function ManageSchedule() {
 
       {/* Создание контейнера */}
       {groupId && newContainerOpen && (
-        <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 duration-150 animate-in fade-in slide-in-from-top-1 sm:flex-row sm:items-end">
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Label htmlFor="cname">{t('newContainerName')}</Label>
-            <Input
-              id="cname"
-              value={newContainerName}
-              onChange={(e) => setNewContainerName(e.target.value)}
-              placeholder={t('newContainerPlaceholder')}
-            />
+        <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 duration-150 animate-in fade-in slide-in-from-top-1">
+          <FormAlert error={containerAlert.error} />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label htmlFor="cname">{t('newContainerName')}</Label>
+              <Input
+                id="cname"
+                value={newContainerName}
+                onChange={(e) => setNewContainerName(e.target.value)}
+                placeholder={t('newContainerPlaceholder')}
+              />
+            </div>
+            <Button
+              type="button"
+              loading={createContainer.isPending}
+              disabled={newContainerName.trim().length === 0}
+              onClick={() => createContainer.mutate()}
+            >
+              {t('createContainer')}
+            </Button>
           </div>
-          <Button
-            type="button"
-            loading={createContainer.isPending}
-            disabled={newContainerName.trim().length === 0}
-            onClick={() => createContainer.mutate()}
-          >
-            {t('createContainer')}
-          </Button>
         </div>
       )}
 
@@ -343,6 +356,7 @@ export function ManageSchedule() {
 
           {/* Боковая панель: пара (детали + замена) ИЛИ добавление */}
           <aside className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
+            <FormAlert error={apiError} />
             {selectedPair ? (
               <>
                 <div className="flex items-start justify-between gap-2">
