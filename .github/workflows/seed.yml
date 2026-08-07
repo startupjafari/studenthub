@@ -1,0 +1,71 @@
+name: Seed (Railway)
+
+# Разовый РУЧНОЙ прогон миграций + seed против БД Railway.
+# Нужен, когда с локальной машины БД недоступна (фильтр исходящих портов и т.п.):
+# у GitHub-раннера открытый egress, он достаёт публичный proxy Postgres.
+#
+# ВНИМАНИЕ: seed создаёт демо-пользователей со слабым паролем (Admin1234!).
+# Запускать осознанно; в проде креды потом сменить/удалить.
+#
+# Требуется секрет репозитория DATABASE_PUBLIC_URL = значение DATABASE_PUBLIC_URL
+# из сервиса Postgres в Railway (Settings → Secrets and variables → Actions).
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: 'Применить миграции (db:deploy) перед seed'
+        type: boolean
+        default: true
+      run_seed:
+        description: 'Запустить seed (db:seed)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: seed-railway
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    name: migrate · seed
+    runs-on: ubuntu-latest
+    # Отдельное окружение — чтобы секрет prod-БД можно было ограничить ревью/правилами.
+    environment: production
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+
+    steps:
+      - name: Guard — секрет задан
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      - name: Apply migrations (db:deploy)
+        if: ${{ inputs.run_migrations }}
+        run: pnpm db:deploy
+
+      - name: Seed (db:seed)
+        if: ${{ inputs.run_seed }}
+        run: pnpm db:seed

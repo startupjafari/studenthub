@@ -81,8 +81,43 @@ async function main() {
     },
   })
 
+  // Dev-пользователи по всем ролям (кроме PLATFORM_ADMIN — он выше). Все с паролем
+  // Admin1234!, привязаны к демо-скоупу. Идемпотентно (upsert по email, update:{} —
+  // повторный запуск не трогает пароль/профиль). Только для dev/демо — в проде сменить/удалить.
+  const scope = {
+    university: { universityId: SEED_UNIVERSITY_ID },
+    faculty: { universityId: SEED_UNIVERSITY_ID, facultyId: faculty.id },
+    group: { universityId: SEED_UNIVERSITY_ID, facultyId: faculty.id, groupId: 'seed-group-001' },
+  }
+  const devUsers = [
+    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Платформенный', 'Модератор', {}],
+    [
+      'UNIVERSITY_ADMIN',
+      'university-admin@studenthub.app',
+      'Администратор',
+      'Вуза',
+      scope.university,
+    ],
+    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Модератор', 'Вуза', scope.university], // prettier-ignore
+    ['DEAN', 'dean@studenthub.app', 'Декан', 'Факультета', scope.faculty],
+    ['TEACHER', 'teacher@studenthub.app', 'Преподаватель', 'Демонстрационный', scope.faculty],
+    ['STAROSTA', 'starosta@studenthub.app', 'Староста', 'Группы', scope.group],
+    ['STUDENT', 'student@studenthub.app', 'Студент', 'Демонстрационный', scope.group],
+  ]
+  for (const [role, email, firstName, lastName, userScope] of devUsers) {
+    await prisma.user.upsert({
+      where: { email },
+      update: {},
+      create: { email, passwordHash, firstName, lastName, role, ...userScope },
+    })
+  }
+
   console.log('Seed готов:')
   console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
+  console.log('  Пользователи по ролям (пароль у всех Admin1234!):')
+  for (const [role, email] of devUsers) {
+    console.log(`    ${role}: ${email}`)
+  }
   console.log(
     '  Демо-вуз: Демонстрационный университет (ACTIVE) + факультет ИТ + группа ИТ-23-1 + 3 аудитории',
   )
