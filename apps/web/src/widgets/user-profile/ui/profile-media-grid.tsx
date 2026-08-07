@@ -255,7 +255,9 @@ export function ProfileMediaGrid({
       ) : (
         <ContentLayout
           sidebar={
-            <>
+            // Мобильный: «Альбомы» и «Сортировка» в один компактный ряд (flex-wrap, меньше отступы).
+            // Десктоп (lg): прежняя вертикальная колонка.
+            <div className="flex flex-wrap gap-x-8 gap-y-3 lg:flex-col lg:flex-nowrap lg:gap-5">
               {/* Альбомы (только фото) */}
               {isPhoto && (albums.length > 0 || isOwner) && (
                 <FilterGroup
@@ -354,7 +356,7 @@ export function ProfileMediaGrid({
                   label={t('sortOldest')}
                 />
               </FilterGroup>
-            </>
+            </div>
           }
         >
           <div className="flex flex-col gap-4">

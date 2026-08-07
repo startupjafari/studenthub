@@ -14,7 +14,6 @@ import {
   CheckCheck,
   ChevronDown,
   ChevronLeft,
-  ChevronRight,
   Download,
   Forward,
   Loader2,
@@ -79,7 +78,7 @@ import { BlockedUsersDialog } from './blocked-users-dialog'
 import { CreateGroupDialog } from './create-group-dialog'
 import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useChatListSlot, useMediaQuery } from '../../../shared/lib'
+import { useChatListSlot, useMediaQuery, useSetChatOpen } from '../../../shared/lib'
 
 const OFFICIAL_LABEL: Partial<Record<ChatTypeValue, string>> = {
   GROUP_OFFICIAL: 'typeGroupOfficial',
@@ -122,19 +121,16 @@ function avatarColor(id: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? 'bg-sky-500'
 }
 
-// Тег-категория чата под превью (Telegram-стиль «папок»): i18n-ключ + цветовая заливка по типу.
-const TYPE_TAG: Record<ChatTypeValue, { key: string; cls: string }> = {
-  PRIVATE: { key: 'tagPrivate', cls: 'bg-sky-500/15 text-sky-600 dark:text-sky-400' },
-  GROUP: { key: 'tagGroup', cls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400' },
-  GROUP_OFFICIAL: {
-    key: 'tagGroupOfficial',
-    cls: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400',
-  },
-  SUBJECT: { key: 'tagSubject', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
-  FACULTY: { key: 'tagFaculty', cls: 'bg-violet-500/15 text-violet-600 dark:text-violet-400' },
-  DEAN: { key: 'tagDean', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-500' },
-  SUPPORT: { key: 'tagSupport', cls: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' },
-  EVENT: { key: 'tagEvent', cls: 'bg-teal-500/15 text-teal-600 dark:text-teal-400' },
+// Тег-категория чата под превью (Telegram-стиль «папок»): i18n-ключ + приглушённая точка-цвет по типу.
+const TYPE_TAG: Record<ChatTypeValue, { key: string; dot: string }> = {
+  PRIVATE: { key: 'tagPrivate', dot: 'bg-sky-500' },
+  GROUP: { key: 'tagGroup', dot: 'bg-indigo-500' },
+  GROUP_OFFICIAL: { key: 'tagGroupOfficial', dot: 'bg-indigo-500' },
+  SUBJECT: { key: 'tagSubject', dot: 'bg-emerald-500' },
+  FACULTY: { key: 'tagFaculty', dot: 'bg-violet-500' },
+  DEAN: { key: 'tagDean', dot: 'bg-amber-500' },
+  SUPPORT: { key: 'tagSupport', dot: 'bg-rose-500' },
+  EVENT: { key: 'tagEvent', dot: 'bg-teal-500' },
 }
 
 function listTime(iso: string, locale: string): string {
@@ -160,6 +156,9 @@ export function ChatWindow() {
   const listSlot = useChatListSlot()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const embedded = isDesktop && !!listSlot
+  // Открытый чат — полноэкранная поверхность на мобильном: просим оболочку скрыть нижнюю навигацию,
+  // иначе фиксированная панель перекрывает поле ввода сообщения.
+  const setChatOpen = useSetChatOpen()
 
   const [newChatOpen, setNewChatOpen] = useState(false)
   const [blockedOpen, setBlockedOpen] = useState(false)
@@ -513,6 +512,12 @@ export function ChatWindow() {
     return () => clearInterval(timer)
   }, [])
 
+  // Сообщаем оболочке, открыт ли чат (полноэкранный режим → скрыть нижнюю навигацию на мобильном).
+  useEffect(() => {
+    setChatOpen?.(!!activeId)
+    return () => setChatOpen?.(false)
+  }, [activeId, setChatOpen])
+
   // Черновик: при переключении чата подставляем сохранённый текст (или пусто).
   useEffect(() => {
     setEditing(null)
@@ -590,6 +595,90 @@ export function ChatWindow() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     setHighlightId(messageId)
     window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 1400)
+  }
+
+  // ── Тач-жесты по сообщению (мобильный) ──────────────────────────────────────
+  // Долгое нажатие → меню действий; свайп вправо → ответ. На десктопе жесты не мешают
+  // (нет touch), контекстное меню/hover-кнопки остаются. touch-action:pan-y на строке
+  // отдаёт вертикальный скролл браузеру, а горизонтальный жест — нам.
+  const LONG_PRESS_MS = 450
+  const SWIPE_REPLY_PX = 64
+  const msgTouch = useRef<{
+    m: ChatMessage
+    startX: number
+    startY: number
+    bubble: HTMLElement | null
+    timer: ReturnType<typeof setTimeout> | null
+    longFired: boolean
+    swiping: boolean
+  } | null>(null)
+
+  function resetBubble(bubble: HTMLElement | null, animate: boolean): void {
+    if (!bubble) return
+    bubble.style.transition = animate ? 'transform 150ms ease' : 'none'
+    bubble.style.transform = ''
+  }
+
+  function onMsgTouchStart(e: React.TouchEvent<HTMLLIElement>, m: ChatMessage): void {
+    const tch = e.touches[0]
+    if (!tch) return
+    const bubble = e.currentTarget.querySelector<HTMLElement>('[data-bubble]')
+    const x = tch.clientX
+    const y = tch.clientY
+    const timer = setTimeout(() => {
+      const s = msgTouch.current
+      if (!s) return
+      s.longFired = true
+      resetBubble(s.bubble, true)
+      setMenu({ message: m, x, y })
+    }, LONG_PRESS_MS)
+    msgTouch.current = {
+      m,
+      startX: x,
+      startY: y,
+      bubble,
+      timer,
+      longFired: false,
+      swiping: false,
+    }
+  }
+
+  function onMsgTouchMove(e: React.TouchEvent<HTMLLIElement>): void {
+    const s = msgTouch.current
+    const tch = e.touches[0]
+    if (!s || !tch || s.longFired) return
+    const dx = tch.clientX - s.startX
+    const dy = tch.clientY - s.startY
+    // Любое заметное движение отменяет долгое нажатие.
+    if (s.timer && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      clearTimeout(s.timer)
+      s.timer = null
+    }
+    // Свайп вправо (преимущественно горизонтальный) → сдвигаем пузырь как визуальную подсказку.
+    if (dx > 0 && Math.abs(dy) < 24) {
+      s.swiping = true
+      const shift = Math.min(dx, 72)
+      if (s.bubble) {
+        s.bubble.style.transition = 'none'
+        s.bubble.style.transform = `translateX(${shift}px)`
+      }
+    } else if (s.swiping && dx <= 0) {
+      resetBubble(s.bubble, false)
+    }
+  }
+
+  function onMsgTouchEnd(e: React.TouchEvent<HTMLLIElement>): void {
+    const s = msgTouch.current
+    if (!s) return
+    if (s.timer) {
+      clearTimeout(s.timer)
+      s.timer = null
+    }
+    const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
+    resetBubble(s.bubble, true)
+    // Свайп вправо дальше порога (и это не было долгим нажатием) → ответ на сообщение.
+    if (!s.longFired && s.swiping && dx > SWIPE_REPLY_PX) setReplyTo(s.m)
+    msgTouch.current = null
   }
 
   // Единая навигация по закреплённым (клик по бару и стрелки ◀▶ используют её — без рассинхрона).
@@ -812,6 +901,8 @@ export function ChatWindow() {
         className={cn(
           'flex-1 overflow-y-auto',
           'duration-300 animate-in fade-in slide-in-from-left-4',
+          // Инлайн-список (мобильный/планшет) — отступ снизу под фиксированную нижнюю навигацию + safe-area.
+          !embedded && 'pb-[calc(6rem+env(safe-area-inset-bottom))]',
         )}
       >
         {listSearchTerm.length >= 2 ? (
@@ -984,9 +1075,9 @@ export function ChatWindow() {
                     )}
                     {lastMine &&
                       (lastRead ? (
-                        <CheckCheck className="size-3.5 shrink-0 text-sky-500" aria-hidden />
+                        <CheckCheck className="size-3 shrink-0 text-sky-500/80" aria-hidden />
                       ) : (
-                        <Check className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <Check className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                       ))}
                     {lm && (
                       <span className="shrink-0 text-[0.7rem] text-muted-foreground">
@@ -1002,7 +1093,7 @@ export function ChatWindow() {
                     {c.unreadCount > 0 && (
                       <span
                         className={cn(
-                          'flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-semibold tabular-nums text-white',
+                          'flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium tabular-nums text-white',
                           c.muted ? 'bg-muted-foreground/60' : 'bg-primary',
                         )}
                       >
@@ -1010,16 +1101,13 @@ export function ChatWindow() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-1">
+                  <span className="mt-0.5 inline-flex items-center gap-1 text-[0.6rem] font-medium uppercase tracking-wide text-muted-foreground">
                     <span
-                      className={cn(
-                        'inline-flex items-center rounded px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide',
-                        tag.cls,
-                      )}
-                    >
-                      {t(tag.key)}
-                    </span>
-                  </div>
+                      className={cn('size-1.5 shrink-0 rounded-full opacity-70', tag.dot)}
+                      aria-hidden
+                    />
+                    {t(tag.key)}
+                  </span>
                 </div>
               </button>
             )
@@ -1244,55 +1332,31 @@ export function ChatWindow() {
                 const cur = pinnedList[idx]
                 if (!cur) return null
                 return (
-                  <div className="flex items-stretch gap-2 border-b border-border bg-background px-3 py-2">
+                  <div className="flex items-center gap-2 border-b border-border bg-background px-3 py-1.5">
+                    {/* Клик по строке циклически переходит к следующему закреплённому (navigatePinned). */}
                     <button
                       type="button"
                       onClick={() => navigatePinned(pinnedList, 1)}
-                      className="flex min-w-0 flex-1 items-stretch gap-2 text-left"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      <span className="w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1 text-xs font-medium text-primary">
-                          <Pin className="size-3" aria-hidden />
-                          {t('pinnedMessages')}
-                          {pinnedList.length > 1 && (
-                            <span className="text-muted-foreground">
-                              {idx + 1}/{pinnedList.length}
-                            </span>
-                          )}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {cur.content || (cur.media.length ? t('attachment') : '')}
-                        </span>
+                      <span className="h-4 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                      <Pin className="size-3.5 shrink-0 text-primary" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        {cur.content || (cur.media.length ? t('attachment') : '')}
                       </span>
+                      {pinnedList.length > 1 && (
+                        <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                          {idx + 1}/{pinnedList.length}
+                        </span>
+                      )}
                     </button>
-                    {pinnedList.length > 1 && (
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          aria-label={t('pinnedPrev')}
-                          onClick={() => navigatePinned(pinnedList, -1)}
-                          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <ChevronLeft className="size-4" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t('pinnedNext')}
-                          onClick={() => navigatePinned(pinnedList, 1)}
-                          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <ChevronRight className="size-4" aria-hidden />
-                        </button>
-                      </div>
-                    )}
                     <button
                       type="button"
                       aria-label={t('unpin')}
                       onClick={() => setPin.mutate({ id: cur.id, pinned: false })}
-                      className="flex shrink-0 items-center text-muted-foreground transition-colors hover:text-destructive"
+                      className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
                     >
-                      <PinOff className="size-4" aria-hidden />
+                      <PinOff className="size-3.5" aria-hidden />
                     </button>
                   </div>
                 )
@@ -1317,16 +1381,22 @@ export function ChatWindow() {
                   <Loader2 className="size-5 animate-spin" aria-hidden />
                 </div>
               ) : (
-                <ul className="flex flex-col gap-2">
-                  {(messages.data ?? []).map((m) => {
+                <ul className="flex flex-col">
+                  {(messages.data ?? []).map((m, i) => {
                     const mine = m.senderId === myId
+                    // Группировка подряд идущих сообщений одного автора (Telegram-стиль): аватар и имя —
+                    // только у первого в серии; между сообщениями серии — плотнее, между авторами — просторнее.
+                    const arr = messages.data ?? []
+                    const firstOfRun = arr[i - 1]?.senderId !== m.senderId
                     return (
                       <li
                         key={m.id}
                         id={`msg-${m.id}`}
                         className={cn(
                           // -mx-4/px-4 — фон подсветки на всю ширину чата (в паддинг контейнера), высотой с сообщение.
-                          'group -mx-4 flex items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out',
+                          // select-none + touch-action:pan-y — для тач-жестов (долгое нажатие / свайп-ответ).
+                          'group -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+                          i > 0 && (firstOfRun ? 'mt-2' : 'mt-0.5'),
                           mine && 'flex-row-reverse',
                           highlightId === m.id && 'bg-primary/10',
                         )}
@@ -1334,17 +1404,25 @@ export function ChatWindow() {
                           e.preventDefault()
                           setMenu({ message: m, x: e.clientX, y: e.clientY })
                         }}
+                        onTouchStart={(e) => onMsgTouchStart(e, m)}
+                        onTouchMove={onMsgTouchMove}
+                        onTouchEnd={onMsgTouchEnd}
                       >
-                        {!mine && (
-                          <ProfileLink userId={m.senderId} className="shrink-0 self-end">
-                            <Avatar className="size-7">
-                              <AvatarFallback>
-                                {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
-                              </AvatarFallback>
-                            </Avatar>
-                          </ProfileLink>
-                        )}
+                        {!mine &&
+                          (firstOfRun ? (
+                            <ProfileLink userId={m.senderId} className="shrink-0 self-end">
+                              <Avatar className="size-7">
+                                <AvatarFallback>
+                                  {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
+                                </AvatarFallback>
+                              </Avatar>
+                            </ProfileLink>
+                          ) : (
+                            // Спейсер сохраняет горизонтальное место аватара — пузыри серии остаются выровненными.
+                            <span className="size-7 shrink-0" aria-hidden />
+                          ))}
                         <div
+                          data-bubble
                           className={cn(
                             'relative max-w-[75%] rounded-2xl px-3 py-2 text-sm',
                             mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
@@ -1363,7 +1441,7 @@ export function ChatWindow() {
                           >
                             <Reply className="size-3.5" aria-hidden />
                           </button>
-                          {!mine && (
+                          {!mine && firstOfRun && (
                             <p className="mb-0.5 text-xs font-medium opacity-70">
                               <ProfileLink userId={m.senderId} className="hover:underline">
                                 {senderName(m)}
@@ -1527,7 +1605,7 @@ export function ChatWindow() {
             )}
 
             {blockedActive ? (
-              <div className="flex items-center justify-center gap-2 border-t border-border p-4 text-center text-sm text-muted-foreground">
+              <div className="flex items-center justify-center gap-2 border-t border-border p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] text-center text-sm text-muted-foreground">
                 <Ban className="size-4 shrink-0" aria-hidden />
                 <span>{activeChat?.blocked ? t('blockedBanner') : t('blockedByBanner')}</span>
                 {activeChat?.blocked && otherId && (
@@ -1541,7 +1619,7 @@ export function ChatWindow() {
                 )}
               </div>
             ) : (
-              <div className="relative flex items-center gap-1.5 border-t border-border p-3">
+              <div className="relative flex items-center gap-1.5 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
                 {/* Попап @-упоминаний участников */}
                 {mentionCandidates.length > 0 && !voice.recording && (
                   <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-lg">
@@ -1588,7 +1666,7 @@ export function ChatWindow() {
                     >
                       <Trash2 className="size-5" aria-hidden />
                     </Button>
-                    <div className="flex h-10 flex-1 items-center gap-2 rounded-xl border border-input px-3">
+                    <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-input px-3">
                       <span
                         className={cn(
                           'size-2 shrink-0 rounded-full bg-destructive',
@@ -1631,7 +1709,7 @@ export function ChatWindow() {
                       aria-label={t('attach')}
                       disabled={!connected || !!editing}
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex h-10 shrink-0 items-center justify-center rounded-xl px-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                      className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                     >
                       <Paperclip className="size-5" aria-hidden />
                     </button>
@@ -1660,7 +1738,7 @@ export function ChatWindow() {
                         }
                       }}
                       placeholder={t('messagePlaceholder')}
-                      className="h-10 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+                      className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
                     />
                     {showSend ? (
                       <Button

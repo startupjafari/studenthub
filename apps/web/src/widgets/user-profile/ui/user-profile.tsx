@@ -188,13 +188,13 @@ function ProfileHeader({
 
   return (
     <Card className={`overflow-hidden p-0 ${ENTER}`}>
-      {/* Обложка — декоративный градиент бренда */}
-      <div className="h-36 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-44" />
+      {/* Обложка — декоративный градиент бренда. Компактная на мобильном/планшете, полная — на десктопе (lg). */}
+      <div className="h-14 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-20 lg:h-44" />
 
       <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
         {/* Аватар: смена фото (пикер → кроп), удаление, статус (вверху справа), меню «+» (внизу справа) */}
-        <div className="relative -mt-14 shrink-0 sm:-mt-16">
-          <div className="group relative size-28 sm:size-32">
+        <div className="relative -mt-10 shrink-0 sm:-mt-12 lg:-mt-16">
+          <div className="group relative size-20 sm:size-24 lg:size-32">
             {me.avatarUrl ? (
               <Image
                 src={me.avatarUrl}
@@ -205,7 +205,7 @@ function ProfileHeader({
                 className="size-full rounded-full border-4 border-background object-cover"
               />
             ) : (
-              <div className="flex size-full items-center justify-center rounded-full border-4 border-background bg-primary text-3xl font-semibold text-primary-foreground">
+              <div className="flex size-full items-center justify-center rounded-full border-4 border-background bg-primary text-2xl font-semibold text-primary-foreground lg:text-3xl">
                 {initialsOf(me) || '#'}
               </div>
             )}
@@ -289,6 +289,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const sheetRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -321,7 +322,12 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
     // Тап вне (тач-устройства, где нет hover) закрывает меню.
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node
-      if (btnRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      if (
+        btnRef.current?.contains(target) ||
+        menuRef.current?.contains(target) ||
+        sheetRef.current?.contains(target)
+      )
+        return
       setOpen(false)
     }
     const onScroll = () => setOpen(false)
@@ -348,6 +354,33 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
     { target: 'poll', label: t('tabPolls'), icon: BarChart3 },
   ]
 
+  // Пункты меню; на мобильном (bottom-sheet) — крупнее для удобного тапа.
+  const renderItems = (variant: 'dropdown' | 'sheet') =>
+    items.map((it) => {
+      const Icon = it.icon
+      return (
+        <button
+          key={it.target}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onSelect(it.target)
+            setOpen(false)
+          }}
+          className={cn(
+            'flex w-full items-center rounded-lg font-medium transition-colors hover:bg-muted',
+            variant === 'sheet' ? 'gap-3 px-3 py-3 text-base' : 'gap-2.5 px-2.5 py-2 text-sm',
+          )}
+        >
+          <Icon
+            className={cn('shrink-0 text-primary', variant === 'sheet' ? 'size-5' : 'size-4')}
+            aria-hidden
+          />
+          {it.label}
+        </button>
+      )
+    })
+
   return (
     <div
       className="absolute left-[85%] top-[85%] z-20 -translate-x-1/2 -translate-y-1/2"
@@ -361,41 +394,48 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={openNow}
-        className="flex size-8 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground outline-none transition-transform hover:scale-105 focus-visible:ring-4 focus-visible:ring-ring/20 motion-reduce:transform-none"
+        className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground outline-none transition-transform hover:scale-105 focus-visible:ring-4 focus-visible:ring-ring/20 motion-reduce:transform-none lg:size-8"
       >
-        <Plus className="size-4" aria-hidden />
+        <Plus className="size-3.5 lg:size-4" aria-hidden />
       </button>
       {open &&
-        pos &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            onMouseEnter={cancelClose}
-            onMouseLeave={scheduleClose}
-            style={{ top: pos.top, left: pos.left }}
-            className="fixed z-[91] w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150"
-          >
-            {items.map((it) => {
-              const Icon = it.icon
-              return (
-                <button
-                  key={it.target}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onSelect(it.target)
-                    setOpen(false)
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors hover:bg-muted"
-                >
-                  <Icon className="size-4 shrink-0 text-primary" aria-hidden />
-                  {it.label}
-                </button>
-              )
-            })}
-          </div>,
+          <>
+            {/* Мобильный: bottom-sheet снизу с подложкой и ручкой-хватом. */}
+            <div className="md:hidden">
+              <button
+                type="button"
+                aria-label={t('close')}
+                onClick={() => setOpen(false)}
+                className="fixed inset-0 z-[90] bg-foreground/40 animate-in fade-in-0 duration-150"
+              />
+              <div
+                ref={sheetRef}
+                role="menu"
+                className="fixed inset-x-0 bottom-0 z-[91] rounded-t-2xl border-t border-border bg-popover p-2 pb-6 text-popover-foreground animate-in slide-in-from-bottom duration-200"
+              >
+                <div
+                  className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"
+                  aria-hidden
+                />
+                {renderItems('sheet')}
+              </div>
+            </div>
+            {/* Десктоп: прежний dropdown у кнопки «+». */}
+            {pos && (
+              <div
+                ref={menuRef}
+                role="menu"
+                onMouseEnter={cancelClose}
+                onMouseLeave={scheduleClose}
+                style={{ top: pos.top, left: pos.left }}
+                className="fixed z-[91] hidden w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150 md:block"
+              >
+                {renderItems('dropdown')}
+              </div>
+            )}
+          </>,
           document.body,
         )}
     </div>
@@ -421,11 +461,11 @@ function ProfileSkeleton() {
     <div className="flex w-full flex-col gap-5">
       {/* Шапка: обложка + аватар + имя/подпись/мета + действия */}
       <Card className="overflow-hidden p-0">
-        <Skeleton className={cn('h-36 w-full rounded-none sm:h-44', SK)} />
+        <Skeleton className={cn('h-14 w-full rounded-none sm:h-20 lg:h-44', SK)} />
         <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
           <Skeleton
             className={cn(
-              '-mt-14 size-28 shrink-0 rounded-full border-4 border-background sm:-mt-16 sm:size-32',
+              '-mt-10 size-20 shrink-0 rounded-full border-4 border-background sm:-mt-12 sm:size-24 lg:-mt-16 lg:size-32',
               SK,
             )}
           />
