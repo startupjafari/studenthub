@@ -17,6 +17,7 @@ import {
 import {
   Button,
   Checkbox,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -26,6 +27,7 @@ import {
   SelectValue,
   Textarea,
 } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
 import { DictMultiSelect } from './dict-multi-select'
@@ -48,6 +50,7 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const contentRef = useRef<HTMLTextAreaElement>(null)
   const coverRef = useRef<HTMLInputElement>(null)
 
@@ -90,12 +93,13 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
       }
       return initial ? updateProfileArticle(initial.id, input) : createProfileArticle(input)
     },
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: profileContentKeys.articles(userId) })
       toast.success(t('saved'))
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => showApiError(e),
   })
 
   const words = content.trim().split(/\s+/).filter(Boolean).length
@@ -110,6 +114,7 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
 
   return (
     <ContentModal title={initial ? t('editArticle') : t('addArticle')} onClose={onClose} size="xl">
+      <FormAlert error={apiError} />
       {/* Скрытый input загрузки обложки (используется областью загрузки и кнопкой замены) */}
       <input
         ref={coverRef}

@@ -7,7 +7,8 @@ import { toast } from 'sonner'
 import { X } from 'lucide-react'
 import { chatKeys, createChatRequest } from '../../../entities/chat'
 import { UserPicker, type PickedUser } from '../../../entities/user'
-import { Button } from '../../../shared/ui'
+import { Button, FormAlert } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 
 // Диалог создания собственной группы (Ф9+): название + мультивыбор участников (приглашение сразу).
 export function CreateGroupDialog({
@@ -18,10 +19,10 @@ export function CreateGroupDialog({
   onCreated: (chatId: string) => void
 }) {
   const t = useTranslations('Chats')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
   const [members, setMembers] = useState<PickedUser[]>([])
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const create = useMutation({
     mutationFn: () =>
@@ -30,12 +31,13 @@ export function CreateGroupDialog({
         title: title.trim(),
         memberIds: members.map((m) => m.id),
       }),
+    onMutate: () => resetApiError(),
     onSuccess: (chat) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
       toast.success(t('groupCreated'))
       onCreated(chat.id)
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => showApiError(e),
   })
 
   const canCreate = title.trim().length > 0 && members.length > 0 && !create.isPending
@@ -62,6 +64,8 @@ export function CreateGroupDialog({
             <X className="size-4" aria-hidden />
           </button>
         </div>
+
+        <FormAlert error={apiError} />
 
         <input
           value={title}

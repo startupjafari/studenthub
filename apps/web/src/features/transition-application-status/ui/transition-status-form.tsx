@@ -10,7 +10,8 @@ import {
   transitionApplicationRequest,
   type ApplicationStatusValue,
 } from '../../../entities/application'
-import { Button, Label } from '../../../shared/ui'
+import { Button, FormAlert, Label } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 
 interface TransitionStatusFormProps {
   applicationId: string
@@ -19,8 +20,8 @@ interface TransitionStatusFormProps {
 
 export function TransitionStatusForm({ applicationId, currentStatus }: TransitionStatusFormProps) {
   const t = useTranslations('Applications')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [target, setTarget] = useState<ApplicationStatusValue | null>(null)
   const [comment, setComment] = useState('')
 
@@ -32,6 +33,7 @@ export function TransitionStatusForm({ applicationId, currentStatus }: Transitio
         toStatus,
         comment: comment.trim() || undefined,
       }),
+    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: applicationKeys.detail(applicationId) })
       void qc.invalidateQueries({ queryKey: applicationKeys.all })
@@ -39,7 +41,7 @@ export function TransitionStatusForm({ applicationId, currentStatus }: Transitio
       setComment('')
       toast.success(t('statusChanged'))
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => showApiError(e),
   })
 
   if (targets.length === 0) {
@@ -48,6 +50,7 @@ export function TransitionStatusForm({ applicationId, currentStatus }: Transitio
 
   return (
     <div className="flex flex-col gap-3">
+      <FormAlert error={apiError} />
       <Label>{t('changeStatus')}</Label>
       <div className="flex flex-wrap gap-2">
         {targets.map((s) => (
