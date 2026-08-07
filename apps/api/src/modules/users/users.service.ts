@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { UserListQueryInput, UpdateProfileInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -272,12 +273,9 @@ export class UserService {
     }
   }
 
-  // Публичный URL объекта в публичном бакете (avatars). В dev — прямой адрес MinIO.
+  // Публичный URL объекта в публичном бакете (avatars). Прод → MINIO_PUBLIC_ENDPOINT.
   private buildPublicUrl(bucket: string, key: string): string {
-    const scheme = this.config.get('MINIO_USE_SSL', { infer: true }) ? 'https' : 'http'
-    const endpoint = this.config.get('MINIO_ENDPOINT', { infer: true })
-    const port = this.config.get('MINIO_PORT', { infer: true })
-    return `${scheme}://${endpoint}:${port}/${bucket}/${key}`
+    return buildPublicObjectUrl(this.config, bucket, key)
   }
 
   /**

@@ -9,6 +9,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -960,10 +961,7 @@ export class ChatsService {
   }
 
   private buildPublicUrl(bucket: string, key: string): string {
-    const scheme = this.config.get('MINIO_USE_SSL', { infer: true }) ? 'https' : 'http'
-    const endpoint = this.config.get('MINIO_ENDPOINT', { infer: true })
-    const port = this.config.get('MINIO_PORT', { infer: true })
-    return `${scheme}://${endpoint}:${port}/${bucket}/${key}`
+    return buildPublicObjectUrl(this.config, bucket, key)
   }
 
   /** Забанить участника группы (только создатель). Нельзя забанить себя/создателя. */
