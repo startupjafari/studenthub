@@ -46,6 +46,7 @@ import {
   CardTitle,
   DictSingleSelect,
   Flag,
+  FormAlert,
   Input,
   Label,
   Select,
@@ -72,6 +73,7 @@ import {
 } from '../../../entities/notification'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
+import { useFormAlert } from '../../../shared/lib'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -159,8 +161,8 @@ export function AccountSettingsPanels() {
 function PersonalSection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const form = useForm<UpdateProfileInput>({
     resolver: zodResolver(UpdateProfileSchema),
@@ -178,12 +180,19 @@ function PersonalSection({ me }: { me: MeResponse }) {
       qc.setQueryData(userKeys.me(), data)
       toast.success(tP('saved'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => showApiError(e),
   })
 
   return (
     <SectionCard icon={UserRound} title={tS('personalTitle')} desc={tS('personalDesc')}>
-      <form onSubmit={form.handleSubmit((v) => mut.mutate(v))} className="flex flex-col gap-4">
+      <form
+        onSubmit={form.handleSubmit((v) => {
+          resetApiError()
+          mut.mutate(v)
+        })}
+        className="flex flex-col gap-4"
+      >
+        <FormAlert error={apiError} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{tP('lastName')}</Label>
@@ -246,7 +255,7 @@ function PersonalSection({ me }: { me: MeResponse }) {
 function SecuritySection() {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const form = useForm<ChangePasswordInput>({ resolver: zodResolver(ChangePasswordSchema) })
   const mut = useMutation({
@@ -255,15 +264,19 @@ function SecuritySection() {
       form.reset({ currentPassword: '', newPassword: '' })
       toast.success(tP('passwordChanged'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => showApiError(e),
   })
 
   return (
     <SectionCard icon={ShieldCheck} title={tS('securityTitle')} desc={tS('securityDesc')}>
       <form
-        onSubmit={form.handleSubmit((v) => mut.mutate(v))}
+        onSubmit={form.handleSubmit((v) => {
+          resetApiError()
+          mut.mutate(v)
+        })}
         className="flex max-w-md flex-col gap-4"
       >
+        <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
           <Label htmlFor="currentPassword">{tP('currentPassword')}</Label>
           <Input
@@ -430,12 +443,13 @@ function AppearanceSection() {
 // ── Конфиденциальность (showEmail / showPhone) ──────────────────────────────
 function PrivacySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const mut = useMutation({
     mutationFn: updateProfileRequest,
     onMutate: async (patch) => {
+      resetApiError()
       await qc.cancelQueries({ queryKey: userKeys.me() })
       const prev = qc.getQueryData<MeResponse>(userKeys.me())
       if (prev) qc.setQueryData(userKeys.me(), { ...prev, ...patch } as MeResponse)
@@ -443,7 +457,7 @@ function PrivacySection({ me }: { me: MeResponse }) {
     },
     onError: (e, _patch, ctx) => {
       if (ctx?.prev) qc.setQueryData(userKeys.me(), ctx.prev)
-      toast.error(tErr(errCode(e)))
+      showApiError(e)
     },
     onSuccess: (data) => qc.setQueryData(userKeys.me(), data),
   })
@@ -453,6 +467,7 @@ function PrivacySection({ me }: { me: MeResponse }) {
   return (
     <SectionCard icon={Lock} title={tS('privacyTitle')} desc={tS('privacyDesc')}>
       <div className="flex flex-col">
+        <FormAlert error={apiError} />
         <SettingRow title={tS('documentsStorage')} desc={tS('documentsStorageDesc')}>
           <Link
             href="/documents"
@@ -502,18 +517,19 @@ function PrivacySection({ me }: { me: MeResponse }) {
 function DangerSection() {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
   const [open, setOpen] = useState(false)
+  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const mut = useMutation({
     mutationFn: deleteAccountRequest,
+    onMutate: () => resetApiError(),
     onSuccess: async () => {
       await endSession()
       window.location.assign('/login')
     },
     onError: (e) => {
       setOpen(false)
-      toast.error(tErr(errCode(e)))
+      showApiError(e)
     },
   })
 
@@ -527,6 +543,7 @@ function DangerSection() {
         <p className="text-sm text-muted-foreground">{tS('dangerDesc')}</p>
       </CardHeader>
       <CardContent>
+        <FormAlert error={apiError} />
         <div className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold">{tP('deleteAccount')}</p>
