@@ -94,7 +94,10 @@ async function bootstrap(): Promise<void> {
   }
 
   const port = config.get('PORT', { infer: true })
-  await app.listen({ port, host: '0.0.0.0' })
+  // host '::' — dual-stack (IPv6 + IPv4). Прокси Railway (публичный edge и приватная
+  // сеть *.railway.internal) ходит по IPv6; при '0.0.0.0' (только IPv4) он получает
+  // TCP-reset → 502 «Application failed to respond». Локально '::' тоже принимает IPv4.
+  await app.listen({ port, host: '::' })
 
   new Logger('Bootstrap').log(`API слушает http://localhost:${port}/${apiPrefix}`)
 }
