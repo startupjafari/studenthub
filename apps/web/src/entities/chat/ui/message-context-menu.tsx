@@ -2,7 +2,18 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { CheckCheck, Copy, Forward, Link2, Pencil, Pin, PinOff, Reply, Trash2 } from 'lucide-react'
+import {
+  CheckCheck,
+  Copy,
+  Forward,
+  Link2,
+  Pencil,
+  Pin,
+  PinOff,
+  Reply,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react'
 import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { cn } from '../../../shared/lib/utils'
 import type { ChatMessage } from '../model/types'
@@ -19,8 +30,17 @@ export interface MessageMenuActions {
   onSelect: () => void
 }
 
-// Контекстное меню сообщения в стиле Telegram (Ф9+): быстрый ряд реакций сверху + действия.
-// Открывается по правому клику/кнопке-шеврону у точки (x, y); закрывается по клику вне/Escape.
+interface ActionDef {
+  key: string
+  label: string
+  icon: LucideIcon
+  onClick: () => void
+  danger?: boolean
+}
+
+// Блок взаимодействия с сообщением (Telegram-стиль): затемнение фона + быстрый ряд реакций и действия.
+// Десктоп — компактное меню у точки (правый клик/шеврон). Мобильный — нижний лист (bottom sheet)
+// с крупными целями и safe-area, открывается долгим нажатием.
 export function MessageContextMenu({
   message,
   mine,
@@ -40,29 +60,24 @@ export function MessageContextMenu({
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
 
-  // Удержать меню в пределах вьюпорта.
+  // Десктопное меню удерживаем в пределах вьюпорта (на мобильном оно скрыто — лист внизу).
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     const { width, height } = el.getBoundingClientRect()
-    const left = Math.min(x, window.innerWidth - width - 8)
-    const top = Math.min(y, window.innerHeight - height - 8)
-    setPos({ left: Math.max(8, left), top: Math.max(8, top) })
+    if (!width || !height) return
+    setPos({
+      left: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
+    })
   }, [x, y])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
     }
-    const onDown = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
     document.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onDown)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onDown)
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
   const run = (fn: () => void) => () => {
@@ -70,67 +85,114 @@ export function MessageContextMenu({
     onClose()
   }
 
-  const item = (
-    key: string,
-    label: string,
-    Icon: typeof Reply,
-    onClick: () => void,
-    danger = false,
-  ) => (
-    <button
-      key={key}
-      type="button"
-      onClick={run(onClick)}
-      className={cn(
-        'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
-        danger ? 'text-destructive' : 'text-foreground',
-      )}
-    >
-      <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
-      {label}
-    </button>
+  const canEdit =
+    mine && Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS
+  const items: ActionDef[] = [
+    { key: 'reply', label: t('reply'), icon: Reply, onClick: actions.onReply },
+    ...(canEdit ? [{ key: 'edit', label: t('edit'), icon: Pencil, onClick: actions.onEdit }] : []),
+    {
+      key: 'pin',
+      label: message.pinnedAt ? t('unpin') : t('pin'),
+      icon: message.pinnedAt ? PinOff : Pin,
+      onClick: actions.onPin,
+    },
+    { key: 'copy', label: t('copyText'), icon: Copy, onClick: actions.onCopy },
+    { key: 'link', label: t('copyLink'), icon: Link2, onClick: actions.onCopyLink },
+    { key: 'forward', label: t('forward'), icon: Forward, onClick: actions.onForward },
+    { key: 'select', label: t('select'), icon: CheckCheck, onClick: actions.onSelect },
+    ...(mine
+      ? [
+          {
+            key: 'delete',
+            label: t('delete'),
+            icon: Trash2,
+            onClick: actions.onDelete,
+            danger: true,
+          },
+        ]
+      : []),
+  ]
+
+  const reactionsRow = (big: boolean): React.ReactNode => (
+    <div className="flex items-center justify-center gap-0.5 border-b border-border px-2 py-2">
+      {CHAT_REACTION_EMOJIS.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={run(() => actions.onReact(emoji))}
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted active:scale-95',
+            big ? 'size-11' : 'size-8',
+          )}
+        >
+          <span
+            className={cn(
+              'flex items-center justify-center overflow-hidden leading-none',
+              big ? 'text-2xl' : 'text-[18px]',
+            )}
+          >
+            {emoji}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+
+  const actionsList = (variant: 'menu' | 'sheet'): React.ReactNode => (
+    <div className={variant === 'sheet' ? 'py-1' : 'py-1'}>
+      {items.map((it) => {
+        const Icon = it.icon
+        return (
+          <button
+            key={it.key}
+            type="button"
+            onClick={run(it.onClick)}
+            className={cn(
+              'flex w-full items-center text-left transition-colors hover:bg-muted',
+              variant === 'sheet' ? 'gap-3 px-4 py-3 text-base' : 'gap-2.5 px-3 py-2 text-sm',
+              it.danger ? 'text-destructive' : 'text-foreground',
+            )}
+          >
+            <Icon
+              className={cn('shrink-0 opacity-80', variant === 'sheet' ? 'size-5' : 'size-4')}
+              aria-hidden
+            />
+            {it.label}
+          </button>
+        )
+      })}
+    </div>
   )
 
   return (
-    <div className="fixed inset-0 z-50" role="menu" aria-label={t('messageActions')}>
+    <div
+      className="fixed inset-0 z-50 bg-foreground/40 md:bg-transparent"
+      role="menu"
+      aria-label={t('messageActions')}
+      onClick={onClose}
+    >
+      {/* Десктоп: компактное меню у точки нажатия. */}
       <div
         ref={ref}
         style={{ left: pos.left, top: pos.top }}
-        className="absolute w-60 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+        className="absolute hidden w-60 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg md:block"
       >
-        {/* Быстрый ряд реакций — все эмодзи в одинаковых квадратных боксах, глифы одного размера */}
-        <div className="flex items-center justify-between gap-0.5 border-b border-border px-2 py-2">
-          {CHAT_REACTION_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={run(() => actions.onReact(emoji))}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted"
-            >
-              <span className="flex size-5 items-center justify-center overflow-hidden text-center text-[18px] leading-none">
-                {emoji}
-              </span>
-            </button>
-          ))}
-        </div>
-        {/* Действия */}
-        <div className="py-1">
-          {item('reply', t('reply'), Reply, actions.onReply)}
-          {mine &&
-            Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS &&
-            item('edit', t('edit'), Pencil, actions.onEdit)}
-          {item(
-            'pin',
-            message.pinnedAt ? t('unpin') : t('pin'),
-            message.pinnedAt ? PinOff : Pin,
-            actions.onPin,
-          )}
-          {item('copy', t('copyText'), Copy, actions.onCopy)}
-          {item('link', t('copyLink'), Link2, actions.onCopyLink)}
-          {item('forward', t('forward'), Forward, actions.onForward)}
-          {item('select', t('select'), CheckCheck, actions.onSelect)}
-          {mine && item('delete', t('delete'), Trash2, actions.onDelete, true)}
-        </div>
+        {reactionsRow(false)}
+        {actionsList('menu')}
+      </div>
+
+      {/* Мобильный: нижний лист. */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
+      >
+        <div
+          className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
+          aria-hidden
+        />
+        {reactionsRow(true)}
+        {actionsList('sheet')}
       </div>
     </div>
   )
