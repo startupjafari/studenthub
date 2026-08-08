@@ -3,12 +3,25 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { ArrowLeft, Lock, UserRoundX } from 'lucide-react'
+import { Role } from '@studenthub/shared-types'
+import { ArrowLeft, Loader2, Lock, MessageSquarePlus, UserRoundX } from 'lucide-react'
 import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
-import { fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
+import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
+import { createChatRequest } from '../../../entities/chat'
 import { useRealtimeEvent } from '../../../shared/realtime'
+
+// Путь к чатам по роли текущего пользователя (кнопка «Написать»). Источник истины —
+// widgets/app-shell/model/nav.ts; дублируем минимально, т.к. FSD запрещает импорт widget→widget.
+// Роли без чатов (platform-admin, модераторы) кнопку не показывают.
+const CHATS_HREF_BY_ROLE: Partial<Record<Role, string>> = {
+  [Role.STUDENT]: '/chats',
+  [Role.UNIVERSITY_ADMIN]: '/university-admin/chats',
+  [Role.DEAN]: '/dean/chats',
+  [Role.TEACHER]: '/teacher/chats',
+  [Role.STAROSTA]: '/starosta/chats',
+}
 import {
   ENTER,
   ProfileBody,
@@ -50,6 +63,15 @@ export function PublicUserProfile({ userId }: { userId: string }) {
     if (p.userId === userId) setOnline(p.online)
   })
 
+  // «Написать сообщение»: создаём/находим личный чат и открываем его на странице чатов текущей роли.
+  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const chatsHref = me.data ? CHATS_HREF_BY_ROLE[me.data.role] : undefined
+  const canWrite = !!chatsHref && !!me.data && me.data.id !== userId
+  const openChat = useMutation({
+    mutationFn: () => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
+    onSuccess: (chat) => router.push(`${chatsHref}?chat=${chat.id}`),
+  })
+
   if (q.isLoading) return <PublicSkeleton />
 
   if (q.isError || !q.data) {
@@ -89,8 +111,23 @@ export function PublicUserProfile({ userId }: { userId: string }) {
         >
           <ArrowLeft className="size-4" aria-hidden />
         </Button>
-        {/* Поделиться — над обложкой справа (как в своём профиле). */}
-        <div className="absolute top-3 right-3 z-20">
+        {/* Написать + Поделиться — над обложкой справа (как в своём профиле). */}
+        <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+          {canWrite && u.access !== 'limited' && (
+            <Button
+              size="sm"
+              onClick={() => openChat.mutate()}
+              disabled={openChat.isPending}
+              className="shadow-md"
+            >
+              {openChat.isPending ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <MessageSquarePlus className="size-4" aria-hidden />
+              )}
+              {t('writeMessage')}
+            </Button>
+          )}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
         </div>
         <div className="h-36 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-44" />

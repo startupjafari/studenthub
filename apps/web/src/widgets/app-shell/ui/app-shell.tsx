@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
@@ -45,6 +45,51 @@ function BottomNav({
   const tShell = useTranslations('Dashboard')
   const queryClient = useQueryClient()
   const [moreOpen, setMoreOpen] = useState(false)
+  // Свайп вниз закрывает лист «Ещё» (как нижние листы в остальном приложении).
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ startY: number; dragging: boolean } | null>(null)
+  const onSheetTouchStart = (e: React.TouchEvent): void => {
+    const tch = e.touches[0]
+    const el = sheetRef.current
+    if (!tch || (el && el.scrollTop > 0)) {
+      drag.current = null
+      return
+    }
+    drag.current = { startY: tch.clientY, dragging: false }
+  }
+  const onSheetTouchMove = (e: React.TouchEvent): void => {
+    const s = drag.current
+    const tch = e.touches[0]
+    const el = sheetRef.current
+    if (!s || !tch || !el) return
+    const dy = tch.clientY - s.startY
+    if (dy <= 0) {
+      if (s.dragging) {
+        el.style.transition = 'none'
+        el.style.transform = ''
+      }
+      return
+    }
+    if (!s.dragging && dy < 6) return // порог: не мешаем тапу по пунктам
+    s.dragging = true
+    el.style.transition = 'none'
+    el.style.transform = `translateY(${dy}px)`
+  }
+  const onSheetTouchEnd = (e: React.TouchEvent): void => {
+    const s = drag.current
+    const el = sheetRef.current
+    drag.current = null
+    if (!s || !s.dragging || !el) return
+    const dy = (e.changedTouches[0]?.clientY ?? s.startY) - s.startY
+    if (dy > 96) {
+      el.style.transition = 'transform 0.2s ease-in'
+      el.style.transform = 'translateY(100%)'
+      window.setTimeout(() => setMoreOpen(false), 170)
+    } else {
+      el.style.transition = 'transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1)'
+      el.style.transform = ''
+    }
+  }
 
   const unread = useQuery({
     queryKey: notificationKeys.unreadCount(),
@@ -118,12 +163,16 @@ function BottomNav({
       {/* Нижний лист «Ещё»: уведомления + остальные разделы + профиль + выход. */}
       {moreOpen && (
         <div
-          className="fixed inset-0 z-50 bg-foreground/40 lg:hidden"
+          className="fixed inset-0 z-50 bg-foreground/40 duration-150 animate-in fade-in lg:hidden"
           onClick={() => setMoreOpen(false)}
         >
           <div
-            className="absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] duration-200 animate-in slide-in-from-bottom"
+            ref={sheetRef}
+            className="absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] duration-200 animate-in slide-in-from-bottom"
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={onSheetTouchStart}
+            onTouchMove={onSheetTouchMove}
+            onTouchEnd={onSheetTouchEnd}
           >
             <div
               className="mx-auto mt-1 mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"

@@ -80,6 +80,53 @@ export function MessageContextMenu({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Свайп вниз закрывает нижний лист (Telegram-стиль): тянем по пальцу, за порогом — доводим и закрываем.
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ startY: number; dragging: boolean } | null>(null)
+  const onSheetTouchStart = (e: React.TouchEvent): void => {
+    const tch = e.touches[0]
+    const el = sheetRef.current
+    // Не перехватываем жест, если контент проскроллен вниз — сначала скролл.
+    if (!tch || (el && el.scrollTop > 0)) {
+      drag.current = null
+      return
+    }
+    drag.current = { startY: tch.clientY, dragging: false }
+  }
+  const onSheetTouchMove = (e: React.TouchEvent): void => {
+    const s = drag.current
+    const tch = e.touches[0]
+    const el = sheetRef.current
+    if (!s || !tch || !el) return
+    const dy = tch.clientY - s.startY
+    if (dy <= 0) {
+      if (s.dragging) {
+        el.style.transition = 'none'
+        el.style.transform = ''
+      }
+      return
+    }
+    if (!s.dragging && dy < 6) return // порог: не мешаем тапу по кнопкам
+    s.dragging = true
+    el.style.transition = 'none'
+    el.style.transform = `translateY(${dy}px)`
+  }
+  const onSheetTouchEnd = (e: React.TouchEvent): void => {
+    const s = drag.current
+    const el = sheetRef.current
+    drag.current = null
+    if (!s || !s.dragging || !el) return
+    const dy = (e.changedTouches[0]?.clientY ?? s.startY) - s.startY
+    if (dy > 96) {
+      el.style.transition = 'transform 0.2s ease-in'
+      el.style.transform = 'translateY(100%)'
+      window.setTimeout(onClose, 170)
+    } else {
+      el.style.transition = 'transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1)'
+      el.style.transform = ''
+    }
+  }
+
   const run = (fn: () => void) => () => {
     fn()
     onClose()
@@ -166,7 +213,7 @@ export function MessageContextMenu({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-foreground/40 md:bg-transparent"
+      className="fixed inset-0 z-50 bg-foreground/40 duration-150 animate-in fade-in md:bg-transparent"
       role="menu"
       aria-label={t('messageActions')}
       onClick={onClose}
@@ -182,10 +229,14 @@ export function MessageContextMenu({
         {actionsList('menu')}
       </div>
 
-      {/* Мобильный: нижний лист. */}
+      {/* Мобильный: нижний лист. Тянется/закрывается свайпом вниз. */}
       <div
+        ref={sheetRef}
         onClick={(e) => e.stopPropagation()}
-        className="fixed inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
+        onTouchStart={onSheetTouchStart}
+        onTouchMove={onSheetTouchMove}
+        onTouchEnd={onSheetTouchEnd}
+        className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
       >
         <div
           className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
