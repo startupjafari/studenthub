@@ -115,7 +115,7 @@ export class ChatsController {
     return this.chats.sendMessageRest(
       user.sub,
       parsed.data,
-      files.map((buffer) => ({ buffer })),
+      files.map(({ buffer, filename }) => ({ buffer, name: filename })),
     )
   }
 

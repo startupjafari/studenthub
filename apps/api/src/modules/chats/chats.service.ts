@@ -32,7 +32,7 @@ const MESSAGE_SELECT = {
   pinnedAt: true,
   createdAt: true,
   sender: SENDER_SELECT,
-  media: { select: { id: true, mime: true, size: true } },
+  media: { select: { id: true, mime: true, size: true, name: true } },
   replyTo: {
     select: { id: true, content: true, senderId: true, sender: SENDER_SELECT },
   },
@@ -417,7 +417,7 @@ export class ChatsService {
   async sendMessageRest(
     senderId: string,
     input: { chatId: string; content?: string; replyToId?: string },
-    files: { buffer: Buffer }[],
+    files: { buffer: Buffer; name?: string }[],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, input.chatId)
     this.assertNotFlooding(senderId)
@@ -438,6 +438,7 @@ export class ChatsService {
         bucket,
         ownerId: senderId,
         messageId: created.id,
+        name: file.name,
       })
     }
     const message = await this.prisma.message.findUniqueOrThrow({
@@ -692,7 +693,7 @@ export class ChatsService {
         id: true,
         chatId: true,
         content: true,
-        media: { select: { bucket: true, key: true, mime: true, size: true } },
+        media: { select: { bucket: true, key: true, mime: true, size: true, name: true } },
       },
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')

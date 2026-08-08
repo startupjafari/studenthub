@@ -26,15 +26,16 @@ export async function readSingleUpload(req: FastifyRequest): Promise<Buffer> {
  * с вложениями, Ф9+). Поля собираются в строковый словарь, файлы — в буферы (лимит числа/размера
  * обеспечивает @fastify/multipart). Превышение размера файла → FILE_DIRECT_UPLOAD_REQUIRED.
  */
-export async function readUploadWithFields(
-  req: FastifyRequest,
-): Promise<{ fields: Record<string, string>; files: Buffer[] }> {
+export async function readUploadWithFields(req: FastifyRequest): Promise<{
+  fields: Record<string, string>
+  files: { buffer: Buffer; filename: string }[]
+}> {
   const fields: Record<string, string> = {}
-  const files: Buffer[] = []
+  const files: { buffer: Buffer; filename: string }[] = []
   try {
     for await (const part of req.parts()) {
       if (part.type === 'file') {
-        files.push(await part.toBuffer())
+        files.push({ buffer: await part.toBuffer(), filename: part.filename })
       } else if (typeof part.value === 'string') {
         fields[part.fieldname] = part.value
       }
