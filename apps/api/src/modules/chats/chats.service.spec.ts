@@ -437,8 +437,8 @@ describe('ChatsService.setMuted / notifyNewMessage', () => {
     expect(res).toEqual({ chatId: 'c1', muted: true })
   })
 
-  it('уведомление не шлётся заглушённым (where mutedAt: null)', async () => {
-    const { service, prisma } = setup()
+  it('заглушённому: сообщение доставляется (chat:activity), но уведомление не шлётся', async () => {
+    const { service, prisma, queue, realtime } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
     prisma.message.create.mockResolvedValue({
       id: 'msg1',
@@ -448,9 +448,29 @@ describe('ChatsService.setMuted / notifyNewMessage', () => {
       sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
     })
     prisma.chat.update.mockResolvedValue({})
-    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2' }])
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2', mutedAt: new Date() }])
     await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
-    expect(prisma.chatMember.findMany.mock.calls[0][0].where.mutedAt).toBeNull()
+    // Живой список — сигнал приходит даже заглушённому.
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u2', 'chat:activity', { chatId: 'c1' })
+    // Но уведомление (job в очереди) заглушённому не ставится.
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('незаглушённому: и chat:activity, и уведомление в очереди', async () => {
+    const { service, prisma, queue, realtime } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      content: 'hi',
+      sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+    })
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2', mutedAt: null }])
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u2', 'chat:activity', { chatId: 'c1' })
+    expect(queue.enqueue).toHaveBeenCalled()
   })
 })
 
