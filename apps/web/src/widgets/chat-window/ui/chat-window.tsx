@@ -182,8 +182,11 @@ export function ChatWindow() {
     if (requestedChatId && requestedChatId !== appliedChatParam.current) {
       appliedChatParam.current = requestedChatId
       setActiveId(requestedChatId)
+      // Чат мог быть только что создан («Написать» из профиля) — обновляем список, чтобы
+      // шапка сразу показала имя собеседника (заголовок берётся из элемента списка).
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
-  }, [requestedChatId])
+  }, [requestedChatId, qc])
   // Черновики по чатам: набранный текст сохраняется при переключении чата (в рамках сессии).
   const draftsRef = useRef<Map<string, string>>(new Map())
   const [text, setText] = useState('')
@@ -496,6 +499,21 @@ export function ChatWindow() {
   // прилетает в комнату user:{id} — по нему обновляем список чатов в реальном времени (превью, счётчик, порядок).
   useRealtimeEvent('notification:new', () => {
     void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  })
+  // Тихий сигнал активности в чате (в т.ч. по заглушённым чатам): держим список живым без уведомления.
+  useRealtimeEvent('chat:activity', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  })
+  // Блокировка изменилась (я/меня) — обновляем список: флаги blocked/blockedBy определяют поле ввода
+  // и баннер у обоих участников в реальном времени.
+  useRealtimeEvent('chat:block', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  })
+  // Закрепление изменилось — сигнал приходит всем участникам (в т.ч. с закрытым чатом): инвалидируем
+  // закреплённые и сообщения этого чата, чтобы при открытии закрепление уже подтянулось.
+  useRealtimeEvent<{ chatId: string }>('chat:pinned', ({ chatId }) => {
+    void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
+    void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
   })
   const upsert = (message: ChatMessage, chatId: string): void => {
     if (chatId === activeId) {
