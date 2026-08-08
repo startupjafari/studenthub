@@ -52,17 +52,34 @@ export function VoiceMessage({ url, seed, mine }: { url: string; seed: string; m
       durationRef.current = d
       setDuration(d)
     }
+    let forcing = false
     const onMeta = (): void => {
-      if (audio.duration === Infinity || Number.isNaN(audio.duration)) {
-        const onSeek = (): void => {
-          audio.removeEventListener('timeupdate', onSeek)
-          setDur(audio.duration)
-          audio.currentTime = 0
-        }
-        audio.addEventListener('timeupdate', onSeek)
-        audio.currentTime = 1e101
-      } else {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
         setDur(audio.duration)
+        return
+      }
+      // webm/opus от MediaRecorder часто без длительности (Infinity). Форсируем: прыжок в «конец»
+      // заставляет браузер досчитать длительность (durationchange), затем возвращаем указатель в 0.
+      // Через seeked/durationchange (не timeupdate) — надёжнее: указатель не застревает, звук играет.
+      if (forcing) return
+      forcing = true
+      try {
+        audio.currentTime = 1e101
+      } catch {
+        /* некоторые браузеры бросают на seek без длительности — тогда просто ждём durationchange */
+      }
+    }
+    const onDurationChange = (): void => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDur(audio.duration)
+        if (forcing) {
+          forcing = false
+          try {
+            audio.currentTime = 0
+          } catch {
+            /* игнорируем */
+          }
+        }
       }
     }
     const onTime = (): void => setCurrent(audio.currentTime)
@@ -80,12 +97,14 @@ export function VoiceMessage({ url, seed, mine }: { url: string; seed: string; m
       if (activeAudio === audio) activeAudio = null
     }
     audio.addEventListener('loadedmetadata', onMeta)
+    audio.addEventListener('durationchange', onDurationChange)
     audio.addEventListener('timeupdate', onTime)
     audio.addEventListener('play', onPlay)
     audio.addEventListener('pause', onPause)
     audio.addEventListener('ended', onEnd)
     return () => {
       audio.removeEventListener('loadedmetadata', onMeta)
+      audio.removeEventListener('durationchange', onDurationChange)
       audio.removeEventListener('timeupdate', onTime)
       audio.removeEventListener('play', onPlay)
       audio.removeEventListener('pause', onPause)
@@ -115,6 +134,15 @@ export function VoiceMessage({ url, seed, mine }: { url: string; seed: string; m
   function toggle(): void {
     const audio = audioRef.current
     if (!audio) return
+    // Указатель мог «застрять» после форс-вычисления длительности (currentTime = 1e101) —
+    // перед стартом возвращаем в начало (иначе play() «доигрывает» пустоту: ни звука, ни прогресса).
+    if (audio.paused && (!Number.isFinite(audio.currentTime) || audio.currentTime > 1e6)) {
+      try {
+        audio.currentTime = 0
+      } catch {
+        /* игнорируем */
+      }
+    }
     // Состояние playing обновится обработчиками событий play/pause.
     if (audio.paused) void audio.play()
     else audio.pause()
