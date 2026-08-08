@@ -56,6 +56,7 @@ function setup() {
     emitToRoom: jest.fn(),
     emitToUser: jest.fn(),
     onlineAmong: jest.fn().mockReturnValue([]),
+    usersInRoom: jest.fn().mockResolvedValue(new Set<string>()),
   }
   const files = {
     upload: jest.fn(),

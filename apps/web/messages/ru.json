@@ -31,7 +31,8 @@
     "notifications": "Уведомления",
     "documents": "Документы",
     "documentTypes": "Типы документов",
-    "documentAccess": "Доступ к документам"
+    "documentAccess": "Доступ к документам",
+    "more": "Ещё"
   },
   "Invites": {
     "title": "Приглашения",
@@ -151,7 +152,10 @@
     "download": "Скачать",
     "previous": "Предыдущее",
     "next": "Следующее",
-    "rotate": "Повернуть"
+    "rotate": "Повернуть",
+    "cancel": "Отмена",
+    "confirmTitle": "Подтвердите действие",
+    "confirmOk": "Подтвердить"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -767,9 +771,18 @@
     "scrollToBottom": "Вниз",
     "select": "Выбрать",
     "selectedCount": "Выбрано: {count}",
-    "searchInChat": "Поиск в чате",
-    "resultsCount": "Найдено: {count}",
+    "deleteSelectedConfirm": "Удалить выбранные сообщения ({count})?",
+    "typingStatus": "печатает…",
+    "typingStatusName": "{name} печатает…",
+    "typingMany": "печатают…",
     "unreadMessages": "Непрочитанные",
+    "memberActions": "Действия",
+    "openProfile": "Открыть профиль",
+    "write": "Написать",
+    "copyName": "Копировать имя",
+    "removeFromGroup": "Удалить из группы",
+    "removeConfirm": "Удалить {name} из группы?",
+    "memberRemoved": "Участник удалён",
     "messagePlaceholder": "Сообщение…",
     "send": "Отправить",
     "edited": "изменено",

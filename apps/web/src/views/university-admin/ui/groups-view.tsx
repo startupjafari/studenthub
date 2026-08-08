@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
 import {
@@ -54,6 +55,7 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
+  const confirm = useConfirm()
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
 
@@ -115,7 +117,12 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
           aria-label={t('delete')}
           loading={deleteMut.isPending}
           onClick={() => {
-            if (window.confirm(t('deleteGroupConfirm', { name: group.name }))) deleteMut.mutate()
+            void confirm({
+              title: t('deleteGroupConfirm', { name: group.name }),
+              destructive: true,
+            }).then((ok) => {
+              if (ok) deleteMut.mutate()
+            })
           }}
           className="text-muted-foreground hover:text-destructive"
         >

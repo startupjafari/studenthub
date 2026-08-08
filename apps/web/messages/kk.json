@@ -31,7 +31,8 @@
     "notifications": "Хабарламалар",
     "documents": "Құжаттар",
     "documentTypes": "Құжат түрлері",
-    "documentAccess": "Құжаттарға қатынау"
+    "documentAccess": "Құжаттарға қатынау",
+    "more": "Тағы"
   },
   "Invites": {
     "title": "Шақырулар",
@@ -151,7 +152,10 @@
     "download": "Жүктеу",
     "previous": "Алдыңғы",
     "next": "Келесі",
-    "rotate": "Бұру"
+    "rotate": "Бұру",
+    "cancel": "Бас тарту",
+    "confirmTitle": "Әрекетті растаңыз",
+    "confirmOk": "Растау"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -767,9 +771,18 @@
     "scrollToBottom": "Төмен",
     "select": "Таңдау",
     "selectedCount": "Таңдалды: {count}",
-    "searchInChat": "Чаттан іздеу",
-    "resultsCount": "Табылды: {count}",
+    "deleteSelectedConfirm": "Таңдалған хабарламаларды жою ({count})?",
+    "typingStatus": "теруде…",
+    "typingStatusName": "{name} теруде…",
+    "typingMany": "теруде…",
     "unreadMessages": "Оқылмаған",
+    "memberActions": "Әрекеттер",
+    "openProfile": "Профильді ашу",
+    "write": "Жазу",
+    "copyName": "Атын көшіру",
+    "removeFromGroup": "Топтан шығару",
+    "removeConfirm": "{name} топтан шығарылсын ба?",
+    "memberRemoved": "Қатысушы шығарылды",
     "messagePlaceholder": "Хабарлама…",
     "send": "Жіберу",
     "edited": "өзгертілді",
