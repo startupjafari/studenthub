@@ -192,8 +192,10 @@ function ProfileHeader({
       <div className="h-14 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-20 lg:h-44" />
 
       <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
-        {/* Аватар: смена фото (пикер → кроп), удаление, статус (вверху справа), меню «+» (внизу справа) */}
-        <div className="relative -mt-10 shrink-0 sm:-mt-12 lg:-mt-16">
+        {/* Аватар: смена фото (пикер → кроп), удаление, статус (вверху справа), меню «+» (внизу справа).
+            self-start в колоночной раскладке (моб.) — иначе контейнер растягивается на всю ширину
+            (align-items: stretch) и «+» (left-85%) уезжает вправо; на sm+ (ряд) — обычное выравнивание. */}
+        <div className="relative -mt-10 shrink-0 self-start sm:-mt-12 sm:self-auto lg:-mt-16">
           <div className="group relative size-20 sm:size-24 lg:size-32">
             {me.avatarUrl ? (
               <Image
@@ -247,6 +249,7 @@ function ProfileHeader({
             variant={editing ? 'ghost' : 'default'}
             size="sm"
             onClick={onToggleEdit}
+            aria-label={editing ? t('cancel') : t('editProfile')}
             className="transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
           >
             {editing ? (
@@ -254,7 +257,7 @@ function ProfileHeader({
             ) : (
               <Pencil className="size-4" aria-hidden />
             )}
-            {editing ? t('cancel') : t('editProfile')}
+            <span className="hidden sm:inline">{editing ? t('cancel') : t('editProfile')}</span>
           </Button>
           {editing && (
             <Button
@@ -262,10 +265,11 @@ function ProfileHeader({
               form={PROFILE_EDIT_FORM_ID}
               size="sm"
               loading={saving}
+              aria-label={t('save')}
               className="transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
             >
               <Check className="size-4" aria-hidden />
-              {t('save')}
+              <span className="hidden sm:inline">{t('save')}</span>
             </Button>
           )}
         </div>
