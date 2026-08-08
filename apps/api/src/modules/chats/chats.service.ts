@@ -476,15 +476,22 @@ export class ChatsService {
     senderId: string,
     message: MessageRow,
   ): Promise<string[]> {
-    // Заглушённые участники (mutedAt != null) не получают уведомление о новом сообщении (Ф9+).
     const members = await this.prisma.chatMember.findMany({
-      where: { chatId, userId: { not: senderId }, mutedAt: null },
-      select: { userId: true },
+      where: { chatId, userId: { not: senderId } },
+      select: { userId: true, mutedAt: true },
     })
-    // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую
-    // (Telegram-стиль: нет уведомления по сообщению в чате, который открыт).
+    // Живой список чатов у всех участников (в т.ч. заглушённых): message:new уходит только в комнату
+    // chat:{id} (её джойнят только с открытым чатом), поэтому для превью/счётчика/порядка в списке
+    // шлём тихий сигнал в user:{id}. Он НЕ создаёт уведомление — только просит обновить список.
+    for (const m of members) {
+      this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
+    }
+    // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую.
+    // Заглушённые (mutedAt != null) — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
-    const recipientIds = members.map((m) => m.userId).filter((id) => !viewing.has(id))
+    const recipientIds = members
+      .filter((m) => !m.mutedAt && !viewing.has(m.userId))
+      .map((m) => m.userId)
     if (recipientIds.length > 0) {
       const preview = message.content.slice(0, 140) || '📎 Вложение'
       await this.queue.enqueue(
@@ -844,6 +851,7 @@ export class ChatsService {
       create: { blockerId: actorId, blockedId: targetUserId },
       update: {},
     })
+    this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: true }
   }
 
@@ -855,7 +863,15 @@ export class ChatsService {
     await this.prisma.userBlock.deleteMany({
       where: { blockerId: actorId, blockedId: targetUserId },
     })
+    this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: false }
+  }
+
+  // Блокировка влияет на возможность писать у ОБОИХ участников PRIVATE-чата — шлём сигнал обоим,
+  // чтобы список чатов (флаги blocked/blockedBy) и поле ввода обновились в реальном времени.
+  private emitBlockChanged(a: string, b: string): void {
+    this.realtime.emitToUser(a, 'chat:block', { userId: b })
+    this.realtime.emitToUser(b, 'chat:block', { userId: a })
   }
 
   /** Для PRIVATE-чата — запретить отправку, если между участниками есть блокировка. */
