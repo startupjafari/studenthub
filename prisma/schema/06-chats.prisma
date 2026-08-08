@@ -49,6 +49,9 @@ model ChatMember {
   isAdmin    Boolean   @default(false) @map("is_admin")
   // Очистка истории «для меня» (Ф9+): сообщения с createdAt <= clearedAt скрыты у этого участника.
   clearedAt  DateTime? @map("cleared_at")
+  // «Удалить чат у себя» для PRIVATE (Telegram-стиль): не null — чат скрыт из списка этого участника.
+  // Членство сохраняется (сообщения продолжают приходить); новое сообщение сбрасывает hiddenAt → чат возвращается.
+  hiddenAt   DateTime? @map("hidden_at")
   createdAt  DateTime  @default(now()) @map("created_at")
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)

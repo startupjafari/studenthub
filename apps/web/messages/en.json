@@ -827,6 +827,8 @@
     "edit": "Edit",
     "delete": "Delete",
     "copyText": "Copy text",
+    "copy": "Copy",
+    "copied": "Copied",
     "copyLink": "Copy link",
     "editing": "Editing",
     "copied": "Text copied",

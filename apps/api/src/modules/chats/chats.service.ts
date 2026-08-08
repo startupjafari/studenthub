@@ -99,8 +99,8 @@ export class ChatsService {
   async listChats(viewer: JwtPayload) {
     await this.ensureOfficialChatsForUser(viewer)
     const chats = await this.prisma.chat.findMany({
-      // Забаненные чаты (bannedAt != null у своего членства) в списке не показываем.
-      where: { members: { some: { userId: viewer.sub, bannedAt: null } } },
+      // Забаненные (bannedAt != null) и скрытые «у себя» (hiddenAt != null) чаты в списке не показываем.
+      where: { members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } } },
       select: {
         id: true,
         type: true,
@@ -476,15 +476,27 @@ export class ChatsService {
     senderId: string,
     message: MessageRow,
   ): Promise<string[]> {
-    // Заглушённые участники (mutedAt != null) не получают уведомление о новом сообщении (Ф9+).
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId, userId: { not: senderId }, mutedAt: null },
-      select: { userId: true },
+    // Новое сообщение возвращает чат тем, кто «удалил его у себя» (hiddenAt): снимаем скрытие у всех.
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, hiddenAt: { not: null } },
+      data: { hiddenAt: null },
     })
-    // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую
-    // (Telegram-стиль: нет уведомления по сообщению в чате, который открыт).
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId, userId: { not: senderId } },
+      select: { userId: true, mutedAt: true },
+    })
+    // Живой список чатов у всех участников (в т.ч. заглушённых): message:new уходит только в комнату
+    // chat:{id} (её джойнят только с открытым чатом), поэтому для превью/счётчика/порядка в списке
+    // шлём тихий сигнал в user:{id}. Он НЕ создаёт уведомление — только просит обновить список.
+    for (const m of members) {
+      this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
+    }
+    // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую.
+    // Заглушённые (mutedAt != null) — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
-    const recipientIds = members.map((m) => m.userId).filter((id) => !viewing.has(id))
+    const recipientIds = members
+      .filter((m) => !m.mutedAt && !viewing.has(m.userId))
+      .map((m) => m.userId)
     if (recipientIds.length > 0) {
       const preview = message.content.slice(0, 140) || '📎 Вложение'
       await this.queue.enqueue(
@@ -573,6 +585,15 @@ export class ChatsService {
       message,
       chatId: msg.chatId,
     })
+    // Комната chat:{id} есть только у тех, кто открыл чат. Чтобы закрепление подтянулось и при
+    // закрытом чате, шлём сигнал в user:{id} каждому участнику — клиент инвалидирует pinned/messages.
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId: msg.chatId },
+      select: { userId: true },
+    })
+    for (const m of members) {
+      this.realtime.emitToUser(m.userId, 'chat:pinned', { chatId: msg.chatId })
+    }
     return message
   }
 
@@ -844,6 +865,7 @@ export class ChatsService {
       create: { blockerId: actorId, blockedId: targetUserId },
       update: {},
     })
+    this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: true }
   }
 
@@ -855,7 +877,15 @@ export class ChatsService {
     await this.prisma.userBlock.deleteMany({
       where: { blockerId: actorId, blockedId: targetUserId },
     })
+    this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: false }
+  }
+
+  // Блокировка влияет на возможность писать у ОБОИХ участников PRIVATE-чата — шлём сигнал обоим,
+  // чтобы список чатов (флаги blocked/blockedBy) и поле ввода обновились в реальном времени.
+  private emitBlockChanged(a: string, b: string): void {
+    this.realtime.emitToUser(a, 'chat:block', { userId: b })
+    this.realtime.emitToUser(b, 'chat:block', { userId: a })
   }
 
   /** Для PRIVATE-чата — запретить отправку, если между участниками есть блокировка. */
@@ -1090,7 +1120,18 @@ export class ChatsService {
       await this.prisma.chat.delete({ where: { id: chatId } })
       return { chatId, deleted: true }
     }
-    // Иначе — выходим/удаляем у себя; если участников не осталось, удаляем чат целиком.
+    // PRIVATE «удалить у себя» (Telegram-стиль): членство сохраняем, чат прячем (hiddenAt) и чистим
+    // историю до текущего момента (clearedAt). Новое сообщение сбросит hiddenAt → чат вернётся,
+    // а сообщения продолжают приходить в реальном времени (участник остаётся в чате).
+    if (chat.type === ChatType.PRIVATE) {
+      const now = new Date()
+      await this.prisma.chatMember.updateMany({
+        where: { chatId, userId: actor.sub },
+        data: { hiddenAt: now, clearedAt: now },
+      })
+      return { chatId, deleted: false }
+    }
+    // Групповой чат — выходим (убираем членство); если участников не осталось, удаляем чат целиком.
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId: actor.sub } })
     const left = await this.prisma.chatMember.count({ where: { chatId } })
     if (left === 0) {
