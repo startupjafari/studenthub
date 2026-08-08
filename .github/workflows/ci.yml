@@ -1,10 +1,9 @@
 name: CI
 
+# Временно: проверки гоняем только при push/merge в develop (не на каждый PR/фича-ветку).
 on:
   push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+    branches: [develop]
 
 concurrency:
   group: ci-${{ github.ref }}
