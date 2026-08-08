@@ -22,6 +22,8 @@ export interface UploadFileParams {
   materialId?: string
   /** Привязка к сообщению чата (Ф9+): вложение сообщения. */
   messageId?: string
+  /** Оригинальное имя файла при загрузке (Ф9+): для отображения в чате как в Telegram. */
+  name?: string
 }
 
 // Поля File, безопасные для отдачи наружу (passwordHash и т.п. здесь неприменимы, но select фиксируем).
@@ -67,6 +69,7 @@ export class FileService {
     applicationId,
     materialId,
     messageId,
+    name,
   }: UploadFileParams) {
     const detected = await detectAllowedFileType(buffer)
     if (!detected) {
@@ -107,6 +110,8 @@ export class FileService {
         applicationId,
         materialId,
         messageId,
+        // Обрезаем до лимита колонки; пустое имя не сохраняем.
+        name: name?.slice(0, 255) || null,
       },
       select: FILE_SELECT,
     })
@@ -169,7 +174,7 @@ export class FileService {
    * ключ нельзя привязать к двум сообщениям, а объект остаётся общим только логически быть не может.
    */
   async copyToMessage(
-    source: { bucket: string; key: string; mime: string; size: number },
+    source: { bucket: string; key: string; mime: string; size: number; name?: string | null },
     ownerId: string,
     messageId: string,
   ) {
@@ -184,6 +189,7 @@ export class FileService {
         size: source.size,
         ownerId,
         messageId,
+        name: source.name ?? null,
       },
       select: FILE_SELECT,
     })

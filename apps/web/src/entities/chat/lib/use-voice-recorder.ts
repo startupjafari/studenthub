@@ -17,6 +17,25 @@ export interface VoiceRecorderController {
   cancel: () => void
 }
 
+// Подбираем поддерживаемый браузером аудио-формат записи. Chrome/Firefox/Android → webm/ogg-opus,
+// Safari/iOS → mp4/aac. Возвращаем и расширение — файл всегда именуем `voice-msg.<ext>`, чтобы чат
+// распознал голосовое по имени (mime по содержимому непредсказуем: webm→video/webm, mp4→video/mp4).
+function pickAudioFormat(): { mimeType?: string; ext: string } {
+  const candidates: { mimeType: string; ext: string }[] = [
+    { mimeType: 'audio/webm;codecs=opus', ext: 'webm' },
+    { mimeType: 'audio/webm', ext: 'webm' },
+    { mimeType: 'audio/ogg;codecs=opus', ext: 'ogg' },
+    { mimeType: 'audio/mp4', ext: 'm4a' },
+    { mimeType: 'audio/aac', ext: 'm4a' },
+  ]
+  if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+    for (const c of candidates) {
+      if (MediaRecorder.isTypeSupported(c.mimeType)) return c
+    }
+  }
+  return { ext: 'webm' } // формат по умолчанию выберет сам браузер
+}
+
 // Запись голосового сообщения через MediaRecorder + WebAudio AnalyserNode (Ф9+, без внешних зависимостей).
 // Поддерживает паузу/возобновление и отдаёт уровень громкости для анимации волн.
 export function useVoiceRecorder(opts: {
@@ -32,6 +51,7 @@ export function useVoiceRecorder(opts: {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const formatRef = useRef<{ mimeType?: string; ext: string }>({ ext: 'webm' })
   const cancelledRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const onRecordedRef = useRef(opts.onRecorded)
@@ -80,25 +100,26 @@ export function useVoiceRecorder(opts: {
       audioCtxRef.current = ctx
       analyserRef.current = analyser
 
-      const recorder = new MediaRecorder(stream)
+      const format = pickAudioFormat()
+      formatRef.current = format
+      const recorder = format.mimeType
+        ? new MediaRecorder(stream, { mimeType: format.mimeType })
+        : new MediaRecorder(stream)
       chunksRef.current = []
       cancelledRef.current = false
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        const type = recorder.mimeType || formatRef.current.mimeType || 'audio/webm'
+        const blob = new Blob(chunksRef.current, { type })
         const cancelled = cancelledRef.current
         teardown()
         setRecording(false)
         setPaused(false)
         if (!cancelled && blob.size > 0) {
-          const ext = blob.type.includes('ogg') ? 'ogg' : 'webm'
-          onRecordedRef.current(
-            new File([blob], `voice-${ext === 'ogg' ? 'msg.ogg' : 'msg.webm'}`, {
-              type: blob.type,
-            }),
-          )
+          // Имя всегда `voice-msg.<ext>` — по префиксу `voice-` чат распознаёт голосовое.
+          onRecordedRef.current(new File([blob], `voice-msg.${formatRef.current.ext}`, { type }))
         }
       }
       recorder.start()

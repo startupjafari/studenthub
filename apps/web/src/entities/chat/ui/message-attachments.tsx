@@ -10,11 +10,18 @@ import type { MessageAttachment } from '../model/types'
 import { VoiceMessage } from './voice-message'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 
+// Голосовое сообщение (плеер-волна), а не обычное аудио/видео вложение.
+// Основной признак — имя из встроенного рекордера (`voice-…`), т.к. mime по содержимому непредсказуем:
+// webm → video/webm, iOS-запись → video/mp4. Для старых сообщений — запасная эвристика по mime.
+function isVoice(att: MessageAttachment): boolean {
+  if (att.name && /^voice-/i.test(att.name)) return true
+  return att.mime.startsWith('audio/') || att.mime === 'video/webm'
+}
+
 // Открывается ли вложение в полноэкранном просмотрщике (картинка или реальное видео, не голосовое).
 function isViewable(att: MessageAttachment): boolean {
-  return (
-    att.mime.startsWith('image/') || (att.mime.startsWith('video/') && att.mime !== 'video/webm')
-  )
+  if (isVoice(att)) return false
+  return att.mime.startsWith('image/') || att.mime.startsWith('video/')
 }
 
 function humanSize(bytes: number): string {
@@ -53,9 +60,7 @@ function Single({
     )
   }
 
-  // Голосовые из встроенного рекордера — webm-контейнер, который file-type определяет как video/webm.
-  // Трактуем audio/* и video/webm как голосовое (плеер-волна). Реальные видео с устройств — mp4/mov.
-  if (att.mime.startsWith('audio/') || att.mime === 'video/webm') {
+  if (isVoice(att)) {
     return <VoiceMessage url={url} seed={att.id} mine={mine} />
   }
 
