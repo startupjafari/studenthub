@@ -480,7 +480,10 @@ export class ChatsService {
       where: { chatId, userId: { not: senderId }, mutedAt: null },
       select: { userId: true },
     })
-    const recipientIds = members.map((m) => m.userId)
+    // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую
+    // (Telegram-стиль: нет уведомления по сообщению в чате, который открыт).
+    const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
+    const recipientIds = members.map((m) => m.userId).filter((id) => !viewing.has(id))
     if (recipientIds.length > 0) {
       const preview = message.content.slice(0, 140) || '📎 Вложение'
       await this.queue.enqueue(

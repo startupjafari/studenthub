@@ -32,7 +32,7 @@ import {
   toggleArticleBookmark,
   type ProfileArticle,
 } from '../../../entities/profile-content'
-import { Badge, Button, EmptyState, Skeleton } from '../../../shared/ui'
+import { Badge, Button, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ArticleCover } from './article-cover'
@@ -58,6 +58,7 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [editing, setEditing] = useState<ProfileArticle | 'new' | null>(null)
   const [reading, setReading] = useState<ProfileArticle | null>(null)
 
@@ -228,7 +229,11 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                   onRead={() => setReading(a)}
                   onEdit={() => setEditing(a)}
                   onDelete={() => {
-                    if (window.confirm(t('articleDeleteConfirm'))) delMut.mutate(a.id)
+                    void confirm({ title: t('articleDeleteConfirm'), destructive: true }).then(
+                      (ok) => {
+                        if (ok) delMut.mutate(a.id)
+                      },
+                    )
                   }}
                 />
               ))}

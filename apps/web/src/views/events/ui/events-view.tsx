@@ -17,7 +17,15 @@ import {
 } from '../../../entities/event'
 import { ProfileLink } from '../../../entities/user'
 import { CreateEventForm } from '../../../features/create-event'
-import { Badge, Button, Card, CardContent, EmptyState, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  EmptyState,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 const MANAGER_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN]
@@ -99,6 +107,7 @@ function EventCard({
 }) {
   const t = useTranslations('Events')
   const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
   const locale = useLocale()
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
@@ -157,7 +166,9 @@ function EventCard({
               aria-label={t('delete')}
               loading={deleteMut.isPending}
               onClick={() => {
-                if (window.confirm(t('deleteConfirm'))) deleteMut.mutate()
+                void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
+                  if (ok) deleteMut.mutate()
+                })
               }}
               className="text-muted-foreground hover:text-destructive"
             >

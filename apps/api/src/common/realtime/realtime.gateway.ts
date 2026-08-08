@@ -134,4 +134,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     return online
   }
+
+  /** id пользователей, находящихся сейчас в комнате (напр. chat:{id}) — активно её просматривают. */
+  async usersInRoom(room: string): Promise<Set<string>> {
+    const ids = new Set<string>()
+    const sockets = await this.server.in(room).fetchSockets()
+    for (const socket of sockets) {
+      const uid = socket.data?.userId as string | undefined
+      if (uid) ids.add(uid)
+    }
+    return ids
+  }
 }
