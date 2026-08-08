@@ -31,7 +31,8 @@
     "notifications": "Хабарламалар",
     "documents": "Құжаттар",
     "documentTypes": "Құжат түрлері",
-    "documentAccess": "Құжаттарға қатынау"
+    "documentAccess": "Құжаттарға қатынау",
+    "more": "Тағы"
   },
   "Invites": {
     "title": "Шақырулар",

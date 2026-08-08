@@ -188,16 +188,49 @@ function ProfileHeader({
   }
 
   return (
-    <Card className={`overflow-hidden p-0 ${ENTER}`}>
-      {/* Обложка — декоративный градиент бренда. Компактная на мобильном/планшете, полная — на десктопе (lg). */}
-      <div className="h-14 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-20 lg:h-44" />
+    <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
+      {/* Действия — над обложкой справа (Telegram/VK-стиль): поделиться + редактировать/сохранить. */}
+      <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
+        <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
+        <Button
+          type="button"
+          variant={editing ? 'secondary' : 'default'}
+          size="sm"
+          onClick={onToggleEdit}
+          aria-label={editing ? t('cancel') : t('editProfile')}
+          className="shadow-md transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
+        >
+          {editing ? (
+            <X className="size-4" aria-hidden />
+          ) : (
+            <Pencil className="size-4" aria-hidden />
+          )}
+          <span className="hidden sm:inline">{editing ? t('cancel') : t('editProfile')}</span>
+        </Button>
+        {editing && (
+          <Button
+            type="submit"
+            form={PROFILE_EDIT_FORM_ID}
+            size="sm"
+            loading={saving}
+            aria-label={t('save')}
+            className="shadow-md transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
+          >
+            <Check className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{t('save')}</span>
+          </Button>
+        )}
+      </div>
+
+      {/* Обложка — декоративный градиент бренда. Компактная на мобильном/планшете, крупнее — на десктопе (lg). */}
+      <div className="h-20 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-28 lg:h-52" />
 
       <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
         {/* Аватар: смена фото (пикер → кроп), удаление, статус (вверху справа), меню «+» (внизу справа).
             self-start в колоночной раскладке (моб.) — иначе контейнер растягивается на всю ширину
             (align-items: stretch) и «+» (left-85%) уезжает вправо; на sm+ (ряд) — обычное выравнивание. */}
-        <div className="relative -mt-10 shrink-0 self-start sm:-mt-12 sm:self-auto lg:-mt-16">
-          <div className="group relative size-20 sm:size-24 lg:size-32">
+        <div className="relative -mt-12 shrink-0 self-start sm:-mt-14 sm:self-auto lg:-mt-20">
+          <div className="group relative size-24 sm:size-28 lg:size-36">
             {me.avatarUrl ? (
               <Image
                 src={me.avatarUrl}
@@ -208,7 +241,7 @@ function ProfileHeader({
                 className="size-full rounded-full border-4 border-background object-cover"
               />
             ) : (
-              <div className="flex size-full items-center justify-center rounded-full border-4 border-background bg-primary text-2xl font-semibold text-primary-foreground lg:text-3xl">
+              <div className="flex size-full items-center justify-center rounded-full border-4 border-background bg-primary text-3xl font-semibold text-primary-foreground lg:text-4xl">
                 {initialsOf(me) || '#'}
               </div>
             )}
@@ -246,38 +279,6 @@ function ProfileHeader({
         </div>
 
         <ProfileIdentity data={me} />
-
-        <div className="flex shrink-0 items-center gap-2 self-start sm:self-end">
-          <ShareProfileButton userId={me.id} name={fullNameOf(me)} />
-          <Button
-            type="button"
-            variant={editing ? 'ghost' : 'default'}
-            size="sm"
-            onClick={onToggleEdit}
-            aria-label={editing ? t('cancel') : t('editProfile')}
-            className="transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
-          >
-            {editing ? (
-              <X className="size-4" aria-hidden />
-            ) : (
-              <Pencil className="size-4" aria-hidden />
-            )}
-            <span className="hidden sm:inline">{editing ? t('cancel') : t('editProfile')}</span>
-          </Button>
-          {editing && (
-            <Button
-              type="submit"
-              form={PROFILE_EDIT_FORM_ID}
-              size="sm"
-              loading={saving}
-              aria-label={t('save')}
-              className="transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
-            >
-              <Check className="size-4" aria-hidden />
-              <span className="hidden sm:inline">{t('save')}</span>
-            </Button>
-          )}
-        </div>
       </div>
 
       {cropFile && (
@@ -302,19 +303,21 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Открытие по наведению: cancelClose держит меню, пока курсор на кнопке ИЛИ на меню;
-  // scheduleClose закрывает с задержкой, чтобы успеть перейти через зазор к списку.
   const cancelClose = (): void => {
     if (closeTimer.current) {
       clearTimeout(closeTimer.current)
       closeTimer.current = null
     }
   }
-  const openNow = (): void => {
+  // Hover-открытие — ТОЛЬКО для мыши: на тач эмулируемый mouseleave закрывал лист сразу после тапа.
+  // На тач меню открывается/закрывается кликом (toggle) — надёжно.
+  const hoverOpen = (e: React.PointerEvent): void => {
+    if (e.pointerType !== 'mouse') return
     cancelClose()
     setOpen(true)
   }
-  const scheduleClose = (): void => {
+  const hoverClose = (e: React.PointerEvent): void => {
+    if (e.pointerType !== 'mouse') return
     cancelClose()
     closeTimer.current = setTimeout(() => setOpen(false), 160)
   }
@@ -328,7 +331,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
       if (r) setPos({ top: r.bottom + 8, left: Math.min(r.left, window.innerWidth - 216) })
     }
     place()
-    // Тап вне (тач-устройства, где нет hover) закрывает меню.
+    // Тап вне закрывает меню.
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node
       if (
@@ -339,18 +342,16 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
         return
       setOpen(false)
     }
-    const onScroll = () => setOpen(false)
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
+    // Скроллом НЕ закрываем (иначе на мобильном лист «прыгает» при малейшем скролле); только репозиция.
     window.addEventListener('mousedown', onPointerDown, true)
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onScroll)
+    window.addEventListener('resize', place)
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('mousedown', onPointerDown, true)
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onScroll)
+      window.removeEventListener('resize', place)
       window.removeEventListener('keydown', onKey)
     }
   }, [open])
@@ -393,8 +394,8 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
   return (
     <div
       className="absolute left-[85%] top-[85%] z-20 -translate-x-1/2 -translate-y-1/2"
-      onMouseEnter={openNow}
-      onMouseLeave={scheduleClose}
+      onPointerEnter={hoverOpen}
+      onPointerLeave={hoverClose}
     >
       <button
         ref={btnRef}
@@ -402,7 +403,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
         aria-label={t('addContent')}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={openNow}
+        onClick={() => setOpen((o) => !o)}
         className="flex size-7 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground outline-none transition-transform hover:scale-105 focus-visible:ring-4 focus-visible:ring-ring/20 motion-reduce:transform-none lg:size-8"
       >
         <Plus className="size-3.5 lg:size-4" aria-hidden />
@@ -422,7 +423,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
               <div
                 ref={sheetRef}
                 role="menu"
-                className="fixed inset-x-0 bottom-0 z-[91] rounded-t-2xl border-t border-border bg-popover p-2 pb-6 text-popover-foreground animate-in slide-in-from-bottom duration-200"
+                className="fixed inset-x-0 bottom-0 z-[91] rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(1rem+env(safe-area-inset-bottom))] text-popover-foreground animate-in slide-in-from-bottom duration-200"
               >
                 <div
                   className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"
@@ -436,8 +437,8 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
               <div
                 ref={menuRef}
                 role="menu"
-                onMouseEnter={cancelClose}
-                onMouseLeave={scheduleClose}
+                onPointerEnter={hoverOpen}
+                onPointerLeave={hoverClose}
                 style={{ top: pos.top, left: pos.left }}
                 className="fixed z-[91] hidden w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150 md:block"
               >
@@ -470,11 +471,11 @@ function ProfileSkeleton() {
     <div className="flex w-full flex-col gap-5">
       {/* Шапка: обложка + аватар + имя/подпись/мета + действия */}
       <Card className="overflow-hidden p-0">
-        <Skeleton className={cn('h-14 w-full rounded-none sm:h-20 lg:h-44', SK)} />
+        <Skeleton className={cn('h-20 w-full rounded-none sm:h-28 lg:h-52', SK)} />
         <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
           <Skeleton
             className={cn(
-              '-mt-10 size-20 shrink-0 rounded-full border-4 border-background sm:-mt-12 sm:size-24 lg:-mt-16 lg:size-32',
+              '-mt-12 size-24 shrink-0 rounded-full border-4 border-background sm:-mt-14 sm:size-28 lg:-mt-20 lg:size-36',
               SK,
             )}
           />

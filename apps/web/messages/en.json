@@ -31,7 +31,8 @@
     "notifications": "Notifications",
     "documents": "Documents",
     "documentTypes": "Document types",
-    "documentAccess": "Document access"
+    "documentAccess": "Document access",
+    "more": "More"
   },
   "Invites": {
     "title": "Invites",
