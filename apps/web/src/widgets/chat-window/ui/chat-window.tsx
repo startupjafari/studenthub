@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -174,6 +174,16 @@ export function ChatWindow() {
   const [blockedOpen, setBlockedOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
+  // Открытие конкретного чата извне через ?chat=<id> (например кнопка «Написать» из профиля).
+  const searchParams = useSearchParams()
+  const requestedChatId = searchParams.get('chat')
+  const appliedChatParam = useRef<string | null>(null)
+  useEffect(() => {
+    if (requestedChatId && requestedChatId !== appliedChatParam.current) {
+      appliedChatParam.current = requestedChatId
+      setActiveId(requestedChatId)
+    }
+  }, [requestedChatId])
   // Черновики по чатам: набранный текст сохраняется при переключении чата (в рамках сессии).
   const draftsRef = useRef<Map<string, string>>(new Map())
   const [text, setText] = useState('')
@@ -214,10 +224,17 @@ export function ChatWindow() {
   const [forwardIds, setForwardIds] = useState<string[] | null>(null)
   // Свайп-действия на строке списка чатов (мобильный): id открытой строки + учёт жеста.
   const [swipedChatId, setSwipedChatId] = useState<string | null>(null)
-  const chatSwipe = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(
-    null,
-  )
+  const chatSwipe = useRef<{
+    id: string
+    startX: number
+    startY: number
+    moved: boolean
+    el: HTMLElement
+    base: number
+  } | null>(null)
   const chatSwipedFlag = useRef(false)
+  // Узлы строк списка (по id) — чтобы императивно доводить/сбрасывать свайп и закрывать соседние.
+  const rowEls = useRef<Map<string, HTMLElement>>(new Map())
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
@@ -710,11 +727,44 @@ export function ChatWindow() {
     exitSelect()
   }
 
-  // ── Свайп по строке списка чатов (мобильный): влево — открыть действия, вправо — закрыть ──
+  // ── Свайп по строке списка чатов (мобильный, Telegram-стиль) ──
+  // Влево — плавно открыть действия (заглушить/удалить), следуя за пальцем; вправо по закрытой
+  // строке — пометить чат прочитанным. Во время жеста трансформируем узел напрямую (без ре-рендера
+  // ради плавности), на отпускании — доводим анимацией и синхронизируем состояние.
+  const ROW_ACTIONS_W = 160 // ширина панели действий (две кнопки w-20 = 2×80px), совпадает с -translate-x-40
+  const ROW_OPEN_THRESHOLD = 56
+  const ROW_READ_THRESHOLD = 72
+
+  function setRowTransform(el: HTMLElement | null, x: number, animate: boolean): void {
+    if (!el) return
+    el.style.transition = animate ? 'transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1)' : 'none'
+    el.style.transform = x ? `translateX(${x}px)` : ''
+  }
+
+  function markChatRead(chatId: string): void {
+    const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
+      (c) => c.id === chatId,
+    )
+    if (!chat || chat.unreadCount === 0) return
+    const lastId = chat.lastMessage?.id
+    if (socket && lastId) socket.emit('message:read', { chatId, messageId: lastId })
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+      (old ?? []).map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c)),
+    )
+  }
+
   function onRowTouchStart(e: React.TouchEvent<HTMLElement>, id: string): void {
     const tch = e.touches[0]
     if (!tch) return
-    chatSwipe.current = { id, startX: tch.clientX, startY: tch.clientY, moved: false }
+    const el = e.currentTarget
+    chatSwipe.current = {
+      id,
+      startX: tch.clientX,
+      startY: tch.clientY,
+      moved: false,
+      el,
+      base: swipedChatId === id ? -ROW_ACTIONS_W : 0,
+    }
   }
   function onRowTouchMove(e: React.TouchEvent<HTMLElement>): void {
     const s = chatSwipe.current
@@ -722,18 +772,42 @@ export function ChatWindow() {
     if (!s || !tch) return
     const dx = tch.clientX - s.startX
     const dy = tch.clientY - s.startY
-    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
+    if (!s.moved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
+    if (!s.moved) return
+    let x = s.base + dx
+    // Резина за пределами хода: влево дальше панели и вправо (жест «прочитать») — с сопротивлением.
+    if (x < -ROW_ACTIONS_W) x = -ROW_ACTIONS_W + (x + ROW_ACTIONS_W) * 0.35
+    else if (x > 0) x *= 0.5
+    setRowTransform(s.el, x, false)
+  }
+  function closeSwipedRow(id: string | null): void {
+    if (id) setRowTransform(rowEls.current.get(id) ?? null, 0, true)
+    setSwipedChatId((cur) => (cur === id ? null : cur))
   }
   function onRowTouchEnd(e: React.TouchEvent<HTMLElement>, id: string): void {
     const s = chatSwipe.current
-    if (!s) return
-    if (s.moved) {
-      const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
-      if (dx < -40) setSwipedChatId(id)
-      else if (dx > 40) setSwipedChatId((cur) => (cur === id ? null : cur))
-      chatSwipedFlag.current = true
-    }
     chatSwipe.current = null
+    if (!s || !s.moved) return
+    chatSwipedFlag.current = true
+    const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
+    const wasOpen = s.base < 0
+    // Правый свайп по закрытой строке дальше порога → пометить прочитанным (снап назад).
+    if (!wasOpen && dx > ROW_READ_THRESHOLD) {
+      setRowTransform(s.el, 0, true)
+      markChatRead(id)
+      return
+    }
+    const finalX = s.base + dx
+    if (finalX < -ROW_OPEN_THRESHOLD) {
+      // Открыть эту строку, соседнюю открытую — закрыть.
+      if (swipedChatId && swipedChatId !== id)
+        setRowTransform(rowEls.current.get(swipedChatId) ?? null, 0, true)
+      setRowTransform(s.el, -ROW_ACTIONS_W, true)
+      setSwipedChatId(id)
+    } else {
+      setRowTransform(s.el, 0, true)
+      setSwipedChatId((cur) => (cur === id ? null : cur))
+    }
   }
 
   // Подпись разделителя дня в ленте: Сегодня / Вчера / дата.
@@ -1262,16 +1336,16 @@ export function ChatWindow() {
                     aria-label={c.muted ? t('unmute') : t('mute')}
                     onClick={() => {
                       mute.mutate({ chatId: c.id, muted: !c.muted })
-                      setSwipedChatId(null)
+                      closeSwipedRow(c.id)
                     }}
-                    className="flex w-16 flex-col items-center justify-center gap-1 bg-muted text-[0.65rem] font-medium text-muted-foreground"
+                    className="flex w-20 flex-col items-center justify-center gap-1 whitespace-nowrap bg-muted px-1 text-center text-[0.6rem] font-medium leading-tight text-muted-foreground"
                   >
                     {c.muted ? (
                       <Bell className="size-4" aria-hidden />
                     ) : (
                       <BellOff className="size-4" aria-hidden />
                     )}
-                    {c.muted ? t('unmute') : t('mute')}
+                    {c.muted ? t('unmuteShort') : t('muteShort')}
                   </button>
                   <button
                     type="button"
@@ -1281,12 +1355,12 @@ export function ChatWindow() {
                         c.type !== 'PRIVATE' && c.isOwner
                           ? t('deleteGroupConfirm')
                           : t('deleteChatConfirm')
-                      setSwipedChatId(null)
+                      closeSwipedRow(c.id)
                       void confirm({ title: msg, destructive: true }).then((ok) => {
                         if (ok) deleteChat.mutate(c.id)
                       })
                     }}
-                    className="flex w-16 flex-col items-center justify-center gap-1 bg-destructive text-[0.65rem] font-medium text-white"
+                    className="flex w-20 flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
                   >
                     <Trash2 className="size-4" aria-hidden />
                     {t('delete')}
@@ -1294,6 +1368,10 @@ export function ChatWindow() {
                 </div>
                 <button
                   type="button"
+                  ref={(el) => {
+                    if (el) rowEls.current.set(c.id, el)
+                    else rowEls.current.delete(c.id)
+                  }}
                   onClick={() => {
                     // Свайп только что закрыл/открыл строку — клик игнорируем. Открытая строка → закрыть.
                     if (chatSwipedFlag.current) {
@@ -1301,7 +1379,7 @@ export function ChatWindow() {
                       return
                     }
                     if (swipedChatId) {
-                      setSwipedChatId(null)
+                      closeSwipedRow(swipedChatId)
                       return
                     }
                     setActiveId(c.id)
@@ -1310,9 +1388,8 @@ export function ChatWindow() {
                   onTouchMove={onRowTouchMove}
                   onTouchEnd={(e) => onRowTouchEnd(e, c.id)}
                   className={cn(
-                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-[transform,background-color] hover:bg-muted/50',
+                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors hover:bg-muted/50',
                     activeId === c.id ? 'bg-primary/10' : '',
-                    swipedChatId === c.id && '-translate-x-32',
                   )}
                 >
                   <span className="relative shrink-0">
