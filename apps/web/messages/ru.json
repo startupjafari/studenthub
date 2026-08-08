@@ -31,7 +31,8 @@
     "notifications": "Уведомления",
     "documents": "Документы",
     "documentTypes": "Типы документов",
-    "documentAccess": "Доступ к документам"
+    "documentAccess": "Доступ к документам",
+    "more": "Ещё"
   },
   "Invites": {
     "title": "Приглашения",

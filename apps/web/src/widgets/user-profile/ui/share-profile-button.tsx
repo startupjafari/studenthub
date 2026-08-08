@@ -29,7 +29,15 @@ interface MenuPos {
 
 // «Поделиться» профилем: меню с «Скопировать ссылку» и «Отправить в чат» (ссылка на профиль).
 // Меню — в портал (шапка профиля имеет overflow-hidden, иначе меню обрезается).
-export function ShareProfileButton({ userId, name }: { userId: string; name: string }) {
+export function ShareProfileButton({
+  userId,
+  name,
+  className,
+}: {
+  userId: string
+  name: string
+  className?: string
+}) {
   const t = useTranslations('Profile')
   const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
@@ -109,6 +117,7 @@ export function ShareProfileButton({ userId, name }: { userId: string; name: str
         aria-expanded={open}
         aria-label={t('share')}
         onClick={() => setOpen((o) => !o)}
+        className={className}
       >
         <Share2 className="size-4" aria-hidden />
         <span className="hidden sm:inline">{t('share')}</span>
