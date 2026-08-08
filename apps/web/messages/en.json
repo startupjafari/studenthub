@@ -31,7 +31,8 @@
     "notifications": "Notifications",
     "documents": "Documents",
     "documentTypes": "Document types",
-    "documentAccess": "Document access"
+    "documentAccess": "Document access",
+    "more": "More"
   },
   "Invites": {
     "title": "Invites",
@@ -151,7 +152,10 @@
     "download": "Download",
     "previous": "Previous",
     "next": "Next",
-    "rotate": "Rotate"
+    "rotate": "Rotate",
+    "cancel": "Cancel",
+    "confirmTitle": "Confirm action",
+    "confirmOk": "Confirm"
   },
   "Auth": {
     "loginTitle": "Sign in",
@@ -767,9 +771,18 @@
     "scrollToBottom": "Scroll to bottom",
     "select": "Select",
     "selectedCount": "Selected: {count}",
-    "searchInChat": "Search in chat",
-    "resultsCount": "Found: {count}",
+    "deleteSelectedConfirm": "Delete selected messages ({count})?",
+    "typingStatus": "typing…",
+    "typingStatusName": "{name} is typing…",
+    "typingMany": "typing…",
     "unreadMessages": "Unread",
+    "memberActions": "Actions",
+    "openProfile": "Open profile",
+    "write": "Message",
+    "copyName": "Copy name",
+    "removeFromGroup": "Remove from group",
+    "removeConfirm": "Remove {name} from the group?",
+    "memberRemoved": "Member removed",
     "messagePlaceholder": "Message…",
     "send": "Send",
     "edited": "edited",

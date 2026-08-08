@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell } from 'lucide-react'
+import { Bell, LogOut, MoreHorizontal, UserRound } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
+import { endSession } from '../../../shared/session'
 import {
   NAV_BY_VARIANT,
   ROLE_TO_VARIANT,
@@ -27,8 +28,9 @@ function isActive(item: NavItem, pathname: string): boolean {
   return pathname === item.href || pathname.startsWith(`${item.href}/`)
 }
 
-// Мобильная нижняя навигация (десктоп — сайдбар). Держим 5 ячеек: первые 4 раздела роли
-// + «Уведомления» (переехали сюда из header'а; открывают оверлей, а не роут).
+// Мобильная нижняя навигация (десктоп — сайдбар). 5 ячеек: первые 4 раздела роли + «Ещё».
+// «Ещё» открывает нижний лист с уведомлениями, остальными разделами роли, профилем и выходом —
+// так всё помещается, а Профиль (плашка сайдбара на десктопе) доступен и на телефоне.
 function BottomNav({
   nav,
   notifOpen,
@@ -40,7 +42,9 @@ function BottomNav({
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
+  const tShell = useTranslations('Dashboard')
   const queryClient = useQueryClient()
+  const [moreOpen, setMoreOpen] = useState(false)
 
   const unread = useQuery({
     queryKey: notificationKeys.unreadCount(),
@@ -53,46 +57,127 @@ function BottomNav({
   const count = unread.data ?? 0
   const badge = count > 99 ? '99+' : String(count)
 
+  // Закрываем лист «Ещё» при любой навигации.
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [pathname])
+
+  const overflow = nav.slice(4) // разделы роли, не влезшие в основные вкладки
+  const profileActive = pathname === '/profile' || pathname.startsWith('/profile/')
+
+  async function logout(): Promise<void> {
+    await endSession()
+    window.location.assign('/login')
+  }
+
+  const sheetItem =
+    'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted'
+
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden">
-      {nav.slice(0, 4).map((item) => {
-        const active = isActive(item, pathname)
-        const Icon = item.icon
-        return (
-          <Link
-            key={item.key}
-            href={item.href}
-            aria-current={active ? 'page' : undefined}
-            className={cn(
-              'flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 py-2 text-[0.625rem] font-medium transition-colors',
-              active ? 'text-primary' : 'text-muted-foreground',
-            )}
-          >
-            <Icon className="size-5 shrink-0" aria-hidden />
-            <span className="w-full truncate text-center leading-tight">{tNav(item.key)}</span>
-          </Link>
-        )
-      })}
-      <button
-        type="button"
-        onClick={onToggleNotif}
-        aria-pressed={notifOpen}
-        className={cn(
-          'flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-1 px-0.5 py-2 text-[0.625rem] font-medium transition-colors',
-          notifOpen ? 'text-primary' : 'text-muted-foreground',
-        )}
-      >
-        <span className="relative shrink-0">
-          <Bell className="size-5" aria-hidden />
-          {count > 0 && (
-            <span className="absolute -top-1.5 -right-2 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
-              {badge}
-            </span>
+    <>
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden">
+        {nav.slice(0, 4).map((item) => {
+          const active = isActive(item, pathname)
+          const Icon = item.icon
+          return (
+            <Link
+              key={item.key}
+              href={item.href}
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                'flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 py-2 text-[0.625rem] font-medium transition-colors',
+                active ? 'text-primary' : 'text-muted-foreground',
+              )}
+            >
+              <Icon className="size-5 shrink-0" aria-hidden />
+              <span className="w-full truncate text-center leading-tight">{tNav(item.key)}</span>
+            </Link>
+          )
+        })}
+        <button
+          type="button"
+          onClick={() => setMoreOpen(true)}
+          aria-expanded={moreOpen}
+          className={cn(
+            'flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-1 px-0.5 py-2 text-[0.625rem] font-medium transition-colors',
+            moreOpen ? 'text-primary' : 'text-muted-foreground',
           )}
-        </span>
-        <span className="w-full truncate text-center leading-tight">{tNav('notifications')}</span>
-      </button>
-    </nav>
+        >
+          <span className="relative shrink-0">
+            <MoreHorizontal className="size-5" aria-hidden />
+            {count > 0 && (
+              <span className="absolute -top-1.5 -right-2 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
+                {badge}
+              </span>
+            )}
+          </span>
+          <span className="w-full truncate text-center leading-tight">{tNav('more')}</span>
+        </button>
+      </nav>
+
+      {/* Нижний лист «Ещё»: уведомления + остальные разделы + профиль + выход. */}
+      {moreOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-foreground/40 lg:hidden"
+          onClick={() => setMoreOpen(false)}
+        >
+          <div
+            className="absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] duration-200 animate-in slide-in-from-bottom"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="mx-auto mt-1 mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"
+              aria-hidden
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setMoreOpen(false)
+                onToggleNotif()
+              }}
+              className={cn(sheetItem, notifOpen && 'text-primary')}
+            >
+              <span className="relative">
+                <Bell className="size-5 shrink-0 opacity-80" aria-hidden />
+                {count > 0 && (
+                  <span className="absolute -top-1.5 -right-2 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
+                    {badge}
+                  </span>
+                )}
+              </span>
+              {tNav('notifications')}
+            </button>
+            {overflow.map((item) => {
+              const Icon = item.icon
+              const active = isActive(item, pathname)
+              return (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  onClick={() => setMoreOpen(false)}
+                  className={cn(sheetItem, active && 'text-primary')}
+                >
+                  <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
+                  {tNav(item.key)}
+                </Link>
+              )
+            })}
+            <Link
+              href="/profile"
+              onClick={() => setMoreOpen(false)}
+              className={cn(sheetItem, profileActive && 'text-primary')}
+            >
+              <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
+              {tNav('profile')}
+            </Link>
+            <button type="button" onClick={logout} className={cn(sheetItem, 'text-destructive')}>
+              <LogOut className="size-5 shrink-0 opacity-80" aria-hidden />
+              {tShell('logout')}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

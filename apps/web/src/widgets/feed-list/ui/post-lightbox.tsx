@@ -42,7 +42,7 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import type { PostAuthor } from '../../../entities/post'
-import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { PostMediaView } from './post-media'
 
@@ -225,6 +225,7 @@ function PostView({
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
@@ -568,7 +569,11 @@ function PostView({
                       type="button"
                       onClick={() => {
                         setMenuOpen(false)
-                        if (window.confirm(t('deleteConfirm'))) delPostMut.mutate()
+                        void confirm({ title: t('deleteConfirm'), destructive: true }).then(
+                          (ok) => {
+                            if (ok) delPostMut.mutate()
+                          },
+                        )
                       }}
                       className="flex h-9 w-full items-center gap-2.5 px-3 text-sm text-destructive transition-colors hover:bg-muted"
                     >
