@@ -207,10 +207,6 @@ export function ChatWindow() {
     null,
   )
   const chatSwipedFlag = useRef(false)
-  // Поиск внутри открытого чата (шапка): raw → дебаунс → term.
-  const [chatSearchOpen, setChatSearchOpen] = useState(false)
-  const [chatSearchRaw, setChatSearchRaw] = useState('')
-  const [chatSearchTerm, setChatSearchTerm] = useState('')
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
@@ -264,19 +260,6 @@ export function ChatWindow() {
     queryKey: chatKeys.search(listSearchTerm, undefined),
     queryFn: () => searchMessages(listSearchTerm),
     enabled: listSearchTerm.length >= 2,
-  })
-
-  // Дебаунс поиска внутри активного чата (шапка).
-  useEffect(() => {
-    const term = chatSearchRaw.trim()
-    const id = setTimeout(() => setChatSearchTerm(term.length >= 2 ? term : ''), 350)
-    return () => clearTimeout(id)
-  }, [chatSearchRaw])
-
-  const chatSearchResults = useQuery({
-    queryKey: chatKeys.search(chatSearchTerm, activeId ?? undefined),
-    queryFn: () => searchMessages(chatSearchTerm, activeId ?? undefined),
-    enabled: chatSearchOpen && chatSearchTerm.length >= 2 && !!activeId,
   })
 
   // Явно pin/unpin по флагу (не полагаемся на возможно-устаревший pinnedAt) + обновляем кэш из ответа.
@@ -569,9 +552,6 @@ export function ChatWindow() {
     setText(activeId ? (draftsRef.current.get(activeId) ?? '') : '')
     setSelectMode(false)
     setSelectedIds(new Set())
-    setChatSearchOpen(false)
-    setChatSearchRaw('')
-    setChatSearchTerm('')
   }, [activeId])
 
   // Снимок числа непрочитанных РОВНО при открытии чата (до отметки прочтения/инвалидации списка).
@@ -666,15 +646,6 @@ export function ChatWindow() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     setNewSinceScroll(0)
     setShowScrollDown(false)
-  }
-
-  // Переход к найденному сообщению (поиск в чате). focusMessage прокрутит+подсветит, если оно
-  // уже загружено; глубокая история (не подгруженная) — доработка следующего прохода (нужен API «вокруг id»).
-  function jumpToSearchResult(id: string): void {
-    setChatSearchOpen(false)
-    setChatSearchRaw('')
-    setChatSearchTerm('')
-    focusMessage(id)
   }
 
   // ── Множественный выбор сообщений ───────────────────────────────────────────
@@ -835,6 +806,8 @@ export function ChatWindow() {
       s.longFired = true
       resetBubble(s.bubble, true)
       setMenu({ message: m, x, y })
+      // Тактильный отклик при срабатывании долгого нажатия (где поддерживается).
+      if ('vibrate' in navigator) navigator.vibrate(8)
     }, LONG_PRESS_MS)
     msgTouch.current = {
       m,
@@ -1504,18 +1477,6 @@ export function ChatWindow() {
                     {t('offline')}
                   </span>
                 )}
-                {/* Поиск по текущему чату. */}
-                <button
-                  type="button"
-                  onClick={() => setChatSearchOpen((v) => !v)}
-                  aria-label={t('search')}
-                  className={cn(
-                    'flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-                    chatSearchOpen && 'bg-muted text-foreground',
-                  )}
-                >
-                  <Search className="size-4" aria-hidden />
-                </button>
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
                   <button
@@ -1643,75 +1604,6 @@ export function ChatWindow() {
               </div>
             </header>
 
-            {/* Поиск по текущему чату: строка ввода + список найденных (переход по клику). */}
-            {chatSearchOpen && (
-              <div className="flex flex-col border-b border-border bg-background">
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <input
-                    autoFocus
-                    value={chatSearchRaw}
-                    onChange={(e) => setChatSearchRaw(e.target.value)}
-                    placeholder={t('searchInChat')}
-                    className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none"
-                  />
-                  {chatSearchTerm.length >= 2 && !chatSearchResults.isLoading && (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {t('resultsCount', { count: chatSearchResults.data?.items.length ?? 0 })}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    aria-label={t('cancel')}
-                    onClick={() => {
-                      setChatSearchOpen(false)
-                      setChatSearchRaw('')
-                      setChatSearchTerm('')
-                    }}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <X className="size-4" aria-hidden />
-                  </button>
-                </div>
-                {chatSearchTerm.length >= 2 && (
-                  <div className="max-h-64 overflow-y-auto border-t border-border">
-                    {chatSearchResults.isLoading ? (
-                      <div className="flex justify-center py-4 text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                      </div>
-                    ) : (chatSearchResults.data?.items.length ?? 0) === 0 ? (
-                      <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                        {t('noResults')}
-                      </p>
-                    ) : (
-                      chatSearchResults.data?.items.map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => jumpToSearchResult(m.id)}
-                          className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                                {senderName(m)}
-                              </span>
-                              <span className="shrink-0 text-[0.65rem] text-muted-foreground">
-                                {listTime(m.createdAt, locale)}
-                              </span>
-                            </div>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {m.content || t('attachment')}
-                            </p>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Закреплённое сообщение (Telegram-стиль): одна строка, клик — переход + цикл */}
             {pinnedList.length > 0 &&
               (() => {
@@ -1806,6 +1698,7 @@ export function ChatWindow() {
                               mine && 'flex-row-reverse',
                               (highlightId === m.id || (selectMode && selectedIds.has(m.id))) &&
                                 'bg-primary/10',
+                              !selectMode && menu?.message.id === m.id && 'bg-primary/5',
                               selectMode && 'cursor-pointer',
                             )}
                             onContextMenu={
@@ -2299,6 +2192,10 @@ export function ChatWindow() {
           onLeft={() => {
             setGroupInfoOpen(false)
             setActiveId(null)
+          }}
+          onOpenChat={(id) => {
+            setGroupInfoOpen(false)
+            setActiveId(id)
           }}
         />
       )}
