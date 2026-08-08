@@ -27,6 +27,7 @@ export {
   AlertDialogAction,
   AlertDialogCancel,
 } from './alert-dialog'
+export { ConfirmProvider, useConfirm, type ConfirmOptions } from './confirm-dialog'
 export { Skeleton } from './skeleton'
 export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 export { EmptyState, type EmptyStateProps } from './empty-state'
@@ -49,4 +50,6 @@ export { MeshBrandPanel, type MeshBrandPanelProps } from './mesh-brand-panel'
 export { MediaViewer, type MediaViewerItem } from './media-viewer'
 export { DateTimeField } from './date-time-field'
 export { DateTimePicker } from './date-time-picker'
+export { DatePicker, type DatePickerProps } from './date-picker'
+export { DateRangePicker, type DateRangePickerProps, type DateRange } from './date-range-picker'
 export { PageLoader, type PageLoaderProps } from './page-loader'

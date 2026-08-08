@@ -17,6 +17,10 @@ export const viewport: Viewport = {
   themeColor: '#2563eb',
   width: 'device-width',
   initialScale: 1,
+  // Полностью отключаем масштабирование на мобильных (iOS/Android): без пинч-зума и зума при фокусе.
+  maximumScale: 1,
+  minimumScale: 1,
+  userScalable: false,
   // Клавиатура ужимает layout-viewport (и svh/dvh) — поле ввода чата остаётся над клавиатурой (iOS/Android).
   interactiveWidget: 'resizes-content',
 }

@@ -27,7 +27,7 @@ import {
   uploadProfileMediaAuto,
   type ProfileMedia,
 } from '../../../entities/profile-content'
-import { Card, EmptyState, Skeleton } from '../../../shared/ui'
+import { Card, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
@@ -64,6 +64,7 @@ export function ProfileMediaGrid({
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -169,7 +170,9 @@ export function ProfileMediaGrid({
   }
 
   function confirmDelete(id: string): void {
-    if (window.confirm(t('mediaDeleteConfirm'))) delMut.mutate(id)
+    void confirm({ title: t('mediaDeleteConfirm'), destructive: true }).then((ok) => {
+      if (ok) delMut.mutate(id)
+    })
   }
 
   function openCreateAlbum(): void {
@@ -203,10 +206,12 @@ export function ProfileMediaGrid({
   }
   function handleDeleteAlbum(): void {
     if (!activeAlbumId) return
-    if (window.confirm(t('albumDeleteConfirm'))) {
-      deleteAlbumMut.mutate(activeAlbumId)
-      setAlbumFilter('all')
-    }
+    void confirm({ title: t('albumDeleteConfirm'), destructive: true }).then((ok) => {
+      if (ok) {
+        deleteAlbumMut.mutate(activeAlbumId)
+        setAlbumFilter('all')
+      }
+    })
   }
 
   return (

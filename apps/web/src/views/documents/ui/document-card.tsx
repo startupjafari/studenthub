@@ -42,6 +42,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
@@ -67,6 +68,7 @@ const STATUS_TONE: Record<string, string> = {
 export function DocumentCard({ doc }: { doc: DocumentDto }) {
   const t = useTranslations('Documents')
   const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
   const locale = useLocale()
   const qc = useQueryClient()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -247,7 +249,9 @@ export function DocumentCard({ doc }: { doc: DocumentDto }) {
                   className={cn(menuItem, 'text-destructive hover:bg-destructive/10')}
                   onClick={() => {
                     setMenuOpen(false)
-                    if (window.confirm(t('deleteConfirm'))) delMut.mutate()
+                    void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
+                      if (ok) delMut.mutate()
+                    })
                   }}
                 >
                   <Trash2 className="size-4" aria-hidden /> {t('actionDelete')}

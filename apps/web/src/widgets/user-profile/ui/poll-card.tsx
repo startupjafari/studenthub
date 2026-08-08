@@ -21,6 +21,7 @@ import {
   Button,
   Card,
   CardContent,
+  useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -42,6 +43,7 @@ export function PollCard({ poll, isOwner }: Props) {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [selected, setSelected] = useState<string[]>([])
 
   const invalidate = () => {
@@ -117,7 +119,9 @@ export function PollCard({ poll, isOwner }: Props) {
               aria-label={t('delete')}
               className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => {
-                if (window.confirm(t('pollDeleteConfirm'))) delMut.mutate()
+                void confirm({ title: t('pollDeleteConfirm'), destructive: true }).then((ok) => {
+                  if (ok) delMut.mutate()
+                })
               }}
             >
               <Trash2 className="size-4 text-destructive" aria-hidden />

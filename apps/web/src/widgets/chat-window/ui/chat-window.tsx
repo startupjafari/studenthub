@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,6 +14,7 @@ import {
   CheckCheck,
   ChevronDown,
   ChevronLeft,
+  Copy,
   Download,
   Forward,
   Loader2,
@@ -74,9 +75,17 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { GroupInfoDialog } from './group-info-dialog'
+import { PeerInfoCard } from './peer-info-card'
 import { BlockedUsersDialog } from './blocked-users-dialog'
 import { CreateGroupDialog } from './create-group-dialog'
-import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useChatListSlot, useMediaQuery, useSetChatOpen } from '../../../shared/lib'
 
@@ -150,6 +159,7 @@ export function ChatWindow() {
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
   const myId = useAppSelector((s) => s.auth.user?.id)
+  const confirm = useConfirm()
 
   // Десктоп: список чатов порталим в слот сайдбара (см. AppSidebar chatsMode).
   // На мобильном слота нет — список остаётся во весь экран внутри main.
@@ -192,9 +202,36 @@ export function ChatWindow() {
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   const [groupInfoOpen, setGroupInfoOpen] = useState(false)
+  // Мини-карточка собеседника (личный чат, Telegram-стиль) — по клику на шапку.
+  const [peerCardOpen, setPeerCardOpen] = useState(false)
+  // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
+  const [showScrollDown, setShowScrollDown] = useState(false)
+  const [newSinceScroll, setNewSinceScroll] = useState(0)
+  // Режим множественного выбора сообщений (Telegram-стиль): чекбоксы + массовые действия.
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Пересылка нескольких выбранных сообщений (id) — переиспользуем ForwardDialog.
+  const [forwardIds, setForwardIds] = useState<string[] | null>(null)
+  // Свайп-действия на строке списка чатов (мобильный): id открытой строки + учёт жеста.
+  const [swipedChatId, setSwipedChatId] = useState<string | null>(null)
+  const chatSwipe = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(
+    null,
+  )
+  const chatSwipedFlag = useRef(false)
+  // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
+  const [openUnread, setOpenUnread] = useState(0)
+  const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
+  const chatsRef = useRef<ChatListItem[] | undefined>(undefined)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
   // Для какого чата уже выполнен первичный скролл вниз (открытие ≠ новое сообщение).
   const scrolledForRef = useRef<string | null>(null)
+  // id последнего сообщения — чтобы отличать «добавилось новое» от prepend старых / update.
+  const lastMsgIdRef = useRef<string | null>(null)
+  // Реэнтри-гард авто-догрузки старых при скролле вверх.
+  const loadingOlderRef = useRef(false)
+  // Был ли пользователь у нижнего края при прошлом событии скролла (для отметки прочтения по факту).
+  const wasAtBottomRef = useRef(true)
   const typingSentAt = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLInputElement>(null)
@@ -202,6 +239,8 @@ export function ChatWindow() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
   const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats })
+  // Держим свежий список в ref — чтобы снять снимок непрочитанных РОВНО при открытии чата (до инвалидации).
+  chatsRef.current = chats.data
 
   const messages = useQuery({
     queryKey: chatKeys.messages(activeId ?? ''),
@@ -436,6 +475,11 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
+  // Сообщения в НЕактивные чаты приходят в комнату chat:{id}, куда мы не входим; но их уведомление
+  // прилетает в комнату user:{id} — по нему обновляем список чатов в реальном времени (превью, счётчик, порядок).
+  useRealtimeEvent('notification:new', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  })
   const upsert = (message: ChatMessage, chatId: string): void => {
     if (chatId === activeId) {
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
@@ -446,7 +490,11 @@ export function ChatWindow() {
   }
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:updated',
-    ({ message, chatId }) => upsert(message, chatId),
+    ({ message, chatId }) => {
+      upsert(message, chatId)
+      // Правка последнего сообщения меняет превью в списке.
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    },
   )
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:pinned',
@@ -466,12 +514,16 @@ export function ChatWindow() {
       setPresence((prev) => (prev[userId] === online ? prev : { ...prev, [userId]: online }))
     },
   )
-  // Прочтение другим участником — двигаем watermark вперёд (статус «прочитано» у своих сообщений).
+  // Прочтение другим участником — двигаем watermark активного чата вперёд (статус ✓✓ у своих сообщений)
+  // + обновляем список чатов, чтобы статус доставки в превью тоже был живым.
   useRealtimeEvent<{ chatId: string; userId: string; readAt: string }>(
     'message:read',
     ({ chatId, userId, readAt }) => {
-      if (chatId !== activeId || userId === myId) return
-      setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
+      if (userId === myId) return
+      if (chatId === activeId) {
+        setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
+      }
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
   useRealtimeEvent<{ messageId: string; chatId: string }>(
@@ -482,6 +534,8 @@ export function ChatWindow() {
           (old ?? []).filter((m) => m.id !== messageId),
         )
       }
+      // Удаление последнего сообщения меняет превью списка.
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
   useRealtimeEvent<{ chatId: string; userId: string }>('typing:started', ({ chatId, userId }) => {
@@ -518,33 +572,181 @@ export function ChatWindow() {
     return () => setChatOpen?.(false)
   }, [activeId, setChatOpen])
 
-  // Черновик: при переключении чата подставляем сохранённый текст (или пусто).
+  // Черновик: при переключении чата подставляем сохранённый текст (или пусто). Сбрасываем мультивыбор.
   useEffect(() => {
     setEditing(null)
     setText(activeId ? (draftsRef.current.get(activeId) ?? '') : '')
+    setSelectMode(false)
+    setSelectedIds(new Set())
+    setPeerCardOpen(false)
   }, [activeId])
 
-  // Прокрутка вниз и отметка прочтения. При ОТКРЫТИИ чата контейнер только что перемонтирован
-  // (key={activeId}) и стоит вверху — прокручиваем мгновенно после раскладки, с повтором на случай
-  // доотрисовки контента (markdown/анимация), иначе скролл «не доезжает». Для новых сообщений в уже
-  // открытом чате — плавно.
+  // Снимок числа непрочитанных РОВНО при открытии чата (до отметки прочтения/инвалидации списка).
+  useEffect(() => {
+    const c = chatsRef.current?.find((x) => x.id === activeId)
+    setOpenUnread(c?.unreadCount ?? 0)
+    setUnreadDividerId(null)
+  }, [activeId])
+
+  // Как только сообщения загрузились — фиксируем id первого непрочитанного (последние openUnread в ленте).
+  // Приблизительно: точную границу «моё последнее прочитанное» API пока не отдаёт (только unreadCount).
+  useEffect(() => {
+    if (unreadDividerId || openUnread <= 0 || !messages.data?.length) return
+    const len = messages.data.length
+    if (len < openUnread) return
+    const target = messages.data[len - openUnread]
+    if (target) setUnreadDividerId(target.id)
+  }, [messages.data, openUnread, unreadDividerId])
+
+  // Расстояние от низа < порога — пользователь «у низа» (auto-scroll и отметка прочтения уместны).
+  function nearBottom(): boolean {
+    const el = messagesScrollRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }
+
+  // Прокрутка вниз и отметка прочтения (Telegram-стиль). При ОТКРЫТИИ чата — мгновенно к низу
+  // (контейнер перемонтирован, key={activeId}). Новое последнее сообщение: если пользователь у низа
+  // или это своё — плавно вниз; иначе не дёргаем скролл, а копим счётчик и показываем кнопку «вниз».
+  // Prepend старых и update существующих (id последнего не изменился) прокрутку не вызывают.
   useEffect(() => {
     if (!messages.data?.length || !activeId || !socket) return
+    const list = messages.data
+    const last = list[list.length - 1]
     const firstForChat = scrolledForRef.current !== activeId
-    scrolledForRef.current = activeId
+    const prevLastId = lastMsgIdRef.current
+    lastMsgIdRef.current = last?.id ?? null
     const toBottom = (behavior: ScrollBehavior): void =>
       bottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+
     if (firstForChat) {
+      scrolledForRef.current = activeId
+      setNewSinceScroll(0)
+      setShowScrollDown(false)
       requestAnimationFrame(() => {
         toBottom('auto')
         window.setTimeout(() => toBottom('auto'), 120)
       })
-    } else {
-      toBottom('smooth')
+      if (last) socket.emit('message:read', { chatId: activeId, messageId: last.id })
+      return
     }
-    const last = messages.data[messages.data.length - 1]
-    if (last) socket.emit('message:read', { chatId: activeId, messageId: last.id })
-  }, [messages.data, activeId, socket])
+
+    if (last && last.id !== prevLastId) {
+      if (last.senderId === myId || nearBottom()) {
+        toBottom('smooth')
+        socket.emit('message:read', { chatId: activeId, messageId: last.id })
+      } else {
+        setNewSinceScroll((n) => n + 1)
+        setShowScrollDown(true)
+      }
+    }
+  }, [messages.data, activeId, socket, myId])
+
+  // Скролл ленты: показ кнопки «вниз», отметка прочтения при доскролле вниз, авто-догрузка старых у верха.
+  function onMessagesScroll(): void {
+    const el = messagesScrollRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    setShowScrollDown(!atBottom)
+    if (atBottom && !wasAtBottomRef.current) {
+      setNewSinceScroll(0)
+      const last = messages.data?.[messages.data.length - 1]
+      if (last && socket && activeId)
+        socket.emit('message:read', { chatId: activeId, messageId: last.id })
+    }
+    wasAtBottomRef.current = atBottom
+    // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
+    if (el.scrollTop < 100 && canLoadOlder && !loadingOlderRef.current) {
+      loadingOlderRef.current = true
+      const prevHeight = el.scrollHeight
+      void loadOlder().finally(() => {
+        requestAnimationFrame(() => {
+          const el2 = messagesScrollRef.current
+          if (el2) el2.scrollTop = el2.scrollHeight - prevHeight
+          loadingOlderRef.current = false
+        })
+      })
+    }
+  }
+
+  function scrollToBottom(): void {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    setNewSinceScroll(0)
+    setShowScrollDown(false)
+  }
+
+  // ── Множественный выбор сообщений ───────────────────────────────────────────
+  function enterSelect(m: ChatMessage): void {
+    setSelectMode(true)
+    setSelectedIds(new Set([m.id]))
+  }
+  function toggleSelect(id: string): void {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      if (next.size === 0) setSelectMode(false)
+      return next
+    })
+  }
+  function exitSelect(): void {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+  function bulkDelete(): void {
+    if (!socket) return
+    selectedIds.forEach((id) => socket.emit('message:delete', { messageId: id }))
+    exitSelect()
+  }
+  function bulkCopy(): void {
+    // Копируем в хронологическом порядке ленты (не в порядке выбора).
+    const text = (messages.data ?? [])
+      .filter((m) => selectedIds.has(m.id))
+      .map((m) => m.content)
+      .filter(Boolean)
+      .join('\n')
+    void navigator.clipboard?.writeText(text)
+    toast.success(t('copied'))
+    exitSelect()
+  }
+
+  // ── Свайп по строке списка чатов (мобильный): влево — открыть действия, вправо — закрыть ──
+  function onRowTouchStart(e: React.TouchEvent<HTMLElement>, id: string): void {
+    const tch = e.touches[0]
+    if (!tch) return
+    chatSwipe.current = { id, startX: tch.clientX, startY: tch.clientY, moved: false }
+  }
+  function onRowTouchMove(e: React.TouchEvent<HTMLElement>): void {
+    const s = chatSwipe.current
+    const tch = e.touches[0]
+    if (!s || !tch) return
+    const dx = tch.clientX - s.startX
+    const dy = tch.clientY - s.startY
+    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
+  }
+  function onRowTouchEnd(e: React.TouchEvent<HTMLElement>, id: string): void {
+    const s = chatSwipe.current
+    if (!s) return
+    if (s.moved) {
+      const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
+      if (dx < -40) setSwipedChatId(id)
+      else if (dx > 40) setSwipedChatId((cur) => (cur === id ? null : cur))
+      chatSwipedFlag.current = true
+    }
+    chatSwipe.current = null
+  }
+
+  // Подпись разделителя дня в ленте: Сегодня / Вчера / дата.
+  function dayLabel(iso: string): string {
+    const d = new Date(iso)
+    const now = new Date()
+    const startOf = (x: Date): number =>
+      new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+    const diff = Math.round((startOf(now) - startOf(d)) / 86_400_000)
+    if (diff === 0) return t('today')
+    if (diff === 1) return t('yesterday')
+    return d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
+  }
 
   function send(): void {
     const content = text.trim()
@@ -631,6 +833,8 @@ export function ChatWindow() {
       s.longFired = true
       resetBubble(s.bubble, true)
       setMenu({ message: m, x, y })
+      // Тактильный отклик при срабатывании долгого нажатия (где поддерживается).
+      if ('vibrate' in navigator) navigator.vibrate(8)
     }, LONG_PRESS_MS)
     msgTouch.current = {
       m,
@@ -768,6 +972,11 @@ export function ChatWindow() {
   }
 
   const typingCount = Object.keys(typingUsers).length
+  // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
+  const firstTyperId = Object.keys(typingUsers)[0]
+  const firstTyperName = firstTyperId
+    ? membersQuery.data?.find((u) => u.id === firstTyperId)?.firstName
+    : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
   const list = useMemo(() => chats.data ?? [], [chats.data])
   // Единый поиск: чаты по названию + сообщения (глобально). Показываем двумя секциями.
@@ -1042,74 +1251,130 @@ export function ChatWindow() {
               new Date(c.othersReadAt).getTime() >= new Date(lm!.createdAt).getTime()
             const tag = TYPE_TAG[c.type]
             return (
-              <button
+              <div
                 key={c.id}
-                type="button"
-                onClick={() => setActiveId(c.id)}
-                className={cn(
-                  'flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors duration-200 animate-in fade-in slide-in-from-left-2 hover:bg-muted/50',
-                  activeId === c.id ? 'bg-primary/10' : '',
-                )}
+                className="relative overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
-                <span className="relative shrink-0">
-                  <Avatar className="size-12">
-                    {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={title} />}
-                    <AvatarFallback
-                      className={cn('text-sm font-medium text-white', avatarColor(c.id))}
-                    >
-                      {chatInitials(title)}
-                    </AvatarFallback>
-                  </Avatar>
-                  {c.type === 'PRIVATE' && c.online && (
-                    <span
-                      className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-green-500"
-                      aria-hidden
-                    />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
-                    {c.muted && (
-                      <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                {/* Скрытые действия под строкой — открываются свайпом влево (только мобильный/планшет). */}
+                <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
+                  <button
+                    type="button"
+                    aria-label={c.muted ? t('unmute') : t('mute')}
+                    onClick={() => {
+                      mute.mutate({ chatId: c.id, muted: !c.muted })
+                      setSwipedChatId(null)
+                    }}
+                    className="flex w-16 flex-col items-center justify-center gap-1 bg-muted text-[0.65rem] font-medium text-muted-foreground"
+                  >
+                    {c.muted ? (
+                      <Bell className="size-4" aria-hidden />
+                    ) : (
+                      <BellOff className="size-4" aria-hidden />
                     )}
-                    {lastMine &&
-                      (lastRead ? (
-                        <CheckCheck className="size-3 shrink-0 text-sky-500/80" aria-hidden />
-                      ) : (
-                        <Check className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                      ))}
-                    {lm && (
-                      <span className="shrink-0 text-[0.7rem] text-muted-foreground">
-                        {listTime(lm.createdAt, locale)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                      {previewWho && <span className="text-foreground/70">{previewWho}</span>}
-                      {preview}
-                    </p>
-                    {c.unreadCount > 0 && (
-                      <span
-                        className={cn(
-                          'flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium tabular-nums text-white',
-                          c.muted ? 'bg-muted-foreground/60' : 'bg-primary',
-                        )}
-                      >
-                        {c.unreadCount > 99 ? '99+' : c.unreadCount}
-                      </span>
-                    )}
-                  </div>
-                  <span className="mt-0.5 inline-flex items-center gap-1 text-[0.6rem] font-medium uppercase tracking-wide text-muted-foreground">
-                    <span
-                      className={cn('size-1.5 shrink-0 rounded-full opacity-70', tag.dot)}
-                      aria-hidden
-                    />
-                    {t(tag.key)}
-                  </span>
+                    {c.muted ? t('unmute') : t('mute')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('delete')}
+                    onClick={() => {
+                      const msg =
+                        c.type !== 'PRIVATE' && c.isOwner
+                          ? t('deleteGroupConfirm')
+                          : t('deleteChatConfirm')
+                      setSwipedChatId(null)
+                      void confirm({ title: msg, destructive: true }).then((ok) => {
+                        if (ok) deleteChat.mutate(c.id)
+                      })
+                    }}
+                    className="flex w-16 flex-col items-center justify-center gap-1 bg-destructive text-[0.65rem] font-medium text-white"
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    {t('delete')}
+                  </button>
                 </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Свайп только что закрыл/открыл строку — клик игнорируем. Открытая строка → закрыть.
+                    if (chatSwipedFlag.current) {
+                      chatSwipedFlag.current = false
+                      return
+                    }
+                    if (swipedChatId) {
+                      setSwipedChatId(null)
+                      return
+                    }
+                    setActiveId(c.id)
+                  }}
+                  onTouchStart={(e) => onRowTouchStart(e, c.id)}
+                  onTouchMove={onRowTouchMove}
+                  onTouchEnd={(e) => onRowTouchEnd(e, c.id)}
+                  className={cn(
+                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-[transform,background-color] hover:bg-muted/50',
+                    activeId === c.id ? 'bg-primary/10' : '',
+                    swipedChatId === c.id && '-translate-x-32',
+                  )}
+                >
+                  <span className="relative shrink-0">
+                    <Avatar className="size-12">
+                      {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={title} />}
+                      <AvatarFallback
+                        className={cn('text-sm font-medium text-white', avatarColor(c.id))}
+                      >
+                        {chatInitials(title)}
+                      </AvatarFallback>
+                    </Avatar>
+                    {c.type === 'PRIVATE' && c.online && (
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-green-500"
+                        aria-hidden
+                      />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+                      {c.muted && (
+                        <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      )}
+                      {lastMine &&
+                        (lastRead ? (
+                          <CheckCheck className="size-3 shrink-0 text-sky-500/80" aria-hidden />
+                        ) : (
+                          <Check className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                        ))}
+                      {lm && (
+                        <span className="shrink-0 text-[0.7rem] text-muted-foreground">
+                          {listTime(lm.createdAt, locale)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        {previewWho && <span className="text-foreground/70">{previewWho}</span>}
+                        {preview}
+                      </p>
+                      {c.unreadCount > 0 && (
+                        <span
+                          className={cn(
+                            'flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium tabular-nums text-white',
+                            c.muted ? 'bg-muted-foreground/60' : 'bg-primary',
+                          )}
+                        >
+                          {c.unreadCount > 99 ? '99+' : c.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                    <span className="mt-0.5 inline-flex items-center gap-1 text-[0.6rem] font-medium uppercase tracking-wide text-muted-foreground">
+                      <span
+                        className={cn('size-1.5 shrink-0 rounded-full opacity-70', tag.dot)}
+                        aria-hidden
+                      />
+                      {t(tag.key)}
+                    </span>
+                  </div>
+                </button>
+              </div>
             )
           })
         )}
@@ -1135,7 +1400,62 @@ export function ChatWindow() {
             key={activeId}
             className="flex min-h-0 flex-1 flex-col duration-300 animate-in fade-in slide-in-from-right-4"
           >
-            <header className="flex items-center justify-between gap-1 border-b border-border px-3 py-3 md:px-4">
+            {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
+            {selectMode && (
+              <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+                <button
+                  type="button"
+                  aria-label={t('cancel')}
+                  onClick={exitSelect}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+                >
+                  <X className="size-5" aria-hidden />
+                </button>
+                <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">
+                  {t('selectedCount', { count: selectedIds.size })}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t('copyText')}
+                  disabled={selectedIds.size === 0}
+                  onClick={bulkCopy}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                >
+                  <Copy className="size-5" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('forward')}
+                  disabled={selectedIds.size === 0}
+                  onClick={() => setForwardIds([...selectedIds])}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                >
+                  <Forward className="size-5" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('delete')}
+                  disabled={selectedIds.size === 0}
+                  onClick={() => {
+                    void confirm({
+                      title: t('deleteSelectedConfirm', { count: selectedIds.size }),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) bulkDelete()
+                    })
+                  }}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
+                >
+                  <Trash2 className="size-5" aria-hidden />
+                </button>
+              </header>
+            )}
+            <header
+              className={cn(
+                'flex items-center justify-between gap-1 border-b border-border px-3 py-3 md:px-4',
+                selectMode && 'hidden',
+              )}
+            >
               {/* Назад к списку — только на мобильном */}
               <button
                 type="button"
@@ -1147,12 +1467,8 @@ export function ChatWindow() {
               </button>
               <button
                 type="button"
-                disabled={isPrivate}
-                onClick={() => !isPrivate && setGroupInfoOpen(true)}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 text-left transition-colors',
-                  !isPrivate && 'hover:bg-muted',
-                )}
+                onClick={() => (isPrivate ? setPeerCardOpen(true) : setGroupInfoOpen(true))}
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 text-left transition-colors hover:bg-muted"
               >
                 <span className="relative shrink-0">
                   <Avatar className="size-9">
@@ -1183,11 +1499,23 @@ export function ChatWindow() {
                     {activeChat ? chatTitle(activeChat, t) : ''}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {isPrivate
-                      ? otherOnline
-                        ? t('online')
-                        : t('offlineStatus')
-                      : t('membersOnline', { count: onlineOthers })}
+                    {typingCount > 0 ? (
+                      <span className="text-primary">
+                        {isPrivate || typingCount > 1 || !firstTyperName
+                          ? isPrivate
+                            ? t('typingStatus')
+                            : t('typingMany')
+                          : t('typingStatusName', { name: firstTyperName })}
+                      </span>
+                    ) : isPrivate ? (
+                      otherOnline ? (
+                        t('online')
+                      ) : (
+                        t('offlineStatus')
+                      )
+                    ) : (
+                      t('membersOnline', { count: onlineOthers })
+                    )}
                   </span>
                 </div>
               </button>
@@ -1198,7 +1526,7 @@ export function ChatWindow() {
                     {t('offline')}
                   </span>
                 )}
-                {/* Действия — в меню «три точки» (поиск по чату вынесен в общий поиск панели). */}
+                {/* Действия — в меню «три точки». */}
                 <div className="relative">
                   <button
                     type="button"
@@ -1287,9 +1615,13 @@ export function ChatWindow() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (window.confirm(t('clearHistoryConfirm')))
-                                clearChat.mutate(activeChat.id)
                               setHeaderMenuOpen(false)
+                              void confirm({
+                                title: t('clearHistoryConfirm'),
+                                destructive: true,
+                              }).then((ok) => {
+                                if (ok) clearChat.mutate(activeChat.id)
+                              })
                             }}
                             className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted"
                           >
@@ -1305,8 +1637,10 @@ export function ChatWindow() {
                                 !isPrivate && activeChat.isOwner
                                   ? t('deleteGroupConfirm')
                                   : t('deleteChatConfirm')
-                              if (window.confirm(msg)) deleteChat.mutate(activeChat.id)
                               setHeaderMenuOpen(false)
+                              void confirm({ title: msg, destructive: true }).then((ok) => {
+                                if (ok) deleteChat.mutate(activeChat.id)
+                              })
                             }}
                             className="flex h-9 w-full items-center gap-2.5 px-3 text-sm text-destructive transition-colors hover:bg-destructive/10"
                           >
@@ -1362,202 +1696,269 @@ export function ChatWindow() {
                 )
               })()}
 
-            <div className="flex-1 overflow-y-auto p-4">
-              {canLoadOlder && (
-                <div className="mb-3 flex justify-center">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    loading={loadingOlder}
-                    onClick={loadOlder}
-                  >
-                    {t('loadOlder')}
-                  </Button>
-                </div>
-              )}
-              {messages.isLoading ? (
-                <div className="flex justify-center py-8 text-muted-foreground">
-                  <Loader2 className="size-5 animate-spin" aria-hidden />
-                </div>
-              ) : (
-                <ul className="flex flex-col">
-                  {(messages.data ?? []).map((m, i) => {
-                    const mine = m.senderId === myId
-                    // Группировка подряд идущих сообщений одного автора (Telegram-стиль): аватар и имя —
-                    // только у первого в серии; между сообщениями серии — плотнее, между авторами — просторнее.
-                    const arr = messages.data ?? []
-                    const firstOfRun = arr[i - 1]?.senderId !== m.senderId
-                    return (
-                      <li
-                        key={m.id}
-                        id={`msg-${m.id}`}
-                        className={cn(
-                          // -mx-4/px-4 — фон подсветки на всю ширину чата (в паддинг контейнера), высотой с сообщение.
-                          // select-none + touch-action:pan-y — для тач-жестов (долгое нажатие / свайп-ответ).
-                          'group -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
-                          i > 0 && (firstOfRun ? 'mt-2' : 'mt-0.5'),
-                          mine && 'flex-row-reverse',
-                          highlightId === m.id && 'bg-primary/10',
-                        )}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          setMenu({ message: m, x: e.clientX, y: e.clientY })
-                        }}
-                        onTouchStart={(e) => onMsgTouchStart(e, m)}
-                        onTouchMove={onMsgTouchMove}
-                        onTouchEnd={onMsgTouchEnd}
-                      >
-                        {!mine &&
-                          (firstOfRun ? (
-                            <ProfileLink userId={m.senderId} className="shrink-0 self-end">
-                              <Avatar className="size-7">
-                                <AvatarFallback>
-                                  {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
-                                </AvatarFallback>
-                              </Avatar>
-                            </ProfileLink>
-                          ) : (
-                            // Спейсер сохраняет горизонтальное место аватара — пузыри серии остаются выровненными.
-                            <span className="size-7 shrink-0" aria-hidden />
-                          ))}
-                        <div
-                          data-bubble
-                          className={cn(
-                            'relative max-w-[75%] rounded-2xl px-3 py-2 text-sm',
-                            mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div
+                ref={messagesScrollRef}
+                onScroll={onMessagesScroll}
+                className="flex-1 overflow-y-auto p-4"
+              >
+                {loadingOlder && (
+                  <div className="mb-3 flex justify-center text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  </div>
+                )}
+                {messages.isLoading ? (
+                  <div className="flex justify-center py-8 text-muted-foreground">
+                    <Loader2 className="size-5 animate-spin" aria-hidden />
+                  </div>
+                ) : (
+                  <ul className="flex flex-col">
+                    {(messages.data ?? []).map((m, i) => {
+                      const mine = m.senderId === myId
+                      // Группировка подряд идущих сообщений одного автора (Telegram-стиль): аватар и имя —
+                      // только у первого в серии; между сообщениями серии — плотнее, между авторами — просторнее.
+                      const arr = messages.data ?? []
+                      const prevMsg = arr[i - 1]
+                      const firstOfRun = prevMsg?.senderId !== m.senderId
+                      // Разделитель дня: перед первым сообщением и при смене календарного дня.
+                      const showDay =
+                        !prevMsg ||
+                        new Date(prevMsg.createdAt).toDateString() !==
+                          new Date(m.createdAt).toDateString()
+                      return (
+                        <Fragment key={m.id}>
+                          {showDay && (
+                            <li className="sticky top-1 z-10 my-2 flex justify-center">
+                              <span className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+                                {dayLabel(m.createdAt)}
+                              </span>
+                            </li>
                           )}
-                        >
-                          {/* Быстрая кнопка «Ответить» при наведении (Telegram-стиль). У своих — слева
-                              (справа мешает скроллбар), у чужих — справа; всегда со стороны к центру. */}
-                          <button
-                            type="button"
-                            aria-label={t('reply')}
-                            onClick={() => setReplyTo(m)}
+                          {unreadDividerId === m.id && (
+                            <li className="my-2 flex items-center gap-2 px-1">
+                              <span className="h-px flex-1 bg-primary/40" aria-hidden />
+                              <span className="text-xs font-medium text-primary">
+                                {t('unreadMessages')}
+                              </span>
+                              <span className="h-px flex-1 bg-primary/40" aria-hidden />
+                            </li>
+                          )}
+                          <li
+                            id={`msg-${m.id}`}
                             className={cn(
-                              'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100',
-                              mine ? '-left-2' : '-right-2',
+                              // -mx-4/px-4 — фон подсветки на всю ширину чата (в паддинг контейнера), высотой с сообщение.
+                              // select-none + touch-action:pan-y — для тач-жестов (долгое нажатие / свайп-ответ).
+                              'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+                              i > 0 && (firstOfRun ? 'mt-2' : 'mt-0.5'),
+                              mine && 'flex-row-reverse',
+                              (highlightId === m.id || (selectMode && selectedIds.has(m.id))) &&
+                                'bg-primary/10',
+                              !selectMode && menu?.message.id === m.id && 'bg-primary/5',
+                              selectMode && 'cursor-pointer',
                             )}
+                            onContextMenu={
+                              selectMode
+                                ? undefined
+                                : (e) => {
+                                    e.preventDefault()
+                                    setMenu({ message: m, x: e.clientX, y: e.clientY })
+                                  }
+                            }
+                            onTouchStart={selectMode ? undefined : (e) => onMsgTouchStart(e, m)}
+                            onTouchMove={selectMode ? undefined : onMsgTouchMove}
+                            onTouchEnd={selectMode ? undefined : onMsgTouchEnd}
                           >
-                            <Reply className="size-3.5" aria-hidden />
-                          </button>
-                          {!mine && firstOfRun && (
-                            <p className="mb-0.5 text-xs font-medium opacity-70">
-                              <ProfileLink userId={m.senderId} className="hover:underline">
-                                {senderName(m)}
-                              </ProfileLink>
-                            </p>
-                          )}
-                          {m.replyTo && (
-                            <button
-                              type="button"
-                              onClick={() => m.replyTo && focusMessage(m.replyTo.id)}
+                            {selectMode && (
+                              <>
+                                {/* Оверлей ловит тап по всей строке → переключение выбора (внутренние клики не мешают). */}
+                                <button
+                                  type="button"
+                                  aria-label={t('select')}
+                                  onClick={() => toggleSelect(m.id)}
+                                  className="absolute inset-0 z-20"
+                                />
+                                <span
+                                  className={cn(
+                                    'z-10 flex size-5 shrink-0 items-center justify-center rounded-full border',
+                                    selectedIds.has(m.id)
+                                      ? 'border-primary bg-primary text-primary-foreground'
+                                      : 'border-muted-foreground/40',
+                                  )}
+                                >
+                                  {selectedIds.has(m.id) && (
+                                    <Check className="size-3.5" aria-hidden />
+                                  )}
+                                </span>
+                              </>
+                            )}
+                            {!mine &&
+                              (firstOfRun ? (
+                                <ProfileLink userId={m.senderId} className="shrink-0 self-end">
+                                  <Avatar className="size-7">
+                                    <AvatarFallback>
+                                      {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                </ProfileLink>
+                              ) : (
+                                // Спейсер сохраняет горизонтальное место аватара — пузыри серии остаются выровненными.
+                                <span className="size-7 shrink-0" aria-hidden />
+                              ))}
+                            <div
+                              data-bubble
                               className={cn(
-                                'mb-1 block w-full rounded-md border-l-2 py-0.5 pl-2 text-left text-xs transition-colors',
-                                mine
-                                  ? 'border-primary-foreground/50 opacity-80 hover:bg-primary-foreground/10'
-                                  : 'border-primary/50 opacity-75 hover:bg-primary/10',
+                                'relative max-w-[75%] rounded-2xl px-3 py-2 text-sm',
+                                mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
                               )}
                             >
-                              <span className="font-medium">{senderName(m.replyTo)}</span>
-                              <p className="line-clamp-2">{m.replyTo.content || t('attachment')}</p>
+                              {/* Быстрая кнопка «Ответить» при наведении (Telegram-стиль). У своих — слева
+                              (справа мешает скроллбар), у чужих — справа; всегда со стороны к центру. */}
+                              <button
+                                type="button"
+                                aria-label={t('reply')}
+                                onClick={() => setReplyTo(m)}
+                                className={cn(
+                                  'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100',
+                                  mine ? '-left-2' : '-right-2',
+                                )}
+                              >
+                                <Reply className="size-3.5" aria-hidden />
+                              </button>
+                              {!mine && firstOfRun && (
+                                <p className="mb-0.5 text-xs font-medium opacity-70">
+                                  <ProfileLink userId={m.senderId} className="hover:underline">
+                                    {senderName(m)}
+                                  </ProfileLink>
+                                </p>
+                              )}
+                              {m.replyTo && (
+                                <button
+                                  type="button"
+                                  onClick={() => m.replyTo && focusMessage(m.replyTo.id)}
+                                  className={cn(
+                                    'mb-1 block w-full rounded-md border-l-2 py-0.5 pl-2 text-left text-xs transition-colors',
+                                    mine
+                                      ? 'border-primary-foreground/50 opacity-80 hover:bg-primary-foreground/10'
+                                      : 'border-primary/50 opacity-75 hover:bg-primary/10',
+                                  )}
+                                >
+                                  <span className="font-medium">{senderName(m.replyTo)}</span>
+                                  <p className="line-clamp-2">
+                                    {m.replyTo.content || t('attachment')}
+                                  </p>
+                                </button>
+                              )}
+                              {m.forwardedFrom && (
+                                <p className="mb-0.5 flex items-center gap-1 text-xs italic opacity-70">
+                                  <Forward className="size-3" aria-hidden />
+                                  {t('forwardedFrom', { name: senderName(m.forwardedFrom) })}
+                                </p>
+                              )}
+                              {/* Медиа/вложения сверху, подпись — всегда снизу (как в Telegram). */}
+                              {m.media.length > 0 && (
+                                <MessageAttachments
+                                  media={m.media}
+                                  mine={mine}
+                                  viewerMeta={{
+                                    senderName: senderName(m),
+                                    createdAt: m.createdAt,
+                                    mine,
+                                    caption: m.content,
+                                  }}
+                                  viewerActions={{
+                                    onGoTo: () => focusMessage(m.id),
+                                    onCopy: () => copyText(m),
+                                    onForward: () => setForwardMsg(m),
+                                    onDelete: () => deleteMessage(m),
+                                  }}
+                                />
+                              )}
+                              {m.sharedPost && (
+                                <div className={cn(m.media.length > 0 && 'mt-1')}>
+                                  <SharedPostCard post={m.sharedPost} />
+                                </div>
+                              )}
+                              {m.content && (
+                                <div className={cn((m.media.length > 0 || m.sharedPost) && 'mt-1')}>
+                                  <MessageContent content={m.content} />
+                                </div>
+                              )}
+                              <span
+                                className={cn(
+                                  'mt-0.5 flex items-center gap-1 text-[0.65rem]',
+                                  mine ? 'justify-end' : 'justify-start',
+                                )}
+                              >
+                                {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
+                                <span className="opacity-60">
+                                  {new Date(m.createdAt).toLocaleTimeString(locale, {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                  {m.editedAt && ` · ${t('edited')}`}
+                                </span>
+                                {mine &&
+                                  (() => {
+                                    const read =
+                                      readWatermark != null &&
+                                      new Date(readWatermark).getTime() >=
+                                        new Date(m.createdAt).getTime()
+                                    if (read)
+                                      return (
+                                        <CheckCheck className="size-3.5 text-sky-300" aria-hidden />
+                                      )
+                                    if (onlineOthers > 0)
+                                      return (
+                                        <CheckCheck className="size-3.5 opacity-60" aria-hidden />
+                                      )
+                                    return <Check className="size-3.5 opacity-60" aria-hidden />
+                                  })()}
+                              </span>
+                              <ReactionBar
+                                reactions={m.reactions}
+                                myId={myId}
+                                onToggle={(emoji) => react.mutate({ messageId: m.id, emoji })}
+                              />
+                            </div>
+                            {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
+                            <button
+                              type="button"
+                              aria-label={t('messageActions')}
+                              onClick={(e) => {
+                                const r = e.currentTarget.getBoundingClientRect()
+                                setMenu({ message: m, x: r.left, y: r.bottom })
+                              }}
+                              className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                            >
+                              <ChevronDown className="size-4" aria-hidden />
                             </button>
-                          )}
-                          {m.forwardedFrom && (
-                            <p className="mb-0.5 flex items-center gap-1 text-xs italic opacity-70">
-                              <Forward className="size-3" aria-hidden />
-                              {t('forwardedFrom', { name: senderName(m.forwardedFrom) })}
-                            </p>
-                          )}
-                          {/* Медиа/вложения сверху, подпись — всегда снизу (как в Telegram). */}
-                          {m.media.length > 0 && (
-                            <MessageAttachments
-                              media={m.media}
-                              mine={mine}
-                              viewerMeta={{
-                                senderName: senderName(m),
-                                createdAt: m.createdAt,
-                                mine,
-                                caption: m.content,
-                              }}
-                              viewerActions={{
-                                onGoTo: () => focusMessage(m.id),
-                                onCopy: () => copyText(m),
-                                onForward: () => setForwardMsg(m),
-                                onDelete: () => deleteMessage(m),
-                              }}
-                            />
-                          )}
-                          {m.sharedPost && (
-                            <div className={cn(m.media.length > 0 && 'mt-1')}>
-                              <SharedPostCard post={m.sharedPost} />
-                            </div>
-                          )}
-                          {m.content && (
-                            <div className={cn((m.media.length > 0 || m.sharedPost) && 'mt-1')}>
-                              <MessageContent content={m.content} />
-                            </div>
-                          )}
-                          <span
-                            className={cn(
-                              'mt-0.5 flex items-center gap-1 text-[0.65rem]',
-                              mine ? 'justify-end' : 'justify-start',
-                            )}
-                          >
-                            {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
-                            <span className="opacity-60">
-                              {new Date(m.createdAt).toLocaleTimeString(locale, {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                              {m.editedAt && ` · ${t('edited')}`}
-                            </span>
-                            {mine &&
-                              (() => {
-                                const read =
-                                  readWatermark != null &&
-                                  new Date(readWatermark).getTime() >=
-                                    new Date(m.createdAt).getTime()
-                                if (read)
-                                  return (
-                                    <CheckCheck className="size-3.5 text-sky-300" aria-hidden />
-                                  )
-                                if (onlineOthers > 0)
-                                  return <CheckCheck className="size-3.5 opacity-60" aria-hidden />
-                                return <Check className="size-3.5 opacity-60" aria-hidden />
-                              })()}
-                          </span>
-                          <ReactionBar
-                            reactions={m.reactions}
-                            myId={myId}
-                            onToggle={(emoji) => react.mutate({ messageId: m.id, emoji })}
-                          />
-                        </div>
-                        {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
-                        <button
-                          type="button"
-                          aria-label={t('messageActions')}
-                          onClick={(e) => {
-                            const r = e.currentTarget.getBoundingClientRect()
-                            setMenu({ message: m, x: r.left, y: r.bottom })
-                          }}
-                          className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                        >
-                          <ChevronDown className="size-4" aria-hidden />
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
+                          </li>
+                        </Fragment>
+                      )
+                    })}
+                  </ul>
+                )}
+                <div ref={bottomRef} />
+              </div>
+              {/* Кнопка «вниз» со счётчиком новых — появляется, когда пролистано вверх (Telegram-стиль). */}
+              {showScrollDown && (
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  aria-label={t('scrollToBottom')}
+                  className="absolute right-3 bottom-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform hover:bg-muted active:scale-95"
+                >
+                  <ChevronDown className="size-5" aria-hidden />
+                  {newSinceScroll > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-bold text-primary-foreground">
+                      {newSinceScroll > 99 ? '99+' : newSinceScroll}
+                    </span>
+                  )}
+                </button>
               )}
-              <div ref={bottomRef} />
             </div>
 
-            {typingCount > 0 && (
-              <div className="px-4 pb-1 text-xs text-muted-foreground">
-                {t('typing', { count: typingCount })}
-              </div>
-            )}
+            {/* «печатает…» показываем в шапке (вместо статуса), а не здесь — Telegram-стиль. */}
 
             {/* Панель правки */}
             {editing && (
@@ -1787,6 +2188,7 @@ export function ChatWindow() {
             onCopyLink: () => copyLink(menu.message),
             onForward: () => setForwardMsg(menu.message),
             onDelete: () => deleteMessage(menu.message),
+            onSelect: () => enterSelect(menu.message),
           }}
         />
       )}
@@ -1798,6 +2200,22 @@ export function ChatWindow() {
           titleOf={(c) => chatTitle(c, t)}
           onPick={(targetChatId) => forward.mutate({ targetChatId, messageId: forwardMsg.id })}
           onClose={() => setForwardMsg(null)}
+        />
+      )}
+
+      {/* Пересылка нескольких выбранных сообщений (мультивыбор): по одному forward на каждое. */}
+      {forwardIds && (
+        <ForwardDialog
+          chats={list}
+          currentChatId={activeId}
+          titleOf={(c) => chatTitle(c, t)}
+          onPick={(targetChatId) =>
+            forwardIds.forEach((messageId) => forward.mutate({ targetChatId, messageId }))
+          }
+          onClose={() => {
+            setForwardIds(null)
+            exitSelect()
+          }}
         />
       )}
 
@@ -1826,6 +2244,23 @@ export function ChatWindow() {
             setGroupInfoOpen(false)
             setActiveId(null)
           }}
+          onOpenChat={(id) => {
+            setGroupInfoOpen(false)
+            setActiveId(id)
+          }}
+        />
+      )}
+
+      {/* Подробная карточка собеседника (личный чат, Telegram-стиль). */}
+      {peerCardOpen && isPrivate && activeChat && otherId && (
+        <PeerInfoCard
+          userId={otherId}
+          online={otherOnline}
+          blocked={activeChat.blocked}
+          muted={activeChat.muted}
+          onToggleBlock={() => block.mutate({ userId: otherId, blocked: activeChat.blocked })}
+          onToggleMute={() => mute.mutate({ chatId: activeChat.id, muted: !activeChat.muted })}
+          onClose={() => setPeerCardOpen(false)}
         />
       )}
 

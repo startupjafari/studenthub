@@ -8,6 +8,7 @@ import { store } from '../shared/store'
 import { makeQueryClient } from '../shared/api'
 import { SessionInitializer } from '../shared/session'
 import { RealtimeProvider } from '../shared/realtime'
+import { ConfirmProvider } from '../shared/ui'
 
 interface AppProvidersProps {
   locale: string
@@ -25,7 +26,9 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
       <QueryClientProvider client={queryClient}>
         <NextIntlClientProvider locale={locale} messages={messages} timeZone={timeZone}>
           <SessionInitializer />
-          <RealtimeProvider>{children}</RealtimeProvider>
+          <RealtimeProvider>
+            <ConfirmProvider>{children}</ConfirmProvider>
+          </RealtimeProvider>
         </NextIntlClientProvider>
       </QueryClientProvider>
     </ReduxProvider>
