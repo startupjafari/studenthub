@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
@@ -57,6 +58,7 @@ export function CreateInvite() {
   const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [created, setCreated] = useState<CreatedInvite | null>(null)
 
@@ -285,7 +287,9 @@ export function CreateInvite() {
                     aria-label={t('revoke')}
                     loading={revokeMut.isPending && revokeMut.variables === inv.id}
                     onClick={() => {
-                      if (window.confirm(t('revokeConfirm'))) revokeMut.mutate(inv.id)
+                      void confirm({ title: t('revokeConfirm'), destructive: true }).then((ok) => {
+                        if (ok) revokeMut.mutate(inv.id)
+                      })
                     }}
                     className="text-muted-foreground hover:text-destructive"
                   >

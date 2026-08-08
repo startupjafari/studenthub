@@ -24,6 +24,7 @@ import {
   EmptyState,
   FileUpload,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { AttachmentList, StatusBadge, StatusTimeline } from './application-parts'
@@ -31,6 +32,7 @@ import { AttachmentList, StatusBadge, StatusTimeline } from './application-parts
 export function StudentApplicationsView() {
   const t = useTranslations('Applications')
   const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
   const locale = useLocale()
   const qc = useQueryClient()
   const role = useAppSelector((s) => s.auth.role)
@@ -154,7 +156,11 @@ export function StudentApplicationsView() {
                     variant="outline"
                     loading={withdraw.isPending}
                     onClick={() => {
-                      if (window.confirm(t('withdrawConfirm'))) withdraw.mutate(detail.data!.id)
+                      void confirm({ title: t('withdrawConfirm'), destructive: true }).then(
+                        (ok) => {
+                          if (ok) withdraw.mutate(detail.data!.id)
+                        },
+                      )
                     }}
                     className="self-start text-destructive"
                   >

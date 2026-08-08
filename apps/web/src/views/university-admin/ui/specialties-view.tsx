@@ -17,6 +17,7 @@ import {
   Input,
   Label,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import {
   createSpecialtyRequest,
@@ -32,6 +33,7 @@ function errCode(e: unknown): string {
 export function SpecialtiesAdminView() {
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
   const qc = useQueryClient()
 
   const specialties = useQuery({ queryKey: specialtyKeys.list(), queryFn: fetchSpecialties })
@@ -113,9 +115,12 @@ export function SpecialtiesAdminView() {
                 aria-label={t('delete')}
                 loading={deleteMut.isPending && deleteMut.variables === s.id}
                 onClick={() => {
-                  if (window.confirm(t('deleteSpecialtyConfirm', { name: s.name }))) {
-                    deleteMut.mutate(s.id)
-                  }
+                  void confirm({
+                    title: t('deleteSpecialtyConfirm', { name: s.name }),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) deleteMut.mutate(s.id)
+                  })
                 }}
                 className="text-muted-foreground hover:text-destructive"
               >

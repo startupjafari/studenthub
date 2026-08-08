@@ -18,6 +18,7 @@ import {
   Input,
   Label,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import {
   createFacultyRequest,
@@ -34,6 +35,7 @@ function errCode(e: unknown): string {
 export function FacultiesAdminView() {
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
   const qc = useQueryClient()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
@@ -120,9 +122,12 @@ export function FacultiesAdminView() {
                 aria-label={t('delete')}
                 loading={deleteMut.isPending && deleteMut.variables === f.id}
                 onClick={() => {
-                  if (window.confirm(t('deleteFacultyConfirm', { name: f.name }))) {
-                    deleteMut.mutate(f.id)
-                  }
+                  void confirm({
+                    title: t('deleteFacultyConfirm', { name: f.name }),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) deleteMut.mutate(f.id)
+                  })
                 }}
                 className="text-muted-foreground hover:text-destructive"
               >

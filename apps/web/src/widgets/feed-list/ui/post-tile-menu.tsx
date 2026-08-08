@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { MoreHorizontal, Pin, PinOff, Trash2 } from 'lucide-react'
 import { deletePostRequest, pinPostRequest, postKeys, type FeedPost } from '../../../entities/post'
+import { useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Меню действий на своей карточке публикации: закрепить/открепить + удалить — через «•••»
@@ -22,6 +23,7 @@ export function PostTileMenu({
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -97,7 +99,9 @@ export function PostTileMenu({
               role="menuitem"
               className={cn(item, 'text-destructive hover:bg-destructive/10')}
               onClick={() => {
-                if (window.confirm(t('deleteConfirm'))) delMut.mutate()
+                void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
+                  if (ok) delMut.mutate()
+                })
               }}
             >
               <Trash2 className="size-4" aria-hidden />

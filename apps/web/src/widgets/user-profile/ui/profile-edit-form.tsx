@@ -22,6 +22,7 @@ import {
   CardTitle,
   Checkbox,
   CountryFlag,
+  DatePicker,
   DictSingleSelect,
   Input,
   Label,
@@ -174,10 +175,23 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
     onSave(p as unknown as UpdateProfileInput)
   }
 
+  // Верхняя граница для дат (дата рождения не может быть в будущем).
+  const todayStr = new Date().toISOString().slice(0, 10)
+
   const field = (f: FieldDef): React.ReactNode => {
     const val = form[f.key] ?? ''
     if (f.type === 'phone')
       return <PhoneInput id={f.key} value={val} onChange={(v) => set(f.key, v)} />
+    if (f.type === 'date')
+      // Кастомный DatePicker. Значение из API может быть полным ISO — берём YYYY-MM-DD.
+      return (
+        <DatePicker
+          aria-label={t(f.key)}
+          max={todayStr}
+          value={val ? val.slice(0, 10) : ''}
+          onChange={(v) => set(f.key, v)}
+        />
+      )
     if (f.type === 'telegram' || f.type === 'instagram')
       return (
         <HandleInput id={f.key} platform={f.type} value={val} onChange={(v) => set(f.key, v)} />

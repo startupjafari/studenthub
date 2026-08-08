@@ -78,17 +78,21 @@ export function PublicUserProfile({ userId }: { userId: string }) {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => router.back()}
-        className="w-fit self-start text-muted-foreground"
-      >
-        <ArrowLeft className="size-4" aria-hidden />
-        {tCommon('goBack')}
-      </Button>
-
-      <Card className={`overflow-hidden p-0 ${ENTER}`}>
+      <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
+        {/* Назад — иконкой поверх обложки слева, чтобы не занимать место сверху. */}
+        <Button
+          variant="secondary"
+          size="icon"
+          onClick={() => router.back()}
+          aria-label={tCommon('goBack')}
+          className="absolute top-3 left-3 z-20 rounded-full shadow-md"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+        </Button>
+        {/* Поделиться — над обложкой справа (как в своём профиле). */}
+        <div className="absolute top-3 right-3 z-20">
+          <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
+        </div>
         <div className="h-36 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-44" />
         <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
           <div className="-mt-14 shrink-0 sm:-mt-16">
@@ -113,9 +117,6 @@ export function PublicUserProfile({ userId }: { userId: string }) {
             </div>
           </div>
           <ProfileIdentity data={u} />
-          <div className="flex shrink-0 self-start sm:self-end">
-            <ShareProfileButton userId={u.id} name={fullNameOf(u)} />
-          </div>
         </div>
       </Card>
 

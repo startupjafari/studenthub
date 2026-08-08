@@ -27,7 +27,7 @@ import {
   type ChatListItem,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import { Avatar, AvatarFallback, Button } from '../../../shared/ui'
+import { Avatar, AvatarFallback, Button, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Заголовок чата для пикера пересылки: явный title → предмет → «личный чат».
@@ -54,6 +54,7 @@ export function PostCard({ post }: { post: FeedPost }) {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
@@ -166,7 +167,9 @@ export function PostCard({ post }: { post: FeedPost }) {
             type="button"
             aria-label={t('delete')}
             onClick={() => {
-              if (window.confirm(t('deleteConfirm'))) deleteMut.mutate()
+              void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
+                if (ok) deleteMut.mutate()
+              })
             }}
             className="cursor-pointer text-muted-foreground hover:text-destructive"
           >
