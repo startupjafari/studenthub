@@ -16,8 +16,10 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         copyright={t('copyright')}
       />
 
-      <main className="flex flex-1 flex-col items-center justify-center p-6">
-        <div className="mb-6 flex items-center gap-3 lg:hidden">
+      {/* Мобильный: логотип у самого верха, форма ниже (justify-start + верхний отступ с учётом
+          safe-area). Десктоп: форма по центру правой части. */}
+      <main className="flex flex-1 flex-col items-center justify-center p-6 max-lg:justify-start max-lg:pt-[calc(3rem+env(safe-area-inset-top))]">
+        <div className="mb-10 flex items-center gap-3 lg:hidden">
           <GraduationCap className="size-9 text-primary" aria-hidden />
           <span className="text-2xl font-bold">StudentHub</span>
         </div>
