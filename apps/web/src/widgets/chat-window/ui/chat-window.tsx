@@ -75,9 +75,17 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { GroupInfoDialog } from './group-info-dialog'
+import { PeerInfoCard } from './peer-info-card'
 import { BlockedUsersDialog } from './blocked-users-dialog'
 import { CreateGroupDialog } from './create-group-dialog'
-import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useChatListSlot, useMediaQuery, useSetChatOpen } from '../../../shared/lib'
 
@@ -151,6 +159,7 @@ export function ChatWindow() {
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
   const myId = useAppSelector((s) => s.auth.user?.id)
+  const confirm = useConfirm()
 
   // Десктоп: список чатов порталим в слот сайдбара (см. AppSidebar chatsMode).
   // На мобильном слота нет — список остаётся во весь экран внутри main.
@@ -193,6 +202,8 @@ export function ChatWindow() {
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   const [groupInfoOpen, setGroupInfoOpen] = useState(false)
+  // Мини-карточка собеседника (личный чат, Telegram-стиль) — по клику на шапку.
+  const [peerCardOpen, setPeerCardOpen] = useState(false)
   // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
   const [showScrollDown, setShowScrollDown] = useState(false)
   const [newSinceScroll, setNewSinceScroll] = useState(0)
@@ -464,6 +475,11 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
+  // Сообщения в НЕактивные чаты приходят в комнату chat:{id}, куда мы не входим; но их уведомление
+  // прилетает в комнату user:{id} — по нему обновляем список чатов в реальном времени (превью, счётчик, порядок).
+  useRealtimeEvent('notification:new', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  })
   const upsert = (message: ChatMessage, chatId: string): void => {
     if (chatId === activeId) {
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
@@ -474,7 +490,11 @@ export function ChatWindow() {
   }
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:updated',
-    ({ message, chatId }) => upsert(message, chatId),
+    ({ message, chatId }) => {
+      upsert(message, chatId)
+      // Правка последнего сообщения меняет превью в списке.
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    },
   )
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:pinned',
@@ -494,12 +514,16 @@ export function ChatWindow() {
       setPresence((prev) => (prev[userId] === online ? prev : { ...prev, [userId]: online }))
     },
   )
-  // Прочтение другим участником — двигаем watermark вперёд (статус «прочитано» у своих сообщений).
+  // Прочтение другим участником — двигаем watermark активного чата вперёд (статус ✓✓ у своих сообщений)
+  // + обновляем список чатов, чтобы статус доставки в превью тоже был живым.
   useRealtimeEvent<{ chatId: string; userId: string; readAt: string }>(
     'message:read',
     ({ chatId, userId, readAt }) => {
-      if (chatId !== activeId || userId === myId) return
-      setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
+      if (userId === myId) return
+      if (chatId === activeId) {
+        setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
+      }
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
   useRealtimeEvent<{ messageId: string; chatId: string }>(
@@ -510,6 +534,8 @@ export function ChatWindow() {
           (old ?? []).filter((m) => m.id !== messageId),
         )
       }
+      // Удаление последнего сообщения меняет превью списка.
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
   useRealtimeEvent<{ chatId: string; userId: string }>('typing:started', ({ chatId, userId }) => {
@@ -552,6 +578,7 @@ export function ChatWindow() {
     setText(activeId ? (draftsRef.current.get(activeId) ?? '') : '')
     setSelectMode(false)
     setSelectedIds(new Set())
+    setPeerCardOpen(false)
   }, [activeId])
 
   // Снимок числа непрочитанных РОВНО при открытии чата (до отметки прочтения/инвалидации списка).
@@ -945,6 +972,11 @@ export function ChatWindow() {
   }
 
   const typingCount = Object.keys(typingUsers).length
+  // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
+  const firstTyperId = Object.keys(typingUsers)[0]
+  const firstTyperName = firstTyperId
+    ? membersQuery.data?.find((u) => u.id === firstTyperId)?.firstName
+    : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
   const list = useMemo(() => chats.data ?? [], [chats.data])
   // Единый поиск: чаты по названию + сообщения (глобально). Показываем двумя секциями.
@@ -1249,8 +1281,10 @@ export function ChatWindow() {
                         c.type !== 'PRIVATE' && c.isOwner
                           ? t('deleteGroupConfirm')
                           : t('deleteChatConfirm')
-                      if (window.confirm(msg)) deleteChat.mutate(c.id)
                       setSwipedChatId(null)
+                      void confirm({ title: msg, destructive: true }).then((ok) => {
+                        if (ok) deleteChat.mutate(c.id)
+                      })
                     }}
                     className="flex w-16 flex-col items-center justify-center gap-1 bg-destructive text-[0.65rem] font-medium text-white"
                   >
@@ -1402,7 +1436,14 @@ export function ChatWindow() {
                   type="button"
                   aria-label={t('delete')}
                   disabled={selectedIds.size === 0}
-                  onClick={bulkDelete}
+                  onClick={() => {
+                    void confirm({
+                      title: t('deleteSelectedConfirm', { count: selectedIds.size }),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) bulkDelete()
+                    })
+                  }}
                   className="flex size-9 shrink-0 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
                 >
                   <Trash2 className="size-5" aria-hidden />
@@ -1426,12 +1467,8 @@ export function ChatWindow() {
               </button>
               <button
                 type="button"
-                disabled={isPrivate}
-                onClick={() => !isPrivate && setGroupInfoOpen(true)}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 text-left transition-colors',
-                  !isPrivate && 'hover:bg-muted',
-                )}
+                onClick={() => (isPrivate ? setPeerCardOpen(true) : setGroupInfoOpen(true))}
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 text-left transition-colors hover:bg-muted"
               >
                 <span className="relative shrink-0">
                   <Avatar className="size-9">
@@ -1462,11 +1499,23 @@ export function ChatWindow() {
                     {activeChat ? chatTitle(activeChat, t) : ''}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {isPrivate
-                      ? otherOnline
-                        ? t('online')
-                        : t('offlineStatus')
-                      : t('membersOnline', { count: onlineOthers })}
+                    {typingCount > 0 ? (
+                      <span className="text-primary">
+                        {isPrivate || typingCount > 1 || !firstTyperName
+                          ? isPrivate
+                            ? t('typingStatus')
+                            : t('typingMany')
+                          : t('typingStatusName', { name: firstTyperName })}
+                      </span>
+                    ) : isPrivate ? (
+                      otherOnline ? (
+                        t('online')
+                      ) : (
+                        t('offlineStatus')
+                      )
+                    ) : (
+                      t('membersOnline', { count: onlineOthers })
+                    )}
                   </span>
                 </div>
               </button>
@@ -1566,9 +1615,13 @@ export function ChatWindow() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (window.confirm(t('clearHistoryConfirm')))
-                                clearChat.mutate(activeChat.id)
                               setHeaderMenuOpen(false)
+                              void confirm({
+                                title: t('clearHistoryConfirm'),
+                                destructive: true,
+                              }).then((ok) => {
+                                if (ok) clearChat.mutate(activeChat.id)
+                              })
                             }}
                             className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted"
                           >
@@ -1584,8 +1637,10 @@ export function ChatWindow() {
                                 !isPrivate && activeChat.isOwner
                                   ? t('deleteGroupConfirm')
                                   : t('deleteChatConfirm')
-                              if (window.confirm(msg)) deleteChat.mutate(activeChat.id)
                               setHeaderMenuOpen(false)
+                              void confirm({ title: msg, destructive: true }).then((ok) => {
+                                if (ok) deleteChat.mutate(activeChat.id)
+                              })
                             }}
                             className="flex h-9 w-full items-center gap-2.5 px-3 text-sm text-destructive transition-colors hover:bg-destructive/10"
                           >
@@ -1903,11 +1958,7 @@ export function ChatWindow() {
               )}
             </div>
 
-            {typingCount > 0 && (
-              <div className="px-4 pb-1 text-xs text-muted-foreground">
-                {t('typing', { count: typingCount })}
-              </div>
-            )}
+            {/* «печатает…» показываем в шапке (вместо статуса), а не здесь — Telegram-стиль. */}
 
             {/* Панель правки */}
             {editing && (
@@ -2197,6 +2248,19 @@ export function ChatWindow() {
             setGroupInfoOpen(false)
             setActiveId(id)
           }}
+        />
+      )}
+
+      {/* Подробная карточка собеседника (личный чат, Telegram-стиль). */}
+      {peerCardOpen && isPrivate && activeChat && otherId && (
+        <PeerInfoCard
+          userId={otherId}
+          online={otherOnline}
+          blocked={activeChat.blocked}
+          muted={activeChat.muted}
+          onToggleBlock={() => block.mutate({ userId: otherId, blocked: activeChat.blocked })}
+          onToggleMute={() => mute.mutate({ chatId: activeChat.id, muted: !activeChat.muted })}
+          onClose={() => setPeerCardOpen(false)}
         />
       )}
 

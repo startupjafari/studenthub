@@ -151,7 +151,10 @@
     "download": "Скачать",
     "previous": "Предыдущее",
     "next": "Следующее",
-    "rotate": "Повернуть"
+    "rotate": "Повернуть",
+    "cancel": "Отмена",
+    "confirmTitle": "Подтвердите действие",
+    "confirmOk": "Подтвердить"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -767,6 +770,10 @@
     "scrollToBottom": "Вниз",
     "select": "Выбрать",
     "selectedCount": "Выбрано: {count}",
+    "deleteSelectedConfirm": "Удалить выбранные сообщения ({count})?",
+    "typingStatus": "печатает…",
+    "typingStatusName": "{name} печатает…",
+    "typingMany": "печатают…",
     "unreadMessages": "Непрочитанные",
     "memberActions": "Действия",
     "openProfile": "Открыть профиль",

@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 
 const AUTHOR_ROLES: Role[] = [Role.TEACHER, Role.DEAN, Role.UNIVERSITY_ADMIN, Role.PLATFORM_ADMIN]
@@ -164,6 +165,7 @@ export function MaterialsView() {
 function MaterialCard({ material, canManage }: { material: Material; canManage: boolean }) {
   const t = useTranslations('Materials')
   const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
   const qc = useQueryClient()
   const [downloading, setDownloading] = useState<string | null>(null)
 
@@ -207,7 +209,9 @@ function MaterialCard({ material, canManage }: { material: Material; canManage: 
               aria-label={t('delete')}
               loading={deleteMut.isPending}
               onClick={() => {
-                if (window.confirm(t('deleteConfirm'))) deleteMut.mutate()
+                void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
+                  if (ok) deleteMut.mutate()
+                })
               }}
               className="text-muted-foreground hover:text-destructive"
             >

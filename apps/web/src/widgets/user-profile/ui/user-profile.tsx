@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { MeResponse } from '../../../shared/api'
-import { Button, Card, CardContent, CardHeader, Skeleton } from '../../../shared/ui'
+import { Button, Card, CardContent, CardHeader, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { AccountSettingsPanels } from '../../account-settings'
 import {
@@ -158,6 +158,7 @@ function ProfileHeader({
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const fileRef = useRef<HTMLInputElement>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
 
@@ -224,7 +225,11 @@ function ProfileHeader({
               <button
                 type="button"
                 aria-label={t('avatarRemove')}
-                onClick={() => window.confirm(t('avatarRemove')) && removeAvatarMut.mutate()}
+                onClick={() => {
+                  void confirm({ title: t('avatarRemove'), destructive: true }).then(
+                    (ok) => ok && removeAvatarMut.mutate(),
+                  )
+                }}
                 className="absolute left-[15%] top-[15%] z-10 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background bg-card text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
               >
                 <Trash2 className="size-4" aria-hidden />

@@ -33,6 +33,8 @@ import {
   addChatMemberRequest,
   createChatRequest,
   blockUserRequest,
+  unblockUserRequest,
+  fetchBlockedUsers,
   removeChatMemberRequest,
   banChatMemberRequest,
   unbanChatMemberRequest,
@@ -44,7 +46,14 @@ import {
   type ChatMemberInfo,
 } from '../../../entities/chat'
 import { ProfileLink, UserPicker } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage, Button, Skeleton } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 const COLORS = [
@@ -99,6 +108,7 @@ export function GroupInfoDialog({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const router = useRouter()
+  const confirm = useConfirm()
   const [adding, setAdding] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(title)
@@ -113,6 +123,9 @@ export function GroupInfoDialog({
     queryFn: () => fetchChatMembers(chatId),
   })
   const list = members.data ?? []
+  // Мои персональные блокировки — чтобы показывать «Заблокировать»/«Разблокировать» по факту.
+  const blockedQuery = useQuery({ queryKey: chatKeys.blocked(), queryFn: fetchBlockedUsers })
+  const blockedIds = new Set((blockedQuery.data ?? []).map((b) => b.id))
 
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
   const invalidateMembers = () => {
@@ -215,12 +228,14 @@ export function GroupInfoDialog({
     onError: err,
   })
 
-  // Персональная блокировка пользователя (запрет личной переписки).
+  // Персональная блокировка/разблокировка пользователя (запрет личной переписки).
   const block = useMutation({
-    mutationFn: (userId: string) => blockUserRequest(userId),
-    onSuccess: () => {
+    mutationFn: ({ userId, blocked }: { userId: string; blocked: boolean }) =>
+      blocked ? unblockUserRequest(userId) : blockUserRequest(userId),
+    onSuccess: (_d, { blocked }) => {
+      void qc.invalidateQueries({ queryKey: chatKeys.blocked() })
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      toast.success(t('userBlocked'))
+      toast.success(blocked ? t('userUnblocked') : t('userBlocked'))
     },
     onError: err,
   })
@@ -279,7 +294,9 @@ export function GroupInfoDialog({
         label: t('transferOwnership'),
         icon: Crown,
         onClick: () => {
-          if (window.confirm(t('transferConfirm', { name: m.firstName }))) transfer.mutate(m.id)
+          void confirm({ title: t('transferConfirm', { name: m.firstName }) }).then((ok) => {
+            if (ok) transfer.mutate(m.id)
+          })
         },
       })
     }
@@ -293,12 +310,13 @@ export function GroupInfoDialog({
       })
     }
     if (m.id !== myId) {
+      const isBlocked = blockedIds.has(m.id)
       items.push({
         key: 'block',
-        label: t('blockUser'),
-        icon: Ban,
-        onClick: () => block.mutate(m.id),
-        danger: true,
+        label: isBlocked ? t('unblockUser') : t('blockUser'),
+        icon: isBlocked ? UserCheck : Ban,
+        onClick: () => block.mutate({ userId: m.id, blocked: isBlocked }),
+        danger: !isBlocked,
       })
     }
     if ((isOwner || (isAdmin && !m.isAdmin)) && m.id !== myId) {
@@ -307,7 +325,12 @@ export function GroupInfoDialog({
         label: t('removeFromGroup'),
         icon: UserMinus,
         onClick: () => {
-          if (window.confirm(t('removeConfirm', { name: m.firstName }))) kick.mutate(m.id)
+          void confirm({
+            title: t('removeConfirm', { name: m.firstName }),
+            destructive: true,
+          }).then((ok) => {
+            if (ok) kick.mutate(m.id)
+          })
         },
         danger: true,
       })

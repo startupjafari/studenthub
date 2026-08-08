@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { fetchGroups, groupKeys } from '../../../entities/group'
@@ -68,6 +69,7 @@ export function ManageSchedule() {
   const t = useTranslations('Schedule')
   const tPeople = useTranslations('People')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
@@ -388,7 +390,11 @@ export function ManageSchedule() {
                   className="text-destructive hover:bg-destructive/10"
                   loading={deletePair.isPending}
                   onClick={() => {
-                    if (window.confirm(t('deletePairConfirm'))) deletePair.mutate(selectedPair.id)
+                    void confirm({ title: t('deletePairConfirm'), destructive: true }).then(
+                      (ok) => {
+                        if (ok) deletePair.mutate(selectedPair.id)
+                      },
+                    )
                   }}
                 >
                   <Trash2 className="size-4" aria-hidden />

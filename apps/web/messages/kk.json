@@ -151,7 +151,10 @@
     "download": "Жүктеу",
     "previous": "Алдыңғы",
     "next": "Келесі",
-    "rotate": "Бұру"
+    "rotate": "Бұру",
+    "cancel": "Бас тарту",
+    "confirmTitle": "Әрекетті растаңыз",
+    "confirmOk": "Растау"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -767,6 +770,10 @@
     "scrollToBottom": "Төмен",
     "select": "Таңдау",
     "selectedCount": "Таңдалды: {count}",
+    "deleteSelectedConfirm": "Таңдалған хабарламаларды жою ({count})?",
+    "typingStatus": "теруде…",
+    "typingStatusName": "{name} теруде…",
+    "typingMany": "теруде…",
     "unreadMessages": "Оқылмаған",
     "memberActions": "Әрекеттер",
     "openProfile": "Профильді ашу",
