@@ -509,6 +509,12 @@ export function ChatWindow() {
   useRealtimeEvent('chat:block', () => {
     void qc.invalidateQueries({ queryKey: chatKeys.list() })
   })
+  // Закрепление изменилось — сигнал приходит всем участникам (в т.ч. с закрытым чатом): инвалидируем
+  // закреплённые и сообщения этого чата, чтобы при открытии закрепление уже подтянулось.
+  useRealtimeEvent<{ chatId: string }>('chat:pinned', ({ chatId }) => {
+    void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
+    void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
+  })
   const upsert = (message: ChatMessage, chatId: string): void => {
     if (chatId === activeId) {
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>

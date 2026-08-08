@@ -488,6 +488,27 @@ describe('ChatsService.getPresence', () => {
   })
 })
 
+describe('ChatsService.deleteOrLeaveChat', () => {
+  it('PRIVATE: прячет чат у себя (hiddenAt + clearedAt), не удаляя членство', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findUnique.mockResolvedValue({
+      id: 'c1',
+      type: 'PRIVATE',
+      createdById: 'u2',
+      members: [{ userId: 'u1' }, { userId: 'u2' }],
+    })
+    const res = await service.deleteOrLeaveChat(
+      { sub: 'u1' } as Parameters<typeof service.deleteOrLeaveChat>[0],
+      'c1',
+    )
+    const args = prisma.chatMember.updateMany.mock.calls[0][0]
+    expect(args.where).toEqual({ chatId: 'c1', userId: 'u1' })
+    expect(args.data.hiddenAt).toBeInstanceOf(Date)
+    expect(prisma.chatMember.deleteMany).not.toHaveBeenCalled()
+    expect(res).toEqual({ chatId: 'c1', deleted: false })
+  })
+})
+
 describe('ChatsService.exportMessages', () => {
   it('участник → сообщения хронологически (asc), с cap', async () => {
     const { service, prisma } = setup()

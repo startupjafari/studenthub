@@ -99,8 +99,8 @@ export class ChatsService {
   async listChats(viewer: JwtPayload) {
     await this.ensureOfficialChatsForUser(viewer)
     const chats = await this.prisma.chat.findMany({
-      // Забаненные чаты (bannedAt != null у своего членства) в списке не показываем.
-      where: { members: { some: { userId: viewer.sub, bannedAt: null } } },
+      // Забаненные (bannedAt != null) и скрытые «у себя» (hiddenAt != null) чаты в списке не показываем.
+      where: { members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } } },
       select: {
         id: true,
         type: true,
@@ -476,6 +476,11 @@ export class ChatsService {
     senderId: string,
     message: MessageRow,
   ): Promise<string[]> {
+    // Новое сообщение возвращает чат тем, кто «удалил его у себя» (hiddenAt): снимаем скрытие у всех.
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, hiddenAt: { not: null } },
+      data: { hiddenAt: null },
+    })
     const members = await this.prisma.chatMember.findMany({
       where: { chatId, userId: { not: senderId } },
       select: { userId: true, mutedAt: true },
@@ -580,6 +585,15 @@ export class ChatsService {
       message,
       chatId: msg.chatId,
     })
+    // Комната chat:{id} есть только у тех, кто открыл чат. Чтобы закрепление подтянулось и при
+    // закрытом чате, шлём сигнал в user:{id} каждому участнику — клиент инвалидирует pinned/messages.
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId: msg.chatId },
+      select: { userId: true },
+    })
+    for (const m of members) {
+      this.realtime.emitToUser(m.userId, 'chat:pinned', { chatId: msg.chatId })
+    }
     return message
   }
 
@@ -1106,7 +1120,18 @@ export class ChatsService {
       await this.prisma.chat.delete({ where: { id: chatId } })
       return { chatId, deleted: true }
     }
-    // Иначе — выходим/удаляем у себя; если участников не осталось, удаляем чат целиком.
+    // PRIVATE «удалить у себя» (Telegram-стиль): членство сохраняем, чат прячем (hiddenAt) и чистим
+    // историю до текущего момента (clearedAt). Новое сообщение сбросит hiddenAt → чат вернётся,
+    // а сообщения продолжают приходить в реальном времени (участник остаётся в чате).
+    if (chat.type === ChatType.PRIVATE) {
+      const now = new Date()
+      await this.prisma.chatMember.updateMany({
+        where: { chatId, userId: actor.sub },
+        data: { hiddenAt: now, clearedAt: now },
+      })
+      return { chatId, deleted: false }
+    }
+    // Групповой чат — выходим (убираем членство); если участников не осталось, удаляем чат целиком.
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId: actor.sub } })
     const left = await this.prisma.chatMember.count({ where: { chatId } })
     if (left === 0) {
