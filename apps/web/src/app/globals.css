@@ -238,6 +238,37 @@ summary {
   transition-timing-function: ease;
 }
 
+/* Точечный фон экранов входа (мобильный): мягкая сетка точек с медленным дрейфом (ненавязчиво).
+   Только transform/фон-позиция; при prefers-reduced-motion анимация выключена. */
+.auth-dots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--foreground) 9%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 95% 75% at 50% 38%, #000 55%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 95% 75% at 50% 38%, #000 55%, transparent 100%);
+  animation: auth-dots-drift 32s linear infinite;
+}
+@keyframes auth-dots-drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 44px 22px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-dots {
+    animation: none;
+  }
+}
+
 /* iOS/Android: не зумить экран при фокусе на поле ввода. Safari масштабирует, если текст поля
    < 16px (в UI поля — text-sm/14px). Задаём ≥16px только на тач-устройствах (pointer: coarse) —
    десктоп сохраняет компактный размер. Правило вне @layer, поэтому перекрывает утилиту text-sm.
