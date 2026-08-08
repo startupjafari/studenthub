@@ -107,10 +107,11 @@ export function ShareProfileButton({ userId, name }: { userId: string; name: str
         size="sm"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={t('share')}
         onClick={() => setOpen((o) => !o)}
       >
         <Share2 className="size-4" aria-hidden />
-        {t('share')}
+        <span className="hidden sm:inline">{t('share')}</span>
       </Button>
 
       {open &&

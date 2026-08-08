@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Copy, Forward, Link2, Pencil, Pin, PinOff, Reply, Trash2 } from 'lucide-react'
+import { CheckCheck, Copy, Forward, Link2, Pencil, Pin, PinOff, Reply, Trash2 } from 'lucide-react'
 import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { cn } from '../../../shared/lib/utils'
 import type { ChatMessage } from '../model/types'
@@ -16,6 +16,7 @@ export interface MessageMenuActions {
   onCopyLink: () => void
   onForward: () => void
   onDelete: () => void
+  onSelect: () => void
 }
 
 // Контекстное меню сообщения в стиле Telegram (Ф9+): быстрый ряд реакций сверху + действия.
@@ -127,6 +128,7 @@ export function MessageContextMenu({
           {item('copy', t('copyText'), Copy, actions.onCopy)}
           {item('link', t('copyLink'), Link2, actions.onCopyLink)}
           {item('forward', t('forward'), Forward, actions.onForward)}
+          {item('select', t('select'), CheckCheck, actions.onSelect)}
           {mine && item('delete', t('delete'), Trash2, actions.onDelete, true)}
         </div>
       </div>

@@ -237,3 +237,15 @@ summary {
   transition-duration: 0.15s;
   transition-timing-function: ease;
 }
+
+/* iOS/Android: не зумить экран при фокусе на поле ввода. Safari масштабирует, если текст поля
+   < 16px (в UI поля — text-sm/14px). Задаём ≥16px только на тач-устройствах (pointer: coarse) —
+   десктоп сохраняет компактный размер. Правило вне @layer, поэтому перекрывает утилиту text-sm.
+   Не трогаем чекбоксы/радио (у shadcn это отдельные компоненты). Масштабирование жестом не отключаем. */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
