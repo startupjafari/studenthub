@@ -256,4 +256,77 @@ describe('Chats (e2e) — изоляция и доставка', () => {
       expect(row?.unreadCount).toBe(0)
     })
   })
+
+  describe('Серверные черновики', () => {
+    it('PUT /draft сохраняет и очищает; черновик приходит в списке чатов', async () => {
+      const memberId = await makeStudent('draft@a.io')
+      const other = await makeStudent('draft-mate@a.io')
+      const tok = await login('draft@a.io')
+      const chatId = await createGroupChat(tok, [other])
+      void memberId
+
+      await request(server)
+        .put(`/api/v1/chats/${chatId}/draft`)
+        .set(auth(tok))
+        .send({ text: 'недописанное сообщение' })
+        .expect(200)
+
+      let list = await request(server).get('/api/v1/chats').set(auth(tok)).expect(200)
+      let row = (list.body.data as { id: string; draft: string | null }[]).find(
+        (c) => c.id === chatId,
+      )
+      expect(row?.draft).toBe('недописанное сообщение')
+
+      // Пустой текст очищает черновик.
+      await request(server)
+        .put(`/api/v1/chats/${chatId}/draft`)
+        .set(auth(tok))
+        .send({ text: '   ' })
+        .expect(200)
+      list = await request(server).get('/api/v1/chats').set(auth(tok)).expect(200)
+      row = (list.body.data as { id: string; draft: string | null }[]).find((c) => c.id === chatId)
+      expect(row?.draft).toBeNull()
+    })
+
+    it('черновик недоступен не-участнику (403)', async () => {
+      const owner = await makeStudent('do@a.io')
+      const mate = await makeStudent('dm@a.io')
+      await makeStudent('dstranger@a.io')
+      const tok = await login('do@a.io')
+      const chatId = await createGroupChat(tok, [mate])
+      void owner
+      const strangerTok = await login('dstranger@a.io')
+      await request(server)
+        .put(`/api/v1/chats/${chatId}/draft`)
+        .set(auth(strangerTok))
+        .send({ text: 'x' })
+        .expect(403)
+    })
+  })
+
+  describe('Статусы прочтения в группах', () => {
+    it('GET /reads возвращает участников (кроме себя) с их lastReadAt', async () => {
+      const ownerId = await makeStudent('ro@a.io')
+      const readerId = await makeStudent('rr@a.io')
+      const tok = await login('ro@a.io')
+      const chatId = await createGroupChat(tok, [readerId])
+      // reader прочитал до текущего момента.
+      const readAt = new Date()
+      await prisma.chatMember.updateMany({
+        where: { chatId, userId: readerId },
+        data: { lastReadAt: readAt },
+      })
+      void ownerId
+
+      const res = await request(server)
+        .get(`/api/v1/chats/${chatId}/reads`)
+        .set(auth(tok))
+        .expect(200)
+      const rows = res.body.data as { id: string; lastReadAt: string | null }[]
+      // Себя в списке нет; reader есть с непустым lastReadAt.
+      expect(rows.some((r) => r.id === ownerId)).toBe(false)
+      const reader = rows.find((r) => r.id === readerId)
+      expect(reader?.lastReadAt).toBeTruthy()
+    })
+  })
 })

@@ -114,7 +114,7 @@ export class ChatsService {
         updatedAt: true,
         members: {
           where: { userId: viewer.sub },
-          select: { lastReadAt: true, mutedAt: true, isAdmin: true, clearedAt: true },
+          select: { lastReadAt: true, mutedAt: true, isAdmin: true, clearedAt: true, draft: true },
         },
         messages: {
           where: { deletedAt: null },
@@ -239,6 +239,7 @@ export class ChatsService {
         unread,
         unreadCount,
         muted: mem?.mutedAt != null,
+        draft: mem?.draft ?? null,
         othersReadAt: readMap.get(c.id) ?? null,
         // Владелец группы (создатель).
         isOwner: c.createdById != null && c.createdById === viewer.sub,
@@ -339,6 +340,37 @@ export class ChatsService {
       banned: m.bannedAt != null,
       isAdmin: m.isAdmin,
     }))
+  }
+
+  /**
+   * Статусы прочтения участниками (Ф9+, «кто прочитал» в группах). Возвращает участников
+   * (кроме себя) с их lastReadAt; фронт показывает, кто прочитал сообщение (lastReadAt ≥ его createdAt).
+   */
+  async getReadReceipts(viewer: JwtPayload, chatId: string) {
+    await this.assertMembership(viewer.sub, chatId)
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId, userId: { not: viewer.sub }, bannedAt: null },
+      select: {
+        userId: true,
+        lastReadAt: true,
+        user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+      },
+      orderBy: { lastReadAt: 'desc' },
+      take: 500,
+    })
+    return members.map((m) => ({ ...m.user, lastReadAt: m.lastReadAt }))
+  }
+
+  /** Сохранить/очистить черновик сообщения участника в чате (Ф9+, синхронизация между устройствами). */
+  async saveDraft(
+    userId: string,
+    chatId: string,
+    text: string,
+  ): Promise<{ chatId: string; draft: string | null }> {
+    await this.assertMembership(userId, chatId)
+    const draft = text.trim().slice(0, 4000) || null
+    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { draft } })
+    return { chatId, draft }
   }
 
   async addMember(actor: JwtPayload, chatId: string, userId: string) {
