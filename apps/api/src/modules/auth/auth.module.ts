@@ -10,7 +10,11 @@ import { ScopeGuard } from '../../common/guards/scope.guard'
 import { UsersModule } from '../users/users.module'
 import { InvitesModule } from '../invites/invites.module'
 import { AuthController } from './auth.controller'
+import { TwoFactorController } from './two-factor.controller'
 import { AuthService } from './auth.service'
+import { TwoFactorService } from './two-factor.service'
+import { QrLoginService } from './qr-login.service'
+import { QrLoginGateway } from './qr-login.gateway'
 import { JwtStrategy } from './strategies/jwt.strategy'
 import { LocalStrategy } from './strategies/local.strategy'
 
@@ -29,9 +33,12 @@ import { LocalStrategy } from './strategies/local.strategy'
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, TwoFactorController],
   providers: [
     AuthService,
+    TwoFactorService,
+    QrLoginService,
+    QrLoginGateway,
     JwtStrategy,
     LocalStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PassportStrategy } from '@nestjs/passport'
 import { ExtractJwt, Strategy } from 'passport-jwt'
@@ -17,7 +17,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   // passport-jwt уже проверил подпись и срок; возвращаем payload как есть.
-  validate(payload: JwtPayload): JwtPayload {
+  validate(payload: JwtPayload & { typ?: string }): JwtPayload {
+    // Промежуточный challenge-токен 2FA (typ='TWO_FACTOR') подписан тем же секретом,
+    // но НЕ является access-токеном — отвергаем, чтобы им нельзя было авторизоваться.
+    if (payload.typ) {
+      throw new UnauthorizedException('Недопустимый токен')
+    }
     return {
       sub: payload.sub,
       role: payload.role,

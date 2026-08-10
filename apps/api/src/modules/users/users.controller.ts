@@ -59,6 +59,30 @@ export class UsersController {
     return this.users.removeAvatar(user.sub)
   }
 
+  @Post('me/cover')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Загрузить обложку профиля (изображение, ≤ 10 МБ)' })
+  @ApiResponse({ status: 200, description: 'Профиль с обновлённой обложкой' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  async setCover(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest) {
+    const buffer = await readSingleUpload(req)
+    return this.users.setCover(user.sub, buffer)
+  }
+
+  @Delete('me/cover')
+  @ApiOperation({ summary: 'Удалить обложку профиля' })
+  @ApiResponse({ status: 200, description: 'Профиль без обложки' })
+  removeCover(@CurrentUser() user: CurrentUserData) {
+    return this.users.removeCover(user.sub)
+  }
+
   @Delete('me')
   @ApiOperation({ summary: 'Удалить свой аккаунт (soft delete + анонимизация)' })
   async deleteMe(@CurrentUser() user: CurrentUserData): Promise<null> {

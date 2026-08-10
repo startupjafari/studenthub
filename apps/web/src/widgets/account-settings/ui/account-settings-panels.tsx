@@ -29,6 +29,7 @@ import {
   type ProfileVisibilityValue,
 } from '@studenthub/shared-schemas'
 import type { MeResponse } from '../../../shared/api'
+import { setup2faRequest, enable2faRequest, disable2faRequest } from '../../../shared/api'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -145,7 +146,7 @@ export function AccountSettingsPanels() {
         {me.data && (
           <>
             {tab === 'personal' && <PersonalSection me={me.data} />}
-            {tab === 'security' && <SecuritySection />}
+            {tab === 'security' && <SecuritySection me={me.data} />}
             {tab === 'notifications' && <NotificationsSection />}
             {tab === 'appearance' && <AppearanceSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
@@ -252,7 +253,7 @@ function PersonalSection({ me }: { me: MeResponse }) {
 }
 
 // ── Безопасность (пароль + 2FA-заглушка) ────────────────────────────────────
-function SecuritySection() {
+function SecuritySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
@@ -304,14 +305,193 @@ function SecuritySection() {
       </form>
 
       <div className="mt-6 border-t border-border pt-5">
-        <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
-          <div className="flex items-center gap-3">
-            <Badge variant="secondary">{tS('soon')}</Badge>
-            <ToggleSwitch checked={false} disabled onChange={() => {}} label={tS('twoFactor')} />
-          </div>
-        </SettingRow>
+        <TwoFactorManager me={me} />
       </div>
     </SectionCard>
+  )
+}
+
+// Управление 2FA: включение (QR → код → backup-коды) и отключение (по коду).
+function TwoFactorManager({ me }: { me: MeResponse }) {
+  const tS = useTranslations('Settings')
+  const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
+  const [setup, setSetup] = useState<{ qr: string; secret: string } | null>(null)
+  const [code, setCode] = useState('')
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null)
+  const [disableCode, setDisableCode] = useState('')
+
+  const refreshMe = () => qc.invalidateQueries({ queryKey: userKeys.me() })
+  const errCode = (e: unknown) => (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+
+  const setupMut = useMutation({
+    mutationFn: setup2faRequest,
+    onSuccess: (data) => setSetup({ qr: data.qr, secret: data.secret }),
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  const enableMut = useMutation({
+    mutationFn: () => enable2faRequest(code.trim()),
+    onSuccess: (data) => {
+      setBackupCodes(data.backupCodes)
+      setSetup(null)
+      setCode('')
+      void refreshMe()
+      toast.success(tS('twoFactorEnabledToast'))
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  const disableMut = useMutation({
+    mutationFn: () => disable2faRequest(disableCode.trim()),
+    onSuccess: () => {
+      setDisableCode('')
+      void refreshMe()
+      toast.success(tS('twoFactorDisabledToast'))
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  // Показ backup-кодов после включения (один раз).
+  if (backupCodes) {
+    return (
+      <div className="flex max-w-md flex-col gap-3">
+        <p className="text-sm font-semibold">{tS('backupCodesTitle')}</p>
+        <p className="text-xs text-muted-foreground">{tS('backupCodesDesc')}</p>
+        <ul className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-muted/40 p-3 font-mono text-sm">
+          {backupCodes.map((c) => (
+            <li key={c} className="tracking-widest">
+              {c}
+            </li>
+          ))}
+        </ul>
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          onClick={() => setBackupCodes(null)}
+        >
+          {tS('twoFactorDone')}
+        </Button>
+      </div>
+    )
+  }
+
+  // Уже включена → отключение по коду.
+  if (me.twoFactorEnabled) {
+    return (
+      <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
+        <div className="flex flex-col items-end gap-3">
+          <Badge variant="secondary">{tS('twoFactorOn')}</Badge>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button type="button" variant="destructive" size="sm">
+                {tS('twoFactorDisable')}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
+                <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
+                <Input
+                  id="disable2fa"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  value={disableCode}
+                  onChange={(e) => setDisableCode(e.target.value)}
+                />
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setDisableCode('')}>
+                  {tS('twoFactorCancel')}
+                </AlertDialogCancel>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  loading={disableMut.isPending}
+                  disabled={!disableCode.trim()}
+                  onClick={() => disableMut.mutate()}
+                >
+                  {tS('twoFactorDisable')}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </SettingRow>
+    )
+  }
+
+  // Настройка: показываем QR + секрет + ввод кода.
+  if (setup) {
+    return (
+      <div className="flex max-w-md flex-col gap-4">
+        <p className="text-sm font-semibold">{tS('twoFactorScanQr')}</p>
+        {/* Data-URL от бэкенда — обычный img, не next/image (оптимизатор не нужен). */}
+        <img
+          src={setup.qr}
+          alt={tS('twoFactor')}
+          width={200}
+          height={200}
+          className="rounded-lg border border-border bg-white p-2"
+        />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">{tS('twoFactorOrSecret')}</span>
+          <code className="rounded bg-muted px-2 py-1 font-mono text-sm break-all">
+            {setup.secret}
+          </code>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="enable2fa">{tS('twoFactorEnterCode')}</Label>
+          <Input
+            id="enable2fa"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="123456"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            loading={enableMut.isPending}
+            disabled={!code.trim()}
+            onClick={() => enableMut.mutate()}
+          >
+            {tS('twoFactorConfirm')}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setSetup(null)
+              setCode('')
+            }}
+          >
+            {tS('twoFactorCancel')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Выключена → предложить настроить.
+  return (
+    <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
+      <Button
+        type="button"
+        size="sm"
+        loading={setupMut.isPending}
+        onClick={() => setupMut.mutate()}
+      >
+        {tS('twoFactorSetup')}
+      </Button>
+    </SettingRow>
   )
 }
 
