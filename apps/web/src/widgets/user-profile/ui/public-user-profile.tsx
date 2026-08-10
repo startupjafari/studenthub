@@ -130,13 +130,26 @@ export function PublicUserProfile({ userId }: { userId: string }) {
           )}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
         </div>
-        <div className="h-36 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-44" />
+        <div className="relative h-36 w-full overflow-hidden sm:h-44">
+          {u.coverUrl ? (
+            <Image
+              src={u.coverUrl}
+              alt=""
+              fill
+              unoptimized
+              sizes="100vw"
+              className="object-cover"
+            />
+          ) : (
+            <div className="size-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500" />
+          )}
+        </div>
         <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
           <div className="-mt-14 shrink-0 sm:-mt-16">
             <div className="relative size-28 sm:size-32">
               {u.avatarUrl ? (
                 <Image
-                  src={u.avatarUrl}
+                  src={u.avatarThumbUrl ?? u.avatarUrl}
                   alt={fullNameOf(u)}
                   width={128}
                   height={128}

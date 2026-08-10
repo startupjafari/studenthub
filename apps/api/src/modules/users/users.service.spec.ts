@@ -4,6 +4,7 @@ import { UserService } from './users.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { PasswordService } from '../../common/security/password.service'
 import type { FileService } from '../files/file.service'
+import type { QueueService } from '../../common/queue'
 import type { AuthService } from '../auth/auth.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -24,6 +25,7 @@ function setup() {
   }
   const passwords = { hash: jest.fn(), compare: jest.fn() }
   const files = { upload: jest.fn(), delete: jest.fn() }
+  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn() }
   const authService = { revokeAllUserSessions: jest.fn().mockResolvedValue(undefined) }
   const realtime = { isOnline: jest.fn().mockReturnValue(false) }
@@ -32,12 +34,13 @@ function setup() {
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
     files as unknown as FileService,
+    queue as unknown as QueueService,
     config as unknown as ConfigService<EnvVars, true>,
     authService as unknown as AuthService,
     realtime as unknown as RealtimeGateway,
     audit as unknown as AuditService,
   )
-  return { service, prisma, passwords, files, config, authService, realtime, audit }
+  return { service, prisma, passwords, files, queue, config, authService, realtime, audit }
 }
 
 const target = {
@@ -236,15 +239,13 @@ describe('UserService — закрытый профиль (видимость п
     const { service, prisma } = setup()
     const tx = {
       user: {
-        create: jest
-          .fn()
-          .mockResolvedValue({
-            id: 'n',
-            role: Role.STUDENT,
-            universityId: null,
-            facultyId: null,
-            groupId: null,
-          }),
+        create: jest.fn().mockResolvedValue({
+          id: 'n',
+          role: Role.STUDENT,
+          universityId: null,
+          facultyId: null,
+          groupId: null,
+        }),
       },
     }
     await service.createInvitedUser(tx as never, {
@@ -345,10 +346,10 @@ describe('UserService — avatar', () => {
   }
 
   it('setAvatar: удаляет прежние, грузит с категорией IMAGE и пишет публичный URL', async () => {
-    const { service, prisma, files, config } = setup()
+    const { service, prisma, files, queue, config } = setup()
     withAvatarConfig(config)
     prisma.file.findMany.mockResolvedValue([{ id: 'old-1' }])
-    files.upload.mockResolvedValue({ key: 'new-key.png' })
+    files.upload.mockResolvedValue({ id: 'file-1', key: 'new-key.png' })
     prisma.user.update.mockResolvedValue({ id: 'u', avatarUrl: 'x' })
 
     await service.setAvatar('u', Buffer.from('img'))
@@ -359,9 +360,21 @@ describe('UserService — avatar', () => {
     )
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 'u' },
-      data: { avatarUrl: 'http://localhost:9000/avatars/new-key.png' },
+      data: { avatarUrl: 'http://localhost:9000/avatars/new-key.png', avatarThumbUrl: null },
       select: expect.anything(),
     })
+    // Тяжёлый ресайз уходит в очередь file-processing с идемпотентным jobId.
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'file-processing',
+      'generate-thumbnail',
+      expect.objectContaining({
+        fileId: 'file-1',
+        bucket: 'avatars',
+        key: 'new-key.png',
+        userId: 'u',
+      }),
+      expect.objectContaining({ jobId: 'thumb_file-1' }),
+    )
   })
 
   it('removeAvatar: удаляет объекты и обнуляет avatarUrl', async () => {
@@ -375,7 +388,7 @@ describe('UserService — avatar', () => {
     expect(files.delete).toHaveBeenCalledTimes(2)
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 'u' },
-      data: { avatarUrl: null },
+      data: { avatarUrl: null, avatarThumbUrl: null },
       select: expect.anything(),
     })
   })

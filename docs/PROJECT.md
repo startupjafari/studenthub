@@ -456,7 +456,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `PATCH /invites/:id/revoke`
 
-**Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+)
+**Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
 
 **Университеты** — `GET|POST /universities` · `GET|PATCH /universities/:id` · `PATCH /universities/:id/status` (Platform Admin) · `GET /universities/:id/stats`
 

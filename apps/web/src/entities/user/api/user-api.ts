@@ -39,6 +39,8 @@ export interface PublicUser {
   lastName: string
   middleName: string | null
   avatarUrl: string | null
+  avatarThumbUrl: string | null
+  coverUrl: string | null
   role: Role
   universityId: string | null
   facultyId: string | null
@@ -123,6 +125,27 @@ export async function removeAvatarRequest(): Promise<MeResponse> {
   return data
 }
 
+export async function uploadCoverRequest(
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<MeResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<MeResponse>('/users/me/cover', form, {
+    onUploadProgress: (event: AxiosProgressEvent) => {
+      if (onProgress && event.total) {
+        onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+    },
+  })
+  return data
+}
+
+export async function removeCoverRequest(): Promise<MeResponse> {
+  const { data } = await api.delete<MeResponse>('/users/me/cover')
+  return data
+}
+
 // ── Админ-список пользователей (Ф12.2) ──────────────────────────────────────
 
 export interface AdminUser {
@@ -132,6 +155,7 @@ export interface AdminUser {
   lastName: string
   role: Role
   avatarUrl: string | null
+  avatarThumbUrl: string | null
   universityId: string | null
   facultyId: string | null
   groupId: string | null

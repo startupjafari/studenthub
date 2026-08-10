@@ -10,6 +10,9 @@ export interface MeResponse {
   firstName: string
   lastName: string
   avatarUrl: string | null
+  // Квадратное превью аватара (~128px); заполняется асинхронно, до готовности — null.
+  avatarThumbUrl?: string | null
+  coverUrl?: string | null
   role: Role
   showEmail: boolean
   // Видимость профиля целиком («закрытый профиль», docs/PROJECT.md §3.7).
