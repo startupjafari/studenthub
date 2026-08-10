@@ -584,7 +584,10 @@
     "systemHint": "Системные уведомления отключить нельзя.",
     "settingsError": "Не удалось сохранить настройки",
     "scrollLeft": "Влево",
-    "scrollRight": "Вправо"
+    "scrollRight": "Вправо",
+    "acceptRequest": "Принять",
+    "declineRequest": "Отклонить",
+    "friendRequestError": "Не удалось обработать заявку"
   },
   "Schedule": {
     "title": "Расписание",

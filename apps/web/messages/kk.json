@@ -584,7 +584,10 @@
     "systemHint": "Жүйелік хабарламаларды өшіру мүмкін емес.",
     "settingsError": "Баптауларды сақтау мүмкін болмады",
     "scrollLeft": "Солға",
-    "scrollRight": "Оңға"
+    "scrollRight": "Оңға",
+    "acceptRequest": "Қабылдау",
+    "declineRequest": "Бас тарту",
+    "friendRequestError": "Өтінішті өңдеу мүмкін болмады"
   },
   "Schedule": {
     "title": "Кесте",
