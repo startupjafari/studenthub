@@ -71,6 +71,23 @@ describe('ChatGateway.onMessageSend — рассылка по комнате (9.
     expect(serverEmit).toHaveBeenCalledWith('message:new', { message, chatId: 'c1' })
   })
 
+  it('эхом возвращает nonce в message:new (оптимистичная отправка, #1)', async () => {
+    const message = { id: 'm1', chatId: 'c1', senderId: 'u1', content: 'hi' }
+    const createMessage = jest.fn().mockResolvedValue({ message, recipientIds: ['u2'] })
+    const { gateway, serverEmit } = setup({ createMessage })
+    const { client } = makeClient('u1')
+    await gateway.onMessageSend(client as unknown as Socket, {
+      chatId: 'c1',
+      content: 'hi',
+      nonce: 'n-123',
+    })
+    expect(serverEmit).toHaveBeenCalledWith('message:new', {
+      message,
+      chatId: 'c1',
+      nonce: 'n-123',
+    })
+  })
+
   it('ошибка сервиса (не участник) → error клиенту, без рассылки', async () => {
     const createMessage = jest.fn().mockRejectedValue({ code: 'WRONG_SCOPE' })
     const { gateway, serverEmit } = setup({ createMessage })

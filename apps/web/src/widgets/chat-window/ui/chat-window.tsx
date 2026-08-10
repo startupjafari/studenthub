@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  AlertCircle,
   ArrowLeft,
   Bell,
   BellOff,
@@ -160,8 +161,12 @@ export function ChatWindow() {
   const router = useRouter()
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
-  const myId = useAppSelector((s) => s.auth.user?.id)
+  const me = useAppSelector((s) => s.auth.user)
+  const myId = me?.id
   const confirm = useConfirm()
+  // #1: состояние оптимистичных сообщений по temp-id (`tmp:<nonce>`) + таймеры «не пришло эхо».
+  const [sendState, setSendState] = useState<Record<string, 'pending' | 'failed'>>({})
+  const sendTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // Десктоп: список чатов порталим в слот сайдбара (см. AppSidebar chatsMode).
   // На мобильном слота нет — список остаётся во весь экран внутри main.
@@ -493,13 +498,37 @@ export function ChatWindow() {
   }, [socket, activeId, qc])
 
   // Входящие события — синхронизируем с кэшем React Query (docs/FRONTEND_RULES.md §8).
-  useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
+  useRealtimeEvent<{ message: ChatMessage; chatId: string; nonce?: string }>(
     'message:new',
-    ({ message, chatId }) => {
+    ({ message, chatId, nonce }) => {
+      // #1: гасим таймер/статус оптимистичного пузыря по nonce (независимо от активного чата).
+      if (nonce) {
+        const timer = sendTimers.current.get(nonce)
+        if (timer) {
+          clearTimeout(timer)
+          sendTimers.current.delete(nonce)
+        }
+        setSendState((s) => {
+          if (!(`tmp:${nonce}` in s)) return s
+          const next = { ...s }
+          delete next[`tmp:${nonce}`]
+          return next
+        })
+      }
       if (chatId === activeId) {
-        qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
-          old && !old.some((m) => m.id === message.id) ? [...old, message] : (old ?? [message]),
-        )
+        qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
+          const listOld = old ?? []
+          // Заменяем свой оптимистичный пузырь реальным сообщением (по nonce), иначе добавляем.
+          if (nonce) {
+            const idx = listOld.findIndex((m) => m.id === `tmp:${nonce}`)
+            if (idx !== -1) {
+              const copy = listOld.slice()
+              copy[idx] = message
+              return copy
+            }
+          }
+          return listOld.some((m) => m.id === message.id) ? listOld : [...listOld, message]
+        })
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
@@ -871,6 +900,27 @@ export function ChatWindow() {
     return d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
   }
 
+  // #1: отправка по WS с nonce + пометка «отправляется» и таймаут «эхо не пришло → ошибка».
+  function emitSend(chatId: string, nonce: string, content: string, replyToId?: string): void {
+    const tempId = `tmp:${nonce}`
+    setSendState((s) => ({ ...s, [tempId]: 'pending' }))
+    socket?.emit('message:send', { chatId, content, replyToId, nonce })
+    const prev = sendTimers.current.get(nonce)
+    if (prev) clearTimeout(prev)
+    sendTimers.current.set(
+      nonce,
+      setTimeout(() => {
+        setSendState((s) => (s[tempId] === 'pending' ? { ...s, [tempId]: 'failed' } : s))
+      }, 12_000),
+    )
+  }
+
+  // Повторная отправка «зависшего» оптимистичного сообщения по клику (тот же nonce → эхо заменит пузырь).
+  function retrySend(m: ChatMessage): void {
+    if (!m.id.startsWith('tmp:')) return
+    emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined)
+  }
+
   function send(): void {
     const content = text.trim()
     if (!activeId) return
@@ -882,9 +932,37 @@ export function ChatWindow() {
       return
     }
     // Вложения отправляются из диалога AttachmentDialog; здесь — только текст.
-    if (!content || !socket) return
-    // Не добавляем оптимистично: сервер эхом пришлёт message:new всем, включая нас — ровно один раз.
-    socket.emit('message:send', { chatId: activeId, content, replyToId: replyTo?.id })
+    if (!content || !socket || !me) return
+    // #1: оптимистичный пузырь — показываем сразу со статусом «отправляется», заменим по эхо nonce
+    // (message:new с тем же nonce). Сервер шлёт эхо всем в комнате ровно один раз.
+    const nonce =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+    const temp: ChatMessage = {
+      id: `tmp:${nonce}`,
+      chatId: activeId,
+      senderId: me.id,
+      content,
+      replyToId: replyTo?.id ?? null,
+      forwardedFromId: null,
+      editedAt: null,
+      pinnedAt: null,
+      createdAt: new Date().toISOString(),
+      sender: {
+        id: me.id,
+        firstName: me.firstName,
+        lastName: me.lastName,
+        avatarUrl: me.avatarUrl,
+      },
+      media: [],
+      replyTo: null,
+      forwardedFrom: null,
+      sharedPost: null,
+      reactions: [],
+    }
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
+    emitSend(activeId, nonce, content, replyTo?.id)
     socket.emit('typing:stop', { chatId: activeId })
     setText('')
     draftsRef.current.delete(activeId)
@@ -2047,6 +2125,29 @@ export function ChatWindow() {
                                 </span>
                                 {mine &&
                                   (() => {
+                                    // #1: оптимистичный пузырь — «отправляется» или «ошибка» (клик — повтор).
+                                    const st = sendState[m.id]
+                                    if (st === 'pending')
+                                      return (
+                                        <Loader2
+                                          className="size-3 animate-spin opacity-60"
+                                          aria-label={t('sending')}
+                                        />
+                                      )
+                                    if (st === 'failed')
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => retrySend(m)}
+                                          aria-label={t('sendFailedRetry')}
+                                          title={t('sendFailedRetry')}
+                                        >
+                                          <AlertCircle
+                                            className="size-3.5 text-destructive"
+                                            aria-hidden
+                                          />
+                                        </button>
+                                      )
                                     const read =
                                       readWatermark != null &&
                                       new Date(readWatermark).getTime() >=
