@@ -11,6 +11,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { AuthService, type RequestContext, type SessionResult } from './auth.service'
 import { AUTH_COOKIE_PATH, REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
 import { RegisterByInviteDto } from './dto/register-by-invite.dto'
+import { TwoFactorVerifyDto } from './dto/two-factor-verify.dto'
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -29,8 +30,30 @@ export class AuthController {
     @CurrentUser() user: JwtPayload,
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<{ accessToken: string } | { twoFactorRequired: true; challengeToken: string }> {
+    const result = await this.authService.login(user, this.ctx(req))
+    // 2FA включена → отдаём challenge, токены/куки НЕ ставим (второй шаг — /auth/login/2fa).
+    if ('twoFactorRequired' in result) {
+      return { twoFactorRequired: true, challengeToken: result.challengeToken }
+    }
+    this.setAuthCookies(reply, result)
+    return { accessToken: result.accessToken }
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } }) // §6.3: как /login — брутфорсим код
+  @Post('login/2fa')
+  @ApiOperation({ summary: 'Второй шаг входа: проверка кода 2FA (TOTP или backup)' })
+  async loginVerify(
+    @Body() dto: TwoFactorVerifyDto,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<{ accessToken: string }> {
-    const session = await this.authService.login(user, this.ctx(req))
+    const session = await this.authService.loginVerifyTwoFactor(
+      dto.challengeToken,
+      dto.code,
+      this.ctx(req),
+    )
     this.setAuthCookies(reply, session)
     return { accessToken: session.accessToken }
   }
