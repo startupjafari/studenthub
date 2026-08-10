@@ -32,7 +32,8 @@
     "documents": "Құжаттар",
     "documentTypes": "Құжат түрлері",
     "documentAccess": "Құжаттарға қатынау",
-    "more": "Тағы"
+    "more": "Тағы",
+    "friends": "Достар"
   },
   "Invites": {
     "title": "Шақырулар",
@@ -329,7 +330,7 @@
     "avatarChange": "Фотосуретті өзгерту",
     "coverAdd": "Мұқаба қосу",
     "coverChange": "Мұқабаны өзгерту",
-    "coverRemove": "Мұқабаны жою",
+    "coverRemove": "Мұқабаны алып тастау",
     "coverUpdated": "Мұқаба жаңартылды",
     "coverRemoved": "Мұқаба жойылды",
     "emptyProfileStudent": "Профиль әзірге толтырылмаған. Өзіңіз туралы айту үшін «Профильді өңдеу» түймесін басыңыз.",
@@ -372,7 +373,6 @@
     "next": "Алға",
     "articleCover": "Мұқаба",
     "coverUpload": "Мұқаба жүктеу",
-    "coverRemove": "Мұқабаны алып тастау",
     "online": "Желіде",
     "offline": "Желіде емес",
     "cropTitle": "Фотоны кадрлау",
@@ -863,10 +863,9 @@
     "delete": "Жою",
     "copyText": "Мәтінді көшіру",
     "copy": "Көшіру",
-    "copied": "Көшірілді",
+    "copied": "Мәтін көшірілді",
     "copyLink": "Сілтемені көшіру",
     "editing": "Өңдеу",
-    "copied": "Мәтін көшірілді",
     "linkCopied": "Сілтеме көшірілді",
     "messageActions": "Хабарлама әрекеттері",
     "cancelRecording": "Жазуды болдырмау",
@@ -1407,5 +1406,24 @@
     "clear": "Тазалау",
     "prevMonth": "Алдыңғы ай",
     "nextMonth": "Келесі ай"
+  },
+  "Friends": {
+    "title": "Достар",
+    "tabFriends": "Достар",
+    "tabIncoming": "Кіріс",
+    "tabOutgoing": "Шығыс",
+    "accept": "Қабылдау",
+    "decline": "Бас тарту",
+    "remove": "Жою",
+    "cancel": "Болдырмау",
+    "removed": "Достардан жойылды",
+    "accepted": "Өтінім қабылданды",
+    "emptyFriends": "Әзірге достар жоқ",
+    "emptyIncoming": "Кіріс өтінімдер жоқ",
+    "emptyOutgoing": "Шығыс өтінімдер жоқ",
+    "add": "Дос қосу",
+    "cancelRequest": "Өтінімді болдырмау",
+    "acceptRequest": "Өтінімді қабылдау",
+    "friendsLabel": "Достарда"
   }
 }
