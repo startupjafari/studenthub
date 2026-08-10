@@ -31,6 +31,19 @@ export interface AuthUserRecord {
   groupId: string | null
 }
 
+// Данные для второго шага входа (2FA). Секрет — зашифрован, backup-коды — bcrypt-хэши.
+export interface TwoFactorLoginRecord {
+  id: string
+  role: Role
+  isBlocked: boolean
+  universityId: string | null
+  facultyId: string | null
+  groupId: string | null
+  twoFactorEnabled: boolean
+  twoFactorSecret: string | null
+  twoFactorBackupCodes: string[]
+}
+
 const PROFILE_SELECT = {
   id: true,
   email: true,
@@ -44,6 +57,8 @@ const PROFILE_SELECT = {
   showEmail: true,
   showPhone: true,
   profileVisibility: true,
+  // Флаг 2FA — только владельцу (в getProfileForViewer вырезается из чужой карточки).
+  twoFactorEnabled: true,
   phone: true,
   universityId: true,
   facultyId: true,
@@ -101,7 +116,14 @@ export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT 
 export type ProfileAccessLevel = 'full' | 'limited'
 export type PublicProfile = Omit<
   UserProfile,
-  'email' | 'phone' | 'showEmail' | 'showPhone' | 'studentCardNumber' | 'employeeNumber' | 'address'
+  | 'email'
+  | 'phone'
+  | 'showEmail'
+  | 'showPhone'
+  | 'studentCardNumber'
+  | 'employeeNumber'
+  | 'address'
+  | 'twoFactorEnabled'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
 @Injectable()
@@ -415,12 +437,15 @@ export class UserService {
       employeeNumber,
       address,
       gpa,
+      twoFactorEnabled,
       ...rest
     } = target
     void showEmail
     void studentCardNumber
     void employeeNumber
     void address
+    // Наличие 2FA — приватная деталь владельца, не отдаём чужим.
+    void twoFactorEnabled
     return {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,
@@ -622,6 +647,79 @@ export class UserService {
       return true
     }
     return target.showEmail
+  }
+
+  // ── 2FA (TOTP) ─────────────────────────────────────────────────────────────
+  // Секрет/backup-коды не входят в PROFILE_SELECT и не покидают этот сервис
+  // (изоляция как у passwordHash). Наружу отдаётся только флаг twoFactorEnabled.
+
+  /** Включена ли 2FA (для ветвления login). */
+  async isTwoFactorEnabled(userId: string): Promise<boolean> {
+    const u = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { twoFactorEnabled: true },
+    })
+    return u?.twoFactorEnabled ?? false
+  }
+
+  /** Состояние 2FA для setup/enable/disable (флаг + зашифрованный секрет). */
+  getTwoFactorState(
+    userId: string,
+  ): Promise<{ twoFactorEnabled: boolean; twoFactorSecret: string | null } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { twoFactorEnabled: true, twoFactorSecret: true },
+    })
+  }
+
+  /** Данные для второго шага входа: scope/роль + секрет + backup-коды. */
+  getTwoFactorForLogin(userId: string): Promise<TwoFactorLoginRecord | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        role: true,
+        universityId: true,
+        facultyId: true,
+        groupId: true,
+        isBlocked: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        twoFactorBackupCodes: true,
+      },
+    })
+  }
+
+  /** Сохранить «ожидающий» секрет (setup): секрет есть, но 2FA ещё не включена. */
+  async setPendingTwoFactorSecret(userId: string, encSecret: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorSecret: encSecret, twoFactorEnabled: false, twoFactorBackupCodes: [] },
+    })
+  }
+
+  /** Включить 2FA после подтверждения кодом: сохранить bcrypt-хэши backup-кодов. */
+  async enableTwoFactor(userId: string, backupHashes: string[]): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: true, twoFactorBackupCodes: backupHashes },
+    })
+  }
+
+  /** Отключить 2FA: очистить секрет, флаг и backup-коды. */
+  async disableTwoFactor(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: [] },
+    })
+  }
+
+  /** Обновить набор backup-кодов (при «сжигании» использованного). */
+  async setBackupCodes(userId: string, hashes: string[]): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorBackupCodes: hashes },
+    })
   }
 
   /** Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?). */

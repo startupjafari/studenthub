@@ -446,13 +446,16 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | 415 | `FILE_TYPE_NOT_ALLOWED` | Тип файла (по magic bytes) не в белом списке |
 | 422 | `VALIDATION_ERROR` | Ошибка Zod, с `details[]` |
 | 429 | `RATE_LIMIT` | Превышен лимит |
+| 401 | `INVALID_2FA_CODE` | Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа |
 | 500 | `INTERNAL_ERROR` | Внутренняя ошибка |
 
 Коды — публичный контракт: клиент реагирует на `code`, не на `message`. Тексты для пользователя формирует фронтенд через i18n.
 
 ### 8.3 Реестр эндпоинтов
 
-**Auth** — `POST /auth/login` (публ.) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`
+**Auth** — `POST /auth/login` (публ.; при включённой 2FA возвращает `{ twoFactorRequired: true, challengeToken }` вместо токенов) · `POST /auth/login/2fa` (публ.; `{ challengeToken, code }` → сессия) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`
+
+**2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
 
 **Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `PATCH /invites/:id/revoke`
 

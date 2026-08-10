@@ -32,3 +32,26 @@ export const RegisterByInviteSchema = z
   .strict()
 
 export type RegisterByInviteInput = z.infer<typeof RegisterByInviteSchema>
+
+// ── Двухфакторная аутентификация (TOTP) ──────────────────────────────────────
+
+// 6-значный код из приложения-аутентификатора (Google Authenticator и т.п.).
+const TotpCodeSchema = z.string().regex(/^\d{6}$/, 'Код из 6 цифр')
+
+// Второй шаг входа: challenge из ответа /auth/login + код (TOTP 6 цифр ИЛИ backup-код).
+export const TwoFactorVerifySchema = z
+  .object({
+    challengeToken: z.string().min(1),
+    code: z.string().min(6).max(20),
+  })
+  .strict()
+
+export type TwoFactorVerifyInput = z.infer<typeof TwoFactorVerifySchema>
+
+// Подтверждение подключения 2FA — только TOTP-код (backup-кодов ещё нет).
+export const TwoFactorEnableSchema = z.object({ code: TotpCodeSchema }).strict()
+export type TwoFactorEnableInput = z.infer<typeof TwoFactorEnableSchema>
+
+// Отключение 2FA — TOTP-код или backup-код.
+export const TwoFactorDisableSchema = z.object({ code: z.string().min(6).max(20) }).strict()
+export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>

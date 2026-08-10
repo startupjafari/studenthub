@@ -17,6 +17,8 @@ export interface MeResponse {
   showEmail: boolean
   // Видимость профиля целиком («закрытый профиль», docs/PROJECT.md §3.7).
   profileVisibility?: ProfileVisibilityValue
+  // Включена ли 2FA (только владельцу; в /users/me и /auth/me).
+  twoFactorEnabled?: boolean
   universityId: string | null
   facultyId: string | null
   groupId: string | null
@@ -78,9 +80,46 @@ export interface InvitePreview {
   expiresAt: string
 }
 
-export async function loginRequest(email: string, password: string): Promise<string> {
-  const { data } = await api.post<{ accessToken: string }>('/auth/login', { email, password })
+// Ответ логина: либо сессия (accessToken), либо требование второго шага 2FA.
+export interface TwoFactorChallenge {
+  twoFactorRequired: true
+  challengeToken: string
+}
+export type LoginResult = { accessToken: string } | TwoFactorChallenge
+
+export async function loginRequest(email: string, password: string): Promise<LoginResult> {
+  const { data } = await api.post<LoginResult>('/auth/login', { email, password })
+  return data
+}
+
+// Второй шаг входа: challenge + код (TOTP или backup) → accessToken.
+export async function loginVerify2faRequest(challengeToken: string, code: string): Promise<string> {
+  const { data } = await api.post<{ accessToken: string }>('/auth/login/2fa', {
+    challengeToken,
+    code,
+  })
   return data.accessToken
+}
+
+// ── Управление 2FA (в настройках, требует авторизации) ───────────────────────
+export interface TwoFactorSetupResponse {
+  secret: string
+  otpauthUrl: string
+  qr: string
+}
+
+export async function setup2faRequest(): Promise<TwoFactorSetupResponse> {
+  const { data } = await api.post<TwoFactorSetupResponse>('/auth/2fa/setup')
+  return data
+}
+
+export async function enable2faRequest(code: string): Promise<{ backupCodes: string[] }> {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/2fa/enable', { code })
+  return data
+}
+
+export async function disable2faRequest(code: string): Promise<void> {
+  await api.post('/auth/2fa/disable', { code })
 }
 
 export async function registerByInviteRequest(input: RegisterByInviteInput): Promise<string> {
