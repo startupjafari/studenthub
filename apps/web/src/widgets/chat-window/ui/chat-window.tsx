@@ -1893,7 +1893,10 @@ export function ChatWindow() {
                             className={cn(
                               // -mx-4/px-4 — фон подсветки на всю ширину чата (в паддинг контейнера), высотой с сообщение.
                               // select-none + touch-action:pan-y — для тач-жестов (долгое нажатие / свайп-ответ).
-                              'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+                              // #5: content-visibility:auto — браузер пропускает рендер/лэйаут офф-скрин строк
+                              // (дешёвая «виртуализация» без DOM-реструктуризации и слома sticky-заголовков/скролла);
+                              // contain-intrinsic-size задаёт оценку высоты для скроллбара до первого рендера.
+                              'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none [contain-intrinsic-size:auto_44px] [content-visibility:auto]',
                               i > 0 && (firstOfRun ? 'mt-2' : 'mt-0.5'),
                               mine && 'flex-row-reverse',
                               (highlightId === m.id || (selectMode && selectedIds.has(m.id))) &&
