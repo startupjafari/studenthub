@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { EMAIL_JOBS, QUEUES, QueueService, type JobPayload } from '../../common/queue'
 import { NotificationsService } from './notifications.service'
+import { PushService } from '../push/push.service'
 import type { NotificationJobData } from './notification-job.type'
 
 // Воркер очереди `notifications` (docs/PROJECT.md §10.1, задача Ф3.4).
@@ -22,6 +23,7 @@ export class NotificationsProcessor extends WorkerHost {
     private readonly realtime: RealtimeGateway,
     private readonly queue: QueueService,
     private readonly notifications: NotificationsService,
+    private readonly push: PushService,
   ) {
     super()
   }
@@ -85,6 +87,7 @@ export class NotificationsProcessor extends WorkerHost {
     const wantEmail = data.emailFallback ?? true
     let delivered = 0
     let queuedEmail = 0
+    let queuedPush = 0
 
     for (const u of fresh) {
       const notification = byUser.get(u.id)
@@ -93,7 +96,19 @@ export class NotificationsProcessor extends WorkerHost {
       if (online.has(u.id)) {
         this.realtime.emitToUser(u.id, 'notification:new', { notification })
         delivered += 1
-      } else if (wantEmail && this.emailEnabled(u.notificationSettings) && u.email) {
+        continue
+      }
+      // Офлайн: доставляем по включённым каналам (push и/или email — независимые тумблеры).
+      const url = (notification.data as { url?: string } | null)?.url
+      if (this.pushEnabled(u.notificationSettings)) {
+        await this.push.sendToUser(u.id, {
+          title: notification.title,
+          body: notification.body,
+          url,
+        })
+        queuedPush += 1
+      }
+      if (wantEmail && this.emailEnabled(u.notificationSettings) && u.email) {
         await this.queue.enqueue(
           QUEUES.EMAIL,
           EMAIL_JOBS.SEND_NOTIFICATION,
@@ -111,7 +126,7 @@ export class NotificationsProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      `notifications ${job.name} type=${data.type}: создано ${fresh.length}, WS ${delivered}, email ${queuedEmail} (requestId=${requestId ?? '-'})`,
+      `notifications ${job.name} type=${data.type}: создано ${fresh.length}, WS ${delivered}, push ${queuedPush}, email ${queuedEmail} (requestId=${requestId ?? '-'})`,
     )
   }
 
@@ -137,5 +152,10 @@ export class NotificationsProcessor extends WorkerHost {
 
   private emailEnabled(settings: NotificationSettings | null): boolean {
     return settings ? settings.emailEnabled : true
+  }
+
+  // Push по умолчанию ВЫКЛ (нет строки настроек или pushEnabled=false) — включается тумблером.
+  private pushEnabled(settings: NotificationSettings | null): boolean {
+    return settings ? settings.pushEnabled : false
   }
 }

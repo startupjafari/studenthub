@@ -75,6 +75,7 @@ import {
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { useFormAlert } from '../../../shared/lib'
+import { subscribeToPush, unsubscribeFromPush, pushSupported } from '../../../shared/lib/push'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -525,6 +526,21 @@ function NotificationsSection() {
   const set = (key: keyof NotificationSettingsData, value: boolean) =>
     mut.mutate({ [key]: value } as Partial<NotificationSettingsData>)
 
+  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки.
+  const setPush = (value: boolean): void => {
+    if (value) {
+      if (!pushSupported()) {
+        toast.error(tS('pushUnsupported'))
+        return
+      }
+      void subscribeToPush()
+        .then((ok) => (ok ? set('pushEnabled', true) : toast.error(tS('pushDenied'))))
+        .catch(() => toast.error(tS('pushDenied')))
+    } else {
+      void unsubscribeFromPush().finally(() => set('pushEnabled', false))
+    }
+  }
+
   const typeRows: { key: keyof NotificationSettingsData; label: string }[] = [
     { key: 'scheduleChangeEnabled', label: tS('notif_scheduleChangeEnabled') },
     { key: 'appUpdateEnabled', label: tS('notif_appUpdateEnabled') },
@@ -558,11 +574,7 @@ function NotificationsSection() {
               />
             </SettingRow>
             <SettingRow title={tS('channelPush')} desc={tS('channelPushDesc')}>
-              <ToggleSwitch
-                checked={s.pushEnabled}
-                onChange={(v) => set('pushEnabled', v)}
-                label={tS('channelPush')}
-              />
+              <ToggleSwitch checked={s.pushEnabled} onChange={setPush} label={tS('channelPush')} />
             </SettingRow>
           </div>
 

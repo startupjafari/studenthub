@@ -1158,7 +1158,9 @@
     "visibilityPRIVATE": "Closed (only me)",
     "documentsStorage": "Documents and personal data",
     "documentsStorageDesc": "Secure storage for your documents",
-    "documentsStorageOpen": "Open storage"
+    "documentsStorageOpen": "Open storage",
+    "pushUnsupported": "Push notifications are not supported in this browser",
+    "pushDenied": "Could not enable push: permission denied"
   },
   "Offline": {
     "title": "You are offline",
