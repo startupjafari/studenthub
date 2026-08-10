@@ -1,0 +1,21 @@
+// Друзья — симметричная дружба (ВК-стиль): заявка (PENDING) → принятие (ACCEPTED).
+// Одна каноническая строка на пару; направление хранит requester/addressee (кто кому подал).
+// Обратный дубликат (B→A при существующем A→B) отсекается в сервисе (проверка обеих сторон).
+// Блокировка пользователей — отдельная модель UserBlock (14-blocks.prisma), здесь не дублируется.
+model Friendship {
+  id          String           @id @default(uuid())
+  requesterId String           @map("requester_id")
+  addresseeId String           @map("addressee_id")
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  respondedAt DateTime?        @map("responded_at")
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  // Входящие заявки/друзья адресата и исходящие/друзья отправителя — по статусу.
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+  @@map("friendships")
+}

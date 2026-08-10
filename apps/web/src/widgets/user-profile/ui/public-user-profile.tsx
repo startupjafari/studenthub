@@ -3,13 +3,30 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import { Role } from '@studenthub/shared-types'
-import { ArrowLeft, Loader2, Lock, MessageSquarePlus, UserRoundX } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  Clock,
+  Loader2,
+  Lock,
+  MessageSquarePlus,
+  UserRoundX,
+  UserRoundPlus,
+} from 'lucide-react'
 import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
 import { createChatRequest } from '../../../entities/chat'
+import {
+  fetchFriendshipStatus,
+  sendFriendRequest,
+  acceptFriendRequest,
+  removeFriendship,
+  friendKeys,
+} from '../../../entities/friendship'
 import { useRealtimeEvent } from '../../../shared/realtime'
 
 // Путь к чатам по роли текущего пользователя (кнопка «Написать»). Источник истины —
@@ -128,15 +145,31 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               {t('writeMessage')}
             </Button>
           )}
+          {me.data && me.data.id !== u.id && u.access !== 'limited' && (
+            <FriendButton userId={u.id} />
+          )}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
         </div>
-        <div className="h-36 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-44" />
+        <div className="relative h-36 w-full overflow-hidden sm:h-44">
+          {u.coverUrl ? (
+            <Image
+              src={u.coverUrl}
+              alt=""
+              fill
+              unoptimized
+              sizes="100vw"
+              className="object-cover"
+            />
+          ) : (
+            <div className="size-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500" />
+          )}
+        </div>
         <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
           <div className="-mt-14 shrink-0 sm:-mt-16">
             <div className="relative size-28 sm:size-32">
               {u.avatarUrl ? (
                 <Image
-                  src={u.avatarUrl}
+                  src={u.avatarThumbUrl ?? u.avatarUrl}
                   alt={fullNameOf(u)}
                   width={128}
                   height={128}
@@ -173,6 +206,80 @@ export function PublicUserProfile({ userId }: { userId: string }) {
         </ProfileTabs>
       )}
     </div>
+  )
+}
+
+// Кнопка дружбы в шапке чужого профиля: вид зависит от статуса (нет/исходящая/входящая/друзья).
+function FriendButton({ userId }: { userId: string }) {
+  const t = useTranslations('Friends')
+  const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
+  const statusQ = useQuery({
+    queryKey: friendKeys.status(userId),
+    queryFn: () => fetchFriendshipStatus(userId),
+  })
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: friendKeys.status(userId) })
+    void qc.invalidateQueries({ queryKey: friendKeys.all })
+  }
+  const onError = (e: unknown) =>
+    toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+
+  const sendMut = useMutation({
+    mutationFn: () => sendFriendRequest(userId),
+    onSuccess: invalidate,
+    onError,
+  })
+  const acceptMut = useMutation({
+    mutationFn: (id: string) => acceptFriendRequest(id),
+    onSuccess: invalidate,
+    onError,
+  })
+  const removeMut = useMutation({
+    mutationFn: (id: string) => removeFriendship(id),
+    onSuccess: invalidate,
+    onError,
+  })
+
+  if (!statusQ.data) return null
+  const { status, friendshipId } = statusQ.data
+  const pending = sendMut.isPending || acceptMut.isPending || removeMut.isPending
+
+  if (status === 'NONE') {
+    return (
+      <Button size="sm" className="shadow-md" loading={pending} onClick={() => sendMut.mutate()}>
+        <UserRoundPlus className="size-4" aria-hidden />
+        {t('add')}
+      </Button>
+    )
+  }
+  if (status === 'PENDING_INCOMING') {
+    return (
+      <Button
+        size="sm"
+        className="shadow-md"
+        loading={pending}
+        onClick={() => friendshipId && acceptMut.mutate(friendshipId)}
+      >
+        <Check className="size-4" aria-hidden />
+        {t('acceptRequest')}
+      </Button>
+    )
+  }
+  const label = status === 'PENDING_OUTGOING' ? t('cancelRequest') : t('friendsLabel')
+  const Icon = status === 'PENDING_OUTGOING' ? Clock : Check
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      className="shadow-md"
+      loading={pending}
+      onClick={() => friendshipId && removeMut.mutate(friendshipId)}
+    >
+      <Icon className="size-4" aria-hidden />
+      {label}
+    </Button>
   )
 }
 

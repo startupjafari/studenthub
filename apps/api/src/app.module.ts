@@ -30,6 +30,7 @@ import { MaterialsModule } from './modules/materials/materials.module'
 import { ProfileContentModule } from './modules/profile-content/profile-content.module'
 import { PollsModule } from './modules/polls/polls.module'
 import { DocumentsModule } from './modules/documents/documents.module'
+import { FriendsModule } from './modules/friends/friends.module'
 import { EmailModule } from './modules/email/email.module'
 import { NotificationsModule } from './modules/notifications/notifications.module'
 import { CleanupModule } from './modules/cleanup/cleanup.module'
@@ -71,6 +72,7 @@ import { AppController } from './app.controller'
     ProfileContentModule,
     PollsModule,
     DocumentsModule,
+    FriendsModule,
     EmailModule,
     NotificationsModule,
     CleanupModule,

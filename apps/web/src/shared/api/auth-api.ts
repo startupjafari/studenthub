@@ -10,10 +10,15 @@ export interface MeResponse {
   firstName: string
   lastName: string
   avatarUrl: string | null
+  // Квадратное превью аватара (~128px); заполняется асинхронно, до готовности — null.
+  avatarThumbUrl?: string | null
+  coverUrl?: string | null
   role: Role
   showEmail: boolean
   // Видимость профиля целиком («закрытый профиль», docs/PROJECT.md §3.7).
   profileVisibility?: ProfileVisibilityValue
+  // Включена ли 2FA (только владельцу; в /users/me и /auth/me).
+  twoFactorEnabled?: boolean
   universityId: string | null
   facultyId: string | null
   groupId: string | null
@@ -75,9 +80,70 @@ export interface InvitePreview {
   expiresAt: string
 }
 
-export async function loginRequest(email: string, password: string): Promise<string> {
-  const { data } = await api.post<{ accessToken: string }>('/auth/login', { email, password })
+// Ответ логина: либо сессия (accessToken), либо требование второго шага 2FA.
+export interface TwoFactorChallenge {
+  twoFactorRequired: true
+  challengeToken: string
+}
+export type LoginResult = { accessToken: string } | TwoFactorChallenge
+
+export async function loginRequest(email: string, password: string): Promise<LoginResult> {
+  const { data } = await api.post<LoginResult>('/auth/login', { email, password })
+  return data
+}
+
+// Второй шаг входа: challenge + код (TOTP или backup) → accessToken.
+export async function loginVerify2faRequest(challengeToken: string, code: string): Promise<string> {
+  const { data } = await api.post<{ accessToken: string }>('/auth/login/2fa', {
+    challengeToken,
+    code,
+  })
   return data.accessToken
+}
+
+// ── Управление 2FA (в настройках, требует авторизации) ───────────────────────
+export interface TwoFactorSetupResponse {
+  secret: string
+  otpauthUrl: string
+  qr: string
+}
+
+export async function setup2faRequest(): Promise<TwoFactorSetupResponse> {
+  const { data } = await api.post<TwoFactorSetupResponse>('/auth/2fa/setup')
+  return data
+}
+
+export async function enable2faRequest(code: string): Promise<{ backupCodes: string[] }> {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/2fa/enable', { code })
+  return data
+}
+
+export async function disable2faRequest(code: string): Promise<void> {
+  await api.post('/auth/2fa/disable', { code })
+}
+
+// ── Вход по QR ───────────────────────────────────────────────────────────────
+export interface QrCreateResponse {
+  qrId: string
+  qr: string
+  claimSecret: string
+  expiresIn: number
+}
+
+export async function qrCreateRequest(): Promise<QrCreateResponse> {
+  const { data } = await api.post<QrCreateResponse>('/auth/qr/create')
+  return data
+}
+
+// Забор сессии десктопом после подтверждения телефоном → accessToken.
+export async function qrClaimRequest(qrId: string, claimSecret: string): Promise<string> {
+  const { data } = await api.post<{ accessToken: string }>('/auth/qr/claim', { qrId, claimSecret })
+  return data.accessToken
+}
+
+// Подтверждение входа с залогиненного устройства (требует авторизации).
+export async function qrApproveRequest(approveToken: string): Promise<void> {
+  await api.post('/auth/qr/approve', { approveToken })
 }
 
 export async function registerByInviteRequest(input: RegisterByInviteInput): Promise<string> {

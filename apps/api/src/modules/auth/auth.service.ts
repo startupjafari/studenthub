@@ -11,6 +11,7 @@ import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { UserService, type UserProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
+import { TwoFactorService } from './two-factor.service'
 import { parseDurationMs } from './auth.constants'
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient
@@ -28,6 +29,14 @@ export interface SessionResult {
   payload: JwtPayload
 }
 
+// Первый шаг входа при включённой 2FA: вместо сессии — короткоживущий challenge.
+export interface TwoFactorChallenge {
+  twoFactorRequired: true
+  challengeToken: string
+}
+
+export type LoginResult = SessionResult | TwoFactorChallenge
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name)
@@ -42,6 +51,7 @@ export class AuthService {
     private readonly passwords: PasswordService,
     @Inject(forwardRef(() => UserService)) private readonly users: UserService,
     private readonly invites: InviteService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   /** Проверка email+пароля для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -108,11 +118,78 @@ export class AuthService {
     return session
   }
 
-  /** Логин: новая сессионная цепочка (familyId) + аудит. */
-  async login(payload: JwtPayload, ctx: RequestContext): Promise<SessionResult> {
+  /**
+   * Логин: если у пользователя включена 2FA — вместо сессии возвращаем challenge
+   * (токены НЕ выдаются, куки НЕ ставятся). Иначе — новая сессионная цепочка + аудит.
+   */
+  async login(payload: JwtPayload, ctx: RequestContext): Promise<LoginResult> {
+    if (await this.users.isTwoFactorEnabled(payload.sub)) {
+      return { twoFactorRequired: true, challengeToken: this.signTwoFactorChallenge(payload.sub) }
+    }
     const session = await this.issueSession(payload, randomUUID())
     await this.audit.record({ userId: payload.sub, action: 'login', ...ctx })
     return session
+  }
+
+  /**
+   * Выдать сессию пользователю по id, без пароля. Используется входом по QR: телефон
+   * (уже авторизован, в т.ч. прошёл 2FA) подтвердил вход, поэтому пароль/2FA повторно не нужны.
+   */
+  async issueSessionForUser(userId: string, ctx: RequestContext): Promise<SessionResult> {
+    const user = await this.users.findByIdForAuth(userId)
+    if (!user) {
+      throw new AppException('UNAUTHORIZED', 'Пользователь не найден')
+    }
+    if (user.isBlocked) {
+      throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
+    }
+    const session = await this.issueSession(this.toPayload(user), randomUUID())
+    await this.audit.record({ userId, action: 'login', ...ctx })
+    return session
+  }
+
+  /**
+   * Второй шаг входа: проверяет challenge-токен и код (TOTP или backup),
+   * затем выдаёт полноценную сессию. Пароль уже проверен на первом шаге.
+   */
+  async loginVerifyTwoFactor(
+    challengeToken: string,
+    code: string,
+    ctx: RequestContext,
+  ): Promise<SessionResult> {
+    const userId = this.verifyTwoFactorChallenge(challengeToken)
+    const rec = await this.users.getTwoFactorForLogin(userId)
+    if (!rec || !rec.twoFactorEnabled) {
+      throw new AppException('UNAUTHORIZED', 'Сессия входа недействительна')
+    }
+    if (rec.isBlocked) {
+      throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
+    }
+    const ok = await this.twoFactor.verifyCode(rec, code)
+    if (!ok) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код')
+    }
+    const session = await this.issueSession(this.toPayload(rec), randomUUID())
+    await this.audit.record({ userId, action: 'login', ...ctx })
+    return session
+  }
+
+  // Короткоживущий (5 мин) промежуточный токен между шагом 1 и 2. Подписан access-секретом,
+  // но помечен typ='TWO_FACTOR' — JwtStrategy отвергает такие как access-токены.
+  private signTwoFactorChallenge(userId: string): string {
+    return this.jwt.sign({ sub: userId, typ: 'TWO_FACTOR' }, { expiresIn: '5m' })
+  }
+
+  private verifyTwoFactorChallenge(token: string): string {
+    try {
+      const payload = this.jwt.verify<{ sub?: string; typ?: string }>(token)
+      if (payload.typ !== 'TWO_FACTOR' || !payload.sub) {
+        throw new Error('invalid challenge')
+      }
+      return payload.sub
+    } catch {
+      throw new AppException('UNAUTHORIZED', 'Сессия входа истекла — войдите заново')
+    }
   }
 
   /** Ротация refresh: инвалидация старого + новый в той же цепочке. Повтор revoked → рвём цепочку. */
