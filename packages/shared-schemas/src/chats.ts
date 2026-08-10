@@ -83,6 +83,9 @@ export const MessageSendSchema = z
     chatId: z.string().min(1),
     content: z.string().min(1).max(4000),
     replyToId: z.string().min(1).optional(),
+    // Клиентский идентификатор для оптимистичной отправки (#1): сервер эхом возвращает его в
+    // message:new, чтобы отправитель заменил свой временный «pending» пузырь. В БД не пишется.
+    nonce: z.string().min(1).max(64).optional(),
   })
   .strict()
 export type MessageSendInput = z.infer<typeof MessageSendSchema>

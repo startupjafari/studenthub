@@ -937,7 +937,9 @@
     "clearSearch": "Очистить",
     "messagesSection": "Сообщения",
     "selectChatPrompt": "Выберите, кому бы хотели написать?",
-    "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}"
+    "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
+    "sending": "Отправляется…",
+    "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить"
   },
   "Events": {
     "title": "События",

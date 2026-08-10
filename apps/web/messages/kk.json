@@ -937,7 +937,9 @@
     "clearSearch": "Тазалау",
     "messagesSection": "Хабарламалар",
     "selectChatPrompt": "Кімге жазғыңыз келетінін таңдаңыз",
-    "readByCount": "Оқыды: {count, plural, one {# қатысушы} other {# қатысушы}}"
+    "readByCount": "Оқыды: {count, plural, one {# қатысушы} other {# қатысушы}}",
+    "sending": "Жіберілуде…",
+    "sendFailedRetry": "Жіберілмеді. Қайталау үшін басыңыз"
   },
   "Events": {
     "title": "Іс-шаралар",
