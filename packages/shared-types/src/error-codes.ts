@@ -18,6 +18,8 @@ export const ErrorCode = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   RATE_LIMIT: 'RATE_LIMIT',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  // Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа.
+  INVALID_2FA_CODE: 'INVALID_2FA_CODE',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -44,6 +46,7 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   VALIDATION_ERROR: 422,
   RATE_LIMIT: 429,
   INTERNAL_ERROR: 500,
+  INVALID_2FA_CODE: 401,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

@@ -108,3 +108,9 @@ enum ComplaintStatus {
   RESOLVED
   DISMISSED
 }
+
+// Симметричная дружба (ВК-стиль): заявка → принятие. Блокировка — отдельная модель UserBlock.
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}

@@ -3,25 +3,36 @@
 // пока скаляры; FK-связи с академическими моделями добавит Фаза 5.
 
 model User {
-  id                String    @id @default(uuid())
-  email             String    @unique
-  passwordHash      String    @map("password_hash")
-  firstName         String    @map("first_name")
-  lastName          String    @map("last_name")
-  avatarUrl         String?   @map("avatar_url")
-  role              Role
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  passwordHash         String    @map("password_hash")
+  firstName            String    @map("first_name")
+  lastName             String    @map("last_name")
+  avatarUrl            String?   @map("avatar_url")
+  // Квадратное превью аватара (~128px), генерируется джобой generate-thumbnail (BullMQ).
+  // Заполняется асинхронно; до готовности клиент показывает полноразмерный avatarUrl.
+  avatarThumbUrl       String?   @map("avatar_thumb_url")
+  // Обложка профиля (баннер, стиль ВК): публичный объект в бакете profile-covers.
+  // Ставится отдельным эндпоинтом POST /users/me/cover (как аватар), не через updateProfile.
+  coverUrl             String?   @map("cover_url")
+  role                 Role
   // Настройка приватности: показывать ли email другим пользователям (docs/PROJECT.md §3.7).
-  showEmail         Boolean   @default(false) @map("show_email")
+  showEmail            Boolean   @default(false) @map("show_email")
   // Видимость профиля целиком («закрытый профиль»): PUBLIC/UNIVERSITY/FACULTY/GROUP/PRIVATE
   // (docs/PROJECT.md §3.7). Хранится строкой (как visibility контента); дефолт по роли ставит сервис.
-  profileVisibility String    @default("UNIVERSITY") @map("profile_visibility")
-  universityId      String?   @map("university_id")
-  facultyId         String?   @map("faculty_id")
-  groupId           String?   @map("group_id")
-  isBlocked         Boolean   @default(false) @map("is_blocked")
-  deletedAt         DateTime? @map("deleted_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  profileVisibility    String    @default("UNIVERSITY") @map("profile_visibility")
+  universityId         String?   @map("university_id")
+  facultyId            String?   @map("faculty_id")
+  groupId              String?   @map("group_id")
+  isBlocked            Boolean   @default(false) @map("is_blocked")
+  // Двухфакторная аутентификация (TOTP). Секрет хранится зашифрованным (AES-256-GCM),
+  // backup-коды — bcrypt-хэши. Наружу (PROFILE_SELECT) уходит только флаг twoFactorEnabled.
+  twoFactorEnabled     Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorSecret      String?   @map("two_factor_secret")
+  twoFactorBackupCodes String[]  @default([]) @map("two_factor_backup_codes")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   // ── Профиль (общие поля, у всех ролей) ──────────────────────────────────────
   middleName String?   @map("middle_name")
@@ -118,6 +129,10 @@ model User {
   albums          Album[]          @relation("UserAlbums")
   contentComments ContentComment[] @relation("UserContentComments")
   bookmarks       Bookmark[]       @relation("UserBookmarks")
+
+  // Друзья: симметричная дружба; requester — отправитель заявки, addressee — получатель.
+  friendshipsSent     Friendship[] @relation("FriendshipRequester")
+  friendshipsReceived Friendship[] @relation("FriendshipAddressee")
 
   // Документы (Ф15): владелец. grantedById/actorId в доступе/журнале — скаляры (без обратной связи).
   documents                Document[]           @relation("UserDocuments")

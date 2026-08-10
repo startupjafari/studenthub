@@ -1,8 +1,9 @@
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
-import { ThrottlerGuard } from '@nestjs/throttler'
+import { ThrottlerGuard, ThrottlerStorage } from '@nestjs/throttler'
 import cookie from '@fastify/cookie'
 import request from 'supertest'
+import { authenticator } from 'otplib'
 import { AppModule } from '../src/app.module'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
@@ -47,6 +48,9 @@ describe('Auth (e2e)', () => {
   })
 
   beforeEach(async () => {
+    // Сброс счётчиков rate-limit между тестами: overrideGuard(ThrottlerGuard) не отключает
+    // подсчёт по IP, а 2FA-сценарии делают несколько логинов — иначе упираемся в 5/15мин.
+    ;(app.get(ThrottlerStorage) as unknown as { storage: Map<string, unknown> }).storage.clear()
     await prisma.$executeRawUnsafe(
       'TRUNCATE TABLE audit_logs, refresh_tokens, invites, files, groups, rooms, faculties, universities, users RESTART IDENTITY CASCADE',
     )
@@ -163,6 +167,113 @@ describe('Auth (e2e)', () => {
         .send({ ...body, firstName: 'Дубль' })
       expect(second.status).toBe(410)
       expect(second.body.error.code).toBe('INVITE_USED')
+    })
+  })
+
+  describe('2FA (TOTP)', () => {
+    // Включает 2FA админу через реальные эндпоинты; возвращает secret + backup-коды.
+    async function enable2fa(): Promise<{ secret: string; backupCodes: string[] }> {
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const token = login.body.data.accessToken as string
+      const setup = await request(server)
+        .post('/api/v1/auth/2fa/setup')
+        .set('Authorization', `Bearer ${token}`)
+      const secret = setup.body.data.secret as string
+      expect(setup.body.data.qr).toContain('data:image/png;base64,')
+      const enable = await request(server)
+        .post('/api/v1/auth/2fa/enable')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ code: authenticator.generate(secret) })
+      expect([200, 201]).toContain(enable.status)
+      const backupCodes = enable.body.data.backupCodes as string[]
+      expect(backupCodes).toHaveLength(10)
+      return { secret, backupCodes }
+    }
+
+    it('при включённой 2FA login отдаёт challenge без токенов/кук', async () => {
+      await enable2fa()
+      const res = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      expect([200, 201]).toContain(res.status)
+      expect(res.body.data.twoFactorRequired).toBe(true)
+      expect(res.body.data.challengeToken).toEqual(expect.any(String))
+      expect(res.body.data.accessToken).toBeUndefined()
+      expect(getCookie(res, 'sh_refresh')).toBeNull()
+    })
+
+    it('login/2fa с верным TOTP → accessToken + cookies', async () => {
+      const { secret } = await enable2fa()
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const challengeToken = login.body.data.challengeToken as string
+      const res = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({ challengeToken, code: authenticator.generate(secret) })
+      expect([200, 201]).toContain(res.status)
+      expect(res.body.data.accessToken).toEqual(expect.any(String))
+      expect(getCookie(res, 'sh_refresh')).toBeTruthy()
+      expect(getCookie(res, 'sh_role')).toBeTruthy()
+    })
+
+    it('login/2fa с неверным кодом → 401 INVALID_2FA_CODE', async () => {
+      await enable2fa()
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const challengeToken = login.body.data.challengeToken as string
+      const res = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({ challengeToken, code: '000000' })
+      expect(res.status).toBe(401)
+      expect(res.body.error.code).toBe('INVALID_2FA_CODE')
+    })
+
+    it('login/2fa по backup-коду → успех, повтор того же кода → отказ', async () => {
+      const { backupCodes } = await enable2fa()
+      const code = backupCodes[0]
+
+      const login1 = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const ok = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({ challengeToken: login1.body.data.challengeToken, code })
+      expect([200, 201]).toContain(ok.status)
+      expect(ok.body.data.accessToken).toEqual(expect.any(String))
+
+      // Тот же backup-код одноразовый — второй раз не проходит.
+      const login2 = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const reuse = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({ challengeToken: login2.body.data.challengeToken, code })
+      expect(reuse.status).toBe(401)
+    })
+
+    it('disable отключает 2FA → login снова отдаёт токены напрямую', async () => {
+      const { secret } = await enable2fa()
+      // Войти (через 2FA), получить access-токен.
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const verified = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({
+          challengeToken: login.body.data.challengeToken,
+          code: authenticator.generate(secret),
+        })
+      const token = verified.body.data.accessToken as string
+
+      const disable = await request(server)
+        .post('/api/v1/auth/2fa/disable')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ code: authenticator.generate(secret) })
+      expect([200, 201]).toContain(disable.status)
+
+      const res = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      expect(res.body.data.accessToken).toEqual(expect.any(String))
+      expect(res.body.data.twoFactorRequired).toBeUndefined()
+    })
+
+    it('challenge-токен нельзя использовать как access-токен (GET /auth/me)', async () => {
+      await enable2fa()
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const challengeToken = login.body.data.challengeToken as string
+      const me = await request(server)
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${challengeToken}`)
+      expect(me.status).toBe(401)
     })
   })
 })
