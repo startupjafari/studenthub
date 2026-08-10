@@ -48,6 +48,8 @@ import {
   fetchPinned,
   fetchPresence,
   fetchChatMembers,
+  fetchReadReceipts,
+  saveChatDraft,
   forwardMessageRequest,
   pinMessageRequest,
   searchMessages,
@@ -187,8 +189,9 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
   }, [requestedChatId, qc])
-  // Черновики по чатам: набранный текст сохраняется при переключении чата (в рамках сессии).
+  // Черновики по чатам: локально (мгновенно) + синхронизация с сервером (#3, дебаунс).
   const draftsRef = useRef<Map<string, string>>(new Map())
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [text, setText] = useState('')
   const [typingUsers, setTypingUsers] = useState<Record<string, number>>({})
   const [connected, setConnected] = useState(true)
@@ -413,6 +416,12 @@ export function ChatWindow() {
     queryFn: () => fetchChatMembers(activeId as string),
     enabled: !!activeId,
   })
+  // #6: статусы прочтения участниками (кто прочитал) — для счётчика «прочитали N» у своих сообщений.
+  const readsQuery = useQuery({
+    queryKey: chatKeys.reads(activeId ?? ''),
+    queryFn: () => fetchReadReceipts(activeId as string),
+    enabled: !!activeId,
+  })
   useEffect(() => {
     if (presenceQuery.data) {
       setPresence(Object.fromEntries(presenceQuery.data.map((p) => [p.userId, p.online])))
@@ -569,6 +578,8 @@ export function ChatWindow() {
       if (userId === myId) return
       if (chatId === activeId) {
         setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
+        // #6: обновляем «кто прочитал» для счётчика у своих сообщений.
+        void qc.invalidateQueries({ queryKey: chatKeys.reads(chatId) })
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
@@ -618,6 +629,14 @@ export function ChatWindow() {
     setChatOpen?.(!!activeId)
     return () => setChatOpen?.(false)
   }, [activeId, setChatOpen])
+
+  // #3: гидрируем локальные черновики из серверных (при загрузке/обновлении списка), не затирая
+  // уже набранное (ставим только если локального ещё нет). Дальше их подхватывает сид ниже.
+  useEffect(() => {
+    for (const c of chats.data ?? []) {
+      if (c.draft && !draftsRef.current.has(c.id)) draftsRef.current.set(c.id, c.draft)
+    }
+  }, [chats.data])
 
   // Черновик: при переключении чата подставляем сохранённый текст (или пусто). Сбрасываем мультивыбор.
   useEffect(() => {
@@ -869,6 +888,9 @@ export function ChatWindow() {
     socket.emit('typing:stop', { chatId: activeId })
     setText('')
     draftsRef.current.delete(activeId)
+    // #3: отправили — гасим серверный черновик (и локальный таймер сохранения).
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+    void saveChatDraft(activeId, '').catch(() => undefined)
     setReplyTo(null)
     setMentionQuery(null)
   }
@@ -1006,7 +1028,15 @@ export function ChatWindow() {
 
   function onType(v: string): void {
     setText(v)
-    if (activeId) draftsRef.current.set(activeId, v)
+    if (activeId) {
+      draftsRef.current.set(activeId, v)
+      // #3: дебаунс-сохранение черновика на сервер (синхронизация между устройствами).
+      const chatId = activeId
+      if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+      draftSaveTimer.current = setTimeout(() => {
+        void saveChatDraft(chatId, v).catch(() => undefined)
+      }, 800)
+    }
     // Определяем @-запрос перед курсором для автодополнения упоминаний.
     const pos = composerRef.current?.selectionStart ?? v.length
     const m = v.slice(0, pos).match(/(?:^|\s)@(\S*)$/)
@@ -1082,6 +1112,14 @@ export function ChatWindow() {
     ? membersQuery.data?.find((u) => u.id === firstTyperId)?.firstName
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
+  const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
+  // #6: сколько участников прочитали сообщение (lastReadAt ≥ его времени) — для метки в группах.
+  function readByCount(createdAt: string): number {
+    const at = new Date(createdAt).getTime()
+    return (readsQuery.data ?? []).filter(
+      (r) => r.lastReadAt != null && new Date(r.lastReadAt).getTime() >= at,
+    ).length
+  }
   const list = useMemo(() => chats.data ?? [], [chats.data])
   // Единый поиск: чаты по названию + сообщения (глобально). Показываем двумя секциями.
   const chatById = useMemo(() => new Map(list.map((c) => [c.id, c])), [list])
@@ -2010,9 +2048,27 @@ export function ChatWindow() {
                                       readWatermark != null &&
                                       new Date(readWatermark).getTime() >=
                                         new Date(m.createdAt).getTime()
+                                    // #6: в группах у прочитанного сообщения показываем, сколько прочитали.
+                                    const count =
+                                      read && activeIsGroup ? readByCount(m.createdAt) : 0
                                     if (read)
                                       return (
-                                        <CheckCheck className="size-3.5 text-sky-300" aria-hidden />
+                                        <span
+                                          className="flex items-center gap-0.5"
+                                          title={
+                                            count > 0 ? t('readByCount', { count }) : undefined
+                                          }
+                                        >
+                                          <CheckCheck
+                                            className="size-3.5 text-sky-300"
+                                            aria-hidden
+                                          />
+                                          {count > 0 && (
+                                            <span className="text-[10px] leading-none opacity-70">
+                                              {count}
+                                            </span>
+                                          )}
+                                        </span>
                                       )
                                     if (onlineOthers > 0)
                                       return (

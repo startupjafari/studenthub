@@ -60,6 +60,15 @@ export interface ChatMessage {
   reactions: MessageReaction[]
 }
 
+// Статус прочтения участником (#6): кто прочитал и до какого момента.
+export interface ChatReadReceipt {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+  lastReadAt: string | null
+}
+
 export interface ChatListItem {
   id: string
   type: ChatTypeValue
@@ -73,6 +82,8 @@ export interface ChatListItem {
   // Число непрочитанных сообщений (для бейджа-счётчика).
   unreadCount: number
   muted: boolean
+  // Черновик сообщения (синхронизируется с сервером): восстанавливается при открытии чата.
+  draft: string | null
   // Я — создатель группы (владелец): удаление группы, передача прав, назначение админов.
   isOwner: boolean
   // Я — админ группы: бан, смена аватара/названия, управление участниками.

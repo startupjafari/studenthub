@@ -20,6 +20,7 @@ import {
   type NotificationSettingsData,
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
+import { ensureNotifyPermission, maybeNotify } from '../../../shared/lib/browser-notify'
 import { cn } from '../../../shared/lib/utils'
 
 // Маппинг ключа настройки → i18n-ключ подписи (Notifications namespace).
@@ -96,12 +97,19 @@ export function NotificationsBell() {
     enabled: open && view === 'settings',
   })
 
-  // Живое обновление: новое уведомление → обновляем счётчик и список, показываем тост.
+  // Живое обновление: новое уведомление → обновляем счётчик и список, показываем тост,
+  // а при неактивной вкладке — системное уведомление браузера (#8).
   useRealtimeEvent<{ notification: NotificationItem }>('notification:new', (payload) => {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
     void queryClient.invalidateQueries({ queryKey: notificationKeys.list() })
     toast.info(payload.notification.title, { description: payload.notification.body })
+    maybeNotify(payload.notification.title, payload.notification.body)
   })
+
+  // Разрешение на системные уведомления запрашиваем по жесту — при первом открытии колокольчика.
+  useEffect(() => {
+    if (open) void ensureNotifyPermission()
+  }, [open])
 
   const invalidateAll = (): void => {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
