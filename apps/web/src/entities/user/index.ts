@@ -9,6 +9,8 @@ export {
   deleteAccountRequest,
   uploadAvatarRequest,
   removeAvatarRequest,
+  uploadCoverRequest,
+  removeCoverRequest,
   adminUserKeys,
   fetchUsers,
   blockUserRequest,

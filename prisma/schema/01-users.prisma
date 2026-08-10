@@ -9,6 +9,12 @@ model User {
   firstName         String    @map("first_name")
   lastName          String    @map("last_name")
   avatarUrl         String?   @map("avatar_url")
+  // Квадратное превью аватара (~128px), генерируется джобой generate-thumbnail (BullMQ).
+  // Заполняется асинхронно; до готовности клиент показывает полноразмерный avatarUrl.
+  avatarThumbUrl    String?   @map("avatar_thumb_url")
+  // Обложка профиля (баннер, стиль ВК): публичный объект в бакете profile-covers.
+  // Ставится отдельным эндпоинтом POST /users/me/cover (как аватар), не через updateProfile.
+  coverUrl          String?   @map("cover_url")
   role              Role
   // Настройка приватности: показывать ли email другим пользователям (docs/PROJECT.md §3.7).
   showEmail         Boolean   @default(false) @map("show_email")
