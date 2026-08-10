@@ -936,7 +936,8 @@
     "searchAll": "Search chats and messages",
     "clearSearch": "Clear",
     "messagesSection": "Messages",
-    "selectChatPrompt": "Choose who you’d like to message"
+    "selectChatPrompt": "Choose who you’d like to message",
+    "readByCount": "Read by {count, plural, one {# member} other {# members}}"
   },
   "Events": {
     "title": "Events",

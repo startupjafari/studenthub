@@ -936,7 +936,8 @@
     "searchAll": "Поиск чатов и сообщений",
     "clearSearch": "Очистить",
     "messagesSection": "Сообщения",
-    "selectChatPrompt": "Выберите, кому бы хотели написать?"
+    "selectChatPrompt": "Выберите, кому бы хотели написать?",
+    "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}"
   },
   "Events": {
     "title": "События",

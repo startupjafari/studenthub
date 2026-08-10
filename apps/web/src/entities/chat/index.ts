@@ -17,6 +17,8 @@ export {
   setChatMutedRequest,
   fetchPresence,
   fetchChatMembers,
+  fetchReadReceipts,
+  saveChatDraft,
   addChatMemberRequest,
   removeChatMemberRequest,
   banChatMemberRequest,
@@ -44,6 +46,7 @@ export {
   type SharedPostPreview,
   type PresenceEntry,
   type ChatMemberInfo,
+  type ChatReadReceipt,
   type BlockedUser,
 } from './model/types'
 export { MessageContent } from './ui/message-content'

@@ -936,7 +936,8 @@
     "searchAll": "Чаттар мен хабарламаларды іздеу",
     "clearSearch": "Тазалау",
     "messagesSection": "Хабарламалар",
-    "selectChatPrompt": "Кімге жазғыңыз келетінін таңдаңыз"
+    "selectChatPrompt": "Кімге жазғыңыз келетінін таңдаңыз",
+    "readByCount": "Оқыды: {count, plural, one {# қатысушы} other {# қатысушы}}"
   },
   "Events": {
     "title": "Іс-шаралар",
