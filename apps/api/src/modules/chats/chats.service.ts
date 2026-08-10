@@ -13,7 +13,7 @@ import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
-import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
+import { LINK_PREVIEW_JOBS, NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import { PostsService } from '../posts/posts.service'
@@ -31,6 +31,7 @@ const MESSAGE_SELECT = {
   editedAt: true,
   pinnedAt: true,
   createdAt: true,
+  linkPreview: true,
   sender: SENDER_SELECT,
   media: { select: { id: true, mime: true, size: true, name: true } },
   replyTo: {
@@ -456,8 +457,25 @@ export class ChatsService {
       select: MESSAGE_SELECT,
     })
     await this.bumpChat(input.chatId)
+    await this.enqueueLinkPreview(message.id, input.chatId, input.content)
     const recipientIds = await this.notifyNewMessage(input.chatId, senderId, message)
     return { message, recipientIds }
+  }
+
+  // Первая http(s)-ссылка в тексте → job на выборку OG-превью (карточка появится по message:updated).
+  private async enqueueLinkPreview(
+    messageId: string,
+    chatId: string,
+    content?: string,
+  ): Promise<void> {
+    const url = content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+    if (!url) return
+    await this.queue.enqueue(
+      QUEUES.LINK_PREVIEW,
+      LINK_PREVIEW_JOBS.FETCH,
+      { messageId, chatId, url },
+      { jobId: `link-preview:${messageId}` },
+    )
   }
 
   /**
@@ -497,6 +515,7 @@ export class ChatsService {
       select: MESSAGE_SELECT,
     })
     await this.bumpChat(input.chatId)
+    await this.enqueueLinkPreview(created.id, input.chatId, content)
     await this.notifyNewMessage(input.chatId, senderId, message)
     // REST-путь не проходит через ChatGateway — эмитим сами, ровно один раз (§10).
     this.realtime.emitToRoom(`chat:${input.chatId}`, 'message:new', {
@@ -649,6 +668,14 @@ export class ChatsService {
   }
 
   /** Закреплённые сообщения чата, новые сверху. */
+  /** Сообщение в клиентской форме (MESSAGE_SELECT) — для рассылки message:updated из воркеров. */
+  findMessageForClient(messageId: string): Promise<MessageRow | null> {
+    return this.prisma.message.findFirst({
+      where: { id: messageId, deletedAt: null },
+      select: MESSAGE_SELECT,
+    })
+  }
+
   async listPinned(userId: string, chatId: string): Promise<MessageRow[]> {
     await this.assertMembership(userId, chatId)
     return this.prisma.message.findMany({

@@ -81,6 +81,9 @@ model Message {
   pinnedById      String?   @map("pinned_by_id")
   // Расшаренный пост (Ф9+ share-to-chat): превью-карточка поста в сообщении.
   sharedPostId    String?   @map("shared_post_id")
+  // Инлайн-превью первой ссылки (Ф9+): OG-мета {url,title,description,image,siteName}.
+  // Заполняется асинхронно джобой link-preview; наружу отдаётся как есть.
+  linkPreview     Json?     @map("link_preview")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   chat          Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)

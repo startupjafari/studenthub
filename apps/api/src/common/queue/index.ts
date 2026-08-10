@@ -8,5 +8,6 @@ export {
   EMAIL_JOBS,
   NOTIFICATION_JOBS,
   FILE_JOBS,
+  LINK_PREVIEW_JOBS,
   type QueueName,
 } from './queue.constants'
