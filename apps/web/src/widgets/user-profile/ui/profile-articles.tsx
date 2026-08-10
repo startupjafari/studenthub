@@ -34,6 +34,7 @@ import {
 } from '../../../entities/profile-content'
 import { Badge, Button, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ArticleCover } from './article-cover'
 import { ContentComments } from './content-comments'
@@ -397,6 +398,7 @@ function ArticleReader({
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  useBodyScrollLock()
   const [views, setViews] = useState(a.views)
   const [bookmarked, setBookmarked] = useState(a.bookmarked)
   const toc = useMemo(() => extractToc(a.content), [a.content])
@@ -424,11 +426,8 @@ function ArticleReader({
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
     }
   }, [onClose])
 

@@ -26,6 +26,7 @@ import {
 import { userKeys, fetchUserById } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 
 function initials(a: string, b: string): string {
   return `${a[0] ?? ''}${b[0] ?? ''}`.toUpperCase() || '#'
@@ -93,6 +94,7 @@ export function PeerInfoCard({
   onToggleMute: () => void
   onClose: () => void
 }) {
+  useBodyScrollLock()
   const t = useTranslations('Profile')
   const tc = useTranslations('Chats')
   const tRoles = useTranslations('Roles')

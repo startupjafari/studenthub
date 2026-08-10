@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Copy, Eye, Forward, MoreVertical, Trash2 } from 'lucide-react'
 import { MediaViewer as BaseMediaViewer } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import type { MessageAttachment } from '../model/types'
 
@@ -43,6 +44,7 @@ export function MediaViewer({
 }) {
   const t = useTranslations('Chats')
   const locale = useLocale()
+  useBodyScrollLock()
   const [menuOpen, setMenuOpen] = useState(false)
   const cur = items[index]
 

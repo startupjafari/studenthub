@@ -44,6 +44,7 @@ import { ProfileLink } from '../../../entities/user'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 
 const LIKE = '❤️'
@@ -129,6 +130,7 @@ export function PostLightbox({
   focusComment = false,
 }: LightboxProps) {
   const t = useTranslations('Feed')
+  useBodyScrollLock()
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -137,11 +139,8 @@ export function PostLightbox({
       else if (e.key === 'ArrowLeft' && index > 0) onIndex(index - 1)
     }
     window.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
     }
   }, [index, posts.length, onClose, onIndex])
 

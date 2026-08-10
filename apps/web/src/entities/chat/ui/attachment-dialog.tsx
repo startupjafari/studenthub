@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { File as FileIcon, X } from 'lucide-react'
 import { Button } from '../../../shared/ui'
+import { useBodyScrollLock } from '../../../shared/lib'
 
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -48,6 +49,7 @@ export function AttachmentDialog({
   onRemove: (index: number) => void
   onClose: () => void
 }) {
+  useBodyScrollLock()
   const t = useTranslations('Chats')
   const [caption, setCaption] = useState('')
 

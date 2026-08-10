@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, X } from 'lucide-react'
+import { useBodyScrollLock } from '../lib'
 
 export interface MediaViewerItem {
   mime: string
@@ -41,6 +42,7 @@ export function MediaViewer({
   onContextMenuCapture?: (e: React.MouseEvent) => void
 }) {
   const t = useTranslations('Common')
+  useBodyScrollLock()
   const [rotation, setRotation] = useState(0)
   const cur = items[index]
 

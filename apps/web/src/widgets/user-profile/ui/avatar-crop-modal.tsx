@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { Check, RotateCw, X, ZoomIn } from 'lucide-react'
+import { useBodyScrollLock } from '../../../shared/lib'
 import { Button } from '../../../shared/ui'
 
 const OUTPUT = 512 // размер итогового квадрата аватара, px
@@ -46,14 +47,12 @@ export function AvatarCropModal({
   const [view, setView] = useState(288)
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
 
+  useBodyScrollLock()
   useEffect(() => {
     const u = URL.createObjectURL(file)
     setUrl(u)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     return () => {
       URL.revokeObjectURL(u)
-      document.body.style.overflow = prev
     }
   }, [file])
 

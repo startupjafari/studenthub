@@ -142,6 +142,13 @@
   html {
     @apply font-sans;
   }
+  /* Гасим iOS Safari pull-to-refresh и «резиновое» цепное прокручивание viewport:
+     жест на любой шторке/модалке не должен тянуть системный refresh или двигать страницу.
+     overscroll-behavior:none на корне обрывает цепочку прокрутки на уровне документа. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
 }
 
 /* Интерактивная меш-сетка брендовой панели auth (позиция мыши — в --mx/--my).
