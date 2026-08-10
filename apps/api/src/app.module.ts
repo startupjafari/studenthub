@@ -33,6 +33,7 @@ import { DocumentsModule } from './modules/documents/documents.module'
 import { FriendsModule } from './modules/friends/friends.module'
 import { EmailModule } from './modules/email/email.module'
 import { NotificationsModule } from './modules/notifications/notifications.module'
+import { PushModule } from './modules/push/push.module'
 import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
 import { AppController } from './app.controller'
@@ -75,6 +76,7 @@ import { AppController } from './app.controller'
     FriendsModule,
     EmailModule,
     NotificationsModule,
+    PushModule,
     CleanupModule,
     HealthModule,
   ],

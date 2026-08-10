@@ -55,6 +55,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 
 const COLORS = [
   'bg-rose-500',
@@ -109,6 +110,7 @@ export function GroupInfoDialog({
   const qc = useQueryClient()
   const router = useRouter()
   const confirm = useConfirm()
+  useBodyScrollLock()
   const [adding, setAdding] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(title)

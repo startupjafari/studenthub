@@ -15,13 +15,15 @@ function makeDeps() {
   }
   const queue = { enqueue: jest.fn() as Mock }
   const notifications = { invalidateUnread: jest.fn().mockResolvedValue(undefined) as Mock }
+  const push = { sendToUser: jest.fn().mockResolvedValue(undefined) as Mock }
   const processor = new NotificationsProcessor(
     prisma as never,
     realtime as never,
     queue as never,
     notifications as never,
+    push as never,
   )
-  return { processor, prisma, realtime, queue, notifications }
+  return { processor, prisma, realtime, queue, notifications, push }
 }
 
 function job(data: Record<string, unknown>, name = 'new-message') {

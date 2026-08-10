@@ -8,6 +8,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard'
 import type { CurrentUserData, JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
+import { AuditService } from '../../common/audit/audit.service'
 import { AuthService, type RequestContext, type SessionResult } from './auth.service'
 import { AUTH_COOKIE_PATH, REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
 import { RegisterByInviteDto } from './dto/register-by-invite.dto'
@@ -23,6 +24,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly qrLogin: QrLoginService,
+    private readonly audit: AuditService,
   ) {}
 
   @Public()
@@ -70,12 +72,20 @@ export class AuthController {
     return this.qrLogin.create()
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } }) // подтверждений с телефона не бывает много
   @Post('qr/approve')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Подтвердить вход по QR (с залогиненного устройства)' })
   @ApiResponse({ status: 404, description: 'QR-сессия не найдена или истекла' })
-  async qrApprove(@CurrentUser() user: JwtPayload, @Body() dto: QrApproveDto): Promise<null> {
+  async qrApprove(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: QrApproveDto,
+    @Req() req: FastifyRequest,
+  ): Promise<null> {
     await this.qrLogin.approve(dto.approveToken, user.sub)
+    // Одобрение входа нового устройства — событие безопасности: фиксируем в аудите
+    // (сам approveToken/секрет НЕ логируем).
+    await this.audit.record({ userId: user.sub, action: 'qr_approve', ...this.ctx(req) })
     return null
   }
 

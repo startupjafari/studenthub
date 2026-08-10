@@ -584,7 +584,10 @@
     "systemHint": "Системные уведомления отключить нельзя.",
     "settingsError": "Не удалось сохранить настройки",
     "scrollLeft": "Влево",
-    "scrollRight": "Вправо"
+    "scrollRight": "Вправо",
+    "acceptRequest": "Принять",
+    "declineRequest": "Отклонить",
+    "friendRequestError": "Не удалось обработать заявку"
   },
   "Schedule": {
     "title": "Расписание",
@@ -936,7 +939,10 @@
     "searchAll": "Поиск чатов и сообщений",
     "clearSearch": "Очистить",
     "messagesSection": "Сообщения",
-    "selectChatPrompt": "Выберите, кому бы хотели написать?"
+    "selectChatPrompt": "Выберите, кому бы хотели написать?",
+    "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
+    "sending": "Отправляется…",
+    "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить"
   },
   "Events": {
     "title": "События",
@@ -1152,7 +1158,9 @@
     "visibilityPRIVATE": "Закрытый (только я)",
     "documentsStorage": "Документы и персональные данные",
     "documentsStorageDesc": "Защищённое хранилище ваших документов",
-    "documentsStorageOpen": "Открыть хранилище"
+    "documentsStorageOpen": "Открыть хранилище",
+    "pushUnsupported": "Push-уведомления не поддерживаются этим браузером",
+    "pushDenied": "Не удалось включить push: нет разрешения"
   },
   "Offline": {
     "title": "Нет соединения",

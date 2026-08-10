@@ -8,7 +8,7 @@ import { X } from 'lucide-react'
 import { chatKeys, createChatRequest } from '../../../entities/chat'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import { Button, FormAlert } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { useFormAlert, useBodyScrollLock } from '../../../shared/lib'
 
 // Диалог создания собственной группы (Ф9+): название + мультивыбор участников (приглашение сразу).
 export function CreateGroupDialog({
@@ -20,6 +20,7 @@ export function CreateGroupDialog({
 }) {
   const t = useTranslations('Chats')
   const qc = useQueryClient()
+  useBodyScrollLock()
   const [title, setTitle] = useState('')
   const [members, setMembers] = useState<PickedUser[]>([])
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()

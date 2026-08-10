@@ -6,8 +6,14 @@ type Mock = jest.Mock
 function makeService() {
   const add = jest.fn().mockResolvedValue({ id: 'job-1' }) as Mock
   const queue = { add }
-  // Все четыре очереди используют один мок add — нам важен только вызов add.
-  const service = new QueueService(queue as never, queue as never, queue as never, queue as never)
+  // Все очереди используют один мок add — нам важен только вызов add.
+  const service = new QueueService(
+    queue as never,
+    queue as never,
+    queue as never,
+    queue as never,
+    queue as never,
+  )
   return { service, add }
 }
 

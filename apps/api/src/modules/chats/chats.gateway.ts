@@ -78,8 +78,11 @@ export class ChatGateway {
     if (!uid || !data) return
     try {
       const { message } = await this.chats.createMessage(uid, data)
-      // Всем участникам в комнате чата (включая отправителя) ровно один раз.
-      this.server.to(`chat:${data.chatId}`).emit('message:new', { message, chatId: data.chatId })
+      // Всем участникам в комнате чата (включая отправителя) ровно один раз. nonce эхом —
+      // отправитель заменит свой оптимистичный «pending» пузырь (#1); остальные его игнорируют.
+      this.server
+        .to(`chat:${data.chatId}`)
+        .emit('message:new', { message, chatId: data.chatId, nonce: data.nonce })
     } catch (error) {
       this.fail(client, 'message:send', error)
     }
