@@ -139,7 +139,7 @@ export function PeerInfoCard({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-xs flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg duration-150 animate-in zoom-in-95"
+        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg duration-150 animate-in zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Шапка */}
