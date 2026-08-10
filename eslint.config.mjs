@@ -22,6 +22,9 @@ export default tseslint.config(
       '**/public/workbox-*.js',
       '**/public/fallback-*.js',
       '**/public/swe-worker-*.js',
+      // Кастомный SW (customWorkerSrc, Web Push Ф13.3) — компилируется в public/worker-*.js.
+      '**/public/worker-*.js',
+      '**/public/worker-*.js.map',
     ],
   },
   js.configs.recommended,

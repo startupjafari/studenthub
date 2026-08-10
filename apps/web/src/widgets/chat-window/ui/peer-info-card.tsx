@@ -26,6 +26,7 @@ import {
 import { userKeys, fetchUserById } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 
 function initials(a: string, b: string): string {
   return `${a[0] ?? ''}${b[0] ?? ''}`.toUpperCase() || '#'
@@ -93,6 +94,7 @@ export function PeerInfoCard({
   onToggleMute: () => void
   onClose: () => void
 }) {
+  useBodyScrollLock()
   const t = useTranslations('Profile')
   const tc = useTranslations('Chats')
   const tRoles = useTranslations('Roles')
@@ -139,7 +141,7 @@ export function PeerInfoCard({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-xs flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg duration-150 animate-in zoom-in-95"
+        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg duration-150 animate-in zoom-in-95"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Шапка */}

@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Check, Search, X } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Button, Input } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 import type { ChatListItem } from '../model/types'
 
 // ── Визуал строки (Telegram-стиль) ───────────────────────────────────────────
@@ -47,6 +48,7 @@ export function ForwardDialog({
   onClose: () => void
 }) {
   const t = useTranslations('Chats')
+  useBodyScrollLock()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
