@@ -355,12 +355,31 @@ export class ChatsService {
       where: { id: userId },
       select: SENDER_SELECT.select,
     })
+    // Realtime (9.4): открытое окно чата получает нового участника, список чатов у всех
+    // (включая только что добавленного) обновляется тихим сигналом.
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-added', { chatId, user })
+    await this.pingChatList(chatId)
     return { chatId, user }
   }
 
   async removeMember(actor: JwtPayload, chatId: string, userId: string): Promise<void> {
     await this.assertMembership(actor.sub, chatId)
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
+    // Realtime (9.4): удалённый участник больше не в комнате — пингуем его отдельно, чтобы
+    // чат исчез из его списка; остальным обновляем открытое окно и список.
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-removed', { chatId, userId })
+    await this.pingChatList(chatId, [userId])
+  }
+
+  // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
+  // Аналог chat:activity из notifyNewMessage: не создаёт уведомление, только просит рефетч.
+  private async pingChatList(chatId: string, extraUserIds: string[] = []): Promise<void> {
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId },
+      select: { userId: true },
+    })
+    const ids = new Set<string>([...members.map((m) => m.userId), ...extraUserIds])
+    for (const id of ids) this.realtime.emitToUser(id, 'chat:activity', { chatId })
   }
 
   /**
@@ -971,6 +990,8 @@ export class ChatsService {
       select: { id: true, avatarUrl: true },
     })
     await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl })
+    await this.pingChatList(chatId)
     return { id: updated.id, avatarUrl: updated.avatarUrl ?? avatarUrl }
   }
 
@@ -984,6 +1005,8 @@ export class ChatsService {
     await this.deleteChatAvatarFile(chat.avatarUrl, bucket)
     await this.prisma.chat.update({ where: { id: chatId }, data: { avatarUrl: null } })
     await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl: null })
+    await this.pingChatList(chatId)
     return { id: chatId, avatarUrl: null }
   }
 
@@ -1046,6 +1069,8 @@ export class ChatsService {
       select: { id: true, title: true },
     })
     await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, title: updated.title })
+    await this.pingChatList(chatId)
     return { id: updated.id, title: updated.title ?? title }
   }
 
@@ -1190,15 +1215,52 @@ export class ChatsService {
     }
     if (user.facultyId) {
       await this.ensureOfficialChat(ChatType.FACULTY, { facultyId: user.facultyId }, user.sub)
+      // Чат с деканатом факультета (9.6): студенты/старосты/преподаватели факультета ↔ деканат.
+      await this.ensureOfficialChat(ChatType.DEAN, { facultyId: user.facultyId }, user.sub)
     }
     if (user.universityId) {
       await this.ensureOfficialChat(ChatType.SUPPORT, { universityId: user.universityId }, user.sub)
+    }
+    await this.ensureSubjectChatsForUser(user)
+  }
+
+  /**
+   * Чаты предметов (9.6): по одному на пару (группа × предмет) из активного расписания.
+   * Студент/староста входит в чаты предметов своей группы; преподаватель — в чаты предметов,
+   * которые он ведёт (по своим парам). Создаётся лениво по мере появления пар в расписании.
+   */
+  private async ensureSubjectChatsForUser(user: JwtPayload): Promise<void> {
+    const seen = new Map<string, { groupId: string; subject: string }>()
+    const collect = (rows: { groupId: string; subject: string }[]): void => {
+      for (const r of rows) seen.set(r.groupId + '::' + r.subject, r)
+    }
+    if (user.groupId) {
+      collect(
+        await this.prisma.pair.findMany({
+          where: { groupId: user.groupId, schedule: { isActive: true } },
+          select: { groupId: true, subject: true },
+          distinct: ['groupId', 'subject'],
+          take: 100,
+        }),
+      )
+    }
+    // Преподаватель: предметы его пар (в любой группе). Для студента вернёт пусто — безвредно.
+    collect(
+      await this.prisma.pair.findMany({
+        where: { teacherId: user.sub, schedule: { isActive: true } },
+        select: { groupId: true, subject: true },
+        distinct: ['groupId', 'subject'],
+        take: 100,
+      }),
+    )
+    for (const { groupId, subject } of seen.values()) {
+      await this.ensureOfficialChat(ChatType.SUBJECT, { groupId, subject }, user.sub)
     }
   }
 
   private async ensureOfficialChat(
     type: ChatType,
-    scope: { groupId?: string; facultyId?: string; universityId?: string },
+    scope: { groupId?: string; facultyId?: string; universityId?: string; subject?: string },
     userId: string,
   ): Promise<void> {
     let chat = await this.prisma.chat.findFirst({

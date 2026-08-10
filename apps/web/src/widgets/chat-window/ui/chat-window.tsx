@@ -515,6 +515,18 @@ export function ChatWindow() {
     void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
     void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
   })
+  // Метаданные чата изменились (название/аватар, 9.4): обновляем список и открытое окно.
+  useRealtimeEvent<{ chatId: string }>('chat:updated', ({ chatId }) => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    void qc.invalidateQueries({ queryKey: chatKeys.members(chatId) })
+  })
+  // Состав участников изменился (9.4): обновляем список чатов и участников открытого окна.
+  const onMembersChanged = ({ chatId }: { chatId: string }): void => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    void qc.invalidateQueries({ queryKey: chatKeys.members(chatId) })
+  }
+  useRealtimeEvent<{ chatId: string }>('chat:member-added', onMembersChanged)
+  useRealtimeEvent<{ chatId: string }>('chat:member-removed', onMembersChanged)
   const upsert = (message: ChatMessage, chatId: string): void => {
     if (chatId === activeId) {
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
