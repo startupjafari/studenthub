@@ -463,6 +463,8 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
 
+**Друзья** (симметричная дружба, ВК-стиль; Social-зона — все роли) — `POST /friends/requests {userId}` (заявка; встречная PENDING → авто-принятие) · `POST /friends/requests/:id/accept` (только адресат) · `DELETE /friends/:id` (отмена/отклонение/удаление из друзей — любой участник) · `GET /friends` (друзья, cursor) · `GET /friends/requests?direction=incoming|outgoing` (заявки, cursor) · `GET /friends/count` (счётчики) · `GET /friends/status/:userId` (статус `NONE|PENDING_OUTGOING|PENDING_INCOMING|ACCEPTED` + `friendshipId` — для кнопки в профиле). Модель `Friendship` (`requesterId`/`addresseeId`/`status`, `@@unique([requesterId, addresseeId])`); enum `FriendshipStatus = PENDING|ACCEPTED` (блокировка — отдельная `UserBlock`). Уведомления о заявке/принятии — тип `SYSTEM` (`data.url='/friends'`).
+
 **Университеты** — `GET|POST /universities` · `GET|PATCH /universities/:id` · `PATCH /universities/:id/status` (Platform Admin) · `GET /universities/:id/stats`
 
 **Факультеты** — `GET|POST /faculties` · `GET|PATCH|DELETE /faculties/:id` (удаление только без групп)

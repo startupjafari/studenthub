@@ -32,7 +32,8 @@
     "documents": "Документы",
     "documentTypes": "Типы документов",
     "documentAccess": "Доступ к документам",
-    "more": "Ещё"
+    "more": "Ещё",
+    "friends": "Друзья"
   },
   "Invites": {
     "title": "Приглашения",
@@ -329,7 +330,7 @@
     "avatarChange": "Изменить фото",
     "coverAdd": "Добавить обложку",
     "coverChange": "Изменить обложку",
-    "coverRemove": "Удалить обложку",
+    "coverRemove": "Убрать обложку",
     "coverUpdated": "Обложка обновлена",
     "coverRemoved": "Обложка удалена",
     "emptyProfileStudent": "Профиль пока не заполнен. Нажмите «Редактировать профиль», чтобы рассказать о себе.",
@@ -372,7 +373,6 @@
     "next": "Вперёд",
     "articleCover": "Обложка",
     "coverUpload": "Загрузить обложку",
-    "coverRemove": "Убрать обложку",
     "online": "В сети",
     "offline": "Не в сети",
     "cropTitle": "Кадрирование фото",
@@ -863,10 +863,9 @@
     "delete": "Удалить",
     "copyText": "Копировать текст",
     "copy": "Копировать",
-    "copied": "Скопировано",
+    "copied": "Текст скопирован",
     "copyLink": "Копировать ссылку",
     "editing": "Редактирование",
-    "copied": "Текст скопирован",
     "linkCopied": "Ссылка скопирована",
     "messageActions": "Действия с сообщением",
     "cancelRecording": "Отменить запись",
@@ -1407,5 +1406,24 @@
     "clear": "Очистить",
     "prevMonth": "Предыдущий месяц",
     "nextMonth": "Следующий месяц"
+  },
+  "Friends": {
+    "title": "Друзья",
+    "tabFriends": "Друзья",
+    "tabIncoming": "Входящие",
+    "tabOutgoing": "Исходящие",
+    "accept": "Принять",
+    "decline": "Отклонить",
+    "remove": "Удалить",
+    "cancel": "Отменить",
+    "removed": "Удалено из друзей",
+    "accepted": "Заявка принята",
+    "emptyFriends": "Пока нет друзей",
+    "emptyIncoming": "Нет входящих заявок",
+    "emptyOutgoing": "Нет исходящих заявок",
+    "add": "Добавить в друзья",
+    "cancelRequest": "Отменить заявку",
+    "acceptRequest": "Принять заявку",
+    "friendsLabel": "В друзьях"
   }
 }

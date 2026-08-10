@@ -38,6 +38,8 @@ export const NOTIFICATION_JOBS = {
   DOCUMENT_EXPIRING: 'document-expiring',
   DOCUMENT_REQUEST: 'document-request',
   DOCUMENT_RESULT: 'document-result',
+  FRIEND_REQUEST: 'friend-request',
+  FRIEND_ACCEPTED: 'friend-accepted',
 } as const
 
 export const FILE_JOBS = {
