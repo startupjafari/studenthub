@@ -413,7 +413,24 @@ export class UserService {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
 
-    const access = this.resolveAccess(viewer, target)
+    let access = this.resolveAccess(viewer, target)
+    // Дружба открывает профиль: принятая дружба — взаимно; ПЕНДИНГ-заявка ОТ владельца закрытого
+    // профиля к смотрящему — открывает профиль владельца этому смотрящему (он решает, принять ли).
+    if (access.level === 'limited' && viewer.sub !== target.id) {
+      const link = await this.prisma.friendship.findFirst({
+        where: {
+          OR: [
+            { requesterId: viewer.sub, addresseeId: target.id },
+            { requesterId: target.id, addresseeId: viewer.sub },
+          ],
+        },
+        select: { status: true, requesterId: true },
+      })
+      const opened =
+        link?.status === 'ACCEPTED' ||
+        (link?.status === 'PENDING' && link.requesterId === target.id)
+      if (opened) access = { level: 'full', audit: false }
+    }
     if (access.level === 'limited') {
       return this.toLimitedProfile(target)
     }

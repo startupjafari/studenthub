@@ -22,6 +22,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    friendship: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const passwords = { hash: jest.fn(), compare: jest.fn() }

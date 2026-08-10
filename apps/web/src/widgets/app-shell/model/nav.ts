@@ -149,16 +149,12 @@ export const DOCUMENTS_NAV: NavItem = {
   icon: FolderLock,
 }
 
-// Друзья — общий пункт для всех ролей (Social-зона, отдельный раздел /friends).
-export const FRIENDS_NAV: NavItem = {
-  key: 'friends',
-  href: '/friends',
-  icon: Users,
-}
+// Друзья намеренно НЕ в навигации: заявки приходят в уведомления (принять/отклонить прямо там),
+// а связи управляются кнопками в профилях пользователей. Отдельного раздела /friends нет.
 
-// Добавляет общие пункты («Друзья», «Документы») в конец любой ролевой навигации.
+// Добавляет общие пункты («Документы») в конец любой ролевой навигации.
 function withCommon(items: NavItem[]): NavItem[] {
-  return [...items, FRIENDS_NAV, DOCUMENTS_NAV]
+  return [...items, DOCUMENTS_NAV]
 }
 
 // Резолв конфига по варианту. Массив содержит иконки-функции — резолвится в клиенте

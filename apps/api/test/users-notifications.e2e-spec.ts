@@ -107,6 +107,26 @@ describe('Users & Notifications (e2e)', () => {
       expect(res.body.data).not.toHaveProperty('passwordHash')
       expect(res.body.data.email).toBe('me@e2e.io')
     })
+
+    it('закрытый профиль открывается получателю отправленной заявки в друзья', async () => {
+      const viewerId = await makeStudent('fv@e2e.io')
+      const closedId = await makeStudent('closed@e2e.io', {
+        profileVisibility: 'PRIVATE',
+        bio: 'секрет',
+      })
+      const { token } = await login('fv@e2e.io')
+      const auth = { Authorization: `Bearer ${token}` }
+
+      // Пока заявки нет — профиль ограничен (bio скрыт).
+      const before = await request(server).get(`/api/v1/users/${closedId}`).set(auth).expect(200)
+      expect(before.body.data.access).toBe('limited')
+
+      // Закрытый пользователь отправил заявку смотрящему → его профиль становится доступен.
+      await prisma.friendship.create({ data: { requesterId: closedId, addresseeId: viewerId } })
+      const after = await request(server).get(`/api/v1/users/${closedId}`).set(auth).expect(200)
+      expect(after.body.data.access).toBe('full')
+      expect(after.body.data.bio).toBe('секрет')
+    })
   })
 
   describe('Смена пароля разлогинивает все устройства', () => {
