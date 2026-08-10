@@ -6,6 +6,7 @@ import type {
   ChatListItem,
   ChatMemberInfo,
   ChatMessage,
+  ChatReadReceipt,
   PresenceEntry,
 } from '../model/types'
 
@@ -16,6 +17,7 @@ export const chatKeys = {
   pinned: (id: string) => ['chats', id, 'pinned'] as const,
   presence: (id: string) => ['chats', id, 'presence'] as const,
   members: (id: string) => ['chats', id, 'members'] as const,
+  reads: (id: string) => ['chats', id, 'reads'] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
   blocked: () => ['chats', 'blocked'] as const,
 }
@@ -154,6 +156,17 @@ export async function fetchPresence(chatId: string): Promise<PresenceEntry[]> {
 export async function fetchChatMembers(chatId: string): Promise<ChatMemberInfo[]> {
   const { data } = await api.get<ChatMemberInfo[]>(`/chats/${chatId}/members`)
   return data
+}
+
+// Статусы прочтения участниками (#6): кто и до какого момента прочитал.
+export async function fetchReadReceipts(chatId: string): Promise<ChatReadReceipt[]> {
+  const { data } = await api.get<ChatReadReceipt[]>(`/chats/${chatId}/reads`)
+  return data
+}
+
+// Сохранить/очистить черновик сообщения на сервере (#3, синхронизация между устройствами).
+export async function saveChatDraft(chatId: string, text: string): Promise<void> {
+  await api.put(`/chats/${chatId}/draft`, { text })
 }
 
 export async function addChatMemberRequest(chatId: string, userId: string): Promise<void> {

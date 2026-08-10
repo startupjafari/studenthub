@@ -13,7 +13,7 @@ import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
-import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
+import { LINK_PREVIEW_JOBS, NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import { PostsService } from '../posts/posts.service'
@@ -31,6 +31,7 @@ const MESSAGE_SELECT = {
   editedAt: true,
   pinnedAt: true,
   createdAt: true,
+  linkPreview: true,
   sender: SENDER_SELECT,
   media: { select: { id: true, mime: true, size: true, name: true } },
   replyTo: {
@@ -114,7 +115,7 @@ export class ChatsService {
         updatedAt: true,
         members: {
           where: { userId: viewer.sub },
-          select: { lastReadAt: true, mutedAt: true, isAdmin: true, clearedAt: true },
+          select: { lastReadAt: true, mutedAt: true, isAdmin: true, clearedAt: true, draft: true },
         },
         messages: {
           where: { deletedAt: null },
@@ -201,21 +202,21 @@ export class ChatsService {
       const afterClear = !cleared || lm.createdAt > cleared
       return lm.senderId !== viewer.sub && afterClear && (floor === null || lm.createdAt > floor)
     })
-    const counts = await Promise.all(
-      needCount.map((c) =>
-        this.prisma.message.count({
-          where: {
-            chatId: c.id,
-            deletedAt: null,
-            senderId: { not: viewer.sub },
-            ...(unreadFloor(c.members[0]!)
-              ? { createdAt: { gt: unreadFloor(c.members[0]!)! } }
-              : {}),
-          },
-        }),
-      ),
-    )
-    const countMap = new Map(needCount.map((c, i) => [c.id, counts[i] ?? 0]))
+    // Непрочитанные — ОДНИМ запросом на все чаты с непрочитанным (иначе N COUNT-ов по числу
+    // чатов). Пер-чатовый порог createdAt задаём OR-ветками; senderId/deletedAt общие для всех.
+    const countBranches = needCount.map((c) => {
+      const floor = unreadFloor(c.members[0]!)
+      return { chatId: c.id, ...(floor ? { createdAt: { gt: floor } } : {}) }
+    })
+    const grouped =
+      countBranches.length > 0
+        ? await this.prisma.message.groupBy({
+            by: ['chatId'],
+            where: { deletedAt: null, senderId: { not: viewer.sub }, OR: countBranches },
+            _count: { _all: true },
+          })
+        : []
+    const countMap = new Map(grouped.map((g) => [g.chatId, g._count._all]))
 
     return chats.map((c) => {
       const mem = c.members[0]
@@ -239,6 +240,7 @@ export class ChatsService {
         unread,
         unreadCount,
         muted: mem?.mutedAt != null,
+        draft: mem?.draft ?? null,
         othersReadAt: readMap.get(c.id) ?? null,
         // Владелец группы (создатель).
         isOwner: c.createdById != null && c.createdById === viewer.sub,
@@ -341,6 +343,37 @@ export class ChatsService {
     }))
   }
 
+  /**
+   * Статусы прочтения участниками (Ф9+, «кто прочитал» в группах). Возвращает участников
+   * (кроме себя) с их lastReadAt; фронт показывает, кто прочитал сообщение (lastReadAt ≥ его createdAt).
+   */
+  async getReadReceipts(viewer: JwtPayload, chatId: string) {
+    await this.assertMembership(viewer.sub, chatId)
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId, userId: { not: viewer.sub }, bannedAt: null },
+      select: {
+        userId: true,
+        lastReadAt: true,
+        user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+      },
+      orderBy: { lastReadAt: 'desc' },
+      take: 500,
+    })
+    return members.map((m) => ({ ...m.user, lastReadAt: m.lastReadAt }))
+  }
+
+  /** Сохранить/очистить черновик сообщения участника в чате (Ф9+, синхронизация между устройствами). */
+  async saveDraft(
+    userId: string,
+    chatId: string,
+    text: string,
+  ): Promise<{ chatId: string; draft: string | null }> {
+    await this.assertMembership(userId, chatId)
+    const draft = text.trim().slice(0, 4000) || null
+    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { draft } })
+    return { chatId, draft }
+  }
+
   async addMember(actor: JwtPayload, chatId: string, userId: string) {
     await this.assertMembership(actor.sub, chatId)
     try {
@@ -355,12 +388,31 @@ export class ChatsService {
       where: { id: userId },
       select: SENDER_SELECT.select,
     })
+    // Realtime (9.4): открытое окно чата получает нового участника, список чатов у всех
+    // (включая только что добавленного) обновляется тихим сигналом.
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-added', { chatId, user })
+    await this.pingChatList(chatId)
     return { chatId, user }
   }
 
   async removeMember(actor: JwtPayload, chatId: string, userId: string): Promise<void> {
     await this.assertMembership(actor.sub, chatId)
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
+    // Realtime (9.4): удалённый участник больше не в комнате — пингуем его отдельно, чтобы
+    // чат исчез из его списка; остальным обновляем открытое окно и список.
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-removed', { chatId, userId })
+    await this.pingChatList(chatId, [userId])
+  }
+
+  // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
+  // Аналог chat:activity из notifyNewMessage: не создаёт уведомление, только просит рефетч.
+  private async pingChatList(chatId: string, extraUserIds: string[] = []): Promise<void> {
+    const members = await this.prisma.chatMember.findMany({
+      where: { chatId },
+      select: { userId: true },
+    })
+    const ids = new Set<string>([...members.map((m) => m.userId), ...extraUserIds])
+    for (const id of ids) this.realtime.emitToUser(id, 'chat:activity', { chatId })
   }
 
   /**
@@ -405,8 +457,25 @@ export class ChatsService {
       select: MESSAGE_SELECT,
     })
     await this.bumpChat(input.chatId)
+    await this.enqueueLinkPreview(message.id, input.chatId, input.content)
     const recipientIds = await this.notifyNewMessage(input.chatId, senderId, message)
     return { message, recipientIds }
+  }
+
+  // Первая http(s)-ссылка в тексте → job на выборку OG-превью (карточка появится по message:updated).
+  private async enqueueLinkPreview(
+    messageId: string,
+    chatId: string,
+    content?: string,
+  ): Promise<void> {
+    const url = content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+    if (!url) return
+    await this.queue.enqueue(
+      QUEUES.LINK_PREVIEW,
+      LINK_PREVIEW_JOBS.FETCH,
+      { messageId, chatId, url },
+      { jobId: `link-preview:${messageId}` },
+    )
   }
 
   /**
@@ -446,6 +515,7 @@ export class ChatsService {
       select: MESSAGE_SELECT,
     })
     await this.bumpChat(input.chatId)
+    await this.enqueueLinkPreview(created.id, input.chatId, content)
     await this.notifyNewMessage(input.chatId, senderId, message)
     // REST-путь не проходит через ChatGateway — эмитим сами, ровно один раз (§10).
     this.realtime.emitToRoom(`chat:${input.chatId}`, 'message:new', {
@@ -598,6 +668,14 @@ export class ChatsService {
   }
 
   /** Закреплённые сообщения чата, новые сверху. */
+  /** Сообщение в клиентской форме (MESSAGE_SELECT) — для рассылки message:updated из воркеров. */
+  findMessageForClient(messageId: string): Promise<MessageRow | null> {
+    return this.prisma.message.findFirst({
+      where: { id: messageId, deletedAt: null },
+      select: MESSAGE_SELECT,
+    })
+  }
+
   async listPinned(userId: string, chatId: string): Promise<MessageRow[]> {
     await this.assertMembership(userId, chatId)
     return this.prisma.message.findMany({
@@ -971,6 +1049,8 @@ export class ChatsService {
       select: { id: true, avatarUrl: true },
     })
     await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl })
+    await this.pingChatList(chatId)
     return { id: updated.id, avatarUrl: updated.avatarUrl ?? avatarUrl }
   }
 
@@ -984,6 +1064,8 @@ export class ChatsService {
     await this.deleteChatAvatarFile(chat.avatarUrl, bucket)
     await this.prisma.chat.update({ where: { id: chatId }, data: { avatarUrl: null } })
     await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl: null })
+    await this.pingChatList(chatId)
     return { id: chatId, avatarUrl: null }
   }
 
@@ -1046,6 +1128,8 @@ export class ChatsService {
       select: { id: true, title: true },
     })
     await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, title: updated.title })
+    await this.pingChatList(chatId)
     return { id: updated.id, title: updated.title ?? title }
   }
 
@@ -1190,15 +1274,52 @@ export class ChatsService {
     }
     if (user.facultyId) {
       await this.ensureOfficialChat(ChatType.FACULTY, { facultyId: user.facultyId }, user.sub)
+      // Чат с деканатом факультета (9.6): студенты/старосты/преподаватели факультета ↔ деканат.
+      await this.ensureOfficialChat(ChatType.DEAN, { facultyId: user.facultyId }, user.sub)
     }
     if (user.universityId) {
       await this.ensureOfficialChat(ChatType.SUPPORT, { universityId: user.universityId }, user.sub)
+    }
+    await this.ensureSubjectChatsForUser(user)
+  }
+
+  /**
+   * Чаты предметов (9.6): по одному на пару (группа × предмет) из активного расписания.
+   * Студент/староста входит в чаты предметов своей группы; преподаватель — в чаты предметов,
+   * которые он ведёт (по своим парам). Создаётся лениво по мере появления пар в расписании.
+   */
+  private async ensureSubjectChatsForUser(user: JwtPayload): Promise<void> {
+    const seen = new Map<string, { groupId: string; subject: string }>()
+    const collect = (rows: { groupId: string; subject: string }[]): void => {
+      for (const r of rows) seen.set(r.groupId + '::' + r.subject, r)
+    }
+    if (user.groupId) {
+      collect(
+        await this.prisma.pair.findMany({
+          where: { groupId: user.groupId, schedule: { isActive: true } },
+          select: { groupId: true, subject: true },
+          distinct: ['groupId', 'subject'],
+          take: 100,
+        }),
+      )
+    }
+    // Преподаватель: предметы его пар (в любой группе). Для студента вернёт пусто — безвредно.
+    collect(
+      await this.prisma.pair.findMany({
+        where: { teacherId: user.sub, schedule: { isActive: true } },
+        select: { groupId: true, subject: true },
+        distinct: ['groupId', 'subject'],
+        take: 100,
+      }),
+    )
+    for (const { groupId, subject } of seen.values()) {
+      await this.ensureOfficialChat(ChatType.SUBJECT, { groupId, subject }, user.sub)
     }
   }
 
   private async ensureOfficialChat(
     type: ChatType,
-    scope: { groupId?: string; facultyId?: string; universityId?: string },
+    scope: { groupId?: string; facultyId?: string; universityId?: string; subject?: string },
     userId: string,
   ): Promise<void> {
     let chat = await this.prisma.chat.findFirst({

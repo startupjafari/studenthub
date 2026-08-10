@@ -8,6 +8,8 @@ export const QUEUES = {
   NOTIFICATIONS: 'notifications',
   FILE_PROCESSING: 'file-processing',
   CLEANUP: 'cleanup',
+  // Асинхронная выборка OG-превью первой ссылки в сообщении (инлайн-превью, Ф9+).
+  LINK_PREVIEW: 'link-preview',
 } as const
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
@@ -46,6 +48,10 @@ export const FILE_JOBS = {
   GENERATE_THUMBNAIL: 'generate-thumbnail',
   COMPRESS_VIDEO: 'compress-video',
   SCAN_FILE: 'scan-file',
+} as const
+
+export const LINK_PREVIEW_JOBS = {
+  FETCH: 'fetch-link-preview',
 } as const
 
 // Базовая конфигурация job'а (docs/BACKEND_RULES.md §9.2, docs/PROJECT.md §10.1):

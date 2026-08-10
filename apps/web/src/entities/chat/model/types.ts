@@ -53,11 +53,31 @@ export interface ChatMessage {
   pinnedAt: string | null
   createdAt: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // Инлайн-превью первой ссылки (заполняется асинхронно; приходит по message:updated).
+  linkPreview: LinkPreview | null
   media: MessageAttachment[]
   replyTo: MessageReplyPreview | null
   forwardedFrom: MessageForwardOrigin | null
   sharedPost: SharedPostPreview | null
   reactions: MessageReaction[]
+}
+
+// Инлайн-превью ссылки (OG-мета) в сообщении.
+export interface LinkPreview {
+  url: string
+  title: string | null
+  description: string | null
+  image: string | null
+  siteName: string | null
+}
+
+// Статус прочтения участником (#6): кто прочитал и до какого момента.
+export interface ChatReadReceipt {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+  lastReadAt: string | null
 }
 
 export interface ChatListItem {
@@ -73,6 +93,8 @@ export interface ChatListItem {
   // Число непрочитанных сообщений (для бейджа-счётчика).
   unreadCount: number
   muted: boolean
+  // Черновик сообщения (синхронизируется с сервером): восстанавливается при открытии чата.
+  draft: string | null
   // Я — создатель группы (владелец): удаление группы, передача прав, назначение админов.
   isOwner: boolean
   // Я — админ группы: бан, смена аватара/названия, управление участниками.
