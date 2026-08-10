@@ -213,4 +213,47 @@ describe('Chats (e2e) — изоляция и доставка', () => {
       expect(res.body.error.code).toBe('WRONG_SCOPE')
     })
   })
+
+  // Страховка рефактора N+1 → один groupBy: счётчик непрочитанных в списке чатов.
+  describe('Непрочитанные в списке чатов', () => {
+    type ChatRow = { id: string; unread: boolean; unreadCount: number }
+
+    it('считает непрочитанные чужие сообщения (одним запросом на все чаты)', async () => {
+      const viewerId = await makeStudent('reader@a.io')
+      const senderId = await makeStudent('sender@a.io')
+      const viewerTok = await login('reader@a.io')
+      // Два чата: в первом 3 чужих сообщения (непрочитанные), второй — пустой.
+      const withUnread = await createGroupChat(viewerTok, [senderId])
+      const empty = await createGroupChat(viewerTok, [senderId])
+      await prisma.message.createMany({
+        data: Array.from({ length: 3 }, (_, i) => ({
+          chatId: withUnread,
+          senderId,
+          content: `u${i}`,
+        })),
+      })
+      void viewerId
+
+      const list = await request(server).get('/api/v1/chats').set(auth(viewerTok)).expect(200)
+      const rows = list.body.data as ChatRow[]
+      const a = rows.find((c) => c.id === withUnread)
+      const b = rows.find((c) => c.id === empty)
+      expect(a?.unread).toBe(true)
+      expect(a?.unreadCount).toBe(3)
+      expect(b?.unreadCount).toBe(0)
+    })
+
+    it('свои сообщения не считаются непрочитанными', async () => {
+      await makeStudent('self@a.io')
+      const memberId = await makeStudent('self-mate@a.io')
+      const viewerTok = await login('self@a.io')
+      const chatId = await createGroupChat(viewerTok, [memberId])
+      // сообщение от самого viewer
+      await send(viewerTok, chatId, 'моё').expect(201)
+
+      const list = await request(server).get('/api/v1/chats').set(auth(viewerTok)).expect(200)
+      const row = (list.body.data as ChatRow[]).find((c) => c.id === chatId)
+      expect(row?.unreadCount).toBe(0)
+    })
+  })
 })
