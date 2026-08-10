@@ -132,6 +132,23 @@ export class AuthService {
   }
 
   /**
+   * Выдать сессию пользователю по id, без пароля. Используется входом по QR: телефон
+   * (уже авторизован, в т.ч. прошёл 2FA) подтвердил вход, поэтому пароль/2FA повторно не нужны.
+   */
+  async issueSessionForUser(userId: string, ctx: RequestContext): Promise<SessionResult> {
+    const user = await this.users.findByIdForAuth(userId)
+    if (!user) {
+      throw new AppException('UNAUTHORIZED', 'Пользователь не найден')
+    }
+    if (user.isBlocked) {
+      throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
+    }
+    const session = await this.issueSession(this.toPayload(user), randomUUID())
+    await this.audit.record({ userId, action: 'login', ...ctx })
+    return session
+  }
+
+  /**
    * Второй шаг входа: проверяет challenge-токен и код (TOTP или backup),
    * затем выдаёт полноценную сессию. Пароль уже проверен на первом шаге.
    */
