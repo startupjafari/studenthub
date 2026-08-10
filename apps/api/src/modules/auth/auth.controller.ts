@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Throttle } from '@nestjs/throttler'
-import { ApiOperation, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Public } from '../../common/decorators/public.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -12,6 +12,9 @@ import { AuthService, type RequestContext, type SessionResult } from './auth.ser
 import { AUTH_COOKIE_PATH, REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
 import { RegisterByInviteDto } from './dto/register-by-invite.dto'
 import { TwoFactorVerifyDto } from './dto/two-factor-verify.dto'
+import { QrApproveDto } from './dto/qr-approve.dto'
+import { QrClaimDto } from './dto/qr-claim.dto'
+import { QrLoginService } from './qr-login.service'
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -19,6 +22,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly qrLogin: QrLoginService,
   ) {}
 
   @Public()
@@ -54,6 +58,38 @@ export class AuthController {
       dto.code,
       this.ctx(req),
     )
+    this.setAuthCookies(reply, session)
+    return { accessToken: session.accessToken }
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } }) // защита от спама генерацией QR
+  @Post('qr/create')
+  @ApiOperation({ summary: 'Создать QR-сессию входа (десктоп; возвращает QR + claimSecret)' })
+  qrCreate() {
+    return this.qrLogin.create()
+  }
+
+  @Post('qr/approve')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Подтвердить вход по QR (с залогиненного устройства)' })
+  @ApiResponse({ status: 404, description: 'QR-сессия не найдена или истекла' })
+  async qrApprove(@CurrentUser() user: JwtPayload, @Body() dto: QrApproveDto): Promise<null> {
+    await this.qrLogin.approve(dto.approveToken, user.sub)
+    return null
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post('qr/claim')
+  @ApiOperation({ summary: 'Забрать сессию после подтверждения (десктоп; нужен claimSecret)' })
+  async qrClaim(
+    @Body() dto: QrClaimDto,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<{ accessToken: string }> {
+    const userId = await this.qrLogin.claim(dto.qrId, dto.claimSecret)
+    const session = await this.authService.issueSessionForUser(userId, this.ctx(req))
     this.setAuthCookies(reply, session)
     return { accessToken: session.accessToken }
   }

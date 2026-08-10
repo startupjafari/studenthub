@@ -122,6 +122,30 @@ export async function disable2faRequest(code: string): Promise<void> {
   await api.post('/auth/2fa/disable', { code })
 }
 
+// ── Вход по QR ───────────────────────────────────────────────────────────────
+export interface QrCreateResponse {
+  qrId: string
+  qr: string
+  claimSecret: string
+  expiresIn: number
+}
+
+export async function qrCreateRequest(): Promise<QrCreateResponse> {
+  const { data } = await api.post<QrCreateResponse>('/auth/qr/create')
+  return data
+}
+
+// Забор сессии десктопом после подтверждения телефоном → accessToken.
+export async function qrClaimRequest(qrId: string, claimSecret: string): Promise<string> {
+  const { data } = await api.post<{ accessToken: string }>('/auth/qr/claim', { qrId, claimSecret })
+  return data.accessToken
+}
+
+// Подтверждение входа с залогиненного устройства (требует авторизации).
+export async function qrApproveRequest(approveToken: string): Promise<void> {
+  await api.post('/auth/qr/approve', { approveToken })
+}
+
 export async function registerByInviteRequest(input: RegisterByInviteInput): Promise<string> {
   const { data } = await api.post<{ accessToken: string }>('/auth/register-by-invite', input)
   return data.accessToken

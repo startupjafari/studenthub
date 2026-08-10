@@ -6,18 +6,20 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, QrCode } from 'lucide-react'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
 import { Button, FormAlert, Input, Label } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
+import { QrLoginPanel } from './qr-login-panel'
 
 export function LoginForm() {
   const t = useTranslations('Auth')
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
+  const [mode, setMode] = useState<'password' | 'qr'>('password')
   // Если у пользователя включена 2FA — после пароля храним challenge и показываем ввод кода.
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
@@ -45,6 +47,10 @@ export function LoginForm() {
       // Серверные ошибки (в т.ч. VALIDATION_ERROR с details[]) — в Alert над формой (§5.4/§7).
       showApiError(err)
     }
+  }
+
+  if (mode === 'qr') {
+    return <QrLoginPanel onAuthenticated={completeLogin} onCancel={() => setMode('password')} />
   }
 
   if (challengeToken) {
@@ -124,6 +130,22 @@ export function LoginForm() {
 
         <Button type="submit" size="lg" loading={isSubmitting} className="mt-2 w-full">
           {t('signIn')}
+        </Button>
+
+        <div className="relative my-1 flex items-center">
+          <span className="h-px flex-1 bg-border" />
+          <span className="px-3 text-xs text-muted-foreground">{t('or')}</span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full"
+          onClick={() => setMode('qr')}
+        >
+          <QrCode className="size-4" aria-hidden />
+          {t('qrTab')}
         </Button>
       </form>
     </div>

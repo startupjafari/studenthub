@@ -55,3 +55,15 @@ export type TwoFactorEnableInput = z.infer<typeof TwoFactorEnableSchema>
 // Отключение 2FA — TOTP-код или backup-код.
 export const TwoFactorDisableSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
+
+// ── Вход по QR (Telegram Web-стиль) ──────────────────────────────────────────
+
+// Подтверждение входа с уже залогиненного устройства (телефона): approveToken из QR.
+export const QrApproveSchema = z.object({ approveToken: z.string().min(1) }).strict()
+export type QrApproveInput = z.infer<typeof QrApproveSchema>
+
+// Забор сессии инициировавшим десктопом: qrId + секрет (секрета нет в QR).
+export const QrClaimSchema = z
+  .object({ qrId: z.string().min(1), claimSecret: z.string().min(1) })
+  .strict()
+export type QrClaimInput = z.infer<typeof QrClaimSchema>
