@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  AlertCircle,
   ArrowLeft,
   Bell,
   BellOff,
@@ -48,6 +49,8 @@ import {
   fetchPinned,
   fetchPresence,
   fetchChatMembers,
+  fetchReadReceipts,
+  saveChatDraft,
   forwardMessageRequest,
   pinMessageRequest,
   searchMessages,
@@ -61,6 +64,7 @@ import {
   unpinMessageRequest,
   AttachmentDialog,
   ForwardDialog,
+  LinkPreviewCard,
   MessageAttachments,
   MessageContent,
   MessageContextMenu,
@@ -158,8 +162,12 @@ export function ChatWindow() {
   const router = useRouter()
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
-  const myId = useAppSelector((s) => s.auth.user?.id)
+  const me = useAppSelector((s) => s.auth.user)
+  const myId = me?.id
   const confirm = useConfirm()
+  // #1: состояние оптимистичных сообщений по temp-id (`tmp:<nonce>`) + таймеры «не пришло эхо».
+  const [sendState, setSendState] = useState<Record<string, 'pending' | 'failed'>>({})
+  const sendTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   // Десктоп: список чатов порталим в слот сайдбара (см. AppSidebar chatsMode).
   // На мобильном слота нет — список остаётся во весь экран внутри main.
@@ -187,8 +195,9 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
   }, [requestedChatId, qc])
-  // Черновики по чатам: набранный текст сохраняется при переключении чата (в рамках сессии).
+  // Черновики по чатам: локально (мгновенно) + синхронизация с сервером (#3, дебаунс).
   const draftsRef = useRef<Map<string, string>>(new Map())
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [text, setText] = useState('')
   const [typingUsers, setTypingUsers] = useState<Record<string, number>>({})
   const [connected, setConnected] = useState(true)
@@ -413,6 +422,12 @@ export function ChatWindow() {
     queryFn: () => fetchChatMembers(activeId as string),
     enabled: !!activeId,
   })
+  // #6: статусы прочтения участниками (кто прочитал) — для счётчика «прочитали N» у своих сообщений.
+  const readsQuery = useQuery({
+    queryKey: chatKeys.reads(activeId ?? ''),
+    queryFn: () => fetchReadReceipts(activeId as string),
+    enabled: !!activeId,
+  })
   useEffect(() => {
     if (presenceQuery.data) {
       setPresence(Object.fromEntries(presenceQuery.data.map((p) => [p.userId, p.online])))
@@ -484,13 +499,37 @@ export function ChatWindow() {
   }, [socket, activeId, qc])
 
   // Входящие события — синхронизируем с кэшем React Query (docs/FRONTEND_RULES.md §8).
-  useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
+  useRealtimeEvent<{ message: ChatMessage; chatId: string; nonce?: string }>(
     'message:new',
-    ({ message, chatId }) => {
+    ({ message, chatId, nonce }) => {
+      // #1: гасим таймер/статус оптимистичного пузыря по nonce (независимо от активного чата).
+      if (nonce) {
+        const timer = sendTimers.current.get(nonce)
+        if (timer) {
+          clearTimeout(timer)
+          sendTimers.current.delete(nonce)
+        }
+        setSendState((s) => {
+          if (!(`tmp:${nonce}` in s)) return s
+          const next = { ...s }
+          delete next[`tmp:${nonce}`]
+          return next
+        })
+      }
       if (chatId === activeId) {
-        qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
-          old && !old.some((m) => m.id === message.id) ? [...old, message] : (old ?? [message]),
-        )
+        qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
+          const listOld = old ?? []
+          // Заменяем свой оптимистичный пузырь реальным сообщением (по nonce), иначе добавляем.
+          if (nonce) {
+            const idx = listOld.findIndex((m) => m.id === `tmp:${nonce}`)
+            if (idx !== -1) {
+              const copy = listOld.slice()
+              copy[idx] = message
+              return copy
+            }
+          }
+          return listOld.some((m) => m.id === message.id) ? listOld : [...listOld, message]
+        })
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
@@ -515,6 +554,18 @@ export function ChatWindow() {
     void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
     void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
   })
+  // Метаданные чата изменились (название/аватар, 9.4): обновляем список и открытое окно.
+  useRealtimeEvent<{ chatId: string }>('chat:updated', ({ chatId }) => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    void qc.invalidateQueries({ queryKey: chatKeys.members(chatId) })
+  })
+  // Состав участников изменился (9.4): обновляем список чатов и участников открытого окна.
+  const onMembersChanged = ({ chatId }: { chatId: string }): void => {
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    void qc.invalidateQueries({ queryKey: chatKeys.members(chatId) })
+  }
+  useRealtimeEvent<{ chatId: string }>('chat:member-added', onMembersChanged)
+  useRealtimeEvent<{ chatId: string }>('chat:member-removed', onMembersChanged)
   const upsert = (message: ChatMessage, chatId: string): void => {
     if (chatId === activeId) {
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
@@ -557,6 +608,8 @@ export function ChatWindow() {
       if (userId === myId) return
       if (chatId === activeId) {
         setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
+        // #6: обновляем «кто прочитал» для счётчика у своих сообщений.
+        void qc.invalidateQueries({ queryKey: chatKeys.reads(chatId) })
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
@@ -606,6 +659,14 @@ export function ChatWindow() {
     setChatOpen?.(!!activeId)
     return () => setChatOpen?.(false)
   }, [activeId, setChatOpen])
+
+  // #3: гидрируем локальные черновики из серверных (при загрузке/обновлении списка), не затирая
+  // уже набранное (ставим только если локального ещё нет). Дальше их подхватывает сид ниже.
+  useEffect(() => {
+    for (const c of chats.data ?? []) {
+      if (c.draft && !draftsRef.current.has(c.id)) draftsRef.current.set(c.id, c.draft)
+    }
+  }, [chats.data])
 
   // Черновик: при переключении чата подставляем сохранённый текст (или пусто). Сбрасываем мультивыбор.
   useEffect(() => {
@@ -840,6 +901,27 @@ export function ChatWindow() {
     return d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
   }
 
+  // #1: отправка по WS с nonce + пометка «отправляется» и таймаут «эхо не пришло → ошибка».
+  function emitSend(chatId: string, nonce: string, content: string, replyToId?: string): void {
+    const tempId = `tmp:${nonce}`
+    setSendState((s) => ({ ...s, [tempId]: 'pending' }))
+    socket?.emit('message:send', { chatId, content, replyToId, nonce })
+    const prev = sendTimers.current.get(nonce)
+    if (prev) clearTimeout(prev)
+    sendTimers.current.set(
+      nonce,
+      setTimeout(() => {
+        setSendState((s) => (s[tempId] === 'pending' ? { ...s, [tempId]: 'failed' } : s))
+      }, 12_000),
+    )
+  }
+
+  // Повторная отправка «зависшего» оптимистичного сообщения по клику (тот же nonce → эхо заменит пузырь).
+  function retrySend(m: ChatMessage): void {
+    if (!m.id.startsWith('tmp:')) return
+    emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined)
+  }
+
   function send(): void {
     const content = text.trim()
     if (!activeId) return
@@ -851,12 +933,44 @@ export function ChatWindow() {
       return
     }
     // Вложения отправляются из диалога AttachmentDialog; здесь — только текст.
-    if (!content || !socket) return
-    // Не добавляем оптимистично: сервер эхом пришлёт message:new всем, включая нас — ровно один раз.
-    socket.emit('message:send', { chatId: activeId, content, replyToId: replyTo?.id })
+    if (!content || !socket || !me) return
+    // #1: оптимистичный пузырь — показываем сразу со статусом «отправляется», заменим по эхо nonce
+    // (message:new с тем же nonce). Сервер шлёт эхо всем в комнате ровно один раз.
+    const nonce =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+    const temp: ChatMessage = {
+      id: `tmp:${nonce}`,
+      chatId: activeId,
+      senderId: me.id,
+      content,
+      replyToId: replyTo?.id ?? null,
+      forwardedFromId: null,
+      editedAt: null,
+      pinnedAt: null,
+      createdAt: new Date().toISOString(),
+      sender: {
+        id: me.id,
+        firstName: me.firstName,
+        lastName: me.lastName,
+        avatarUrl: me.avatarUrl,
+      },
+      linkPreview: null,
+      media: [],
+      replyTo: null,
+      forwardedFrom: null,
+      sharedPost: null,
+      reactions: [],
+    }
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
+    emitSend(activeId, nonce, content, replyTo?.id)
     socket.emit('typing:stop', { chatId: activeId })
     setText('')
     draftsRef.current.delete(activeId)
+    // #3: отправили — гасим серверный черновик (и локальный таймер сохранения).
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+    void saveChatDraft(activeId, '').catch(() => undefined)
     setReplyTo(null)
     setMentionQuery(null)
   }
@@ -994,7 +1108,15 @@ export function ChatWindow() {
 
   function onType(v: string): void {
     setText(v)
-    if (activeId) draftsRef.current.set(activeId, v)
+    if (activeId) {
+      draftsRef.current.set(activeId, v)
+      // #3: дебаунс-сохранение черновика на сервер (синхронизация между устройствами).
+      const chatId = activeId
+      if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+      draftSaveTimer.current = setTimeout(() => {
+        void saveChatDraft(chatId, v).catch(() => undefined)
+      }, 800)
+    }
     // Определяем @-запрос перед курсором для автодополнения упоминаний.
     const pos = composerRef.current?.selectionStart ?? v.length
     const m = v.slice(0, pos).match(/(?:^|\s)@(\S*)$/)
@@ -1070,6 +1192,14 @@ export function ChatWindow() {
     ? membersQuery.data?.find((u) => u.id === firstTyperId)?.firstName
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
+  const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
+  // #6: сколько участников прочитали сообщение (lastReadAt ≥ его времени) — для метки в группах.
+  function readByCount(createdAt: string): number {
+    const at = new Date(createdAt).getTime()
+    return (readsQuery.data ?? []).filter(
+      (r) => r.lastReadAt != null && new Date(r.lastReadAt).getTime() >= at,
+    ).length
+  }
   const list = useMemo(() => chats.data ?? [], [chats.data])
   // Единый поиск: чаты по названию + сообщения (глобально). Показываем двумя секциями.
   const chatById = useMemo(() => new Map(list.map((c) => [c.id, c])), [list])
@@ -1843,7 +1973,10 @@ export function ChatWindow() {
                             className={cn(
                               // -mx-4/px-4 — фон подсветки на всю ширину чата (в паддинг контейнера), высотой с сообщение.
                               // select-none + touch-action:pan-y — для тач-жестов (долгое нажатие / свайп-ответ).
-                              'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+                              // #5: content-visibility:auto — браузер пропускает рендер/лэйаут офф-скрин строк
+                              // (дешёвая «виртуализация» без DOM-реструктуризации и слома sticky-заголовков/скролла);
+                              // contain-intrinsic-size задаёт оценку высоты для скроллбара до первого рендера.
+                              'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none [contain-intrinsic-size:auto_44px] [content-visibility:auto]',
                               i > 0 && (firstOfRun ? 'mt-2' : 'mt-0.5'),
                               mine && 'flex-row-reverse',
                               (highlightId === m.id || (selectMode && selectedIds.has(m.id))) &&
@@ -1978,6 +2111,9 @@ export function ChatWindow() {
                                   <MessageContent content={m.content} />
                                 </div>
                               )}
+                              {m.linkPreview && (
+                                <LinkPreviewCard preview={m.linkPreview} mine={mine} />
+                              )}
                               <span
                                 className={cn(
                                   'mt-0.5 flex items-center gap-1 text-[0.65rem]',
@@ -1994,13 +2130,54 @@ export function ChatWindow() {
                                 </span>
                                 {mine &&
                                   (() => {
+                                    // #1: оптимистичный пузырь — «отправляется» или «ошибка» (клик — повтор).
+                                    const st = sendState[m.id]
+                                    if (st === 'pending')
+                                      return (
+                                        <Loader2
+                                          className="size-3 animate-spin opacity-60"
+                                          aria-label={t('sending')}
+                                        />
+                                      )
+                                    if (st === 'failed')
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => retrySend(m)}
+                                          aria-label={t('sendFailedRetry')}
+                                          title={t('sendFailedRetry')}
+                                        >
+                                          <AlertCircle
+                                            className="size-3.5 text-destructive"
+                                            aria-hidden
+                                          />
+                                        </button>
+                                      )
                                     const read =
                                       readWatermark != null &&
                                       new Date(readWatermark).getTime() >=
                                         new Date(m.createdAt).getTime()
+                                    // #6: в группах у прочитанного сообщения показываем, сколько прочитали.
+                                    const count =
+                                      read && activeIsGroup ? readByCount(m.createdAt) : 0
                                     if (read)
                                       return (
-                                        <CheckCheck className="size-3.5 text-sky-300" aria-hidden />
+                                        <span
+                                          className="flex items-center gap-0.5"
+                                          title={
+                                            count > 0 ? t('readByCount', { count }) : undefined
+                                          }
+                                        >
+                                          <CheckCheck
+                                            className="size-3.5 text-sky-300"
+                                            aria-hidden
+                                          />
+                                          {count > 0 && (
+                                            <span className="text-[10px] leading-none opacity-70">
+                                              {count}
+                                            </span>
+                                          )}
+                                        </span>
                                       )
                                     if (onlineOthers > 0)
                                       return (

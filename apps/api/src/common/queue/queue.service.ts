@@ -32,12 +32,14 @@ export class QueueService {
     @InjectQueue(QUEUES.NOTIFICATIONS) notifications: Queue,
     @InjectQueue(QUEUES.FILE_PROCESSING) fileProcessing: Queue,
     @InjectQueue(QUEUES.CLEANUP) cleanup: Queue,
+    @InjectQueue(QUEUES.LINK_PREVIEW) linkPreview: Queue,
   ) {
     this.queues = {
       [QUEUES.EMAIL]: email,
       [QUEUES.NOTIFICATIONS]: notifications,
       [QUEUES.FILE_PROCESSING]: fileProcessing,
       [QUEUES.CLEANUP]: cleanup,
+      [QUEUES.LINK_PREVIEW]: linkPreview,
     }
   }
 

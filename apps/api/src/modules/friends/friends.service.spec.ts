@@ -6,7 +6,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 function setup() {
   const prisma = {
-    user: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
     friendship: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -15,6 +15,7 @@ function setup() {
       delete: jest.fn(),
       count: jest.fn(),
     },
+    notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
   }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new FriendsService(
@@ -58,7 +59,12 @@ describe('FriendsService.sendRequest', () => {
     expect(queue.enqueue).toHaveBeenCalledWith(
       'notifications',
       'friend-request',
-      expect.objectContaining({ recipientIds: ['target'], type: 'SYSTEM' }),
+      expect.objectContaining({
+        recipientIds: ['target'],
+        type: 'SYSTEM',
+        // actionable-данные для кнопок принять/отклонить в уведомлении.
+        data: expect.objectContaining({ kind: 'friend-request', friendshipId: 'f1' }),
+      }),
       expect.anything(),
     )
   })
@@ -153,6 +159,26 @@ describe('FriendsService.accept / remove', () => {
       expect.objectContaining({ recipientIds: ['a'] }),
       expect.anything(),
     )
+    // Уведомление-заявку у принявшего гасим.
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+      where: { dedupeKey: 'friend-request:f1' },
+    })
+  })
+
+  it('отклонение/отмена (remove) — гасит уведомление и НЕ шлёт ничего отправителю', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+    })
+    await service.remove(me, 'f1')
+    expect(prisma.friendship.delete).toHaveBeenCalledWith({ where: { id: 'f1' } })
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+      where: { dedupeKey: 'friend-request:f1' },
+    })
+    // Отправителю ничего не уходит.
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
   it('удалить связь, где я не участник → FORBIDDEN', async () => {

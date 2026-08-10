@@ -50,6 +50,7 @@ function setup() {
       deleteMany: jest.fn(),
     },
     user: { findUnique: jest.fn(), findFirst: jest.fn() },
+    pair: { findMany: jest.fn().mockResolvedValue([]) },
   }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const realtime = {
@@ -519,5 +520,63 @@ describe('ChatsService.exportMessages', () => {
     const args = prisma.message.findMany.mock.calls[0][0]
     expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }])
     expect(args.take).toBe(5000)
+  })
+})
+
+describe('ChatsService — официальные чаты (9.6)', () => {
+  const fullScopeUser = (): JwtPayload => ({
+    sub: 'stu1',
+    role: Role.STUDENT,
+    universityId: 'uni1',
+    facultyId: 'fac1',
+    groupId: 'grp1',
+  })
+
+  it('создаёт GROUP_OFFICIAL, FACULTY, DEAN, SUPPORT и SUBJECT-чаты своего scope', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+    // Активное расписание группы содержит один предмет.
+    prisma.pair.findMany.mockResolvedValueOnce([{ groupId: 'grp1', subject: 'Математика' }])
+
+    await service.ensureOfficialChatsForUser(fullScopeUser())
+
+    const createdTypes = prisma.chat.create.mock.calls.map((c) => c[0].data.type)
+    expect(createdTypes).toEqual(
+      expect.arrayContaining(['GROUP_OFFICIAL', 'FACULTY', 'DEAN', 'SUPPORT', 'SUBJECT']),
+    )
+    // SUBJECT-чат хранит предмет и группу.
+    const subjectCreate = prisma.chat.create.mock.calls.find((c) => c[0].data.type === 'SUBJECT')
+    expect(subjectCreate?.[0].data).toMatchObject({ groupId: 'grp1', subject: 'Математика' })
+  })
+
+  it('преподаватель без группы получает SUBJECT-чаты по своим парам', async () => {
+    const { service, prisma } = setup()
+    const teacher: JwtPayload = {
+      sub: 'tch1',
+      role: Role.TEACHER,
+      universityId: 'uni1',
+      facultyId: 'fac1',
+      groupId: null,
+    }
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+    // Первый findMany (по группе) не вызывается — groupId null; второй (по teacherId) вернёт пару.
+    prisma.pair.findMany.mockResolvedValue([{ groupId: 'grpX', subject: 'Физика' }])
+
+    await service.ensureOfficialChatsForUser(teacher)
+
+    const subjectCreate = prisma.chat.create.mock.calls.find((c) => c[0].data.type === 'SUBJECT')
+    expect(subjectCreate?.[0].data).toMatchObject({ groupId: 'grpX', subject: 'Физика' })
+    // teacher без groupId → пары ищем только по teacherId (один запрос к pair).
+    expect(prisma.pair.findMany).toHaveBeenCalledTimes(1)
   })
 })

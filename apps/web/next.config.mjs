@@ -11,6 +11,9 @@ const withPWA = withPWAInit({
   disable: process.env.NODE_ENV === 'development',
   register: true,
   cacheOnFrontEndNav: true,
+  // Кастомный код SW (Web Push: push/notificationclick) — из apps/web/worker/, компилируется
+  // next-pwa и подключается в sw.js (Ф13.3).
+  customWorkerSrc: 'worker',
   fallbacks: { document: '/offline' },
   workboxOptions: {
     runtimeCaching: [

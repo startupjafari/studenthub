@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common'
@@ -34,6 +35,7 @@ import { MessageSearchQueryDto } from './dto/message-search-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
+import { SaveDraftDto } from './dto/save-draft.dto'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -199,6 +201,26 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Список { userId, online }' })
   presence(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.getPresence(user.sub, id)
+  }
+
+  @Put(':id/draft')
+  @ApiOperation({
+    summary: 'Сохранить/очистить черновик сообщения (синхронизация между устройствами)',
+  })
+  @ApiResponse({ status: 200, description: 'Черновик сохранён' })
+  saveDraft(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SaveDraftDto,
+  ) {
+    return this.chats.saveDraft(user.sub, id, dto.text)
+  }
+
+  @Get(':id/reads')
+  @ApiOperation({ summary: 'Статусы прочтения участниками (кто прочитал; только участник)' })
+  @ApiResponse({ status: 200, description: 'Участники с их lastReadAt' })
+  reads(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.getReadReceipts(user, id)
   }
 
   @Get(':id/members')
