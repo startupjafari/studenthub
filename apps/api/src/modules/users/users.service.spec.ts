@@ -15,16 +15,17 @@ function setup() {
   const prisma = {
     user: {
       findFirst: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue(null),
       update: jest.fn(),
       create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
-    file: { findMany: jest.fn(), delete: jest.fn() },
+    file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const passwords = { hash: jest.fn(), compare: jest.fn() }
-  const files = { upload: jest.fn(), delete: jest.fn() }
+  const files = { upload: jest.fn(), delete: jest.fn(), removeRawObject: jest.fn() }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn() }
   const authService = { revokeAllUserSessions: jest.fn().mockResolvedValue(undefined) }
@@ -314,16 +315,76 @@ describe('UserService — changePassword', () => {
 })
 
 describe('UserService — softDeleteSelf', () => {
-  it('анонимизирует и гасит сессии', async () => {
-    const { service, prisma, passwords, authService } = setup()
+  function withBuckets(config: { get: jest.Mock }) {
+    config.get.mockImplementation((key: string) =>
+      key === 'MINIO_BUCKET_AVATARS'
+        ? 'avatars'
+        : key === 'MINIO_BUCKET_PROFILE_COVERS'
+          ? 'profile-covers'
+          : undefined,
+    )
+  }
+
+  it('затирает ВСЕ ПДн, гасит 2FA/приватность и разлогинивает', async () => {
+    const { service, prisma, passwords, authService, config } = setup()
+    withBuckets(config)
     passwords.hash.mockResolvedValue('anon')
     prisma.user.update.mockResolvedValue({})
     await service.softDeleteSelf('u')
-    const arg = prisma.user.update.mock.calls[0][0]
-    expect(arg.data.deletedAt).toBeInstanceOf(Date)
-    expect(arg.data.email).toContain('deleted+u@')
-    expect(arg.data.avatarUrl).toBeNull()
+    const { data } = prisma.user.update.mock.calls[0][0]
+    expect(data.deletedAt).toBeInstanceOf(Date)
+    expect(data.email).toContain('deleted+u@')
+    // Ни одно персональное поле не должно пережить удаление.
+    for (const field of [
+      'avatarUrl',
+      'avatarThumbUrl',
+      'coverUrl',
+      'phone',
+      'telegram',
+      'instagram',
+      'middleName',
+      'bio',
+      'birthDate',
+      'address',
+      'studentCardNumber',
+      'gpa',
+      'dormitory',
+      'twoFactorSecret',
+      'department',
+      'employeeNumber',
+    ]) {
+      expect(data[field]).toBeNull()
+    }
+    expect(data.showEmail).toBe(false)
+    expect(data.showPhone).toBe(false)
+    expect(data.profileVisibility).toBe('PRIVATE')
+    expect(data.twoFactorEnabled).toBe(false)
+    expect(data.twoFactorBackupCodes).toEqual([])
+    expect(data.interests).toEqual([])
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
+  })
+
+  it('сносит объекты аватара и обложки в MinIO', async () => {
+    const { service, prisma, passwords, files, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.file.findMany.mockResolvedValue([{ id: 'av-1' }])
+    prisma.user.findUnique.mockResolvedValue({ coverUrl: 'http://m/profile-covers/cover.webp' })
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(files.delete).toHaveBeenCalledWith('av-1')
+    expect(files.removeRawObject).toHaveBeenCalledWith('profile-covers', 'cover.webp')
+  })
+
+  it('не падает, если MinIO недоступен (best-effort очистка файлов)', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.file.findMany.mockRejectedValue(new Error('minio down'))
+    prisma.user.update.mockResolvedValue({})
+    await expect(service.softDeleteSelf('u')).resolves.toBeUndefined()
+    // ПДн всё равно затёрты.
+    expect(prisma.user.update).toHaveBeenCalled()
   })
 })
 
