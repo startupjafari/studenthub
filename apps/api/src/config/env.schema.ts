@@ -67,6 +67,11 @@ export const envSchema = z.object({
   THROTTLE_TTL: z.coerce.number().int().positive().default(900),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(5),
   SENTRY_DSN: z.string().optional(),
+
+  // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().default('mailto:admin@studenthub.app'),
 })
 
 export type EnvVars = z.infer<typeof envSchema>

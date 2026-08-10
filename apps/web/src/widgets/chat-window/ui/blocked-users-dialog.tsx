@@ -8,6 +8,7 @@ import { chatKeys, fetchBlockedUsers, unblockUserRequest } from '../../../entiti
 import { ProfileLink } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage, EmptyState, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useBodyScrollLock } from '../../../shared/lib'
 
 const COLORS = [
   'bg-rose-500',
@@ -27,6 +28,7 @@ function colorOf(id: string): string {
 
 // Экран «Заблокированные»: список заблокированных мной пользователей + разблокировка.
 export function BlockedUsersDialog({ onClose }: { onClose: () => void }) {
+  useBodyScrollLock()
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()

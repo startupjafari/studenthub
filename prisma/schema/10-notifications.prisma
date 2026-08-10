@@ -58,3 +58,20 @@ model NotificationSettings {
 
   @@map("notification_settings")
 }
+
+// Подписка браузера на Web Push (Ф13.3). Одна строка на устройство/браузер (endpoint уникален).
+// p256dh/auth — ключи из PushSubscription.getKey(); используются web-push для шифрования payload.
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}

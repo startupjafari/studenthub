@@ -34,10 +34,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const [socket, setSocket] = useState<Socket | null>(null)
   const socketRef = useRef<Socket | null>(null)
+  // Актуальный токен для первичного handshake создаваемого сокета (без пересоздания при ротации).
+  const tokenRef = useRef(accessToken)
+  tokenRef.current = accessToken
 
+  // Соединение создаём/рвём только по ФАКТУ наличия токена (login ↔ logout), а не на каждую
+  // его смену: тихая ротация access-токена каждые ~15 мин иначе роняла бы сокет (мигание
+  // presence/typing и лишний реконнект).
+  const hasToken = Boolean(accessToken)
   useEffect(() => {
-    // Без токена не подключаемся (страница логина и т.п.).
-    if (!accessToken) {
+    if (!hasToken) {
       socketRef.current?.disconnect()
       socketRef.current = null
       setSocket(null)
@@ -45,7 +51,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     }
 
     const instance = io(wsOrigin(), {
-      auth: { token: accessToken },
+      auth: { token: tokenRef.current },
       transports: ['websocket'],
       // Переподключение при обрыве связи; сервер восстановит комнаты в handleConnection.
       reconnection: true,
@@ -56,8 +62,18 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     return () => {
       instance.disconnect()
       socketRef.current = null
+      setSocket(null)
     }
-    // Пересоздаём соединение при смене токена (login / silent refresh / logout).
+  }, [hasToken])
+
+  // Ротация токена: обновляем сессию соединения событием auth:refresh (сервер принимает новый
+  // токен без разрыва — realtime.gateway §10). Также правим instance.auth, чтобы возможный
+  // реконнект после ротации выполнял handshake уже свежим токеном.
+  useEffect(() => {
+    const instance = socketRef.current
+    if (!instance || !accessToken) return
+    instance.auth = { token: accessToken }
+    instance.emit('auth:refresh', { token: accessToken })
   }, [accessToken])
 
   return <RealtimeContext.Provider value={socket}>{children}</RealtimeContext.Provider>

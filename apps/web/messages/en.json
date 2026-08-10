@@ -584,7 +584,10 @@
     "systemHint": "System notifications cannot be disabled.",
     "settingsError": "Failed to save settings",
     "scrollLeft": "Scroll left",
-    "scrollRight": "Scroll right"
+    "scrollRight": "Scroll right",
+    "acceptRequest": "Accept",
+    "declineRequest": "Decline",
+    "friendRequestError": "Could not process the request"
   },
   "Schedule": {
     "title": "Schedule",
@@ -936,7 +939,10 @@
     "searchAll": "Search chats and messages",
     "clearSearch": "Clear",
     "messagesSection": "Messages",
-    "selectChatPrompt": "Choose who you’d like to message"
+    "selectChatPrompt": "Choose who you’d like to message",
+    "readByCount": "Read by {count, plural, one {# member} other {# members}}",
+    "sending": "Sending…",
+    "sendFailedRetry": "Not sent. Click to retry"
   },
   "Events": {
     "title": "Events",
@@ -1152,7 +1158,9 @@
     "visibilityPRIVATE": "Closed (only me)",
     "documentsStorage": "Documents and personal data",
     "documentsStorageDesc": "Secure storage for your documents",
-    "documentsStorageOpen": "Open storage"
+    "documentsStorageOpen": "Open storage",
+    "pushUnsupported": "Push notifications are not supported in this browser",
+    "pushDenied": "Could not enable push: permission denied"
   },
   "Offline": {
     "title": "You are offline",

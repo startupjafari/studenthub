@@ -65,7 +65,7 @@ export class FriendsService {
       }
       // Встречная заявка (адресат — я) → принимаем.
       if (existing.addresseeId === viewer.sub) {
-        await this.acceptRow(existing.id, existing.requesterId)
+        await this.acceptRow(existing.id, existing.requesterId, viewer.sub)
         return { status: 'accepted' }
       }
       throw new AppException('CONFLICT', 'Заявка уже отправлена')
@@ -76,10 +76,24 @@ export class FriendsService {
         data: { requesterId: viewer.sub, addresseeId: targetId },
         select: { id: true },
       })
+      // Имя отправителя — для тела уведомления с кнопками принять/отклонить.
+      const requester = await this.prisma.user.findUnique({
+        where: { id: viewer.sub },
+        select: { firstName: true, lastName: true },
+      })
+      const name =
+        `${requester?.firstName ?? ''} ${requester?.lastName ?? ''}`.trim() || 'Пользователь'
       await this.notify(targetId, NOTIFICATION_JOBS.FRIEND_REQUEST, {
         title: 'Новая заявка в друзья',
-        body: 'Вам отправили заявку в друзья',
+        body: `${name} хочет добавить вас в друзья`,
         dedupeKey: `friend-request:${created.id}`,
+        // kind/friendshipId — чтобы колокольчик показал кнопки принять/отклонить прямо в уведомлении.
+        data: {
+          kind: 'friend-request',
+          friendshipId: created.id,
+          requesterId: viewer.sub,
+          url: `/profile/${viewer.sub}`,
+        },
       })
       return { status: 'pending' }
     } catch (error) {
@@ -105,7 +119,7 @@ export class FriendsService {
     if (f.status !== 'PENDING') {
       throw new AppException('CONFLICT', 'Заявка уже обработана')
     }
-    await this.acceptRow(f.id, f.requesterId)
+    await this.acceptRow(f.id, f.requesterId, viewer.sub)
   }
 
   /** Удалить связь: отмена исходящей / отклонение входящей / удаление из друзей (любой участник). */
@@ -121,6 +135,9 @@ export class FriendsService {
       throw new AppException('FORBIDDEN', 'Нет доступа к этой связи')
     }
     await this.prisma.friendship.delete({ where: { id: f.id } })
+    // Отклонение/отмена/удаление — гасим уведомление-заявку у получателя. Отправителю НИЧЕГО
+    // не шлём (по требованию: при отклонении инициатор ничего не получает).
+    await this.clearRequestNotification(f.id)
   }
 
   /** Список друзей (принятые) — карточка «другого» пользователя. Cursor по id связи. */
@@ -225,15 +242,22 @@ export class FriendsService {
     })
   }
 
-  private async acceptRow(friendshipId: string, requesterId: string): Promise<void> {
+  private async acceptRow(
+    friendshipId: string,
+    requesterId: string,
+    accepterId: string,
+  ): Promise<void> {
     await this.prisma.friendship.update({
       where: { id: friendshipId },
       data: { status: 'ACCEPTED', respondedAt: new Date() },
     })
+    // Гасим уведомление-заявку у принявшего и уведомляем инициатора о принятии.
+    await this.clearRequestNotification(friendshipId)
     await this.notify(requesterId, NOTIFICATION_JOBS.FRIEND_ACCEPTED, {
       title: 'Заявка в друзья принята',
       body: 'Ваша заявка в друзья принята',
       dedupeKey: `friend-accepted:${friendshipId}`,
+      data: { url: `/profile/${accepterId}` },
     })
   }
 
@@ -250,7 +274,7 @@ export class FriendsService {
   private async notify(
     recipientId: string,
     job: string,
-    n: { title: string; body: string; dedupeKey: string },
+    n: { title: string; body: string; dedupeKey: string; data?: Record<string, unknown> },
   ): Promise<void> {
     // Тип SYSTEM доставляется всегда (не зависит от пер-тип настроек).
     await this.queue.enqueue(
@@ -261,10 +285,17 @@ export class FriendsService {
         type: 'SYSTEM',
         title: n.title,
         body: n.body,
-        data: { url: '/friends' },
+        data: n.data ?? {},
         dedupeKey: n.dedupeKey,
       },
       { jobId: n.dedupeKey },
     )
+  }
+
+  // Гасим уведомление-заявку у получателя после принятия/отклонения (dedupeKey одноразовый).
+  private async clearRequestNotification(friendshipId: string): Promise<void> {
+    await this.prisma.notification.deleteMany({
+      where: { dedupeKey: `friend-request:${friendshipId}` },
+    })
   }
 }

@@ -34,6 +34,10 @@ export type AddChatMemberInput = z.infer<typeof AddChatMemberSchema>
 export const EditChatSchema = z.object({ title: z.string().min(1).max(150) }).strict()
 export type EditChatInput = z.infer<typeof EditChatSchema>
 
+// Черновик сообщения (Ф9+, синхронизация между устройствами). Пустой текст очищает черновик.
+export const SaveDraftSchema = z.object({ text: z.string().max(4000) }).strict()
+export type SaveDraftInput = z.infer<typeof SaveDraftSchema>
+
 export const ChatMessagesQuerySchema = CursorPaginationSchema
 export type ChatMessagesQueryInput = z.infer<typeof ChatMessagesQuerySchema>
 
@@ -79,6 +83,9 @@ export const MessageSendSchema = z
     chatId: z.string().min(1),
     content: z.string().min(1).max(4000),
     replyToId: z.string().min(1).optional(),
+    // Клиентский идентификатор для оптимистичной отправки (#1): сервер эхом возвращает его в
+    // message:new, чтобы отправитель заменил свой временный «pending» пузырь. В БД не пишется.
+    nonce: z.string().min(1).max(64).optional(),
   })
   .strict()
 export type MessageSendInput = z.infer<typeof MessageSendSchema>

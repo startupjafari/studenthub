@@ -1,14 +1,36 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { File as FileIcon, X } from 'lucide-react'
 import { Button } from '../../../shared/ui'
+import { useBodyScrollLock } from '../../../shared/lib'
 
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Миниатюра выбранного файла в диалоге отправки (#4): для изображений — превью через
+// object-URL (создаём/освобождаем), иначе — иконка файла.
+function AttachmentThumb({ file }: { file: File }) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!file.type.startsWith('image/')) return
+    const objectUrl = URL.createObjectURL(file)
+    setUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [file])
+  if (url) {
+    // Локальное превью выбранного изображения — обычный img по object-URL.
+    return <img src={url} alt="" className="size-10 shrink-0 rounded-lg object-cover" />
+  }
+  return (
+    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+      <FileIcon className="size-5" aria-hidden />
+    </span>
+  )
 }
 
 // Диалог отправки файлов в стиле Telegram (Ф9+): превью выбранных файлов + подпись + действия.
@@ -27,6 +49,7 @@ export function AttachmentDialog({
   onRemove: (index: number) => void
   onClose: () => void
 }) {
+  useBodyScrollLock()
   const t = useTranslations('Chats')
   const [caption, setCaption] = useState('')
 
@@ -59,9 +82,7 @@ export function AttachmentDialog({
               key={`${f.name}-${i}`}
               className="flex items-center gap-2.5 rounded-xl border border-border p-2"
             >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <FileIcon className="size-5" aria-hidden />
-              </span>
+              <AttachmentThumb file={f} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{f.name}</span>
                 <span className="block text-xs text-muted-foreground">{humanSize(f.size)}</span>

@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common'
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
@@ -128,6 +128,8 @@ export type PublicProfile = Omit<
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
@@ -411,7 +413,24 @@ export class UserService {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
 
-    const access = this.resolveAccess(viewer, target)
+    let access = this.resolveAccess(viewer, target)
+    // Дружба открывает профиль: принятая дружба — взаимно; ПЕНДИНГ-заявка ОТ владельца закрытого
+    // профиля к смотрящему — открывает профиль владельца этому смотрящему (он решает, принять ли).
+    if (access.level === 'limited' && viewer.sub !== target.id) {
+      const link = await this.prisma.friendship.findFirst({
+        where: {
+          OR: [
+            { requesterId: viewer.sub, addresseeId: target.id },
+            { requesterId: target.id, addresseeId: viewer.sub },
+          ],
+        },
+        select: { status: true, requesterId: true },
+      })
+      const opened =
+        link?.status === 'ACCEPTED' ||
+        (link?.status === 'PENDING' && link.requesterId === target.id)
+      if (opened) access = { level: 'full', audit: false }
+    }
     if (access.level === 'limited') {
       return this.toLimitedProfile(target)
     }
@@ -745,8 +764,16 @@ export class UserService {
     await this.authService.revokeAllUserSessions(userId)
   }
 
-  /** Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств. */
+  /**
+   * Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств.
+   * Затираем ВСЕ персональные поля (не только email/имя), гасим 2FA и приватность,
+   * а также сносим объекты аватара и обложки в MinIO. Структурные поля (role, scope,
+   * createdAt) сохраняем: строка нужна для целостности FK контента (посты/сообщения
+   * остаются с автором-«tombstone»). Очистка файлов — best-effort: недоступность MinIO
+   * не должна блокировать удаление аккаунта (ПДн в БД затираются в любом случае).
+   */
   async softDeleteSelf(userId: string): Promise<void> {
+    await this.deleteUserMedia(userId)
     const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
     // Пароль забиваем невосстановимым хешем случайной строки.
     const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
@@ -755,13 +782,90 @@ export class UserService {
       data: {
         deletedAt: new Date(),
         email: anonymizedEmail,
+        passwordHash: anonymizedHash,
         firstName: 'Удалённый',
         lastName: 'пользователь',
         avatarUrl: null,
-        passwordHash: anonymizedHash,
+        avatarThumbUrl: null,
+        coverUrl: null,
+        // Приватность и 2FA
+        showEmail: false,
+        showPhone: false,
+        profileVisibility: 'PRIVATE',
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorBackupCodes: [],
+        // Общий профиль
+        middleName: null,
+        phone: null,
+        bio: null,
+        birthDate: null,
+        gender: null,
+        languages: [],
+        telegram: null,
+        instagram: null,
+        website: null,
+        headline: null,
+        timezone: null,
+        country: null,
+        // Профиль студента/старосты
+        course: null,
+        enrollmentYear: null,
+        graduationYear: null,
+        educationLevel: null,
+        studyForm: null,
+        fundingType: null,
+        specialty: null,
+        studentCardNumber: null,
+        academicStatus: null,
+        gpa: null,
+        interests: [],
+        skills: [],
+        dormitory: null,
+        address: null,
+        starostaSince: null,
+        duties: null,
+        // Профиль сотрудника
+        position: null,
+        academicDegree: null,
+        academicTitle: null,
+        department: null,
+        subjects: [],
+        officeRoom: null,
+        officeHours: null,
+        employeeNumber: null,
+        researchInterests: null,
+        publicationsUrl: null,
+        appointmentDate: null,
+        workPhone: null,
+        jobTitle: null,
+        responsibilities: null,
+        moderationAreas: null,
       },
     })
     await this.authService.revokeAllUserSessions(userId)
+  }
+
+  /** Best-effort снос объектов аватара (+превью) и обложки в MinIO при удалении аккаунта. */
+  private async deleteUserMedia(userId: string): Promise<void> {
+    try {
+      await this.deleteExistingAvatars(
+        userId,
+        this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
+      )
+    } catch (err) {
+      this.logger.warn(`Не удалось снести аватары пользователя ${userId}: ${String(err)}`)
+    }
+    try {
+      const prev = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { coverUrl: true },
+      })
+      const oldKey = prev?.coverUrl ? this.coverKeyFromUrl(prev.coverUrl) : null
+      if (oldKey) await this.files.removeRawObject(this.coversBucket, oldKey)
+    } catch (err) {
+      this.logger.warn(`Не удалось снести обложку пользователя ${userId}: ${String(err)}`)
+    }
   }
 
   /**
