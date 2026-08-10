@@ -201,21 +201,21 @@ export class ChatsService {
       const afterClear = !cleared || lm.createdAt > cleared
       return lm.senderId !== viewer.sub && afterClear && (floor === null || lm.createdAt > floor)
     })
-    const counts = await Promise.all(
-      needCount.map((c) =>
-        this.prisma.message.count({
-          where: {
-            chatId: c.id,
-            deletedAt: null,
-            senderId: { not: viewer.sub },
-            ...(unreadFloor(c.members[0]!)
-              ? { createdAt: { gt: unreadFloor(c.members[0]!)! } }
-              : {}),
-          },
-        }),
-      ),
-    )
-    const countMap = new Map(needCount.map((c, i) => [c.id, counts[i] ?? 0]))
+    // Непрочитанные — ОДНИМ запросом на все чаты с непрочитанным (иначе N COUNT-ов по числу
+    // чатов). Пер-чатовый порог createdAt задаём OR-ветками; senderId/deletedAt общие для всех.
+    const countBranches = needCount.map((c) => {
+      const floor = unreadFloor(c.members[0]!)
+      return { chatId: c.id, ...(floor ? { createdAt: { gt: floor } } : {}) }
+    })
+    const grouped =
+      countBranches.length > 0
+        ? await this.prisma.message.groupBy({
+            by: ['chatId'],
+            where: { deletedAt: null, senderId: { not: viewer.sub }, OR: countBranches },
+            _count: { _all: true },
+          })
+        : []
+    const countMap = new Map(grouped.map((g) => [g.chatId, g._count._all]))
 
     return chats.map((c) => {
       const mem = c.members[0]
