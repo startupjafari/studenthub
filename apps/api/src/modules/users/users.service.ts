@@ -11,8 +11,10 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
+import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { RealtimeGateway } from '../../common/realtime'
+import { QueueService, QUEUES, FILE_JOBS } from '../../common/queue'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
@@ -29,6 +31,19 @@ export interface AuthUserRecord {
   groupId: string | null
 }
 
+// Данные для второго шага входа (2FA). Секрет — зашифрован, backup-коды — bcrypt-хэши.
+export interface TwoFactorLoginRecord {
+  id: string
+  role: Role
+  isBlocked: boolean
+  universityId: string | null
+  facultyId: string | null
+  groupId: string | null
+  twoFactorEnabled: boolean
+  twoFactorSecret: string | null
+  twoFactorBackupCodes: string[]
+}
+
 const PROFILE_SELECT = {
   id: true,
   email: true,
@@ -36,10 +51,14 @@ const PROFILE_SELECT = {
   lastName: true,
   middleName: true,
   avatarUrl: true,
+  avatarThumbUrl: true,
+  coverUrl: true,
   role: true,
   showEmail: true,
   showPhone: true,
   profileVisibility: true,
+  // Флаг 2FA — только владельцу (в getProfileForViewer вырезается из чужой карточки).
+  twoFactorEnabled: true,
   phone: true,
   universityId: true,
   facultyId: true,
@@ -97,7 +116,14 @@ export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT 
 export type ProfileAccessLevel = 'full' | 'limited'
 export type PublicProfile = Omit<
   UserProfile,
-  'email' | 'phone' | 'showEmail' | 'showPhone' | 'studentCardNumber' | 'employeeNumber' | 'address'
+  | 'email'
+  | 'phone'
+  | 'showEmail'
+  | 'showPhone'
+  | 'studentCardNumber'
+  | 'employeeNumber'
+  | 'address'
+  | 'twoFactorEnabled'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
 @Injectable()
@@ -106,6 +132,7 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly files: FileService,
+    private readonly queue: QueueService,
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     private readonly realtime: RealtimeGateway,
@@ -192,6 +219,7 @@ export class UserService {
           lastName: true,
           role: true,
           avatarUrl: true,
+          avatarThumbUrl: true,
           universityId: true,
           facultyId: true,
           groupId: true,
@@ -231,7 +259,8 @@ export class UserService {
   /**
    * Загрузка аватара (docs/PROJECT.md §4, задача 4.3): изображение в публичный бакет avatars
    * через FileService, ссылка — прямой публичный URL. Прежний аватар удаляется (без сирот).
-   * Генерация превью (job generate-thumbnail) отложена до появления очередей (Ф3).
+   * Превью (≈128px) генерируется асинхронно джобой generate-thumbnail; до готовности
+   * avatarThumbUrl = null и клиент показывает полноразмерный avatarUrl.
    */
   async setAvatar(userId: string, buffer: Buffer): Promise<UserProfile> {
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
@@ -243,22 +272,111 @@ export class UserService {
       expectedCategory: 'IMAGE',
     })
     const avatarUrl = this.buildPublicUrl(bucket, file.key)
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { avatarUrl },
+      data: { avatarUrl, avatarThumbUrl: null },
       select: PROFILE_SELECT,
     })
+    // Тяжёлый ресайз — в очередь (§9.1). Идемпотентность по jobId (один thumb на файл).
+    await this.queue.enqueue(
+      QUEUES.FILE_PROCESSING,
+      FILE_JOBS.GENERATE_THUMBNAIL,
+      { fileId: file.id, bucket, key: file.key, userId },
+      { jobId: `thumb_${file.id}` },
+    )
+    return updated
   }
 
-  /** Удаление аватара: снимает объект(ы) в MinIO и обнуляет avatarUrl. */
+  /** Удаление аватара: снимает объект(ы) в MinIO и обнуляет avatarUrl + превью. */
   async removeAvatar(userId: string): Promise<UserProfile> {
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
     await this.deleteExistingAvatars(userId, bucket)
     return this.prisma.user.update({
       where: { id: userId },
-      data: { avatarUrl: null },
+      data: { avatarUrl: null, avatarThumbUrl: null },
       select: PROFILE_SELECT,
     })
+  }
+
+  /**
+   * Генерация превью аватара (джоба generate-thumbnail, очередь file-processing).
+   * Читает оригинал из MinIO, ресайзит в квадрат ≈128px (webp), кладёт отдельной записью File
+   * в тот же бакет avatars (чтобы orphan-клинер его не удалил, а deleteExistingAvatars снёс при
+   * смене аватара) и проставляет avatarThumbUrl. Если оригинал уже удалён (аватар сменили) —
+   * getObjectBuffer бросит, джоба упадёт и не запишет устаревшее превью.
+   */
+  async generateAvatarThumbnail(data: {
+    fileId: string
+    bucket: string
+    key: string
+    userId: string
+  }): Promise<void> {
+    const original = await this.files.getObjectBuffer(data.bucket, data.key)
+    const thumb = await sharp(original)
+      .resize(128, 128, { fit: 'cover', position: 'centre' })
+      .webp({ quality: 82 })
+      .toBuffer()
+    const thumbFile = await this.files.upload({
+      buffer: thumb,
+      bucket: data.bucket,
+      ownerId: data.userId,
+      expectedCategory: 'IMAGE',
+    })
+    const avatarThumbUrl = this.buildPublicUrl(data.bucket, thumbFile.key)
+    await this.prisma.user.updateMany({
+      where: { id: data.userId, deletedAt: null },
+      data: { avatarThumbUrl },
+    })
+  }
+
+  /**
+   * Обложка профиля (баннер, стиль ВК). Бакет profile-covers — общий (обложки статей/альбомов,
+   * постеры видео), поэтому обложку профиля храним как raw-объект (putAuxImage, без записи File)
+   * и удаляем точечно по ключу — как постеры видео. «Снести все файлы владельца в бакете»
+   * (приём аватара) здесь применять нельзя: удалит и обложки статей.
+   */
+  async setCover(userId: string, buffer: Buffer): Promise<UserProfile> {
+    const bucket = this.coversBucket
+    const prev = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { coverUrl: true },
+    })
+    // Сначала загружаем новую (валидация типа/размера внутри) — при ошибке прежняя обложка цела.
+    const key = await this.files.putAuxImage(bucket, buffer)
+    const oldKey = prev?.coverUrl ? this.coverKeyFromUrl(prev.coverUrl) : null
+    if (oldKey) await this.files.removeRawObject(bucket, oldKey)
+    const coverUrl = this.buildPublicUrl(bucket, key)
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { coverUrl },
+      select: PROFILE_SELECT,
+    })
+  }
+
+  /** Удаление обложки: снимает raw-объект в MinIO и обнуляет coverUrl. */
+  async removeCover(userId: string): Promise<UserProfile> {
+    const bucket = this.coversBucket
+    const prev = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { coverUrl: true },
+    })
+    const oldKey = prev?.coverUrl ? this.coverKeyFromUrl(prev.coverUrl) : null
+    if (oldKey) await this.files.removeRawObject(bucket, oldKey)
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { coverUrl: null },
+      select: PROFILE_SELECT,
+    })
+  }
+
+  private get coversBucket(): string {
+    return this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true })
+  }
+
+  // Ключ объекта (uuid.ext) — последний сегмент публичного URL; query отбрасываем.
+  private coverKeyFromUrl(url: string): string | null {
+    const seg = url.split('?')[0]?.split('/').pop()
+    return seg ? seg : null
   }
 
   // Бакет avatars используется только под аватары, поэтому все файлы пользователя в нём —
@@ -319,12 +437,15 @@ export class UserService {
       employeeNumber,
       address,
       gpa,
+      twoFactorEnabled,
       ...rest
     } = target
     void showEmail
     void studentCardNumber
     void employeeNumber
     void address
+    // Наличие 2FA — приватная деталь владельца, не отдаём чужим.
+    void twoFactorEnabled
     return {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,
@@ -448,6 +569,8 @@ export class UserService {
       lastName: target.lastName,
       middleName: target.middleName,
       avatarUrl: target.avatarUrl,
+      avatarThumbUrl: target.avatarThumbUrl,
+      coverUrl: target.coverUrl,
       role: target.role,
       universityId: target.universityId,
       facultyId: target.facultyId,
@@ -524,6 +647,79 @@ export class UserService {
       return true
     }
     return target.showEmail
+  }
+
+  // ── 2FA (TOTP) ─────────────────────────────────────────────────────────────
+  // Секрет/backup-коды не входят в PROFILE_SELECT и не покидают этот сервис
+  // (изоляция как у passwordHash). Наружу отдаётся только флаг twoFactorEnabled.
+
+  /** Включена ли 2FA (для ветвления login). */
+  async isTwoFactorEnabled(userId: string): Promise<boolean> {
+    const u = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { twoFactorEnabled: true },
+    })
+    return u?.twoFactorEnabled ?? false
+  }
+
+  /** Состояние 2FA для setup/enable/disable (флаг + зашифрованный секрет). */
+  getTwoFactorState(
+    userId: string,
+  ): Promise<{ twoFactorEnabled: boolean; twoFactorSecret: string | null } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { twoFactorEnabled: true, twoFactorSecret: true },
+    })
+  }
+
+  /** Данные для второго шага входа: scope/роль + секрет + backup-коды. */
+  getTwoFactorForLogin(userId: string): Promise<TwoFactorLoginRecord | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        role: true,
+        universityId: true,
+        facultyId: true,
+        groupId: true,
+        isBlocked: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        twoFactorBackupCodes: true,
+      },
+    })
+  }
+
+  /** Сохранить «ожидающий» секрет (setup): секрет есть, но 2FA ещё не включена. */
+  async setPendingTwoFactorSecret(userId: string, encSecret: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorSecret: encSecret, twoFactorEnabled: false, twoFactorBackupCodes: [] },
+    })
+  }
+
+  /** Включить 2FA после подтверждения кодом: сохранить bcrypt-хэши backup-кодов. */
+  async enableTwoFactor(userId: string, backupHashes: string[]): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: true, twoFactorBackupCodes: backupHashes },
+    })
+  }
+
+  /** Отключить 2FA: очистить секрет, флаг и backup-коды. */
+  async disableTwoFactor(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: [] },
+    })
+  }
+
+  /** Обновить набор backup-кодов (при «сжигании» использованного). */
+  async setBackupCodes(userId: string, hashes: string[]): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorBackupCodes: hashes },
+    })
   }
 
   /** Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?). */

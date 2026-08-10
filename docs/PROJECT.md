@@ -446,17 +446,24 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | 415 | `FILE_TYPE_NOT_ALLOWED` | Тип файла (по magic bytes) не в белом списке |
 | 422 | `VALIDATION_ERROR` | Ошибка Zod, с `details[]` |
 | 429 | `RATE_LIMIT` | Превышен лимит |
+| 401 | `INVALID_2FA_CODE` | Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа |
 | 500 | `INTERNAL_ERROR` | Внутренняя ошибка |
 
 Коды — публичный контракт: клиент реагирует на `code`, не на `message`. Тексты для пользователя формирует фронтенд через i18n.
 
 ### 8.3 Реестр эндпоинтов
 
-**Auth** — `POST /auth/login` (публ.) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`
+**Auth** — `POST /auth/login` (публ.; при включённой 2FA возвращает `{ twoFactorRequired: true, challengeToken }` вместо токенов) · `POST /auth/login/2fa` (публ.; `{ challengeToken, code }` → сессия) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`
+
+**2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
+
+**Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.
 
 **Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `PATCH /invites/:id/revoke`
 
-**Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+)
+**Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
+
+**Друзья** (симметричная дружба, ВК-стиль; Social-зона — все роли) — `POST /friends/requests {userId}` (заявка; встречная PENDING → авто-принятие) · `POST /friends/requests/:id/accept` (только адресат) · `DELETE /friends/:id` (отмена/отклонение/удаление из друзей — любой участник) · `GET /friends` (друзья, cursor) · `GET /friends/requests?direction=incoming|outgoing` (заявки, cursor) · `GET /friends/count` (счётчики) · `GET /friends/status/:userId` (статус `NONE|PENDING_OUTGOING|PENDING_INCOMING|ACCEPTED` + `friendshipId` — для кнопки в профиле). Модель `Friendship` (`requesterId`/`addresseeId`/`status`, `@@unique([requesterId, addresseeId])`); enum `FriendshipStatus = PENDING|ACCEPTED` (блокировка — отдельная `UserBlock`). Уведомления о заявке/принятии — тип `SYSTEM` (`data.url='/friends'`).
 
 **Университеты** — `GET|POST /universities` · `GET|PATCH /universities/:id` · `PATCH /universities/:id/status` (Platform Admin) · `GET /universities/:id/stats`
 

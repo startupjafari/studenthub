@@ -24,11 +24,14 @@ import type { MeResponse } from '../../../shared/api'
 import { Button, Card, CardContent, CardHeader, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { AccountSettingsPanels } from '../../account-settings'
+import { FILE_UPLOAD } from '@studenthub/shared-config'
 import {
   fetchMe,
   removeAvatarRequest,
+  removeCoverRequest,
   updateProfileRequest,
   uploadAvatarRequest,
+  uploadCoverRequest,
   userKeys,
 } from '../../../entities/user'
 import { SECTIONS, sectionVisible } from './sections'
@@ -42,6 +45,7 @@ import {
   initialsOf,
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
+import { ProfileCompletion } from './profile-completion'
 import { AvatarCropModal } from './avatar-crop-modal'
 import { PhotoCreateModal, VideoCreateModal } from './profile-create-modals'
 import { ArticleEditorModal } from './article-editor-modal'
@@ -120,7 +124,17 @@ export function UserProfile() {
             onSave={(payload) => updateMut.mutate(payload)}
           />
         ) : (
-          <ProfileBody data={u} />
+          <div className="flex flex-col gap-5">
+            <ProfileCompletion
+              data={u as unknown as Record<string, unknown>}
+              role={u.role}
+              onEdit={() => {
+                setEditing(true)
+                setTab('profile')
+              }}
+            />
+            <ProfileBody data={u} />
+          </div>
         )}
       </ProfileTabs>
 
@@ -160,6 +174,7 @@ function ProfileHeader({
   const qc = useQueryClient()
   const confirm = useConfirm()
   const fileRef = useRef<HTMLInputElement>(null)
+  const coverRef = useRef<HTMLInputElement>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
 
   const uploadMut = useMutation({
@@ -168,6 +183,24 @@ function ProfileHeader({
       qc.setQueryData(userKeys.me(), data)
       setCropFile(null)
       toast.success(t('avatarUpdated'))
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  const uploadCoverMut = useMutation({
+    mutationFn: (f: File) => uploadCoverRequest(f),
+    onSuccess: (data) => {
+      qc.setQueryData(userKeys.me(), data)
+      toast.success(t('coverUpdated'))
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  const removeCoverMut = useMutation({
+    mutationFn: removeCoverRequest,
+    onSuccess: (data) => {
+      qc.setQueryData(userKeys.me(), data)
+      toast.success(t('coverRemoved'))
     },
     onError: (e) => toast.error(tErr(errCode(e))),
   })
@@ -185,6 +218,22 @@ function ProfileHeader({
     const f = e.target.files?.[0]
     if (f) setCropFile(f)
     e.target.value = ''
+  }
+
+  // Обложка загружается напрямую (без кропа): клиентская проверка типа/размера до отправки (§7).
+  function onPickCover(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    if (!f.type.startsWith('image/')) {
+      toast.error(tErr('FILE_TYPE_NOT_ALLOWED'))
+      return
+    }
+    if (f.size > FILE_UPLOAD.MAX_BYTES.IMAGE) {
+      toast.error(tErr('FILE_TOO_LARGE'))
+      return
+    }
+    uploadCoverMut.mutate(f)
   }
 
   return (
@@ -222,8 +271,51 @@ function ProfileHeader({
         )}
       </div>
 
-      {/* Обложка — декоративный градиент бренда. Компактная на мобильном/планшете, крупнее — на десктопе (lg). */}
-      <div className="h-20 w-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500 sm:h-28 lg:h-52" />
+      {/* Обложка: своё изображение или декоративный градиент бренда. Смена/удаление — по ховеру
+          (владелец). Компактная на мобильном/планшете, крупнее — на десктопе (lg). */}
+      <div className="group/cover relative h-20 w-full overflow-hidden sm:h-28 lg:h-52">
+        {me.coverUrl ? (
+          <Image src={me.coverUrl} alt="" fill unoptimized sizes="100vw" className="object-cover" />
+        ) : (
+          <div className="size-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500" />
+        )}
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4">
+          <button
+            type="button"
+            onClick={() => coverRef.current?.click()}
+            aria-label={me.coverUrl ? t('coverChange') : t('coverAdd')}
+            disabled={uploadCoverMut.isPending}
+            className="flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-300 ease-out hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+          >
+            <Camera className="size-4" aria-hidden />
+            <span className="hidden sm:inline">
+              {me.coverUrl ? t('coverChange') : t('coverAdd')}
+            </span>
+          </button>
+          {me.coverUrl && (
+            <button
+              type="button"
+              aria-label={t('coverRemove')}
+              disabled={removeCoverMut.isPending}
+              onClick={() => {
+                void confirm({ title: t('coverRemove'), destructive: true }).then(
+                  (ok) => ok && removeCoverMut.mutate(),
+                )
+              }}
+              className="flex size-8 items-center justify-center rounded-lg bg-foreground/55 text-background opacity-0 shadow-md outline-none transition-opacity duration-300 ease-out hover:bg-destructive focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+            >
+              <Trash2 className="size-4" aria-hidden />
+            </button>
+          )}
+        </div>
+        <input
+          ref={coverRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={onPickCover}
+        />
+      </div>
 
       <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
         {/* Аватар: смена фото (пикер → кроп), удаление, статус (вверху справа), меню «+» (внизу справа).
@@ -233,7 +325,7 @@ function ProfileHeader({
           <div className="group relative size-24 sm:size-28 lg:size-36">
             {me.avatarUrl ? (
               <Image
-                src={me.avatarUrl}
+                src={me.avatarThumbUrl ?? me.avatarUrl}
                 alt={fullNameOf(me)}
                 width={128}
                 height={128}

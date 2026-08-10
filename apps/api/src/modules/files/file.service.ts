@@ -237,6 +237,16 @@ export class FileService {
     await this.minio.removeObject(bucket, key).catch(() => undefined)
   }
 
+  /** Читает объект целиком в память (для обработки в очереди: генерация превью и т.п.). */
+  async getObjectBuffer(bucket: string, key: string): Promise<Buffer> {
+    const stream = await this.minio.getObject(bucket, key)
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer)
+    }
+    return Buffer.concat(chunks)
+  }
+
   /**
    * Удаляет объект в MinIO и запись в БД. Сначала объект, затем запись: при сбое
    * удаления объекта запись остаётся и операцию можно повторить (осиротевший объект — баг, §8).
