@@ -90,6 +90,7 @@ model User {
   files                File[]
   notifications        Notification[]
   notificationSettings NotificationSettings?
+  pushSubscriptions    PushSubscription[]
 
   // Расписание (Ф6): пары, которые ведёт преподаватель; изменения расписания, где он замена/автор.
   pairsTaught            Pair[]           @relation("PairTeacher")

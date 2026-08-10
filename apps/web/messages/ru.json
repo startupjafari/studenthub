@@ -1158,7 +1158,9 @@
     "visibilityPRIVATE": "Закрытый (только я)",
     "documentsStorage": "Документы и персональные данные",
     "documentsStorageDesc": "Защищённое хранилище ваших документов",
-    "documentsStorageOpen": "Открыть хранилище"
+    "documentsStorageOpen": "Открыть хранилище",
+    "pushUnsupported": "Push-уведомления не поддерживаются этим браузером",
+    "pushDenied": "Не удалось включить push: нет разрешения"
   },
   "Offline": {
     "title": "Нет соединения",

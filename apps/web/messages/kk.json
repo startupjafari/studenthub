@@ -1158,7 +1158,9 @@
     "visibilityPRIVATE": "Жабық (тек мен)",
     "documentsStorage": "Құжаттар және дербес деректер",
     "documentsStorageDesc": "Құжаттарыңызға арналған қорғалған қойма",
-    "documentsStorageOpen": "Қойманы ашу"
+    "documentsStorageOpen": "Қойманы ашу",
+    "pushUnsupported": "Бұл браузер push-хабарламаларды қолдамайды",
+    "pushDenied": "Push қосу мүмкін болмады: рұқсат жоқ"
   },
   "Offline": {
     "title": "Байланыс жоқ",
