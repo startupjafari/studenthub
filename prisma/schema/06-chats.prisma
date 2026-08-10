@@ -52,6 +52,9 @@ model ChatMember {
   // «Удалить чат у себя» для PRIVATE (Telegram-стиль): не null — чат скрыт из списка этого участника.
   // Членство сохраняется (сообщения продолжают приходить); новое сообщение сбрасывает hiddenAt → чат возвращается.
   hiddenAt   DateTime? @map("hidden_at")
+  // Черновик сообщения (Ф9+, синхронизация между устройствами как в Telegram): последний
+  // несохранённый текст ввода этого участника в чате. null/пусто — черновика нет.
+  draft      String?
   createdAt  DateTime  @default(now()) @map("created_at")
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
