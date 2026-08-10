@@ -47,10 +47,12 @@ export {
   type PresenceEntry,
   type ChatMemberInfo,
   type ChatReadReceipt,
+  type LinkPreview,
   type BlockedUser,
 } from './model/types'
 export { MessageContent } from './ui/message-content'
 export { MessageAttachments } from './ui/message-attachments'
+export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'

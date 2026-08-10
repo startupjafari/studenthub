@@ -64,6 +64,7 @@ import {
   unpinMessageRequest,
   AttachmentDialog,
   ForwardDialog,
+  LinkPreviewCard,
   MessageAttachments,
   MessageContent,
   MessageContextMenu,
@@ -955,6 +956,7 @@ export function ChatWindow() {
         lastName: me.lastName,
         avatarUrl: me.avatarUrl,
       },
+      linkPreview: null,
       media: [],
       replyTo: null,
       forwardedFrom: null,
@@ -2108,6 +2110,9 @@ export function ChatWindow() {
                                 <div className={cn((m.media.length > 0 || m.sharedPost) && 'mt-1')}>
                                   <MessageContent content={m.content} />
                                 </div>
+                              )}
+                              {m.linkPreview && (
+                                <LinkPreviewCard preview={m.linkPreview} mine={mine} />
                               )}
                               <span
                                 className={cn(

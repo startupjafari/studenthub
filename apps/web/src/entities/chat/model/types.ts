@@ -53,11 +53,22 @@ export interface ChatMessage {
   pinnedAt: string | null
   createdAt: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // Инлайн-превью первой ссылки (заполняется асинхронно; приходит по message:updated).
+  linkPreview: LinkPreview | null
   media: MessageAttachment[]
   replyTo: MessageReplyPreview | null
   forwardedFrom: MessageForwardOrigin | null
   sharedPost: SharedPostPreview | null
   reactions: MessageReaction[]
+}
+
+// Инлайн-превью ссылки (OG-мета) в сообщении.
+export interface LinkPreview {
+  url: string
+  title: string | null
+  description: string | null
+  image: string | null
+  siteName: string | null
 }
 
 // Статус прочтения участником (#6): кто прочитал и до какого момента.
