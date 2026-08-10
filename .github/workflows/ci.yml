@@ -45,6 +45,7 @@ jobs:
       # Нечувствительные CI-значения (не секреты): нужны только для валидации env и сборки.
       JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-32ch
       JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-32
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-ci-totp-key-32
       REDIS_HOST: localhost
       REDIS_PORT: 6379
       MINIO_ENDPOINT: localhost
