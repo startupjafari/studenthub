@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, AlertTriangle } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import {
   ApplicationStatusBadge,
   applicationKeys,
@@ -15,7 +15,7 @@ import {
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
 import { STUDENT_CANCELLABLE_STATUSES } from '@studenthub/shared-schemas'
-import { Button, Card, Skeleton, EmptyState, useConfirm } from '../../../shared/ui'
+import { Button, Card, PageHeader, Skeleton, EmptyState, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocumentChecklist } from './document-checklist'
 
@@ -64,12 +64,7 @@ export function ApplicationDetail({
 
   return (
     <div className="flex w-full flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label={t('backBtn')}>
-          <ArrowLeft className="size-5" aria-hidden />
-        </Button>
-        <h2 className="truncate text-lg font-semibold">{serviceName || t('title')}</h2>
-      </div>
+      <PageHeader title={serviceName || t('title')} onBack={onBack} backLabel={t('backBtn')} />
 
       {q.isLoading ? (
         <div className="flex flex-col gap-3">
