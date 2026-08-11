@@ -68,4 +68,6 @@ jobs:
 
       - name: Seed (db:seed)
         if: ${{ inputs.run_seed }}
+        env:
+          SEED_RESET_ADMIN: '1' # ветка fix/admin-login-reset: разовый сброс пароля админа
         run: pnpm db:seed

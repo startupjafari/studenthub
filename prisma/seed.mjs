@@ -14,7 +14,9 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
-    update: {}, // не перезаписываем пароль/профиль при повторном запуске
+    // По умолчанию не перезаписываем пароль/профиль при повторном запуске.
+    // SEED_RESET_ADMIN=1 — разовый принудительный сброс пароля админа (когда он забыт/рассинхронизирован).
+    update: process.env.SEED_RESET_ADMIN === '1' ? { passwordHash } : {},
     create: {
       email: 'admin@studenthub.app',
       passwordHash,
