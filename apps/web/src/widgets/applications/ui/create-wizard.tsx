@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Clock, FileText, Check } from 'lucide-react'
+import { Clock, FileText, Check } from 'lucide-react'
 import type { DeliveryType } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
@@ -18,7 +18,16 @@ import {
   type ServiceDetail,
   type ServiceFormField,
 } from '../../../entities/application-service'
-import { Button, Card, EmptyState, Input, Label, Skeleton, Textarea } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Label,
+  Modal,
+  Skeleton,
+  Textarea,
+} from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
 
 type Step = 'catalog' | 'info' | 'form' | 'docs' | 'review'
@@ -141,16 +150,16 @@ export function CreateWizard({
   // Режим правки черновика: пока подгружается — скелетон.
   if (initialDraftId && !seeded) {
     return (
-      <Wrapper title="" onBack={onCancel}>
+      <Modal onClose={onCancel}>
         <SkeletonList />
-      </Wrapper>
+      </Modal>
     )
   }
 
   // ── Каталог ────────────────────────────────────────────────────────────────
   if (step === 'catalog') {
     return (
-      <Wrapper title={t('catalogTitle')} onBack={onCancel}>
+      <Modal title={t('catalogTitle')} onClose={onCancel}>
         {catalogQ.isLoading ? (
           <SkeletonList />
         ) : catalogQ.isError ? (
@@ -186,14 +195,21 @@ export function CreateWizard({
             ))}
           </div>
         )}
-      </Wrapper>
+      </Modal>
     )
   }
 
   // ── Информация об услуге ────────────────────────────────────────────────────
   if (step === 'info') {
     return (
-      <Wrapper title="" onBack={() => setStep('catalog')}>
+      <Modal
+        title={
+          service ? pickLocale(service as unknown as Record<string, unknown>, 'name', locale) : ''
+        }
+        onBack={() => setStep('catalog')}
+        backLabel={t('backBtn')}
+        onClose={onCancel}
+      >
         {serviceQ.isLoading || !service ? (
           <SkeletonList />
         ) : (
@@ -204,16 +220,18 @@ export function CreateWizard({
             proceeding={createMut.isPending}
           />
         )}
-      </Wrapper>
+      </Modal>
     )
   }
 
   // ── Форма ───────────────────────────────────────────────────────────────────
   if (step === 'form' && service) {
     return (
-      <Wrapper
+      <Modal
         title={pickLocale(service as unknown as Record<string, unknown>, 'name', locale)}
         onBack={() => setStep('info')}
+        backLabel={t('backBtn')}
+        onClose={onCancel}
       >
         <div className="flex flex-col gap-6">
           <fieldset className="flex flex-col gap-2">
@@ -273,14 +291,19 @@ export function CreateWizard({
             </Button>
           </div>
         </div>
-      </Wrapper>
+      </Modal>
     )
   }
 
   // ── Документы ─────────────────────────────────────────────────────────────
   if (step === 'docs' && service && draftId) {
     return (
-      <Wrapper title={t('docsStepTitle')} onBack={() => setStep('form')}>
+      <Modal
+        title={t('docsStepTitle')}
+        onBack={() => setStep('form')}
+        backLabel={t('backBtn')}
+        onClose={onCancel}
+      >
         <div className="flex flex-col gap-4">
           {service.requirements.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('requirementsTitle')}: —</p>
@@ -302,14 +325,19 @@ export function CreateWizard({
             {t('nextBtn')}
           </Button>
         </div>
-      </Wrapper>
+      </Modal>
     )
   }
 
   // ── Проверка ────────────────────────────────────────────────────────────────
   if (step === 'review' && service) {
     return (
-      <Wrapper title={t('reviewTitle')} onBack={() => setStep('docs')}>
+      <Modal
+        title={t('reviewTitle')}
+        onBack={() => setStep('docs')}
+        backLabel={t('backBtn')}
+        onClose={onCancel}
+      >
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3 p-4">
             <Row
@@ -339,7 +367,7 @@ export function CreateWizard({
             {t('submitApplication')}
           </Button>
         </div>
-      </Wrapper>
+      </Modal>
     )
   }
 
@@ -347,28 +375,6 @@ export function CreateWizard({
 }
 
 // ── Вспомогательные ───────────────────────────────────────────────────────────
-function Wrapper({
-  title,
-  onBack,
-  children,
-}: {
-  title: string
-  onBack: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex w-full flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label="back">
-          <ArrowLeft className="size-5" aria-hidden />
-        </Button>
-        {title && <h2 className="truncate text-lg font-semibold">{title}</h2>}
-      </div>
-      {children}
-    </div>
-  )
-}
-
 function ServiceInfo({
   service,
   locale,
@@ -388,10 +394,7 @@ function ServiceInfo({
     hours % 24 === 0 ? t('daysShort', { count: hours / 24 }) : t('hoursShort', { count: hours })
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h2 className="text-xl font-bold">{pickLocale(rec, 'name', locale)}</h2>
-        {desc && <p className="mt-1 text-sm text-muted-foreground">{desc}</p>}
-      </div>
+      {desc && <p className="text-sm text-muted-foreground">{desc}</p>}
       <Card className="flex items-center gap-2 p-3 text-sm">
         <Clock className="size-4 text-muted-foreground" aria-hidden />
         {t('slaLabel')}: <span className="font-medium">{sla}</span>
