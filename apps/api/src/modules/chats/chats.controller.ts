@@ -196,6 +196,20 @@ export class ChatsController {
     return this.chats.setMuted(user.sub, id, false)
   }
 
+  @Post(':id/pin')
+  @ApiOperation({ summary: 'Закрепить чат (у себя, сверху списка)' })
+  @ApiResponse({ status: 201, description: 'Чат закреплён' })
+  pinChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.setChatPinned(user.sub, id, true)
+  }
+
+  @Delete(':id/pin')
+  @ApiOperation({ summary: 'Открепить чат' })
+  @ApiResponse({ status: 200, description: 'Чат откреплён' })
+  unpinChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.setChatPinned(user.sub, id, false)
+  }
+
   @Get(':id/presence')
   @ApiOperation({ summary: 'Онлайн-статусы участников чата' })
   @ApiResponse({ status: 200, description: 'Список { userId, online }' })

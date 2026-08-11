@@ -65,7 +65,7 @@ describe('Complaints (e2e) — доступ к чату по жалобе (Ф11.
   async function login(email: string): Promise<string> {
     const res = await request(server)
       .post('/api/v1/auth/login')
-      .send({ email, password: PASSWORD })
+      .send({ identifier: email, password: PASSWORD })
       .expect(201)
     return res.body.data.accessToken as string
   }
