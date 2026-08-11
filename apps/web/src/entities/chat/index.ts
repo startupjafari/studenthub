@@ -15,6 +15,7 @@ export {
   sharePostRequest,
   exportChatRequest,
   setChatMutedRequest,
+  setChatPinnedRequest,
   fetchPresence,
   fetchChatMembers,
   fetchReadReceipts,

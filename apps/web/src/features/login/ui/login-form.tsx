@@ -37,7 +37,7 @@ export function LoginForm() {
   async function onSubmit(values: LoginInput) {
     resetApiError()
     try {
-      const result = await loginRequest(values.email, values.password)
+      const result = await loginRequest(values.identifier, values.password)
       if ('twoFactorRequired' in result) {
         setChallengeToken(result.challengeToken)
         return
@@ -84,16 +84,18 @@ export function LoginForm() {
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
-          <Label htmlFor="email">{t('email')}</Label>
+          <Label htmlFor="identifier">{t('emailOrUsername')}</Label>
           <Input
-            id="email"
-            type="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            aria-invalid={!!errors.email}
-            {...register('email')}
+            id="identifier"
+            type="text"
+            autoComplete="username"
+            placeholder="you@example.com или username"
+            aria-invalid={!!errors.identifier}
+            {...register('identifier')}
           />
-          {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+          {errors.identifier && (
+            <p className="text-xs text-destructive">{errors.identifier.message}</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
