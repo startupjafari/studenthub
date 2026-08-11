@@ -103,7 +103,7 @@ export function StudentApplicationsView() {
   return (
     <div className="flex w-full flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">{t('myApplications')}</h1>
+        <h1 className="text-2xl font-bold">{t('myApplications')}</h1>
         <Button onClick={() => setScreen({ name: 'create' })}>
           <Plus className="size-4" aria-hidden />
           {t('createApplication')}
