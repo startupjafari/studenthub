@@ -9,11 +9,14 @@ import {
   applicationKeys,
   fetchApplication,
   cancelApplicationRequest,
+  resubmitApplicationRequest,
   pickLocale,
   type TimelineEvent,
+  type ApplicationDocumentItem,
 } from '../../../entities/application-service'
 import { STUDENT_CANCELLABLE_STATUSES } from '@studenthub/shared-schemas'
 import { Button, Card, Skeleton, EmptyState } from '../../../shared/ui'
+import { DocumentChecklist } from './document-checklist'
 
 export function ApplicationDetail({
   id,
@@ -38,8 +41,19 @@ export function ApplicationDetail({
     },
     onError: () => toast.error(t('loadError')),
   })
+  const resubmitMut = useMutation({
+    mutationFn: () => resubmitApplicationRequest(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: applicationKeys.all })
+      void q.refetch()
+    },
+    onError: () => toast.error(t('loadError')),
+  })
 
   const app = q.data
+  const docs: ApplicationDocumentItem[] = app?.documents ?? []
+  const editableDocs = app?.status === 'NEEDS_CORRECTION'
+  const replacementPending = docs.some((d) => d.status === 'REPLACEMENT_REQUIRED')
   const serviceName = app
     ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
     : ''
@@ -125,6 +139,27 @@ export function ApplicationDetail({
               </Card>
             )}
 
+          {docs.length > 0 && (
+            <Card className="flex flex-col gap-3 p-4">
+              <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
+              <DocumentChecklist
+                appId={app.id}
+                requirements={docs.map((d) => ({
+                  id: d.requirement.id,
+                  documentType: null,
+                  titleRu: d.requirement.titleRu,
+                  titleKk: d.requirement.titleKk,
+                  titleEn: d.requirement.titleEn,
+                  required: d.requirement.required,
+                }))}
+                documents={docs}
+                editable={editableDocs}
+                locale={locale}
+                onChanged={() => void q.refetch()}
+              />
+            </Card>
+          )}
+
           <Card className="flex flex-col gap-3 p-4">
             <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
             <Timeline events={app.events} />
@@ -134,6 +169,15 @@ export function ApplicationDetail({
             {isDraft && (
               <Button className="w-full" onClick={() => onContinueDraft(app.id)}>
                 {t('continueDraft')}
+              </Button>
+            )}
+            {editableDocs && !replacementPending && (
+              <Button
+                className="w-full"
+                loading={resubmitMut.isPending}
+                onClick={() => resubmitMut.mutate()}
+              >
+                {t('resubmit')}
               </Button>
             )}
             {cancellable && (

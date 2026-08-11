@@ -790,7 +790,22 @@
     "event_ISSUED": "Түпнұсқа берілді",
     "event_DELIVERED": "Электрондық құжат ұсынылды",
     "event_REJECTED": "Өтінім қабылданбады",
-    "event_CANCELLED": "Өтінім кері қайтарылды"
+    "event_CANCELLED": "Өтінім кері қайтарылды",
+    "documentsTitle": "Құжаттар",
+    "docsStepTitle": "Құжаттар",
+    "attachFromStorage": "Қоймадан таңдау",
+    "chooseDocument": "Құжатты таңдаңыз",
+    "noStorageDocs": "Қоймада сәйкес құжаттар жоқ",
+    "uploadToStorage": "Қоймаға жүктеу",
+    "replaceDoc": "Ауыстыру",
+    "removeDoc": "Алып тастау",
+    "viewDoc": "Қарау",
+    "resubmit": "Қайта жіберу",
+    "reviewReason": "Себебі",
+    "docStatus_PENDING": "Тексерілуде",
+    "docStatus_ACCEPTED": "Қабылданды",
+    "docStatus_REJECTED": "Қабылданбады",
+    "docStatus_REPLACEMENT_REQUIRED": "Ауыстыру қажет"
   },
   "Feed": {
     "published": "Жарияланды",

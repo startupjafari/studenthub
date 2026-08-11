@@ -19,8 +19,9 @@ import {
   type ServiceFormField,
 } from '../../../entities/application-service'
 import { Button, Card, EmptyState, Input, Label, Skeleton, Textarea } from '../../../shared/ui'
+import { DocumentChecklist } from './document-checklist'
 
-type Step = 'catalog' | 'info' | 'form' | 'review'
+type Step = 'catalog' | 'info' | 'form' | 'docs' | 'review'
 
 function allowedDeliveryTypes(modes: string[]): DeliveryType[] {
   const e = modes.includes('ELECTRONIC')
@@ -104,10 +105,28 @@ export function CreateWizard({
     onError: () => toast.error(t('loadError')),
   })
 
+  // Приложенные документы черновика (для шага «Документы» и gating обязательных).
+  const draftDetailQ = useQuery({
+    queryKey: applicationKeys.detail(draftId ?? ''),
+    queryFn: () => fetchApplication(draftId!),
+    enabled: !!draftId,
+  })
+  const attachedDocs = draftDetailQ.data?.documents ?? []
+
   const deliveryOptions = useMemo(
     () => (service ? allowedDeliveryTypes(service.deliveryModes) : []),
     [service],
   )
+
+  const requiredDocsMissing = useMemo(() => {
+    if (!service) return false
+    return service.requirements
+      .filter((r) => r.required)
+      .some((r) => {
+        const d = attachedDocs.find((x) => x.requirementId === r.id)
+        return !d || d.status === 'REPLACEMENT_REQUIRED'
+      })
+  }, [service, attachedDocs])
 
   const missingRequired = useMemo(() => {
     if (!service) return true
@@ -249,7 +268,7 @@ export function CreateWizard({
             >
               {t('saveDraft')}
             </Button>
-            <Button className="w-full" disabled={missingRequired} onClick={() => setStep('review')}>
+            <Button className="w-full" disabled={missingRequired} onClick={() => setStep('docs')}>
               {t('nextBtn')}
             </Button>
           </div>
@@ -258,10 +277,39 @@ export function CreateWizard({
     )
   }
 
+  // ── Документы ─────────────────────────────────────────────────────────────
+  if (step === 'docs' && service && draftId) {
+    return (
+      <Wrapper title={t('docsStepTitle')} onBack={() => setStep('form')}>
+        <div className="flex flex-col gap-4">
+          {service.requirements.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('requirementsTitle')}: —</p>
+          ) : (
+            <DocumentChecklist
+              appId={draftId}
+              requirements={service.requirements}
+              documents={attachedDocs}
+              editable
+              locale={locale}
+              onChanged={() => void draftDetailQ.refetch()}
+            />
+          )}
+          <Button
+            className="w-full"
+            disabled={requiredDocsMissing}
+            onClick={() => setStep('review')}
+          >
+            {t('nextBtn')}
+          </Button>
+        </div>
+      </Wrapper>
+    )
+  }
+
   // ── Проверка ────────────────────────────────────────────────────────────────
   if (step === 'review' && service) {
     return (
-      <Wrapper title={t('reviewTitle')} onBack={() => setStep('form')}>
+      <Wrapper title={t('reviewTitle')} onBack={() => setStep('docs')}>
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3 p-4">
             <Row
