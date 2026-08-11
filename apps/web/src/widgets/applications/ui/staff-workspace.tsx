@@ -24,7 +24,7 @@ import {
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
-import { Button, Card, PageHeader, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
+import { Button, Card, Modal, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -35,24 +35,17 @@ interface Prompt {
 }
 
 // Рабочее место сотрудника по одной заявке (§17): студент, документы-review, действия, timeline.
-export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void }) {
+export function StaffWorkspace({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const q = useQuery({ queryKey: applicationKeys.detail(id), queryFn: () => fetchApplication(id) })
   const app = q.data
+  const serviceName = app
+    ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
+    : undefined
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-      <PageHeader
-        title={
-          app
-            ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
-            : t('title')
-        }
-        onBack={onBack}
-        backLabel={t('backBtn')}
-      />
-
+    <Modal size="2xl" title={serviceName} onClose={onClose}>
       {q.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
       ) : q.isError || !app ? (
@@ -65,7 +58,7 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
           }
         />
       ) : (
-        <>
+        <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3 p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium text-muted-foreground">{app.number}</span>
@@ -144,9 +137,9 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
           </Card>
 
           <StaffActions app={app} onDone={() => void q.refetch()} />
-        </>
+        </div>
       )}
-    </div>
+    </Modal>
   )
 }
 

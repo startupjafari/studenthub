@@ -10,7 +10,7 @@ import {
   fetchApplications,
   type ApplicationListItem,
 } from '../../../entities/application-service'
-import { Button, EmptyState, Modal, PageHeader, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ApplicationCard } from './application-card'
 import { ApplicationDetail } from './application-detail'
@@ -175,13 +175,11 @@ export function StudentApplicationsView() {
 
       {/* Шаги создания/правки черновика — в модальном окне поверх списка */}
       {(screen.name === 'create' || screen.name === 'edit') && (
-        <Modal size="xl" onClose={() => setScreen({ name: 'list' })}>
-          <CreateWizard
-            initialDraftId={screen.name === 'edit' ? screen.id : undefined}
-            onDone={(id) => setScreen({ name: 'detail', id })}
-            onCancel={() => setScreen({ name: 'list' })}
-          />
-        </Modal>
+        <CreateWizard
+          initialDraftId={screen.name === 'edit' ? screen.id : undefined}
+          onDone={(id) => setScreen({ name: 'detail', id })}
+          onCancel={() => setScreen({ name: 'list' })}
+        />
       )}
     </div>
   )

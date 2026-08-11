@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useTranslations } from 'next-intl'
-import { X } from 'lucide-react'
+import { ArrowLeft, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 const SIZE = {
@@ -16,16 +16,28 @@ const SIZE = {
 
 export interface ModalProps {
   onClose: () => void
-  /** Заголовок в шапке окна. Если не задан — показывается только кнопка закрытия (sr-only заголовок для a11y). */
+  /** Заголовок в шапке окна. Если не задан — sr-only (для a11y), в шапке только крестик. */
   title?: ReactNode
+  /** Кнопка «назад» слева от заголовка (шаговые сценарии). Не показывать на первом шаге. */
+  onBack?: () => void
+  backLabel?: string
   size?: keyof typeof SIZE
   children: ReactNode
   className?: string
 }
 
-// Единая оболочка модального окна на Radix Dialog: фокус-трап, ESC/клик по фону,
-// скролл длинного контента внутри, координация слоёв (Select/Popover внутри работают).
-export function Modal({ onClose, title, size = 'xl', children, className }: ModalProps) {
+// Единая оболочка модального окна на Radix Dialog: [← (опц.)] Заголовок … [крестик].
+// Один выход из окна — крестик; стрелка «назад» только для навигации по шагам.
+// Фокус-трап, ESC/клик по фону, скролл длинного контента внутри.
+export function Modal({
+  onClose,
+  title,
+  onBack,
+  backLabel,
+  size = 'xl',
+  children,
+  className,
+}: ModalProps) {
   const t = useTranslations('Common')
 
   return (
@@ -45,12 +57,24 @@ export function Modal({ onClose, title, size = 'xl', children, className }: Moda
             className,
           )}
         >
-          <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
-            <DialogPrimitive.Title
-              className={cn('truncate text-base font-semibold', !title && 'sr-only')}
-            >
-              {title ?? t('close')}
-            </DialogPrimitive.Title>
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label={backLabel ?? t('close')}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <ArrowLeft className="size-5" aria-hidden />
+                </button>
+              )}
+              <DialogPrimitive.Title
+                className={cn('min-w-0 truncate text-base font-semibold', !title && 'sr-only')}
+              >
+                {title ?? t('close')}
+              </DialogPrimitive.Title>
+            </div>
             <DialogPrimitive.Close
               aria-label={t('close')}
               className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
