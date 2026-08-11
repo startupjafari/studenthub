@@ -24,7 +24,7 @@ import {
   EmptyState,
   Input,
   Label,
-  Modal,
+  PageHeader,
   Skeleton,
   Textarea,
 } from '../../../shared/ui'
@@ -150,16 +150,16 @@ export function CreateWizard({
   // Режим правки черновика: пока подгружается — скелетон.
   if (initialDraftId && !seeded) {
     return (
-      <Modal onClose={onCancel}>
+      <Page onClose={onCancel}>
         <SkeletonList />
-      </Modal>
+      </Page>
     )
   }
 
   // ── Каталог ────────────────────────────────────────────────────────────────
   if (step === 'catalog') {
     return (
-      <Modal title={t('catalogTitle')} onClose={onCancel}>
+      <Page title={t('catalogTitle')} onClose={onCancel}>
         {catalogQ.isLoading ? (
           <SkeletonList />
         ) : catalogQ.isError ? (
@@ -195,14 +195,14 @@ export function CreateWizard({
             ))}
           </div>
         )}
-      </Modal>
+      </Page>
     )
   }
 
   // ── Информация об услуге ────────────────────────────────────────────────────
   if (step === 'info') {
     return (
-      <Modal
+      <Page
         title={
           service ? pickLocale(service as unknown as Record<string, unknown>, 'name', locale) : ''
         }
@@ -220,14 +220,14 @@ export function CreateWizard({
             proceeding={createMut.isPending}
           />
         )}
-      </Modal>
+      </Page>
     )
   }
 
   // ── Форма ───────────────────────────────────────────────────────────────────
   if (step === 'form' && service) {
     return (
-      <Modal
+      <Page
         title={pickLocale(service as unknown as Record<string, unknown>, 'name', locale)}
         onBack={() => setStep('info')}
         backLabel={t('backBtn')}
@@ -291,14 +291,14 @@ export function CreateWizard({
             </Button>
           </div>
         </div>
-      </Modal>
+      </Page>
     )
   }
 
   // ── Документы ─────────────────────────────────────────────────────────────
   if (step === 'docs' && service && draftId) {
     return (
-      <Modal
+      <Page
         title={t('docsStepTitle')}
         onBack={() => setStep('form')}
         backLabel={t('backBtn')}
@@ -325,14 +325,14 @@ export function CreateWizard({
             {t('nextBtn')}
           </Button>
         </div>
-      </Modal>
+      </Page>
     )
   }
 
   // ── Проверка ────────────────────────────────────────────────────────────────
   if (step === 'review' && service) {
     return (
-      <Modal
+      <Page
         title={t('reviewTitle')}
         onBack={() => setStep('docs')}
         backLabel={t('backBtn')}
@@ -367,7 +367,7 @@ export function CreateWizard({
             {t('submitApplication')}
           </Button>
         </div>
-      </Modal>
+      </Page>
     )
   }
 
@@ -375,6 +375,28 @@ export function CreateWizard({
 }
 
 // ── Вспомогательные ───────────────────────────────────────────────────────────
+// Полноэкранная страница шага мастера: системная шапка (назад + заголовок) + контент.
+function Page({
+  title,
+  onBack,
+  onClose,
+  children,
+}: {
+  title?: React.ReactNode
+  onBack?: () => void
+  onClose?: () => void
+  backLabel?: string
+  children: React.ReactNode
+}) {
+  const t = useTranslations('Applications')
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <PageHeader title={title} onBack={onBack ?? onClose} backLabel={t('backBtn')} />
+      {children}
+    </div>
+  )
+}
+
 function ServiceInfo({
   service,
   locale,
