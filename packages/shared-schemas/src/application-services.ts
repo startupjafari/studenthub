@@ -1,0 +1,145 @@
+import { z } from 'zod'
+import { OffsetPaginationSchema } from './pagination.js'
+
+// Контракт домена «Услуги университета» (переработка «Заявок»). Единый источник истины для
+// state-machine, формы и фильтров — и для бэкенда (guard/сервис), и для фронта. Значения —
+// строки (стиль новых доменов). Старый applications.ts сосуществует до cleanup.
+
+// ── Каталог ──────────────────────────────────────────────────────────────────
+export const APPLICATION_CATEGORY_CODES = [
+  'ACADEMIC',
+  'CERTIFICATES',
+  'FINANCIAL',
+  'MILITARY',
+  'DORMITORY',
+  'PERSONAL_DATA',
+  'TECHNICAL',
+  'OTHER',
+] as const
+export const ApplicationCategoryCodeSchema = z.enum(APPLICATION_CATEGORY_CODES)
+export type ApplicationCategoryCode = z.infer<typeof ApplicationCategoryCodeSchema>
+
+// Способ выдачи услуги (что поддерживает услуга) и выбор студента.
+export const DeliveryModeSchema = z.enum(['ELECTRONIC', 'PAPER'])
+export type DeliveryMode = z.infer<typeof DeliveryModeSchema>
+export const DeliveryTypeSchema = z.enum(['ELECTRONIC', 'PAPER', 'BOTH'])
+export type DeliveryType = z.infer<typeof DeliveryTypeSchema>
+
+export const ProcessingModeSchema = z.enum(['MANUAL', 'AUTOMATIC', 'HYBRID'])
+export type ProcessingMode = z.infer<typeof ProcessingModeSchema>
+
+export const FormFieldTypeSchema = z.enum([
+  'TEXT',
+  'TEXTAREA',
+  'NUMBER',
+  'DATE',
+  'SELECT',
+  'RADIO',
+  'CHECKBOX',
+  'BOOLEAN',
+])
+export type FormFieldType = z.infer<typeof FormFieldTypeSchema>
+
+// ── Статусная модель (§7) ────────────────────────────────────────────────────
+export const APPLICATION_STATUSES = [
+  'DRAFT',
+  'SUBMITTED',
+  'IN_REVIEW',
+  'NEEDS_CORRECTION',
+  'RESUBMITTED',
+  'IN_PREPARATION',
+  'READY',
+  'READY_FOR_PICKUP',
+  'ISSUED',
+  'DELIVERED',
+  'REJECTED',
+  'CANCELLED',
+] as const
+export const ApplicationServiceStatusSchema = z.enum(APPLICATION_STATUSES)
+export type ApplicationServiceStatus = z.infer<typeof ApplicationServiceStatusSchema>
+
+// Единый граф допустимых переходов (SSOT). Бэкенд — финальный источник истины: любой переход
+// проверяется здесь, даже если фронт скрыл кнопку. Business-action → целевой статус решает сервис.
+export const APPLICATION_TRANSITIONS: Record<ApplicationServiceStatus, ApplicationServiceStatus[]> =
+  {
+    DRAFT: ['SUBMITTED', 'CANCELLED'],
+    SUBMITTED: ['IN_REVIEW', 'CANCELLED', 'REJECTED'],
+    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED'],
+    NEEDS_CORRECTION: ['RESUBMITTED', 'CANCELLED'],
+    RESUBMITTED: ['IN_REVIEW'],
+    IN_PREPARATION: ['READY', 'READY_FOR_PICKUP', 'REJECTED'],
+    READY: ['DELIVERED', 'READY_FOR_PICKUP'],
+    READY_FOR_PICKUP: ['ISSUED', 'DELIVERED'],
+    ISSUED: [],
+    DELIVERED: [],
+    REJECTED: [],
+    CANCELLED: [],
+  }
+
+// Терминальные статусы — заявка завершена, действий нет.
+export const TERMINAL_STATUSES: ApplicationServiceStatus[] = [
+  'ISSUED',
+  'DELIVERED',
+  'REJECTED',
+  'CANCELLED',
+]
+
+// До этих статусов заявку редактирует/отзывает студент; после — данные фиксируются.
+export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = [
+  'DRAFT',
+  'SUBMITTED',
+  'IN_REVIEW',
+  'NEEDS_CORRECTION',
+  'RESUBMITTED',
+]
+
+export function canTransition(
+  from: ApplicationServiceStatus,
+  to: ApplicationServiceStatus,
+): boolean {
+  return APPLICATION_TRANSITIONS[from].includes(to)
+}
+
+// ── Тело запросов ────────────────────────────────────────────────────────────
+// Создание черновика: только выбор услуги; остальное заполняется правкой черновика (§8, §30).
+export const CreateDraftSchema = z.object({ serviceId: z.string().uuid() }).strict()
+export type CreateDraftInput = z.infer<typeof CreateDraftSchema>
+
+// Правка черновика: способ получения + ответы динамической формы (валидация полей — по услуге на бэке).
+export const UpdateDraftSchema = z
+  .object({
+    deliveryType: DeliveryTypeSchema.optional(),
+    formData: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict()
+export type UpdateDraftInput = z.infer<typeof UpdateDraftSchema>
+
+// Отзыв заявки студентом (§9): причина необязательна.
+export const CancelApplicationSchema = z
+  .object({ reason: z.string().max(2000).optional() })
+  .strict()
+export type CancelApplicationInput = z.infer<typeof CancelApplicationSchema>
+
+// Комментарий/причина при переходе сотрудника (запрос исправления, отклонение).
+export const ApplicationTransitionCommentSchema = z
+  .object({ comment: z.string().max(2000).optional() })
+  .strict()
+export type ApplicationTransitionCommentInput = z.infer<typeof ApplicationTransitionCommentSchema>
+
+// ── Список/очередь (§16, §33): server-side пагинация + фильтры ────────────────
+export const ApplicationSortSchema = z.enum(['createdAt', 'submittedAt', 'dueAt', 'status'])
+export type ApplicationSort = z.infer<typeof ApplicationSortSchema>
+
+export const ApplicationQuerySchema = OffsetPaginationSchema.extend({
+  status: ApplicationServiceStatusSchema.optional(),
+  serviceId: z.string().uuid().optional(),
+  categoryCode: ApplicationCategoryCodeSchema.optional(),
+  facultyId: z.string().uuid().optional(),
+  assignedToId: z.string().uuid().optional(),
+  search: z.string().max(120).optional(),
+  overdue: z.coerce.boolean().optional(),
+  dueToday: z.coerce.boolean().optional(),
+  sortBy: ApplicationSortSchema.default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+}).strict()
+export type ApplicationQueryInput = z.infer<typeof ApplicationQuerySchema>
