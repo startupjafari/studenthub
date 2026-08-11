@@ -10,7 +10,7 @@ import {
   fetchApplications,
   type ApplicationListItem,
 } from '../../../entities/application-service'
-import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, Modal, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ApplicationCard } from './application-card'
 import { ApplicationDetail } from './application-detail'
@@ -67,27 +67,6 @@ export function StudentApplicationsView() {
     return by
   }, [q.data])
 
-  if (screen.name === 'create') {
-    return (
-      <Shell>
-        <CreateWizard
-          onDone={(id) => setScreen({ name: 'detail', id })}
-          onCancel={() => setScreen({ name: 'list' })}
-        />
-      </Shell>
-    )
-  }
-  if (screen.name === 'edit') {
-    return (
-      <Shell>
-        <CreateWizard
-          initialDraftId={screen.id}
-          onDone={(id) => setScreen({ name: 'detail', id })}
-          onCancel={() => setScreen({ name: 'list' })}
-        />
-      </Shell>
-    )
-  }
   if (screen.name === 'detail') {
     return (
       <ApplicationDetail
@@ -193,11 +172,17 @@ export function StudentApplicationsView() {
           ))}
         </div>
       )}
+
+      {/* Шаги создания/правки черновика — в модальном окне поверх списка */}
+      {(screen.name === 'create' || screen.name === 'edit') && (
+        <Modal size="xl" onClose={() => setScreen({ name: 'list' })}>
+          <CreateWizard
+            initialDraftId={screen.name === 'edit' ? screen.id : undefined}
+            onDone={(id) => setScreen({ name: 'detail', id })}
+            onCancel={() => setScreen({ name: 'list' })}
+          />
+        </Modal>
+      )}
     </div>
   )
-}
-
-// Формы/деталь — комфортная колонка для чтения; список — на всю ширину контентного блока.
-function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto w-full max-w-3xl">{children}</div>
 }
