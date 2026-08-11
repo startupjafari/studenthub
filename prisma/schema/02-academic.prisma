@@ -26,6 +26,8 @@ model University {
   documents        Document[]
   documentRequests DocumentRequest[]
   documentTypes    DocumentType[]
+  appServices      ApplicationService[] @relation("UniversityApplicationServices")
+  applicationsV2   Application[]         @relation("UniversityApplicationsV2")
 
   @@index([status])
   @@map("universities")
@@ -55,7 +57,8 @@ model Faculty {
   university   University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   groups       Group[]
   users        User[]
-  applications ApplicationRequest[]
+  applications   ApplicationRequest[]
+  applicationsV2 Application[]        @relation("FacultyApplicationsV2")
   posts        Post[]
   chats        Chat[]
   events       Event[]
