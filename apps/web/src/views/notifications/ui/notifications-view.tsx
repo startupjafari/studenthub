@@ -27,7 +27,7 @@ import {
   type NotificationType,
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
-import { Skeleton } from '../../../shared/ui'
+import { EmptyState, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationMenu } from './notification-menu'
 
@@ -278,9 +278,17 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
             <Skeleton className="h-14 w-full" />
           </div>
         ) : items.length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">{t('empty')}</p>
+          <EmptyState
+            className="m-3 border-none"
+            icon={<Bell className="size-6" aria-hidden />}
+            title={t('empty')}
+          />
         ) : filtered.length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">{t('emptyFilter')}</p>
+          <EmptyState
+            className="m-3 border-none"
+            icon={<Bell className="size-6" aria-hidden />}
+            title={t('emptyFilter')}
+          />
         ) : (
           groups.map((group) => (
             <div key={group.key} className="flex flex-col">
@@ -302,7 +310,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       onClick={() => onOpen(n)}
-                      className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left"
+                      className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 pr-7 text-left sm:pr-0"
                     >
                       <div
                         className={cn(
@@ -333,7 +341,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                     </button>
                     {/* Меню действий — вне потока (absolute), чтобы не «съедать» ширину строки:
                         иначе время уведомления не доходит до правого края (особенно на мобильном, где нет hover). */}
-                    <div className="absolute right-1 top-1.5 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="absolute right-1 top-1.5 z-10 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
                       <NotificationMenu
                         isRead={n.isRead}
                         onMarkRead={() => readMut.mutate(n.id)}

@@ -229,7 +229,8 @@
     "oneTimeTokenNote": "The token is one-time and becomes invalid after registration.",
     "inviteInvalidTitle": "Invite is invalid",
     "inviteInvalidText": "The invite has expired or was already used. Request a new invite from an administrator.",
-    "backToHome": "Back to sign in"
+    "backToHome": "Back to sign in",
+    "identifierPlaceholder": "you@example.com or username"
   },
   "Profile": {
     "title": "Profile",
@@ -689,13 +690,6 @@
     "typeFINANCIAL": "Financial question",
     "typeTECHNICAL": "Technical question",
     "typeOTHER": "Other",
-    "statusNEW": "New",
-    "statusPROCESSING": "Processing",
-    "statusCLARIFICATION": "Clarification needed",
-    "statusAPPROVED": "Approved",
-    "statusREJECTED": "Rejected",
-    "statusREADY": "Ready",
-    "statusCLOSED": "Closed",
     "listEmpty": "No applications yet",
     "listEmptyHint": "Create your first request to the dean office",
     "selectHint": "Select an application to see details",
@@ -835,7 +829,12 @@
     "resultNote": "Note",
     "pickupCodeLabel": "Pickup code",
     "promptSubmit": "Confirm",
-    "promptCancel": "Cancel"
+    "promptCancel": "Cancel",
+    "event_DOCUMENT_ADDED": "Document attached",
+    "event_DOCUMENT_ACCEPTED": "Document accepted",
+    "event_ASSIGNED": "Assignee set",
+    "event_RESULT_ADDED": "Result added",
+    "accept": "Accept"
   },
   "Feed": {
     "published": "Published",
@@ -910,7 +909,9 @@
     "dropHint": "Drag files or click to select",
     "mediaLimit": "photos and videos · up to 10 MB",
     "prevMedia": "Previous",
-    "nextMedia": "Next"
+    "nextMedia": "Next",
+    "prev": "Previous",
+    "next": "Next"
   },
   "Chats": {
     "title": "Chats",

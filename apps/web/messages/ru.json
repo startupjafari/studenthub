@@ -229,7 +229,8 @@
     "oneTimeTokenNote": "Токен одноразовый и станет недействителен после регистрации.",
     "inviteInvalidTitle": "Приглашение недействительно",
     "inviteInvalidText": "Срок приглашения истёк или оно уже было использовано. Запросите новое приглашение у администратора.",
-    "backToHome": "На главную"
+    "backToHome": "На главную",
+    "identifierPlaceholder": "you@example.com или username"
   },
   "Profile": {
     "title": "Профиль",
@@ -689,13 +690,6 @@
     "typeFINANCIAL": "Финансовый вопрос",
     "typeTECHNICAL": "Технический вопрос",
     "typeOTHER": "Другое",
-    "statusNEW": "Новая",
-    "statusPROCESSING": "В обработке",
-    "statusCLARIFICATION": "Требуется уточнение",
-    "statusAPPROVED": "Одобрена",
-    "statusREJECTED": "Отклонена",
-    "statusREADY": "Готова",
-    "statusCLOSED": "Закрыта",
     "listEmpty": "Заявок пока нет",
     "listEmptyHint": "Создайте первую заявку в деканат",
     "selectHint": "Выберите заявку, чтобы посмотреть детали",
@@ -835,7 +829,12 @@
     "resultNote": "Комментарий",
     "pickupCodeLabel": "Код получения",
     "promptSubmit": "Подтвердить",
-    "promptCancel": "Отмена"
+    "promptCancel": "Отмена",
+    "event_DOCUMENT_ADDED": "Документ приложен",
+    "event_DOCUMENT_ACCEPTED": "Документ принят",
+    "event_ASSIGNED": "Назначен ответственный",
+    "event_RESULT_ADDED": "Добавлен результат",
+    "accept": "Принять"
   },
   "Feed": {
     "published": "Опубликовано",
@@ -910,7 +909,9 @@
     "dropHint": "Перетащите файлы или нажмите для выбора",
     "mediaLimit": "фото и видео · до 10 МБ",
     "prevMedia": "Назад",
-    "nextMedia": "Вперёд"
+    "nextMedia": "Вперёд",
+    "prev": "Предыдущее",
+    "next": "Следующее"
   },
   "Chats": {
     "title": "Чаты",

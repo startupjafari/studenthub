@@ -89,7 +89,7 @@ export function LoginForm() {
             id="identifier"
             type="text"
             autoComplete="username"
-            placeholder="you@example.com или username"
+            placeholder={t('identifierPlaceholder')}
             aria-invalid={!!errors.identifier}
             {...register('identifier')}
           />
