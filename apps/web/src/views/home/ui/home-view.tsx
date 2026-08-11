@@ -1,18 +1,11 @@
 import { getTranslations } from 'next-intl/server'
-import { BarChart3, CalendarClock, CalendarDays } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, PageHeader } from '../../../shared/ui'
+import { PageHeader } from '../../../shared/ui'
 import { FeedList } from '../../../widgets/feed-list'
+import { HomeSidebar } from './home-sidebar'
 
-// Главная лента студента (дашборд). Данные ленты/расписания/событий — из будущих фаз
-// (Ф8/Ф6/Ф10), поэтому пока осмысленные пустые состояния «скоро».
+// Главная лента студента (дашборд): лента + сайдбар (пары на сегодня, ближайшие события).
 export async function HomeView() {
   const t = await getTranslations('Dashboard')
-
-  const widgets = [
-    { title: t('scheduleToday'), icon: CalendarDays, phase: 6 },
-    { title: t('upcomingEvents'), icon: CalendarClock, phase: 10 },
-    { title: t('myStats'), icon: BarChart3, phase: 12 },
-  ]
 
   return (
     <div className="mx-auto grid max-w-[1120px] grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -22,24 +15,7 @@ export async function HomeView() {
       </section>
 
       <aside className="flex flex-col gap-4">
-        {widgets.map((w) => {
-          const Icon = w.icon
-          return (
-            <Card key={w.title}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Icon className="size-4 text-primary" aria-hidden />
-                  {w.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  {t('comingSoonPhase', { phase: w.phase })}
-                </p>
-              </CardContent>
-            </Card>
-          )
-        })}
+        <HomeSidebar />
       </aside>
     </div>
   )

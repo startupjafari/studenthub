@@ -136,7 +136,11 @@
     "comingSoonPhase": "{phase}-фазада пайда болады",
     "sectionSoon": "Бұл бөлім келесі кезеңдердің бірінде пайда болады.",
     "settings": "Баптаулар",
-    "loading": "Жүктелуде…"
+    "loading": "Жүктелуде…",
+    "openSection": "Бөлімді ашу",
+    "noPairsToday": "Бүгінге сабақ жоқ",
+    "noUpcomingEvents": "Жақын оқиғалар жоқ",
+    "online": "Онлайн"
   },
   "Common": {
     "loading": "Жүктелуде…",

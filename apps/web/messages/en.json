@@ -136,7 +136,11 @@
     "comingSoonPhase": "Coming in Phase {phase}",
     "sectionSoon": "This section will arrive in an upcoming phase.",
     "settings": "Settings",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "openSection": "Open section",
+    "noPairsToday": "No classes today",
+    "noUpcomingEvents": "No upcoming events",
+    "online": "Online"
   },
   "Common": {
     "loading": "Loading…",
