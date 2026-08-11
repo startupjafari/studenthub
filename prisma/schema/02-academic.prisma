@@ -57,7 +57,6 @@ model Faculty {
   university   University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   groups       Group[]
   users        User[]
-  applications   ApplicationRequest[]
   applicationsV2 Application[]        @relation("FacultyApplicationsV2")
   posts        Post[]
   chats        Chat[]

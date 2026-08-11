@@ -101,8 +101,6 @@ model User {
   scheduleChangesCreated ScheduleChange[] @relation("ScheduleChangeCreatedBy")
 
   // Заявки (Ф7): поданные студентом; переходы статусов, выполненные пользователем.
-  applications       ApplicationRequest[]       @relation("StudentApplications")
-  applicationChanges ApplicationStatusHistory[] @relation("AppStatusChangedBy")
   applicationsV2     Application[]              @relation("StudentApplicationsV2")
 
   // Посты (Ф8): авторство, адресные посты, закрепления; комментарии и реакции.
