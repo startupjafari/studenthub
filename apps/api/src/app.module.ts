@@ -22,6 +22,7 @@ import { GroupsModule } from './modules/groups/groups.module'
 import { RoomsModule } from './modules/rooms/rooms.module'
 import { SchedulesModule } from './modules/schedules/schedules.module'
 import { ApplicationsModule } from './modules/applications/applications.module'
+import { ApplicationServicesModule } from './modules/application-services/application-services.module'
 import { PostsModule } from './modules/posts/posts.module'
 import { ChatsModule } from './modules/chats/chats.module'
 import { EventsModule } from './modules/events/events.module'
@@ -65,6 +66,7 @@ import { AppController } from './app.controller'
     RoomsModule,
     SchedulesModule,
     ApplicationsModule,
+    ApplicationServicesModule,
     PostsModule,
     ChatsModule,
     EventsModule,
