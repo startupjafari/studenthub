@@ -71,3 +71,8 @@ jobs:
         env:
           SEED_RESET_ADMIN: '1' # ветка fix/admin-login-reset: разовый сброс пароля админа
         run: pnpm db:seed
+
+      # Диагностика + принудительный сброс пароля админа. Печатает, к какой БД
+      # реально подключился раннер (сверить с DATABASE_URL сервиса API).
+      - name: Diagnose + reset admin
+        run: node prisma/reset-admin.mjs
