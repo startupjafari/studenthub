@@ -16,9 +16,6 @@ model File {
   // Оригинальное имя файла при загрузке (Ф9+): для отображения в чате как в Telegram. NULL у старых.
   name          String?
   ownerId       String   @map("owner_id")
-  // Вложение заявки (Ф7): NULL для файлов вне заявок (аватары, медиа постов и т.п.).
-  // SetNull — удаление заявки не удаляет объекты MinIO (их чистит cleanOrphanFiles/FileService).
-  applicationId String?  @map("application_id")
   // Медиа/файл поста (Ф8): NULL для файлов вне постов.
   postId        String?  @map("post_id")
   // Вложение сообщения чата (Ф9).
@@ -35,7 +32,6 @@ model File {
   createdAt     DateTime @default(now()) @map("created_at")
 
   owner         User                @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  application   ApplicationRequest? @relation(fields: [applicationId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   post          Post?               @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   message       Message?            @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   material      Material?           @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -46,7 +42,6 @@ model File {
 
   @@unique([bucket, key])
   @@index([ownerId])
-  @@index([applicationId])
   @@index([postId])
   @@index([messageId])
   @@index([materialId])

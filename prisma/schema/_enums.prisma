@@ -25,26 +25,6 @@ enum InviteStatus {
   REVOKED
 }
 
-enum ApplicationStatus {
-  NEW
-  PROCESSING
-  CLARIFICATION
-  APPROVED
-  REJECTED
-  READY
-  CLOSED
-}
-
-enum AppType {
-  CERTIFICATE
-  MILITARY
-  UNIVERSAL
-  ACADEMIC
-  FINANCIAL
-  TECHNICAL
-  OTHER
-}
-
 enum PostAudience {
   ALL
   UNIVERSITY
