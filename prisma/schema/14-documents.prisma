@@ -34,6 +34,7 @@ model Document {
   events          DocumentEvent[]
   submissionItems      DocumentSubmissionItem[] // где документ приложен к ответу на запрос
   applicationDocuments ApplicationDocument[]    @relation("ApplicationDocumentSource") // приложен к заявке-услуге
+  applicationResults   ApplicationResult[]      @relation("ApplicationResultDocument") // выдан вузом как результат заявки
 
   @@index([ownerId, status])
   @@index([universityId])
