@@ -136,7 +136,11 @@
     "comingSoonPhase": "Появится в Фазе {phase}",
     "sectionSoon": "Этот раздел появится в одной из следующих фаз.",
     "settings": "Настройки",
-    "loading": "Загрузка…"
+    "loading": "Загрузка…",
+    "openSection": "Открыть раздел",
+    "noPairsToday": "На сегодня пар нет",
+    "noUpcomingEvents": "Ближайших событий нет",
+    "online": "Онлайн"
   },
   "Common": {
     "loading": "Загрузка…",
