@@ -88,7 +88,8 @@ model ServiceRequirement {
   sortOrder    Int     @default(0) @map("sort_order")
   active       Boolean @default(true)
 
-  service ApplicationService @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  service              ApplicationService    @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  applicationDocuments ApplicationDocument[]
 
   @@unique([serviceId, code])
   @@index([serviceId, active])
@@ -171,7 +172,8 @@ model Application {
   faculty    Faculty?           @relation("FacultyApplicationsV2", fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   service    ApplicationService @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  events ApplicationEvent[]
+  events    ApplicationEvent[]
+  documents ApplicationDocument[]
 
   @@index([studentId, status])
   @@index([facultyId, status])
@@ -205,4 +207,33 @@ model ApplicationEvent {
 
   @@index([applicationId, createdAt])
   @@map("application_events")
+}
+
+// Документ заявки: привязка требования услуги к документу студента (из хранилища «Документы»)
+// + вердикт review (§3/§4). Одна привязка на требование — замена перезаписывает ту же строку,
+// поэтому «заменить один документ» не создаёт новую заявку. snapshotTitle — снимок названия на
+// момент подачи (§5): последующая правка Document в хранилище не искажает аудит заявки.
+model ApplicationDocument {
+  id            String @id @default(uuid())
+  applicationId String @map("application_id")
+  requirementId String @map("requirement_id")
+  // Document из личного хранилища студента (source STORAGE — выбран; UPLOAD — создан при загрузке).
+  documentId    String? @map("document_id")
+  source        String  @default("STORAGE") // STORAGE | UPLOAD
+  // PENDING | ACCEPTED | REJECTED | REPLACEMENT_REQUIRED
+  status        String  @default("PENDING")
+  reviewComment String? @map("review_comment")
+  snapshotTitle String? @map("snapshot_title")
+  reviewedById  String? @map("reviewed_by_id") // скаляр без FK (как actorId в «Документах»)
+  submittedAt   DateTime  @default(now()) @map("submitted_at")
+  reviewedAt    DateTime? @map("reviewed_at")
+
+  application Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requirement ServiceRequirement @relation(fields: [requirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  document    Document?          @relation("ApplicationDocumentSource", fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([applicationId, requirementId])
+  @@index([applicationId])
+  @@index([documentId])
+  @@map("application_documents")
 }

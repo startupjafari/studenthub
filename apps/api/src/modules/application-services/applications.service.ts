@@ -123,6 +123,7 @@ export class ApplicationsService {
     }
     this.assertDeliveryAllowed(app.deliveryType as DeliveryType, service.deliveryModes)
     await this.assertFormValid(app.serviceId, app.formData)
+    await this.assertRequiredDocuments(app.serviceId, id)
 
     const now = new Date()
     const dueAt = new Date(now.getTime() + service.slaHours * 3_600_000)
@@ -172,6 +173,37 @@ export class ApplicationsService {
           fromStatus: status,
           toStatus: 'CANCELLED',
           comment: reason,
+        },
+      })
+      return updated
+    })
+  }
+
+  /** Повторная отправка после исправления (§7): NEEDS_CORRECTION → RESUBMITTED. */
+  async resubmit(viewer: JwtPayload, id: string) {
+    const app = await this.loadOwned(viewer, id)
+    if (app.status !== 'NEEDS_CORRECTION') {
+      throw new AppException('BAD_REQUEST', 'Заявка не требует повторной отправки')
+    }
+    const pending = await this.prisma.applicationDocument.count({
+      where: { applicationId: id, status: 'REPLACEMENT_REQUIRED' },
+    })
+    if (pending > 0) {
+      throw new AppException('BAD_REQUEST', 'Замените все документы, отмеченные к исправлению')
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.application.update({
+        where: { id },
+        data: { status: 'RESUBMITTED' },
+        select: APP_SELECT,
+      })
+      await tx.applicationEvent.create({
+        data: {
+          applicationId: id,
+          actorId: viewer.sub,
+          action: 'RESUBMITTED',
+          fromStatus: 'NEEDS_CORRECTION',
+          toStatus: 'RESUBMITTED',
         },
       })
       return updated
@@ -234,6 +266,27 @@ export class ApplicationsService {
             comment: true,
             actorId: true,
             createdAt: true,
+          },
+        },
+        documents: {
+          orderBy: { submittedAt: 'asc' },
+          select: {
+            id: true,
+            requirementId: true,
+            documentId: true,
+            source: true,
+            status: true,
+            reviewComment: true,
+            snapshotTitle: true,
+            requirement: {
+              select: {
+                id: true,
+                titleRu: true,
+                titleKk: true,
+                titleEn: true,
+                required: true,
+              },
+            },
           },
         },
       },
@@ -309,6 +362,28 @@ export class ApplicationsService {
           throw new AppException('BAD_REQUEST', `Недопустимое значение поля: ${f.labelRu}`)
         }
       }
+    }
+  }
+
+  // Все обязательные требования услуги должны иметь приложенный документ (не «требует замены»).
+  private async assertRequiredDocuments(serviceId: string, applicationId: string): Promise<void> {
+    const reqs = await this.prisma.serviceRequirement.findMany({
+      where: { serviceId, active: true, required: true },
+      select: { id: true, titleRu: true },
+    })
+    if (!reqs.length) return
+    const docs = await this.prisma.applicationDocument.findMany({
+      where: {
+        applicationId,
+        requirementId: { in: reqs.map((r) => r.id) },
+        status: { not: 'REPLACEMENT_REQUIRED' },
+      },
+      select: { requirementId: true },
+    })
+    const satisfied = new Set(docs.map((d) => d.requirementId))
+    const missing = reqs.find((r) => !satisfied.has(r.id))
+    if (missing) {
+      throw new AppException('BAD_REQUEST', `Приложите документ: ${missing.titleRu}`)
     }
   }
 
