@@ -112,26 +112,43 @@ export function StudentApplicationsView() {
         </Button>
       </div>
 
-      {/* Вкладки — горизонтальный скролл на мобильном */}
-      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-        {TAB_ORDER.map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={cn(
-              'shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
-              tab === id
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t(TAB_LABEL[id])}
-            {grouped[id].length > 0 && (
-              <span className="ml-1.5 opacity-70">{grouped[id].length}</span>
-            )}
-          </button>
-        ))}
+      {/* Табы — системный segmented control (как в profile-tabs): горизонтальный скролл на мобильном */}
+      <div
+        role="tablist"
+        aria-label={t('myApplications')}
+        className="flex w-max max-w-full gap-1 overflow-x-auto rounded-xl border border-border bg-muted/50 p-1"
+      >
+        {TAB_ORDER.map((id) => {
+          const active = tab === id
+          const count = grouped[id].length
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(id)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                active
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
+              )}
+            >
+              {t(TAB_LABEL[id])}
+              {count > 0 && (
+                <span
+                  className={cn(
+                    'shrink-0 rounded-full px-1.5 text-xs font-semibold tabular-nums',
+                    active ? 'bg-primary-foreground/20' : 'bg-foreground/10',
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {q.isLoading ? (
