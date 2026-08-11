@@ -56,3 +56,4 @@ export { DateRangePicker, type DateRangePickerProps, type DateRange } from './da
 export { PageLoader, type PageLoaderProps } from './page-loader'
 export { PageHeader, type PageHeaderProps } from './page-header'
 export { Modal, type ModalProps } from './modal'
+export { Stepper, type StepperStep } from './stepper'
