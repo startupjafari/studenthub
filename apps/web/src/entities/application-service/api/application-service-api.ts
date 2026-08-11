@@ -123,11 +123,29 @@ export interface TimelineEvent {
   createdAt: string
 }
 
+export interface ApplicationDocumentItem {
+  id: string
+  requirementId: string
+  documentId: string | null
+  source: string
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'REPLACEMENT_REQUIRED'
+  reviewComment: string | null
+  snapshotTitle: string | null
+  requirement: {
+    id: string
+    titleRu: string
+    titleKk: string
+    titleEn: string
+    required: boolean
+  }
+}
+
 export interface ApplicationDetail extends ApplicationListItem {
   rejectionReason: string | null
   pickupLocation: string | null
   pickupInstructions: string | null
   events: TimelineEvent[]
+  documents: ApplicationDocumentItem[]
 }
 
 export interface ApplicationListPage {
@@ -204,4 +222,30 @@ export async function cancelApplicationRequest(
 ): Promise<ApplicationListItem> {
   const { data } = await api.post<ApplicationListItem>(`/applications/${id}/cancel`, { reason })
   return data
+}
+
+export async function resubmitApplicationRequest(id: string): Promise<ApplicationListItem> {
+  const { data } = await api.post<ApplicationListItem>(`/applications/${id}/resubmit`)
+  return data
+}
+
+// ── Документы заявки ─────────────────────────────────────────────────────────
+export async function attachApplicationDocument(
+  appId: string,
+  requirementId: string,
+  documentId: string,
+): Promise<void> {
+  await api.post(`/applications/${appId}/documents`, { requirementId, documentId })
+}
+
+export async function removeApplicationDocument(
+  appId: string,
+  requirementId: string,
+): Promise<void> {
+  await api.delete(`/applications/${appId}/documents/${requirementId}`)
+}
+
+export async function fetchApplicationDocumentUrl(appId: string, docId: string): Promise<string> {
+  const { data } = await api.get<{ url: string }>(`/applications/${appId}/documents/${docId}/url`)
+  return data.url
 }

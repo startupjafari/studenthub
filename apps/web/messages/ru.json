@@ -790,7 +790,22 @@
     "event_ISSUED": "Оригинал выдан",
     "event_DELIVERED": "Электронный документ предоставлен",
     "event_REJECTED": "Заявка отклонена",
-    "event_CANCELLED": "Заявка отозвана"
+    "event_CANCELLED": "Заявка отозвана",
+    "documentsTitle": "Документы",
+    "docsStepTitle": "Документы",
+    "attachFromStorage": "Выбрать из хранилища",
+    "chooseDocument": "Выберите документ",
+    "noStorageDocs": "В хранилище нет подходящих документов",
+    "uploadToStorage": "Загрузить в хранилище",
+    "replaceDoc": "Заменить",
+    "removeDoc": "Убрать",
+    "viewDoc": "Просмотреть",
+    "resubmit": "Отправить повторно",
+    "reviewReason": "Причина",
+    "docStatus_PENDING": "На проверке",
+    "docStatus_ACCEPTED": "Принят",
+    "docStatus_REJECTED": "Отклонён",
+    "docStatus_REPLACEMENT_REQUIRED": "Требует замены"
   },
   "Feed": {
     "published": "Опубликовано",

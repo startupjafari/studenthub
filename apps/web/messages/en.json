@@ -790,7 +790,22 @@
     "event_ISSUED": "Original issued",
     "event_DELIVERED": "Electronic document delivered",
     "event_REJECTED": "Application rejected",
-    "event_CANCELLED": "Application cancelled"
+    "event_CANCELLED": "Application cancelled",
+    "documentsTitle": "Documents",
+    "docsStepTitle": "Documents",
+    "attachFromStorage": "Choose from storage",
+    "chooseDocument": "Choose a document",
+    "noStorageDocs": "No matching documents in your storage",
+    "uploadToStorage": "Upload to storage",
+    "replaceDoc": "Replace",
+    "removeDoc": "Remove",
+    "viewDoc": "View",
+    "resubmit": "Resubmit",
+    "reviewReason": "Reason",
+    "docStatus_PENDING": "In review",
+    "docStatus_ACCEPTED": "Accepted",
+    "docStatus_REJECTED": "Rejected",
+    "docStatus_REPLACEMENT_REQUIRED": "Needs replacement"
   },
   "Feed": {
     "published": "Published",
