@@ -418,7 +418,7 @@ function Page({
 }) {
   const t = useTranslations('Applications')
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       <PageHeader title={title} onBack={onBack ?? onClose} backLabel={t('backBtn')} />
       {stepper}
       {children}
