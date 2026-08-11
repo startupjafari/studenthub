@@ -56,6 +56,7 @@ import {
   searchMessages,
   sendMessageWithAttachments,
   setChatMutedRequest,
+  setChatPinnedRequest,
   blockUserRequest,
   unblockUserRequest,
   clearChatRequest,
@@ -75,6 +76,7 @@ import {
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
+  type MessageAttachment,
   type ChatTypeValue,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
@@ -243,6 +245,7 @@ export function ChatWindow() {
     moved: boolean
     el: HTMLElement
     base: number
+    actionsW: number
   } | null>(null)
   const chatSwipedFlag = useRef(false)
   // Узлы строк списка (по id) — чтобы императивно доводить/сбрасывать свайп и закрывать соседние.
@@ -319,7 +322,38 @@ export function ChatWindow() {
   const react = useMutation({
     mutationFn: ({ messageId, emoji }: { messageId: string; emoji: string }) =>
       toggleReactionRequest(messageId, emoji),
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    // Оптимистично тоггл своей реакции — видно сразу; серверное эхо message:reaction подтвердит/поправит.
+    onMutate: ({ messageId, emoji }) => {
+      if (!me || !activeId) return { prev: undefined }
+      const prev = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) =>
+        (old ?? []).map((m) => {
+          if (m.id !== messageId) return m
+          const has = m.reactions.some((r) => r.userId === me.id && r.emoji === emoji)
+          const reactions = has
+            ? m.reactions.filter((r) => !(r.userId === me.id && r.emoji === emoji))
+            : [
+                ...m.reactions,
+                {
+                  emoji,
+                  userId: me.id,
+                  user: {
+                    id: me.id,
+                    firstName: me.firstName,
+                    lastName: me.lastName,
+                    avatarUrl: me.avatarUrl,
+                  },
+                },
+              ]
+          return { ...m, reactions }
+        }),
+      )
+      return { prev }
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev && activeId) qc.setQueryData(chatKeys.messages(activeId), ctx.prev)
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    },
   })
 
   const forward = useMutation({
@@ -344,6 +378,27 @@ export function ChatWindow() {
       return { prev }
     },
     onSuccess: (_data, { muted }) => toast.success(muted ? t('mutedDone') : t('unmutedDone')),
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(chatKeys.list(), ctx.prev)
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: chatKeys.list() }),
+  })
+
+  // Закрепление чата «у себя» (Telegram-стиль): оптимистично ставим флаг и поднимаем закреплённые наверх.
+  const pin = useMutation({
+    mutationFn: ({ chatId, pinned }: { chatId: string; pinned: boolean }) =>
+      setChatPinnedRequest(chatId, pinned),
+    onMutate: ({ chatId, pinned }) => {
+      const prev = qc.getQueryData<ChatListItem[]>(chatKeys.list())
+      qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) => {
+        const list = (old ?? []).map((c) => (c.id === chatId ? { ...c, pinned } : c))
+        // Закреплённые — сверху; порядок внутри групп сохраняем (Array.sort стабилен).
+        return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned))
+      })
+      return { prev }
+    },
+    onSuccess: (_data, { pinned }) => toast.success(pinned ? t('pinnedDone') : t('unpinnedDone')),
     onError: (e, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(chatKeys.list(), ctx.prev)
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
@@ -444,24 +499,189 @@ export function ChatWindow() {
   const voice = useVoiceRecorder({
     onRecorded: (file) => {
       if (!activeId) return
-      sendFiles.mutate({ content: undefined, replyToId: replyTo?.id, files: [file] })
-      setReplyTo(null)
+      sendFiles({ replyToId: replyTo?.id, files: [file] })
     },
     onError: (kind) =>
       toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied')),
   })
 
-  const sendFiles = useMutation({
-    mutationFn: (payload: { content?: string; replyToId?: string; files: File[] }) =>
-      sendMessageWithAttachments(activeId as string, payload, payload.files),
-    onSuccess: () => {
-      setText('')
-      setAttachFiles([])
-      setAttachOpen(false)
-      setReplyTo(null)
+  // ── Оптимистичная отправка медиа (Telegram-стиль) ─────────────────────────────
+  // Пузырь нужного типа (голос/видео/фото/файл) с локальным превью показываем сразу, ещё до
+  // ответа сервера; поверх — оверлей прогресса загрузки. Реальное сообщение подменяет пузырь по
+  // эхо message:new. У HTTP-вложений нет nonce (в отличие от текста) — примиряем по сигнатуре медиа
+  // (набор размеров) с FIFO-фолбэком. localUrl переносим на реальное сообщение, чтобы не перезагружать
+  // медиа с сервера (без «мигания»).
+  const pendingMedia = useRef<
+    { tempId: string; chatId: string; sig: string; localUrls: string[] }[]
+  >([])
+  const createdObjectUrls = useRef<string[]>([])
+  const mediaRetry = useRef<
+    Map<string, { chatId: string; content?: string; replyToId?: string; files: File[] }>
+  >(new Map())
+
+  // Освобождаем object-URL'ы при размонтировании окна чата (в течение сессии держим живыми —
+  // они переиспользуются реальными сообщениями для мгновенного показа без запроса к серверу).
+  useEffect(
+    () => () => {
+      createdObjectUrls.current.forEach((u) => URL.revokeObjectURL(u))
+      createdObjectUrls.current = []
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
+    [],
+  )
+
+  function mediaSig(items: { size: number }[]): string {
+    return items
+      .map((a) => a.size)
+      .sort((x, y) => x - y)
+      .join(',')
+  }
+
+  // Обновить прогресс загрузки у всех вложений оптимистичного пузыря.
+  function setUploadProgress(chatId: string, tempId: string, fraction: number): void {
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
+      (old ?? []).map((m) =>
+        m.id === tempId ? { ...m, media: m.media.map((a) => ({ ...a, progress: fraction })) } : m,
+      ),
+    )
+  }
+
+  // Заменить оптимистичный пузырь реальным сообщением; localUrl переносим вперёд (без перезагрузки медиа).
+  function replaceOptimisticMedia(
+    chatId: string,
+    tempId: string,
+    real: ChatMessage,
+    localUrls: string[],
+  ): void {
+    const realWithLocal: ChatMessage = {
+      ...real,
+      media: real.media.map((a, i) => ({ ...a, localUrl: localUrls[i] })),
+    }
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
+      const list = old ?? []
+      const withoutReal = list.filter((m) => m.id !== real.id) // эхо могло уже добавить реальное — убираем дубль
+      const idx = withoutReal.findIndex((m) => m.id === tempId)
+      if (idx === -1) return list.some((m) => m.id === real.id) ? list : [...list, realWithLocal]
+      const copy = withoutReal.slice()
+      copy[idx] = realWithLocal
+      return copy
+    })
+  }
+
+  // Снять оптимистичный пузырь из очереди ожидания по эхо message:new (по сигнатуре, иначе FIFO).
+  function takePendingMedia(
+    chatId: string,
+    real: ChatMessage,
+  ): { tempId: string; localUrls: string[] } | null {
+    const arr = pendingMedia.current
+    const sig = mediaSig(real.media)
+    let idx = arr.findIndex((p) => p.chatId === chatId && p.sig === sig)
+    if (idx === -1) idx = arr.findIndex((p) => p.chatId === chatId)
+    if (idx === -1) return null
+    const taken = arr.splice(idx, 1)[0]
+    if (!taken) return null
+    return { tempId: taken.tempId, localUrls: taken.localUrls }
+  }
+
+  async function uploadFiles(
+    tempId: string,
+    chatId: string,
+    content: string | undefined,
+    replyToId: string | undefined,
+    files: File[],
+  ): Promise<void> {
+    setSendState((s) => ({ ...s, [tempId]: 'pending' }))
+    try {
+      const real = await sendMessageWithAttachments(chatId, { content, replyToId }, files, (f) =>
+        setUploadProgress(chatId, tempId, f),
+      )
+      mediaRetry.current.delete(tempId)
+      // Обычно примиряет эхо message:new; страховка на случай гонки/фонового чата.
+      const stillPending = pendingMedia.current.find((p) => p.tempId === tempId)
+      if (stillPending) {
+        pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+        replaceOptimisticMedia(chatId, tempId, real, stillPending.localUrls)
+        setSendState((s) => {
+          const next = { ...s }
+          delete next[tempId]
+          return next
+        })
+      }
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    } catch (e) {
+      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
+      pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+      setSendState((s) => ({ ...s, [tempId]: 'failed' }))
+      setUploadProgress(chatId, tempId, 0)
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    }
+  }
+
+  function sendFiles(payload: { content?: string; replyToId?: string; files: File[] }): void {
+    if (!activeId || !me || payload.files.length === 0) return
+    const chatId = activeId
+    const nonce =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+    const tempId = `tmp:${nonce}`
+    const localUrls = payload.files.map((f) => URL.createObjectURL(f))
+    createdObjectUrls.current.push(...localUrls)
+    const media: MessageAttachment[] = payload.files.map((f, i) => ({
+      id: `${tempId}:${i}`,
+      mime: f.type || 'application/octet-stream',
+      size: f.size,
+      name: f.name,
+      localUrl: localUrls[i],
+      uploading: true,
+      progress: 0,
+    }))
+    const temp: ChatMessage = {
+      id: tempId,
+      chatId,
+      senderId: me.id,
+      content: payload.content ?? '',
+      replyToId: payload.replyToId ?? null,
+      forwardedFromId: null,
+      editedAt: null,
+      pinnedAt: null,
+      createdAt: new Date().toISOString(),
+      sender: {
+        id: me.id,
+        firstName: me.firstName,
+        lastName: me.lastName,
+        avatarUrl: me.avatarUrl,
+      },
+      linkPreview: null,
+      media,
+      // Оптимистичная цитата ответа для медиа-сообщения (вложенный блок виден сразу).
+      replyTo:
+        replyTo && replyTo.id === payload.replyToId
+          ? {
+              id: replyTo.id,
+              content: replyTo.content,
+              senderId: replyTo.senderId,
+              sender: replyTo.sender,
+            }
+          : null,
+      forwardedFrom: null,
+      sharedPost: null,
+      reactions: [],
+    }
+    pendingMedia.current.push({ tempId, chatId, sig: mediaSig(media), localUrls })
+    mediaRetry.current.set(tempId, {
+      chatId,
+      content: payload.content,
+      replyToId: payload.replyToId,
+      files: payload.files,
+    })
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
+    // Сбрасываем композер/диалог сразу — как в Telegram (пузырь уже в ленте, грузится в фоне).
+    setText('')
+    setAttachFiles([])
+    setAttachOpen(false)
+    setReplyTo(null)
+    void uploadFiles(tempId, chatId, payload.content, payload.replyToId, payload.files)
+  }
 
   // Вход/выход из комнаты чата при смене активного чата.
   useEffect(() => {
@@ -515,6 +735,23 @@ export function ChatWindow() {
           delete next[`tmp:${nonce}`]
           return next
         })
+      }
+      // Оптимистичное медиа: у HTTP-вложений нет nonce — примиряем свой пузырь по сигнатуре/FIFO,
+      // независимо от активного чата (реальное сообщение подменяет пузырь в кэше своего chatId).
+      if (!nonce && message.senderId === myId && message.media.length > 0) {
+        const taken = takePendingMedia(chatId, message)
+        if (taken) {
+          replaceOptimisticMedia(chatId, taken.tempId, message, taken.localUrls)
+          mediaRetry.current.delete(taken.tempId)
+          setSendState((s) => {
+            if (!(taken.tempId in s)) return s
+            const next = { ...s }
+            delete next[taken.tempId]
+            return next
+          })
+          void qc.invalidateQueries({ queryKey: chatKeys.list() })
+          return
+        }
       }
       if (chatId === activeId) {
         qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
@@ -810,9 +1047,16 @@ export function ChatWindow() {
   // Влево — плавно открыть действия (заглушить/удалить), следуя за пальцем; вправо по закрытой
   // строке — пометить чат прочитанным. Во время жеста трансформируем узел напрямую (без ре-рендера
   // ради плавности), на отпускании — доводим анимацией и синхронизируем состояние.
-  const ROW_ACTIONS_W = 160 // ширина панели действий (две кнопки w-20 = 2×80px), совпадает с -translate-x-40
+  const ROW_BTN_W = 72 // ширина одной кнопки действия (w-[4.5rem]); панель = число кнопок × ROW_BTN_W
   const ROW_OPEN_THRESHOLD = 56
   const ROW_READ_THRESHOLD = 72
+
+  // Ширина панели действий строки: Прочитано (если есть непрочитанные) + Закрепить + Звук + Удалить.
+  function rowActionsWidth(id: string): number {
+    const c = (chatsRef.current ?? []).find((x) => x.id === id)
+    const showRead = (c?.unreadCount ?? 0) > 0
+    return (showRead ? 4 : 3) * ROW_BTN_W
+  }
 
   function setRowTransform(el: HTMLElement | null, x: number, animate: boolean): void {
     if (!el) return
@@ -836,13 +1080,15 @@ export function ChatWindow() {
     const tch = e.touches[0]
     if (!tch) return
     const el = e.currentTarget
+    const actionsW = rowActionsWidth(id)
     chatSwipe.current = {
       id,
       startX: tch.clientX,
       startY: tch.clientY,
       moved: false,
       el,
-      base: swipedChatId === id ? -ROW_ACTIONS_W : 0,
+      base: swipedChatId === id ? -actionsW : 0,
+      actionsW,
     }
   }
   function onRowTouchMove(e: React.TouchEvent<HTMLElement>): void {
@@ -855,7 +1101,7 @@ export function ChatWindow() {
     if (!s.moved) return
     let x = s.base + dx
     // Резина за пределами хода: влево дальше панели и вправо (жест «прочитать») — с сопротивлением.
-    if (x < -ROW_ACTIONS_W) x = -ROW_ACTIONS_W + (x + ROW_ACTIONS_W) * 0.35
+    if (x < -s.actionsW) x = -s.actionsW + (x + s.actionsW) * 0.35
     else if (x > 0) x *= 0.5
     setRowTransform(s.el, x, false)
   }
@@ -881,7 +1127,7 @@ export function ChatWindow() {
       // Открыть эту строку, соседнюю открытую — закрыть.
       if (swipedChatId && swipedChatId !== id)
         setRowTransform(rowEls.current.get(swipedChatId) ?? null, 0, true)
-      setRowTransform(s.el, -ROW_ACTIONS_W, true)
+      setRowTransform(s.el, -s.actionsW, true)
       setSwipedChatId(id)
     } else {
       setRowTransform(s.el, 0, true)
@@ -919,6 +1165,28 @@ export function ChatWindow() {
   // Повторная отправка «зависшего» оптимистичного сообщения по клику (тот же nonce → эхо заменит пузырь).
   function retrySend(m: ChatMessage): void {
     if (!m.id.startsWith('tmp:')) return
+    // Повтор загрузки медиа: заново шлём те же файлы под тем же tempId, возвращаем пузырь в «грузится».
+    const media = mediaRetry.current.get(m.id)
+    if (media) {
+      if (!pendingMedia.current.some((p) => p.tempId === m.id)) {
+        const urls = m.media.map((a) => a.localUrl).filter((u): u is string => !!u)
+        pendingMedia.current.push({
+          tempId: m.id,
+          chatId: media.chatId,
+          sig: mediaSig(m.media),
+          localUrls: urls,
+        })
+      }
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(media.chatId), (old) =>
+        (old ?? []).map((x) =>
+          x.id === m.id
+            ? { ...x, media: x.media.map((a) => ({ ...a, uploading: true, progress: 0 })) }
+            : x,
+        ),
+      )
+      void uploadFiles(m.id, media.chatId, media.content, media.replyToId, media.files)
+      return
+    }
     emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined)
   }
 
@@ -958,7 +1226,15 @@ export function ChatWindow() {
       },
       linkPreview: null,
       media: [],
-      replyTo: null,
+      // Оптимистичная цитата ответа — показываем вложенный блок сразу (реальную заменит эхо).
+      replyTo: replyTo
+        ? {
+            id: replyTo.id,
+            content: replyTo.content,
+            senderId: replyTo.senderId,
+            sender: replyTo.sender,
+          }
+        : null,
       forwardedFrom: null,
       sharedPost: null,
       reactions: [],
@@ -1477,8 +1753,39 @@ export function ChatWindow() {
                 key={c.id}
                 className="relative overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
-                {/* Скрытые действия под строкой — открываются свайпом влево (только мобильный/планшет). */}
+                {/* Скрытые действия под строкой — открываются свайпом влево (только мобильный/планшет).
+                    Порядок: Прочитано (если непрочитан) · Закрепить · Звук · Удалить. Ширина кнопки = ROW_BTN_W. */}
                 <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
+                  {c.unreadCount > 0 && (
+                    <button
+                      type="button"
+                      aria-label={t('markRead')}
+                      onClick={() => {
+                        markChatRead(c.id)
+                        closeSwipedRow(c.id)
+                      }}
+                      className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-sky-600 px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                    >
+                      <CheckCheck className="size-4" aria-hidden />
+                      {t('readShort')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={c.pinned ? t('unpin') : t('pin')}
+                    onClick={() => {
+                      pin.mutate({ chatId: c.id, pinned: !c.pinned })
+                      closeSwipedRow(c.id)
+                    }}
+                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-primary px-1 text-center text-[0.6rem] font-medium leading-tight text-primary-foreground"
+                  >
+                    {c.pinned ? (
+                      <PinOff className="size-4" aria-hidden />
+                    ) : (
+                      <Pin className="size-4" aria-hidden />
+                    )}
+                    {c.pinned ? t('unpinShort') : t('pinShort')}
+                  </button>
                   <button
                     type="button"
                     aria-label={c.muted ? t('unmute') : t('mute')}
@@ -1486,7 +1793,7 @@ export function ChatWindow() {
                       mute.mutate({ chatId: c.id, muted: !c.muted })
                       closeSwipedRow(c.id)
                     }}
-                    className="flex w-20 flex-col items-center justify-center gap-1 whitespace-nowrap bg-muted px-1 text-center text-[0.6rem] font-medium leading-tight text-muted-foreground"
+                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-muted px-1 text-center text-[0.6rem] font-medium leading-tight text-muted-foreground"
                   >
                     {c.muted ? (
                       <Bell className="size-4" aria-hidden />
@@ -1508,7 +1815,7 @@ export function ChatWindow() {
                         if (ok) deleteChat.mutate(c.id)
                       })
                     }}
-                    className="flex w-20 flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
                   >
                     <Trash2 className="size-4" aria-hidden />
                     {t('delete')}
@@ -1579,7 +1886,7 @@ export function ChatWindow() {
                         {previewWho && <span className="text-foreground/70">{previewWho}</span>}
                         {preview}
                       </p>
-                      {c.unreadCount > 0 && (
+                      {c.unreadCount > 0 ? (
                         <span
                           className={cn(
                             'flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium tabular-nums text-white',
@@ -1588,6 +1895,14 @@ export function ChatWindow() {
                         >
                           {c.unreadCount > 99 ? '99+' : c.unreadCount}
                         </span>
+                      ) : (
+                        // Закреплён без непрочитанных — маленькая иконка-булавка (Telegram-стиль).
+                        c.pinned && (
+                          <Pin
+                            className="size-3.5 shrink-0 text-muted-foreground"
+                            aria-label={t('pinned')}
+                          />
+                        )
                       )}
                     </div>
                     <span className="mt-0.5 inline-flex items-center gap-1 text-[0.6rem] font-medium uppercase tracking-wide text-muted-foreground">
@@ -2189,6 +2504,7 @@ export function ChatWindow() {
                               <ReactionBar
                                 reactions={m.reactions}
                                 myId={myId}
+                                ownBubble={mine}
                                 onToggle={(emoji) => react.mutate({ messageId: m.id, emoji })}
                               />
                             </div>
@@ -2365,13 +2681,7 @@ export function ChatWindow() {
                         <Pause className="size-5" aria-hidden />
                       )}
                     </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      aria-label={t('send')}
-                      loading={sendFiles.isPending}
-                      onClick={voice.finish}
-                    >
+                    <Button type="button" size="icon" aria-label={t('send')} onClick={voice.finish}>
                       <Send className="size-4" aria-hidden />
                     </Button>
                   </>
@@ -2418,7 +2728,6 @@ export function ChatWindow() {
                         type="button"
                         size="icon"
                         aria-label={t('send')}
-                        loading={sendFiles.isPending}
                         disabled={!connected}
                         onClick={send}
                       >
@@ -2541,9 +2850,9 @@ export function ChatWindow() {
       {attachOpen && (
         <AttachmentDialog
           files={attachFiles}
-          sending={sendFiles.isPending}
+          sending={false}
           onSend={(caption) =>
-            sendFiles.mutate({
+            sendFiles({
               content: caption || undefined,
               replyToId: replyTo?.id,
               files: attachFiles,

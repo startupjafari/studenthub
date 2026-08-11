@@ -189,6 +189,22 @@ export function RegisterByInviteForm({ token }: { token: string }) {
         </div>
 
         <div className="flex flex-col gap-2">
+          <Label htmlFor="username">{t('username')}</Label>
+          <Input
+            id="username"
+            autoComplete="username"
+            placeholder="username"
+            aria-invalid={!!errors.username}
+            {...register('username')}
+          />
+          {errors.username ? (
+            <p className="text-xs text-destructive">{errors.username.message}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('usernameHint')}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
           <Label htmlFor="password">{t('password')}</Label>
           <div className="relative">
             <Input

@@ -8,7 +8,8 @@ import { AppModule } from '../src/app.module'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
 
-const LOGIN = { email: 'admin@t.io', password: 'Admin1234!' }
+// identifier — новое поле логина (email ИЛИ username); email оставляем для создания юзера в сидах.
+const LOGIN = { email: 'admin@t.io', identifier: 'admin@t.io', password: 'Admin1234!' }
 
 function getCookie(res: request.Response, name: string): string | null {
   const raw = res.headers['set-cookie'] as unknown as string[] | undefined
@@ -73,7 +74,7 @@ describe('Auth (e2e)', () => {
     it('неверный пароль → 401 UNAUTHORIZED', async () => {
       const res = await request(server)
         .post('/api/v1/auth/login')
-        .send({ email: LOGIN.email, password: 'wrong' })
+        .send({ identifier: LOGIN.email, password: 'wrong' })
       expect(res.status).toBe(401)
       expect(res.body.success).toBe(false)
       expect(res.body.error.code).toBe('UNAUTHORIZED')
@@ -139,6 +140,7 @@ describe('Auth (e2e)', () => {
       await makeInvite('e2e-ok')
       const res = await request(server).post('/api/v1/auth/register-by-invite').send({
         token: 'e2e-ok',
+        username: 'ivandekanov',
         firstName: 'Иван',
         lastName: 'Деканов',
         password: 'Passw0rd!',
@@ -155,6 +157,7 @@ describe('Auth (e2e)', () => {
       await makeInvite('e2e-once')
       const body = {
         token: 'e2e-once',
+        username: 'user_once',
         firstName: 'A',
         lastName: 'B',
         password: 'Passw0rd!',

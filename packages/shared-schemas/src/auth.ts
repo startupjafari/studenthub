@@ -2,14 +2,23 @@ import { z } from 'zod'
 
 // Схемы аутентификации — единый источник валидации для API (ZodValidationPipe) и форм фронта.
 
+// Вход по email ИЛИ имени пользователя (Telegram-стиль): одно поле-идентификатор.
 export const LoginSchema = z
   .object({
-    email: z.string().email('Некорректный email'),
+    identifier: z.string().min(1, 'Введите email или имя пользователя'),
     password: z.string().min(1, 'Введите пароль'),
   })
   .strict()
 
 export type LoginInput = z.infer<typeof LoginSchema>
+
+// Имя пользователя (Telegram-стиль): 3–32 символа, латиница/цифры/подчёркивание, регистронезависимо
+// (нормализуем в нижний регистр). Основа для входа и @упоминаний в чате.
+export const UsernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9_]{3,32}$/, 'Только латиница, цифры и _, 3–32 символа')
 
 // Политика пароля (docs/BACKEND_RULES.md §3): ≥8 символов, буква + цифра + спецсимвол.
 export const PasswordSchema = z
@@ -19,11 +28,12 @@ export const PasswordSchema = z
   .regex(/[0-9]/, 'Нужна хотя бы одна цифра')
   .regex(/[^A-Za-zА-Яа-я0-9]/, 'Нужен хотя бы один спецсимвол')
 
-// Регистрация по инвайту (docs/PROJECT.md §7.3): форма принимает только имя, пароль, фото.
+// Регистрация по инвайту (docs/PROJECT.md §7.3): форма принимает имя пользователя, имя, пароль, фото.
 // Роль и scope НЕ здесь — они берутся из инвайта на сервере. email — из инвайта либо этой формы.
 export const RegisterByInviteSchema = z
   .object({
     token: z.string().min(1),
+    username: UsernameSchema,
     firstName: z.string().min(1).max(100),
     lastName: z.string().min(1).max(100),
     password: PasswordSchema,

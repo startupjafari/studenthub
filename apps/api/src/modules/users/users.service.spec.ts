@@ -252,6 +252,7 @@ describe('UserService — закрытый профиль (видимость п
     }
     await service.createInvitedUser(tx as never, {
       email: 'a@b.io',
+      username: 'user_ab',
       passwordHash: 'h',
       firstName: 'A',
       lastName: 'B',
@@ -274,6 +275,7 @@ describe('UserService — закрытый профиль (видимость п
     })
     await service.createInvitedUser(tx as never, {
       email: 'c@d.io',
+      username: 'user_cd',
       passwordHash: 'h',
       firstName: 'C',
       lastName: 'D',
