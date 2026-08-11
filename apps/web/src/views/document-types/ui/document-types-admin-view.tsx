@@ -21,6 +21,7 @@ import {
   Checkbox,
   Input,
   Label,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -50,15 +51,15 @@ export function DocumentTypesAdminView() {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">{t('dt_title')}</h1>
-          <p className="text-sm text-muted-foreground">{t('dt_subtitle')}</p>
-        </div>
-        <Button onClick={() => setAdding((v) => !v)}>
-          <Plus className="size-4" aria-hidden /> {t('dt_addCustom')}
-        </Button>
-      </div>
+      <PageHeader
+        title={t('dt_title')}
+        subtitle={t('dt_subtitle')}
+        actions={
+          <Button onClick={() => setAdding((v) => !v)}>
+            <Plus className="size-4" aria-hidden /> {t('dt_addCustom')}
+          </Button>
+        }
+      />
 
       {adding && <AddCustomForm onDone={() => setAdding(false)} onErr={onErr} />}
 

@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { ScrollText } from 'lucide-react'
 import { auditKeys, fetchAudit } from '../../../entities/audit'
-import { Card, CardContent, EmptyState, Input, Skeleton } from '../../../shared/ui'
+import { Card, CardContent, EmptyState, Input, PageHeader, Skeleton } from '../../../shared/ui'
 
 export function AuditView() {
   const t = useTranslations('Moderation')
@@ -20,7 +20,7 @@ export function AuditView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('auditTitle')}</h1>
+      <PageHeader title={t('auditTitle')} />
 
       <Input
         value={action}

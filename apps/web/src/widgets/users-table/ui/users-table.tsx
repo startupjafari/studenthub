@@ -22,6 +22,7 @@ import {
   CardContent,
   EmptyState,
   Input,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -107,19 +108,21 @@ export function UsersTable({ title, role, showRoleFilter = false }: UsersTablePr
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">{title}</h1>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={exportCsv}
-          disabled={(users.data?.length ?? 0) === 0}
-        >
-          <Download className="size-4" aria-hidden />
-          {t('exportCsv')}
-        </Button>
-      </div>
+      <PageHeader
+        title={title}
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={exportCsv}
+            disabled={(users.data?.length ?? 0) === 0}
+          >
+            <Download className="size-4" aria-hidden />
+            {t('exportCsv')}
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap gap-3">
         <Input

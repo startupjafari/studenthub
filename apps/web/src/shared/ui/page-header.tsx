@@ -7,6 +7,8 @@ import { cn } from '../lib/utils'
 
 export interface PageHeaderProps {
   title: ReactNode
+  /** Подзаголовок под заголовком (мелкий, приглушённый). */
+  subtitle?: ReactNode
   /** Кнопка «назад» слева (детальные/вложенные страницы). */
   onBack?: () => void
   backLabel?: string
@@ -21,6 +23,7 @@ export interface PageHeaderProps {
 // Всё на одной горизонтали, на узких экранах элементы переносятся. Единый заголовок для всех страниц.
 export function PageHeader({
   title,
+  subtitle,
   onBack,
   backLabel,
   tabs,
@@ -40,7 +43,10 @@ export function PageHeader({
           <ArrowLeft className="size-5" aria-hidden />
         </Button>
       )}
-      <h1 className="min-w-0 truncate text-xl font-bold">{title}</h1>
+      <div className="min-w-0">
+        <h1 className="truncate text-xl font-bold">{title}</h1>
+        {subtitle && <p className="truncate text-sm text-muted-foreground">{subtitle}</p>}
+      </div>
       {tabs}
       {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
