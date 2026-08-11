@@ -71,7 +71,7 @@ describe('Users & Notifications (e2e)', () => {
   async function login(email: string): Promise<{ token: string; refresh: string | null }> {
     const res = await request(server)
       .post('/api/v1/auth/login')
-      .send({ email, password: PASSWORD })
+      .send({ identifier: email, password: PASSWORD })
       .expect(201)
     return { token: res.body.data.accessToken as string, refresh: getCookie(res, 'sh_refresh') }
   }

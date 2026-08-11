@@ -120,28 +120,32 @@ export function MessageContextMenu({
       : []),
   ]
 
+  // Ряд реакций: внутренняя обёртка w-max+mx-auto центрирует эмодзи, когда они влезают, и позволяет
+  // прокрутку по горизонтали, когда нет (узкий экран / много эмодзи) — иначе крайние обрезались.
   const reactionsRow = (big: boolean): React.ReactNode => (
-    <div className="flex items-center justify-center gap-0.5 border-b border-border px-2 py-2">
-      {CHAT_REACTION_EMOJIS.map((emoji) => (
-        <button
-          key={emoji}
-          type="button"
-          onClick={run(() => actions.onReact(emoji))}
-          className={cn(
-            'flex shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted active:scale-95',
-            big ? 'size-11' : 'size-8',
-          )}
-        >
-          <span
+    <div className="overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="mx-auto flex w-max items-center gap-0.5">
+        {CHAT_REACTION_EMOJIS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            onClick={run(() => actions.onReact(emoji))}
             className={cn(
-              'flex items-center justify-center overflow-hidden leading-none',
-              big ? 'text-2xl' : 'text-[18px]',
+              'flex shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted active:scale-95',
+              big ? 'size-11' : 'size-8',
             )}
           >
-            {emoji}
-          </span>
-        </button>
-      ))}
+            <span
+              className={cn(
+                'flex items-center justify-center overflow-hidden leading-none',
+                big ? 'text-2xl' : 'text-[18px]',
+              )}
+            >
+              {emoji}
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   )
 

@@ -66,12 +66,17 @@ export async function sendMessageWithAttachments(
   chatId: string,
   input: { content?: string; replyToId?: string },
   files: File[],
+  onProgress?: (fraction: number) => void,
 ): Promise<ChatMessage> {
   const form = new FormData()
   if (input.content) form.append('content', input.content)
   if (input.replyToId) form.append('replyToId', input.replyToId)
   for (const file of files) form.append('file', file)
-  const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form)
+  const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
+    onUploadProgress: onProgress
+      ? (e) => onProgress(e.total ? Math.min(1, e.loaded / e.total) : 0)
+      : undefined,
+  })
   return data
 }
 
@@ -146,6 +151,12 @@ export async function exportChatRequest(chatId: string): Promise<ChatMessage[]> 
 export async function setChatMutedRequest(chatId: string, muted: boolean): Promise<void> {
   if (muted) await api.post(`/chats/${chatId}/mute`)
   else await api.delete(`/chats/${chatId}/mute`)
+}
+
+// Закрепить/открепить чат «у себя» (сверху списка, Telegram-стиль).
+export async function setChatPinnedRequest(chatId: string, pinned: boolean): Promise<void> {
+  if (pinned) await api.post(`/chats/${chatId}/pin`)
+  else await api.delete(`/chats/${chatId}/pin`)
 }
 
 export async function fetchPresence(chatId: string): Promise<PresenceEntry[]> {
