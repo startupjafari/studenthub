@@ -32,7 +32,8 @@ model Document {
   files           File[] // File.documentId (порядок страниц — File.order)
   access          DocumentAccess[]
   events          DocumentEvent[]
-  submissionItems DocumentSubmissionItem[] // где документ приложен к ответу на запрос
+  submissionItems      DocumentSubmissionItem[] // где документ приложен к ответу на запрос
+  applicationDocuments ApplicationDocument[]    @relation("ApplicationDocumentSource") // приложен к заявке-услуге
 
   @@index([ownerId, status])
   @@index([universityId])

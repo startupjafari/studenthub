@@ -126,6 +126,26 @@ export const ApplicationTransitionCommentSchema = z
   .strict()
 export type ApplicationTransitionCommentInput = z.infer<typeof ApplicationTransitionCommentSchema>
 
+// Приложить документ из хранилища к требованию услуги (§3/§4).
+export const AttachApplicationDocumentSchema = z
+  .object({ requirementId: z.string().uuid(), documentId: z.string().uuid() })
+  .strict()
+export type AttachApplicationDocumentInput = z.infer<typeof AttachApplicationDocumentSchema>
+
+// Запрос замены документа сотрудником — причина обязательна (§4).
+export const RequestReplacementSchema = z.object({ comment: z.string().min(1).max(2000) }).strict()
+export type RequestReplacementInput = z.infer<typeof RequestReplacementSchema>
+
+// Статусы документа заявки (для фронта).
+export const APPLICATION_DOCUMENT_STATUSES = [
+  'PENDING',
+  'ACCEPTED',
+  'REJECTED',
+  'REPLACEMENT_REQUIRED',
+] as const
+export const ApplicationDocumentStatusSchema = z.enum(APPLICATION_DOCUMENT_STATUSES)
+export type ApplicationDocumentStatus = z.infer<typeof ApplicationDocumentStatusSchema>
+
 // ── Список/очередь (§16, §33): server-side пагинация + фильтры ────────────────
 export const ApplicationSortSchema = z.enum(['createdAt', 'submittedAt', 'dueAt', 'status'])
 export type ApplicationSort = z.infer<typeof ApplicationSortSchema>
