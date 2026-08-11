@@ -130,7 +130,7 @@ export function StudentApplicationsView() {
   )
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-full w-full flex-col gap-4">
       <PageHeader
         title={t('myApplications')}
         tabs={tabsNode}
@@ -150,6 +150,7 @@ export function StudentApplicationsView() {
         </div>
       ) : q.isError ? (
         <EmptyState
+          className="flex-1"
           icon={<Inbox className="size-6" aria-hidden />}
           title={t('loadError')}
           action={
@@ -160,6 +161,7 @@ export function StudentApplicationsView() {
         />
       ) : current.length === 0 ? (
         <EmptyState
+          className="flex-1"
           icon={<Inbox className="size-6" aria-hidden />}
           title={t('noApplications')}
           description={t('noApplicationsHint')}
