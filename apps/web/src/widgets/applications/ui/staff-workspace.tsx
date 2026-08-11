@@ -24,7 +24,15 @@ import {
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
-import { Button, Card, PageHeader, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  PageHeader,
+  Skeleton,
+  Stepper,
+  EmptyState,
+  PromptDialog,
+} from '../../../shared/ui'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -32,6 +40,13 @@ interface Prompt {
   multiline?: boolean
   required?: boolean
   run: (value: string) => void
+}
+
+// Этап обработки по текущему статусу: 0 Проверка · 1 Подготовка · 2 Выдача.
+function deanActiveStep(status: string): number {
+  if (status === 'IN_PREPARATION') return 1
+  if (['READY', 'READY_FOR_PICKUP', 'ISSUED', 'DELIVERED'].includes(status)) return 2
+  return 0
 }
 
 // Рабочее место сотрудника по одной заявке (§17): студент, документы-review, действия, timeline.
@@ -43,6 +58,16 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
   const serviceName = app
     ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
     : undefined
+
+  // Степпер обработки: по умолчанию следует за статусом; клик — просмотр пройденного этапа.
+  const [selected, setSelected] = useState<number | null>(null)
+  const activeStep = app ? deanActiveStep(app.status) : 0
+  const viewStep = selected ?? activeStep
+  const deanSteps = [
+    { id: 'review', label: t('dStepReview') },
+    { id: 'prepare', label: t('dStepPrepare') },
+    { id: 'issue', label: t('dStepIssue') },
+  ]
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -60,6 +85,13 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
         />
       ) : (
         <div className="flex flex-col gap-4">
+          <Stepper
+            steps={deanSteps}
+            current={viewStep}
+            done={activeStep}
+            onStepClick={(i) => i <= activeStep && setSelected(i)}
+          />
+
           <Card className="flex flex-col gap-3 p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium text-muted-foreground">{app.number}</span>
@@ -81,7 +113,8 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
             {app.pickupCode && <Row label={t('pickupCodeLabel')} value={app.pickupCode} />}
           </Card>
 
-          {app.documents.length > 0 && (
+          {/* Шаг «Проверка» — документы заявки */}
+          {viewStep === 0 && app.documents.length > 0 && (
             <Card className="flex flex-col gap-3 p-4">
               <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
               <StaffDocumentReview
@@ -93,7 +126,8 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
             </Card>
           )}
 
-          {app.results.length > 0 && (
+          {/* Шаги «Подготовка»/«Выдача» — результат заявки */}
+          {viewStep >= 1 && app.results.length > 0 && (
             <Card className="flex flex-col gap-2 p-4">
               <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
               {app.results.map((r) => (
@@ -108,6 +142,9 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
               ))}
             </Card>
           )}
+
+          {/* Действия — только на текущем этапе обработки */}
+          {viewStep === activeStep && <StaffActions app={app} onDone={() => void q.refetch()} />}
 
           <Card className="flex flex-col gap-3 p-4">
             <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
@@ -136,8 +173,6 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
               })}
             </ol>
           </Card>
-
-          <StaffActions app={app} onDone={() => void q.refetch()} />
         </div>
       )}
     </div>

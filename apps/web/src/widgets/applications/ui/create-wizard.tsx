@@ -26,6 +26,7 @@ import {
   Label,
   PageHeader,
   Skeleton,
+  Stepper,
   Textarea,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
@@ -147,6 +148,26 @@ export function CreateWizard({
     })
   }, [service, deliveryType, formData])
 
+  // Степпер шагов заполнения (после выбора услуги): Услуга → Данные → Документы → Проверка.
+  const fillSteps = [
+    { id: 'info', label: t('stepService') },
+    { id: 'form', label: t('stepForm') },
+    { id: 'docs', label: t('stepDocs') },
+    { id: 'review', label: t('stepReview') },
+  ]
+  const fillIndex = fillSteps.findIndex((s) => s.id === step)
+  const stepperNode =
+    fillIndex >= 0 ? (
+      <Stepper
+        steps={fillSteps}
+        current={fillIndex}
+        onStepClick={(i) => {
+          const target = fillSteps[i]
+          if (target && i <= fillIndex) setStep(target.id as Step)
+        }}
+      />
+    ) : null
+
   // Режим правки черновика: пока подгружается — скелетон.
   if (initialDraftId && !seeded) {
     return (
@@ -209,6 +230,7 @@ export function CreateWizard({
         onBack={() => setStep('catalog')}
         backLabel={t('backBtn')}
         onClose={onCancel}
+        stepper={stepperNode}
       >
         {serviceQ.isLoading || !service ? (
           <SkeletonList />
@@ -216,8 +238,9 @@ export function CreateWizard({
           <ServiceInfo
             service={service}
             locale={locale}
-            onProceed={() => createMut.mutate(service.id)}
+            onProceed={() => (draftId ? setStep('form') : createMut.mutate(service.id))}
             proceeding={createMut.isPending}
+            proceedLabel={draftId ? t('nextBtn') : t('createApplication')}
           />
         )}
       </Page>
@@ -232,6 +255,7 @@ export function CreateWizard({
         onBack={() => setStep('info')}
         backLabel={t('backBtn')}
         onClose={onCancel}
+        stepper={stepperNode}
       >
         <div className="flex flex-col gap-6">
           <fieldset className="flex flex-col gap-2">
@@ -303,6 +327,7 @@ export function CreateWizard({
         onBack={() => setStep('form')}
         backLabel={t('backBtn')}
         onClose={onCancel}
+        stepper={stepperNode}
       >
         <div className="flex flex-col gap-4">
           {service.requirements.length === 0 ? (
@@ -337,6 +362,7 @@ export function CreateWizard({
         onBack={() => setStep('docs')}
         backLabel={t('backBtn')}
         onClose={onCancel}
+        stepper={stepperNode}
       >
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3 p-4">
@@ -380,18 +406,21 @@ function Page({
   title,
   onBack,
   onClose,
+  stepper,
   children,
 }: {
   title?: React.ReactNode
   onBack?: () => void
   onClose?: () => void
   backLabel?: string
+  stepper?: React.ReactNode
   children: React.ReactNode
 }) {
   const t = useTranslations('Applications')
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <PageHeader title={title} onBack={onBack ?? onClose} backLabel={t('backBtn')} />
+      {stepper}
       {children}
     </div>
   )
@@ -402,11 +431,13 @@ function ServiceInfo({
   locale,
   onProceed,
   proceeding,
+  proceedLabel,
 }: {
   service: ServiceDetail
   locale: string
   onProceed: () => void
   proceeding: boolean
+  proceedLabel: string
 }) {
   const t = useTranslations('Applications')
   const rec = service as unknown as Record<string, unknown>
@@ -438,7 +469,7 @@ function ServiceInfo({
         </div>
       )}
       <Button className="w-full" loading={proceeding} onClick={onProceed}>
-        {t('createApplication')}
+        {proceedLabel}
       </Button>
     </div>
   )
