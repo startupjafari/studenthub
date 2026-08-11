@@ -23,6 +23,7 @@ import {
 import type { MeResponse } from '../../../shared/api'
 import { Button, Card, CardContent, CardHeader, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useSheetDragClose } from '../../../shared/lib'
 import { AccountSettingsPanels } from '../../account-settings'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import {
@@ -392,6 +393,12 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
+  // Свайп-вниз закрывает нижний лист (общий хук). Один узел — на click-outside и на жест: объединяем refs.
+  const dragRef = useSheetDragClose<HTMLDivElement>(() => setOpen(false))
+  const setSheetRef = (node: HTMLDivElement | null): void => {
+    sheetRef.current = node
+    dragRef.current = node
+  }
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -513,7 +520,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
                 className="fixed inset-0 z-[90] bg-foreground/40 animate-in fade-in-0 duration-150"
               />
               <div
-                ref={sheetRef}
+                ref={setSheetRef}
                 role="menu"
                 className="fixed inset-x-0 bottom-0 z-[91] rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(1rem+env(safe-area-inset-bottom))] text-popover-foreground animate-in slide-in-from-bottom duration-200"
               >

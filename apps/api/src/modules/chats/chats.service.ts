@@ -115,7 +115,14 @@ export class ChatsService {
         updatedAt: true,
         members: {
           where: { userId: viewer.sub },
-          select: { lastReadAt: true, mutedAt: true, isAdmin: true, clearedAt: true, draft: true },
+          select: {
+            lastReadAt: true,
+            mutedAt: true,
+            isAdmin: true,
+            clearedAt: true,
+            draft: true,
+            pinnedAt: true,
+          },
         },
         messages: {
           where: { deletedAt: null },
@@ -218,7 +225,7 @@ export class ChatsService {
         : []
     const countMap = new Map(grouped.map((g) => [g.chatId, g._count._all]))
 
-    return chats.map((c) => {
+    const rows = chats.map((c) => {
       const mem = c.members[0]
       const cleared = mem?.clearedAt ?? null
       // Очищенную «для меня» историю не показываем в превью.
@@ -227,33 +234,47 @@ export class ChatsService {
       const unreadCount = countMap.get(c.id) ?? 0
       const unread = unreadCount > 0
       const other = otherMap.get(c.id)
+      const pinnedAt = mem?.pinnedAt ?? null
       return {
-        id: c.id,
-        type: c.type,
-        // Личный чат — имя собеседника (в сущности chat.title = null); групповой/официальный — своё название.
-        title: c.type === ChatType.PRIVATE ? otherNameMap.get(c.id) || c.title : c.title,
-        // Личный чат — аватар собеседника; групповой — аватар группы.
-        avatarUrl: c.type === ChatType.PRIVATE ? (otherAvatarMap.get(c.id) ?? null) : c.avatarUrl,
-        subject: c.subject,
-        memberCount: c._count.members,
-        lastMessage,
-        unread,
-        unreadCount,
-        muted: mem?.mutedAt != null,
-        draft: mem?.draft ?? null,
-        othersReadAt: readMap.get(c.id) ?? null,
-        // Владелец группы (создатель).
-        isOwner: c.createdById != null && c.createdById === viewer.sub,
-        // Я — админ группы (могу банить, менять аватар/название, управлять участниками).
-        isAdmin: mem?.isAdmin === true,
-        // Блокировка (только для PRIVATE): blocked — я заблокировал собеседника; blockedBy — он меня.
-        blocked: other ? iBlocked.has(other) : false,
-        blockedBy: other ? blockedMe.has(other) : false,
-        // Собеседник онлайн (только PRIVATE); для групп/официальных чатов — false.
-        online: other != null && onlineOthers.has(other),
+        pinnedAt,
         updatedAt: c.updatedAt,
+        item: {
+          id: c.id,
+          type: c.type,
+          // Личный чат — имя собеседника (в сущности chat.title = null); групповой/официальный — своё название.
+          title: c.type === ChatType.PRIVATE ? otherNameMap.get(c.id) || c.title : c.title,
+          // Личный чат — аватар собеседника; групповой — аватар группы.
+          avatarUrl: c.type === ChatType.PRIVATE ? (otherAvatarMap.get(c.id) ?? null) : c.avatarUrl,
+          subject: c.subject,
+          memberCount: c._count.members,
+          lastMessage,
+          unread,
+          unreadCount,
+          muted: mem?.mutedAt != null,
+          draft: mem?.draft ?? null,
+          // Закреплён «у себя» (Telegram-стиль): показывается сверху списка.
+          pinned: pinnedAt != null,
+          othersReadAt: readMap.get(c.id) ?? null,
+          // Владелец группы (создатель).
+          isOwner: c.createdById != null && c.createdById === viewer.sub,
+          // Я — админ группы (могу банить, менять аватар/название, управлять участниками).
+          isAdmin: mem?.isAdmin === true,
+          // Блокировка (только для PRIVATE): blocked — я заблокировал собеседника; blockedBy — он меня.
+          blocked: other ? iBlocked.has(other) : false,
+          blockedBy: other ? blockedMe.has(other) : false,
+          // Собеседник онлайн (только PRIVATE); для групп/официальных чатов — false.
+          online: other != null && onlineOthers.has(other),
+          updatedAt: c.updatedAt,
+        },
       }
     })
+    // Закреплённые — сверху (по времени закрепления, свежие выше), остальные — по updatedAt.
+    rows.sort((a, b) => {
+      if (!!a.pinnedAt !== !!b.pinnedAt) return a.pinnedAt ? -1 : 1
+      if (a.pinnedAt && b.pinnedAt) return b.pinnedAt.getTime() - a.pinnedAt.getTime()
+      return b.updatedAt.getTime() - a.updatedAt.getTime()
+    })
+    return rows.map((r) => r.item)
   }
 
   // ── Создание PRIVATE/GROUP (9.5) ────────────────────────────────────────────
@@ -892,6 +913,20 @@ export class ChatsService {
       data: { mutedAt: muted ? new Date() : null },
     })
     return { chatId, muted }
+  }
+
+  /** Закрепить/открепить чат «у себя» (Telegram-стиль): персонально, влияет только на порядок списка. */
+  async setChatPinned(
+    userId: string,
+    chatId: string,
+    pinned: boolean,
+  ): Promise<{ chatId: string; pinned: boolean }> {
+    await this.assertMembership(userId, chatId)
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, userId },
+      data: { pinnedAt: pinned ? new Date() : null },
+    })
+    return { chatId, pinned }
   }
 
   // ── Присутствие (Ф9+) ──────────────────────────────────────────────────────

@@ -13,10 +13,13 @@ function reactorName(u: MessageReaction['user']): string {
 export function ReactionBar({
   reactions,
   myId,
+  ownBubble = false,
   onToggle,
 }: {
   reactions: MessageReaction[]
   myId: string | undefined
+  // Чип рендерится на своём (синем, primary) пузыре — берём светлую палитру для контраста.
+  ownBubble?: boolean
   onToggle: (emoji: string) => void
 }) {
   if (reactions.length === 0) return null
@@ -39,10 +42,16 @@ export function ReactionBar({
           title={names.join(', ')}
           onClick={() => onToggle(emoji)}
           className={cn(
-            'flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs transition-colors',
-            mine
-              ? 'border-primary/60 bg-primary/15 text-foreground'
-              : 'border-border bg-background/60 hover:bg-muted',
+            'flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs font-medium transition-colors',
+            ownBubble
+              ? // На синем пузыре — светлые чипы (primary-foreground), иначе сливаются с фоном.
+                mine
+                ? 'border-primary-foreground/70 bg-primary-foreground/30 text-primary-foreground'
+                : 'border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25'
+              : // На чужом (сером) пузыре — прежняя тёмная палитра.
+                mine
+                ? 'border-primary/60 bg-primary/15 text-foreground'
+                : 'border-border bg-background/70 text-foreground hover:bg-muted',
           )}
         >
           <span>{emoji}</span>

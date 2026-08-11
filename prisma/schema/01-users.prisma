@@ -5,6 +5,9 @@
 model User {
   id                   String    @id @default(uuid())
   email                String    @unique
+  // Имя пользователя (Telegram-стиль): вход по нему или email + основа для @упоминаний в чате.
+  // Nullable — у зарегистрированных до фичи его нет; хранится в нижнем регистре, уникально.
+  username             String?   @unique
   passwordHash         String    @map("password_hash")
   firstName            String    @map("first_name")
   lastName             String    @map("last_name")

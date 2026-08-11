@@ -55,6 +55,9 @@ model ChatMember {
   // Черновик сообщения (Ф9+, синхронизация между устройствами как в Telegram): последний
   // несохранённый текст ввода этого участника в чате. null/пусто — черновика нет.
   draft      String?
+  // Закрепление чата «у себя» (Telegram-стиль): не null — чат закреплён этим участником и показывается
+  // сверху списка (сортировка по времени закрепления). Персонально, другим участникам не видно.
+  pinnedAt   DateTime? @map("pinned_at")
   createdAt  DateTime  @default(now()) @map("created_at")
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
