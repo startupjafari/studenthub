@@ -103,82 +103,81 @@ export function StudentApplicationsView() {
   const current = grouped[tab]
 
   return (
-    <Shell>
-      <div className="flex w-full flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">{t('myApplications')}</h1>
-          <Button onClick={() => setScreen({ name: 'create' })}>
-            <Plus className="size-4" aria-hidden />
-            {t('createApplication')}
-          </Button>
-        </div>
+    <div className="flex w-full flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">{t('myApplications')}</h1>
+        <Button onClick={() => setScreen({ name: 'create' })}>
+          <Plus className="size-4" aria-hidden />
+          {t('createApplication')}
+        </Button>
+      </div>
 
-        {/* Вкладки — горизонтальный скролл на мобильном */}
-        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-          {TAB_ORDER.map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={cn(
-                'shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
-                tab === id
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {t(TAB_LABEL[id])}
-              {grouped[id].length > 0 && (
-                <span className="ml-1.5 opacity-70">{grouped[id].length}</span>
-              )}
-            </button>
+      {/* Вкладки — горизонтальный скролл на мобильном */}
+      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+        {TAB_ORDER.map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cn(
+              'shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+              tab === id
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {t(TAB_LABEL[id])}
+            {grouped[id].length > 0 && (
+              <span className="ml-1.5 opacity-70">{grouped[id].length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {q.isLoading ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-36 w-full rounded-xl" />
           ))}
         </div>
-
-        {q.isLoading ? (
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full rounded-xl" />
-            ))}
-          </div>
-        ) : q.isError ? (
-          <EmptyState
-            icon={<Inbox className="size-6" aria-hidden />}
-            title={t('loadError')}
-            action={
-              <Button variant="outline" onClick={() => q.refetch()}>
-                {t('retry')}
-              </Button>
-            }
-          />
-        ) : current.length === 0 ? (
-          <EmptyState
-            icon={<Inbox className="size-6" aria-hidden />}
-            title={t('noApplications')}
-            description={t('noApplicationsHint')}
-            action={
-              <Button onClick={() => setScreen({ name: 'create' })}>
-                <Plus className="size-4" aria-hidden />
-                {t('createApplication')}
-              </Button>
-            }
-          />
-        ) : (
-          <div className="flex flex-col gap-2">
-            {current.map((app) => (
-              <ApplicationCard
-                key={app.id}
-                app={app}
-                onOpen={() => setScreen({ name: 'detail', id: app.id })}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </Shell>
+      ) : q.isError ? (
+        <EmptyState
+          icon={<Inbox className="size-6" aria-hidden />}
+          title={t('loadError')}
+          action={
+            <Button variant="outline" onClick={() => q.refetch()}>
+              {t('retry')}
+            </Button>
+          }
+        />
+      ) : current.length === 0 ? (
+        <EmptyState
+          icon={<Inbox className="size-6" aria-hidden />}
+          title={t('noApplications')}
+          description={t('noApplicationsHint')}
+          action={
+            <Button onClick={() => setScreen({ name: 'create' })}>
+              <Plus className="size-4" aria-hidden />
+              {t('createApplication')}
+            </Button>
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {current.map((app) => (
+            <ApplicationCard
+              key={app.id}
+              app={app}
+              onOpen={() => setScreen({ name: 'detail', id: app.id })}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
+// Формы/деталь — комфортная колонка для чтения; список — на всю ширину контентного блока.
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto w-full max-w-2xl">{children}</div>
+  return <div className="mx-auto w-full max-w-3xl">{children}</div>
 }
