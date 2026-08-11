@@ -826,7 +826,9 @@
     "unassigned": "Тағайындалмаған",
     "resultDocNumber": "Құжат нөмірі",
     "resultNote": "Түсініктеме",
-    "pickupCodeLabel": "Алу коды"
+    "pickupCodeLabel": "Алу коды",
+    "promptSubmit": "Растау",
+    "promptCancel": "Бас тарту"
   },
   "Feed": {
     "published": "Жарияланды",

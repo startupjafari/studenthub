@@ -826,7 +826,9 @@
     "unassigned": "Unassigned",
     "resultDocNumber": "Document number",
     "resultNote": "Note",
-    "pickupCodeLabel": "Pickup code"
+    "pickupCodeLabel": "Pickup code",
+    "promptSubmit": "Confirm",
+    "promptCancel": "Cancel"
   },
   "Feed": {
     "published": "Published",

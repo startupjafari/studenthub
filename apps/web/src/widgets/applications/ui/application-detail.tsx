@@ -15,7 +15,7 @@ import {
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
 import { STUDENT_CANCELLABLE_STATUSES } from '@studenthub/shared-schemas'
-import { Button, Card, Skeleton, EmptyState } from '../../../shared/ui'
+import { Button, Card, Skeleton, EmptyState, useConfirm } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
 
 export function ApplicationDetail({
@@ -30,6 +30,7 @@ export function ApplicationDetail({
   const t = useTranslations('Applications')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
 
   const q = useQuery({ queryKey: applicationKeys.detail(id), queryFn: () => fetchApplication(id) })
   const cancelMut = useMutation({
@@ -185,8 +186,13 @@ export function ApplicationDetail({
                 variant="outline"
                 className="w-full text-destructive hover:text-destructive"
                 loading={cancelMut.isPending}
-                onClick={() => {
-                  if (window.confirm(t('cancelConfirm'))) cancelMut.mutate()
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: t('cancelApplication'),
+                    description: t('cancelConfirm'),
+                    destructive: true,
+                  })
+                  if (ok) cancelMut.mutate()
                 }}
               >
                 {t('cancelApplication')}
