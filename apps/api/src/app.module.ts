@@ -21,7 +21,8 @@ import { SpecialtiesModule } from './modules/specialties/specialties.module'
 import { GroupsModule } from './modules/groups/groups.module'
 import { RoomsModule } from './modules/rooms/rooms.module'
 import { SchedulesModule } from './modules/schedules/schedules.module'
-import { ApplicationsModule } from './modules/applications/applications.module'
+// ApplicationsModule (старая тикет-система) снят с регистрации — /applications теперь у
+// ApplicationServicesModule (переработка). Файлы старого модуля удаляются в финальном cleanup.
 import { ApplicationServicesModule } from './modules/application-services/application-services.module'
 import { PostsModule } from './modules/posts/posts.module'
 import { ChatsModule } from './modules/chats/chats.module'
@@ -65,7 +66,6 @@ import { AppController } from './app.controller'
     GroupsModule,
     RoomsModule,
     SchedulesModule,
-    ApplicationsModule,
     ApplicationServicesModule,
     PostsModule,
     ChatsModule,
