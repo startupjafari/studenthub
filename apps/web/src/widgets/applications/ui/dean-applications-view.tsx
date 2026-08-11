@@ -14,7 +14,7 @@ import {
   type ApplicationFilters,
   type ApplicationListItem,
 } from '../../../entities/application-service'
-import { Button, Card, EmptyState, Skeleton } from '../../../shared/ui'
+import { Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { StaffWorkspace } from './staff-workspace'
 
@@ -62,7 +62,7 @@ export function DeanApplicationsView() {
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-      <h1 className="text-2xl font-bold">{t('queueTitle')}</h1>
+      <PageHeader title={t('queueTitle')} />
 
       {/* Счётчики */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">

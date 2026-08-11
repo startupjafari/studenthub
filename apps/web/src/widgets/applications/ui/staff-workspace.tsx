@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Eye, Check, RefreshCw } from 'lucide-react'
+import { Eye, Check, RefreshCw } from 'lucide-react'
 import {
   ApplicationStatusBadge,
   applicationKeys,
@@ -24,7 +24,7 @@ import {
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
-import { Button, Card, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
+import { Button, Card, PageHeader, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -43,16 +43,15 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label={t('backBtn')}>
-          <ArrowLeft className="size-5" aria-hidden />
-        </Button>
-        <h2 className="truncate text-lg font-semibold">
-          {app
+      <PageHeader
+        title={
+          app
             ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
-            : t('title')}
-        </h2>
-      </div>
+            : t('title')
+        }
+        onBack={onBack}
+        backLabel={t('backBtn')}
+      />
 
       {q.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
