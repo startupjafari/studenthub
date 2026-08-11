@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -23,7 +24,15 @@ import {
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
-import { Button, Card, Skeleton, EmptyState } from '../../../shared/ui'
+import { Button, Card, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
+
+// Состояние текстового промпта для действий сотрудника.
+interface Prompt {
+  title: string
+  multiline?: boolean
+  required?: boolean
+  run: (value: string) => void
+}
 
 // Рабочее место сотрудника по одной заявке (§17): студент, документы-review, действия, timeline.
 export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void }) {
@@ -197,7 +206,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     onError: err,
   })
 
-  const ask = (label: string): string | null => window.prompt(label)
+  const [prompt, setPrompt] = useState<Prompt | null>(null)
 
   const buttons: React.ReactNode[] = []
   const s = app.status
@@ -229,10 +238,14 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="corr"
         variant="outline"
         className="w-full"
-        onClick={() => {
-          const c = ask(t('reasonPrompt'))
-          if (c) correctionMut.mutate(c)
-        }}
+        onClick={() =>
+          setPrompt({
+            title: t('requestCorrection'),
+            multiline: true,
+            required: true,
+            run: (c) => correctionMut.mutate(c),
+          })
+        }
       >
         {t('requestCorrection')}
       </Button>,
@@ -244,10 +257,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="result"
         variant="outline"
         className="w-full"
-        onClick={() => {
-          const n = ask(t('resultDocNumber'))
-          if (n !== null) resultMut.mutate(n)
-        }}
+        onClick={() => setPrompt({ title: t('resultDocNumber'), run: (n) => resultMut.mutate(n) })}
       >
         {t('addResult')}
       </Button>,
@@ -257,8 +267,8 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="ready"
         className="w-full"
         onClick={() => {
-          const loc = app.deliveryType === 'ELECTRONIC' ? '' : ask(t('pickupTitle'))
-          if (loc !== null) readyMut.mutate(loc ?? '')
+          if (app.deliveryType === 'ELECTRONIC') readyMut.mutate('')
+          else setPrompt({ title: t('pickupTitle'), run: (loc) => readyMut.mutate(loc) })
         }}
       >
         {t('markReady')}
@@ -295,17 +305,38 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="reject"
         variant="outline"
         className="w-full text-destructive hover:text-destructive"
-        onClick={() => {
-          const r = ask(t('reasonPrompt'))
-          if (r) rejectMut.mutate(r)
-        }}
+        onClick={() =>
+          setPrompt({
+            title: t('rejectApp'),
+            multiline: true,
+            required: true,
+            run: (r) => rejectMut.mutate(r),
+          })
+        }
       >
         {t('rejectApp')}
       </Button>,
     )
   }
-  if (buttons.length === 0) return null
-  return <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">{buttons}</div>
+  if (buttons.length === 0 && !prompt) return null
+  return (
+    <>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">{buttons}</div>
+      <PromptDialog
+        open={!!prompt}
+        title={prompt?.title ?? ''}
+        multiline={prompt?.multiline}
+        required={prompt?.required}
+        submitLabel={t('promptSubmit')}
+        cancelLabel={t('promptCancel')}
+        onSubmit={(v) => {
+          prompt?.run(v)
+          setPrompt(null)
+        }}
+        onClose={() => setPrompt(null)}
+      />
+    </>
+  )
 }
 
 function StaffDocumentReview({
@@ -326,6 +357,7 @@ function StaffDocumentReview({
     onChanged()
   }
   const err = () => toast.error(t('loadError'))
+  const [replaceFor, setReplaceFor] = useState<string | null>(null)
   const acceptMut = useMutation({
     mutationFn: (docId: string) => acceptDocumentRequest(appId, docId),
     onSuccess: done,
@@ -375,10 +407,7 @@ function StaffDocumentReview({
                   variant="ghost"
                   size="sm"
                   className="text-amber-600 dark:text-amber-400"
-                  onClick={() => {
-                    const c = window.prompt(t('reasonPrompt'))
-                    if (c) replaceMut.mutate({ docId: d.id, comment: c })
-                  }}
+                  onClick={() => setReplaceFor(d.id)}
                 >
                   <RefreshCw className="size-4" aria-hidden />
                   {t('requestReplacement')}
@@ -388,6 +417,19 @@ function StaffDocumentReview({
           </div>
         </div>
       ))}
+      <PromptDialog
+        open={!!replaceFor}
+        title={t('requestReplacement')}
+        multiline
+        required
+        submitLabel={t('promptSubmit')}
+        cancelLabel={t('promptCancel')}
+        onSubmit={(v) => {
+          if (replaceFor) replaceMut.mutate({ docId: replaceFor, comment: v })
+          setReplaceFor(null)
+        }}
+        onClose={() => setReplaceFor(null)}
+      />
     </div>
   )
 }

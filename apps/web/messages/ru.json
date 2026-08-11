@@ -826,7 +826,9 @@
     "unassigned": "Не назначен",
     "resultDocNumber": "Номер документа",
     "resultNote": "Комментарий",
-    "pickupCodeLabel": "Код получения"
+    "pickupCodeLabel": "Код получения",
+    "promptSubmit": "Подтвердить",
+    "promptCancel": "Отмена"
   },
   "Feed": {
     "published": "Опубликовано",
