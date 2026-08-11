@@ -52,6 +52,10 @@ export function DeanApplicationsView() {
     queryFn: () => fetchApplications(filters),
   })
 
+  if (openId) {
+    return <StaffWorkspace id={openId} onBack={() => setOpenId(null)} />
+  }
+
   const items = listQ.data?.items ?? []
   const total = listQ.data?.total ?? 0
   const stats = statsQ.data
@@ -142,9 +146,6 @@ export function DeanApplicationsView() {
           )}
         </>
       )}
-
-      {/* Шаги обработки заявки — в модальном окне поверх очереди */}
-      {openId && <StaffWorkspace id={openId} onClose={() => setOpenId(null)} />}
     </div>
   )
 }

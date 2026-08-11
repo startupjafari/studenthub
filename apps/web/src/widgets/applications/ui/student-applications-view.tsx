@@ -67,6 +67,15 @@ export function StudentApplicationsView() {
     return by
   }, [q.data])
 
+  if (screen.name === 'create' || screen.name === 'edit') {
+    return (
+      <CreateWizard
+        initialDraftId={screen.name === 'edit' ? screen.id : undefined}
+        onDone={(id) => setScreen({ name: 'detail', id })}
+        onCancel={() => setScreen({ name: 'list' })}
+      />
+    )
+  }
   if (screen.name === 'detail') {
     return (
       <ApplicationDetail
@@ -171,15 +180,6 @@ export function StudentApplicationsView() {
             />
           ))}
         </div>
-      )}
-
-      {/* Шаги создания/правки черновика — в модальном окне поверх списка */}
-      {(screen.name === 'create' || screen.name === 'edit') && (
-        <CreateWizard
-          initialDraftId={screen.name === 'edit' ? screen.id : undefined}
-          onDone={(id) => setScreen({ name: 'detail', id })}
-          onCancel={() => setScreen({ name: 'list' })}
-        />
       )}
     </div>
   )

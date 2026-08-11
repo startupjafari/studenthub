@@ -24,7 +24,7 @@ import {
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
-import { Button, Card, Modal, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
+import { Button, Card, PageHeader, Skeleton, EmptyState, PromptDialog } from '../../../shared/ui'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -35,7 +35,7 @@ interface Prompt {
 }
 
 // Рабочее место сотрудника по одной заявке (§17): студент, документы-review, действия, timeline.
-export function StaffWorkspace({ id, onClose }: { id: string; onClose: () => void }) {
+export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const q = useQuery({ queryKey: applicationKeys.detail(id), queryFn: () => fetchApplication(id) })
@@ -45,7 +45,8 @@ export function StaffWorkspace({ id, onClose }: { id: string; onClose: () => voi
     : undefined
 
   return (
-    <Modal size="2xl" title={serviceName} onClose={onClose}>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <PageHeader title={serviceName ?? t('title')} onBack={onBack} backLabel={t('backBtn')} />
       {q.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
       ) : q.isError || !app ? (
@@ -139,7 +140,7 @@ export function StaffWorkspace({ id, onClose }: { id: string; onClose: () => voi
           <StaffActions app={app} onDone={() => void q.refetch()} />
         </div>
       )}
-    </Modal>
+    </div>
   )
 }
 
