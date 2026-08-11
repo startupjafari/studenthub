@@ -102,18 +102,21 @@ STUDENT                   базовый пользователь
 Просмотр и управление парами, аудиториями, заменами. Ролевая выборка: студент видит группу, преподаватель — свои занятия, декан — факультет. Изменения (перенос, замена аудитории, отмена) генерируют уведомление и WS-событие. Фильтры: группа, преподаватель, аудитория, предмет, дата. Особые события: экзамены, консультации, дедлайны.
 Сущности: `Schedule`, `Pair`, `Room`, `ScheduleChange`.
 
-### 3.2 Заявки в деканат
-Цифровое взаимодействие студента с деканатом. Типы: справка об обучении, справка для военкомата, справка по месту требования, академический вопрос, финансовый вопрос, технический вопрос, другое.
+### 3.2 Заявки в деканат (услуги университета)
+Цифровой сервис получения университетских услуг (переработка модуля, идёт в ветке `feat/applications-redesign`). Студент выбирает **услугу** из каталога (категория → услуга), видит требования/срок/способ выдачи, заполняет форму, прикладывает документы (в т.ч. из личного хранилища «Документы»), отправляет; деканат обрабатывает и выдаёт результат (электронно или оригинал). Принцип: «студент приходит в деканат только за готовым результатом».
 
-Конечный автомат статусов:
+**Каталог (настраиваемый, не enum):** `ApplicationCategory` (ACADEMIC · CERTIFICATES · FINANCIAL · MILITARY · DORMITORY · PERSONAL_DATA · TECHNICAL · OTHER) → `ApplicationService` (локализованные название/описание/инструкции, `slaHours`, `deliveryModes[ELECTRONIC|PAPER]`, `requiresPickup`, `processingMode`, `universityId` для кастома вуза) → `ServiceRequirement` (чек-лист документов, `documentType` → каталог «Документов») и `ServiceFormField` (динамическая форма). Глобальные шаблоны (`universityId=null`) видны всем вузам.
+
+**Статусная модель** (строки; SSOT — `@studenthub/shared-schemas` `APPLICATION_TRANSITIONS`):
 ```
-NEW → PROCESSING → CLARIFICATION → PROCESSING
-                 ↓
-           APPROVED → READY → CLOSED
-                 ↓
-           REJECTED → CLOSED
+DRAFT → SUBMITTED → IN_REVIEW → NEEDS_CORRECTION → RESUBMITTED → IN_REVIEW
+                            ↓
+                      IN_PREPARATION → READY | READY_FOR_PICKUP → DELIVERED | ISSUED
+терминальные: REJECTED, CANCELLED
 ```
-Переходы реализуются одним методом `transitionStatus()` с явной матрицей допустимых переходов и проверкой прав. Каждый переход пишется в `ApplicationStatusHistory` и уведомляет студента.
+`Application`: `number` (SH-YYYY-NNNNNN), `serviceId`, `deliveryType`, `formData(Json)`, `assignedToId`, SLA-тайминги (`submittedAt/startedAt/dueAt/readyAt/issuedAt`), pickup-поля. Каждый переход/событие пишется в `ApplicationEvent` (единый journal → человеческий timeline студенту + audit сотруднику). Права — `ApplicationPolicy` (единый источник для guard/сервиса/scope, §2.2). Отзыв — статус `CANCELLED` (не DELETE). Документы-требования и результат строятся поверх домена «Документы» (`Document`/`issuedByUniversity`).
+
+> Старая тикет-модель (`ApplicationRequest`, статусы NEW…CLOSED, `PATCH /status`) снята с регистрации и удаляется в финальном cleanup переработки.
 
 ### 3.3 Посты и лента
 Главная лента платформы. Тип поста определяется ролью автора (пост платформы / университета / факультета / преподавателя / группы / личный). Аудитория задаётся при публикации и ограничена ролью автора. Функции: текст, медиа, файлы, реакции, комментарии (thread), репост, закрепление (только роль выше автора), жалоба. Пагинация — cursor.
@@ -473,7 +476,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id` · `GET|POST /rooms` · `GET|PATCH|DELETE /rooms/:id`
 
-**Заявки** — `GET|POST /applications` · `GET /applications/:id` · `PATCH /applications/:id/status` (Dean/Admin, scope; конечный автомат, недопустимый переход → 400) · `POST /applications/:id/attachments` (владелец, статусы NEW/CLARIFICATION) · `GET /applications/:id/attachments/:fileId/presigned` (владелец или деканат) · `DELETE /applications/:id` (владелец, статус NEW)
+**Заявки (услуги)** — каталог: `GET /application-categories` (категории с доступными услугами) · `GET /application-services/:id` (детали: требования-документы + поля формы). Заявки: `POST /applications` (черновик по `serviceId`) · `PATCH /applications/:id` (правка черновика: `deliveryType`+`formData`, только владелец/DRAFT) · `POST /applications/:id/submit` (DRAFT→SUBMITTED: номер SH-YYYY-N + `dueAt` по SLA + валидация формы) · `POST /applications/:id/cancel` (→CANCELLED, владелец до подготовки) · `GET /applications` (список/очередь: server-side пагинация + фильтры `status/serviceId/categoryCode/facultyId/assignedToId/search/overdue/dueToday`, scope через `ApplicationPolicy`) · `GET /applications/:id` (детали + timeline, scope-гейт). Обработка/результат/выдача (process/assign/document-review/result/issue) — следующими под-фазами. Права — `ApplicationPolicy` (роль+scope, единый источник).
 
 **Посты** — `GET|POST /posts` (лента — cursor по видимости; таб `filter=ALL|GROUP|UNIVERSITY|TEACHERS|IMPORTANT` сужает поверх видимости: GROUP/UNIVERSITY — по audience, TEACHERS — посты от преподавателей, IMPORTANT — закреплённые) · `GET|DELETE /posts/:id` (удаление — автор/модератор scope) · `PATCH /posts/:id/pin` (роль строго выше автора) · `POST /posts/:id/reactions` · `DELETE /posts/:id/reactions/:emoji` · `GET|POST /posts/:id/comments` · `DELETE /posts/:id/comments/:commentId` · `POST /posts/:id/repost`
 
