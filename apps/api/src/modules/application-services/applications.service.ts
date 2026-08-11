@@ -41,6 +41,8 @@ const APP_SELECT = {
   service: {
     select: { id: true, code: true, nameRu: true, nameKk: true, nameEn: true, slaHours: true },
   },
+  // Имя студента — для очереди/карточки деканата (§16/§17). Не чувствительно; scope защищает доступ.
+  student: { select: { id: true, firstName: true, lastName: true, groupId: true } },
 } satisfies Prisma.ApplicationSelect
 
 // Допустимые способы получения по набору режимов услуги.

@@ -111,6 +111,7 @@ export interface ApplicationListItem {
   cancelledAt: string | null
   createdAt: string
   service: ApplicationServiceRef
+  student?: { id: string; firstName: string; lastName: string; groupId: string | null }
 }
 
 export interface TimelineEvent {
@@ -140,12 +141,31 @@ export interface ApplicationDocumentItem {
   }
 }
 
+export interface ApplicationResultItem {
+  id: string
+  type: string
+  documentId: string | null
+  documentNumber: string | null
+  note: string | null
+  createdAt: string
+}
+
 export interface ApplicationDetail extends ApplicationListItem {
   rejectionReason: string | null
   pickupLocation: string | null
   pickupInstructions: string | null
+  pickupCode?: string | null
   events: TimelineEvent[]
   documents: ApplicationDocumentItem[]
+  results: ApplicationResultItem[]
+}
+
+export interface QueueStats {
+  new: number
+  inWork: number
+  actionNeeded: number
+  ready: number
+  overdue: number
 }
 
 export interface ApplicationListPage {
@@ -248,4 +268,50 @@ export async function removeApplicationDocument(
 export async function fetchApplicationDocumentUrl(appId: string, docId: string): Promise<string> {
   const { data } = await api.get<{ url: string }>(`/applications/${appId}/documents/${docId}/url`)
   return data.url
+}
+
+// ── Обработка сотрудником (PR4) ──────────────────────────────────────────────
+export async function fetchQueueStats(): Promise<QueueStats> {
+  const { data } = await api.get<QueueStats>('/applications/queue-stats')
+  return data
+}
+export async function takeApplication(id: string): Promise<void> {
+  await api.post(`/applications/${id}/take`)
+}
+export async function requestCorrectionRequest(id: string, comment: string): Promise<void> {
+  await api.post(`/applications/${id}/request-correction`, { comment })
+}
+export async function startPreparationRequest(id: string): Promise<void> {
+  await api.post(`/applications/${id}/start-preparation`)
+}
+export async function rejectApplicationRequest(id: string, reason: string): Promise<void> {
+  await api.post(`/applications/${id}/reject`, { reason })
+}
+export async function addResultRequest(
+  id: string,
+  body: { type: string; documentNumber?: string; note?: string },
+): Promise<void> {
+  await api.post(`/applications/${id}/results`, body)
+}
+export async function markReadyRequest(
+  id: string,
+  body: { pickupLocation?: string; pickupInstructions?: string },
+): Promise<void> {
+  await api.post(`/applications/${id}/mark-ready`, body)
+}
+export async function issueApplicationRequest(id: string): Promise<void> {
+  await api.post(`/applications/${id}/issue`)
+}
+export async function deliverApplicationRequest(id: string): Promise<void> {
+  await api.post(`/applications/${id}/deliver`)
+}
+export async function acceptDocumentRequest(appId: string, docId: string): Promise<void> {
+  await api.post(`/applications/${appId}/documents/${docId}/accept`)
+}
+export async function requestDocReplacementRequest(
+  appId: string,
+  docId: string,
+  comment: string,
+): Promise<void> {
+  await api.post(`/applications/${appId}/documents/${docId}/request-replacement`, { comment })
 }
