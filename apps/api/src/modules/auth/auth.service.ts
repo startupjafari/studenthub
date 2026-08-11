@@ -54,9 +54,9 @@ export class AuthService {
     private readonly twoFactor: TwoFactorService,
   ) {}
 
-  /** Проверка email+пароля для LocalStrategy. Не раскрывает, что именно неверно. */
-  async validateUser(email: string, password: string): Promise<JwtPayload> {
-    const user = await this.users.findByEmailForAuth(email)
+  /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
+  async validateUser(identifier: string, password: string): Promise<JwtPayload> {
+    const user = await this.users.findByLoginIdentifierForAuth(identifier)
     const passwordOk = user ? await this.passwords.compare(password, user.passwordHash) : false
     if (!user || !passwordOk) {
       throw new AppException('UNAUTHORIZED', 'Неверный email или пароль')
@@ -75,6 +75,7 @@ export class AuthService {
   async registerByInvite(
     input: {
       token: string
+      username: string
       firstName: string
       lastName: string
       password: string
@@ -92,6 +93,7 @@ export class AuthService {
       }
       const created = await this.users.createInvitedUser(tx, {
         email,
+        username: input.username,
         passwordHash,
         firstName: input.firstName,
         lastName: input.lastName,

@@ -4,14 +4,14 @@ import { Strategy } from 'passport-local'
 import { AuthService } from '../auth.service'
 import type { JwtPayload } from '../../../common/auth/jwt-payload.type'
 
-// Валидирует email+пароль при логине. usernameField переопределён на email.
+// Валидирует идентификатор (email ИЛИ username) + пароль при логине. Поле — `identifier`.
 @Injectable()
 export class LocalStrategy extends PassportStrategy(Strategy, 'local') {
   constructor(private readonly authService: AuthService) {
-    super({ usernameField: 'email' })
+    super({ usernameField: 'identifier' })
   }
 
-  validate(email: string, password: string): Promise<JwtPayload> {
-    return this.authService.validateUser(email, password)
+  validate(identifier: string, password: string): Promise<JwtPayload> {
+    return this.authService.validateUser(identifier, password)
   }
 }

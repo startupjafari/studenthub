@@ -146,10 +146,18 @@ export class UserService {
     return { online: this.realtime.isOnline(userId) }
   }
 
-  /** Для AuthService (LocalStrategy): запись с passwordHash. passwordHash не покидает auth-домен. */
-  findByEmailForAuth(email: string): Promise<AuthUserRecord | null> {
+  /**
+   * Для AuthService (LocalStrategy): запись с passwordHash по email ИЛИ username (Telegram-стиль вход).
+   * username хранится в нижнем регистре — приводим идентификатор к нижнему для сопоставления.
+   * passwordHash не покидает auth-домен.
+   */
+  findByLoginIdentifierForAuth(identifier: string): Promise<AuthUserRecord | null> {
+    const normalized = identifier.trim().toLowerCase()
     return this.prisma.user.findFirst({
-      where: { email, deletedAt: null },
+      where: {
+        deletedAt: null,
+        OR: [{ email: identifier.trim() }, { username: normalized }],
+      },
       select: {
         id: true,
         passwordHash: true,
@@ -899,6 +907,7 @@ export class UserService {
     tx: PrismaTx,
     data: {
       email: string
+      username: string
       passwordHash: string
       firstName: string
       lastName: string
@@ -910,7 +919,12 @@ export class UserService {
   ): Promise<JwtPayload> {
     try {
       const user = await tx.user.create({
-        data: { ...data, profileVisibility: this.defaultVisibilityFor(data.role) },
+        // username нормализуем в нижний регистр (регистронезависимая уникальность).
+        data: {
+          ...data,
+          username: data.username.trim().toLowerCase(),
+          profileVisibility: this.defaultVisibilityFor(data.role),
+        },
         select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
       })
       return {
@@ -922,7 +936,17 @@ export class UserService {
       }
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует')
+        // Какое поле конфликтует — email или username (target из meta).
+        const target = (error.meta?.target as string[] | string | undefined) ?? ''
+        const conflictsUsername = Array.isArray(target)
+          ? target.includes('username')
+          : String(target).includes('username')
+        throw new AppException(
+          'CONFLICT',
+          conflictsUsername
+            ? 'Это имя пользователя уже занято'
+            : 'Пользователь с таким email уже существует',
+        )
       }
       throw error
     }

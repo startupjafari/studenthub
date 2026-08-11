@@ -87,8 +87,8 @@ export interface TwoFactorChallenge {
 }
 export type LoginResult = { accessToken: string } | TwoFactorChallenge
 
-export async function loginRequest(email: string, password: string): Promise<LoginResult> {
-  const { data } = await api.post<LoginResult>('/auth/login', { email, password })
+export async function loginRequest(identifier: string, password: string): Promise<LoginResult> {
+  const { data } = await api.post<LoginResult>('/auth/login', { identifier, password })
   return data
 }
 
