@@ -102,7 +102,7 @@ export function canTransition(
 
 // ── Тело запросов ────────────────────────────────────────────────────────────
 // Создание черновика: только выбор услуги; остальное заполняется правкой черновика (§8, §30).
-export const CreateDraftSchema = z.object({ serviceId: z.string().uuid() }).strict()
+export const CreateDraftSchema = z.object({ serviceId: z.string().min(1) }).strict()
 export type CreateDraftInput = z.infer<typeof CreateDraftSchema>
 
 // Правка черновика: способ получения + ответы динамической формы (валидация полей — по услуге на бэке).
@@ -128,7 +128,7 @@ export type ApplicationTransitionCommentInput = z.infer<typeof ApplicationTransi
 
 // Приложить документ из хранилища к требованию услуги (§3/§4).
 export const AttachApplicationDocumentSchema = z
-  .object({ requirementId: z.string().uuid(), documentId: z.string().uuid() })
+  .object({ requirementId: z.string().min(1), documentId: z.string().min(1) })
   .strict()
 export type AttachApplicationDocumentInput = z.infer<typeof AttachApplicationDocumentSchema>
 
@@ -137,7 +137,7 @@ export const RequestReplacementSchema = z.object({ comment: z.string().min(1).ma
 export type RequestReplacementInput = z.infer<typeof RequestReplacementSchema>
 
 // ── Действия сотрудника (PR4) ────────────────────────────────────────────────
-export const AssignApplicationSchema = z.object({ userId: z.string().uuid() }).strict()
+export const AssignApplicationSchema = z.object({ userId: z.string().min(1) }).strict()
 export type AssignApplicationInput = z.infer<typeof AssignApplicationSchema>
 
 export const RejectApplicationSchema = z.object({ reason: z.string().min(1).max(2000) }).strict()
@@ -157,7 +157,7 @@ export type ApplicationResultType = z.infer<typeof ApplicationResultTypeSchema>
 export const AddApplicationResultSchema = z
   .object({
     type: ApplicationResultTypeSchema,
-    documentId: z.string().uuid().optional(),
+    documentId: z.string().min(1).optional(),
     documentNumber: z.string().max(100).optional(),
     note: z.string().max(2000).optional(),
   })
@@ -188,10 +188,10 @@ export type ApplicationSort = z.infer<typeof ApplicationSortSchema>
 
 export const ApplicationQuerySchema = OffsetPaginationSchema.extend({
   status: ApplicationServiceStatusSchema.optional(),
-  serviceId: z.string().uuid().optional(),
+  serviceId: z.string().min(1).optional(),
   categoryCode: ApplicationCategoryCodeSchema.optional(),
-  facultyId: z.string().uuid().optional(),
-  assignedToId: z.string().uuid().optional(),
+  facultyId: z.string().min(1).optional(),
+  assignedToId: z.string().min(1).optional(),
   search: z.string().max(120).optional(),
   overdue: z.coerce.boolean().optional(),
   dueToday: z.coerce.boolean().optional(),
