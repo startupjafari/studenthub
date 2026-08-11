@@ -16,7 +16,10 @@ async function main() {
     where: { email: 'admin@studenthub.app' },
     // По умолчанию не перезаписываем пароль/профиль при повторном запуске.
     // SEED_RESET_ADMIN=1 — разовый принудительный сброс пароля админа (когда он забыт/рассинхронизирован).
-    update: process.env.SEED_RESET_ADMIN === '1' ? { passwordHash } : {},
+    update:
+      process.env.SEED_RESET_ADMIN === '1'
+        ? { passwordHash, isBlocked: false, deletedAt: null }
+        : {},
     create: {
       email: 'admin@studenthub.app',
       passwordHash,
