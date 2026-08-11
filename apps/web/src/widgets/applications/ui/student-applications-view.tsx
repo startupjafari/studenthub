@@ -90,13 +90,11 @@ export function StudentApplicationsView() {
   }
   if (screen.name === 'detail') {
     return (
-      <Shell>
-        <ApplicationDetail
-          id={screen.id}
-          onBack={() => setScreen({ name: 'list' })}
-          onContinueDraft={(id) => setScreen({ name: 'edit', id })}
-        />
-      </Shell>
+      <ApplicationDetail
+        id={screen.id}
+        onBack={() => setScreen({ name: 'list' })}
+        onContinueDraft={(id) => setScreen({ name: 'edit', id })}
+      />
     )
   }
 

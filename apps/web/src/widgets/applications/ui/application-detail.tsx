@@ -16,6 +16,7 @@ import {
 } from '../../../entities/application-service'
 import { STUDENT_CANCELLABLE_STATUSES } from '@studenthub/shared-schemas'
 import { Button, Card, Skeleton, EmptyState, useConfirm } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { DocumentChecklist } from './document-checklist'
 
 export function ApplicationDetail({
@@ -87,32 +88,34 @@ export function ApplicationDetail({
         />
       ) : (
         <>
-          <Card className="flex flex-col gap-3 p-4">
+          <Card className="flex flex-col gap-4 p-5">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-muted-foreground">
+              <span className="font-mono text-sm text-muted-foreground">
                 {app.number ?? t('status2_DRAFT')}
               </span>
               <ApplicationStatusBadge status={app.status} />
             </div>
-            {app.deliveryType && (
-              <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
-            )}
-            {app.submittedAt && (
-              <Row
-                label={t('submittedAtLabel')}
-                value={new Date(app.submittedAt).toLocaleString(locale)}
-              />
-            )}
-            {app.dueAt &&
-              !['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED'].includes(app.status) && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {app.deliveryType && (
+                <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
+              )}
+              {app.submittedAt && (
                 <Row
-                  label={t('expectedReady')}
-                  value={new Date(app.dueAt).toLocaleString(locale)}
+                  label={t('submittedAtLabel')}
+                  value={new Date(app.submittedAt).toLocaleString(locale)}
                 />
               )}
-            {app.status === 'REJECTED' && app.rejectionReason && (
-              <Row label={t('status2_REJECTED')} value={app.rejectionReason} />
-            )}
+              {app.dueAt &&
+                !['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED'].includes(app.status) && (
+                  <Row
+                    label={t('expectedReady')}
+                    value={new Date(app.dueAt).toLocaleString(locale)}
+                  />
+                )}
+              {app.status === 'REJECTED' && app.rejectionReason && (
+                <Row label={t('status2_REJECTED')} value={app.rejectionReason} />
+              )}
+            </div>
           </Card>
 
           {app.status === 'NEEDS_CORRECTION' && (
@@ -140,41 +143,44 @@ export function ApplicationDetail({
               </Card>
             )}
 
-          {docs.length > 0 && (
+          {/* Документы и История — рядом на широких экранах, стопкой на узких */}
+          <div className={cn('grid gap-4', docs.length > 0 && 'lg:grid-cols-2')}>
+            {docs.length > 0 && (
+              <Card className="flex flex-col gap-3 p-4">
+                <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
+                <DocumentChecklist
+                  appId={app.id}
+                  requirements={docs.map((d) => ({
+                    id: d.requirement.id,
+                    documentType: null,
+                    titleRu: d.requirement.titleRu,
+                    titleKk: d.requirement.titleKk,
+                    titleEn: d.requirement.titleEn,
+                    required: d.requirement.required,
+                  }))}
+                  documents={docs}
+                  editable={editableDocs}
+                  locale={locale}
+                  onChanged={() => void q.refetch()}
+                />
+              </Card>
+            )}
+
             <Card className="flex flex-col gap-3 p-4">
-              <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
-              <DocumentChecklist
-                appId={app.id}
-                requirements={docs.map((d) => ({
-                  id: d.requirement.id,
-                  documentType: null,
-                  titleRu: d.requirement.titleRu,
-                  titleKk: d.requirement.titleKk,
-                  titleEn: d.requirement.titleEn,
-                  required: d.requirement.required,
-                }))}
-                documents={docs}
-                editable={editableDocs}
-                locale={locale}
-                onChanged={() => void q.refetch()}
-              />
+              <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
+              <Timeline events={app.events} />
             </Card>
-          )}
+          </div>
 
-          <Card className="flex flex-col gap-3 p-4">
-            <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
-            <Timeline events={app.events} />
-          </Card>
-
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             {isDraft && (
-              <Button className="w-full" onClick={() => onContinueDraft(app.id)}>
+              <Button className="w-full sm:w-auto" onClick={() => onContinueDraft(app.id)}>
                 {t('continueDraft')}
               </Button>
             )}
             {editableDocs && !replacementPending && (
               <Button
-                className="w-full"
+                className="w-full sm:w-auto"
                 loading={resubmitMut.isPending}
                 onClick={() => resubmitMut.mutate()}
               >
@@ -184,7 +190,7 @@ export function ApplicationDetail({
             {cancellable && (
               <Button
                 variant="outline"
-                className="w-full text-destructive hover:text-destructive"
+                className="w-full text-destructive hover:text-destructive sm:w-auto"
                 loading={cancelMut.isPending}
                 onClick={async () => {
                   const ok = await confirm({
