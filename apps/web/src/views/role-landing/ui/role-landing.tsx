@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
-import { Card, CardContent, CardHeader, CardTitle } from '../../../shared/ui'
+import { Card, CardContent, CardHeader, CardTitle, PageHeader } from '../../../shared/ui'
 import { NAV_BY_VARIANT, type NavVariant } from '../../../widgets/app-shell'
 
 // Дашборд ролевого лендинга: карточки по разделам навигации (кроме самого «Дашборда»),
@@ -12,7 +12,7 @@ export async function RoleLanding({ variant }: { variant: NavVariant }) {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{tNav('dashboard')}</h1>
+      <PageHeader title={tNav('dashboard')} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((item) => {
           const Icon = item.icon

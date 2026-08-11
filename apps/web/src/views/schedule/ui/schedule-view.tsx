@@ -6,7 +6,14 @@ import { useTranslations } from 'next-intl'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { fetchGroups, groupKeys } from '../../../entities/group'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../shared/ui'
+import {
+  PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../shared/ui'
 import { ScheduleGrid } from '../../../widgets/schedule-grid'
 
 // Роли, видящие несколько групп → показываем фильтр по группе (студент/староста — только своя).
@@ -34,29 +41,31 @@ export function ScheduleView() {
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">{t('title')}</h1>
-        {canFilter && (
-          <div className="w-full sm:w-64">
-            <Select
-              value={groupId || 'all'}
-              onValueChange={(v) => setGroupId(v === 'all' ? '' : v)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={t('allGroups')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('allGroups')}</SelectItem>
-                {(groups.data ?? []).map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title={t('title')}
+        actions={
+          canFilter && (
+            <div className="w-56 sm:w-64">
+              <Select
+                value={groupId || 'all'}
+                onValueChange={(v) => setGroupId(v === 'all' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t('allGroups')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('allGroups')}</SelectItem>
+                  {(groups.data ?? []).map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )
+        }
+      />
       <ScheduleGrid filters={filters} />
     </div>
   )
