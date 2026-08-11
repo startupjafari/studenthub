@@ -14,7 +14,7 @@ import {
   type ApplicationFilters,
   type ApplicationListItem,
 } from '../../../entities/application-service'
-import { Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { Button, Card, EmptyState, Modal, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { StaffWorkspace } from './staff-workspace'
 
@@ -51,10 +51,6 @@ export function DeanApplicationsView() {
     queryKey: applicationKeys.list(filters),
     queryFn: () => fetchApplications(filters),
   })
-
-  if (openId) {
-    return <StaffWorkspace id={openId} onBack={() => setOpenId(null)} />
-  }
 
   const items = listQ.data?.items ?? []
   const total = listQ.data?.total ?? 0
@@ -145,6 +141,13 @@ export function DeanApplicationsView() {
             </div>
           )}
         </>
+      )}
+
+      {/* Шаги обработки заявки — в модальном окне поверх очереди */}
+      {openId && (
+        <Modal size="2xl" onClose={() => setOpenId(null)}>
+          <StaffWorkspace id={openId} onBack={() => setOpenId(null)} />
+        </Modal>
       )}
     </div>
   )
