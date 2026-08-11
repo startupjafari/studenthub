@@ -174,6 +174,7 @@ model Application {
 
   events    ApplicationEvent[]
   documents ApplicationDocument[]
+  results   ApplicationResult[]
 
   @@index([studentId, status])
   @@index([facultyId, status])
@@ -236,4 +237,24 @@ model ApplicationDocument {
   @@index([applicationId])
   @@index([documentId])
   @@map("application_documents")
+}
+
+// Результат работы вуза по заявке (§10): электронный документ (Document issuedByUniversity),
+// бумажный оригинал, информация. Отдельно от входящих документов студента.
+model ApplicationResult {
+  id             String  @id @default(uuid())
+  applicationId  String  @map("application_id")
+  // ELECTRONIC_DOCUMENT | PAPER_DOCUMENT | INFORMATION | OTHER
+  type           String
+  documentId     String? @map("document_id") // выданный электронный Document (для скачивания)
+  documentNumber String? @map("document_number")
+  note           String?
+  issuedById     String  @map("issued_by_id") // скаляр без FK
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  document    Document?   @relation("ApplicationResultDocument", fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([applicationId])
+  @@map("application_results")
 }

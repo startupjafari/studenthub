@@ -289,6 +289,17 @@ export class ApplicationsService {
             },
           },
         },
+        results: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            type: true,
+            documentId: true,
+            documentNumber: true,
+            note: true,
+            createdAt: true,
+          },
+        },
       },
     })
   }

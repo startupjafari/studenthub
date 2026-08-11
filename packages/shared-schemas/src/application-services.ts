@@ -136,6 +136,42 @@ export type AttachApplicationDocumentInput = z.infer<typeof AttachApplicationDoc
 export const RequestReplacementSchema = z.object({ comment: z.string().min(1).max(2000) }).strict()
 export type RequestReplacementInput = z.infer<typeof RequestReplacementSchema>
 
+// ── Действия сотрудника (PR4) ────────────────────────────────────────────────
+export const AssignApplicationSchema = z.object({ userId: z.string().uuid() }).strict()
+export type AssignApplicationInput = z.infer<typeof AssignApplicationSchema>
+
+export const RejectApplicationSchema = z.object({ reason: z.string().min(1).max(2000) }).strict()
+export type RejectApplicationInput = z.infer<typeof RejectApplicationSchema>
+
+export const RequestCorrectionSchema = z.object({ comment: z.string().min(1).max(2000) }).strict()
+export type RequestCorrectionInput = z.infer<typeof RequestCorrectionSchema>
+
+export const ApplicationResultTypeSchema = z.enum([
+  'ELECTRONIC_DOCUMENT',
+  'PAPER_DOCUMENT',
+  'INFORMATION',
+  'OTHER',
+])
+export type ApplicationResultType = z.infer<typeof ApplicationResultTypeSchema>
+
+export const AddApplicationResultSchema = z
+  .object({
+    type: ApplicationResultTypeSchema,
+    documentId: z.string().uuid().optional(),
+    documentNumber: z.string().max(100).optional(),
+    note: z.string().max(2000).optional(),
+  })
+  .strict()
+export type AddApplicationResultInput = z.infer<typeof AddApplicationResultSchema>
+
+export const MarkReadySchema = z
+  .object({
+    pickupLocation: z.string().max(200).optional(),
+    pickupInstructions: z.string().max(500).optional(),
+  })
+  .strict()
+export type MarkReadyInput = z.infer<typeof MarkReadySchema>
+
 // Статусы документа заявки (для фронта).
 export const APPLICATION_DOCUMENT_STATUSES = [
   'PENDING',
