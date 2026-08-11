@@ -135,9 +135,9 @@ export function StudentApplicationsView() {
       </div>
 
       {q.isLoading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-36 w-full rounded-xl" />
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-[76px] w-full rounded-xl" />
           ))}
         </div>
       ) : q.isError ? (
@@ -163,7 +163,7 @@ export function StudentApplicationsView() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="flex flex-col gap-2">
           {current.map((app) => (
             <ApplicationCard
               key={app.id}
