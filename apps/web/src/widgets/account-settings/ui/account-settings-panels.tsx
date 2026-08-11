@@ -253,7 +253,7 @@ function PersonalSection({ me }: { me: MeResponse }) {
   )
 }
 
-// ── Безопасность (пароль + 2FA-заглушка) ────────────────────────────────────
+// ── Безопасность (смена пароля + 2FA/TOTP) ──────────────────────────────────
 function SecuritySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')

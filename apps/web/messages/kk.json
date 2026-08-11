@@ -229,7 +229,8 @@
     "oneTimeTokenNote": "Токен бір реттік және тіркелуден кейін жарамсыз болады.",
     "inviteInvalidTitle": "Шақыру жарамсыз",
     "inviteInvalidText": "Шақыру мерзімі бітті немесе ол бұрын пайдаланылған. Әкімшіден жаңа шақыру сұраңыз.",
-    "backToHome": "Басты бетке"
+    "backToHome": "Басты бетке",
+    "identifierPlaceholder": "you@example.com немесе username"
   },
   "Profile": {
     "title": "Профиль",
@@ -689,13 +690,6 @@
     "typeFINANCIAL": "Қаржылық сұрақ",
     "typeTECHNICAL": "Техникалық сұрақ",
     "typeOTHER": "Басқа",
-    "statusNEW": "Жаңа",
-    "statusPROCESSING": "Өңделуде",
-    "statusCLARIFICATION": "Нақтылау қажет",
-    "statusAPPROVED": "Мақұлданды",
-    "statusREJECTED": "Қабылданбады",
-    "statusREADY": "Дайын",
-    "statusCLOSED": "Жабылды",
     "listEmpty": "Әзірге өтініш жоқ",
     "listEmptyHint": "Деканатқа алғашқы өтінішті жасаңыз",
     "selectHint": "Мәліметтерді көру үшін өтінішті таңдаңыз",
@@ -835,7 +829,12 @@
     "resultNote": "Түсініктеме",
     "pickupCodeLabel": "Алу коды",
     "promptSubmit": "Растау",
-    "promptCancel": "Бас тарту"
+    "promptCancel": "Бас тарту",
+    "event_DOCUMENT_ADDED": "Құжат тіркелді",
+    "event_DOCUMENT_ACCEPTED": "Құжат қабылданды",
+    "event_ASSIGNED": "Жауапты тағайындалды",
+    "event_RESULT_ADDED": "Нәтиже қосылды",
+    "accept": "Қабылдау"
   },
   "Feed": {
     "published": "Жарияланды",
@@ -910,7 +909,9 @@
     "dropHint": "Файлдарды сүйреңіз немесе таңдау үшін басыңыз",
     "mediaLimit": "фото және видео · 10 МБ дейін",
     "prevMedia": "Артқа",
-    "nextMedia": "Алға"
+    "nextMedia": "Алға",
+    "prev": "Алдыңғы",
+    "next": "Келесі"
   },
   "Chats": {
     "title": "Чаттар",
