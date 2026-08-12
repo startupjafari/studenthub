@@ -30,6 +30,7 @@ import {
   FileUpload,
   Input,
   Label,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -76,7 +77,7 @@ export function MaterialsView() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('title')}</h1>
+      <PageHeader title={t('title')} />
 
       {canCreate && (
         <Card>

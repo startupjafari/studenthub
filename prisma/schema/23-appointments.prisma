@@ -1,0 +1,28 @@
+// Домен «Запись в деканат» (docs/ACADEMIC_CORE.md, задача 16). DeaneryAppointment — запись
+// студента на приём в деканат факультета: тип, желаемое время, тема; деканат подтверждает
+// (scheduledAt) / переносит / завершает / отменяет. Тип и статус — строкой (SSOT — shared-schemas).
+// applicationId — мягкая ссылка на заявку (без FK), чтобы показать связь в UI.
+
+model DeaneryAppointment {
+  id            String    @id @default(uuid())
+  studentId     String    @map("student_id")
+  facultyId     String    @map("faculty_id")
+  assignedToId  String?   @map("assigned_to_id")
+  type          String    @default("OTHER")
+  status        String    @default("REQUESTED")
+  topic         String?
+  requestedAt   DateTime  @map("requested_at")
+  scheduledAt   DateTime? @map("scheduled_at")
+  applicationId String?   @map("application_id")
+  staffNote     String?   @map("staff_note")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  student    User    @relation("AppointmentStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  faculty    Faculty @relation(fields: [facultyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assignedTo User?   @relation("AppointmentAssignee", fields: [assignedToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([facultyId, status])
+  @@index([studentId])
+  @@map("deanery_appointments")
+}

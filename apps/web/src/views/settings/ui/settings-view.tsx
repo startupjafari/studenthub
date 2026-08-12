@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ArrowLeft } from 'lucide-react'
 import { AccountSettingsPanels } from '../../../widgets/account-settings'
+import { PageHeader } from '../../../shared/ui'
 
 // Страница /settings: шапка + панели настроек (те же, что во вкладке «Настройки» профиля).
 export function SettingsView() {
@@ -19,8 +20,7 @@ export function SettingsView() {
           <ArrowLeft className="size-4" aria-hidden />
           {tS('backToProfile')}
         </Link>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">{tS('title')}</h1>
-        <p className="text-sm text-muted-foreground">{tS('subtitle')}</p>
+        <PageHeader title={tS('title')} subtitle={tS('subtitle')} className="mt-1" />
       </div>
 
       <AccountSettingsPanels />

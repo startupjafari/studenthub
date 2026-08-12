@@ -8,7 +8,15 @@ import {
   fetchUniversityStats,
   universityKeys,
 } from '../../../entities/university'
-import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '../../../shared/ui'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+} from '../../../shared/ui'
 
 // Агрегированная статистика платформы: список вузов, у каждого — плитки из GET /universities/:id/stats.
 export function PlatformStatsView() {
@@ -18,10 +26,14 @@ export function PlatformStatsView() {
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <h1 className="flex items-center gap-2 text-2xl font-bold">
-        <BarChart3 className="size-6 text-primary" aria-hidden />
-        {t('platformTitle')}
-      </h1>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <BarChart3 className="size-5 text-primary" aria-hidden />
+            {t('platformTitle')}
+          </span>
+        }
+      />
       {unis.isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : unis.isError ? (
