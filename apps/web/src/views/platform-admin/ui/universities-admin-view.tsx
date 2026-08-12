@@ -27,6 +27,7 @@ import {
   EmptyState,
   Input,
   Label,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -74,7 +75,7 @@ export function UniversitiesAdminView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('title')}</h1>
+      <PageHeader title={t('title')} />
 
       <Card>
         <CardHeader>

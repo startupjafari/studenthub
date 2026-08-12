@@ -17,6 +17,7 @@ import {
   EmptyState,
   Input,
   Label,
+  PageHeader,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
@@ -70,7 +71,7 @@ export function FacultiesAdminView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('facultiesTitle')}</h1>
+      <PageHeader title={t('facultiesTitle')} />
 
       <Card>
         <CardHeader>

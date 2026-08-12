@@ -1,0 +1,152 @@
+'use client'
+
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
+import { GraduationCap, Inbox } from 'lucide-react'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  EmptyState,
+  PageHeader,
+  Progress,
+  Skeleton,
+} from '../../../shared/ui'
+import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
+
+// Процент по дисциплине: среднее (score/maxScore) по колонкам с баллом. null — нет оценок.
+function coursePercent(c: MyGradesCourse): number | null {
+  const scored = c.columns
+    .filter((col) => col.maxScore != null && col.score != null)
+    .map((col) => (col.score as number) / (col.maxScore as number))
+  if (scored.length === 0) return null
+  return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)
+}
+
+function toneClass(pct: number): string {
+  return pct >= 75 ? 'bg-success' : pct >= 50 ? 'bg-warning' : 'bg-destructive'
+}
+
+// «Оценки» студента (задача 8): карточки дисциплин + общий балл. Только опубликованные оценки.
+export function StudentGradesView() {
+  const t = useTranslations('Grades')
+  const q = useQuery({ queryKey: gradebookKeys.me(), queryFn: () => fetchMyGrades() })
+
+  const overall = useMemo(() => {
+    const courses = q.data ?? []
+    let weightSum = 0
+    let acc = 0
+    for (const c of courses) {
+      const pct = coursePercent(c)
+      if (pct === null) continue
+      const w = c.credits ?? 1
+      acc += pct * w
+      weightSum += w
+    }
+    return weightSum === 0 ? null : Math.round(acc / weightSum)
+  }, [q.data])
+
+  const totalCredits = useMemo(
+    () =>
+      (q.data ?? []).reduce((n, c) => n + (coursePercent(c) !== null ? (c.credits ?? 0) : 0), 0),
+    [q.data],
+  )
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <PageHeader title={t('title')} />
+
+      {q.isLoading ? (
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
+      ) : q.isError ? (
+        <EmptyState
+          icon={<Inbox />}
+          title={t('loadError')}
+          action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
+        />
+      ) : (q.data ?? []).length === 0 ? (
+        <EmptyState icon={<GraduationCap />} title={t('empty')} description={t('emptyHint')} />
+      ) : (
+        <>
+          {overall !== null && (
+            <Card>
+              <CardContent className="flex items-center justify-between gap-4 p-5">
+                <div>
+                  <div className="font-heading text-3xl font-semibold tabular-nums">{overall}%</div>
+                  <div className="text-sm text-muted-foreground">{t('overall')}</div>
+                </div>
+                {totalCredits > 0 && (
+                  <div className="text-right">
+                    <div className="font-heading text-xl font-semibold tabular-nums">
+                      {totalCredits}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{t('credits')}</div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="flex flex-col gap-3">
+            {(q.data ?? []).map((c) => {
+              const pct = coursePercent(c)
+              return (
+                <Card key={c.courseId}>
+                  <CardContent className="flex flex-col gap-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate font-heading text-base font-semibold">
+                          {c.subject.name}
+                        </h3>
+                        {c.credits != null && (
+                          <span className="text-xs text-muted-foreground">
+                            {t('creditsN', { n: c.credits })}
+                          </span>
+                        )}
+                      </div>
+                      {pct !== null ? (
+                        <span className="shrink-0 font-heading text-lg font-semibold tabular-nums">
+                          {pct}%
+                        </span>
+                      ) : (
+                        <Badge variant="secondary" className="shrink-0">
+                          {t('noGrades')}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {pct !== null && <Progress value={pct} indicatorClassName={toneClass(pct)} />}
+
+                    {c.columns.length > 0 && (
+                      <ul className="flex flex-col divide-y divide-border">
+                        {c.columns.map((col) => (
+                          <li
+                            key={col.id}
+                            className="flex items-center justify-between gap-3 py-1.5"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-sm">{col.title}</span>
+                            <span className="shrink-0 text-sm font-medium tabular-nums">
+                              {col.score != null ? col.score : '—'}
+                              {col.maxScore != null && (
+                                <span className="text-muted-foreground"> / {col.maxScore}</span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

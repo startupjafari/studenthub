@@ -21,6 +21,7 @@ import {
   EmptyState,
   Input,
   Label,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -225,7 +226,7 @@ export function GroupsAdminView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('groupsTitle')}</h1>
+      <PageHeader title={t('groupsTitle')} />
 
       <Card>
         <CardHeader>
