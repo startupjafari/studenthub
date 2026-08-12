@@ -80,6 +80,7 @@ export const DEAN_NAV: NavItem[] = [
   { key: 'starostas', href: '/dean/starostas', icon: UserCog },
   { key: 'schedule', href: '/dean/schedule', icon: CalendarDays },
   { key: 'applications', href: '/dean/applications', icon: FileText },
+  { key: 'posts', href: '/dean/posts', icon: Newspaper },
   { key: 'invites', href: '/dean/invites', icon: Send },
   { key: 'chats', href: '/dean/chats', icon: MessagesSquare },
   { key: 'events', href: '/dean/events', icon: CalendarClock },
