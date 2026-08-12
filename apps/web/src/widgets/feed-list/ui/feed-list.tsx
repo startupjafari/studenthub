@@ -23,6 +23,7 @@ const FILTER_LABEL: Record<FeedFilterValue, string> = {
 export function FeedList() {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
+  const tc = useTranslations('Common')
   const [filter, setFilter] = useState<FeedFilterValue>('ALL')
 
   const query = useInfiniteQuery({
@@ -63,7 +64,16 @@ export function FeedList() {
           ))}
         </div>
       ) : query.isError ? (
-        <EmptyState title={tErr('INTERNAL_ERROR')} />
+        <EmptyState
+          icon={<Newspaper className="size-6" aria-hidden />}
+          title={tErr('INTERNAL_ERROR')}
+          action={
+            <Button variant="outline" onClick={() => query.refetch()}>
+              {tc('retry')}
+            </Button>
+          }
+          className="min-h-[240px]"
+        />
       ) : posts.length === 0 ? (
         <EmptyState
           icon={<Newspaper className="size-6" aria-hidden />}

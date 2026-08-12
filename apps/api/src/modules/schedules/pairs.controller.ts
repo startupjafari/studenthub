@@ -28,7 +28,7 @@ export class PairsController {
   constructor(private readonly schedules: SchedulesService) {}
 
   @Post()
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN)
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER)
   @ApiOperation({ summary: 'Добавить пару в расписание (с проверкой конфликтов)' })
   @ApiResponse({ status: 201, description: 'Пара создана' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
@@ -44,7 +44,7 @@ export class PairsController {
   }
 
   @Patch(':id')
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN)
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER)
   @ApiOperation({ summary: 'Изменить пару (с проверкой конфликтов)' })
   @ApiResponse({ status: 200, description: 'Пара обновлена' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE' })
@@ -60,7 +60,7 @@ export class PairsController {
   }
 
   @Delete(':id')
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN)
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Удалить пару' })
   @ApiResponse({ status: 204, description: 'Удалено' })

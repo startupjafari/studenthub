@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Bell, GraduationCap, LogOut } from 'lucide-react'
+import { Bell, GraduationCap, LogOut, Search } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { endSession } from '../../../shared/session'
@@ -16,6 +16,31 @@ function isActive(item: NavItem, pathname: string): boolean {
   if (item.href === '/') return pathname === '/'
   if (item.exact) return pathname === item.href
   return pathname === item.href || pathname.startsWith(`${item.href}/`)
+}
+
+// Разбивает навигацию на секции по item.group. Секции — в порядке первого появления группы,
+// элементы одной группы собираются вместе (даже если разнесены в списке — напр. «Документы»,
+// добавляемые в конец, попадают в свою секцию, а не создают дубль заголовка). Заголовки
+// показываем, только если групп ≥2 (иначе список плоский — как раньше, для остальных ролей).
+const UNGROUPED = '__ungrouped__'
+
+function toSections(nav: NavItem[]): { group?: string; items: NavItem[] }[] {
+  const distinct = new Set(nav.map((i) => i.group).filter(Boolean))
+  if (distinct.size < 2) return [{ items: nav }]
+  const order: string[] = []
+  const byGroup = new Map<string, NavItem[]>()
+  for (const item of nav) {
+    const key = item.group ?? UNGROUPED
+    if (!byGroup.has(key)) {
+      byGroup.set(key, [])
+      order.push(key)
+    }
+    byGroup.get(key)!.push(item)
+  }
+  return order.map((key) => ({
+    group: key === UNGROUPED ? undefined : key,
+    items: byGroup.get(key)!,
+  }))
 }
 
 function initials(first?: string, last?: string): string {
@@ -64,6 +89,16 @@ export function AppSidebar({
           <div className="flex h-16 items-center gap-2 px-6">
             <GraduationCap className="size-6 text-primary" aria-hidden />
             <span className="text-lg font-bold">StudentHub</span>
+            {/* Поиск (Command Palette) — Ctrl/Cmd+K или клик. */}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
+              aria-label={tNav('search')}
+              title={tNav('search')}
+              className="ml-auto flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+            >
+              <Search className="size-5" aria-hidden />
+            </button>
             {/* Колокол уведомлений справа от логотипа — открывает оверлей списка. */}
             <button
               type="button"
@@ -72,7 +107,7 @@ export function AppSidebar({
               title={tNav('notifications')}
               aria-pressed={notifOpen}
               className={cn(
-                'ml-auto flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
+                'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
                 notifOpen
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -81,27 +116,36 @@ export function AppSidebar({
               <Bell className="size-5" aria-hidden />
             </button>
           </div>
-          <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
-            {nav.map((item) => {
-              const Icon = item.icon
-              const active = isActive(item, pathname)
-              return (
-                <Link
-                  key={item.key}
-                  href={item.href}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  <Icon className="size-5 shrink-0" aria-hidden />
-                  {tNav(item.key)}
-                </Link>
-              )
-            })}
+          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
+            {toSections(nav).map((section, si) => (
+              <div key={section.group ?? `s${si}`} className="flex flex-col gap-1">
+                {section.group && (
+                  <p className="px-3 pb-0.5 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+                    {tNav(`group.${section.group}`)}
+                  </p>
+                )}
+                {section.items.map((item) => {
+                  const Icon = item.icon
+                  const active = isActive(item, pathname)
+                  return (
+                    <Link
+                      key={item.key}
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                        active
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="size-5 shrink-0" aria-hidden />
+                      {tNav(item.key)}
+                    </Link>
+                  )
+                })}
+              </div>
+            ))}
           </nav>
         </>
       )}

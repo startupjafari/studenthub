@@ -1,0 +1,61 @@
+// Домен «Задания» (docs/ACADEMIC_CORE.md, задача 3). Assignment — задание по дисциплине
+// (Course); Submission — сдача студента (одна запись на пару assignment+student, попытки —
+// через attemptNumber). Статусы/типы — строки, SSOT в @studenthub/shared-schemas (как в
+// applications). Файловые вложения сдач — отдельной миграцией (сейчас текст + ссылка).
+
+model Assignment {
+  id             String    @id @default(uuid())
+  courseId       String    @map("course_id")
+  createdById    String    @map("created_by_id")
+  title          String
+  description    String?
+  // Тип: HOMEWORK | LAB | COURSEWORK | PROJECT | OTHER
+  type           String    @default("HOMEWORK")
+  // Способ сдачи: TEXT | FILE | LINK | MIXED
+  submissionType String    @default("TEXT") @map("submission_type")
+  // Жизненный цикл: DRAFT | PUBLISHED | CLOSED
+  status         String    @default("DRAFT")
+  maxScore       Int?      @map("max_score")
+  maxAttempts    Int?      @map("max_attempts")
+  allowLate      Boolean   @default(false) @map("allow_late")
+  publishAt      DateTime? @map("publish_at")
+  dueAt          DateTime? @map("due_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy   User         @relation("AssignmentAuthor", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  submissions Submission[]
+
+  @@index([courseId])
+  @@index([createdById])
+  @@index([status])
+  @@map("assignments")
+}
+
+model Submission {
+  id            String    @id @default(uuid())
+  assignmentId  String    @map("assignment_id")
+  studentId     String    @map("student_id")
+  // Статус: DRAFT | SUBMITTED | GRADED | RETURNED
+  status        String    @default("DRAFT")
+  text          String?
+  linkUrl       String?   @map("link_url")
+  attemptNumber Int       @default(1) @map("attempt_number")
+  score         Int?
+  feedback      String?
+  gradedById    String?   @map("graded_by_id")
+  submittedAt   DateTime? @map("submitted_at")
+  gradedAt      DateTime? @map("graded_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student    User       @relation("SubmissionStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  gradedBy   User?      @relation("SubmissionGrader", fields: [gradedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId])
+  @@index([studentId])
+  @@map("submissions")
+}

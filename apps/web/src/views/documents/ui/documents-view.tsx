@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
+import { PageHeader } from '../../../shared/ui'
 import { OverviewPanel } from './overview-panel'
 import { DocumentsList } from './documents-list'
 import { RequestsPanel } from './requests-panel'
@@ -34,34 +35,34 @@ export function DocumentsView() {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <div>
-        <h1 className="text-2xl font-bold">{t('title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
-      </div>
-
-      {/* Под-навигация */}
-      <div className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-muted/50 p-1">
-        {SECTIONS.map((s) => {
-          const Icon = s.icon
-          const active = section === s.id
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSection(s.id)}
-              className={cn(
-                'flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                active
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
-              )}
-            >
-              <Icon className="size-4" aria-hidden />
-              {t(`nav_${s.id}`)}
-            </button>
-          )
-        })}
-      </div>
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        tabs={
+          <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/50 p-0.5">
+            {SECTIONS.map((s) => {
+              const Icon = s.icon
+              const active = section === s.id
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSection(s.id)}
+                  className={cn(
+                    'flex shrink-0 items-center gap-2 rounded-md px-2.5 py-1 text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
+                  )}
+                >
+                  <Icon className="size-4" aria-hidden />
+                  {t(`nav_${s.id}`)}
+                </button>
+              )
+            })}
+          </div>
+        }
+      />
 
       {section === 'overview' && <OverviewPanel />}
       {section === 'my' && <DocumentsList preset="active" />}

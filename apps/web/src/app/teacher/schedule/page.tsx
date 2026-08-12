@@ -1,5 +1,5 @@
-import { ScheduleView } from '../../../views/schedule'
+import { ScheduleManageView } from '../../../views/schedule'
 
 export default function Page() {
-  return <ScheduleView />
+  return <ScheduleManageView mode="teacher" />
 }

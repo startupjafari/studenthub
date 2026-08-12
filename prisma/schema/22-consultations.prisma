@@ -1,0 +1,25 @@
+// Домен «Консультации» (docs/ACADEMIC_CORE.md, задача 15). ConsultationSlot — интервал приёма
+// преподавателя; студент записывается (bookedBy + topic), статус OPEN|BOOKED|CANCELLED (строкой,
+// SSOT — shared-schemas). Один студент на слот.
+
+model ConsultationSlot {
+  id        String   @id @default(uuid())
+  teacherId String   @map("teacher_id")
+  startsAt  DateTime @map("starts_at")
+  endsAt    DateTime @map("ends_at")
+  location  String?
+  isOnline  Boolean  @default(false) @map("is_online")
+  status    String   @default("OPEN")
+  studentId String?  @map("student_id")
+  topic     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  teacher User  @relation("ConsultationTeacher", fields: [teacherId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student User? @relation("ConsultationStudent", fields: [studentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([teacherId, startsAt])
+  @@index([studentId])
+  @@index([status])
+  @@map("consultation_slots")
+}

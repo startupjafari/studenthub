@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, Users } from 'lucide-react'
 import { fetchGroups, groupKeys } from '../../../entities/group'
-import { Card, CardContent, EmptyState, Skeleton } from '../../../shared/ui'
+import { Card, CardContent, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { GroupMembers } from '../../group-members'
 
@@ -19,7 +19,7 @@ export function GroupsList({ title }: { title: string }) {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{title}</h1>
+      <PageHeader title={title} />
       {groups.isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : groups.isError ? (

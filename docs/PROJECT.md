@@ -102,18 +102,21 @@ STUDENT                   базовый пользователь
 Просмотр и управление парами, аудиториями, заменами. Ролевая выборка: студент видит группу, преподаватель — свои занятия, декан — факультет. Изменения (перенос, замена аудитории, отмена) генерируют уведомление и WS-событие. Фильтры: группа, преподаватель, аудитория, предмет, дата. Особые события: экзамены, консультации, дедлайны.
 Сущности: `Schedule`, `Pair`, `Room`, `ScheduleChange`.
 
-### 3.2 Заявки в деканат
-Цифровое взаимодействие студента с деканатом. Типы: справка об обучении, справка для военкомата, справка по месту требования, академический вопрос, финансовый вопрос, технический вопрос, другое.
+### 3.2 Заявки в деканат (услуги университета)
+Цифровой сервис получения университетских услуг (переработка модуля, идёт в ветке `feat/applications-redesign`). Студент выбирает **услугу** из каталога (категория → услуга), видит требования/срок/способ выдачи, заполняет форму, прикладывает документы (в т.ч. из личного хранилища «Документы»), отправляет; деканат обрабатывает и выдаёт результат (электронно или оригинал). Принцип: «студент приходит в деканат только за готовым результатом».
 
-Конечный автомат статусов:
+**Каталог (настраиваемый, не enum):** `ApplicationCategory` (ACADEMIC · CERTIFICATES · FINANCIAL · MILITARY · DORMITORY · PERSONAL_DATA · TECHNICAL · OTHER) → `ApplicationService` (локализованные название/описание/инструкции, `slaHours`, `deliveryModes[ELECTRONIC|PAPER]`, `requiresPickup`, `processingMode`, `universityId` для кастома вуза) → `ServiceRequirement` (чек-лист документов, `documentType` → каталог «Документов») и `ServiceFormField` (динамическая форма). Глобальные шаблоны (`universityId=null`) видны всем вузам.
+
+**Статусная модель** (строки; SSOT — `@studenthub/shared-schemas` `APPLICATION_TRANSITIONS`):
 ```
-NEW → PROCESSING → CLARIFICATION → PROCESSING
-                 ↓
-           APPROVED → READY → CLOSED
-                 ↓
-           REJECTED → CLOSED
+DRAFT → SUBMITTED → IN_REVIEW → NEEDS_CORRECTION → RESUBMITTED → IN_REVIEW
+                            ↓
+                      IN_PREPARATION → READY | READY_FOR_PICKUP → DELIVERED | ISSUED
+терминальные: REJECTED, CANCELLED
 ```
-Переходы реализуются одним методом `transitionStatus()` с явной матрицей допустимых переходов и проверкой прав. Каждый переход пишется в `ApplicationStatusHistory` и уведомляет студента.
+`Application`: `number` (SH-YYYY-NNNNNN), `serviceId`, `deliveryType`, `formData(Json)`, `assignedToId`, SLA-тайминги (`submittedAt/startedAt/dueAt/readyAt/issuedAt`), pickup-поля. Каждый переход/событие пишется в `ApplicationEvent` (единый journal → человеческий timeline студенту + audit сотруднику). Права — `ApplicationPolicy` (единый источник для guard/сервиса/scope, §2.2). Отзыв — статус `CANCELLED` (не DELETE). Документы-требования и результат строятся поверх домена «Документы» (`Document`/`issuedByUniversity`).
+
+> Старая тикет-модель (`ApplicationRequest`, статусы NEW…CLOSED, `PATCH /status`) снята с регистрации и удаляется в финальном cleanup переработки.
 
 ### 3.3 Посты и лента
 Главная лента платформы. Тип поста определяется ролью автора (пост платформы / университета / факультета / преподавателя / группы / личный). Аудитория задаётся при публикации и ограничена ролью автора. Функции: текст, медиа, файлы, реакции, комментарии (thread), репост, закрепление (только роль выше автора), жалоба. Пагинация — cursor.
@@ -314,7 +317,7 @@ Redis обязателен: без него не работают очереди
 Схема — multi-file в `prisma/schema/`. Полный перечень моделей:
 
 **Пользователи и доступ:** `User`, `RefreshToken`, `Invite`
-**Академическая структура:** `University`, `Faculty`, `Group`, `Room`
+**Академическая структура:** `University`, `Faculty`, `Group`, `Room`, `Subject`, `Term`, `Course`, `Assignment`, `Submission`, `Attendance`, `GradeColumn`, `Grade`, `Exam`, `ExamResult`, `ConsultationSlot`, `DeaneryAppointment`, `PortfolioItem`
 **Расписание:** `Schedule`, `Pair`, `ScheduleChange`
 **Заявки:** `ApplicationRequest`, `ApplicationStatusHistory`
 **Контент:** `Post`, `Reaction`, `Comment`, `Story`
@@ -473,11 +476,33 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id` · `GET|POST /rooms` · `GET|PATCH|DELETE /rooms/:id`
 
-**Заявки** — `GET|POST /applications` · `GET /applications/:id` · `PATCH /applications/:id/status` (Dean/Admin, scope; конечный автомат, недопустимый переход → 400) · `POST /applications/:id/attachments` (владелец, статусы NEW/CLARIFICATION) · `GET /applications/:id/attachments/:fileId/presigned` (владелец или деканат) · `DELETE /applications/:id` (владелец, статус NEW)
+**Заявки (услуги)** — каталог: `GET /application-categories` (категории с доступными услугами) · `GET /application-services/:id` (детали: требования-документы + поля формы). Заявки: `POST /applications` (черновик по `serviceId`) · `PATCH /applications/:id` (правка черновика: `deliveryType`+`formData`, только владелец/DRAFT) · `POST /applications/:id/submit` (DRAFT→SUBMITTED: номер SH-YYYY-N + `dueAt` по SLA + валидация формы) · `POST /applications/:id/cancel` (→CANCELLED, владелец до подготовки) · `GET /applications` (список/очередь: server-side пагинация + фильтры `status/serviceId/categoryCode/facultyId/assignedToId/search/overdue/dueToday`, scope через `ApplicationPolicy`) · `GET /applications/:id` (детали + timeline, scope-гейт). Обработка/результат/выдача (process/assign/document-review/result/issue) — следующими под-фазами. Права — `ApplicationPolicy` (роль+scope, единый источник).
 
 **Посты** — `GET|POST /posts` (лента — cursor по видимости; таб `filter=ALL|GROUP|UNIVERSITY|TEACHERS|IMPORTANT` сужает поверх видимости: GROUP/UNIVERSITY — по audience, TEACHERS — посты от преподавателей, IMPORTANT — закреплённые) · `GET|DELETE /posts/:id` (удаление — автор/модератор scope) · `PATCH /posts/:id/pin` (роль строго выше автора) · `POST /posts/:id/reactions` · `DELETE /posts/:id/reactions/:emoji` · `GET|POST /posts/:id/comments` · `DELETE /posts/:id/comments/:commentId` · `POST /posts/:id/repost`
 
 **Материалы** — `GET|POST /materials` · `POST /materials/:id/files` (multipart) · `GET /materials/:id/files/:fileId/presigned` · `DELETE /materials/:id` (автор/админ)
+
+**Задания** (Academic Core, задача 3) — `GET /assignments` (по роли; фильтры `courseId/groupId/status/mine`, offset-пагинация; студент/староста видят только PUBLISHED/CLOSED своей группы + своё поле `mySubmission`; преподаватель — свои дисциплины; декан/админ — scope) · `GET /assignments/:id` · `POST /assignments` (препод./декан/админ, только своя дисциплина) · `PATCH /assignments/:id` · `POST /assignments/:id/publish|close` · `DELETE /assignments/:id` · `GET /assignments/:id/submissions` (workspace проверки). Сдача студента: `PUT /assignments/:id/submission` (черновик: text/linkUrl) · `POST /assignments/:id/submit` (DRAFT/RETURNED→SUBMITTED, проверка срока/allowLate). Проверка: `POST /submissions/:id/grade` (score+feedback→GRADED) · `POST /submissions/:id/return` (feedback→RETURNED). Модели: `Assignment` (`courseId`, type/submissionType/status строками, maxScore/maxAttempts/allowLate/publishAt/dueAt), `Submission` (`@@unique([assignmentId,studentId])`, status DRAFT|SUBMITTED|GRADED|RETURNED, text/linkUrl/attemptNumber/score/feedback). Файловые вложения сдач — следующей миграцией (сейчас текст + ссылка).
+
+**Консультации** (Academic Core, задача 15) — `GET /consultations/mine` (препод — свои слоты, студент — свои записи) · `GET /consultations/teachers` (студент: преподаватели вуза с открытыми слотами) · `GET /consultations/slots?teacherId=` (открытые слоты препода для записи) · `POST /consultations/slots` (препод/декан: интервал приёма) · `DELETE /consultations/slots/:id` · `POST /consultations/slots/:id/book` (студент, `{topic?}`) · `POST /consultations/slots/:id/cancel` (студент — снять запись, препод — отменить слот). Статусы: `OPEN|BOOKED|CANCELLED`. Модель `ConsultationSlot` (teacherId/studentId?/startsAt/endsAt/location?/isOnline/topic?). Уведомления (SYSTEM) на запись/отмену.
+
+**Запись в деканат** (Academic Core, задача 16) — `POST /deanery-appointments` (студент: `{type,requestedAt,topic?,applicationId?}`) · `GET /deanery-appointments/mine` (студент) · `POST /deanery-appointments/:id/cancel` (студент) · `GET /deanery-appointments/queue` (деканат: очередь факультета) · `POST /deanery-appointments/:id/{confirm,reschedule}` (`{scheduledAt,staffNote?}`) · `POST /deanery-appointments/:id/complete` · `POST /deanery-appointments/:id/staff-cancel`. Типы `CONSULTATION|DOCUMENT|ACADEMIC|OTHER`, статусы `REQUESTED|CONFIRMED|RESCHEDULED|COMPLETED|CANCELLED` (SSOT — shared-schemas). Модель `DeaneryAppointment`. Уведомления студенту (SYSTEM).
+
+**Портфолио** (Academic Core, задача 21) — `GET /portfolio/mine` (владелец: все записи, включая приватные) · `GET /portfolio/user/:id` (с учётом приватности: `PUBLIC` всем, `UNIVERSITY` внутри вуза, `PRIVATE` скрыт) · `POST /portfolio` · `PATCH /portfolio/:id` · `DELETE /portfolio/:id` (только владелец). Виды `EDUCATION|EXPERIENCE|PROJECT|CERTIFICATE|ACHIEVEMENT`, видимость `PRIVATE|UNIVERSITY|PUBLIC` (SSOT — shared-schemas). Модель `PortfolioItem` (kind/title/organization?/description?/url?/startDate?/endDate?/visibility).
+
+**Цифровой студенческий** (Academic Core, задача 20) — `GET /student-id/me` (студент/староста: карта — ФИО/факультет/группа/№ билета/статус + подписанный QR TTL 5мин со ссылкой `/verify-id?t=`) · `GET /student-id/verify?token=` (сотрудник вуза: верификация карты по QR, scope — тот же вуз). Без новой модели (данные из `User`). Токен — HMAC (`common/crypto/signed-token`).
+
+**Поиск** (Academic Core, задача 22) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials }` (по 6). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
+
+**Аналитика декана** (Academic Core, задача 14) — read-only агрегаты (декан/админ вуза): `GET /analytics/faculty` (`?facultyId=` для админа; декан — свой факультет из JWT) → показатели (студенты, группы, посещаемость %, работ на проверке, экзаменов впереди) + посещаемость по группам + блок «требует внимания» (группы с посещаемостью < 60%) · `GET /analytics/group/:id/attendance` (drill-down: посещаемость по студентам группы). Без новых моделей — агрегация поверх `Attendance`/`Submission`/`Exam` в пределах scope.
+
+**Экзамены** (Academic Core, задача 11) — `GET /exams` (по роли; фильтры `groupId/courseId/mine`; студент видит свою сессию + поле `myResult`) · `GET /exams/:id` · `POST /exams` (декан/препод: дисциплина+дата+формат+аудитория?+экзаменатор?) · `PATCH|DELETE /exams/:id` · `GET /exams/:id/results` (ведомость: студенты группы + результаты) · `PUT /exams/results` (массово: `{examId,entries:[{studentId,admitted,status,score?,note?}]}`). Формат: `ORAL|WRITTEN|TEST|PROJECT|OTHER`; статус результата: `SCHEDULED|PASSED|FAILED|ABSENT|RETAKE`; допуск — `admitted:boolean`; пересдача — `attempt`. Модели: `Exam` (courseId/groupId/examinerId?/roomId?/date/format/maxScore), `ExamResult` (`@@unique([examId,studentId])`).
+
+**Журнал оценок** (Academic Core, задача 7) — `GET /gradebook/course/:courseId` (преподаватель: колонки+студенты+матрица оценок) · `POST /gradebook/columns` · `PATCH /gradebook/columns/:id` · `POST /gradebook/columns/:id/publish|unpublish` (черновик vs опубликовано) · `DELETE /gradebook/columns/:id` · `PUT /gradebook/grades` (массовое сохранение оценок колонки, score=null очищает) · `GET /gradebook/me` (студент: опубликованные оценки по дисциплинам — задача 8). Модели: `GradeColumn` (контрольная точка курса: kind `LAB|CONTROL|EXAM|OTHER` строкой, maxScore, position, `published`), `Grade` (`@@unique([columnId,studentId])`, score Float). Студент видит только оценки опубликованных колонок.
+
+**Посещаемость** (Academic Core, задача 5) — `GET /attendance/roster?pairId=&date=` (преподаватель/декан/админ: студенты группы + их отметки на занятии) · `PUT /attendance` (массово: `{pairId,date,entries:[{studentId,status,note?}]}`, upsert, scope: препод только свои пары) · `GET /attendance/me?from=&to=` (студент: сводка — total/present/late/absent/excused/rate + последние записи). Статусы строкой: `PRESENT|LATE|ABSENT|EXCUSED` (SSOT — shared-schemas). Модель `Attendance` (`@@unique([pairId,date,studentId])`, `markedById`). **QR-отметка (задача 6):** `GET /attendance/qr?pairId=&date=` (препод/декан/админ: подписанный короткоживущий токен TTL 90с + QR-картинка + `checkinUrl` вида `/checkin?t=`) · `POST /attendance/check-in {token}` (студент: самоотметка `PRESENT`, идемпотентно — не перетирает существующую отметку; проверка принадлежности группе). Токен — HMAC-подпись (`common/crypto/signed-token`), stateless. Агрегация по факультету/группе (декан) — задача 14.
+
+**Дисциплины** (Academic Core, задача 2) — справочники вуза: `GET /subjects` (по scope; `?search=`) · `POST|PATCH|DELETE /subjects[...]` (админ вуза) · `GET /terms` (семестры вуза) · `POST|PATCH|DELETE /terms[...]` (админ вуза). Курсы: `GET /courses` (по роли; фильтры `groupId/termId/teacherId/mine`, offset-пагинация; студент/староста — своя группа, декан — факультет, преподаватель/админ — вуз) · `GET /courses/:id` (scope-гейт) · `POST|PATCH|DELETE /courses[...]` (декан/админ вуза). Модели: `Subject` (справочник дисциплин вуза, `@@unique([universityId,name])`), `Term` (семестр как сущность: `startsOn/endsOn/isActive`), `Course` (дисциплина группы в семестре: `subjectId/groupId/teacherId?/termId?/credits?`, `@@unique([subjectId,groupId,termId])`). Связь `Pair.subject`/`Material.subject` с `Course` — следующей миграцией.
 
 **Сторисы (v2.0)** — `GET|POST /stories` · `GET|DELETE /stories/:id` · `POST /stories/:id/reactions`
 

@@ -14,7 +14,16 @@ import {
   type ComplaintStatusValue,
 } from '../../../entities/complaint'
 import { ProfileLink } from '../../../entities/user'
-import { Badge, Button, Card, CardContent, EmptyState, Input, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  EmptyState,
+  Input,
+  PageHeader,
+  Skeleton,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 const STATUS_TABS: (ComplaintStatusValue | 'all')[] = ['PENDING', 'RESOLVED', 'DISMISSED', 'all']
@@ -31,25 +40,28 @@ export function ComplaintsQueueView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('complaintsTitle')}</h1>
-
-      <div className="inline-flex w-fit flex-wrap rounded-xl border border-border p-1">
-        {STATUS_TABS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatus(s)}
-            className={cn(
-              'cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-              status === s
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {s === 'all' ? t('all') : t(`status${s}`)}
-          </button>
-        ))}
-      </div>
+      <PageHeader
+        title={t('complaintsTitle')}
+        tabs={
+          <div className="inline-flex w-fit flex-wrap rounded-lg border border-border bg-muted/50 p-0.5">
+            {STATUS_TABS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatus(s)}
+                className={cn(
+                  'cursor-pointer rounded-md px-2.5 py-1 text-sm font-medium transition-colors',
+                  status === s
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {s === 'all' ? t('all') : t(`status${s}`)}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {complaints.isLoading ? (
         <div className="flex flex-col gap-3">

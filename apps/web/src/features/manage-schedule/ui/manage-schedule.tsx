@@ -65,7 +65,8 @@ function addMinutes(hhmm: string, delta: number): string {
   return `${pad(Math.floor(tot / 60))}:${pad(tot % 60)}`
 }
 
-export function ManageSchedule() {
+export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' }) {
+  const isTeacher = mode === 'teacher'
   const t = useTranslations('Schedule')
   const tPeople = useTranslations('People')
   const qc = useQueryClient()
@@ -199,6 +200,8 @@ export function ManageSchedule() {
 
   const roomItems = rooms.data ?? []
   const pairs = container.data?.pairs ?? []
+  // Преподаватель редактирует только свои пары (бэк enforce'ит; тут — прячем действия).
+  const canEditSelected = !isTeacher || (!!selectedPair && selectedPair.teacher?.id === me.data?.id)
 
   // Клик по пустому слоту календаря → форма добавления с предзаполненным днём/временем.
   function onSlotClick(dayOfWeek: number, startTime: string): void {
@@ -223,7 +226,7 @@ export function ManageSchedule() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
-      <h1 className="text-2xl font-bold">{t('manageTitle')}</h1>
+      <h1 className="text-2xl font-bold">{isTeacher ? t('myScheduleTitle') : t('manageTitle')}</h1>
 
       {/* Тулбар: группа + контейнер */}
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-card p-3">
@@ -270,21 +273,24 @@ export function ManageSchedule() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label={t('createContainer')}
-                onClick={() => setNewContainerOpen((v) => !v)}
-              >
-                <Plus className="size-4" aria-hidden />
-              </Button>
+              {!isTeacher && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label={t('createContainer')}
+                  onClick={() => setNewContainerOpen((v) => !v)}
+                >
+                  <Plus className="size-4" aria-hidden />
+                </Button>
+              )}
             </div>
           </div>
         )}
 
         {groupId &&
           containerId &&
+          !isTeacher &&
           !containers.data?.find((c) => c.id === containerId)?.isActive && (
             <Button
               type="button"
@@ -299,7 +305,7 @@ export function ManageSchedule() {
       </div>
 
       {/* Создание контейнера */}
-      {groupId && newContainerOpen && (
+      {groupId && !isTeacher && newContainerOpen && (
         <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 duration-150 animate-in fade-in slide-in-from-top-1">
           <FormAlert error={containerAlert.error} />
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -334,7 +340,7 @@ export function ManageSchedule() {
         <EmptyState
           icon={<CalendarPlus className="size-6" aria-hidden />}
           title={t('noContainers')}
-          description={t('createContainerHint')}
+          description={isTeacher ? t('noScheduleTeacherHint') : t('createContainerHint')}
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
@@ -384,131 +390,146 @@ export function ManageSchedule() {
                   </button>
                 </div>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="text-destructive hover:bg-destructive/10"
-                  loading={deletePair.isPending}
-                  onClick={() => {
-                    void confirm({ title: t('deletePairConfirm'), destructive: true }).then(
-                      (ok) => {
-                        if (ok) deletePair.mutate(selectedPair.id)
-                      },
-                    )
-                  }}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                  {t('deletePair')}
-                </Button>
+                {isTeacher && !canEditSelected && (
+                  <p className="text-sm text-muted-foreground">{t('notYourPair')}</p>
+                )}
 
-                <div className="my-1 border-t border-border" />
-
-                <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-                  <CalendarPlus className="size-4" aria-hidden />
-                  {t('createChange')}
-                </h3>
-                <form
-                  onSubmit={changeForm.handleSubmit((v) => createChange.mutate(v))}
-                  className="flex flex-col gap-3"
-                >
-                  <div className="flex flex-col gap-1.5">
-                    <Label>{t('changeType')}</Label>
-                    <Controller
-                      control={changeForm.control}
-                      name="type"
-                      render={({ field }) => (
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CHANGE_TYPES.map((c) => (
-                              <SelectItem key={c} value={c}>
-                                {t(`changeTypeLabel${c}`)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="cdate">{t('date')}</Label>
-                    <Input id="cdate" type="date" {...changeForm.register('date')} />
-                    {changeForm.formState.errors.date && (
-                      <p className="text-xs text-destructive">{t('required')}</p>
-                    )}
-                  </div>
-
-                  {changeType === 'ROOM_CHANGED' && (
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t('newRoom')}</Label>
-                      <Controller
-                        control={changeForm.control}
-                        name="newRoomId"
-                        render={({ field }) => (
-                          <Select
-                            value={field.value ?? ''}
-                            onValueChange={(v) => field.onChange(v || null)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={t('selectRoom')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {roomItems.map((r) => (
-                                <SelectItem key={r.id} value={r.id}>
-                                  {r.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                    </div>
-                  )}
-
-                  {changeType === 'MOVED' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="nstart">{t('newStartTime')}</Label>
-                        <Input id="nstart" type="time" {...changeForm.register('newStartTime')} />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="nend">{t('newEndTime')}</Label>
-                        <Input id="nend" type="time" {...changeForm.register('newEndTime')} />
-                      </div>
-                    </div>
-                  )}
-
-                  {changeType === 'SUBSTITUTED' && (
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{tPeople('teacher')}</Label>
-                      <UserPicker
-                        value={changeTeacher}
-                        roleFilter={Role.TEACHER}
-                        placeholder={tPeople('pickUser')}
-                        onSelect={(u) => {
-                          setChangeTeacher(u)
-                          changeForm.setValue('newTeacherId', u?.id ?? null)
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="note">{t('note')}</Label>
-                    <Input
-                      id="note"
-                      {...changeForm.register('note')}
-                      placeholder={t('notePlaceholder')}
-                    />
-                  </div>
-
-                  <Button type="submit" loading={createChange.isPending}>
-                    {t('createChange')}
+                {canEditSelected && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="text-destructive hover:bg-destructive/10"
+                    loading={deletePair.isPending}
+                    onClick={() => {
+                      void confirm({ title: t('deletePairConfirm'), destructive: true }).then(
+                        (ok) => {
+                          if (ok) deletePair.mutate(selectedPair.id)
+                        },
+                      )
+                    }}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    {t('deletePair')}
                   </Button>
-                </form>
+                )}
+
+                {/* Замены/переносы — только админ/декан (бэк: schedules @Roles без TEACHER) */}
+                {!isTeacher && (
+                  <>
+                    <div className="my-1 border-t border-border" />
+
+                    <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                      <CalendarPlus className="size-4" aria-hidden />
+                      {t('createChange')}
+                    </h3>
+                    <form
+                      onSubmit={changeForm.handleSubmit((v) => createChange.mutate(v))}
+                      className="flex flex-col gap-3"
+                    >
+                      <div className="flex flex-col gap-1.5">
+                        <Label>{t('changeType')}</Label>
+                        <Controller
+                          control={changeForm.control}
+                          name="type"
+                          render={({ field }) => (
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {CHANGE_TYPES.map((c) => (
+                                  <SelectItem key={c} value={c}>
+                                    {t(`changeTypeLabel${c}`)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="cdate">{t('date')}</Label>
+                        <Input id="cdate" type="date" {...changeForm.register('date')} />
+                        {changeForm.formState.errors.date && (
+                          <p className="text-xs text-destructive">{t('required')}</p>
+                        )}
+                      </div>
+
+                      {changeType === 'ROOM_CHANGED' && (
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{t('newRoom')}</Label>
+                          <Controller
+                            control={changeForm.control}
+                            name="newRoomId"
+                            render={({ field }) => (
+                              <Select
+                                value={field.value ?? ''}
+                                onValueChange={(v) => field.onChange(v || null)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={t('selectRoom')} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {roomItems.map((r) => (
+                                    <SelectItem key={r.id} value={r.id}>
+                                      {r.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          />
+                        </div>
+                      )}
+
+                      {changeType === 'MOVED' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="nstart">{t('newStartTime')}</Label>
+                            <Input
+                              id="nstart"
+                              type="time"
+                              {...changeForm.register('newStartTime')}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <Label htmlFor="nend">{t('newEndTime')}</Label>
+                            <Input id="nend" type="time" {...changeForm.register('newEndTime')} />
+                          </div>
+                        </div>
+                      )}
+
+                      {changeType === 'SUBSTITUTED' && (
+                        <div className="flex flex-col gap-1.5">
+                          <Label>{tPeople('teacher')}</Label>
+                          <UserPicker
+                            value={changeTeacher}
+                            roleFilter={Role.TEACHER}
+                            placeholder={tPeople('pickUser')}
+                            onSelect={(u) => {
+                              setChangeTeacher(u)
+                              changeForm.setValue('newTeacherId', u?.id ?? null)
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="note">{t('note')}</Label>
+                        <Input
+                          id="note"
+                          {...changeForm.register('note')}
+                          placeholder={t('notePlaceholder')}
+                        />
+                      </div>
+
+                      <Button type="submit" loading={createChange.isPending}>
+                        {t('createChange')}
+                      </Button>
+                    </form>
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -517,7 +538,9 @@ export function ManageSchedule() {
                   {t('addPair')}
                 </h2>
                 <form
-                  onSubmit={pairForm.handleSubmit((v) => createPair.mutate(v))}
+                  onSubmit={pairForm.handleSubmit((v) =>
+                    createPair.mutate(isTeacher && me.data ? { ...v, teacherId: me.data.id } : v),
+                  )}
                   className="flex flex-col gap-3"
                 >
                   <div className="flex flex-col gap-1.5">
@@ -620,18 +643,20 @@ export function ManageSchedule() {
                     />
                   </div>
 
-                  <div className="flex flex-col gap-1.5">
-                    <Label>{tPeople('teacherOptional')}</Label>
-                    <UserPicker
-                      value={pairTeacher}
-                      roleFilter={Role.TEACHER}
-                      placeholder={tPeople('pickUser')}
-                      onSelect={(u) => {
-                        setPairTeacher(u)
-                        pairForm.setValue('teacherId', u?.id ?? null)
-                      }}
-                    />
-                  </div>
+                  {!isTeacher && (
+                    <div className="flex flex-col gap-1.5">
+                      <Label>{tPeople('teacherOptional')}</Label>
+                      <UserPicker
+                        value={pairTeacher}
+                        roleFilter={Role.TEACHER}
+                        placeholder={tPeople('pickUser')}
+                        onSelect={(u) => {
+                          setPairTeacher(u)
+                          pairForm.setValue('teacherId', u?.id ?? null)
+                        }}
+                      />
+                    </div>
+                  )}
 
                   <Button type="submit" loading={createPair.isPending}>
                     <Plus className="size-4" aria-hidden />

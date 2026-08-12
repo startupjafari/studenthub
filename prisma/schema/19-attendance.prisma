@@ -1,0 +1,24 @@
+// Домен «Посещаемость» (docs/ACADEMIC_CORE.md, задача 5). Attendance — отметка студента
+// на конкретном занятии: пара (Pair) на конкретную дату. Статус строкой (SSOT — shared-schemas:
+// PRESENT | LATE | ABSENT | EXCUSED). Одна запись на (пара, дата, студент).
+
+model Attendance {
+  id         String   @id @default(uuid())
+  pairId     String   @map("pair_id")
+  studentId  String   @map("student_id")
+  date       DateTime @db.Date
+  status     String   @default("PRESENT")
+  note       String?
+  markedById String?  @map("marked_by_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  pair     Pair  @relation(fields: [pairId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student  User  @relation("AttendanceStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  markedBy User? @relation("AttendanceMarkedBy", fields: [markedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([pairId, date, studentId])
+  @@index([studentId])
+  @@index([pairId, date])
+  @@map("attendance")
+}
