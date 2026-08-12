@@ -9,6 +9,46 @@ const prisma = new PrismaClient()
 const DEV_INVITE_TOKEN = 'seed-invite-university-admin-token'
 const SEED_UNIVERSITY_ID = 'seed-university-001'
 
+// ── Утилиты для большого реалистичного seed'а ────────────────────────────────
+// Детерминированный PRNG (mulberry32) — данные воспроизводимы между прогонами,
+// а идемпотентность обеспечивают фиксированные id + createMany({ skipDuplicates }).
+function makeRng(seed) {
+  let a = seed >>> 0
+  return () => {
+    a |= 0
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+const rng = makeRng(20260812)
+const pick = (arr) => arr[Math.floor(rng() * arr.length)]
+const randInt = (min, max) => min + Math.floor(rng() * (max - min + 1))
+const chance = (p) => rng() < p
+const daysFromNow = (n) => new Date(Date.now() + n * 86_400_000)
+
+// Пулы имён (казахские/русские). Женские фамилии образуем добавлением «а» к мужским (‑ов/‑ев).
+const MALE_NAMES = ['Нурлан','Алихан','Дамир','Ерасыл','Санжар','Арман','Тимур','Азамат','Ислам','Бекзат','Данияр','Ержан','Мирас','Диас','Аскар','Ринат','Куаныш','Олжас','Темирлан','Нурсултан','Абылай','Даулет','Мадияр','Асылбек'] // prettier-ignore
+const FEMALE_NAMES = ['Аружан','Айгерим','Дана','Мадина','Аяжан','Камила','Дильназ','Асем','Жания','Алина','Сабина','Нургуль','Динара','Балжан','Гаухар','Лаура','Инжу','Томирис','Айым','Молдир','Жансая','Карина','Аяулым','Сауле'] // prettier-ignore
+const SURNAMES_M = ['Оспанов','Ахметов','Байжанов','Сулейменов','Ермеков','Калиев','Нургалиев','Тлеубаев','Жумабеков','Абишев','Сериков','Досанов','Кенжебаев','Мухамеджанов','Искаков','Оразбаев','Бектуров','Садыков','Алимбаев','Турсунов','Кабдулов','Нуркенов','Сапаров','Утегенов'] // prettier-ignore
+
+function person(i) {
+  const female = i % 2 === 0
+  const first = female ? pick(FEMALE_NAMES) : pick(MALE_NAMES)
+  const surM = pick(SURNAMES_M)
+  const last = female ? `${surM}а` : surM
+  return { firstName: first, lastName: last, gender: female ? 'FEMALE' : 'MALE' }
+}
+
+// Пакетная вставка чанками по 1000 — устойчиво к большим объёмам.
+async function insertMany(model, rows) {
+  for (let i = 0; i < rows.length; i += 1000) {
+    await model.createMany({ data: rows.slice(i, i + 1000), skipDuplicates: true })
+  }
+  return rows.length
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash('Admin1234!', 12)
 
@@ -27,11 +67,11 @@ async function main() {
   // Демо-структура (Фаза 5): вуз ACTIVE, факультет, группа, 3 аудитории.
   const university = await prisma.university.upsert({
     where: { id: SEED_UNIVERSITY_ID },
-    update: {},
+    update: { name: 'Университет «Алатау»', shortName: 'АУ' },
     create: {
       id: SEED_UNIVERSITY_ID,
-      name: 'Демонстрационный университет',
-      shortName: 'ДемоВУЗ',
+      name: 'Университет «Алатау»',
+      shortName: 'АУ',
       status: 'ACTIVE',
       country: 'Казахстан',
       city: 'Алматы',
@@ -304,15 +344,647 @@ async function main() {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  БОЛЬШОЙ РЕАЛИСТИЧНЫЙ SEED: университет «Алатау» — 5 факультетов, 15 групп,
+  //  студенты/старосты/преподаватели/деканы + расписание, оценки, посещаемость,
+  //  экзамены, консультации, записи в деканат, портфолио, посты, события,
+  //  материалы. Идемпотентно (фиксированные id + createMany skipDuplicates).
+  // ═══════════════════════════════════════════════════════════════════════════
+  const U = SEED_UNIVERSITY_ID
+  const counts = {}
+  const TEACHER_ID = teacherUser?.id ?? null
+
+  const devIds = Object.fromEntries(
+    (
+      await prisma.user.findMany({
+        where: {
+          email: {
+            in: [
+              'dean@studenthub.app',
+              'teacher@studenthub.app',
+              'starosta@studenthub.app',
+              'student@studenthub.app',
+              'university-admin@studenthub.app',
+              'university-moderator@studenthub.app',
+            ],
+          },
+        },
+        select: { id: true, email: true },
+      })
+    ).map((u) => [u.email, u.id]),
+  )
+  const adminId = devIds['university-admin@studenthub.app']
+
+  const TIMES = [
+    ['08:30', '10:00'],
+    ['10:10', '11:40'],
+    ['11:50', '13:20'],
+    ['14:00', '15:30'],
+    ['15:40', '17:10'],
+  ]
+
+  const FACS = [
+    {
+      id: 'seed-faculty-001',
+      code: 'it',
+      name: 'Факультет информационных технологий',
+      prefix: 'ИТ',
+      subjects: [
+        ['Основы программирования', 'CS101'],
+        ['Алгоритмы и структуры данных', 'CS201'],
+        ['Базы данных', 'CS210'],
+        ['Веб-разработка', 'CS230'],
+        ['Операционные системы', 'CS240'],
+        ['Машинное обучение', 'CS350'],
+      ],
+      specialties: ['Информационные системы', 'Программная инженерия', 'Вычислительная техника'],
+    },
+    {
+      id: 'seed-fac-eco',
+      code: 'eco',
+      name: 'Экономический факультет',
+      prefix: 'ЭК',
+      subjects: [
+        ['Микроэкономика', 'EC101'],
+        ['Макроэкономика', 'EC102'],
+        ['Бухгалтерский учёт', 'EC210'],
+        ['Финансовый менеджмент', 'EC220'],
+        ['Маркетинг', 'EC230'],
+        ['Эконометрика', 'EC340'],
+      ],
+      specialties: ['Финансы', 'Учёт и аудит', 'Экономика предприятия'],
+    },
+    {
+      id: 'seed-fac-law',
+      code: 'law',
+      name: 'Юридический факультет',
+      prefix: 'Ю',
+      subjects: [
+        ['Теория государства и права', 'LW101'],
+        ['Гражданское право', 'LW201'],
+        ['Уголовное право', 'LW210'],
+        ['Конституционное право', 'LW220'],
+        ['Международное право', 'LW330'],
+        ['Административное право', 'LW240'],
+      ],
+      specialties: ['Юриспруденция', 'Международное право'],
+    },
+    {
+      id: 'seed-fac-eng',
+      code: 'eng',
+      name: 'Инженерный факультет',
+      prefix: 'ИНЖ',
+      subjects: [
+        ['Высшая математика', 'EN101'],
+        ['Физика', 'EN102'],
+        ['Теоретическая механика', 'EN210'],
+        ['Электротехника', 'EN220'],
+        ['Материаловедение', 'EN230'],
+        ['Сопротивление материалов', 'EN240'],
+      ],
+      specialties: ['Машиностроение', 'Электроэнергетика', 'Автоматизация'],
+    },
+    {
+      id: 'seed-fac-sci',
+      code: 'sci',
+      name: 'Факультет естественных наук',
+      prefix: 'ЕН',
+      subjects: [
+        ['Общая химия', 'SC101'],
+        ['Молекулярная биология', 'SC201'],
+        ['Органическая химия', 'SC210'],
+        ['Генетика', 'SC220'],
+        ['Экология', 'SC230'],
+        ['Биохимия', 'SC340'],
+      ],
+      specialties: ['Химия', 'Биология', 'Экология'],
+    },
+  ]
+
+  // Аудитории (18 новых + 3 демо).
+  const roomIds = ['seed-room-101', 'seed-room-102', 'seed-room-103']
+  const roomRows = []
+  for (let r = 0; r < 18; r += 1) {
+    const id = `seed-room-${200 + r}`
+    roomIds.push(id)
+    roomRows.push({ id, name: `${200 + r}`, capacity: pick([24, 30, 40, 50, 60]), universityId: U })
+  }
+  await insertMany(prisma.room, roomRows)
+
+  // ── Факультеты / специальности / предметы / деканы / преподаватели / группы ──
+  const allUsers = []
+  const facTeachers = {}
+  const groupList = []
+  let uc = 0
+
+  for (const fac of FACS) {
+    await prisma.faculty.upsert({
+      where: { id: fac.id },
+      update: { name: fac.name },
+      create: { id: fac.id, name: fac.name, universityId: U },
+    })
+    for (const [si, sp] of fac.specialties.entries()) {
+      const id = `seed-spec-${fac.code}-${si}`
+      await prisma.specialty.upsert({
+        where: { id },
+        update: { name: sp },
+        create: { id, name: sp, universityId: U },
+      })
+    }
+
+    // Декан (IT — существующий dean@, остальные — новые).
+    let deanId = devIds['dean@studenthub.app']
+    if (fac.code !== 'it') {
+      deanId = `seed-dean-${fac.code}`
+      allUsers.push({
+        id: deanId,
+        email: `dean.${fac.code}@alatau.edu.kz`,
+        passwordHash,
+        ...person(uc++),
+        role: 'DEAN',
+        universityId: U,
+        facultyId: fac.id,
+        position: 'Декан факультета',
+        academicDegree: 'Доктор наук',
+        academicTitle: 'Профессор',
+      })
+    }
+    fac.deanId = deanId
+
+    // Преподаватели (IT включает teacher@).
+    const tids = fac.code === 'it' && TEACHER_ID ? [TEACHER_ID] : []
+    for (let k = 0; k < (fac.code === 'it' ? 4 : 5); k += 1) {
+      const id = `seed-t-${fac.code}-${k}`
+      tids.push(id)
+      allUsers.push({
+        id,
+        email: `t.${fac.code}.${k}@alatau.edu.kz`,
+        passwordHash,
+        ...person(uc++),
+        role: 'TEACHER',
+        universityId: U,
+        facultyId: fac.id,
+        position: 'Преподаватель',
+        academicDegree: pick(['Кандидат наук', 'PhD', 'Магистр']),
+        department: fac.name,
+      })
+    }
+    facTeachers[fac.code] = tids
+
+    // Предметы вуза (IT/CS101 переиспользует демо-предмет seed-subject-001).
+    fac.subjectList = []
+    for (const [name, code] of fac.subjects) {
+      const id = code === 'CS101' ? 'seed-subject-001' : `seed-subj-${code}`
+      await prisma.subject.upsert({
+        where: { id },
+        update: { name, code },
+        create: { id, universityId: U, name, code },
+      })
+      fac.subjectList.push({ id, name, code })
+    }
+
+    // Группы (3 набора: 2022/2023/2024). IT/2023 — существующая seed-group-001 (ИТ-23-1).
+    const years = [2022, 2023, 2024]
+    for (let g = 0; g < 3; g += 1) {
+      const year = years[g]
+      const isDemoGroup = fac.code === 'it' && g === 1
+      const gid = isDemoGroup ? 'seed-group-001' : `seed-g-${fac.code}-${g}`
+      const gname = isDemoGroup ? 'ИТ-23-1' : `${fac.prefix}-${String(year).slice(2)}-1`
+      await prisma.group.upsert({
+        where: { id: gid },
+        update: { name: gname, year },
+        create: { id: gid, name: gname, year, facultyId: fac.id },
+      })
+
+      const studentIds = []
+      for (let s = 0; s < 24; s += 1) {
+        const gi = uc++
+        const sid = `seed-st-${gid}-${s}`
+        const isStarosta = s === 0 && !isDemoGroup
+        studentIds.push(sid)
+        allUsers.push({
+          id: sid,
+          email: `st.${fac.code}.${g}.${s}@alatau.edu.kz`,
+          passwordHash,
+          ...person(gi),
+          role: isStarosta ? 'STAROSTA' : 'STUDENT',
+          universityId: U,
+          facultyId: fac.id,
+          groupId: gid,
+          course: 2025 - year,
+          enrollmentYear: year,
+          educationLevel: 'BACHELOR',
+          studyForm: pick(['FULL_TIME', 'FULL_TIME', 'PART_TIME']),
+          academicStatus: 'ACTIVE',
+          studentCardNumber: `${year}${String(gi).padStart(5, '0')}`,
+          gpa: Number((2.5 + rng() * 1.5).toFixed(2)),
+          ...(isStarosta
+            ? { starostaSince: new Date(`${year}-09-01`), duties: 'Староста группы' }
+            : {}),
+        })
+      }
+      const starostaId = isDemoGroup ? devIds['starosta@studenthub.app'] : studentIds[0]
+      groupList.push({
+        id: gid,
+        facCode: fac.code,
+        facId: fac.id,
+        name: gname,
+        year,
+        studentIds,
+        starostaId,
+        teacherIds: tids,
+        courses: [],
+        pairs: [],
+      })
+    }
+  }
+
+  counts.users = await insertMany(prisma.user, allUsers)
+  for (const g of groupList) {
+    if (g.starostaId)
+      await prisma.group
+        .update({ where: { id: g.id }, data: { starostaId: g.starostaId } })
+        .catch(() => {})
+  }
+  const allStudentIds = groupList.flatMap((g) => g.studentIds)
+  const allTeacherIds = [...new Set(Object.values(facTeachers).flat())]
+
+  // ── Курсы (дисциплина группы в семестре) ────────────────────────────────────
+  const courseRows = []
+  for (const g of groupList) {
+    const fac = FACS.find((f) => f.code === g.facCode)
+    for (const subj of fac.subjectList) {
+      const isDemo = subj.id === 'seed-subject-001' && g.id === 'seed-group-001'
+      const cid = isDemo ? 'seed-course-001' : `seed-c-${g.id}-${subj.code}`
+      const teacherId = isDemo ? TEACHER_ID : pick(g.teacherIds)
+      if (!isDemo)
+        courseRows.push({
+          id: cid,
+          subjectId: subj.id,
+          groupId: g.id,
+          teacherId,
+          termId: 'seed-term-001',
+          credits: pick([3, 4, 5, 6]),
+        })
+      g.courses.push({ cid, subj, teacherId })
+    }
+  }
+  counts.courses = (await insertMany(prisma.course, courseRows)) + 1
+
+  // ── Расписание + пары ───────────────────────────────────────────────────────
+  const scheduleRows = []
+  const pairRows = []
+  for (const g of groupList) {
+    const schId = `seed-sch-${g.id}`
+    scheduleRows.push({ id: schId, groupId: g.id, name: 'Осенний семестр 2025/26', isActive: true })
+    g.courses.forEach((c, idx) => {
+      const day = (idx % 5) + 1
+      const slot = TIMES[idx % TIMES.length]
+      const pid = `seed-p-${g.id}-${idx}`
+      pairRows.push({
+        id: pid,
+        scheduleId: schId,
+        groupId: g.id,
+        subject: c.subj.name,
+        teacherId: c.teacherId,
+        roomId: pick(roomIds),
+        dayOfWeek: day,
+        startTime: slot[0],
+        endTime: slot[1],
+        weekType: 'BOTH',
+      })
+      g.pairs.push({ pid, day, teacherId: c.teacherId })
+    })
+  }
+  await insertMany(prisma.schedule, scheduleRows)
+  counts.pairs = await insertMany(prisma.pair, pairRows)
+
+  // ── Журнал оценок ───────────────────────────────────────────────────────────
+  const colRows = []
+  const gradeRows = []
+  const COLS = [
+    ['LAB', 'Лабораторные', 30],
+    ['CONTROL', 'Контрольная', 30],
+    ['EXAM', 'Итоговый', 40],
+  ]
+  for (const g of groupList) {
+    for (const c of g.courses) {
+      COLS.forEach((k, ki) => {
+        const colId = `seed-gc-${c.cid}-${ki}`
+        colRows.push({
+          id: colId,
+          courseId: c.cid,
+          createdById: c.teacherId,
+          title: k[1],
+          kind: k[0],
+          maxScore: k[2],
+          position: ki,
+          published: true,
+        })
+        for (const sid of g.studentIds) {
+          gradeRows.push({
+            id: `seed-gr-${colId}-${sid}`,
+            columnId: colId,
+            studentId: sid,
+            score: chance(0.9) ? Number((k[2] * (0.5 + rng() * 0.5)).toFixed(1)) : null,
+          })
+        }
+      })
+    }
+  }
+  await insertMany(prisma.gradeColumn, colRows)
+  counts.grades = await insertMany(prisma.grade, gradeRows)
+
+  // ── Задания + сдачи ─────────────────────────────────────────────────────────
+  const asgRows = []
+  const subRows = []
+  for (const g of groupList) {
+    for (const c of g.courses) {
+      for (let a = 0; a < 2; a += 1) {
+        const aid = `seed-as-${c.cid}-${a}`
+        asgRows.push({
+          id: aid,
+          courseId: c.cid,
+          createdById: c.teacherId,
+          title: `${c.subj.name}: задание ${a + 1}`,
+          description: 'Выполните задание и приложите решение.',
+          type: pick(['HOMEWORK', 'LAB', 'PROJECT']),
+          submissionType: 'TEXT',
+          status: 'PUBLISHED',
+          maxScore: 100,
+          allowLate: chance(0.5),
+          publishAt: daysFromNow(-20 + a * 7),
+          dueAt: daysFromNow(-5 + a * 10),
+        })
+        for (const sid of g.studentIds) {
+          if (!chance(0.8)) continue
+          const graded = chance(0.7)
+          subRows.push({
+            id: `seed-sub-${aid}-${sid}`,
+            assignmentId: aid,
+            studentId: sid,
+            status: graded ? 'GRADED' : 'SUBMITTED',
+            text: 'Решение прикреплено.',
+            attemptNumber: 1,
+            score: graded ? randInt(50, 100) : null,
+            gradedById: graded ? c.teacherId : null,
+            submittedAt: daysFromNow(-3),
+            gradedAt: graded ? daysFromNow(-1) : null,
+          })
+        }
+      }
+    }
+  }
+  counts.assignments = await insertMany(prisma.assignment, asgRows)
+  counts.submissions = await insertMany(prisma.submission, subRows)
+
+  // ── Посещаемость (первые 3 пары каждой группы × 3 недели) ────────────────────
+  const attRows = []
+  for (const g of groupList) {
+    for (const p of g.pairs.slice(0, 3)) {
+      for (let w = 0; w < 3; w += 1) {
+        const d = new Date(2025, 10, 3 + (p.day - 1) + 7 * w)
+        for (const sid of g.studentIds) {
+          const roll = rng()
+          const status =
+            roll < 0.8 ? 'PRESENT' : roll < 0.9 ? 'LATE' : roll < 0.97 ? 'ABSENT' : 'EXCUSED'
+          attRows.push({
+            id: `seed-att-${p.pid}-${w}-${sid}`,
+            pairId: p.pid,
+            studentId: sid,
+            date: d,
+            status,
+            markedById: p.teacherId,
+          })
+        }
+      }
+    }
+  }
+  counts.attendance = await insertMany(prisma.attendance, attRows)
+
+  // ── Экзамены + результаты ───────────────────────────────────────────────────
+  const examRows = []
+  const examResRows = []
+  for (const g of groupList) {
+    for (const c of g.courses) {
+      const eid = `seed-ex-${c.cid}`
+      examRows.push({
+        id: eid,
+        courseId: c.cid,
+        groupId: g.id,
+        createdById: c.teacherId,
+        examinerId: c.teacherId,
+        roomId: pick(roomIds),
+        date: daysFromNow(randInt(10, 40)),
+        format: pick(['WRITTEN', 'ORAL', 'TEST']),
+        maxScore: 100,
+      })
+      for (const sid of g.studentIds) {
+        const st = pick(['SCHEDULED', 'SCHEDULED', 'PASSED', 'PASSED', 'FAILED', 'RETAKE'])
+        examResRows.push({
+          id: `seed-exr-${eid}-${sid}`,
+          examId: eid,
+          studentId: sid,
+          admitted: chance(0.95),
+          status: st,
+          score: st === 'PASSED' ? randInt(60, 100) : st === 'FAILED' ? randInt(20, 49) : null,
+          attempt: 1,
+        })
+      }
+    }
+  }
+  counts.exams = await insertMany(prisma.exam, examRows)
+  counts.examResults = await insertMany(prisma.examResult, examResRows)
+
+  // ── Консультации (слоты преподавателей, часть забронирована) ─────────────────
+  const consRows = []
+  for (const tid of allTeacherIds) {
+    for (let s = 0; s < 3; s += 1) {
+      const start = daysFromNow(randInt(1, 14))
+      start.setHours(10 + s, 0, 0, 0)
+      const end = new Date(start.getTime() + 45 * 60000)
+      const booked = s === 0 && chance(0.6)
+      consRows.push({
+        id: `seed-cons-${tid}-${s}`,
+        teacherId: tid,
+        startsAt: start,
+        endsAt: end,
+        location: `каб. ${randInt(100, 300)}`,
+        isOnline: chance(0.3),
+        status: booked ? 'BOOKED' : 'OPEN',
+        studentId: booked ? pick(allStudentIds) : null,
+        topic: booked ? 'Вопрос по курсовой работе' : null,
+      })
+    }
+  }
+  counts.consultations = await insertMany(prisma.consultationSlot, consRows)
+
+  // ── Записи в деканат ────────────────────────────────────────────────────────
+  const apptRows = []
+  for (let a = 0; a < 30; a += 1) {
+    const g = pick(groupList)
+    const st = pick(['REQUESTED', 'REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED'])
+    const scheduled = st === 'CONFIRMED' || st === 'COMPLETED' ? daysFromNow(randInt(1, 7)) : null
+    apptRows.push({
+      id: `seed-appt-${a}`,
+      studentId: pick(g.studentIds),
+      facultyId: g.facId,
+      assignedToId: FACS.find((f) => f.code === g.facCode).deanId,
+      type: pick(['CONSULTATION', 'DOCUMENT', 'ACADEMIC', 'OTHER']),
+      status: st,
+      topic: pick([
+        'Вопрос по стипендии',
+        'Академический отпуск',
+        'Пересдача экзамена',
+        'Справка об обучении',
+      ]),
+      requestedAt: daysFromNow(randInt(-10, -1)),
+      scheduledAt: scheduled,
+      staffNote: scheduled ? 'Ожидаем вас в деканате' : null,
+    })
+  }
+  counts.appointments = await insertMany(prisma.deaneryAppointment, apptRows)
+
+  // ── Портфолио (первые 3 студента каждой группы) ─────────────────────────────
+  const pfRows = []
+  for (const g of groupList) {
+    for (const sid of g.studentIds.slice(0, 3)) {
+      pfRows.push({
+        id: `seed-pf-${sid}-0`,
+        userId: sid,
+        kind: 'EDUCATION',
+        title: `Бакалавриат, ${g.name}`,
+        organization: 'Университет «Алатау»',
+        description: 'Обучение по программе бакалавриата.',
+        startDate: new Date(`${g.year}-09-01`),
+        visibility: 'UNIVERSITY',
+        order: 0,
+      })
+      pfRows.push({
+        id: `seed-pf-${sid}-1`,
+        userId: sid,
+        kind: pick(['PROJECT', 'CERTIFICATE', 'ACHIEVEMENT']),
+        title: pick(['Хакатон AlmaHack', 'Сертификат Python (Coursera)', 'Победитель олимпиады']),
+        organization: pick(['Alatau IT Hub', 'Coursera', 'МОН РК']),
+        description: 'Достижение студента.',
+        startDate: daysFromNow(-200),
+        visibility: pick(['PUBLIC', 'UNIVERSITY', 'PRIVATE']),
+        order: 1,
+      })
+    }
+  }
+  counts.portfolio = await insertMany(prisma.portfolioItem, pfRows)
+
+  // ── Посты (вуз/факультет/группа) + события + материалы ──────────────────────
+  const postRows = []
+  let po = 0
+  for (const txt of [
+    'Добро пожаловать на портал университета «Алатау»!',
+    'Расписание зимней сессии опубликовано',
+    'Стипендиальная комиссия начинает работу',
+    'Открыта новая IT-лаборатория',
+    'График работы деканатов на праздники',
+  ]) {
+    postRows.push({
+      id: `seed-post-${po++}`,
+      authorId: adminId,
+      audience: 'UNIVERSITY',
+      content: txt,
+      universityId: U,
+      status: 'PUBLISHED',
+      publishedAt: daysFromNow(-randInt(1, 20)),
+    })
+  }
+  for (const fac of FACS) {
+    for (let k = 0; k < 2; k += 1) {
+      postRows.push({
+        id: `seed-post-${po++}`,
+        authorId: fac.deanId,
+        audience: 'FACULTY',
+        content: pick([
+          'Собрание факультета в пятницу в 15:00',
+          'Открыта запись на пересдачи',
+          'Конференция молодых учёных',
+          'Изменения в расписании со следующей недели',
+        ]),
+        universityId: U,
+        facultyId: fac.id,
+        status: 'PUBLISHED',
+        publishedAt: daysFromNow(-randInt(1, 15)),
+      })
+    }
+  }
+  for (const g of groupList.slice(0, 8)) {
+    postRows.push({
+      id: `seed-post-${po++}`,
+      authorId: g.starostaId,
+      audience: 'GROUP',
+      content: pick([
+        'Сдаём лабораторные до пятницы',
+        'Собираем на подарок преподавателю',
+        'Кто идёт на субботник в субботу?',
+      ]),
+      universityId: U,
+      facultyId: g.facId,
+      groupId: g.id,
+      status: 'PUBLISHED',
+      publishedAt: daysFromNow(-randInt(1, 10)),
+    })
+  }
+  counts.posts = await insertMany(prisma.post, postRows)
+
+  const eventRows = []
+  for (let e = 0; e < 12; e += 1) {
+    const fac = pick(FACS)
+    const uni = chance(0.4)
+    eventRows.push({
+      id: `seed-ev-${e}`,
+      organizerId: uni ? adminId : fac.deanId,
+      audience: uni ? 'UNIVERSITY' : 'FACULTY',
+      title: pick([
+        'День открытых дверей',
+        'Научная конференция',
+        'Спортивный турнир',
+        'Ярмарка вакансий',
+        'Мастер-класс по карьере',
+      ]),
+      description: 'Приглашаем всех желающих принять участие.',
+      universityId: U,
+      facultyId: uni ? null : fac.id,
+      location: pick(['Актовый зал', 'Спортзал', 'Аудитория 200', null]),
+      isOnline: chance(0.25),
+      startsAt: daysFromNow(randInt(2, 30)),
+    })
+  }
+  counts.events = await insertMany(prisma.event, eventRows)
+
+  const matRows = []
+  for (const g of groupList) {
+    for (const c of g.courses) {
+      matRows.push({
+        id: `seed-mat-${c.cid}`,
+        teacherId: c.teacherId,
+        groupId: g.id,
+        subject: c.subj.name,
+        title: `Лекции: ${c.subj.name}`,
+        description: 'Конспекты и слайды по курсу.',
+        url: 'https://example.edu/materials',
+      })
+    }
+  }
+  counts.materials = await insertMany(prisma.material, matRows)
+
   console.log('Seed готов:')
   console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
-  console.log('  Пользователи по ролям (пароль у всех Admin1234!):')
+  console.log('  Именованные роли (пароль у всех Admin1234!):')
   for (const [role, email] of devUsers) {
     console.log(`    ${role}: ${email}`)
   }
-  console.log(
-    '  Демо-вуз: Демонстрационный университет (ACTIVE) + факультет ИТ + группа ИТ-23-1 + 3 аудитории',
-  )
+  console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
+  console.log('  Сгенерировано:')
+  for (const [k, v] of Object.entries(counts)) {
+    console.log(`    ${k}: ${v}`)
+  }
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }
 
