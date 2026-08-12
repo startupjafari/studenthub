@@ -33,7 +33,8 @@
     "documentTypes": "Document types",
     "documentAccess": "Document access",
     "more": "More",
-    "friends": "Friends"
+    "friends": "Friends",
+    "groupRequests": "Group requests"
   },
   "Invites": {
     "title": "Invites",
@@ -841,7 +842,9 @@
     "event_DOCUMENT_ACCEPTED": "Document accepted",
     "event_ASSIGNED": "Assignee set",
     "event_RESULT_ADDED": "Result added",
-    "accept": "Accept"
+    "accept": "Accept",
+    "groupRequestsTitle": "Group requests",
+    "groupRequestsEmpty": "No requests in the group yet"
   },
   "Feed": {
     "published": "Published",

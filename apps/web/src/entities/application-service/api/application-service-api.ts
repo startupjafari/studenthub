@@ -191,6 +191,8 @@ export const applicationKeys = {
   categories: () => ['applications-v2', 'categories'] as const,
   service: (id: string) => ['applications-v2', 'service', id] as const,
   list: (filters: ApplicationFilters) => ['applications-v2', 'list', filters] as const,
+  groupRequests: (filters: ApplicationFilters) =>
+    ['applications-v2', 'group-requests', filters] as const,
   detail: (id: string) => ['applications-v2', 'detail', id] as const,
 }
 
@@ -208,6 +210,16 @@ export async function fetchService(id: string): Promise<ServiceDetail> {
 // ── Заявки ───────────────────────────────────────────────────────────────────
 export async function fetchApplications(filters: ApplicationFilters): Promise<ApplicationListPage> {
   const res = (await api.get<ApplicationListItem[]>('/applications', {
+    params: filters,
+  })) as ResponseWithMeta & { data: ApplicationListItem[] }
+  return { items: res.data, total: res.meta?.total ?? res.data.length }
+}
+
+// Обращения своей группы (староста, только чтение).
+export async function fetchGroupRequests(
+  filters: ApplicationFilters,
+): Promise<ApplicationListPage> {
+  const res = (await api.get<ApplicationListItem[]>('/applications/group-requests', {
     params: filters,
   })) as ResponseWithMeta & { data: ApplicationListItem[] }
   return { items: res.data, total: res.meta?.total ?? res.data.length }

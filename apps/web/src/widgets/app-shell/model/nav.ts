@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarClock,
   CalendarDays,
+  ClipboardList,
   FileCog,
   FileText,
   FolderLock,
@@ -102,6 +103,7 @@ export const STAROSTA_NAV: NavItem[] = [
   { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap },
   { key: 'schedule', href: '/starosta/schedule', icon: CalendarDays },
   { key: 'applications', href: '/starosta/applications', icon: FileText },
+  { key: 'groupRequests', href: '/starosta/group-requests', icon: ClipboardList },
   { key: 'invites', href: '/starosta/invites', icon: Send },
   { key: 'chats', href: '/starosta/chats', icon: MessagesSquare },
 ]

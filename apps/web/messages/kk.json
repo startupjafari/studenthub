@@ -33,7 +33,8 @@
     "documentTypes": "Құжат түрлері",
     "documentAccess": "Құжаттарға қатынау",
     "more": "Тағы",
-    "friends": "Достар"
+    "friends": "Достар",
+    "groupRequests": "Топ өтініштері"
   },
   "Invites": {
     "title": "Шақырулар",
@@ -841,7 +842,9 @@
     "event_DOCUMENT_ACCEPTED": "Құжат қабылданды",
     "event_ASSIGNED": "Жауапты тағайындалды",
     "event_RESULT_ADDED": "Нәтиже қосылды",
-    "accept": "Қабылдау"
+    "accept": "Қабылдау",
+    "groupRequestsTitle": "Топ өтініштері",
+    "groupRequestsEmpty": "Топта әзірге өтініш жоқ"
   },
   "Feed": {
     "published": "Жарияланды",

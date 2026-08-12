@@ -228,6 +228,33 @@ export class ApplicationsService {
     return new Paginated(rows, { total })
   }
 
+  /**
+   * Обращения своей группы для старосты (§2.2, только чтение). Scope жёстко ограничен группой
+   * старосты через связь student.groupId — политика/scopeWhere остальных ролей не затрагивается.
+   */
+  async listGroupRequests(
+    viewer: JwtPayload,
+    query: ApplicationQueryInput,
+  ): Promise<Paginated<unknown>> {
+    if (!viewer.groupId) return new Paginated([], { total: 0 })
+    const where: Prisma.ApplicationWhereInput = {
+      deletedAt: null,
+      student: { is: { groupId: viewer.groupId } },
+      ...(query.status ? { status: query.status } : {}),
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.application.findMany({
+        where,
+        select: APP_SELECT,
+        orderBy: { [query.sortBy]: query.sortOrder },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.application.count({ where }),
+    ])
+    return new Paginated(rows, { total })
+  }
+
   /** Деталь заявки + человеческий timeline. Scope проверяется политикой (§22, защита от IDOR). */
   async getById(viewer: JwtPayload, id: string) {
     const scope = await this.prisma.application.findFirst({

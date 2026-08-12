@@ -33,7 +33,8 @@
     "documentTypes": "Типы документов",
     "documentAccess": "Доступ к документам",
     "more": "Ещё",
-    "friends": "Друзья"
+    "friends": "Друзья",
+    "groupRequests": "Обращения группы"
   },
   "Invites": {
     "title": "Приглашения",
@@ -841,7 +842,9 @@
     "event_DOCUMENT_ACCEPTED": "Документ принят",
     "event_ASSIGNED": "Назначен ответственный",
     "event_RESULT_ADDED": "Добавлен результат",
-    "accept": "Принять"
+    "accept": "Принять",
+    "groupRequestsTitle": "Обращения группы",
+    "groupRequestsEmpty": "В группе пока нет заявок"
   },
   "Feed": {
     "published": "Опубликовано",
