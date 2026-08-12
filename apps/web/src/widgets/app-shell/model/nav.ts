@@ -68,6 +68,7 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'events', href: '/university-admin/events', icon: CalendarClock },
   { key: 'chats', href: '/university-admin/chats', icon: MessagesSquare },
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog },
+  { key: 'audit', href: '/university-admin/audit', icon: ScrollText },
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). Разделы ведут на заглушки «в разработке»
