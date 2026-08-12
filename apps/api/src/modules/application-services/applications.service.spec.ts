@@ -15,6 +15,7 @@ const student: JwtPayload = {
 function setup(overrides: Record<string, jest.Mock> = {}) {
   const application = {
     findFirst: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockResolvedValue({ id: 'new' }),
     count: jest.fn().mockResolvedValue(0),
@@ -134,5 +135,30 @@ describe('ApplicationsService.cancel / resubmit', () => {
     const { service, application } = setup()
     application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'other', status: 'DRAFT' })
     await expect(service.cancel(student, 'a1')).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+})
+
+describe('ApplicationsService.listGroupRequests — только группа старосты', () => {
+  const query = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' } as never
+  const starosta = {
+    sub: 'st',
+    role: Role.STAROSTA,
+    universityId: 'uni',
+    facultyId: 'fac',
+    groupId: 'g1',
+  }
+
+  it('без группы → пусто, БД не трогаем', async () => {
+    const { service, application } = setup()
+    await service.listGroupRequests({ ...starosta, groupId: null }, query)
+    expect(application.findMany).not.toHaveBeenCalled()
+  })
+
+  it('со группой → where по student.groupId', async () => {
+    const { service, application } = setup()
+    await service.listGroupRequests(starosta, query)
+    const arg = application.findMany.mock.calls[0][0] as { where: Record<string, unknown> }
+    expect(arg.where.student).toEqual({ is: { groupId: 'g1' } })
+    expect(arg.where.deletedAt).toBeNull()
   })
 })

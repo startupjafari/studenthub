@@ -1,5 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { Role } from '@studenthub/shared-types'
+import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { ApplicationsService } from './applications.service'
@@ -41,6 +43,13 @@ export class ApplicationsController {
   })
   queueStats(@CurrentUser() user: CurrentUserData) {
     return this.process.queueStats(user)
+  }
+
+  @Get('group-requests')
+  @Roles(Role.STAROSTA)
+  @ApiOperation({ summary: 'Обращения своей группы (староста, только чтение)' })
+  groupRequests(@CurrentUser() user: CurrentUserData, @Query() query: ApplicationQueryDto) {
+    return this.applications.listGroupRequests(user, query)
   }
 
   @Get()
