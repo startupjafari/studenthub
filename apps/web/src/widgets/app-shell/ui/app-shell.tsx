@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, LogOut, MoreHorizontal, UserRound } from 'lucide-react'
+import { Bell, LogOut, MoreHorizontal, Search, UserRound } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
 import { endSession } from '../../../shared/session'
 import {
@@ -133,6 +133,17 @@ function BottomNav({
               className="mx-auto mt-1 mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"
               aria-hidden
             />
+            <button
+              type="button"
+              onClick={() => {
+                setMoreOpen(false)
+                window.dispatchEvent(new Event('open-command-palette'))
+              }}
+              className={sheetItem}
+            >
+              <Search className="size-5 shrink-0 opacity-80" aria-hidden />
+              {tNav('search')}
+            </button>
             <button
               type="button"
               onClick={() => {
