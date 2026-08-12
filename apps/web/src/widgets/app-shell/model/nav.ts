@@ -80,6 +80,7 @@ export const DEAN_NAV: NavItem[] = [
   { key: 'starostas', href: '/dean/starostas', icon: UserCog },
   { key: 'schedule', href: '/dean/schedule', icon: CalendarDays },
   { key: 'applications', href: '/dean/applications', icon: FileText },
+  { key: 'invites', href: '/dean/invites', icon: Send },
   { key: 'chats', href: '/dean/chats', icon: MessagesSquare },
   { key: 'events', href: '/dean/events', icon: CalendarClock },
 ]
@@ -99,6 +100,7 @@ export const STAROSTA_NAV: NavItem[] = [
   { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap },
   { key: 'schedule', href: '/starosta/schedule', icon: CalendarDays },
   { key: 'applications', href: '/starosta/applications', icon: FileText },
+  { key: 'invites', href: '/starosta/invites', icon: Send },
   { key: 'chats', href: '/starosta/chats', icon: MessagesSquare },
 ]
 
