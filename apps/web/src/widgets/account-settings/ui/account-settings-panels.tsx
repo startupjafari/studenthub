@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTheme } from 'next-themes'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -13,8 +14,11 @@ import {
   Check,
   FolderLock,
   Lock,
+  Monitor,
+  Moon,
   Palette,
   ShieldAlert,
+  Sun,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -628,7 +632,45 @@ function AppearanceSection() {
           </SelectContent>
         </Select>
       </SettingRow>
+      <SettingRow title={tS('theme')}>
+        <ThemeSelect />
+      </SettingRow>
     </SectionCard>
+  )
+}
+
+// Переключатель темы (System/Light/Dark) через next-themes. mounted-гейт против
+// расхождения гидрации: на сервере тема неизвестна.
+const THEME_OPTIONS = [
+  { value: 'system', icon: Monitor },
+  { value: 'light', icon: Sun },
+  { value: 'dark', icon: Moon },
+] as const
+
+function ThemeSelect() {
+  const tS = useTranslations('Settings')
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  const themeKey = (v: string) => `theme${v.charAt(0).toUpperCase()}${v.slice(1)}`
+
+  return (
+    <Select value={mounted ? (theme ?? 'system') : 'system'} onValueChange={setTheme}>
+      <SelectTrigger aria-label={tS('theme')} className="h-10 w-44 gap-1.5">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {THEME_OPTIONS.map(({ value, icon: Icon }) => (
+          <SelectItem key={value} value={value}>
+            <span className="flex items-center gap-2">
+              <Icon className="size-4" aria-hidden />
+              {tS(themeKey(value))}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
