@@ -42,6 +42,11 @@ export const NOTIFICATION_JOBS = {
   DOCUMENT_RESULT: 'document-result',
   FRIEND_REQUEST: 'friend-request',
   FRIEND_ACCEPTED: 'friend-accepted',
+  ASSIGNMENT_PUBLISHED: 'assignment-published',
+  ASSIGNMENT_GRADED: 'assignment-graded',
+  CONSULTATION_BOOKED: 'consultation-booked',
+  CONSULTATION_CANCELLED: 'consultation-cancelled',
+  APPOINTMENT_UPDATED: 'appointment-updated',
 } as const
 
 export const FILE_JOBS = {
