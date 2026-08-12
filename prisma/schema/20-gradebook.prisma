@@ -1,0 +1,40 @@
+// Домен «Журнал оценок» (docs/ACADEMIC_CORE.md, задача 7). GradeColumn — контрольная точка
+// дисциплины (ЛР/РК/Экзамен/…), Grade — оценка студента в этой точке. Публикация на уровне
+// колонки: студент видит оценки только опубликованных колонок (черновик vs опубликовано).
+// Тип колонки — строкой (SSOT — shared-schemas: LAB | CONTROL | EXAM | OTHER).
+
+model GradeColumn {
+  id          String   @id @default(uuid())
+  courseId    String   @map("course_id")
+  createdById String   @map("created_by_id")
+  title       String
+  kind        String   @default("OTHER")
+  maxScore    Int?     @map("max_score")
+  position    Int      @default(0)
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy User    @relation("GradeColumnAuthor", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  grades    Grade[]
+
+  @@index([courseId])
+  @@map("grade_columns")
+}
+
+model Grade {
+  id        String   @id @default(uuid())
+  columnId  String   @map("column_id")
+  studentId String   @map("student_id")
+  score     Float?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  column  GradeColumn @relation(fields: [columnId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student User        @relation("GradeStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([columnId, studentId])
+  @@index([studentId])
+  @@map("grades")
+}

@@ -1,0 +1,51 @@
+// Домен «Экзамены и сессия» (docs/ACADEMIC_CORE.md, задача 11). Exam — экзамен по дисциплине
+// (Course) для группы: дата/время, аудитория, экзаменатор, формат. ExamResult — по студенту:
+// допуск (admitted), статус (SCHEDULED|PASSED|FAILED|ABSENT|RETAKE — строкой, SSOT в shared-schemas),
+// балл, попытка (пересдача). Результаты видит студент по своей записи.
+
+model Exam {
+  id          String   @id @default(uuid())
+  courseId    String   @map("course_id")
+  groupId     String   @map("group_id")
+  createdById String   @map("created_by_id")
+  examinerId  String?  @map("examiner_id")
+  roomId      String?  @map("room_id")
+  date        DateTime
+  format      String   @default("WRITTEN")
+  maxScore    Int?     @map("max_score")
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  course    Course       @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy User         @relation("ExamAuthor", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  examiner  User?        @relation("ExamExaminer", fields: [examinerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  room      Room?        @relation("ExamRoom", fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  results   ExamResult[]
+
+  @@index([groupId, date])
+  @@index([courseId])
+  @@index([examinerId])
+  @@map("exams")
+}
+
+model ExamResult {
+  id        String   @id @default(uuid())
+  examId    String   @map("exam_id")
+  studentId String   @map("student_id")
+  admitted  Boolean  @default(true)
+  status    String   @default("SCHEDULED")
+  score     Float?
+  attempt   Int      @default(1)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  exam    Exam @relation(fields: [examId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student User @relation("ExamResultStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([examId, studentId])
+  @@index([studentId])
+  @@map("exam_results")
+}

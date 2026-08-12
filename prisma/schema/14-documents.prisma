@@ -27,12 +27,14 @@ model Document {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner           User                     @relation("UserDocuments", fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  university      University?              @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  files           File[] // File.documentId (порядок страниц — File.order)
-  access          DocumentAccess[]
-  events          DocumentEvent[]
-  submissionItems DocumentSubmissionItem[] // где документ приложен к ответу на запрос
+  owner                User                     @relation("UserDocuments", fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university           University?              @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  files                File[] // File.documentId (порядок страниц — File.order)
+  access               DocumentAccess[]
+  events               DocumentEvent[]
+  submissionItems      DocumentSubmissionItem[] // где документ приложен к ответу на запрос
+  applicationDocuments ApplicationDocument[]    @relation("ApplicationDocumentSource") // приложен к заявке-услуге
+  applicationResults   ApplicationResult[]      @relation("ApplicationResultDocument") // выдан вузом как результат заявки
 
   @@index([ownerId, status])
   @@index([universityId])

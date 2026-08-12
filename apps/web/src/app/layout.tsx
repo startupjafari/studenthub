@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next'
 import { getLocale, getMessages, getTimeZone } from 'next-intl/server'
 import '@fontsource-variable/inter'
 import { AppProviders } from './providers'
-import { Toaster } from '../shared/ui'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -44,12 +43,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const timeZone = await getTimeZone()
 
   return (
-    <html lang={locale}>
+    // suppressHydrationWarning — next-themes выставляет класс темы на <html> до гидрации.
+    <html lang={locale} suppressHydrationWarning>
       <body>
         <AppProviders locale={locale} messages={messages} timeZone={timeZone}>
           {children}
         </AppProviders>
-        <Toaster />
       </body>
     </html>
   )

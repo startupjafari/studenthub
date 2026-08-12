@@ -1,0 +1,260 @@
+// Домен «Услуги университета» — переработка «Заявок» (PR1: каталог + статусы + draft).
+// Заявка = получение конкретной УСЛУГИ вуза (не свободный тикет). Строит поверх домена
+// «Документы» (14-documents.prisma): поданные документы и результат — это Document, а review —
+// по образцу DocumentSubmissionItem (интеграция придёт в следующих PR). Старый ApplicationRequest
+// (04-applications.prisma) временно сосуществует и удаляется в финальном cleanup (ЭТАП 8).
+//
+// Статусы/типы полей/режимы — СТРОКАМИ (стиль новых доменов, как в «Документах»), контракт —
+// в @studenthub/shared-schemas (единый источник истины для state-machine и форм).
+
+// Категория каталога услуг (ACADEMIC | CERTIFICATES | FINANCIAL | MILITARY | DORMITORY |
+// PERSONAL_DATA | TECHNICAL | OTHER). Локализованные названия.
+model ApplicationCategory {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  nameRu      String   @map("name_ru")
+  nameKk      String   @map("name_kk")
+  nameEn      String   @map("name_en")
+  description String?
+  icon        String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  services ApplicationService[]
+
+  @@index([active, sortOrder])
+  @@map("application_categories")
+}
+
+// Услуга вуза. universityId = null → глобальный шаблон (виден всем); иначе — кастом вуза.
+// Архитектура готова к тому, что UNIVERSITY_ADMIN включает/настраивает услуги (§34).
+model ApplicationService {
+  id             String   @id @default(uuid())
+  categoryId     String   @map("category_id")
+  universityId   String?  @map("university_id")
+  code           String
+  nameRu         String   @map("name_ru")
+  nameKk         String   @map("name_kk")
+  nameEn         String   @map("name_en")
+  descriptionRu  String?  @map("description_ru")
+  descriptionKk  String?  @map("description_kk")
+  descriptionEn  String?  @map("description_en")
+  instructionsRu String?  @map("instructions_ru")
+  instructionsKk String?  @map("instructions_kk")
+  instructionsEn String?  @map("instructions_en")
+  // SLA в часах (простая модель; рабочий календарь — задел на будущее, §14).
+  slaHours       Int      @default(24) @map("sla_hours")
+  // Способы выдачи: ELECTRONIC | PAPER (оба → студент выбирает BOTH).
+  deliveryModes  String[] @default([]) @map("delivery_modes")
+  requiresPickup Boolean  @default(false) @map("requires_pickup")
+  facultyScoped  Boolean  @default(true) @map("faculty_scoped")
+  // MANUAL | AUTOMATIC | HYBRID — задел под автогенерацию (§35), сейчас всегда MANUAL.
+  processingMode String   @default("MANUAL") @map("processing_mode")
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  category     ApplicationCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  university   University?          @relation("UniversityApplicationServices", fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requirements ServiceRequirement[]
+  formFields   ServiceFormField[]
+  applications Application[]
+
+  // Код уникален в рамках вуза (у глобальных шаблонов universityId = null).
+  @@unique([universityId, code])
+  @@index([categoryId, active])
+  @@index([universityId, active])
+  @@map("application_services")
+}
+
+// Требуемый документ для услуги (чек-лист §3). documentType ссылается на каталог DOCUMENT_TYPES
+// («Документы») — так студент сможет выбрать документ из своего хранилища.
+model ServiceRequirement {
+  id           String  @id @default(uuid())
+  serviceId    String  @map("service_id")
+  code         String
+  documentType String? @map("document_type")
+  titleRu      String  @map("title_ru")
+  titleKk      String  @map("title_kk")
+  titleEn      String  @map("title_en")
+  description  String?
+  required     Boolean @default(true)
+  allowStorage Boolean @default(true) @map("allow_storage")
+  allowUpload  Boolean @default(true) @map("allow_upload")
+  maxFiles     Int     @default(1) @map("max_files")
+  sortOrder    Int     @default(0) @map("sort_order")
+  active       Boolean @default(true)
+
+  service              ApplicationService    @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  applicationDocuments ApplicationDocument[]
+
+  @@unique([serviceId, code])
+  @@index([serviceId, active])
+  @@map("service_requirements")
+}
+
+// Динамическое поле формы услуги (§6). Гибрид: простые поля — здесь; сложные типизированные
+// сценарии допускаются отдельными DTO. options/validation — Json (локализованные варианты внутри).
+model ServiceFormField {
+  id            String  @id @default(uuid())
+  serviceId     String  @map("service_id")
+  code          String
+  // TEXT | TEXTAREA | NUMBER | DATE | SELECT | RADIO | CHECKBOX | BOOLEAN
+  type          String
+  labelRu       String  @map("label_ru")
+  labelKk       String  @map("label_kk")
+  labelEn       String  @map("label_en")
+  placeholderRu String? @map("placeholder_ru")
+  placeholderKk String? @map("placeholder_kk")
+  placeholderEn String? @map("placeholder_en")
+  required      Boolean @default(false)
+  options       Json?
+  validation    Json?
+  sortOrder     Int     @default(0) @map("sort_order")
+  active        Boolean @default(true)
+
+  service ApplicationService @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([serviceId, code])
+  @@index([serviceId, active])
+  @@map("service_form_fields")
+}
+
+// Заявка на услугу. Статусы (строкой, контракт в shared-schemas):
+// DRAFT → SUBMITTED → IN_REVIEW → NEEDS_CORRECTION → RESUBMITTED → IN_REVIEW
+//   → IN_PREPARATION → READY | READY_FOR_PICKUP → ISSUED | DELIVERED
+// терминальные: REJECTED, CANCELLED.
+model Application {
+  id           String  @id @default(uuid())
+  // Человекочитаемый номер SH-2026-001842 (§13). Присваивается при submit; у DRAFT может быть null.
+  number       String? @unique
+  studentId    String  @map("student_id")
+  universityId String  @map("university_id")
+  facultyId    String? @map("faculty_id")
+  serviceId    String  @map("service_id")
+
+  status       String  @default("DRAFT")
+  // ELECTRONIC | PAPER | BOTH — выбирается студентом из service.deliveryModes.
+  deliveryType String? @map("delivery_type")
+  // Ответы на динамическую форму услуги (валидируются по ServiceFormField на бэке).
+  formData     Json    @default("{}") @map("form_data")
+
+  // Ответственный сотрудник (§15). Скаляр без FK — как actorId в «Документах»; фильтр по индексу.
+  assignedToId String?   @map("assigned_to_id")
+  assignedAt   DateTime? @map("assigned_at")
+
+  // SLA/тайминги (§14).
+  submittedAt DateTime? @map("submitted_at")
+  startedAt   DateTime? @map("started_at")
+  dueAt       DateTime? @map("due_at")
+  readyAt     DateTime? @map("ready_at")
+  issuedAt    DateTime? @map("issued_at")
+  issuedById  String?   @map("issued_by_id")
+  cancelledAt DateTime? @map("cancelled_at")
+
+  rejectionReason String? @map("rejection_reason")
+
+  // Выдача бумажного оригинала (§12) + задел под QR.
+  pickupLocation     String? @map("pickup_location")
+  pickupInstructions String? @map("pickup_instructions")
+  pickupCode         String? @unique @map("pickup_code")
+
+  // Технический soft-delete (только для настоящего удаления админом, §9). «Отзыв» — это статус CANCELLED.
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  student    User               @relation("StudentApplicationsV2", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university University         @relation("UniversityApplicationsV2", fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  faculty    Faculty?           @relation("FacultyApplicationsV2", fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  service    ApplicationService @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  events    ApplicationEvent[]
+  documents ApplicationDocument[]
+  results   ApplicationResult[]
+
+  @@index([studentId, status])
+  @@index([facultyId, status])
+  @@index([universityId, status])
+  @@index([serviceId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([dueAt])
+  @@index([submittedAt])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("applications")
+}
+
+// Единый журнал заявки: и статус-переходы, и предметные события (§19/§20). Человеческий таймлайн
+// для студента и подробный audit для сотрудника строятся из этих записей. actorId — скаляр без FK.
+model ApplicationEvent {
+  id            String   @id @default(uuid())
+  applicationId String   @map("application_id")
+  actorId       String?  @map("actor_id")
+  // STATUS_CHANGED | CREATED | SUBMITTED | ASSIGNED | DOCUMENT_ADDED | DOCUMENT_ACCEPTED |
+  // DOCUMENT_REJECTED | COMMENT_ADDED | RESULT_ADDED | CANCELLED | REJECTED | READY | ISSUED ...
+  action        String
+  fromStatus    String?  @map("from_status")
+  toStatus      String?  @map("to_status")
+  comment       String?
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("application_events")
+}
+
+// Документ заявки: привязка требования услуги к документу студента (из хранилища «Документы»)
+// + вердикт review (§3/§4). Одна привязка на требование — замена перезаписывает ту же строку,
+// поэтому «заменить один документ» не создаёт новую заявку. snapshotTitle — снимок названия на
+// момент подачи (§5): последующая правка Document в хранилище не искажает аудит заявки.
+model ApplicationDocument {
+  id            String    @id @default(uuid())
+  applicationId String    @map("application_id")
+  requirementId String    @map("requirement_id")
+  // Document из личного хранилища студента (source STORAGE — выбран; UPLOAD — создан при загрузке).
+  documentId    String?   @map("document_id")
+  source        String    @default("STORAGE") // STORAGE | UPLOAD
+  // PENDING | ACCEPTED | REJECTED | REPLACEMENT_REQUIRED
+  status        String    @default("PENDING")
+  reviewComment String?   @map("review_comment")
+  snapshotTitle String?   @map("snapshot_title")
+  reviewedById  String?   @map("reviewed_by_id") // скаляр без FK (как actorId в «Документах»)
+  submittedAt   DateTime  @default(now()) @map("submitted_at")
+  reviewedAt    DateTime? @map("reviewed_at")
+
+  application Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requirement ServiceRequirement @relation(fields: [requirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  document    Document?          @relation("ApplicationDocumentSource", fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([applicationId, requirementId])
+  @@index([applicationId])
+  @@index([documentId])
+  @@map("application_documents")
+}
+
+// Результат работы вуза по заявке (§10): электронный документ (Document issuedByUniversity),
+// бумажный оригинал, информация. Отдельно от входящих документов студента.
+model ApplicationResult {
+  id             String   @id @default(uuid())
+  applicationId  String   @map("application_id")
+  // ELECTRONIC_DOCUMENT | PAPER_DOCUMENT | INFORMATION | OTHER
+  type           String
+  documentId     String?  @map("document_id") // выданный электронный Document (для скачивания)
+  documentNumber String?  @map("document_number")
+  note           String?
+  issuedById     String   @map("issued_by_id") // скаляр без FK
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  document    Document?   @relation("ApplicationResultDocument", fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([applicationId])
+  @@map("application_results")
+}

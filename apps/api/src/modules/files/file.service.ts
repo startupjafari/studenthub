@@ -16,8 +16,6 @@ export interface UploadFileParams {
   ownerId: string
   /** Если задано — тип по содержимому обязан попасть в эту категорию (напр. аватар → IMAGE). */
   expectedCategory?: FileCategory
-  /** Привязка к заявке (Ф7): проставляется атомарно при создании записи File. */
-  applicationId?: string
   /** Привязка к учебному материалу (Ф12). */
   materialId?: string
   /** Привязка к сообщению чата (Ф9+): вложение сообщения. */
@@ -34,7 +32,6 @@ const FILE_SELECT = {
   mime: true,
   size: true,
   ownerId: true,
-  applicationId: true,
   materialId: true,
   messageId: true,
   posterKey: true,
@@ -66,7 +63,6 @@ export class FileService {
     bucket,
     ownerId,
     expectedCategory,
-    applicationId,
     materialId,
     messageId,
     name,
@@ -107,7 +103,6 @@ export class FileService {
         mime: detected.mime,
         size,
         ownerId,
-        applicationId,
         materialId,
         messageId,
         // Обрезаем до лимита колонки; пустое имя не сохраняем.

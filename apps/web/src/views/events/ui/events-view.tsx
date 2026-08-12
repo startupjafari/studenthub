@@ -23,6 +23,7 @@ import {
   Card,
   CardContent,
   EmptyState,
+  PageHeader,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
@@ -43,7 +44,7 @@ export function EventsView() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('title')}</h1>
+      <PageHeader title={t('title')} />
 
       {role !== null && role !== Role.PLATFORM_MODERATOR && role !== Role.UNIVERSITY_MODERATOR && (
         <CreateEventForm />
