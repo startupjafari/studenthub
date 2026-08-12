@@ -50,11 +50,12 @@ model Pair {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  schedule Schedule         @relation(fields: [scheduleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  group    Group            @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  teacher  User?            @relation("PairTeacher", fields: [teacherId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  room     Room?            @relation(fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  changes  ScheduleChange[]
+  schedule   Schedule         @relation(fields: [scheduleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  group      Group            @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  teacher    User?            @relation("PairTeacher", fields: [teacherId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  room       Room?            @relation(fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  changes    ScheduleChange[]
+  attendance Attendance[]
 
   // Ролевая выборка и детектор конфликтов (docs/PROJECT.md §6.2, задача 6.4):
   // студент → [groupId, dayOfWeek]; преподаватель → [teacherId, dayOfWeek]; аудитория → [roomId, dayOfWeek].

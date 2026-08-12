@@ -4,41 +4,41 @@
 // Бакеты и политики создаются на старте (MinioBucketsService).
 
 model File {
-  id            String   @id @default(uuid())
+  id         String   @id @default(uuid())
   // Имя бакета MinIO (avatars / posts-media / stories-media / applications).
-  bucket        String
+  bucket     String
   // Ключ объекта внутри бакета; уникален в пределах бакета.
-  key           String
+  key        String
   // MIME, определённый по содержимому (magic bytes), не по расширению.
-  mime          String
+  mime       String
   // Размер в байтах (лимиты: изображения 10 МБ, видео 100 МБ, документы 25 МБ).
-  size          Int
+  size       Int
   // Оригинальное имя файла при загрузке (Ф9+): для отображения в чате как в Telegram. NULL у старых.
-  name          String?
-  ownerId       String   @map("owner_id")
+  name       String?
+  ownerId    String   @map("owner_id")
   // Медиа/файл поста (Ф8): NULL для файлов вне постов.
-  postId        String?  @map("post_id")
+  postId     String?  @map("post_id")
   // Вложение сообщения чата (Ф9).
-  messageId     String?  @map("message_id")
+  messageId  String?  @map("message_id")
   // Файл учебного материала (Ф12 teacher/materials).
-  materialId    String?  @map("material_id")
+  materialId String?  @map("material_id")
   // Альбом фото профиля (Ф-albums): NULL — медиа без альбома.
-  albumId       String?  @map("album_id")
+  albumId    String?  @map("album_id")
   // Документ (Ф15): NULL для файлов вне документов. order — порядок страниц (лицо/оборот и т.д.).
-  documentId    String?  @map("document_id")
-  order         Int?
+  documentId String?  @map("document_id")
+  order      Int?
   // Обложка видео профиля: ключ объекта-постера в бакете profile-covers. NULL — нет/это фото.
-  posterKey     String?  @map("poster_key")
-  createdAt     DateTime @default(now()) @map("created_at")
+  posterKey  String?  @map("poster_key")
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  owner         User                @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  post          Post?               @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  message       Message?            @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  material      Material?           @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  album         Album?              @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  post          Post?     @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  message       Message?  @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  material      Material? @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  album         Album?    @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Альбомы, для которых этот файл — обложка (обычно один).
-  albumsCovered Album[]             @relation("AlbumCover")
-  document      Document?           @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  albumsCovered Album[]   @relation("AlbumCover")
+  document      Document? @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([bucket, key])
   @@index([ownerId])

@@ -27,7 +27,9 @@ model University {
   documentRequests DocumentRequest[]
   documentTypes    DocumentType[]
   appServices      ApplicationService[] @relation("UniversityApplicationServices")
-  applicationsV2   Application[]         @relation("UniversityApplicationsV2")
+  applicationsV2   Application[]        @relation("UniversityApplicationsV2")
+  subjects         Subject[]
+  terms            Term[]
 
   @@index([status])
   @@map("universities")
@@ -54,13 +56,14 @@ model Faculty {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  university   University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  groups       Group[]
-  users        User[]
+  university     University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groups         Group[]
+  users          User[]
   applicationsV2 Application[]        @relation("FacultyApplicationsV2")
-  posts        Post[]
-  chats        Chat[]
-  events       Event[]
+  posts          Post[]
+  chats          Chat[]
+  events         Event[]
+  appointments   DeaneryAppointment[]
 
   @@index([universityId])
   @@map("faculties")
@@ -86,6 +89,8 @@ model Group {
   chats     Chat[]
   events    Event[]
   materials Material[]
+  courses   Course[]
+  exams     Exam[]
 
   @@index([facultyId])
   @@map("groups")
@@ -102,6 +107,7 @@ model Room {
   university      University       @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   pairs           Pair[]
   scheduleChanges ScheduleChange[] @relation("ScheduleChangeNewRoom")
+  exams           Exam[]           @relation("ExamRoom")
 
   @@index([universityId])
   @@map("rooms")

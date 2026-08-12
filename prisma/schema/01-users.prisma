@@ -101,7 +101,7 @@ model User {
   scheduleChangesCreated ScheduleChange[] @relation("ScheduleChangeCreatedBy")
 
   // Заявки (Ф7): поданные студентом; переходы статусов, выполненные пользователем.
-  applicationsV2     Application[]              @relation("StudentApplicationsV2")
+  applicationsV2 Application[] @relation("StudentApplicationsV2")
 
   // Посты (Ф8): авторство, адресные посты, закрепления; комментарии и реакции.
   posts         Post[]     @relation("PostAuthor")
@@ -125,7 +125,22 @@ model User {
   complaintsResolved Complaint[] @relation("ComplaintResolver")
 
   // Материалы (Ф12): опубликованные преподавателем.
-  materials Material[] @relation("MaterialAuthor")
+  materials             Material[]           @relation("MaterialAuthor")
+  coursesTaught         Course[]             @relation("CourseTeacher")
+  assignmentsCreated    Assignment[]         @relation("AssignmentAuthor")
+  submissions           Submission[]         @relation("SubmissionStudent")
+  submissionsGraded     Submission[]         @relation("SubmissionGrader")
+  attendanceRecords     Attendance[]         @relation("AttendanceStudent")
+  attendanceMarked      Attendance[]         @relation("AttendanceMarkedBy")
+  gradeColumnsMade      GradeColumn[]        @relation("GradeColumnAuthor")
+  grades                Grade[]              @relation("GradeStudent")
+  examsCreated          Exam[]               @relation("ExamAuthor")
+  examsExamined         Exam[]               @relation("ExamExaminer")
+  examResults           ExamResult[]         @relation("ExamResultStudent")
+  consultationSlots     ConsultationSlot[]   @relation("ConsultationTeacher")
+  consultationsBooked   ConsultationSlot[]   @relation("ConsultationStudent")
+  appointmentsRequested DeaneryAppointment[] @relation("AppointmentStudent")
+  appointmentsAssigned  DeaneryAppointment[] @relation("AppointmentAssignee")
 
   // Контент профиля (вкладки): статьи и опросы. Фото/видео — через File (бакет profile-media).
   profileArticles ProfileArticle[] @relation("UserProfileArticles")
@@ -144,6 +159,7 @@ model User {
   documentSubmissions      DocumentSubmission[] @relation("DocumentSubmissionsMade")
   polls                    Poll[]               @relation("UserPolls")
   pollVotes                PollVote[]           @relation("UserPollVotes")
+  portfolioItems           PortfolioItem[]      @relation("UserPortfolio")
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).
