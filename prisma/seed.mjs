@@ -115,6 +115,48 @@ async function main() {
     })
   }
 
+  // ── Дисциплины (демо): семестр + справочная дисциплина + курс группы ──────────
+  // Идемпотентно по фиксированным id. Позволяет проверить домен «Дисциплины» после миграции.
+  const teacherUser = await prisma.user.findUnique({
+    where: { email: 'teacher@studenthub.app' },
+    select: { id: true },
+  })
+  const term = await prisma.term.upsert({
+    where: { id: 'seed-term-001' },
+    update: { name: 'Осень 2025', isActive: true },
+    create: {
+      id: 'seed-term-001',
+      universityId: SEED_UNIVERSITY_ID,
+      name: 'Осень 2025',
+      number: 5,
+      startsOn: new Date('2025-09-01'),
+      endsOn: new Date('2025-12-31'),
+      isActive: true,
+    },
+  })
+  const subject = await prisma.subject.upsert({
+    where: { id: 'seed-subject-001' },
+    update: { name: 'Основы программирования', code: 'CS101' },
+    create: {
+      id: 'seed-subject-001',
+      universityId: SEED_UNIVERSITY_ID,
+      name: 'Основы программирования',
+      code: 'CS101',
+    },
+  })
+  await prisma.course.upsert({
+    where: { id: 'seed-course-001' },
+    update: { credits: 5, teacherId: teacherUser?.id ?? null, termId: term.id },
+    create: {
+      id: 'seed-course-001',
+      subjectId: subject.id,
+      groupId: 'seed-group-001',
+      teacherId: teacherUser?.id ?? null,
+      termId: term.id,
+      credits: 5,
+    },
+  })
+
   // ── Каталог услуг (переработка «Заявок»): категории + базовые глобальные услуги ──
   // Идемпотентно по фиксированным id. Глобальные шаблоны (universityId = null) видны всем вузам.
   const categories = [

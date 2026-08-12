@@ -192,14 +192,14 @@ model Application {
 // Единый журнал заявки: и статус-переходы, и предметные события (§19/§20). Человеческий таймлайн
 // для студента и подробный audit для сотрудника строятся из этих записей. actorId — скаляр без FK.
 model ApplicationEvent {
-  id            String  @id @default(uuid())
-  applicationId String  @map("application_id")
-  actorId       String? @map("actor_id")
+  id            String   @id @default(uuid())
+  applicationId String   @map("application_id")
+  actorId       String?  @map("actor_id")
   // STATUS_CHANGED | CREATED | SUBMITTED | ASSIGNED | DOCUMENT_ADDED | DOCUMENT_ACCEPTED |
   // DOCUMENT_REJECTED | COMMENT_ADDED | RESULT_ADDED | CANCELLED | REJECTED | READY | ISSUED ...
   action        String
-  fromStatus    String? @map("from_status")
-  toStatus      String? @map("to_status")
+  fromStatus    String?  @map("from_status")
+  toStatus      String?  @map("to_status")
   comment       String?
   metadata      Json?
   createdAt     DateTime @default(now()) @map("created_at")
@@ -215,17 +215,17 @@ model ApplicationEvent {
 // поэтому «заменить один документ» не создаёт новую заявку. snapshotTitle — снимок названия на
 // момент подачи (§5): последующая правка Document в хранилище не искажает аудит заявки.
 model ApplicationDocument {
-  id            String @id @default(uuid())
-  applicationId String @map("application_id")
-  requirementId String @map("requirement_id")
+  id            String    @id @default(uuid())
+  applicationId String    @map("application_id")
+  requirementId String    @map("requirement_id")
   // Document из личного хранилища студента (source STORAGE — выбран; UPLOAD — создан при загрузке).
-  documentId    String? @map("document_id")
-  source        String  @default("STORAGE") // STORAGE | UPLOAD
+  documentId    String?   @map("document_id")
+  source        String    @default("STORAGE") // STORAGE | UPLOAD
   // PENDING | ACCEPTED | REJECTED | REPLACEMENT_REQUIRED
-  status        String  @default("PENDING")
-  reviewComment String? @map("review_comment")
-  snapshotTitle String? @map("snapshot_title")
-  reviewedById  String? @map("reviewed_by_id") // скаляр без FK (как actorId в «Документах»)
+  status        String    @default("PENDING")
+  reviewComment String?   @map("review_comment")
+  snapshotTitle String?   @map("snapshot_title")
+  reviewedById  String?   @map("reviewed_by_id") // скаляр без FK (как actorId в «Документах»)
   submittedAt   DateTime  @default(now()) @map("submitted_at")
   reviewedAt    DateTime? @map("reviewed_at")
 
@@ -242,14 +242,14 @@ model ApplicationDocument {
 // Результат работы вуза по заявке (§10): электронный документ (Document issuedByUniversity),
 // бумажный оригинал, информация. Отдельно от входящих документов студента.
 model ApplicationResult {
-  id             String  @id @default(uuid())
-  applicationId  String  @map("application_id")
+  id             String   @id @default(uuid())
+  applicationId  String   @map("application_id")
   // ELECTRONIC_DOCUMENT | PAPER_DOCUMENT | INFORMATION | OTHER
   type           String
-  documentId     String? @map("document_id") // выданный электронный Document (для скачивания)
-  documentNumber String? @map("document_number")
+  documentId     String?  @map("document_id") // выданный электронный Document (для скачивания)
+  documentNumber String?  @map("document_number")
   note           String?
-  issuedById     String  @map("issued_by_id") // скаляр без FK
+  issuedById     String   @map("issued_by_id") // скаляр без FK
   createdAt      DateTime @default(now()) @map("created_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
