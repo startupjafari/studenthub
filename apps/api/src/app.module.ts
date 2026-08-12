@@ -21,6 +21,17 @@ import { SpecialtiesModule } from './modules/specialties/specialties.module'
 import { GroupsModule } from './modules/groups/groups.module'
 import { RoomsModule } from './modules/rooms/rooms.module'
 import { SchedulesModule } from './modules/schedules/schedules.module'
+import { CoursesModule } from './modules/courses/courses.module'
+import { AssignmentsModule } from './modules/assignments/assignments.module'
+import { AttendanceModule } from './modules/attendance/attendance.module'
+import { GradebookModule } from './modules/gradebook/gradebook.module'
+import { ExamsModule } from './modules/exams/exams.module'
+import { AnalyticsModule } from './modules/analytics/analytics.module'
+import { SearchModule } from './modules/search/search.module'
+import { ConsultationsModule } from './modules/consultations/consultations.module'
+import { AppointmentsModule } from './modules/appointments/appointments.module'
+import { PortfolioModule } from './modules/portfolio/portfolio.module'
+import { StudentIdModule } from './modules/student-id/student-id.module'
 // Заявки-услуги (переработка «Заявок в деканат», §3.2).
 import { ApplicationServicesModule } from './modules/application-services/application-services.module'
 import { PostsModule } from './modules/posts/posts.module'
@@ -65,6 +76,17 @@ import { AppController } from './app.controller'
     GroupsModule,
     RoomsModule,
     SchedulesModule,
+    CoursesModule,
+    AssignmentsModule,
+    AttendanceModule,
+    GradebookModule,
+    ExamsModule,
+    AnalyticsModule,
+    SearchModule,
+    ConsultationsModule,
+    AppointmentsModule,
+    PortfolioModule,
+    StudentIdModule,
     ApplicationServicesModule,
     PostsModule,
     ChatsModule,
