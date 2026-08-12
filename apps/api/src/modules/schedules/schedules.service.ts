@@ -330,9 +330,14 @@ export class SchedulesService {
       throw new AppException('NOT_FOUND', 'Расписание не найдено')
     }
     const gctx = await this.resolveGroupContext(schedule.groupId)
-    this.assertManageScopeForGroup(actor, gctx)
-
     const teacherId = input.teacherId ?? null
+    if (actor.role === Role.TEACHER) {
+      // Преподаватель создаёт только СВОИ пары (назначает себя), в своём вузе.
+      this.assertTeacherPairScope(actor, gctx, teacherId)
+    } else {
+      this.assertManageScopeForGroup(actor, gctx)
+    }
+
     const roomId = input.roomId ?? null
     if (roomId) await this.rooms.assertRoomInUniversity(roomId, gctx.universityId)
     if (teacherId) await this.assertTeacherInUniversity(teacherId, gctx.universityId)
@@ -398,7 +403,16 @@ export class SchedulesService {
       throw new AppException('NOT_FOUND', 'Пара не найдена')
     }
     const gctx = await this.resolveGroupContext(existing.groupId)
-    this.assertManageScopeForGroup(actor, gctx)
+    if (actor.role === Role.TEACHER) {
+      // Преподаватель правит только СВОИ пары и не может переназначить их другому.
+      this.assertTeacherPairScope(actor, gctx, existing.teacherId)
+      const nextTeacherId = input.teacherId !== undefined ? input.teacherId : existing.teacherId
+      if (nextTeacherId !== actor.sub) {
+        throw new AppException('WRONG_SCOPE', 'Нельзя переназначить пару другому преподавателю')
+      }
+    } else {
+      this.assertManageScopeForGroup(actor, gctx)
+    }
 
     // undefined = поле не меняем; null = снять преподавателя/аудиторию.
     const teacherId = input.teacherId !== undefined ? input.teacherId : existing.teacherId
@@ -455,13 +469,17 @@ export class SchedulesService {
   async removePair(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const existing = await this.prisma.pair.findUnique({
       where: { id },
-      select: { id: true, groupId: true },
+      select: { id: true, groupId: true, teacherId: true },
     })
     if (!existing) {
       throw new AppException('NOT_FOUND', 'Пара не найдена')
     }
     const gctx = await this.resolveGroupContext(existing.groupId)
-    this.assertManageScopeForGroup(actor, gctx)
+    if (actor.role === Role.TEACHER) {
+      this.assertTeacherPairScope(actor, gctx, existing.teacherId)
+    } else {
+      this.assertManageScopeForGroup(actor, gctx)
+    }
     await this.prisma.pair.delete({ where: { id } })
     await this.audit.record({
       userId: actor.sub,
@@ -678,6 +696,21 @@ export class SchedulesService {
 
   // Управление (create/update/delete): платформа, админ своего вуза или декан своего факультета.
   // Роли гейтит @Roles на контроллере; здесь — дублирующая проверка фактического scope (§6.1).
+  // Преподаватель (§ роль-матрица «свои пары»): управляет ТОЛЬКО парами, где teacherId=он сам,
+  // и только в пределах своего вуза. pairTeacherId — преподаватель проверяемой пары (для create — назначаемый).
+  private assertTeacherPairScope(
+    actor: JwtPayload,
+    gctx: GroupContext,
+    pairTeacherId: string | null,
+  ): void {
+    if (gctx.universityId !== actor.universityId) {
+      throw new AppException('WRONG_SCOPE', 'Ресурс другого университета')
+    }
+    if (pairTeacherId !== actor.sub) {
+      throw new AppException('WRONG_SCOPE', 'Можно управлять только своими парами')
+    }
+  }
+
   private assertManageScopeForGroup(actor: JwtPayload, gctx: GroupContext): void {
     if (isPlatform(actor.role)) return
     if (actor.role === Role.DEAN) {
