@@ -313,8 +313,10 @@ export class PollsService {
         order: o.order,
         votes: canSeeResults ? (countByOption[o.id] ?? 0) : 0,
       })),
-      totalVotes,
-      participants,
+      // Явку (общее число голосов/участников) прячем вместе с результатами: при
+      // AFTER_VOTE/AFTER_END до раскрытия автор не хочет показывать оборот голосования.
+      totalVotes: canSeeResults ? totalVotes : 0,
+      participants: canSeeResults ? participants : 0,
       commentCount: poll._count.comments,
       myVotes,
       canSeeResults,

@@ -41,6 +41,7 @@ import {
   type InviteStatus,
 } from '../../../entities/invite'
 import { FACULTY_ROLES, GROUP_ROLES, INVITABLE_ROLES } from '../model/invitable-roles'
+import { BulkInvite } from './bulk-invite'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -132,8 +133,9 @@ export function CreateInvite() {
       <h1 className="text-2xl font-bold">{t('title')}</h1>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-base">{t('createTitle')}</CardTitle>
+          <BulkInvite />
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">

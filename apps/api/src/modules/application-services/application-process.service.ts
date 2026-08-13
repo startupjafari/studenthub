@@ -233,13 +233,13 @@ export class ApplicationProcessService {
     if (!canTransition(app.status as ApplicationServiceStatus, to)) {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const { updated, eventId } = await this.prisma.$transaction(async (tx) => {
       const u = await tx.application.update({
         where: { id: app.id },
         data: { status: to, ...opts.data },
         select: PROC_SELECT,
       })
-      await tx.applicationEvent.create({
+      const event = await tx.applicationEvent.create({
         data: {
           applicationId: app.id,
           actorId: viewer.sub,
@@ -248,16 +248,21 @@ export class ApplicationProcessService {
           toStatus: to,
           comment: opts.comment,
         },
+        select: { id: true },
       })
-      return u
+      return { updated: u, eventId: event.id }
     })
     if (opts.notify) {
+      // dedupeKey по id события перехода, а НЕ по `${to}:${appId}`: цикл
+      // IN_REVIEW→NEEDS_CORRECTION→…→NEEDS_CORRECTION даёт тот же статус повторно, и
+      // ключ вида `${to}:${appId}` глушил бы второе уведомление (студент не узнал бы о
+      // повторном отклонении). id события уникален на переход, но стабилен для ретраев job.
       await this.notify(
         app.studentId,
         opts.notify.title,
         opts.notify.body,
         app.id,
-        `${to}:${app.id}`,
+        `${to}:${eventId}`,
       )
     }
     return updated
