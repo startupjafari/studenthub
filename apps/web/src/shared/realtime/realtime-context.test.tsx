@@ -23,8 +23,9 @@ vi.mock('../store/hooks', () => ({
     selector({ auth: { accessToken: state.token } }),
 }))
 
+import { REALTIME_CHANNEL } from '@studenthub/shared-schemas'
 // Импорт после vi.mock — провайдер увидит замоканные модули.
-import { RealtimeProvider, useRealtimeEvent } from './realtime-context'
+import { RealtimeProvider, useRealtimeEvent, useRealtimeEnvelope } from './realtime-context'
 
 beforeEach(() => {
   socketMock.on.mockClear()
@@ -92,5 +93,53 @@ describe('useRealtimeEvent — подписка/отписка', () => {
     expect(socketMock.on).toHaveBeenCalledWith('message:new', expect.any(Function))
     unmount()
     expect(socketMock.off).toHaveBeenCalledWith('message:new', expect.any(Function))
+  })
+})
+
+describe('useRealtimeEnvelope — единый конверт event', () => {
+  function EnvConsumer({ onEvent }: { onEvent: (e: unknown) => void }): null {
+    useRealtimeEnvelope('application.status.changed', onEvent)
+    return null
+  }
+
+  function envelope(type: string) {
+    return { type, entityId: 'x1', version: 1, ts: '2026-01-01T00:00:00.000Z', data: {} }
+  }
+
+  it('слушает канал REALTIME_CHANNEL и фильтрует по type', () => {
+    state.token = 't1'
+    const handler = vi.fn()
+    render(
+      <RealtimeProvider>
+        <EnvConsumer onEvent={handler} />
+      </RealtimeProvider>,
+    )
+
+    // Подписка идёт на единый канал (не на именованное событие).
+    const call = socketMock.on.mock.calls.find((c) => c[0] === REALTIME_CHANNEL)
+    expect(call).toBeTruthy()
+    const listener = call![1] as (e: unknown) => void
+
+    // Нужный type — обработчик вызывается c конвертом.
+    listener(envelope('application.status.changed'))
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'application.status.changed', entityId: 'x1' }),
+    )
+
+    // Чужой type — игнорируется.
+    listener(envelope('grade.published'))
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('отписывается от канала при размонтировании', () => {
+    state.token = 't1'
+    const { unmount } = render(
+      <RealtimeProvider>
+        <EnvConsumer onEvent={vi.fn()} />
+      </RealtimeProvider>,
+    )
+    unmount()
+    expect(socketMock.off).toHaveBeenCalledWith(REALTIME_CHANNEL, expect.any(Function))
   })
 })
