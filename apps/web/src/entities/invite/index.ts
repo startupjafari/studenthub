@@ -3,6 +3,8 @@ export {
   fetchInvites,
   createInviteRequest,
   revokeInviteRequest,
+  bulkPreviewRequest,
+  bulkCreateRequest,
   type InviteListItem,
   type CreatedInvite,
   type InviteStatus,

@@ -403,6 +403,9 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 Защита: срок 48 ч (cron помечает `EXPIRED` раз в час), одноразовость (проверка внутри транзакции), отзыв через `PATCH /invites/:id/revoke`, throttling 3 попытки/час с IP, полный аудит.
 
+**Массовый импорт (CSV/XLSX).** Для онбординга многих студентов сразу — двухшаговый поток:
+`POST /invites/bulk/preview` (multipart-файл) парсит CSV/XLSX (колонки `email`, `group` — имя группы, необязательная `role`, по умолчанию STUDENT), разрешает имя группы в id в scope создателя и валидирует каждую строку БЕЗ записи → `{ rows: [{ line, email, groupName, role, groupId, status: READY|DUPLICATE|ERROR, error }], summary }`. Затем `POST /invites/bulk` создаёт инвайты по подтверждённым строкам (сервер повторно валидирует scope/иерархию через тот же `resolveInviteTarget`, пропускает дубли) → `{ created, skipped, failed }`. Обе ручки — те же роли, что и одиночный инвайт (PLATFORM_ADMIN/UNIVERSITY_ADMIN/DEAN/STAROSTA); лимит 500 строк за импорт.
+
 ### 7.4 Rate limiting
 
 `POST /auth/login` — 5 / 15 мин с IP · `POST /auth/register-by-invite` — 3 / час с IP · `GET /invites/:token/preview` — 10 / час с IP · `POST /complaints` — 10 / час с пользователя · прочее — 100 / мин с пользователя.
@@ -462,7 +465,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.
 
-**Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `PATCH /invites/:id/revoke`
+**Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `POST /invites/bulk/preview` · `POST /invites/bulk` · `PATCH /invites/:id/revoke`
 
 **Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
 
