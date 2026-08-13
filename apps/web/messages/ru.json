@@ -1713,7 +1713,12 @@
     "tab": {
       "overview": "Обзор",
       "materials": "Материалы",
-      "participants": "Участники"
+      "participants": "Участники",
+      "schedule": "Расписание",
+      "assignments": "Задания",
+      "grades": "Оценки",
+      "attendance": "Посещаемость",
+      "chat": "Чат"
     },
     "teacher": "Преподаватель",
     "lessonsPerWeek": "Занятий в неделю",
@@ -1727,7 +1732,19 @@
     "file": "Файл {n}",
     "creditsCount": "{count, plural, one {# кредит} few {# кредита} many {# кредитов} other {# кредитов}}",
     "credits": "Кредиты",
-    "term": "Семестр"
+    "term": "Семестр",
+    "noPairs": "Занятий нет",
+    "weekOdd": "Нечёт",
+    "weekEven": "Чёт",
+    "noCourseLink": "Дисциплина ещё не привязана к курсу",
+    "noCourseLinkHint": "Задания появятся после настройки курса.",
+    "noAssignments": "Заданий нет",
+    "noGrades": "Оценок пока нет",
+    "average": "Средний балл",
+    "noAttendanceData": "Нет отметок посещаемости",
+    "chatTitle": "Чат дисциплины",
+    "chatHint": "Откройте групповой чат для обсуждения дисциплины.",
+    "openChat": "Открыть чат"
   },
   "CourseAdmin": {
     "title": "Дисциплины",

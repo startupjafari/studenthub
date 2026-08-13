@@ -1713,7 +1713,12 @@
     "tab": {
       "overview": "Шолу",
       "materials": "Материалдар",
-      "participants": "Қатысушылар"
+      "participants": "Қатысушылар",
+      "schedule": "Кесте",
+      "assignments": "Тапсырмалар",
+      "grades": "Бағалар",
+      "attendance": "Қатысу",
+      "chat": "Чат"
     },
     "teacher": "Оқытушы",
     "lessonsPerWeek": "Аптасына сабақ",
@@ -1727,7 +1732,19 @@
     "file": "{n}-файл",
     "creditsCount": "{count} кредит",
     "credits": "Кредиттер",
-    "term": "Семестр"
+    "term": "Семестр",
+    "noPairs": "Сабақтар жоқ",
+    "weekOdd": "Тақ",
+    "weekEven": "Жұп",
+    "noCourseLink": "Пән әлі курсқа байланбаған",
+    "noCourseLinkHint": "Тапсырмалар курс бапталғаннан кейін пайда болады.",
+    "noAssignments": "Тапсырмалар жоқ",
+    "noGrades": "Әзірге бағалар жоқ",
+    "average": "Орташа балл",
+    "noAttendanceData": "Қатысу белгілері жоқ",
+    "chatTitle": "Пән чаты",
+    "chatHint": "Пәнді талқылау үшін топ чатын ашыңыз.",
+    "openChat": "Чатты ашу"
   },
   "CourseAdmin": {
     "title": "Пәндер",
