@@ -586,6 +586,11 @@ export class SchedulesService {
       change,
       groupId: pair.groupId,
     })
+    // Параллельно — единый конверт (PR-8/#12); старое событие выше не трогаем.
+    this.realtime.emitEventToRoom(`group:${pair.groupId}`, 'schedule.lesson.updated', change.id, {
+      change,
+      groupId: pair.groupId,
+    })
 
     // Уведомление участникам группы (+ преподавателям пары/замены) через очередь `notifications`.
     await this.enqueueChangeNotification(pair, change.id, input)

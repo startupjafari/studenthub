@@ -10,6 +10,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets'
 import type { Server, Socket } from 'socket.io'
+import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import type { JwtPayload } from '../auth/jwt-payload.type'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
@@ -120,6 +121,37 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   /** Адресная отправка в произвольную комнату (group:{id}, university:{id}, chat:{id}). */
   emitToRoom(room: string, event: string, payload: unknown): void {
     this.server.to(room).emit(event, payload)
+  }
+
+  // ── Единый конверт (docs/PROJECT.md §9, PR-8/#12) ──────────────────────────
+  // Канал REALTIME_CHANNEL, конверт { type, entityId, version, ts, data }. Вводится
+  // параллельно к именованным событиям; вызывать РЯДОМ с существующим emit, не вместо.
+
+  private envelope(
+    type: string,
+    entityId: string,
+    data: unknown,
+    version: number,
+  ): RealtimeEnvelope {
+    return { type, entityId, version, ts: new Date().toISOString(), data }
+  }
+
+  /** Конверт в личную комнату пользователя. */
+  emitEventToUser(
+    userId: string,
+    type: string,
+    entityId: string,
+    data: unknown,
+    version = 1,
+  ): void {
+    this.server
+      .to(`user:${userId}`)
+      .emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
+  }
+
+  /** Конверт в произвольную комнату (group:{id}, university:{id}, chat:{id}). */
+  emitEventToRoom(room: string, type: string, entityId: string, data: unknown, version = 1): void {
+    this.server.to(room).emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
   }
 
   /** Подмножество переданных id, у которых есть хотя бы одно активное соединение. */
