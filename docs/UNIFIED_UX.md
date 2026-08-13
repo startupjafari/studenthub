@@ -88,10 +88,15 @@
 - Общий DTO `Activity` поверх `ApplicationEvent`/`DocumentEvent`/`AuditLog`; endpoint
   `GET /me/activity`. Без слияния таблиц.
 
-### PR-10 — BFF расширение + PWA (пункты 15, 16)
-- `/me/dashboard`, `/me/actions`, при необходимости `/me/bootstrap`.
-- PWA offline-кэш только для полезных сценариев: расписание, Student Pass, недавние материалы,
-  черновики, задания, часть истории сообщений. Критические мутации — только online.
+### PR-10 — PWA offline (пункт 16) ✅ + BFF-расширение (пункт 15)
+- **PWA offline-кэш** — `runtimeCaching` (NetworkFirst, только GET) для расписания, Student Pass,
+  `/me/today`, недавних материалов/заданий, части истории сообщений. Критические мутации
+  (POST/PUT/PATCH/DELETE) не перехватываются → только online. Реализовано в `apps/web/next.config.mjs`.
+- **BFF `/me/dashboard` / `/me/actions` / `/me/bootstrap`** — сознательно НЕ добавлены как отдельные
+  endpoint'ы: были бы дубликатами `/me/today` (данные дашборда/действий уже там, роль-aware) и
+  `analytics.facultyOverview` / `applications/queue-stats` (для сотрудников). Reuse-first: главные
+  экраны уже делают один агрегирующий запрос. `/me/bootstrap` (профиль + unread за один вызов) —
+  возможная микрооптимизация загрузки, отложена до реальной необходимости.
 
 ---
 
