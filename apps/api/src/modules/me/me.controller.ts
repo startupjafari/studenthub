@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common'
+import { Controller, Get, Query } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
@@ -17,5 +17,12 @@ export class MeController {
   @ApiOperation({ summary: 'Операционный экран «Сегодня» / Action Center (по роли)' })
   today(@CurrentUser() user: CurrentUserData) {
     return this.me.today(user)
+  }
+
+  @Get('activity')
+  @ApiOperation({ summary: 'Единая лента активности (заявки/документы/аудит) — свои события' })
+  activity(@CurrentUser() user: CurrentUserData, @Query('limit') limit?: string) {
+    const n = Math.min(Math.max(Number(limit) || 30, 1), 100)
+    return this.me.activity(user, n)
   }
 }

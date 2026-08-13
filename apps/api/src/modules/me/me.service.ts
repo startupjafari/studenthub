@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Role } from '@studenthub/shared-types'
+import type { Activity } from '@studenthub/shared-schemas'
+import { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { SchedulesService } from '../schedules/schedules.service'
 import { EventsService } from '../events/events.service'
@@ -32,6 +34,7 @@ export class MeService {
   private readonly logger = new Logger(MeService.name)
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly schedules: SchedulesService,
     private readonly events: EventsService,
     private readonly notifications: NotificationsService,
@@ -96,6 +99,91 @@ export class MeService {
       assignments: assignments.items,
       notifications: notifications.items,
     }
+  }
+
+  // Единая лента активности (docs/UNIFIED_UX.md PR-9/#14): свои события из трёх журналов
+  // (заявки/документы/аудит) в общем контракте Activity. Таблицы НЕ сливаем — читаем и маппим.
+  // Scope = свои: заявки, где studentId; документы, где ownerId; аудит, где userId.
+  async activity(viewer: JwtPayload, limit = 30): Promise<Activity[]> {
+    const [appEvents, docEvents, audit] = await Promise.all([
+      this.prisma.applicationEvent.findMany({
+        where: { application: { studentId: viewer.sub } },
+        select: {
+          id: true,
+          action: true,
+          applicationId: true,
+          actorId: true,
+          fromStatus: true,
+          toStatus: true,
+          comment: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      this.prisma.documentEvent.findMany({
+        where: { document: { is: { ownerId: viewer.sub } } },
+        select: {
+          id: true,
+          action: true,
+          documentId: true,
+          actorId: true,
+          metadata: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      this.prisma.auditLog.findMany({
+        where: { userId: viewer.sub },
+        select: {
+          id: true,
+          action: true,
+          entity: true,
+          entityId: true,
+          metadata: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+    ])
+
+    const items: Activity[] = [
+      ...appEvents.map((e) => ({
+        id: `application:${e.id}`,
+        source: 'application' as const,
+        action: e.action,
+        entityType: 'Application',
+        entityId: e.applicationId,
+        actorId: e.actorId,
+        ts: e.createdAt.toISOString(),
+        meta: { fromStatus: e.fromStatus, toStatus: e.toStatus, comment: e.comment },
+      })),
+      ...docEvents.map((e) => ({
+        id: `document:${e.id}`,
+        source: 'document' as const,
+        action: e.action,
+        entityType: 'Document',
+        entityId: e.documentId ?? '',
+        actorId: e.actorId,
+        ts: e.createdAt.toISOString(),
+        meta: (e.metadata as Record<string, unknown> | null) ?? null,
+      })),
+      ...audit.map((e) => ({
+        id: `audit:${e.id}`,
+        source: 'audit' as const,
+        action: e.action,
+        entityType: e.entity ?? '',
+        entityId: e.entityId ?? '',
+        actorId: viewer.sub,
+        ts: e.createdAt.toISOString(),
+        meta: (e.metadata as Record<string, unknown> | null) ?? null,
+      })),
+    ]
+    // Слияние по времени (desc) и общий лимит.
+    items.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+    return items.slice(0, limit)
   }
 
   // Offset-запрос с дефолтами страницы (доменные схемы дефолтят page/limit, но их тип —
