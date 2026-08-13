@@ -518,7 +518,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Аудит** — `GET /audit` (Moderator+/Admin, scope: платформа — всё, админ вуза — свой вуз, модератор — свои действия)
 
-**Мой день (BFF)** (Unified UX, PR-1 — см. `docs/UNIFIED_UX.md`) — `GET /me/today` (операционный экран «Сегодня»/Action Center по роли: `{ role, date, timezone, pairs, scheduleChanges, applications, events, assignments, notifications }`). Агрегирует существующие доменные сервисы (Schedules/Events/Notifications/Assignments/Applications) по scope роли, чтобы клиент делал один запрос вместо нескольких; заявки — только студенту/старосте; каждый источник устойчив к сбою (пустой дефолт). Output-only, без валидации входа.
+**Мой день (BFF)** (Unified UX, PR-1/PR-9 — см. `docs/UNIFIED_UX.md`) — `GET /me/today` (операционный экран «Сегодня»/Action Center по роли: `{ role, date, timezone, pairs, scheduleChanges, applications, events, assignments, notifications }`). Агрегирует существующие доменные сервисы (Schedules/Events/Notifications/Assignments/Applications) по scope роли, чтобы клиент делал один запрос вместо нескольких; заявки — только студенту/старосте; каждый источник устойчив к сбою (пустой дефолт). · `GET /me/activity?limit=` (единая лента активности, PR-9/#14): свои события из трёх журналов (`ApplicationEvent`/`DocumentEvent`/`AuditLog`) в общем контракте `Activity { id, source, action, entityType, entityId, actorId, ts, meta }` — БЕЗ слияния таблиц; scope = свои (`studentId`/`ownerId`/`userId`), слияние по времени desc, общий лимит. Output-only.
 
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
