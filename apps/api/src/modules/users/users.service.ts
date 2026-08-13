@@ -29,6 +29,9 @@ export interface AuthUserRecord {
   universityId: string | null
   facultyId: string | null
   groupId: string | null
+  // Нужно для флага tfa в access-токене (TwoFactorGuard). Без него refresh/логин выдавали
+  // tfa:false даже при включённой 2FA → форс зацикливал привилегированную роль на /setup-2fa.
+  twoFactorEnabled: boolean
 }
 
 // Данные для второго шага входа (2FA). Секрет — зашифрован, backup-коды — bcrypt-хэши.
@@ -166,11 +169,12 @@ export class UserService {
         universityId: true,
         facultyId: true,
         groupId: true,
+        twoFactorEnabled: true,
       },
     })
   }
 
-  /** Для AuthService.refresh: актуальные роль/scope/блокировка по id (без passwordHash). */
+  /** Для AuthService.refresh: актуальные роль/scope/блокировка/2FA по id (без passwordHash). */
   findByIdForAuth(id: string): Promise<Omit<AuthUserRecord, 'passwordHash'> | null> {
     return this.prisma.user.findFirst({
       where: { id, deletedAt: null },
@@ -181,6 +185,8 @@ export class UserService {
         universityId: true,
         facultyId: true,
         groupId: true,
+        // Актуальный флаг 2FA → в токен (иначе refresh обнулял tfa и зацикливал форс).
+        twoFactorEnabled: true,
       },
     })
   }
