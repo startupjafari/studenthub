@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
+import { useQueryClient } from '@tanstack/react-query'
 import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../store/hooks'
 
@@ -33,6 +34,11 @@ function wsOrigin(): string {
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const accessToken = useAppSelector((s) => s.auth.accessToken)
+  const queryClient = useQueryClient()
+  // Держим клиент в ref: обращаемся к нему из onConnect, не добавляя в deps эффекта (иначе
+  // нестабильная ссылка пересоздавала бы сокет). Тот же приём, что и с tokenRef ниже.
+  const queryClientRef = useRef(queryClient)
+  queryClientRef.current = queryClient
   const [socket, setSocket] = useState<Socket | null>(null)
   const socketRef = useRef<Socket | null>(null)
   // Актуальный токен для первичного handshake создаваемого сокета (без пересоздания при ротации).
@@ -60,7 +66,22 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     socketRef.current = instance
     setSocket(instance)
 
+    // Реконнект-ресинк: пока сокет был отключён, клиент мог пропустить события (schedule:changed,
+    // notification:new, изменения заявок и т.п.) — их никто не переприсылает. На ПОВТОРНОМ connect
+    // инвалидируем весь react-query кэш, чтобы все подписанные экраны разом подтянули актуальное
+    // состояние с сервера. Первый connect пропускаем (данные только что загружены).
+    let firstConnect = true
+    const onConnect = (): void => {
+      if (firstConnect) {
+        firstConnect = false
+        return
+      }
+      void queryClientRef.current.invalidateQueries()
+    }
+    instance.on('connect', onConnect)
+
     return () => {
+      instance.off('connect', onConnect)
       instance.disconnect()
       socketRef.current = null
       setSocket(null)

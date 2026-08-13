@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
+import { canTransition, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
@@ -16,6 +18,7 @@ export class ApplicationDocumentsService {
     private readonly prisma: PrismaService,
     private readonly policy: ApplicationPolicy,
     private readonly files: FileService,
+    private readonly queue: QueueService,
   ) {}
 
   /** Приложить документ из хранилища к требованию (или заменить существующий — та же строка). */
@@ -123,8 +126,14 @@ export class ApplicationDocumentsService {
     if (!comment) {
       throw new AppException('BAD_REQUEST', 'Укажите причину замены документа')
     }
-    await this.prisma.$transaction([
-      this.prisma.applicationDocument.update({
+    // Запрос замены двигает заявку в NEEDS_CORRECTION — переход обязан пройти через SSOT
+    // (canTransition), иначе из IN_PREPARATION/READY/READY_FOR_PICKUP заявку откатывало бы
+    // в исправление в обход графа и портило SLA. NEEDS_CORRECTION допустим только из IN_REVIEW.
+    if (!canTransition(app.status as ApplicationServiceStatus, 'NEEDS_CORRECTION')) {
+      throw new AppException('BAD_REQUEST', 'Недопустимый переход')
+    }
+    const { eventId } = await this.prisma.$transaction(async (tx) => {
+      await tx.applicationDocument.update({
         where: { id: docId },
         data: {
           status: 'REPLACEMENT_REQUIRED',
@@ -132,12 +141,12 @@ export class ApplicationDocumentsService {
           reviewedAt: new Date(),
           reviewedById: viewer.sub,
         },
-      }),
-      this.prisma.application.update({
+      })
+      await tx.application.update({
         where: { id: appId },
         data: { status: 'NEEDS_CORRECTION' },
-      }),
-      this.prisma.applicationEvent.create({
+      })
+      const event = await tx.applicationEvent.create({
         data: {
           applicationId: appId,
           actorId: viewer.sub,
@@ -146,8 +155,26 @@ export class ApplicationDocumentsService {
           toStatus: 'NEEDS_CORRECTION',
           comment,
         },
-      }),
-    ])
+        select: { id: true },
+      })
+      return { eventId: event.id }
+    })
+    // Уведомляем студента: без этого запрос замены документа «молчал» и заявка тихо
+    // застревала в NEEDS_CORRECTION (студент не знал, что нужно действовать). Тот же job
+    // уведомления, что и у переходов заявки; dedupeKey по id события — уникален на переход.
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.APPLICATION_UPDATED,
+      {
+        recipientIds: [app.studentId],
+        type: 'APP_UPDATE',
+        title: 'Требуется замена документа',
+        body: comment,
+        data: { url: `/applications/${appId}` },
+        dedupeKey: `NEEDS_CORRECTION:${eventId}`,
+      },
+      { jobId: `NEEDS_CORRECTION:${eventId}` },
+    )
     return null
   }
 

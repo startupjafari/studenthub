@@ -202,22 +202,29 @@ export class UserService {
    * не выбирается (§14.9). Роли гейтит @Roles на контроллере.
    */
   async list(viewer: JwtPayload, query: UserListQueryInput): Promise<Paginated<unknown>> {
+    // scope и клиентские фильтры — через AND: ?facultyId=/?groupId= обязаны СУЖАТЬ scope,
+    // а не перезаписывать его (spread по общему ключу facultyId дал бы декану выборку
+    // пользователей чужого факультета/вуза с email — cross-tenant PII). См. §14.7/§14.10.
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
-      ...this.listScope(viewer),
-      ...(query.role ? { role: query.role as Role } : {}),
-      ...(query.facultyId ? { facultyId: query.facultyId } : {}),
-      ...(query.groupId ? { groupId: query.groupId } : {}),
-      ...(query.blocked !== undefined ? { isBlocked: query.blocked } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { firstName: { contains: query.search, mode: 'insensitive' } },
-              { lastName: { contains: query.search, mode: 'insensitive' } },
-              { email: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      AND: [
+        this.listScope(viewer),
+        ...(query.role ? [{ role: query.role as Role }] : []),
+        ...(query.facultyId ? [{ facultyId: query.facultyId }] : []),
+        ...(query.groupId ? [{ groupId: query.groupId }] : []),
+        ...(query.blocked !== undefined ? [{ isBlocked: query.blocked }] : []),
+        ...(query.search
+          ? [
+              {
+                OR: [
+                  { firstName: { contains: query.search, mode: 'insensitive' as const } },
+                  { lastName: { contains: query.search, mode: 'insensitive' as const } },
+                  { email: { contains: query.search, mode: 'insensitive' as const } },
+                ],
+              },
+            ]
+          : []),
+      ],
     }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({

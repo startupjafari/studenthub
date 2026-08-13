@@ -448,7 +448,7 @@ export function ChatWindow() {
               .map(
                 (m) =>
                   `[${new Date(m.createdAt).toLocaleString(locale)}] ${senderName(m)}: ${
-                    m.content || (m.media.length ? '[вложение]' : '')
+                    m.content || (m.media.length ? `[${t('attachment')}]` : '')
                   }`,
               )
               .join('\n')
