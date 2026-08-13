@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Eye, EyeOff, MoreHorizontal, Plus, Save, Trash2 } from 'lucide-react'
@@ -50,6 +50,8 @@ export function GradebookTable({ courseId }: { courseId: string }) {
   const q = useQuery({
     queryKey: gradebookKeys.course(courseId),
     queryFn: () => fetchGradebook(courseId),
+    // При смене дисциплины держим прежний журнал, пока грузится новый (без вспышки скелета).
+    placeholderData: keepPreviousData,
   })
 
   useEffect(() => {

@@ -21,3 +21,4 @@ export {
   notificationActionKey,
   type NotificationCategory,
 } from './lib/categorize'
+export { useNotificationMutations } from './lib/use-notification-mutations'

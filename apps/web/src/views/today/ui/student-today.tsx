@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
 import {
@@ -14,6 +14,7 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
+import { useRealtimeEvent } from '../../../shared/realtime'
 import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
 import { buildAttention } from '../lib/attention'
 import { NextPairCard } from './next-pair-card'
@@ -33,8 +34,17 @@ export function StudentToday() {
   const t = useTranslations('Today')
   const locale = useLocale()
 
+  const qc = useQueryClient()
+
   // Один BFF-запрос вместо шести доменных (docs/UNIFIED_UX.md PR-1). Форма — по роли на бэке.
   const today = useQuery({ queryKey: meKeys.today(), queryFn: fetchMeToday })
+
+  // Realtime: изменение расписания приходит по WS — обновляем «Сегодня» незаметно, без опроса.
+  // Подписываемся только на schedule:changed (самое время-чувствительное для таймлайна);
+  // на каждый notification:new НЕ рефетчим агрегат — колокольчик обновляется сам.
+  useRealtimeEvent('schedule:changed', () => {
+    void qc.invalidateQueries({ queryKey: meKeys.today() })
+  })
 
   const now = useMemo(() => nowInTz(today.data?.timezone ?? null), [today.data?.timezone])
   const parity = useMemo(() => isoWeekParity(), [])
