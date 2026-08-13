@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, ChevronRight, ClipboardList, Inbox } from 'lucide-react'
 import {
@@ -13,7 +13,12 @@ import {
   PageHeader,
   Skeleton,
 } from '../../../shared/ui'
-import { assignmentKeys, fetchAssignments, type AssignmentItem } from '../../../entities/assignment'
+import {
+  assignmentKeys,
+  fetchAssignments,
+  fetchAssignment,
+  type AssignmentItem,
+} from '../../../entities/assignment'
 import { studentStatus, STUDENT_STATUS_BADGE, STUDENT_STATUS_KEY } from '../lib/assignment-status'
 import { StudentAssignmentDetail } from './student-assignment-detail'
 
@@ -21,8 +26,19 @@ import { StudentAssignmentDetail } from './student-assignment-detail'
 export function StudentAssignmentsView() {
   const t = useTranslations('Assignments')
   const [openId, setOpenId] = useState<string | null>(null)
+  const qc = useQueryClient()
 
   const q = useQuery({ queryKey: assignmentKeys.list(), queryFn: () => fetchAssignments() })
+
+  // Prefetch детали задания при наведении/фокусе строки (принцип 3): к клику деталь уже в кэше,
+  // экран открывается мгновенно. staleTime гасит повторные prefetch по одному id.
+  const prefetch = (id: string): void => {
+    void qc.prefetchQuery({
+      queryKey: assignmentKeys.detail(id),
+      queryFn: () => fetchAssignment(id),
+      staleTime: 30_000,
+    })
+  }
 
   if (openId) {
     return <StudentAssignmentDetail id={openId} onBack={() => setOpenId(null)} />
@@ -49,7 +65,11 @@ export function StudentAssignmentsView() {
         <ul className="flex flex-col gap-2">
           {(q.data ?? []).map((a) => (
             <li key={a.id}>
-              <AssignmentRow assignment={a} onOpen={() => setOpenId(a.id)} />
+              <AssignmentRow
+                assignment={a}
+                onOpen={() => setOpenId(a.id)}
+                onPrefetch={() => prefetch(a.id)}
+              />
             </li>
           ))}
         </ul>
@@ -61,9 +81,11 @@ export function StudentAssignmentsView() {
 function AssignmentRow({
   assignment: a,
   onOpen,
+  onPrefetch,
 }: {
   assignment: AssignmentItem
   onOpen: () => void
+  onPrefetch: () => void
 }) {
   const t = useTranslations('Assignments')
   const locale = useLocale()
@@ -75,6 +97,8 @@ function AssignmentRow({
         <button
           type="button"
           onClick={onOpen}
+          onMouseEnter={onPrefetch}
+          onFocus={onPrefetch}
           className="flex w-full items-center gap-3 p-3.5 text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
         >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
