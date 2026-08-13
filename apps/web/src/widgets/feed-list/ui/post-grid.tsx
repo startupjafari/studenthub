@@ -1,9 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import type { FeedPost } from '../../../entities/post'
 import { PostTile } from './post-tile'
-import { PostLightbox } from './post-lightbox'
+
+// Лайтбокс (портал, галерея, видео, свайпы, мутации) грузится только при открытии поста —
+// он не нужен для рендера самой ленты/сетки и раньше тянулся в First Load JS главной/постов.
+const PostLightbox = dynamic(() => import('./post-lightbox').then((m) => m.PostLightbox), {
+  ssr: false,
+})
 
 // Сетка постов (Instagram-стиль): квадратные плитки 3-в-ряд, клик открывает лайтбокс.
 export function PostGrid({ posts }: { posts: FeedPost[] }) {

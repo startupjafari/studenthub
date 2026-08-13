@@ -97,8 +97,11 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     queryFn: () => fetchScheduleChanges(changesQuery),
   })
 
+  // Инвалидируем только queries изменений (['schedule','changes',*]), а не весь scheduleKeys.all:
+  // событие несёт override/отмену пары (наложение из changes), базовая сетка пар им не меняется.
+  // Так рефетчим одну лёгкую выборку вместо всех расписаний по всем фильтрам.
   useRealtimeEvent<{ groupId: string }>('schedule:changed', () => {
-    void qc.invalidateQueries({ queryKey: scheduleKeys.all })
+    void qc.invalidateQueries({ queryKey: ['schedule', 'changes'] })
     toast.info(t('changedToast'))
   })
 

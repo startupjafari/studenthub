@@ -69,6 +69,15 @@ export function PostMediaView({
     )
   }
   return (
-    <img src={url} alt="" onError={() => setBroken(true)} className={cn(objectFit, className)} />
+    <img
+      src={url}
+      alt=""
+      // Ленивая загрузка + async-декод: в многокартиночной ленте картинки вне вьюпорта
+      // не тянутся заранее (экономия мобильного трафика, §7).
+      loading="lazy"
+      decoding="async"
+      onError={() => setBroken(true)}
+      className={cn(objectFit, className)}
+    />
   )
 }
