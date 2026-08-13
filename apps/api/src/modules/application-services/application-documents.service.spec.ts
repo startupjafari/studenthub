@@ -2,6 +2,7 @@ import { Role } from '@studenthub/shared-types'
 import { ApplicationDocumentsService } from './application-documents.service'
 import { ApplicationPolicy } from './application.policy'
 import type { PrismaService } from '../../common/prisma/prisma.service'
+import type { QueueService } from '../../common/queue'
 import type { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
@@ -30,7 +31,7 @@ function setup() {
     findFirst: jest.fn(),
     update: jest.fn(),
   }
-  const applicationEvent = { create: jest.fn().mockResolvedValue({}) }
+  const applicationEvent = { create: jest.fn().mockResolvedValue({ id: 'ev1' }) }
   const file = { findFirst: jest.fn() }
   const tx = {
     application,
@@ -49,10 +50,12 @@ function setup() {
     ),
   }
   const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://url') }
+  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationDocumentsService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     files as unknown as FileService,
+    queue as unknown as QueueService,
   )
   return {
     service,
@@ -61,6 +64,7 @@ function setup() {
     document,
     applicationDocument,
     applicationEvent,
+    queue,
   }
 }
 
@@ -166,5 +170,42 @@ describe('ApplicationDocumentsService.review', () => {
     await expect(service.review(student, 'a1', 'ad1', 'accept')).rejects.toMatchObject({
       code: 'FORBIDDEN',
     })
+  })
+
+  // Регрессия: запрос замены документа обязан уведомить студента (иначе заявка молча
+  // застревала в NEEDS_CORRECTION).
+  it('request-replacement → уведомляет студента', async () => {
+    const { service, application, applicationDocument, queue } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+      status: 'IN_REVIEW',
+    })
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    await service.review(dean, 'a1', 'ad1', 'request-replacement', 'нужен новый скан')
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      expect.any(String),
+      expect.objectContaining({ recipientIds: ['stud'], type: 'APP_UPDATE' }),
+      expect.objectContaining({ jobId: expect.stringContaining('NEEDS_CORRECTION') }),
+    )
+  })
+
+  // Регрессия: замену документа нельзя запрашивать из статуса, из которого NEEDS_CORRECTION
+  // недопустим по SSOT (иначе откат IN_PREPARATION/READY в обход графа).
+  it('request-replacement из IN_PREPARATION → BAD_REQUEST (недопустимый переход)', async () => {
+    const { service, application, applicationDocument, queue } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+      status: 'IN_PREPARATION',
+    })
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    await expect(
+      service.review(dean, 'a1', 'ad1', 'request-replacement', 'причина'),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })

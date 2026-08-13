@@ -112,7 +112,9 @@ export function CommandPalette() {
           id: `a-${a.id}`,
           label: a.title,
           sub: a.course.subject.name,
-          href: '/assignments',
+          // Диплинк в конкретное задание (роут /assignments раскрывает деталь по ?open=).
+          // Прежний '/assignments' не открывал найденное задание.
+          href: `/assignments?open=${a.id}`,
           icon: ClipboardList,
           section: t('assignments'),
         })
@@ -121,7 +123,9 @@ export function CommandPalette() {
           id: `m-${m.id}`,
           label: m.title,
           sub: m.subject ?? undefined,
-          href: '/materials',
+          // Отдельного роута /materials нет (он 404-ил); материалы живут во вкладке
+          // курса. Ведём в workspace дисциплины (роль-независимый роут), либо в список курсов.
+          href: m.subject ? `/courses/${encodeURIComponent(m.subject)}` : '/courses',
           icon: FolderOpen,
           section: t('materials'),
         })

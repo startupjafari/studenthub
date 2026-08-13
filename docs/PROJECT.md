@@ -403,6 +403,9 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 Защита: срок 48 ч (cron помечает `EXPIRED` раз в час), одноразовость (проверка внутри транзакции), отзыв через `PATCH /invites/:id/revoke`, throttling 3 попытки/час с IP, полный аудит.
 
+**Массовый импорт (CSV/XLSX).** Для онбординга многих студентов сразу — двухшаговый поток:
+`POST /invites/bulk/preview` (multipart-файл) парсит CSV/XLSX (колонки `email`, `group` — имя группы, необязательная `role`, по умолчанию STUDENT), разрешает имя группы в id в scope создателя и валидирует каждую строку БЕЗ записи → `{ rows: [{ line, email, groupName, role, groupId, status: READY|DUPLICATE|ERROR, error }], summary }`. Затем `POST /invites/bulk` создаёт инвайты по подтверждённым строкам (сервер повторно валидирует scope/иерархию через тот же `resolveInviteTarget`, пропускает дубли) → `{ created, skipped, failed }`. Обе ручки — те же роли, что и одиночный инвайт (PLATFORM_ADMIN/UNIVERSITY_ADMIN/DEAN/STAROSTA); лимит 500 строк за импорт.
+
 ### 7.4 Rate limiting
 
 `POST /auth/login` — 5 / 15 мин с IP · `POST /auth/register-by-invite` — 3 / час с IP · `GET /invites/:token/preview` — 10 / час с IP · `POST /complaints` — 10 / час с пользователя · прочее — 100 / мин с пользователя.
@@ -450,6 +453,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | 422 | `VALIDATION_ERROR` | Ошибка Zod, с `details[]` |
 | 429 | `RATE_LIMIT` | Превышен лимит |
 | 401 | `INVALID_2FA_CODE` | Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа |
+| 403 | `TWO_FACTOR_SETUP_REQUIRED` | Привилегированной роли нужно включить 2FA; доступ к API закрыт до настройки (кроме эндпоинтов 2FA). Клиент ведёт на `/setup-2fa` |
 | 500 | `INTERNAL_ERROR` | Внутренняя ошибка |
 
 Коды — публичный контракт: клиент реагирует на `code`, не на `message`. Тексты для пользователя формирует фронтенд через i18n.
@@ -460,9 +464,11 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
 
+**Форс 2FA для привилегированных ролей.** Ролям `PLATFORM_ADMIN`, `PLATFORM_MODERATOR`, `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR`, `DEAN` двухфакторная аутентификация обязательна. Глобальный `TwoFactorGuard` (после `JwtAuthGuard`) отдаёт `403 TWO_FACTOR_SETUP_REQUIRED` на все эндпоинты, кроме помеченных `@TwoFactorExempt()` (контроллер `auth/2fa/*`), пока 2FA не включена. Флаг `tfa` кладётся в access-токен (без обращения к БД на каждый запрос); при `refresh` payload пересобирается из БД, поэтому после включения 2FA следующая ротация токена снимает форс. Фронт: интерсептор по этому коду уводит на `/setup-2fa` (обязательная настройка); после включения — жёсткий переход на `/`, где `SessionInitializer` перевыпускает токен с `tfa=true`.
+
 **Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.
 
-**Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `PATCH /invites/:id/revoke`
+**Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `POST /invites/bulk/preview` · `POST /invites/bulk` · `PATCH /invites/:id/revoke`
 
 **Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
 
