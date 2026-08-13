@@ -4,20 +4,19 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { CalendarDays, ChevronLeft, ChevronRight, MapPin, User } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ScheduleQueryInput } from '@studenthub/shared-schemas'
 import {
   fetchSchedule,
   fetchScheduleChanges,
   scheduleKeys,
-  type Pair,
   type ScheduleChange,
   type WeekType,
 } from '../../../entities/schedule'
-import { ProfileLink } from '../../../entities/user'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { PairDetailSheet } from './pair-detail-sheet'
 
 interface ScheduleGridProps {
   // Доп. фильтры сверх ролевого scope (группа/преподаватель/аудитория) — для декана/админа/преподавателя.
@@ -289,13 +288,14 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                         <span className="absolute -left-1 -top-1 size-2 rounded-full bg-red-500" />
                       </div>
                     )}
-                    {/* Занятия */}
+                    {/* Занятия — клик открывает интерактивную деталь пары (PR-3b). */}
                     {dayPairs.map((p) => (
-                      <PairBlock
+                      <PairDetailSheet
                         key={p.id}
                         pair={p}
                         change={changeMap.get(`${p.id}|${dateStr}`)}
                         gridStart={gridStart}
+                        date={dateStr}
                       />
                     ))}
                   </div>
@@ -303,79 +303,6 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
               })}
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-const CHANGE_LABEL: Record<ScheduleChange['type'], string> = {
-  MOVED: 'changeMoved',
-  ROOM_CHANGED: 'changeRoom',
-  CANCELLED: 'changeCancelled',
-  SUBSTITUTED: 'changeSubstituted',
-}
-
-function PairBlock({
-  pair,
-  change,
-  gridStart,
-}: {
-  pair: Pair
-  change: ScheduleChange | undefined
-  gridStart: number
-}) {
-  const t = useTranslations('Schedule')
-  const cancelled = change?.type === 'CANCELLED'
-  // Перенос: блок встаёт на новое время; иначе — исходное.
-  const startMin = change?.newStartTime ? toMin(change.newStartTime) : toMin(pair.startTime)
-  const endMin = change?.newEndTime ? toMin(change.newEndTime) : toMin(pair.endTime)
-  const room = change?.newRoom ?? pair.room
-  const teacher = change?.newTeacher ?? pair.teacher
-  const top = ((startMin - gridStart) / 60) * HOUR_PX
-  const height = Math.max(((endMin - startMin) / 60) * HOUR_PX, 22)
-  const compact = height < 52
-
-  return (
-    <div
-      className={cn(
-        'absolute inset-x-0.5 z-10 overflow-hidden rounded-lg border-l-2 px-1.5 py-1 text-left',
-        cancelled
-          ? 'border-l-muted-foreground/40 bg-muted text-muted-foreground line-through'
-          : change
-            ? 'border-l-amber-500 bg-amber-500/10'
-            : 'border-l-primary bg-primary/10',
-      )}
-      style={{ top, height }}
-      title={`${pair.subject} · ${minToLabel(startMin)}–${minToLabel(endMin)}`}
-    >
-      <div className="truncate text-xs font-semibold">{pair.subject}</div>
-      <div className="truncate text-[0.7rem] opacity-80">
-        {minToLabel(startMin)}–{minToLabel(endMin)}
-      </div>
-      {!compact && room && (
-        <div className="mt-0.5 flex items-center gap-1 truncate text-[0.7rem] opacity-80">
-          <MapPin className="size-3 shrink-0" aria-hidden />
-          {room.name}
-        </div>
-      )}
-      {!compact && teacher && (
-        <div className="flex items-center gap-1 truncate text-[0.7rem] opacity-80">
-          <User className="size-3 shrink-0" aria-hidden />
-          {teacher.id ? (
-            <ProfileLink userId={teacher.id} className="truncate hover:underline">
-              {teacher.lastName} {teacher.firstName}
-            </ProfileLink>
-          ) : (
-            <span className="truncate">
-              {teacher.lastName} {teacher.firstName}
-            </span>
-          )}
-        </div>
-      )}
-      {change && (
-        <div className="mt-0.5 truncate text-[0.65rem] font-medium">
-          {t(CHANGE_LABEL[change.type])}
         </div>
       )}
     </div>

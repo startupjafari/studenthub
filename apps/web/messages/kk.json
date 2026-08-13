@@ -707,7 +707,8 @@
     "substituteDeferred": "Ауыстырушы оқытушыны таңдау пайдаланушылар тізімінен кейін пайда болады (Ф12).",
     "myScheduleTitle": "Менің кестем",
     "notYourPair": "Бөтен сабақ — тек қарау",
-    "noScheduleTeacherHint": "Топ кестесін деканат немесе универ админі жасайды"
+    "noScheduleTeacherHint": "Топ кестесін деканат немесе универ админі жасайды",
+    "openDiscipline": "Пәнді ашу"
   },
   "Applications": {
     "title": "Өтініштер",
