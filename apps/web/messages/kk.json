@@ -581,7 +581,8 @@
     "FILE_DIRECT_UPLOAD_REQUIRED": "Файл сервер арқылы жүктеуге тым үлкен",
     "VALIDATION_ERROR": "Өрістерді тексеріңіз",
     "RATE_LIMIT": "Тым көп әрекет, күте тұрыңыз",
-    "INTERNAL_ERROR": "Сервер қатесі"
+    "INTERNAL_ERROR": "Сервер қатесі",
+    "TWO_FACTOR_SETUP_REQUIRED": "Екі факторлы аутентификацияны баптау қажет"
   },
   "Notifications": {
     "title": "Хабарламалар",
@@ -1254,6 +1255,11 @@
     "download": "Жүктеу",
     "openLink": "Сілтемені ашу",
     "fileAdded": "Файл тіркелді"
+  },
+  "SetupTwoFactor": {
+    "title": "Екі факторлы аутентификацияны баптаңыз",
+    "subtitle": "Сіздің рөліңіз үшін 2FA міндетті. QR-кодты аутентификатор қосымшасында (Google Authenticator, Authy, т. б.) сканерлеп, жалғастыру үшін кодты енгізіңіз.",
+    "continueToApp": "Жалғастыру"
   },
   "Settings": {
     "title": "Баптаулар",

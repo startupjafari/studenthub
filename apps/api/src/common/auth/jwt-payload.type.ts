@@ -8,6 +8,10 @@ export interface JwtPayload {
   universityId: string | null
   facultyId: string | null
   groupId: string | null
+  // Включена ли 2FA у пользователя на момент выдачи токена. Используется TwoFactorGuard
+  // для форса настройки 2FA привилегированным ролям без обращения к БД на каждый запрос.
+  // Обновляется при следующей ротации токена (refresh) после включения/отключения 2FA.
+  tfa?: boolean
 }
 
 // Тип текущего пользователя запроса (то, что возвращает @CurrentUser()).
