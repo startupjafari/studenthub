@@ -45,7 +45,7 @@ export function PlatformDocumentsView() {
   const reasonValid = reason.trim().length >= 5
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHeader title={t('pa_title')} subtitle={t('pa_subtitle')} />
 
       <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">

@@ -88,7 +88,7 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
 
   if (subs.isLoading) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         {header}
         <Skeleton className="h-80 w-full rounded-xl" />
       </div>
@@ -97,7 +97,7 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
 
   if (list.length === 0) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         {header}
         <EmptyState
           icon={<Inbox />}
@@ -127,7 +127,7 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
   // Mobile: список ИЛИ выбранная работа.
   if (!isDesktop) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         {header}
         {selected ? detailPanel : listPanel}
       </div>
@@ -136,7 +136,7 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
 
   // Desktop: split-view.
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       {header}
       <div className="grid grid-cols-[18rem_minmax(0,1fr)] gap-4">
         {listPanel}

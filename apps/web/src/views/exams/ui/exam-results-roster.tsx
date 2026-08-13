@@ -79,7 +79,7 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
     setRows((prev) => ({ ...prev, [id]: { ...prev[id]!, ...p } }))
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHeader
         title={t('roster')}
         onBack={onBack}

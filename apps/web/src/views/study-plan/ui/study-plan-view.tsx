@@ -95,7 +95,7 @@ export function StudyPlanView() {
   }, [courses.data, grades.data, t])
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title={t('title')} />
 
       {courses.isLoading ? (

@@ -94,7 +94,7 @@ export function PortfolioView() {
   const isEmpty = (q.data ?? []).length === 0
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}
