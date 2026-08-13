@@ -70,9 +70,11 @@ export class MaterialsService {
 
   /** Список материалов, видимых смотрящему: студент/староста — своя группа, персонал — по scope. */
   async list(viewer: JwtPayload, query: MaterialListQueryInput): Promise<MaterialRow[]> {
+    // scope и ?groupId= — через AND: клиентский groupId обязан СУЖАТЬ scope, а не
+    // перезаписывать его (spread по общему ключу groupId открыл бы студенту метаданные
+    // материалов любой чужой группы). См. §14.
     const where: Prisma.MaterialWhereInput = {
-      ...this.scopeWhere(viewer),
-      ...(query.groupId ? { groupId: query.groupId } : {}),
+      AND: [this.scopeWhere(viewer), ...(query.groupId ? [{ groupId: query.groupId }] : [])],
     }
     return this.prisma.material.findMany({
       where,

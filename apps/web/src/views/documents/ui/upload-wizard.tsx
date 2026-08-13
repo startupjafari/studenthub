@@ -260,7 +260,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                     aria-label={t('moveUp')}
                     disabled={i === 0}
                     onClick={() => move(i, -1)}
-                    className="text-muted-foreground disabled:opacity-30 hover:text-foreground"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground disabled:opacity-30 hover:bg-muted hover:text-foreground"
                   >
                     <ChevronUp className="size-4" aria-hidden />
                   </button>
@@ -269,7 +269,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                     aria-label={t('moveDown')}
                     disabled={i === files.length - 1}
                     onClick={() => move(i, 1)}
-                    className="text-muted-foreground disabled:opacity-30 hover:text-foreground"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground disabled:opacity-30 hover:bg-muted hover:text-foreground"
                   >
                     <ChevronDown className="size-4" aria-hidden />
                   </button>
@@ -277,7 +277,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                     type="button"
                     aria-label={t('remove')}
                     onClick={() => setFiles((p) => p.filter((x) => x.id !== f.id))}
-                    className="text-muted-foreground hover:text-destructive"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
                   >
                     <X className="size-4" aria-hidden />
                   </button>

@@ -40,22 +40,31 @@ const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
 })
 
 describe('MaterialsService.list — scope', () => {
-  async function whereFor(v: JwtPayload) {
+  // where теперь { AND: [scope, ...фильтры] } — scope это AND[0]. Клиентские фильтры лишь
+  // СУЖАЮТ scope и не могут его перезаписать (регрессия cross-tenant утечки).
+  async function scopeOf(v: JwtPayload, query: Record<string, unknown> = {}) {
     const { service, prisma } = setup()
-    await service.list(v, {})
-    return prisma.material.findMany.mock.calls[0][0].where
+    await service.list(v, query as never)
+    return prisma.material.findMany.mock.calls[0][0].where.AND
   }
   it('студент — только своя группа', async () => {
-    const where = await whereFor(user(Role.STUDENT, { groupId: 'g1' }))
-    expect(where.groupId).toBe('g1')
+    const and = await scopeOf(user(Role.STUDENT, { groupId: 'g1' }))
+    expect(and[0]).toEqual({ groupId: 'g1' })
   })
   it('декан — свой факультет', async () => {
-    const where = await whereFor(user(Role.DEAN, { facultyId: 'f1' }))
-    expect(where.group).toEqual({ is: { facultyId: 'f1' } })
+    const and = await scopeOf(user(Role.DEAN, { facultyId: 'f1' }))
+    expect(and[0]).toEqual({ group: { is: { facultyId: 'f1' } } })
   })
   it('преподаватель — свой вуз', async () => {
-    const where = await whereFor(user(Role.TEACHER, { universityId: 'uni1' }))
-    expect(where.group).toEqual({ is: { faculty: { is: { universityId: 'uni1' } } } })
+    const and = await scopeOf(user(Role.TEACHER, { universityId: 'uni1' }))
+    expect(and[0]).toEqual({ group: { is: { faculty: { is: { universityId: 'uni1' } } } } })
+  })
+  // Регрессия: ?groupId=чужая-группа НЕ перезаписывает scope студента — в AND остаются оба
+  // условия (своя группа И запрошенная), пересечение = пусто, чужие материалы не видны.
+  it('студент не может подменить группу через ?groupId=', async () => {
+    const and = await scopeOf(user(Role.STUDENT, { groupId: 'g1' }), { groupId: 'g2' })
+    expect(and).toContainEqual({ groupId: 'g1' })
+    expect(and).toContainEqual({ groupId: 'g2' })
   })
 })
 

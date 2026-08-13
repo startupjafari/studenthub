@@ -51,11 +51,15 @@ export class ExamsService {
   ) {}
 
   async list(viewer: JwtPayload, query: ExamListQueryInput) {
+    // AND, не spread: ?groupId= обязан СУЖАТЬ scope (у студента scope keys на groupId —
+    // spread дал бы чтение экзаменов чужой группы). См. §14.
     const where: Prisma.ExamWhereInput = {
-      ...this.scopeWhere(viewer),
-      ...(query.groupId ? { groupId: query.groupId } : {}),
-      ...(query.courseId ? { courseId: query.courseId } : {}),
-      ...(query.mine ? { OR: [{ examinerId: viewer.sub }, { createdById: viewer.sub }] } : {}),
+      AND: [
+        this.scopeWhere(viewer),
+        ...(query.groupId ? [{ groupId: query.groupId }] : []),
+        ...(query.courseId ? [{ courseId: query.courseId }] : []),
+        ...(query.mine ? [{ OR: [{ examinerId: viewer.sub }, { createdById: viewer.sub }] }] : []),
+      ],
     }
     const withMine = STUDENT_ROLES.includes(viewer.role)
     const rows = await this.prisma.exam.findMany({

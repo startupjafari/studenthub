@@ -20,6 +20,9 @@ export const ErrorCode = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   // Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа.
   INVALID_2FA_CODE: 'INVALID_2FA_CODE',
+  // Привилегированной роли требуется включить 2FA: доступ к API закрыт до настройки
+  // (кроме эндпоинтов настройки/включения 2FA). Клиент ведёт на экран настройки.
+  TWO_FACTOR_SETUP_REQUIRED: 'TWO_FACTOR_SETUP_REQUIRED',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -47,6 +50,7 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   RATE_LIMIT: 429,
   INTERNAL_ERROR: 500,
   INVALID_2FA_CODE: 401,
+  TWO_FACTOR_SETUP_REQUIRED: 403,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
