@@ -23,7 +23,8 @@
       "main": "Негізгі",
       "study": "Оқу",
       "services": "Сервистер",
-      "communication": "Қарым-қатынас"
+      "communication": "Қарым-қатынас",
+      "starosta": "Староста"
     },
     "classmates": "Топтастар",
     "universities": "Университеттер",
@@ -56,7 +57,8 @@
     "appointments": "Деканат",
     "portfolio": "Портфолио",
     "studentId": "Студенттік",
-    "academic": "Үлгерім"
+    "academic": "Үлгерім",
+    "myGroup": "Менің тобым"
   },
   "Invites": {
     "title": "Шақырулар",
@@ -590,6 +592,10 @@
     "actions": "Әрекеттер",
     "unreadCount": "{count, plural, =0 {Оқылмағандар жоқ} one {# оқылмаған} other {# оқылмаған}}",
     "filterAll": "Барлығы",
+    "filterActionNeeded": "Әрекет қажет",
+    "filterStudy": "Оқу",
+    "filterDeanery": "Деканат",
+    "filterSocial": "Әлеуметтік",
     "filterUnread": "Оқылмағандар",
     "filterImportant": "Маңыздылар",
     "filterSystem": "Жүйелік",
@@ -701,7 +707,8 @@
     "substituteDeferred": "Ауыстырушы оқытушыны таңдау пайдаланушылар тізімінен кейін пайда болады (Ф12).",
     "myScheduleTitle": "Менің кестем",
     "notYourPair": "Бөтен сабақ — тек қарау",
-    "noScheduleTeacherHint": "Топ кестесін деканат немесе универ админі жасайды"
+    "noScheduleTeacherHint": "Топ кестесін деканат немесе универ админі жасайды",
+    "openDiscipline": "Пәнді ашу"
   },
   "Applications": {
     "title": "Өтініштер",
@@ -1707,7 +1714,12 @@
     "tab": {
       "overview": "Шолу",
       "materials": "Материалдар",
-      "participants": "Қатысушылар"
+      "participants": "Қатысушылар",
+      "schedule": "Кесте",
+      "assignments": "Тапсырмалар",
+      "grades": "Бағалар",
+      "attendance": "Қатысу",
+      "chat": "Чат"
     },
     "teacher": "Оқытушы",
     "lessonsPerWeek": "Аптасына сабақ",
@@ -1721,7 +1733,19 @@
     "file": "{n}-файл",
     "creditsCount": "{count} кредит",
     "credits": "Кредиттер",
-    "term": "Семестр"
+    "term": "Семестр",
+    "noPairs": "Сабақтар жоқ",
+    "weekOdd": "Тақ",
+    "weekEven": "Жұп",
+    "noCourseLink": "Пән әлі курсқа байланбаған",
+    "noCourseLinkHint": "Тапсырмалар курс бапталғаннан кейін пайда болады.",
+    "noAssignments": "Тапсырмалар жоқ",
+    "noGrades": "Әзірге бағалар жоқ",
+    "average": "Орташа балл",
+    "noAttendanceData": "Қатысу белгілері жоқ",
+    "chatTitle": "Пән чаты",
+    "chatHint": "Пәнді талқылау үшін топ чатын ашыңыз.",
+    "openChat": "Чатты ашу"
   },
   "CourseAdmin": {
     "title": "Пәндер",
@@ -2035,6 +2059,12 @@
       "attendance": "Қатысу",
       "submissionsPending": "Тексерудегі жұмыстар",
       "examsUpcoming": "Алдағы емтихандар"
+    },
+    "riskStudents": "Студенттер — назар қажет",
+    "reason": {
+      "lowAttendance": "Қатысу {value}%",
+      "overdue": "Мерзімі өтті: {value}",
+      "lowGrades": "Орташа {value}%"
     }
   },
   "Command": {
@@ -2047,7 +2077,9 @@
     "people": "Адамдар",
     "courses": "Пәндер",
     "assignments": "Тапсырмалар",
-    "materials": "Материалдар"
+    "materials": "Материалдар",
+    "events": "Оқиғалар",
+    "chats": "Чаттар"
   },
   "Consultations": {
     "title": "Кеңестер",

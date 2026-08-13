@@ -11,6 +11,7 @@ function makeDeps() {
   }
   const realtime = {
     emitToUser: jest.fn() as Mock,
+    emitEventToUser: jest.fn() as Mock,
     getOnlineUserIds: jest.fn() as Mock,
   }
   const queue = { enqueue: jest.fn() as Mock }

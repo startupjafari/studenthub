@@ -14,6 +14,14 @@ function rateOf(counts: { total: number; absent: number }): number {
 }
 
 const AT_RISK_THRESHOLD = 60
+const GRADE_RISK_THRESHOLD = 50
+
+// Причина попадания студента в зону риска — всегда объективна и с числовым значением
+// (никаких непрозрачных авто-решений). value интерпретируется по kind (проценты/штуки).
+interface RiskReason {
+  kind: 'LOW_ATTENDANCE' | 'OVERDUE_ASSIGNMENTS' | 'LOW_GRADES'
+  value: number
+}
 
 @Injectable()
 export class AnalyticsService {
@@ -144,6 +152,151 @@ export class AnalyticsService {
           tracked: att.total,
         }
       }),
+    }
+  }
+
+  /**
+   * Early Warning: студенты факультета «требует внимания» с ЯВНЫМИ причинами
+   * (docs/UNIFIED_UX.md PR-7). Три объективных признака, каждый с числовым значением:
+   * низкая посещаемость (<60%), просроченные задания (штук), низкий средний балл (<50%).
+   * Никаких скрытых скорингов — severity = число сработавших причин.
+   */
+  async atRiskStudents(viewer: JwtPayload, requestedFacultyId?: string) {
+    const facultyId = await this.resolveFaculty(viewer, requestedFacultyId)
+    const now = new Date()
+
+    const [students, groups, attendance, dueAssignments, submissions, columns, grades] =
+      await Promise.all([
+        this.prisma.user.findMany({
+          where: {
+            facultyId,
+            role: { in: ['STUDENT', 'STAROSTA'] },
+            deletedAt: null,
+            isBlocked: false,
+          },
+          select: { id: true, firstName: true, lastName: true, groupId: true },
+          take: 20000,
+        }),
+        this.prisma.group.findMany({ where: { facultyId }, select: { id: true, name: true } }),
+        this.prisma.attendance.findMany({
+          where: { pair: { group: { facultyId } } },
+          select: { studentId: true, status: true },
+          take: 100000,
+        }),
+        // Опубликованные задания с истёкшим сроком в группах факультета.
+        this.prisma.assignment.findMany({
+          where: { status: 'PUBLISHED', dueAt: { lt: now }, course: { group: { facultyId } } },
+          select: { id: true, course: { select: { groupId: true } } },
+          take: 20000,
+        }),
+        this.prisma.submission.findMany({
+          where: {
+            assignment: {
+              status: 'PUBLISHED',
+              dueAt: { lt: now },
+              course: { group: { facultyId } },
+            },
+          },
+          select: { assignmentId: true, studentId: true, status: true },
+          take: 100000,
+        }),
+        this.prisma.gradeColumn.findMany({
+          where: { published: true, course: { group: { facultyId } } },
+          select: { id: true, maxScore: true },
+          take: 20000,
+        }),
+        this.prisma.grade.findMany({
+          where: {
+            column: { published: true, course: { group: { facultyId } } },
+            score: { not: null },
+          },
+          select: { columnId: true, studentId: true, score: true },
+          take: 200000,
+        }),
+      ])
+
+    const groupName = new Map(groups.map((g) => [g.id, g.name]))
+
+    // Посещаемость по студенту.
+    const att = new Map<string, { total: number; absent: number }>()
+    for (const a of attendance) {
+      const cur = att.get(a.studentId) ?? { total: 0, absent: 0 }
+      cur.total += 1
+      if (a.status === 'ABSENT') cur.absent += 1
+      att.set(a.studentId, cur)
+    }
+
+    // Сдал = есть submission со статусом SUBMITTED или GRADED.
+    const doneByStudent = new Map<string, Set<string>>()
+    for (const s of submissions) {
+      if (s.status === 'SUBMITTED' || s.status === 'GRADED') {
+        const set = doneByStudent.get(s.studentId) ?? new Set<string>()
+        set.add(s.assignmentId)
+        doneByStudent.set(s.studentId, set)
+      }
+    }
+    const dueByGroup = new Map<string, string[]>()
+    for (const a of dueAssignments) {
+      const gid = a.course.groupId
+      const arr = dueByGroup.get(gid) ?? []
+      arr.push(a.id)
+      dueByGroup.set(gid, arr)
+    }
+
+    // Средний процент по опубликованным колонкам оценок.
+    const maxByColumn = new Map(columns.map((c) => [c.id, c.maxScore]))
+    const gradeAgg = new Map<string, { sumPct: number; n: number }>()
+    for (const g of grades) {
+      const max = maxByColumn.get(g.columnId)
+      if (!max || g.score == null) continue
+      const cur = gradeAgg.get(g.studentId) ?? { sumPct: 0, n: 0 }
+      cur.sumPct += g.score / max
+      cur.n += 1
+      gradeAgg.set(g.studentId, cur)
+    }
+
+    const atRisk = []
+    for (const s of students) {
+      const reasons: RiskReason[] = []
+
+      const a = att.get(s.id)
+      if (a && a.total > 0) {
+        const rate = rateOf(a)
+        if (rate < AT_RISK_THRESHOLD) reasons.push({ kind: 'LOW_ATTENDANCE', value: rate })
+      }
+
+      if (s.groupId) {
+        const dueIds = dueByGroup.get(s.groupId) ?? []
+        const done = doneByStudent.get(s.id) ?? new Set<string>()
+        const overdue = dueIds.filter((id) => !done.has(id)).length
+        if (overdue > 0) reasons.push({ kind: 'OVERDUE_ASSIGNMENTS', value: overdue })
+      }
+
+      const ga = gradeAgg.get(s.id)
+      if (ga && ga.n > 0) {
+        const avg = Math.round((ga.sumPct / ga.n) * 100)
+        if (avg < GRADE_RISK_THRESHOLD) reasons.push({ kind: 'LOW_GRADES', value: avg })
+      }
+
+      if (reasons.length > 0) {
+        atRisk.push({
+          studentId: s.id,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          groupId: s.groupId,
+          groupName: s.groupId ? (groupName.get(s.groupId) ?? null) : null,
+          reasons,
+          severity: reasons.length,
+        })
+      }
+    }
+    // Больше причин — выше в списке; при равенстве — по фамилии.
+    atRisk.sort((x, y) => y.severity - x.severity || x.lastName.localeCompare(y.lastName))
+
+    return {
+      facultyId,
+      thresholds: { attendance: AT_RISK_THRESHOLD, gradeAvg: GRADE_RISK_THRESHOLD },
+      students: atRisk,
     }
   }
 

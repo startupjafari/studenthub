@@ -16,7 +16,7 @@ export function OwnGroupView({
   const t = useTranslations('People')
   const groupId = useAppSelector((s) => s.auth.groupId)
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title={t(titleKey)} />
       <GroupMembers groupId={groupId} studentsOnly={studentsOnly} />
     </div>

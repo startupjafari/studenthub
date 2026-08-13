@@ -13,11 +13,7 @@ import {
   PageHeader,
   Skeleton,
 } from '../../../shared/ui'
-import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
-import { applicationKeys, fetchApplications } from '../../../entities/application-service'
-import { eventKeys, fetchEvents } from '../../../entities/event'
-import { notificationKeys, fetchNotifications } from '../../../entities/notification'
-import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
+import { meKeys, fetchMeToday } from '../../../entities/me'
 import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
 import { buildAttention } from '../lib/attention'
 import { NextPairCard } from './next-pair-card'
@@ -37,53 +33,28 @@ export function StudentToday() {
   const t = useTranslations('Today')
   const locale = useLocale()
 
-  const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
+  // Один BFF-запрос вместо шести доменных (docs/UNIFIED_UX.md PR-1). Форма — по роли на бэке.
+  const today = useQuery({ queryKey: meKeys.today(), queryFn: fetchMeToday })
 
-  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
+  const now = useMemo(() => nowInTz(today.data?.timezone ?? null), [today.data?.timezone])
   const parity = useMemo(() => isoWeekParity(), [])
 
-  const changes = useQuery({
-    queryKey: scheduleKeys.changes({ from: now.date, to: now.date }),
-    queryFn: () => fetchScheduleChanges({ from: now.date, to: now.date }),
-    enabled: !!schedule.data,
-  })
-
-  const applications = useQuery({
-    queryKey: applicationKeys.list({ limit: 50 }),
-    queryFn: () => fetchApplications({ limit: 50 }),
-  })
-
-  const events = useQuery({
-    queryKey: eventKeys.list('upcoming'),
-    queryFn: () => fetchEvents({ limit: 20, filter: 'upcoming' }),
-  })
-
-  const notifications = useQuery({
-    queryKey: notificationKeys.list(),
-    queryFn: () => fetchNotifications(20),
-  })
-  const assignments = useQuery({
-    queryKey: assignmentKeys.list(),
-    queryFn: () => fetchAssignments(),
-    retry: false,
-  })
-
   const dayPairs = useMemo(
-    () => buildDayPairs(schedule.data?.pairs ?? [], changes.data ?? [], now, parity),
-    [schedule.data?.pairs, changes.data, now, parity],
+    () => buildDayPairs(today.data?.pairs ?? [], today.data?.scheduleChanges ?? [], now, parity),
+    [today.data?.pairs, today.data?.scheduleChanges, now, parity],
   )
   const upcoming = useMemo(() => nextPair(dayPairs, now), [dayPairs, now])
 
   const attention = useMemo(
     () =>
       buildAttention({
-        applications: applications.data?.items ?? [],
-        events: events.data ?? [],
-        assignments: assignments.data ?? [],
+        applications: today.data?.applications ?? [],
+        events: today.data?.events ?? [],
+        assignments: today.data?.assignments ?? [],
         todayDate: now.date,
         locale,
       }),
-    [applications.data, events.data, assignments.data, now.date, locale],
+    [today.data?.applications, today.data?.events, today.data?.assignments, now.date, locale],
   )
 
   const greetingDate = useMemo(
@@ -91,30 +62,30 @@ export function StudentToday() {
     [locale],
   )
 
-  if (schedule.isLoading) {
+  if (today.isLoading) {
     return (
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <TodaySkeleton />
       </div>
     )
   }
 
-  if (schedule.isError) {
+  if (today.isError) {
     return (
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <EmptyState
           icon={<Inbox />}
           title={t('loadError')}
-          action={<Button onClick={() => schedule.refetch()}>{t('retry')}</Button>}
+          action={<Button onClick={() => today.refetch()}>{t('retry')}</Button>}
         />
       </div>
     )
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-[1120px] grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="flex min-w-0 flex-col gap-4">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <NextPairCard dayPair={upcoming} quickLinks={STUDENT_QUICK_LINKS} />
@@ -122,7 +93,7 @@ export function StudentToday() {
       </section>
       <aside className="flex flex-col gap-4">
         <TodayTimeline dayPairs={dayPairs} />
-        <RecentChanges notifications={notifications.data ?? []} />
+        <RecentChanges notifications={today.data?.notifications ?? []} />
       </aside>
     </div>
   )
