@@ -23,7 +23,12 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT')
           // только IPv6, а ioredis по умолчанию идёт по IPv4 → connect ETIMEDOUT. Локально безвредно.
           family: 0,
           lazyConnect: true,
-          maxRetriesPerRequest: null,
+          // Кэш-клиент (не BullMQ): команды обязаны БЫСТРО падать при недоступном Redis,
+          // а не висеть в offline-очереди бесконечно (иначе запрос-инициатор зависает —
+          // напр. счётчик непрочитанных). commandTimeout ограничивает ожидание, retries
+          // не бесконечны. Вызовы кэша обёрнуты в try/catch и деградируют к БД.
+          maxRetriesPerRequest: 3,
+          commandTimeout: 3000,
         }),
     },
   ],

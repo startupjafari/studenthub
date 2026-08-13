@@ -75,12 +75,17 @@ export class AssignmentsService {
   // ── Assignments (чтение) ─────────────────────────────────────────────────
 
   async list(viewer: JwtPayload, query: AssignmentListQueryInput) {
+    // AND, не spread: ?status=/?groupId= обязаны СУЖАТЬ scope. У студента scope фиксирует
+    // status:{in:[PUBLISHED,CLOSED]} и course.groupId — spread по общим ключам status/course
+    // дал бы чтение черновиков (?status=DRAFT) и заданий чужой группы. См. §14.
     const where: Prisma.AssignmentWhereInput = {
-      ...this.scopeWhere(viewer),
-      ...(query.courseId ? { courseId: query.courseId } : {}),
-      ...(query.groupId ? { course: { is: { groupId: query.groupId } } } : {}),
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.mine ? { createdById: viewer.sub } : {}),
+      AND: [
+        this.scopeWhere(viewer),
+        ...(query.courseId ? [{ courseId: query.courseId }] : []),
+        ...(query.groupId ? [{ course: { is: { groupId: query.groupId } } }] : []),
+        ...(query.status ? [{ status: query.status }] : []),
+        ...(query.mine ? [{ createdById: viewer.sub }] : []),
+      ],
     }
     const page = query.page ?? 1
     const limit = query.limit ?? 20
@@ -109,6 +114,11 @@ export class AssignmentsService {
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
     await this.assertRead(viewer, assignment.course)
+    // Черновик виден только тем, кто ведёт дисциплину. Студенту/старосте getById не должен
+    // раскрывать DRAFT (list его прячет через scope) — иначе утечка title/условий до публикации.
+    if (STUDENT_ROLES.includes(viewer.role) && assignment.status === 'DRAFT') {
+      throw new AppException('NOT_FOUND', 'Задание не найдено')
+    }
     return this.mapMine(assignment)
   }
 
