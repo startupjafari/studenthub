@@ -7,9 +7,11 @@ import { RealtimeGateway } from './realtime.gateway'
 function setup() {
   const jwt = { verifyAsync: jest.fn() }
   const gateway = new RealtimeGateway(jwt as unknown as JwtService)
-  const server = { emit: jest.fn() }
+  // Присутствие рассылается адресно: server.to(room).emit(...). Мокаем цепочку to→emit.
+  const roomEmit = jest.fn()
+  const server = { emit: jest.fn(), to: jest.fn(() => ({ emit: roomEmit })) }
   ;(gateway as unknown as { server: Server }).server = server as unknown as Server
-  return { gateway, jwt, server }
+  return { gateway, jwt, server, roomEmit }
 }
 
 function socket(token?: string): Socket {
@@ -42,8 +44,8 @@ describe('RealtimeGateway — аутентификация handshake', () => {
     expect(client.join).not.toHaveBeenCalled()
   })
 
-  it('валидный токен — вход в user/group/university, онлайн и presence', async () => {
-    const { gateway, jwt, server } = setup()
+  it('валидный токен — вход в user/group/university, онлайн и presence в комнату вуза', async () => {
+    const { gateway, jwt, server, roomEmit } = setup()
     jwt.verifyAsync.mockResolvedValue({
       sub: 'u1',
       role: 'STUDENT',
@@ -58,16 +60,21 @@ describe('RealtimeGateway — аутентификация handshake', () => {
     expect(client.join).toHaveBeenCalledWith('university:uni1')
     expect(client.data.userId).toBe('u1')
     expect(gateway.isOnline('u1')).toBe(true)
-    expect(server.emit).toHaveBeenCalledWith('presence:changed', { userId: 'u1', online: true })
+    // Присутствие адресно в комнату вуза, НЕ широковещательно (§9.3, регрессия cross-tenant).
+    expect(server.emit).not.toHaveBeenCalled()
+    expect(server.to).toHaveBeenCalledWith('university:uni1')
+    expect(roomEmit).toHaveBeenCalledWith('presence:changed', { userId: 'u1', online: true })
   })
 
-  it('без scope — входит только в личную комнату', async () => {
-    const { gateway, jwt } = setup()
+  it('без scope — личная комната, присутствие НЕ рассылается (нет вуза)', async () => {
+    const { gateway, jwt, server, roomEmit } = setup()
     jwt.verifyAsync.mockResolvedValue({ sub: 'u2', role: 'PLATFORM_ADMIN' })
     const client = socket('good')
     await gateway.handleConnection(client)
     expect(client.join).toHaveBeenCalledWith('user:u2')
     expect(client.join).toHaveBeenCalledTimes(1)
+    expect(server.emit).not.toHaveBeenCalled()
+    expect(roomEmit).not.toHaveBeenCalled()
   })
 
   it('auth:refresh с валидным токеном обновляет сессию без разрыва', async () => {

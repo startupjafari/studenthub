@@ -45,10 +45,15 @@ export class AuditService {
 
   // Журнал действий по scope (docs/PROJECT.md §11, задача 11.6). Роли гейтит контроллер.
   async list(viewer: JwtPayload, query: AuditListQueryInput): Promise<Paginated<unknown>> {
+    // scope и клиентские фильтры комбинируем через AND: клиентский ?userId= обязан
+    // СУЖАТЬ scope, а не перезаписывать его (иначе модератор/админ вуза прочитал бы чужой
+    // журнал — object-spread по одному ключу «userId» затирал scope). См. §11.
     const where: Prisma.AuditLogWhereInput = {
-      ...(await this.scopeWhere(viewer)),
-      ...(query.action ? { action: query.action } : {}),
-      ...(query.userId ? { userId: query.userId } : {}),
+      AND: [
+        await this.scopeWhere(viewer),
+        ...(query.action ? [{ action: query.action }] : []),
+        ...(query.userId ? [{ userId: query.userId }] : []),
+      ],
     }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.auditLog.findMany({

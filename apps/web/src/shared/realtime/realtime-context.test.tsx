@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // vi.mock хойстится в начало файла — моки и общее состояние объявляем через vi.hoisted.
-const { socketMock, ioMock, state } = vi.hoisted(() => {
+const { socketMock, ioMock, state, invalidateMock } = vi.hoisted(() => {
   const socketMock = {
     on: vi.fn(),
     off: vi.fn(),
@@ -14,6 +14,7 @@ const { socketMock, ioMock, state } = vi.hoisted(() => {
     socketMock,
     ioMock: vi.fn((..._args: unknown[]) => socketMock),
     state: { token: null as string | null },
+    invalidateMock: vi.fn(),
   }
 })
 vi.mock('socket.io-client', () => ({ io: ioMock }))
@@ -21,6 +22,10 @@ vi.mock('socket.io-client', () => ({ io: ioMock }))
 vi.mock('../store/hooks', () => ({
   useAppSelector: (selector: (s: unknown) => unknown) =>
     selector({ auth: { accessToken: state.token } }),
+}))
+// Провайдер использует useQueryClient (реконнект-ресинк) — стаб без реального QueryClientProvider.
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries: invalidateMock }),
 }))
 
 import { REALTIME_CHANNEL } from '@studenthub/shared-schemas'
@@ -34,6 +39,7 @@ beforeEach(() => {
   socketMock.disconnect.mockClear()
   socketMock.auth = {}
   ioMock.mockClear()
+  invalidateMock.mockClear()
   state.token = null
 })
 
@@ -74,6 +80,20 @@ describe('RealtimeProvider — жизненный цикл соединения'
     state.token = null
     rerender(<RealtimeProvider>y</RealtimeProvider>)
     expect(socketMock.disconnect).toHaveBeenCalled()
+  })
+
+  // Регрессия реконнект-ресинка: первый connect кэш не трогает, повторный (реконнект после
+  // обрыва) инвалидирует react-query, чтобы подтянуть пропущенные события.
+  it('реконнект инвалидирует кэш, первый connect — нет', () => {
+    state.token = 't1'
+    render(<RealtimeProvider>x</RealtimeProvider>)
+    const onConnect = socketMock.on.mock.calls.find((c) => c[0] === 'connect')?.[1] as
+      (() => void) | undefined
+    expect(onConnect).toBeTypeOf('function')
+    onConnect?.() // первый connect — ресинк не нужен
+    expect(invalidateMock).not.toHaveBeenCalled()
+    onConnect?.() // реконнект — инвалидируем
+    expect(invalidateMock).toHaveBeenCalledTimes(1)
   })
 })
 

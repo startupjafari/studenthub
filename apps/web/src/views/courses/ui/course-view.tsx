@@ -362,7 +362,7 @@ export function CourseView({ subject }: CourseViewProps) {
                     return (
                       <li key={a.id}>
                         <Link
-                          href={`/assignments/${a.id}`}
+                          href={`/assignments?open=${a.id}`}
                           className="flex items-center gap-3 rounded-lg p-2.5 transition-colors hover:bg-muted/50"
                         >
                           <div className="min-w-0 flex-1">

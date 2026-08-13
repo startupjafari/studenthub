@@ -4,7 +4,14 @@ import { randomUUID } from 'node:crypto'
 import { InviteStatus, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { TTL } from '@studenthub/shared-config'
-import type { CreateInviteInput } from '@studenthub/shared-schemas'
+import {
+  BULK_INVITE_MAX_ROWS,
+  type CreateInviteInput,
+  type BulkInviteCommitInput,
+  type BulkInvitePreviewResponse,
+  type BulkInvitePreviewRow,
+  type BulkInviteResult,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -14,6 +21,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
 import { resolveInviteTarget } from './invite-hierarchy'
+import type { RawBulkRow } from './bulk-parse'
 
 // Человекочитаемые названия ролей для писем (основной язык — русский, полноценный i18n
 // писем — Ф13.1; синхронизировано с apps/web/messages/ru.json → "Roles").
@@ -123,6 +131,198 @@ export class InviteService {
         }`,
       )
     }
+  }
+
+  // ── Массовый импорт (CSV/XLSX) ────────────────────────────────────────────
+
+  /**
+   * Предпросмотр массового импорта: парсинг уже сделан в контроллере, здесь — валидация
+   * каждой строки БЕЗ записи. Разрешаем имя группы в id (в scope создателя), проверяем роль,
+   * scope/иерархию (resolveInviteTarget) и дубли (уже пользователь / уже приглашён / повтор
+   * email в файле). Возвращаем статусы для показа перед подтверждением (§7).
+   */
+  async bulkPreview(issuer: JwtPayload, rawRows: RawBulkRow[]): Promise<BulkInvitePreviewResponse> {
+    if (rawRows.length > BULK_INVITE_MAX_ROWS) {
+      throw new AppException('BAD_REQUEST', `Не более ${BULK_INVITE_MAX_ROWS} строк за импорт`)
+    }
+    const groupsByName = await this.loadScopedGroups(issuer)
+    const taken = await this.loadTakenEmails(rawRows.map((r) => r.email))
+    const seenInFile = new Set<string>()
+
+    const rows: BulkInvitePreviewRow[] = rawRows.map((raw) => {
+      const email = raw.email.trim()
+      const role = this.parseRole(raw.role)
+      const base = { line: raw.line, email, groupName: raw.group, role: role ?? Role.STUDENT }
+      const err = (error: string): BulkInvitePreviewRow => ({
+        ...base,
+        groupId: null,
+        status: 'ERROR',
+        error,
+      })
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('Некорректный email')
+      if (role === null) return err(`Неизвестная роль: ${raw.role}`)
+      if (!raw.group.trim()) return err('Не указана группа')
+
+      const matches = groupsByName.get(raw.group.trim().toLowerCase())
+      if (!matches || matches.length === 0) return err(`Группа не найдена: ${raw.group}`)
+      if (matches.length > 1) return err(`Неоднозначное имя группы: ${raw.group}`)
+      const groupId = matches[0]! // length === 1 гарантировано проверками выше
+
+      // Scope/иерархия — единый источник истины resolveInviteTarget (как у одиночного инвайта).
+      try {
+        resolveInviteTarget(issuer, { role, groupId, facultyId: issuer.facultyId })
+      } catch (e) {
+        return err(e instanceof AppException ? e.message : 'Недопустимо для вашей роли')
+      }
+
+      const key = email.toLowerCase()
+      if (taken.has(key) || seenInFile.has(key)) {
+        return { ...base, groupId, status: 'DUPLICATE', error: 'Уже приглашён или зарегистрирован' }
+      }
+      seenInFile.add(key)
+      return { ...base, groupId, status: 'READY', error: null }
+    })
+
+    const summary = {
+      total: rows.length,
+      ready: rows.filter((r) => r.status === 'READY').length,
+      duplicate: rows.filter((r) => r.status === 'DUPLICATE').length,
+      error: rows.filter((r) => r.status === 'ERROR').length,
+    }
+    return { rows, summary }
+  }
+
+  /**
+   * Создание инвайтов по подтверждённым строкам. Каждую строку заново валидируем сервером
+   * (не доверяем клиенту): resolveInviteTarget + пропуск дублей. Инвайты создаём одним
+   * транзакционным createMany-эквивалентом построчно; письма ставим в очередь best-effort.
+   */
+  async bulkCreate(
+    issuer: JwtPayload,
+    input: BulkInviteCommitInput,
+    ctx: RequestContext,
+  ): Promise<BulkInviteResult> {
+    const taken = await this.loadTakenEmails(input.rows.map((r) => r.email))
+    const seen = new Set<string>()
+    const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
+
+    let created = 0
+    let skipped = 0
+    let failed = 0
+    const emailsToSend: { email: string; token: string; role: Role }[] = []
+
+    for (const row of input.rows) {
+      const email = row.email.trim()
+      const key = email.toLowerCase()
+      if (!email || taken.has(key) || seen.has(key)) {
+        skipped++
+        continue
+      }
+      const role = this.parseRole(row.role ?? '') ?? Role.STUDENT
+      let scope
+      try {
+        scope = resolveInviteTarget(issuer, {
+          role,
+          groupId: row.groupId,
+          facultyId: issuer.facultyId,
+        })
+      } catch {
+        failed++
+        continue
+      }
+      const token = randomUUID()
+      try {
+        await this.prisma.invite.create({
+          data: {
+            token,
+            role,
+            email,
+            universityId: scope.universityId,
+            facultyId: scope.facultyId,
+            groupId: scope.groupId,
+            expiresAt,
+            createdById: issuer.sub,
+          },
+          select: { id: true },
+        })
+      } catch {
+        failed++
+        continue
+      }
+      seen.add(key)
+      created++
+      emailsToSend.push({ email, token, role })
+    }
+
+    await this.audit.record({
+      userId: issuer.sub,
+      action: 'invite_bulk_created',
+      entity: 'Invite',
+      metadata: { created, skipped, failed },
+      ...ctx,
+    })
+
+    // Письма — best-effort, вне критического пути (сбой Redis не роняет ответ).
+    for (const e of emailsToSend) {
+      await this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt)
+    }
+
+    return { created, skipped, failed }
+  }
+
+  // Группы в scope создателя: имя(lowercased) → id[] (несколько = неоднозначно).
+  private async loadScopedGroups(issuer: JwtPayload): Promise<Map<string, string[]>> {
+    if (!issuer.universityId) return new Map() // платформенные без вуза — имена не разрешаем
+    const where: Prisma.GroupWhereInput =
+      issuer.role === Role.DEAN
+        ? { facultyId: issuer.facultyId ?? '__none__' }
+        : issuer.role === Role.STAROSTA
+          ? { id: issuer.groupId ?? '__none__' }
+          : { faculty: { is: { universityId: issuer.universityId } } }
+    const groups = await this.prisma.group.findMany({
+      where,
+      select: { id: true, name: true },
+      take: 2000,
+    })
+    const map = new Map<string, string[]>()
+    for (const g of groups) {
+      const nameKey = g.name.trim().toLowerCase()
+      map.set(nameKey, [...(map.get(nameKey) ?? []), g.id])
+    }
+    return map
+  }
+
+  // email'ы, уже занятые пользователем или ожидающим инвайтом — для пометки дублей.
+  private async loadTakenEmails(emails: string[]): Promise<Set<string>> {
+    const list = [...new Set(emails.map((e) => e.trim()).filter(Boolean))].slice(
+      0,
+      BULK_INVITE_MAX_ROWS,
+    )
+    if (list.length === 0) return new Set()
+    const [users, invites] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where: { email: { in: list }, deletedAt: null },
+        select: { email: true },
+        take: BULK_INVITE_MAX_ROWS,
+      }),
+      this.prisma.invite.findMany({
+        where: { email: { in: list }, status: InviteStatus.PENDING },
+        select: { email: true },
+        take: BULK_INVITE_MAX_ROWS,
+      }),
+    ])
+    const set = new Set<string>()
+    for (const u of users) if (u.email) set.add(u.email.toLowerCase())
+    for (const i of invites) if (i.email) set.add(i.email.toLowerCase())
+    return set
+  }
+
+  // Роль из ячейки: пусто → STUDENT; иначе точное имя enum (без учёта регистра) или null.
+  private parseRole(raw: string): Role | null {
+    if (!raw || !raw.trim()) return Role.STUDENT
+    const up = raw.trim().toUpperCase()
+    return (Object.values(Role) as string[]).includes(up) ? (up as Role) : null
   }
 
   /** Публичный preview по токену. Не раскрывает email получателя и создателя (§7). */

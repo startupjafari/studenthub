@@ -39,11 +39,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const payload = await this.jwt.verifyAsync<JwtPayload>(token)
       client.data.userId = payload.sub
       client.data.role = payload.role
+      client.data.universityId = payload.universityId ?? null
       // §9.3: автоматический вход в свои комнаты при подключении.
       await client.join(`user:${payload.sub}`)
       if (payload.groupId) await client.join(`group:${payload.groupId}`)
       if (payload.universityId) await client.join(`university:${payload.universityId}`)
-      this.trackOnline(payload.sub)
+      this.trackOnline(payload.sub, payload.universityId ?? null)
       this.logger.debug(`WS connected user=${payload.sub} socket=${client.id}`)
     } catch {
       // Невалидный/просроченный токен → немедленный разрыв (docs/BACKEND_RULES.md §10).
@@ -54,27 +55,35 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   handleDisconnect(client: Socket): void {
     const userId = client.data?.userId as string | undefined
     if (userId) {
-      this.trackOffline(userId)
+      this.trackOffline(userId, (client.data?.universityId as string | null) ?? null)
       this.logger.debug(`WS disconnected user=${userId} socket=${client.id}`)
     }
   }
 
-  // Переход оффлайн→онлайн (первое соединение) — широковещательно оповещаем присутствие (Ф9+).
-  private trackOnline(userId: string): void {
+  // Переход оффлайн→онлайн (первое соединение) — оповещаем присутствие адресно (Ф9+).
+  private trackOnline(userId: string, universityId: string | null): void {
     const next = (this.connections.get(userId) ?? 0) + 1
     this.connections.set(userId, next)
-    if (next === 1) this.server.emit('presence:changed', { userId, online: true })
+    if (next === 1) this.emitPresence(userId, universityId, true)
   }
 
   // Переход онлайн→оффлайн (последнее соединение закрыто).
-  private trackOffline(userId: string): void {
+  private trackOffline(userId: string, universityId: string | null): void {
     const next = (this.connections.get(userId) ?? 1) - 1
     if (next <= 0) {
       this.connections.delete(userId)
-      this.server.emit('presence:changed', { userId, online: false })
+      this.emitPresence(userId, universityId, false)
     } else {
       this.connections.set(userId, next)
     }
+  }
+
+  // Присутствие рассылаем ТОЛЬКО в комнату вуза пользователя, а не server.emit на всю
+  // платформу (§9.3): иначе студент чужого вуза видел бы онлайн/оффлайн любого пользователя
+  // (cross-tenant утечка присутствия) и каждый вход/выход стоил бы O(N) на всю платформу.
+  private emitPresence(userId: string, universityId: string | null, online: boolean): void {
+    if (!universityId) return // платформенные роли вне вуза — присутствие не рассылаем
+    this.server.to(`university:${universityId}`).emit('presence:changed', { userId, online })
   }
 
   /** Онлайн ли пользователь (есть активные соединения). */
