@@ -20,6 +20,6 @@ import { ApplicationPolicy } from './application.policy'
     ApplicationProcessService,
     ApplicationPolicy,
   ],
-  exports: [ApplicationPolicy, CatalogService],
+  exports: [ApplicationPolicy, CatalogService, ApplicationsService],
 })
 export class ApplicationServicesModule {}

@@ -518,6 +518,8 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Аудит** — `GET /audit` (Moderator+/Admin, scope: платформа — всё, админ вуза — свой вуз, модератор — свои действия)
 
+**Мой день (BFF)** (Unified UX, PR-1 — см. `docs/UNIFIED_UX.md`) — `GET /me/today` (операционный экран «Сегодня»/Action Center по роли: `{ role, date, timezone, pairs, scheduleChanges, applications, events, assignments, notifications }`). Агрегирует существующие доменные сервисы (Schedules/Events/Notifications/Assignments/Applications) по scope роли, чтобы клиент делал один запрос вместо нескольких; заявки — только студенту/старосте; каждый источник устойчив к сбою (пустой дефолт). Output-only, без валидации входа.
+
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
 Пагинация: списки контента и сообщений — cursor (`?cursor=&limit=`, `limit ≤ 50`); административные таблицы — offset (`?page=&limit=`, `limit ≤ 100`).

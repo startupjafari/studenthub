@@ -48,6 +48,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PushModule } from './modules/push/push.module'
 import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
+import { MeModule } from './modules/me/me.module'
 import { AppController } from './app.controller'
 
 @Module({
@@ -102,6 +103,7 @@ import { AppController } from './app.controller'
     PushModule,
     CleanupModule,
     HealthModule,
+    MeModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
