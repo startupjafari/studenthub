@@ -583,6 +583,15 @@ async function main() {
             : {}),
         })
       }
+      // Демо-группа: вплетаем именованные dev-аккаунты (студент + староста) как реальных
+      // членов группы, чтобы у них были оценки/посещаемость/экзамены — иначе студенческие
+      // вкладки старосты (starosta@studenthub.app) выглядели бы пустыми. Добавляем в конец,
+      // чтобы не смещать PRNG-последовательность существующих строк (id детерминированы по sid).
+      if (isDemoGroup) {
+        for (const email of ['student@studenthub.app', 'starosta@studenthub.app']) {
+          if (devIds[email]) studentIds.push(devIds[email])
+        }
+      }
       const starostaId = isDemoGroup ? devIds['starosta@studenthub.app'] : studentIds[0]
       groupList.push({
         id: gid,

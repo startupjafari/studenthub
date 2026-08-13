@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
+import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../store/hooks'
 
 // Единый socket-провайдер (docs/PROJECT.md §9). В Ф3.7 обслуживает уведомления;
@@ -98,4 +99,27 @@ export function useRealtimeEvent<T = unknown>(event: string, handler: (payload: 
       socket.off(event, listener)
     }
   }, [socket, event])
+}
+
+// Подписка на единый конверт (docs/PROJECT.md §9, PR-8/#12): слушаем один канал
+// REALTIME_CHANNEL и фильтруем по `type` ('domain.entity.action'). Параллельно именованным
+// событиям — новые консюмеры используют это, старые продолжают жить на useRealtimeEvent.
+export function useRealtimeEnvelope<T = unknown>(
+  type: string,
+  handler: (envelope: RealtimeEnvelope<T>) => void,
+): void {
+  const socket = useRealtimeSocket()
+  const handlerRef = useRef(handler)
+  handlerRef.current = handler
+
+  useEffect(() => {
+    if (!socket) return
+    const listener = (envelope: RealtimeEnvelope<T>): void => {
+      if (envelope?.type === type) handlerRef.current(envelope)
+    }
+    socket.on(REALTIME_CHANNEL, listener)
+    return () => {
+      socket.off(REALTIME_CHANNEL, listener)
+    }
+  }, [socket, type])
 }

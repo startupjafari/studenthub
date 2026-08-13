@@ -39,3 +39,24 @@ export interface GroupAttendance {
   groupId: string
   students: StudentAttendanceStat[]
 }
+
+// Early Warning (PR-7): студенты «требует внимания» с явными причинами.
+export type RiskReasonKind = 'LOW_ATTENDANCE' | 'OVERDUE_ASSIGNMENTS' | 'LOW_GRADES'
+export interface RiskReason {
+  kind: RiskReasonKind
+  value: number // проценты для LOW_*; штуки для OVERDUE_ASSIGNMENTS
+}
+export interface AtRiskStudent {
+  studentId: string
+  firstName: string
+  lastName: string
+  groupId: string | null
+  groupName: string | null
+  reasons: RiskReason[]
+  severity: number
+}
+export interface AtRiskStudents {
+  facultyId: string
+  thresholds: { attendance: number; gradeAvg: number }
+  students: AtRiskStudent[]
+}

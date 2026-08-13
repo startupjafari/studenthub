@@ -14,3 +14,10 @@ export {
   type NotificationType,
   type NotificationSettingsData,
 } from './model/types'
+export {
+  notificationCategory,
+  isActionable,
+  notificationUrl,
+  notificationActionKey,
+  type NotificationCategory,
+} from './lib/categorize'

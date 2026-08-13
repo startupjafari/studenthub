@@ -1,4 +1,9 @@
-export { analyticsKeys, fetchFacultyOverview, fetchGroupAttendance } from './api/analytics-api'
+export {
+  analyticsKeys,
+  fetchFacultyOverview,
+  fetchGroupAttendance,
+  fetchAtRiskStudents,
+} from './api/analytics-api'
 export type {
   FacultyOverview,
   FacultyTotals,
@@ -6,4 +11,8 @@ export type {
   AtRiskGroup,
   GroupAttendance,
   StudentAttendanceStat,
+  AtRiskStudent,
+  AtRiskStudents,
+  RiskReason,
+  RiskReasonKind,
 } from './model/types'

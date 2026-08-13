@@ -26,7 +26,7 @@ export function GroupDrilldown({
   })
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHeader
         title={groupName}
         subtitle={t('groupAttendance')}
