@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
 import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
+import { useRealtimeEvent } from '../../../shared/realtime'
 import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
 import { buildAttention } from '../lib/attention'
 import { NextPairCard } from './next-pair-card'
@@ -26,7 +27,13 @@ export function TeacherToday() {
   const locale = useLocale()
 
   // Один BFF-запрос вместо четырёх доменных (docs/UNIFIED_UX.md PR-1). Форма — по роли на бэке.
+  const qc = useQueryClient()
   const today = useQuery({ queryKey: meKeys.today(), queryFn: fetchMeToday })
+
+  // Realtime: изменение расписания незаметно обновляет «Сегодня» (без опроса).
+  useRealtimeEvent('schedule:changed', () => {
+    void qc.invalidateQueries({ queryKey: meKeys.today() })
+  })
   const now = useMemo(() => nowInTz(today.data?.timezone ?? null), [today.data?.timezone])
   const parity = useMemo(() => isoWeekParity(), [])
 

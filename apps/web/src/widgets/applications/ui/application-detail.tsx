@@ -1,7 +1,7 @@
 'use client'
 
 import { useLocale, useTranslations } from 'next-intl'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AlertTriangle } from 'lucide-react'
 import {
@@ -14,7 +14,10 @@ import {
   type TimelineEvent,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
-import { STUDENT_CANCELLABLE_STATUSES } from '@studenthub/shared-schemas'
+import {
+  STUDENT_CANCELLABLE_STATUSES,
+  type ApplicationServiceStatus,
+} from '@studenthub/shared-schemas'
 import { Button, Card, PageHeader, Skeleton, EmptyState, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocumentChecklist } from './document-checklist'
@@ -33,7 +36,12 @@ export function ApplicationDetail({
   const qc = useQueryClient()
   const confirm = useConfirm()
 
-  const q = useQuery({ queryKey: applicationKeys.detail(id), queryFn: () => fetchApplication(id) })
+  // placeholderData: при переключении заявок держим прошлую, пока грузится новая (без скелета).
+  const q = useQuery({
+    queryKey: applicationKeys.detail(id),
+    queryFn: () => fetchApplication(id),
+    placeholderData: keepPreviousData,
+  })
   const cancelMut = useMutation({
     mutationFn: () => cancelApplicationRequest(id),
     onSuccess: () => {
@@ -43,13 +51,26 @@ export function ApplicationDetail({
     },
     onError: () => toast.error(t('loadError')),
   })
+  // Оптимистично переводим бейдж в RESUBMITTED сразу по клику (SSOT: NEEDS_CORRECTION→RESUBMITTED),
+  // сервер подтверждает в фоне; при ошибке — откат снимка.
   const resubmitMut = useMutation({
     mutationFn: () => resubmitApplicationRequest(id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: applicationKeys.all })
-      void q.refetch()
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: applicationKeys.detail(id) })
+      const prev = qc.getQueryData(applicationKeys.detail(id))
+      type AppDetail = Awaited<ReturnType<typeof fetchApplication>>
+      qc.setQueryData(applicationKeys.detail(id), (old: AppDetail | undefined) =>
+        old ? { ...old, status: 'RESUBMITTED' as ApplicationServiceStatus } : old,
+      )
+      return { prev }
     },
-    onError: () => toast.error(t('loadError')),
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev !== undefined) qc.setQueryData(applicationKeys.detail(id), ctx.prev)
+      toast.error(t('loadError'))
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: applicationKeys.all })
+    },
   })
 
   const app = q.data
