@@ -95,6 +95,10 @@ export class NotificationsProcessor extends WorkerHost {
 
       if (online.has(u.id)) {
         this.realtime.emitToUser(u.id, 'notification:new', { notification })
+        // Параллельно — единый конверт (PR-8/#12); старое событие выше не трогаем.
+        this.realtime.emitEventToUser(u.id, 'notification.created', notification.id, {
+          notification,
+        })
         delivered += 1
         continue
       }

@@ -22,9 +22,21 @@ export interface SearchMaterial {
   title: string
   subject: string | null
 }
+export interface SearchEvent {
+  id: string
+  title: string
+  startsAt: string
+}
+export interface SearchChat {
+  id: string
+  title: string | null
+  type: string
+}
 export interface SearchResults {
   people: SearchPerson[]
   courses: SearchCourse[]
   assignments: SearchAssignment[]
   materials: SearchMaterial[]
+  events: SearchEvent[]
+  chats: SearchChat[]
 }

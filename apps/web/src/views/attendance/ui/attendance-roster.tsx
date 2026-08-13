@@ -76,7 +76,7 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
   const marked = Object.values(marks).filter((s) => s !== null).length
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHeader
         title={q.data?.subject ?? t('title')}
         subtitle={date}

@@ -1,1 +1,6 @@
-export { RealtimeProvider, useRealtimeSocket, useRealtimeEvent } from './realtime-context'
+export {
+  RealtimeProvider,
+  useRealtimeSocket,
+  useRealtimeEvent,
+  useRealtimeEnvelope,
+} from './realtime-context'

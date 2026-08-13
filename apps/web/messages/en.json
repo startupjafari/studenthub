@@ -23,7 +23,8 @@
       "main": "Main",
       "study": "Study",
       "services": "Services",
-      "communication": "Communication"
+      "communication": "Communication",
+      "starosta": "Class monitor"
     },
     "classmates": "Classmates",
     "universities": "Universities",
@@ -56,7 +57,8 @@
     "appointments": "Dean office",
     "portfolio": "Portfolio",
     "studentId": "Student ID",
-    "academic": "Performance"
+    "academic": "Performance",
+    "myGroup": "My group"
   },
   "Invites": {
     "title": "Invites",
@@ -590,6 +592,10 @@
     "actions": "Actions",
     "unreadCount": "{count, plural, =0 {No unread} one {# unread} other {# unread}}",
     "filterAll": "All",
+    "filterActionNeeded": "Action needed",
+    "filterStudy": "Study",
+    "filterDeanery": "Dean's office",
+    "filterSocial": "Social",
     "filterUnread": "Unread",
     "filterImportant": "Important",
     "filterSystem": "System",
@@ -701,7 +707,8 @@
     "substituteDeferred": "Substitute teacher selection will appear once the users list ships (Phase 12).",
     "myScheduleTitle": "My schedule",
     "notYourPair": "Another teacher’s class — view only",
-    "noScheduleTeacherHint": "The group schedule is created by the dean or university admin"
+    "noScheduleTeacherHint": "The group schedule is created by the dean or university admin",
+    "openDiscipline": "Open discipline"
   },
   "Applications": {
     "title": "Applications",
@@ -1707,7 +1714,12 @@
     "tab": {
       "overview": "Overview",
       "materials": "Materials",
-      "participants": "Participants"
+      "participants": "Participants",
+      "schedule": "Schedule",
+      "assignments": "Assignments",
+      "grades": "Grades",
+      "attendance": "Attendance",
+      "chat": "Chat"
     },
     "teacher": "Teacher",
     "lessonsPerWeek": "Lessons per week",
@@ -1721,7 +1733,19 @@
     "file": "File {n}",
     "creditsCount": "{count, plural, one {# credit} other {# credits}}",
     "credits": "Credits",
-    "term": "Term"
+    "term": "Term",
+    "noPairs": "No classes",
+    "weekOdd": "Odd",
+    "weekEven": "Even",
+    "noCourseLink": "Not linked to a course yet",
+    "noCourseLinkHint": "Assignments appear once the course is set up.",
+    "noAssignments": "No assignments",
+    "noGrades": "No grades yet",
+    "average": "Average",
+    "noAttendanceData": "No attendance records",
+    "chatTitle": "Discipline chat",
+    "chatHint": "Open the group chat to discuss this discipline.",
+    "openChat": "Open chat"
   },
   "CourseAdmin": {
     "title": "Courses",
@@ -2035,6 +2059,12 @@
       "attendance": "Attendance",
       "submissionsPending": "Submissions to review",
       "examsUpcoming": "Upcoming exams"
+    },
+    "riskStudents": "Students needing attention",
+    "reason": {
+      "lowAttendance": "Attendance {value}%",
+      "overdue": "Overdue: {value}",
+      "lowGrades": "Avg {value}%"
     }
   },
   "Command": {
@@ -2047,7 +2077,9 @@
     "people": "People",
     "courses": "Courses",
     "assignments": "Assignments",
-    "materials": "Materials"
+    "materials": "Materials",
+    "events": "Events",
+    "chats": "Chats"
   },
   "Consultations": {
     "title": "Consultations",

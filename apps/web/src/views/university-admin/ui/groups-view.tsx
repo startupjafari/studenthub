@@ -225,7 +225,7 @@ export function GroupsAdminView() {
   const noFaculties = faculties.data && faculties.data.length === 0
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title={t('groupsTitle')} />
 
       <Card>

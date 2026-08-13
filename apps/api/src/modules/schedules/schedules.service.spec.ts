@@ -35,7 +35,7 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const rooms = { assertRoomInUniversity: jest.fn().mockResolvedValue(undefined) }
-  const realtime = { emitToRoom: jest.fn() }
+  const realtime = { emitToRoom: jest.fn(), emitEventToRoom: jest.fn() }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new SchedulesService(
     prisma as unknown as PrismaService,
