@@ -113,7 +113,7 @@ export const SECTIONS: Section[] = [
       { key: 'appointmentDate', type: 'date' },
       { key: 'workPhone', type: 'text' },
       { key: 'researchInterests', type: 'textarea' },
-      { key: 'publicationsUrl', type: 'text' },
+      { key: 'publicationsUrl', type: 'url' },
       { key: 'responsibilities', type: 'textarea' },
       { key: 'moderationAreas', type: 'textarea' },
     ],

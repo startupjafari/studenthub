@@ -603,7 +603,8 @@
     "FILE_DIRECT_UPLOAD_REQUIRED": "File is too large to upload via the server",
     "VALIDATION_ERROR": "Check the form fields",
     "RATE_LIMIT": "Too many attempts, wait a moment",
-    "INTERNAL_ERROR": "Server error"
+    "INTERNAL_ERROR": "Server error",
+    "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required"
   },
   "Notifications": {
     "title": "Notifications",
@@ -1276,6 +1277,11 @@
     "download": "Download",
     "openLink": "Open link",
     "fileAdded": "File attached"
+  },
+  "SetupTwoFactor": {
+    "title": "Set up two-factor authentication",
+    "subtitle": "2FA is required for your role. Scan the QR code in an authenticator app (Google Authenticator, Authy, etc.) and enter the code to continue.",
+    "continueToApp": "Continue"
   },
   "Settings": {
     "title": "Settings",

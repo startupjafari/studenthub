@@ -453,6 +453,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | 422 | `VALIDATION_ERROR` | Ошибка Zod, с `details[]` |
 | 429 | `RATE_LIMIT` | Превышен лимит |
 | 401 | `INVALID_2FA_CODE` | Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа |
+| 403 | `TWO_FACTOR_SETUP_REQUIRED` | Привилегированной роли нужно включить 2FA; доступ к API закрыт до настройки (кроме эндпоинтов 2FA). Клиент ведёт на `/setup-2fa` |
 | 500 | `INTERNAL_ERROR` | Внутренняя ошибка |
 
 Коды — публичный контракт: клиент реагирует на `code`, не на `message`. Тексты для пользователя формирует фронтенд через i18n.
@@ -462,6 +463,8 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 **Auth** — `POST /auth/login` (публ.; тело `{ identifier, password }` — `identifier` это email ИЛИ username, регистронезависимо; при включённой 2FA возвращает `{ twoFactorRequired: true, challengeToken }` вместо токенов) · `POST /auth/login/2fa` (публ.; `{ challengeToken, code }` → сессия) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`. Регистрация (`/auth/register-by-invite`) требует `username` (обязателен, 3–32 [a-z0-9_], хранится в нижнем регистре, уникален). Модель: `User.username String? @unique` (nullable — у зарегистрированных до фичи его нет).
 
 **2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
+
+**Форс 2FA для привилегированных ролей.** Ролям `PLATFORM_ADMIN`, `PLATFORM_MODERATOR`, `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR`, `DEAN` двухфакторная аутентификация обязательна. Глобальный `TwoFactorGuard` (после `JwtAuthGuard`) отдаёт `403 TWO_FACTOR_SETUP_REQUIRED` на все эндпоинты, кроме помеченных `@TwoFactorExempt()` (контроллер `auth/2fa/*`), пока 2FA не включена. Флаг `tfa` кладётся в access-токен (без обращения к БД на каждый запрос); при `refresh` payload пересобирается из БД, поэтому после включения 2FA следующая ротация токена снимает форс. Фронт: интерсептор по этому коду уводит на `/setup-2fa` (обязательная настройка); после включения — жёсткий переход на `/`, где `SessionInitializer` перевыпускает токен с `tfa=true`.
 
 **Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.
 

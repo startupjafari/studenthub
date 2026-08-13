@@ -80,6 +80,12 @@ api.interceptors.response.use(
       }
     }
 
+    // Привилегированной роли форсим 2FA: любой не-exempt эндпоинт вернул 403 с этим кодом —
+    // уводим на экран обязательной настройки 2FA (там дальше только 2fa/refresh эндпоинты).
+    if (code === 'TWO_FACTOR_SETUP_REQUIRED') {
+      redirectToSetup2fa()
+    }
+
     const fallback: ApiErrorBody = { code: 'INTERNAL_ERROR', message: 'Ошибка сети' }
     return Promise.reject(error.response?.data?.error ?? fallback)
   },
@@ -92,5 +98,11 @@ function isEnvelope(body: unknown): body is { success: true; data: unknown } {
 function redirectToLogin(): void {
   if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
     window.location.assign('/login')
+  }
+}
+
+function redirectToSetup2fa(): void {
+  if (typeof window !== 'undefined' && window.location.pathname !== '/setup-2fa') {
+    window.location.assign('/setup-2fa')
   }
 }
