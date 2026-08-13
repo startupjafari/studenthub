@@ -125,7 +125,7 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
                         title={t(ATT_KEY[st])}
                         onClick={() => setMarks((prev) => ({ ...prev, [s.studentId]: st }))}
                         className={cn(
-                          'flex size-8 items-center justify-center rounded-lg text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted',
+                          'flex size-9 items-center justify-center rounded-lg text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted',
                           marks[s.studentId] === st && ATT_ACTIVE[st],
                         )}
                       >

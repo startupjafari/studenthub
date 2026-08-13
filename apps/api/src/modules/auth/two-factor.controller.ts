@@ -2,14 +2,18 @@ import { Body, Controller, Post } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import { TwoFactorExempt } from '../../common/decorators/two-factor-exempt.decorator'
 import { TwoFactorService } from './two-factor.service'
 import { TwoFactorEnableDto } from './dto/two-factor-enable.dto'
 import { TwoFactorDisableDto } from './dto/two-factor-disable.dto'
 
 // Управление 2FA текущего пользователя. JWT-защищено (не @Public): включать/отключать
 // 2FA может только уже вошедший пользователь. Второй шаг ВХОДА — в AuthController (@Public).
+// @TwoFactorExempt: под форсом 2FA (TwoFactorGuard) именно эти ручки должны быть доступны,
+// иначе привилегированная роль не смогла бы настроить 2FA (403 на всё остальное).
 @ApiTags('Auth')
 @ApiBearerAuth()
+@TwoFactorExempt()
 @Controller('auth/2fa')
 export class TwoFactorController {
   constructor(private readonly twoFactor: TwoFactorService) {}
