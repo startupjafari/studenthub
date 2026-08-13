@@ -27,6 +27,13 @@ export class AnalyticsController {
     return this.analytics.facultyOverview(user, query.facultyId)
   }
 
+  @Get('at-risk')
+  @Roles(...ANALYTICS_ROLES)
+  @ApiOperation({ summary: 'Студенты «требует внимания» с явными причинами (Early Warning)' })
+  atRisk(@CurrentUser() user: CurrentUserData, @Query() query: FacultyAnalyticsQueryDto) {
+    return this.analytics.atRiskStudents(user, query.facultyId)
+  }
+
   @Get('group/:id/attendance')
   @Roles(...ANALYTICS_ROLES)
   @ApiOperation({ summary: 'Посещаемость по студентам группы (drill-down)' })

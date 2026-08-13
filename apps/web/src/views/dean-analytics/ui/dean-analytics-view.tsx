@@ -25,7 +25,12 @@ import {
   Progress,
   Skeleton,
 } from '../../../shared/ui'
-import { analyticsKeys, fetchFacultyOverview } from '../../../entities/analytics'
+import {
+  analyticsKeys,
+  fetchFacultyOverview,
+  fetchAtRiskStudents,
+  type RiskReason,
+} from '../../../entities/analytics'
 import { GroupDrilldown } from './group-drilldown'
 
 function rateTone(rate: number): string {
@@ -36,6 +41,8 @@ function rateTone(rate: number): string {
 export function DeanAnalyticsView() {
   const t = useTranslations('Analytics')
   const q = useQuery({ queryKey: analyticsKeys.faculty(), queryFn: () => fetchFacultyOverview() })
+  // Early Warning (PR-7): студенты «требует внимания» с явными причинами.
+  const risk = useQuery({ queryKey: analyticsKeys.atRisk(), queryFn: () => fetchAtRiskStudents() })
   const [drillGroup, setDrillGroup] = useState<{ id: string; name: string } | null>(null)
 
   if (drillGroup) {
@@ -125,6 +132,41 @@ export function DeanAnalyticsView() {
               </Card>
             )}
 
+            {risk.data && risk.data.students.length > 0 && (
+              <Card className="ring-1 ring-destructive/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <AlertTriangle className="size-4 text-destructive" aria-hidden />
+                    {t('riskStudents')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="flex flex-col gap-1.5">
+                    {risk.data.students.map((s) => (
+                      <li
+                        key={s.studentId}
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2.5"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {s.lastName} {s.firstName}
+                          {s.groupName && (
+                            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                              {s.groupName}
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex flex-wrap gap-1">
+                          {s.reasons.map((r) => (
+                            <ReasonChip key={r.kind} reason={r} t={t} />
+                          ))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">{t('groups')}</CardTitle>
@@ -172,6 +214,15 @@ export function DeanAnalyticsView() {
       )}
     </div>
   )
+}
+
+// Чип причины риска с явным числовым значением (без скрытого скоринга).
+function ReasonChip({ reason, t }: { reason: RiskReason; t: ReturnType<typeof useTranslations> }) {
+  if (reason.kind === 'OVERDUE_ASSIGNMENTS') {
+    return <Badge variant="secondary">{t('reason.overdue', { value: reason.value })}</Badge>
+  }
+  const key = reason.kind === 'LOW_ATTENDANCE' ? 'reason.lowAttendance' : 'reason.lowGrades'
+  return <Badge variant="destructive">{t(key, { value: reason.value })}</Badge>
 }
 
 function Kpi({

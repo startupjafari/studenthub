@@ -2059,6 +2059,12 @@
       "attendance": "Посещаемость",
       "submissionsPending": "Работ на проверке",
       "examsUpcoming": "Экзаменов впереди"
+    },
+    "riskStudents": "Студенты — требует внимания",
+    "reason": {
+      "lowAttendance": "Посещаемость {value}%",
+      "overdue": "Просрочено: {value}",
+      "lowGrades": "Средний {value}%"
     }
   },
   "Command": {

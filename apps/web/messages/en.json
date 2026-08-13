@@ -2059,6 +2059,12 @@
       "attendance": "Attendance",
       "submissionsPending": "Submissions to review",
       "examsUpcoming": "Upcoming exams"
+    },
+    "riskStudents": "Students needing attention",
+    "reason": {
+      "lowAttendance": "Attendance {value}%",
+      "overdue": "Overdue: {value}",
+      "lowGrades": "Avg {value}%"
     }
   },
   "Command": {
