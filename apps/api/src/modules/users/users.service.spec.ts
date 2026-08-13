@@ -71,6 +71,24 @@ function viewer(role: Role, scope: Partial<JwtPayload> = {}, sub = 'viewer'): Jw
   }
 }
 
+// Регрессия: auth-выборки для токена ОБЯЗАНЫ включать twoFactorEnabled, иначе toPayload
+// проставит tfa:false даже при включённой 2FA → TwoFactorGuard зациклит на /setup-2fa.
+describe('UserService — auth-выборки несут twoFactorEnabled (для флага tfa в токене)', () => {
+  it('findByIdForAuth (refresh) выбирает twoFactorEnabled', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    await service.findByIdForAuth('u1')
+    expect(prisma.user.findFirst.mock.calls[0][0].select.twoFactorEnabled).toBe(true)
+  })
+
+  it('findByLoginIdentifierForAuth (логин) выбирает twoFactorEnabled', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    await service.findByLoginIdentifierForAuth('a@b.io')
+    expect(prisma.user.findFirst.mock.calls[0][0].select.twoFactorEnabled).toBe(true)
+  })
+})
+
 describe('UserService — приватность профиля', () => {
   it('сам себя — email виден', async () => {
     const { service, prisma } = setup()
