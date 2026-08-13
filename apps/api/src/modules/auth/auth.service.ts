@@ -326,6 +326,7 @@ export class AuthService {
     universityId: string | null
     facultyId: string | null
     groupId: string | null
+    twoFactorEnabled?: boolean
   }): JwtPayload {
     return {
       sub: user.id,
@@ -333,6 +334,9 @@ export class AuthService {
       universityId: user.universityId,
       facultyId: user.facultyId,
       groupId: user.groupId,
+      // tfa попадает в токен; refresh пересобирает payload из БД, поэтому после
+      // включения/отключения 2FA следующая ротация обновит флаг (см. TwoFactorGuard).
+      tfa: user.twoFactorEnabled ?? false,
     }
   }
 }

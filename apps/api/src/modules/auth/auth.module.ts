@@ -7,6 +7,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { ScopeGuard } from '../../common/guards/scope.guard'
+import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
 import { UsersModule } from '../users/users.module'
 import { InvitesModule } from '../invites/invites.module'
 import { AuthController } from './auth.controller'
@@ -44,6 +45,7 @@ import { LocalStrategy } from './strategies/local.strategy'
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ScopeGuard },
+    { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],
   exports: [AuthService, JwtModule],
 })
