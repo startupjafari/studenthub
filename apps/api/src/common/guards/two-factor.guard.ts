@@ -1,8 +1,10 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { Reflector } from '@nestjs/core'
 import { Role } from '@studenthub/shared-types'
 import { AppException } from '../exceptions/app.exception'
 import { TWO_FACTOR_EXEMPT } from '../decorators/two-factor-exempt.decorator'
+import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../auth/jwt-payload.type'
 
 // Роли, которым 2FA ОБЯЗАТЕЛЬНА (привилегированные: платформа, админ/модератор вуза, декан).
@@ -24,9 +26,16 @@ export const TWO_FACTOR_REQUIRED_ROLES: Role[] = [
  */
 @Injectable()
 export class TwoFactorGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly config: ConfigService<EnvVars, true>,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // Глобальный выключатель форса (env TWO_FACTOR_ENFORCE): выключен в e2e/тестах и как
+    // аварийный тумблер в проде. По умолчанию включён.
+    if (!this.config.get('TWO_FACTOR_ENFORCE', { infer: true })) return true
+
     const exempt = this.reflector.getAllAndOverride<boolean>(TWO_FACTOR_EXEMPT, [
       context.getHandler(),
       context.getClass(),
