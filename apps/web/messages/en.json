@@ -1713,7 +1713,12 @@
     "tab": {
       "overview": "Overview",
       "materials": "Materials",
-      "participants": "Participants"
+      "participants": "Participants",
+      "schedule": "Schedule",
+      "assignments": "Assignments",
+      "grades": "Grades",
+      "attendance": "Attendance",
+      "chat": "Chat"
     },
     "teacher": "Teacher",
     "lessonsPerWeek": "Lessons per week",
@@ -1727,7 +1732,19 @@
     "file": "File {n}",
     "creditsCount": "{count, plural, one {# credit} other {# credits}}",
     "credits": "Credits",
-    "term": "Term"
+    "term": "Term",
+    "noPairs": "No classes",
+    "weekOdd": "Odd",
+    "weekEven": "Even",
+    "noCourseLink": "Not linked to a course yet",
+    "noCourseLinkHint": "Assignments appear once the course is set up.",
+    "noAssignments": "No assignments",
+    "noGrades": "No grades yet",
+    "average": "Average",
+    "noAttendanceData": "No attendance records",
+    "chatTitle": "Discipline chat",
+    "chatHint": "Open the group chat to discuss this discipline.",
+    "openChat": "Open chat"
   },
   "CourseAdmin": {
     "title": "Courses",
