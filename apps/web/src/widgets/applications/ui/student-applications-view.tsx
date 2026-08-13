@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Inbox } from 'lucide-react'
 import type { ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
   fetchApplications,
+  fetchApplication,
   type ApplicationListItem,
 } from '../../../entities/application-service'
 import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
@@ -46,10 +47,20 @@ export function StudentApplicationsView() {
   const [screen, setScreen] = useState<Screen>({ name: 'list' })
   const [tab, setTab] = useState<TabId>('active')
 
+  const qc = useQueryClient()
   const q = useQuery({
     queryKey: applicationKeys.list({ limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }),
     queryFn: () => fetchApplications({ limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }),
   })
+
+  // Prefetch детали заявки при наведении/фокусе карточки (принцип 3) — открытие мгновенное.
+  const prefetch = (id: string): void => {
+    void qc.prefetchQuery({
+      queryKey: applicationKeys.detail(id),
+      queryFn: () => fetchApplication(id),
+      staleTime: 30_000,
+    })
+  }
 
   const grouped = useMemo(() => {
     const items = q.data?.items ?? []
@@ -179,6 +190,7 @@ export function StudentApplicationsView() {
               key={app.id}
               app={app}
               onOpen={() => setScreen({ name: 'detail', id: app.id })}
+              onPrefetch={() => prefetch(app.id)}
             />
           ))}
         </div>

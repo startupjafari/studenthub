@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, CheckCircle2, Link2, Send, User } from 'lucide-react'
 import {
@@ -41,7 +41,13 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
   const locale = useLocale()
   const qc = useQueryClient()
 
-  const q = useQuery({ queryKey: assignmentKeys.detail(id), queryFn: () => fetchAssignment(id) })
+  // placeholderData: при переходе между заданиями показываем прошлую деталь, пока грузится
+  // новая (без вспышки скелета) — экран ощущается мгновенным.
+  const q = useQuery({
+    queryKey: assignmentKeys.detail(id),
+    queryFn: () => fetchAssignment(id),
+    placeholderData: keepPreviousData,
+  })
   const a = q.data
 
   const [text, setText] = useState('')

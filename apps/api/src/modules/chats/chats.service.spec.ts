@@ -67,6 +67,8 @@ function setup() {
   }
   const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('chat-media') }
+  // set→'OK' = флаг захвачен, провижининг официальных чатов выполняется (как до троттлинга).
+  const redis = { set: jest.fn().mockResolvedValue('OK'), del: jest.fn().mockResolvedValue(1) }
   const service = new ChatsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
@@ -74,8 +76,9 @@ function setup() {
     files as unknown as FileService,
     posts as unknown as PostsService,
     config as unknown as ConfigService<EnvVars, true>,
+    redis as never,
   )
-  return { service, prisma, queue, realtime, files, posts, config }
+  return { service, prisma, queue, realtime, files, posts, config, redis }
 }
 
 const user = (sub: string): JwtPayload => ({

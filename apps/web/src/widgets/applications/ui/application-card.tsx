@@ -14,7 +14,15 @@ const FINISHED = ['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED']
 
 // Строка заявки в списке студента — системный row-card (как в faculties/materials):
 // ведущая иконка в скруглённом квадрате, контент, статус-бейдж и шеврон.
-export function ApplicationCard({ app, onOpen }: { app: ApplicationListItem; onOpen: () => void }) {
+export function ApplicationCard({
+  app,
+  onOpen,
+  onPrefetch,
+}: {
+  app: ApplicationListItem
+  onOpen: () => void
+  onPrefetch?: () => void
+}) {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const serviceName = pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
@@ -27,6 +35,8 @@ export function ApplicationCard({ app, onOpen }: { app: ApplicationListItem; onO
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
+      onMouseEnter={onPrefetch}
+      onFocus={onPrefetch}
       className="flex-row items-center gap-3 p-4 transition-colors outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40"
     >
       <span
