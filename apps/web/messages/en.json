@@ -707,7 +707,8 @@
     "substituteDeferred": "Substitute teacher selection will appear once the users list ships (Phase 12).",
     "myScheduleTitle": "My schedule",
     "notYourPair": "Another teacher’s class — view only",
-    "noScheduleTeacherHint": "The group schedule is created by the dean or university admin"
+    "noScheduleTeacherHint": "The group schedule is created by the dean or university admin",
+    "openDiscipline": "Open discipline"
   },
   "Applications": {
     "title": "Applications",
