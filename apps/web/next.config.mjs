@@ -16,15 +16,75 @@ const withPWA = withPWAInit({
   customWorkerSrc: 'worker',
   fallbacks: { document: '/offline' },
   workboxOptions: {
+    // Офлайн-кэш только для полезных сценариев чтения (docs/UNIFIED_UX.md PR-10/#16):
+    // расписание, Student Pass, «Сегодня», недавние материалы/задания, часть истории
+    // сообщений. Все — NetworkFirst и ТОЛЬКО GET → мутации (POST/PUT/PATCH/DELETE) не
+    // перехватываются и выполняются только online.
     runtimeCaching: [
       {
         // Расписание — сначала сеть, при офлайне отдаём кэш (docs/IMPLEMENTATION_PLAN.md 13.2).
         urlPattern: /\/api\/v1\/schedule(\/|\?|$)/,
         handler: 'NetworkFirst',
+        method: 'GET',
         options: {
           cacheName: 'schedule-api',
           networkTimeoutSeconds: 5,
           expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
+        },
+      },
+      {
+        // Цифровой студенческий (карта показывается офлайн; QR-токен обновится при сети).
+        urlPattern: /\/api\/v1\/student-id\/me(\?|$)/,
+        handler: 'NetworkFirst',
+        method: 'GET',
+        options: {
+          cacheName: 'student-pass-api',
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 2, maxAgeSeconds: 24 * 60 * 60 },
+        },
+      },
+      {
+        // Операционный экран «Сегодня» (BFF) — последний известный день офлайн.
+        urlPattern: /\/api\/v1\/me\/today(\?|$)/,
+        handler: 'NetworkFirst',
+        method: 'GET',
+        options: {
+          cacheName: 'me-today-api',
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 4, maxAgeSeconds: 6 * 60 * 60 },
+        },
+      },
+      {
+        // Недавно открытые материалы (список + метаданные).
+        urlPattern: /\/api\/v1\/materials(\/|\?|$)/,
+        handler: 'NetworkFirst',
+        method: 'GET',
+        options: {
+          cacheName: 'materials-api',
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 48, maxAgeSeconds: 24 * 60 * 60 },
+        },
+      },
+      {
+        // Задания и своя сдача (черновик читается офлайн; отправка — только online).
+        urlPattern: /\/api\/v1\/assignments(\/|\?|$)/,
+        handler: 'NetworkFirst',
+        method: 'GET',
+        options: {
+          cacheName: 'assignments-api',
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 48, maxAgeSeconds: 12 * 60 * 60 },
+        },
+      },
+      {
+        // Часть истории сообщений (последние открытые чаты).
+        urlPattern: /\/api\/v1\/chats\/[^/]+\/messages(\?|$)/,
+        handler: 'NetworkFirst',
+        method: 'GET',
+        options: {
+          cacheName: 'chat-messages-api',
+          networkTimeoutSeconds: 5,
+          expiration: { maxEntries: 100, maxAgeSeconds: 24 * 60 * 60 },
         },
       },
     ],
