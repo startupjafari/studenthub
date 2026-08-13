@@ -56,11 +56,13 @@ const DEAN: QuickAction[] = [
   { navKey: 'chats', href: '/dean/chats', icon: MessagesSquare },
 ]
 
+// Староста = студент + управление своей группой: студенческие быстрые действия и сверх них
+// старостовские (личные schedule/chats/applications ведут на общие студенческие роуты).
 const STAROSTA: QuickAction[] = [
-  { navKey: 'group', href: '/starosta/group', icon: Users },
-  { navKey: 'schedule', href: '/starosta/schedule', icon: CalendarDays },
-  { navKey: 'applications', href: '/starosta/applications', icon: FileText },
-  { navKey: 'chats', href: '/starosta/chats', icon: MessagesSquare },
+  ...STUDENT,
+  { navKey: 'myGroup', href: '/starosta/group', icon: Users },
+  { navKey: 'classmates', href: '/starosta/classmates', icon: GraduationCap },
+  { navKey: 'groupRequests', href: '/starosta/group-requests', icon: ClipboardList },
 ]
 
 const UNIVERSITY_ADMIN: QuickAction[] = [

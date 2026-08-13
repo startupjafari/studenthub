@@ -9,6 +9,8 @@ export const ROLE_HOME: Record<Role, string> = {
   [Role.UNIVERSITY_MODERATOR]: '/moderator/university',
   [Role.DEAN]: '/dean',
   [Role.TEACHER]: '/teacher',
-  [Role.STAROSTA]: '/starosta',
+  // Староста — студент с доп-правами: его дом, как у студента, — лента. Управление
+  // группой доступно вкладками секции «Староста» (см. STAROSTA_NAV).
+  [Role.STAROSTA]: '/',
   [Role.STUDENT]: '/',
 }
