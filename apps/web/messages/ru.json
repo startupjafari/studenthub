@@ -2071,7 +2071,9 @@
     "people": "Люди",
     "courses": "Дисциплины",
     "assignments": "Задания",
-    "materials": "Материалы"
+    "materials": "Материалы",
+    "events": "События",
+    "chats": "Чаты"
   },
   "Consultations": {
     "title": "Консультации",

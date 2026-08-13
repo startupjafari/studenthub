@@ -2071,7 +2071,9 @@
     "people": "People",
     "courses": "Courses",
     "assignments": "Assignments",
-    "materials": "Materials"
+    "materials": "Materials",
+    "events": "Events",
+    "chats": "Chats"
   },
   "Consultations": {
     "title": "Consultations",

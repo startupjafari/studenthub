@@ -24,7 +24,7 @@ export class SearchService {
     const contains: Prisma.StringFilter = { contains: q, mode: 'insensitive' }
     const uni = viewer.universityId ?? '__none__'
 
-    const [people, courses, assignments, materials] = await Promise.allSettled([
+    const [people, courses, assignments, materials, events, chats] = await Promise.allSettled([
       this.prisma.user.findMany({
         where: {
           ...(isPlatform(viewer.role) ? {} : { universityId: uni }),
@@ -58,6 +58,19 @@ export class SearchService {
         select: { id: true, title: true, subject: true },
         take: LIMIT,
       }),
+      // События — по названию в пределах вуза (платформа — без ограничения).
+      this.prisma.event.findMany({
+        where: { ...this.eventScope(viewer, uni), title: contains },
+        select: { id: true, title: true, startsAt: true },
+        orderBy: { startsAt: 'desc' },
+        take: LIMIT,
+      }),
+      // Чаты — только те, где смотрящий состоит (scope = членство), по названию группы.
+      this.prisma.chat.findMany({
+        where: { title: contains, members: { some: { userId: viewer.sub } } },
+        select: { id: true, title: true, type: true },
+        take: LIMIT,
+      }),
     ])
 
     return {
@@ -65,6 +78,8 @@ export class SearchService {
       courses: this.value(courses),
       assignments: this.value(assignments),
       materials: this.value(materials),
+      events: this.value(events),
+      chats: this.value(chats),
     }
   }
 
@@ -96,5 +111,10 @@ export class SearchService {
     if (isPlatform(viewer.role)) return {}
     if (STUDENT_ROLES.includes(viewer.role)) return { groupId: viewer.groupId ?? '__none__' }
     return { group: { is: { faculty: { is: { universityId: uni } } } } }
+  }
+
+  private eventScope(viewer: JwtPayload, uni: string): Prisma.EventWhereInput {
+    if (isPlatform(viewer.role)) return {}
+    return { universityId: uni }
   }
 }

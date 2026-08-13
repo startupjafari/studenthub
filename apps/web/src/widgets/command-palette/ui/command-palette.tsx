@@ -7,9 +7,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   BookOpen,
+  CalendarDays,
   ClipboardList,
   CornerDownLeft,
   FolderOpen,
+  MessagesSquare,
   Search,
   UserRound,
 } from 'lucide-react'
@@ -122,6 +124,22 @@ export function CommandPalette() {
           href: '/materials',
           icon: FolderOpen,
           section: t('materials'),
+        })
+      for (const e of r.events)
+        out.push({
+          id: `e-${e.id}`,
+          label: e.title,
+          href: '/events',
+          icon: CalendarDays,
+          section: t('events'),
+        })
+      for (const ch of r.chats)
+        out.push({
+          id: `ch-${ch.id}`,
+          label: ch.title ?? '',
+          href: '/chats',
+          icon: MessagesSquare,
+          section: t('chats'),
         })
       return out
     }

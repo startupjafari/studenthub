@@ -492,7 +492,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Цифровой студенческий** (Academic Core, задача 20) — `GET /student-id/me` (студент/староста: карта — ФИО/факультет/группа/№ билета/статус + подписанный QR TTL 5мин со ссылкой `/verify-id?t=`) · `GET /student-id/verify?token=` (сотрудник вуза: верификация карты по QR, scope — тот же вуз). Без новой модели (данные из `User`). Токен — HMAC (`common/crypto/signed-token`).
 
-**Поиск** (Academic Core, задача 22) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials }` (по 6). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
+**Поиск** (Academic Core, задача 22; расширен Unified UX PR-6) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials, events, chats }` (по 6). События — по названию в пределах вуза; чаты — только те, где смотрящий состоит (scope = членство). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
 
 **Аналитика декана** (Academic Core, задача 14) — read-only агрегаты (декан/админ вуза): `GET /analytics/faculty` (`?facultyId=` для админа; декан — свой факультет из JWT) → показатели (студенты, группы, посещаемость %, работ на проверке, экзаменов впереди) + посещаемость по группам + блок «требует внимания» (группы с посещаемостью < 60%) · `GET /analytics/group/:id/attendance` (drill-down: посещаемость по студентам группы). Без новых моделей — агрегация поверх `Attendance`/`Submission`/`Exam` в пределах scope.
 
