@@ -18,8 +18,22 @@ describe('JwtStrategy.validate', () => {
       universityId: 'uni',
       facultyId: null,
       groupId: null,
+      tfa: true,
     }
+    // validate нормализует payload и проставляет tfa (для TwoFactorGuard).
     expect(strat.validate(payload)).toEqual(payload)
+  })
+
+  it('токен без tfa → tfa=false по умолчанию', () => {
+    const strat = make()
+    const result = strat.validate({
+      sub: 'u1',
+      role: Role.DEAN,
+      universityId: 'uni',
+      facultyId: 'fac',
+      groupId: null,
+    })
+    expect(result.tfa).toBe(false)
   })
 
   it('challenge-токен 2FA (typ=TWO_FACTOR) → отвергается', () => {

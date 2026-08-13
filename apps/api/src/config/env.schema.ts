@@ -25,6 +25,12 @@ export const envSchema = z.object({
 
   // Ключ шифрования TOTP-секретов 2FA (AES-256-GCM). Отдельный от JWT-секретов.
   TOTP_ENCRYPTION_KEY: z.string().min(32, 'TOTP_ENCRYPTION_KEY: минимум 32 символа'),
+  // Форс 2FA для привилегированных ролей (TwoFactorGuard). Безопасно по умолчанию — true.
+  // В e2e/тестах выключается (setup-env.cjs). Аварийный выключатель для прода при сбое настройки 2FA.
+  TWO_FACTOR_ENFORCE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),

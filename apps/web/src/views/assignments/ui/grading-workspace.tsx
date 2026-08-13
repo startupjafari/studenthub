@@ -298,9 +298,9 @@ function GradePanel({
               href={submission.linkUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              className="flex items-center gap-1.5 text-sm break-all text-primary hover:underline"
             >
-              <Link2 className="size-4" aria-hidden />
+              <Link2 className="size-4 shrink-0" aria-hidden />
               {submission.linkUrl}
             </a>
           )}

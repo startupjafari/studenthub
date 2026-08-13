@@ -66,9 +66,44 @@ export class QueueService {
       jobOptions.jobId = jobOptions.jobId.replace(/:/g, '_')
     }
 
-    const job = await this.queues[queue].add(jobName, payload, jobOptions)
-    this.logger.debug(
-      `enqueued ${queue}/${jobName} jobId=${job.id ?? '?'} requestId=${meta.requestId}`,
-    )
+    // Постановка job — сайд-эффект (email/уведомление/обработка файла). BullMQ-соединение
+    // требует maxRetriesPerRequest:null, поэтому при недоступном Redis `add()` висит в
+    // offline-очереди и заблокировал бы HTTP-запрос, чей основной эффект в БД уже закоммичен.
+    // Ограничиваем ожидание таймаутом и НЕ пробрасываем ошибку: пользовательское действие
+    // всегда завершается, доставка сайд-эффекта деградирует до best-effort (docs §10, §12).
+    try {
+      const job = await this.withTimeout(
+        this.queues[queue].add(jobName, payload, jobOptions),
+        ENQUEUE_TIMEOUT_MS,
+      )
+      this.logger.debug(
+        `enqueued ${queue}/${jobName} jobId=${job.id ?? '?'} requestId=${meta.requestId}`,
+      )
+    } catch (error) {
+      this.logger.error(
+        { err: error, queue, jobName, requestId: meta.requestId },
+        `Не удалось поставить job ${queue}/${jobName} (Redis недоступен?) — сайд-эффект пропущен`,
+      )
+    }
+  }
+
+  // Ограничивает ожидание постановки: если Redis висит, отклоняемся через ENQUEUE_TIMEOUT_MS.
+  // Базовый add() при этом может позже завершиться после reconnect — это допустимо.
+  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`enqueue timeout ${ms}ms`)), ms)
+      promise.then(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
   }
 }
+
+const ENQUEUE_TIMEOUT_MS = 3000

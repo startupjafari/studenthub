@@ -402,7 +402,9 @@ export class ChatsService {
   }
 
   async addMember(actor: JwtPayload, chatId: string, userId: string) {
-    await this.assertMembership(actor.sub, chatId)
+    // Управление составом группы — только админам группы (не любому участнику): иначе
+    // рядовой участник добавлял бы произвольных пользователей. GROUP-only (проверяет helper).
+    await this.assertGroupAdmin(actor, chatId)
     try {
       await this.prisma.chatMember.create({ data: { chatId, userId } })
     } catch (error) {
@@ -423,7 +425,12 @@ export class ChatsService {
   }
 
   async removeMember(actor: JwtPayload, chatId: string, userId: string): Promise<void> {
-    await this.assertMembership(actor.sub, chatId)
+    // Исключение участника — только админам группы (самовыход — отдельный deleteOrLeaveChat).
+    const chat = await this.assertGroupAdmin(actor, chatId)
+    // Владельца (создателя) исключить нельзя — иначе админ выкидывал бы создателя из его группы.
+    if (chat.createdById && userId === chat.createdById) {
+      throw new AppException('FORBIDDEN', 'Нельзя исключить создателя группы')
+    }
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
     // Realtime (9.4): удалённый участник больше не в комнате — пингуем его отдельно, чтобы
     // чат исчез из его списка; остальным обновляем открытое окно и список.

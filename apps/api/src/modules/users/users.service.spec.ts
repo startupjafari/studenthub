@@ -504,21 +504,22 @@ describe('UserService.list — scope (12.2)', () => {
     return prisma.user.findMany.mock.calls[0][0].where
   }
 
-  it('платформа видит всех (без scope-фильтра), только не удалённых', async () => {
+  // where = { deletedAt: null, AND: [scope, ...фильтры] }. scope = AND[0]; клиентские
+  // фильтры лишь СУЖАЮТ его (регрессия cross-tenant утечки через ?facultyId=/?groupId=).
+  it('платформа видит всех (scope пустой), только не удалённых', async () => {
     const where = await whereFor(viewer(Role.PLATFORM_ADMIN))
     expect(where.deletedAt).toBeNull()
-    expect(where.universityId).toBeUndefined()
-    expect(where.facultyId).toBeUndefined()
+    expect(where.AND[0]).toEqual({})
   })
 
   it('админ вуза — только свой вуз', async () => {
     const where = await whereFor(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }))
-    expect(where.universityId).toBe('uni-A')
+    expect(where.AND[0]).toEqual({ universityId: 'uni-A' })
   })
 
   it('декан — только свой факультет', async () => {
     const where = await whereFor(viewer(Role.DEAN, { facultyId: 'fac-A' }))
-    expect(where.facultyId).toBe('fac-A')
+    expect(where.AND[0]).toEqual({ facultyId: 'fac-A' })
   })
 
   it('фильтры role/search применяются', async () => {
@@ -529,8 +530,20 @@ describe('UserService.list — scope (12.2)', () => {
       role: Role.TEACHER,
       search: 'ив',
     } as never)
-    const where = prisma.user.findMany.mock.calls[0][0].where
-    expect(where.role).toBe(Role.TEACHER)
-    expect(Array.isArray(where.OR)).toBe(true)
+    const and = prisma.user.findMany.mock.calls[0][0].where.AND
+    expect(and).toContainEqual({ role: Role.TEACHER })
+    expect(and.some((c: { OR?: unknown }) => Array.isArray(c.OR))).toBe(true)
+  })
+
+  // Регрессия: декан не может выгрузить пользователей чужого факультета через ?facultyId=.
+  // scope-условие своего факультета остаётся в AND рядом с запрошенным — подмена невозможна.
+  it('декан не может подменить факультет через ?facultyId=', async () => {
+    const where = await whereFor(viewer(Role.DEAN, { facultyId: 'fac-A' }), {
+      page: 1,
+      limit: 20,
+      facultyId: 'fac-B',
+    } as never)
+    expect(where.AND[0]).toEqual({ facultyId: 'fac-A' })
+    expect(where.AND).toContainEqual({ facultyId: 'fac-B' })
   })
 })

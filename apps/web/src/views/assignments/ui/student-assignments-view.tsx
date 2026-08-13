@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, ChevronRight, ClipboardList, Inbox } from 'lucide-react'
@@ -25,7 +26,10 @@ import { StudentAssignmentDetail } from './student-assignment-detail'
 // «Задания» студента (задача 3): список + деталь/сдача (экранное состояние, как в «Заявках»).
 export function StudentAssignmentsView() {
   const t = useTranslations('Assignments')
-  const [openId, setOpenId] = useState<string | null>(null)
+  // Диплинк из курса/поиска: /assignments?open=<id> сразу раскрывает деталь задания
+  // (детали живут экранным состоянием, отдельного роута /assignments/[id] нет).
+  const searchParams = useSearchParams()
+  const [openId, setOpenId] = useState<string | null>(() => searchParams.get('open'))
   const qc = useQueryClient()
 
   const q = useQuery({ queryKey: assignmentKeys.list(), queryFn: () => fetchAssignments() })

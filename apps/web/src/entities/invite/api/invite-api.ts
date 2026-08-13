@@ -1,4 +1,9 @@
-import type { CreateInviteInput } from '@studenthub/shared-schemas'
+import type {
+  CreateInviteInput,
+  BulkInviteCommitInput,
+  BulkInvitePreviewResponse,
+  BulkInviteResult,
+} from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 import { api } from '../../../shared/api'
 
@@ -46,4 +51,18 @@ export async function createInviteRequest(input: CreateInviteInput): Promise<Cre
 
 export async function revokeInviteRequest(id: string): Promise<void> {
   await api.patch(`/invites/${id}/revoke`)
+}
+
+// Массовый импорт: загрузка CSV/XLSX → предпросмотр с валидацией (без записи).
+export async function bulkPreviewRequest(file: File): Promise<BulkInvitePreviewResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<BulkInvitePreviewResponse>('/invites/bulk/preview', form)
+  return data
+}
+
+// Массовый импорт: создать инвайты по подтверждённым строкам.
+export async function bulkCreateRequest(input: BulkInviteCommitInput): Promise<BulkInviteResult> {
+  const { data } = await api.post<BulkInviteResult>('/invites/bulk', input)
+  return data
 }
