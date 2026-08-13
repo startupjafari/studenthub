@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -47,12 +48,35 @@ import {
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
 import { ProfileCompletion } from './profile-completion'
-import { AvatarCropModal } from './avatar-crop-modal'
-import { PhotoCreateModal, VideoCreateModal } from './profile-create-modals'
-import { ArticleEditorModal } from './article-editor-modal'
-import { PollCreateModal } from './poll-create-modal'
-import { PostCreateModal } from './post-create-modal'
 import { ShareProfileButton } from './share-profile-button'
+
+// Тяжёлые модалки (кроппер аватара на canvas, редактор статей с markdown, создание
+// поста/фото/видео/опроса) грузятся динамически — только при открытии, а не на каждом
+// просмотре профиля. Раньше все они тянулись в First Load JS профиля (~0.5 МБ).
+const AvatarCropModal = dynamic(
+  () => import('./avatar-crop-modal').then((m) => m.AvatarCropModal),
+  { ssr: false },
+)
+const PhotoCreateModal = dynamic(
+  () => import('./profile-create-modals').then((m) => m.PhotoCreateModal),
+  { ssr: false },
+)
+const VideoCreateModal = dynamic(
+  () => import('./profile-create-modals').then((m) => m.VideoCreateModal),
+  { ssr: false },
+)
+const ArticleEditorModal = dynamic(
+  () => import('./article-editor-modal').then((m) => m.ArticleEditorModal),
+  { ssr: false },
+)
+const PollCreateModal = dynamic(
+  () => import('./poll-create-modal').then((m) => m.PollCreateModal),
+  { ssr: false },
+)
+const PostCreateModal = dynamic(
+  () => import('./post-create-modal').then((m) => m.PostCreateModal),
+  { ssr: false },
+)
 
 type CreateKind = 'post' | 'photo' | 'video' | 'article' | 'poll'
 
