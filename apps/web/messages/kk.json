@@ -2071,7 +2071,9 @@
     "people": "Адамдар",
     "courses": "Пәндер",
     "assignments": "Тапсырмалар",
-    "materials": "Материалдар"
+    "materials": "Материалдар",
+    "events": "Оқиғалар",
+    "chats": "Чаттар"
   },
   "Consultations": {
     "title": "Кеңестер",
