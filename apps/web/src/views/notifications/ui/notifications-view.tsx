@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   Bell,
@@ -18,15 +18,13 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  deleteNotification,
   fetchNotifications,
-  markAllNotificationsRead,
-  markNotificationRead,
   notificationKeys,
   notificationCategory,
   isActionable,
   notificationUrl,
   notificationActionKey,
+  useNotificationMutations,
   type NotificationItem,
   type NotificationType,
 } from '../../../entities/notification'
@@ -94,9 +92,12 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
 
   useRealtimeEvent<{ notification: NotificationItem }>('notification:new', () => invalidate())
 
-  const readMut = useMutation({ mutationFn: markNotificationRead, onSuccess: invalidate })
-  const readAllMut = useMutation({ mutationFn: markAllNotificationsRead, onSuccess: invalidate })
-  const delMut = useMutation({ mutationFn: deleteNotification, onSuccess: invalidate })
+  // Оптимистичные мутации (общий хук, §5.5): мгновенно read/read-all/delete.
+  const {
+    readMutation: readMut,
+    readAllMutation: readAllMut,
+    deleteMutation: delMut,
+  } = useNotificationMutations()
 
   const items = useMemo(() => list.data ?? [], [list.data])
   const unread = items.filter((n) => !n.isRead).length

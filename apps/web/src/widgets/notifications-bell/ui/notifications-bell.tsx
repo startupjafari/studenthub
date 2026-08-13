@@ -9,14 +9,12 @@ import { Bell, Check, Loader2, Settings, Trash2, X } from 'lucide-react'
 import { acceptFriendRequest, removeFriendship } from '../../../entities/friendship'
 import {
   NOTIFICATION_TYPE_SETTINGS,
-  deleteNotification,
   fetchNotificationSettings,
   fetchNotifications,
   fetchUnreadCount,
-  markAllNotificationsRead,
-  markNotificationRead,
   notificationKeys,
   updateNotificationSettings,
+  useNotificationMutations,
   type NotificationItem,
   type NotificationSettingsData,
 } from '../../../entities/notification'
@@ -117,18 +115,9 @@ export function NotificationsBell() {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.list() })
   }
 
-  const readMutation = useMutation({
-    mutationFn: (id: string) => markNotificationRead(id),
-    onSuccess: invalidateAll,
-  })
-  const readAllMutation = useMutation({
-    mutationFn: markAllNotificationsRead,
-    onSuccess: invalidateAll,
-  })
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteNotification(id),
-    onSuccess: invalidateAll,
-  })
+  // Оптимистичные read / read-all / delete (общий хук entities/notification, §5.5):
+  // UI меняется мгновенно, сеть — в фоне.
+  const { readMutation, readAllMutation, deleteMutation } = useNotificationMutations()
   const settingsMutation = useMutation({
     mutationFn: (patch: Partial<NotificationSettingsData>) => updateNotificationSettings(patch),
     onSuccess: (data) => {
