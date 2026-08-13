@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import type Redis from 'ioredis'
 import { ChatType, Prisma } from '@prisma/client'
 import type {
   CreateChatInput,
@@ -9,6 +10,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -57,6 +59,9 @@ const MESSAGE_SELECT = {
 
 type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
 
+// Окно троттлинга провижининга официальных чатов на пользователя (см. ensureOfficialChatsThrottled).
+const CHAT_ENSURE_TTL_SECONDS = 600
+
 @Injectable()
 export class ChatsService {
   private readonly logger = new Logger(ChatsService.name)
@@ -68,6 +73,7 @@ export class ChatsService {
     private readonly files: FileService,
     private readonly posts: PostsService,
     private readonly config: ConfigService<EnvVars, true>,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   // ── Членство ────────────────────────────────────────────────────────────────
@@ -98,7 +104,7 @@ export class ChatsService {
   // ── Список чатов (9.5/9.6) ──────────────────────────────────────────────────
 
   async listChats(viewer: JwtPayload) {
-    await this.ensureOfficialChatsForUser(viewer)
+    await this.ensureOfficialChatsThrottled(viewer)
     const chats = await this.prisma.chat.findMany({
       // Забаненные (bannedAt != null) и скрытые «у себя» (hiddenAt != null) чаты в списке не показываем.
       where: { members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } } },
@@ -1303,6 +1309,30 @@ export class ChatsService {
   // ── Официальные чаты (9.6) ────────────────────────────────────────────────
 
   /** Лениво создаёт официальные чаты scope пользователя и добавляет его в участники. */
+  // Провижининг официальных чатов идемпотентен, но стоит ~30 последовательных запросов
+  // (findFirst+findUnique на каждый тип + чат каждого предмета). На горячем пути GET /chats
+  // это дорого на КАЖДОЙ загрузке мессенджера. Гейтим коротким Redis-флагом: провижиним не чаще
+  // раза в CHAT_ENSURE_TTL_SECONDS на пользователя (первая загрузка — как раньше; повторные —
+  // пропуск). Новый предмет в расписании подхватится в пределах окна. Redis недоступен →
+  // деградируем к прежнему поведению (провижиним каждый раз).
+  private async ensureOfficialChatsThrottled(user: JwtPayload): Promise<void> {
+    const key = `chat:ensured:${user.sub}`
+    let acquired = false
+    try {
+      acquired = (await this.redis.set(key, '1', 'EX', CHAT_ENSURE_TTL_SECONDS, 'NX')) !== null
+      if (!acquired) return
+    } catch {
+      /* Redis недоступен — не блокируем список, провижиним как прежде */
+    }
+    try {
+      await this.ensureOfficialChatsForUser(user)
+    } catch (error) {
+      // Провижининг не удался — снимаем флаг, чтобы следующий заход повторил попытку.
+      if (acquired) await this.redis.del(key).catch(() => undefined)
+      throw error
+    }
+  }
+
   async ensureOfficialChatsForUser(user: JwtPayload): Promise<void> {
     if (user.groupId) {
       await this.ensureOfficialChat(ChatType.GROUP_OFFICIAL, { groupId: user.groupId }, user.sub)
