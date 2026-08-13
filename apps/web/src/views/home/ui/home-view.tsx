@@ -8,7 +8,7 @@ export async function HomeView() {
   const t = await getTranslations('Dashboard')
 
   return (
-    <div className="mx-auto grid max-w-[1120px] grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <section className="flex flex-col gap-4">
         <PageHeader title={t('feedTitle')} />
         <FeedList />

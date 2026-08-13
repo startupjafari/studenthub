@@ -18,7 +18,7 @@ export function GroupsList({ title }: { title: string }) {
   const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title={title} />
       {groups.isLoading ? (
         <Skeleton className="h-40 w-full" />

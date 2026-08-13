@@ -70,7 +70,7 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
   ]
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       <PageHeader title={serviceName ?? t('title')} onBack={onBack} backLabel={t('backBtn')} />
       {q.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />

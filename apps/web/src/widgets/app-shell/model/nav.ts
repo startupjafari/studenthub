@@ -137,15 +137,22 @@ export const TEACHER_NAV: NavItem[] = [
   { key: 'events', href: '/teacher/events', icon: CalendarClock },
 ]
 
+// Староста — это студент с «преимуществом над группой»: у него ВСЕ студенческие
+// вкладки (личная учёба — те же экраны и роуты, что у студента), плюс отдельная
+// секция управления своей группой. Личные /starosta/{schedule,chats,events,applications}
+// раньше просто дублировали студенческие view — теперь ведём на общие студенческие роуты.
 export const STAROSTA_NAV: NavItem[] = [
-  { key: 'dashboard', href: '/starosta', icon: LayoutDashboard, exact: true },
-  { key: 'group', href: '/starosta/group', icon: Users },
-  { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap },
-  { key: 'schedule', href: '/starosta/schedule', icon: CalendarDays },
-  { key: 'applications', href: '/starosta/applications', icon: FileText },
-  { key: 'groupRequests', href: '/starosta/group-requests', icon: ClipboardList },
-  { key: 'invites', href: '/starosta/invites', icon: Send },
-  { key: 'chats', href: '/starosta/chats', icon: MessagesSquare },
+  ...STUDENT_NAV,
+  { key: 'dashboard', href: '/starosta', icon: LayoutDashboard, exact: true, group: 'starosta' },
+  { key: 'myGroup', href: '/starosta/group', icon: Users, group: 'starosta' },
+  { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap, group: 'starosta' },
+  {
+    key: 'groupRequests',
+    href: '/starosta/group-requests',
+    icon: ClipboardList,
+    group: 'starosta',
+  },
+  { key: 'invites', href: '/starosta/invites', icon: Send, group: 'starosta' },
 ]
 
 export const PLATFORM_ADMIN_NAV: NavItem[] = [

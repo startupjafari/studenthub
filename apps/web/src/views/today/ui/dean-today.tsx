@@ -70,7 +70,7 @@ export function DeanToday() {
 
   if (schedule.isLoading) {
     return (
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <Skeleton className="h-24 w-full rounded-xl" />
       </div>
@@ -78,7 +78,7 @@ export function DeanToday() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title={t('title')} subtitle={greetingDate} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

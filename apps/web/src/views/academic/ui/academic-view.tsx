@@ -73,7 +73,7 @@ export function AcademicView() {
   const loading = meQ.isLoading || gradesQ.isLoading || attQ.isLoading
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {loading ? (

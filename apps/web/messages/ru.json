@@ -23,7 +23,8 @@
       "main": "Основное",
       "study": "Учёба",
       "services": "Сервисы",
-      "communication": "Общение"
+      "communication": "Общение",
+      "starosta": "Староста"
     },
     "classmates": "Одногруппники",
     "universities": "Университеты",
@@ -56,7 +57,8 @@
     "appointments": "Деканат",
     "portfolio": "Портфолио",
     "studentId": "Студенческий",
-    "academic": "Успеваемость"
+    "academic": "Успеваемость",
+    "myGroup": "Моя группа"
   },
   "Invites": {
     "title": "Приглашения",
@@ -590,6 +592,10 @@
     "actions": "Действия",
     "unreadCount": "{count, plural, =0 {Нет непрочитанных} one {# непрочитанное} few {# непрочитанных} many {# непрочитанных} other {# непрочитанных}}",
     "filterAll": "Все",
+    "filterActionNeeded": "Требует действия",
+    "filterStudy": "Учёба",
+    "filterDeanery": "Деканат",
+    "filterSocial": "Социальное",
     "filterUnread": "Непрочитанные",
     "filterImportant": "Важные",
     "filterSystem": "Системные",
@@ -701,7 +707,8 @@
     "substituteDeferred": "Выбор заменяющего преподавателя появится после списка пользователей (Ф12).",
     "myScheduleTitle": "Моё расписание",
     "notYourPair": "Чужая пара — только просмотр",
-    "noScheduleTeacherHint": "Расписание группы создаёт деканат или админ вуза"
+    "noScheduleTeacherHint": "Расписание группы создаёт деканат или админ вуза",
+    "openDiscipline": "Открыть дисциплину"
   },
   "Applications": {
     "title": "Заявки",
@@ -1707,7 +1714,12 @@
     "tab": {
       "overview": "Обзор",
       "materials": "Материалы",
-      "participants": "Участники"
+      "participants": "Участники",
+      "schedule": "Расписание",
+      "assignments": "Задания",
+      "grades": "Оценки",
+      "attendance": "Посещаемость",
+      "chat": "Чат"
     },
     "teacher": "Преподаватель",
     "lessonsPerWeek": "Занятий в неделю",
@@ -1721,7 +1733,19 @@
     "file": "Файл {n}",
     "creditsCount": "{count, plural, one {# кредит} few {# кредита} many {# кредитов} other {# кредитов}}",
     "credits": "Кредиты",
-    "term": "Семестр"
+    "term": "Семестр",
+    "noPairs": "Занятий нет",
+    "weekOdd": "Нечёт",
+    "weekEven": "Чёт",
+    "noCourseLink": "Дисциплина ещё не привязана к курсу",
+    "noCourseLinkHint": "Задания появятся после настройки курса.",
+    "noAssignments": "Заданий нет",
+    "noGrades": "Оценок пока нет",
+    "average": "Средний балл",
+    "noAttendanceData": "Нет отметок посещаемости",
+    "chatTitle": "Чат дисциплины",
+    "chatHint": "Откройте групповой чат для обсуждения дисциплины.",
+    "openChat": "Открыть чат"
   },
   "CourseAdmin": {
     "title": "Дисциплины",
@@ -2035,6 +2059,12 @@
       "attendance": "Посещаемость",
       "submissionsPending": "Работ на проверке",
       "examsUpcoming": "Экзаменов впереди"
+    },
+    "riskStudents": "Студенты — требует внимания",
+    "reason": {
+      "lowAttendance": "Посещаемость {value}%",
+      "overdue": "Просрочено: {value}",
+      "lowGrades": "Средний {value}%"
     }
   },
   "Command": {
@@ -2047,7 +2077,9 @@
     "people": "Люди",
     "courses": "Дисциплины",
     "assignments": "Задания",
-    "materials": "Материалы"
+    "materials": "Материалы",
+    "events": "События",
+    "chats": "Чаты"
   },
   "Consultations": {
     "title": "Консультации",

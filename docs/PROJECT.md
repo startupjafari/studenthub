@@ -492,9 +492,9 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Цифровой студенческий** (Academic Core, задача 20) — `GET /student-id/me` (студент/староста: карта — ФИО/факультет/группа/№ билета/статус + подписанный QR TTL 5мин со ссылкой `/verify-id?t=`) · `GET /student-id/verify?token=` (сотрудник вуза: верификация карты по QR, scope — тот же вуз). Без новой модели (данные из `User`). Токен — HMAC (`common/crypto/signed-token`).
 
-**Поиск** (Academic Core, задача 22) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials }` (по 6). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
+**Поиск** (Academic Core, задача 22; расширен Unified UX PR-6) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials, events, chats }` (по 6). События — по названию в пределах вуза; чаты — только те, где смотрящий состоит (scope = членство). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
 
-**Аналитика декана** (Academic Core, задача 14) — read-only агрегаты (декан/админ вуза): `GET /analytics/faculty` (`?facultyId=` для админа; декан — свой факультет из JWT) → показатели (студенты, группы, посещаемость %, работ на проверке, экзаменов впереди) + посещаемость по группам + блок «требует внимания» (группы с посещаемостью < 60%) · `GET /analytics/group/:id/attendance` (drill-down: посещаемость по студентам группы). Без новых моделей — агрегация поверх `Attendance`/`Submission`/`Exam` в пределах scope.
+**Аналитика декана** (Academic Core, задача 14) — read-only агрегаты (декан/админ вуза): `GET /analytics/faculty` (`?facultyId=` для админа; декан — свой факультет из JWT) → показатели (студенты, группы, посещаемость %, работ на проверке, экзаменов впереди) + посещаемость по группам + блок «требует внимания» (группы с посещаемостью < 60%) · `GET /analytics/group/:id/attendance` (drill-down: посещаемость по студентам группы) · `GET /analytics/at-risk` (Early Warning, Unified UX PR-7: студенты «требует внимания» с ЯВНЫМИ причинами — `LOW_ATTENDANCE`<60% / `OVERDUE_ASSIGNMENTS` шт / `LOW_GRADES`<50%, каждая с числовым `value`; `severity` = число причин; без скрытого скоринга). Без новых моделей — агрегация поверх `Attendance`/`Submission`/`Grade`/`Exam` в пределах scope.
 
 **Экзамены** (Academic Core, задача 11) — `GET /exams` (по роли; фильтры `groupId/courseId/mine`; студент видит свою сессию + поле `myResult`) · `GET /exams/:id` · `POST /exams` (декан/препод: дисциплина+дата+формат+аудитория?+экзаменатор?) · `PATCH|DELETE /exams/:id` · `GET /exams/:id/results` (ведомость: студенты группы + результаты) · `PUT /exams/results` (массово: `{examId,entries:[{studentId,admitted,status,score?,note?}]}`). Формат: `ORAL|WRITTEN|TEST|PROJECT|OTHER`; статус результата: `SCHEDULED|PASSED|FAILED|ABSENT|RETAKE`; допуск — `admitted:boolean`; пересдача — `attempt`. Модели: `Exam` (courseId/groupId/examinerId?/roomId?/date/format/maxScore), `ExamResult` (`@@unique([examId,studentId])`).
 
@@ -517,6 +517,8 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 **Жалобы** — `POST /complaints` (Student/Starosta/Teacher, 10/час) · `GET /complaints` (Moderator+, scope) · `GET /complaints/:id` · `GET /complaints/:id/messages` (доступ к чату по жалобе, пишется в аудит) · `PATCH /complaints/:id/resolve` (DELETE_CONTENT / BLOCK_USER / DISMISS)
 
 **Аудит** — `GET /audit` (Moderator+/Admin, scope: платформа — всё, админ вуза — свой вуз, модератор — свои действия)
+
+**Мой день (BFF)** (Unified UX, PR-1 — см. `docs/UNIFIED_UX.md`) — `GET /me/today` (операционный экран «Сегодня»/Action Center по роли: `{ role, date, timezone, pairs, scheduleChanges, applications, events, assignments, notifications }`). Агрегирует существующие доменные сервисы (Schedules/Events/Notifications/Assignments/Applications) по scope роли, чтобы клиент делал один запрос вместо нескольких; заявки — только студенту/старосте; каждый источник устойчив к сбою (пустой дефолт). Output-only, без валидации входа.
 
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
@@ -559,6 +561,18 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | `schedule:changed` | `{ change, groupId }` |
 | `story:new` | `{ story }` |
 | `application:updated` | `{ applicationId, status }` |
+
+### 9.2a Единый конверт `event` (Unified UX PR-8/#12)
+
+Параллельно именованным событиям выше вводится **единый канал** `event` с конвертом
+`{ type, entityId, version, ts, data }`, где `type` — `domain.entity.action`
+(напр. `schedule.lesson.updated`, `notification.created`, `application.status.changed`,
+`grade.published`). Контракт — `@studenthub/shared-schemas` (`RealtimeEnvelope`,
+`REALTIME_CHANNEL`, `REALTIME_EVENTS`). Именованные события **не удаляются** — конверт
+эмитится рядом (`RealtimeGateway.emitEventToUser/emitEventToRoom`), клиенты мигрируют
+постепенно (`useRealtimeEnvelope(type, handler)`). Сейчас продублированы `schedule:changed`
+→ `schedule.lesson.updated` и `notification:new` → `notification.created`; остальные
+переводятся по мере надобности.
 
 ### 9.3 Комнаты
 
