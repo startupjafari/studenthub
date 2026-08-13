@@ -1,4 +1,5 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino'
 import { ZodValidationException } from 'nestjs-zod'
 import type { FastifyReply, FastifyRequest } from 'fastify'
@@ -44,6 +45,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
       status = exception.getStatus()
       code = errorCodeFromStatus(status)
       message = extractMessage(exception.getResponse()) ?? message
+    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      // Страховочный централизованный маппинг known-ошибок Prisma в корректный HTTP-контракт
+      // (§4.4): сервисы должны конвертировать сами, но там, где забыли, отдаём 409/404/400,
+      // а не 500. Тело записи наружу не отдаём — только человекочитаемый message.
+      const mapped = mapPrismaError(exception.code)
+      if (mapped) {
+        status = mapped.status
+        code = mapped.code
+        message = mapped.message
+      }
     }
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
@@ -63,6 +74,30 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     void reply.status(status).send(body)
+  }
+}
+
+// Маппинг кодов Prisma → HTTP-контракт. null = оставить 500 (неожиданная ошибка данных = баг).
+function mapPrismaError(
+  prismaCode: string,
+): { status: number; code: ErrorCode; message: string } | null {
+  switch (prismaCode) {
+    case 'P2002': // unique constraint
+      return {
+        status: HttpStatus.CONFLICT,
+        code: 'CONFLICT',
+        message: 'Запись с такими данными уже существует',
+      }
+    case 'P2025': // record not found (update/delete)
+      return { status: HttpStatus.NOT_FOUND, code: 'NOT_FOUND', message: 'Запись не найдена' }
+    case 'P2003': // foreign key constraint
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        code: 'BAD_REQUEST',
+        message: 'Нарушение ссылочной целостности',
+      }
+    default:
+      return null
   }
 }
 

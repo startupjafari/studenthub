@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import type {
@@ -51,6 +51,8 @@ const unreadKey = (userId: string): string => `notif:unread:${userId}`
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -75,14 +77,25 @@ export class NotificationsService {
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
 
-  /** Число непрочитанных с Redis-кэшем. */
+  /**
+   * Число непрочитанных с Redis-кэшем. Кэш — best-effort: при недоступном Redis не роняем
+   * и не подвешиваем постоянно опрашиваемый эндпоинт колокольчика, а считаем по БД.
+   */
   async unreadCount(userId: string): Promise<{ count: number }> {
-    const cached = await this.redis.get(unreadKey(userId))
-    if (cached !== null) {
-      return { count: Number(cached) }
+    try {
+      const cached = await this.redis.get(unreadKey(userId))
+      if (cached !== null) {
+        return { count: Number(cached) }
+      }
+    } catch (error) {
+      this.logger.warn({ err: error, userId }, 'Redis недоступен — unreadCount по БД')
     }
     const count = await this.prisma.notification.count({ where: { userId, isRead: false } })
-    await this.redis.set(unreadKey(userId), String(count), 'EX', UNREAD_TTL_SECONDS)
+    try {
+      await this.redis.set(unreadKey(userId), String(count), 'EX', UNREAD_TTL_SECONDS)
+    } catch {
+      /* кэш best-effort: промах записи не критичен */
+    }
     return { count }
   }
 
@@ -150,8 +163,15 @@ export class NotificationsService {
     })
   }
 
-  /** Сбросить кэш непрочитанных — вызывается при создании (процессор) и мутациях. */
+  /**
+   * Сбросить кэш непрочитанных — вызывается при создании (процессор) и мутациях.
+   * best-effort: при недоступном Redis не роняем мутацию (кэш протухнет по TTL).
+   */
   async invalidateUnread(userId: string): Promise<void> {
-    await this.redis.del(unreadKey(userId))
+    try {
+      await this.redis.del(unreadKey(userId))
+    } catch (error) {
+      this.logger.warn({ err: error, userId }, 'Redis недоступен — пропуск инвалидации кэша')
+    }
   }
 }
