@@ -562,6 +562,18 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | `story:new` | `{ story }` |
 | `application:updated` | `{ applicationId, status }` |
 
+### 9.2a Единый конверт `event` (Unified UX PR-8/#12)
+
+Параллельно именованным событиям выше вводится **единый канал** `event` с конвертом
+`{ type, entityId, version, ts, data }`, где `type` — `domain.entity.action`
+(напр. `schedule.lesson.updated`, `notification.created`, `application.status.changed`,
+`grade.published`). Контракт — `@studenthub/shared-schemas` (`RealtimeEnvelope`,
+`REALTIME_CHANNEL`, `REALTIME_EVENTS`). Именованные события **не удаляются** — конверт
+эмитится рядом (`RealtimeGateway.emitEventToUser/emitEventToRoom`), клиенты мигрируют
+постепенно (`useRealtimeEnvelope(type, handler)`). Сейчас продублированы `schedule:changed`
+→ `schedule.lesson.updated` и `notification:new` → `notification.created`; остальные
+переводятся по мере надобности.
+
 ### 9.3 Комнаты
 
 | Комната | Когда вход |
