@@ -2059,6 +2059,12 @@
       "attendance": "Қатысу",
       "submissionsPending": "Тексерудегі жұмыстар",
       "examsUpcoming": "Алдағы емтихандар"
+    },
+    "riskStudents": "Студенттер — назар қажет",
+    "reason": {
+      "lowAttendance": "Қатысу {value}%",
+      "overdue": "Мерзімі өтті: {value}",
+      "lowGrades": "Орташа {value}%"
     }
   },
   "Command": {
