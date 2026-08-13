@@ -23,6 +23,10 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   notificationKeys,
+  notificationCategory,
+  isActionable,
+  notificationUrl,
+  notificationActionKey,
   type NotificationItem,
   type NotificationType,
 } from '../../../entities/notification'
@@ -65,10 +69,9 @@ const TYPE_META: Record<NotificationType, { icon: LucideIcon; bar: string; iconW
   },
 }
 
-// «Важные» — типы, напрямую затрагивающие студента (дедлайны/статусы). Чисто клиентский фильтр.
-const IMPORTANT_TYPES = new Set<NotificationType>(['SCHEDULE_CHANGE', 'APP_UPDATE'])
-
-type Filter = 'all' | 'unread' | 'important' | 'system'
+// Центр активности: продуктовые категории поверх грубого NotificationType (docs/UNIFIED_UX.md PR-2).
+// «action» — сводный фильтр «требует действия» (не категория, а срез по isActionable).
+type Filter = 'all' | 'action' | 'study' | 'deanery' | 'social' | 'system'
 
 // Панель уведомлений (оверлей сайдбара). Заполняет родителя; закрывается кнопкой «назад» (onClose).
 // Основная область при этом остаётся на текущей странице — уведомления не отдельный роут.
@@ -97,21 +100,30 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
 
   const items = useMemo(() => list.data ?? [], [list.data])
   const unread = items.filter((n) => !n.isRead).length
-  const importantCount = items.filter((n) => IMPORTANT_TYPES.has(n.type)).length
-  const systemCount = items.filter((n) => n.type === 'SYSTEM').length
+
+  // Счётчики продуктовых категорий + «требует действия» (один проход).
+  const counts = useMemo(() => {
+    const c = { all: items.length, action: 0, study: 0, deanery: 0, social: 0, system: 0 }
+    for (const n of items) {
+      if (isActionable(n)) c.action += 1
+      c[notificationCategory(n)] += 1
+    }
+    return c
+  }, [items])
 
   const tabs: { key: Filter; label: string; count: number }[] = [
-    { key: 'all', label: t('filterAll'), count: items.length },
-    { key: 'unread', label: t('filterUnread'), count: unread },
-    { key: 'important', label: t('filterImportant'), count: importantCount },
-    { key: 'system', label: t('filterSystem'), count: systemCount },
+    { key: 'all', label: t('filterAll'), count: counts.all },
+    { key: 'action', label: t('filterActionNeeded'), count: counts.action },
+    { key: 'study', label: t('filterStudy'), count: counts.study },
+    { key: 'deanery', label: t('filterDeanery'), count: counts.deanery },
+    { key: 'social', label: t('filterSocial'), count: counts.social },
+    { key: 'system', label: t('filterSystem'), count: counts.system },
   ]
 
   const filtered = items.filter((n) => {
-    if (filter === 'unread') return !n.isRead
-    if (filter === 'important') return IMPORTANT_TYPES.has(n.type)
-    if (filter === 'system') return n.type === 'SYSTEM'
-    return true
+    if (filter === 'all') return true
+    if (filter === 'action') return isActionable(n)
+    return notificationCategory(n) === filter
   })
 
   // Группировка по дню: Сегодня / Вчера / дата. Элементы уже отсортированы сервером (createdAt desc).
@@ -166,7 +178,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   // Пересчёт при изменении набора/счётчиков (меняется суммарная ширина тегов).
   useEffect(() => {
     syncArrows()
-  }, [syncArrows, items.length, unread, importantCount, systemCount])
+  }, [syncArrows, counts])
   const canScroll = arrows.left || arrows.right
   function scrollTabs(dir: 1 | -1): void {
     const el = tabsRef.current
@@ -336,6 +348,19 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                             {n.body}
                           </p>
+                        )}
+                        {/* Прямое действие уведомления (deep-link). Строку целиком открывает onOpen —
+                            здесь только визуальный affordance с глаголом; выделяем, если требует действия. */}
+                        {notificationUrl(n) && (
+                          <span
+                            className={cn(
+                              'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
+                              isActionable(n) ? 'text-primary' : 'text-muted-foreground',
+                            )}
+                          >
+                            {t(notificationActionKey(n))}
+                            <ChevronRight className="size-3.5" aria-hidden />
+                          </span>
                         )}
                       </div>
                     </button>
