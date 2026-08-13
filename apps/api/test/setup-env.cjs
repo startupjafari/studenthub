@@ -17,3 +17,5 @@ if (fs.existsSync(envPath)) {
 
 process.env.DATABASE_URL = readTestDbUrl()
 process.env.NODE_ENV = 'test'
+// В e2e привилегированные роли используются без 2FA — форс выключаем (в проде по умолчанию включён).
+process.env.TWO_FACTOR_ENFORCE = 'false'

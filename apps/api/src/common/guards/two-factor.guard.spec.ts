@@ -1,7 +1,9 @@
 import type { ExecutionContext } from '@nestjs/common'
+import type { ConfigService } from '@nestjs/config'
 import type { Reflector } from '@nestjs/core'
 import { Role } from '@studenthub/shared-types'
 import { TwoFactorGuard } from './two-factor.guard'
+import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../auth/jwt-payload.type'
 
 function ctxFor(user: JwtPayload | undefined): ExecutionContext {
@@ -12,9 +14,13 @@ function ctxFor(user: JwtPayload | undefined): ExecutionContext {
   } as unknown as ExecutionContext
 }
 
-function guardWith(exempt: boolean) {
+function guardWith(exempt: boolean, enforce = true) {
   const reflector = { getAllAndOverride: jest.fn().mockReturnValue(exempt) } as unknown as Reflector
-  return new TwoFactorGuard(reflector)
+  const config = { get: jest.fn().mockReturnValue(enforce) } as unknown as ConfigService<
+    EnvVars,
+    true
+  >
+  return new TwoFactorGuard(reflector, config)
 }
 
 const user = (role: Role, tfa: boolean): JwtPayload => ({
@@ -52,5 +58,10 @@ describe('TwoFactorGuard', () => {
   it('публичный роут (нет пользователя) → пропускает', () => {
     const guard = guardWith(false)
     expect(guard.canActivate(ctxFor(undefined))).toBe(true)
+  })
+
+  it('форс выключен (TWO_FACTOR_ENFORCE=false) → пропускает даже привилегированную роль без 2FA', () => {
+    const guard = guardWith(false, false)
+    expect(guard.canActivate(ctxFor(user(Role.DEAN, false)))).toBe(true)
   })
 })
