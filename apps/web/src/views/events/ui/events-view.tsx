@@ -43,7 +43,7 @@ export function EventsView() {
   })
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title={t('title')} />
 
       {role !== null && role !== Role.PLATFORM_MODERATOR && role !== Role.UNIVERSITY_MODERATOR && (

@@ -71,7 +71,7 @@ export function TeacherToday() {
 
   if (schedule.isLoading) {
     return (
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <Skeleton className="h-40 w-full rounded-xl" />
       </div>
@@ -80,7 +80,7 @@ export function TeacherToday() {
 
   if (schedule.isError) {
     return (
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <EmptyState
           icon={<Inbox />}
@@ -92,7 +92,7 @@ export function TeacherToday() {
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-[1120px] grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="flex min-w-0 flex-col gap-4">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <NextPairCard
