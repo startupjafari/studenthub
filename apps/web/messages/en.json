@@ -605,6 +605,7 @@
     "VALIDATION_ERROR": "Check the form fields",
     "RATE_LIMIT": "Too many attempts, wait a moment",
     "INTERNAL_ERROR": "Server error",
+    "INVALID_2FA_CODE": "Invalid code",
     "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required"
   },
   "Notifications": {
