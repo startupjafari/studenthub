@@ -331,3 +331,28 @@ summary {
       0 0;
   }
 }
+
+/* Сканирующая линия в окне QR-сканера (Kaspi-стиль): бегает сверху вниз внутри рамки. */
+@keyframes sh-scanline {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  10%,
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(var(--sh-scan-range, 240px));
+    opacity: 0;
+  }
+}
+.sh-scanline {
+  animation: sh-scanline 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sh-scanline {
+    animation: none;
+    opacity: 0;
+  }
+}
