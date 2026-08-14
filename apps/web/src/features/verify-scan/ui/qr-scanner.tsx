@@ -3,32 +3,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CameraOff, Loader2, ScanLine } from 'lucide-react'
+import QrScannerLib from 'qr-scanner'
 
-// Нативный BarcodeDetector (Chrome/Edge/Android) — сканируем QR прямо в приложении, без
-// внешней зависимости. На браузерах без поддержки (iOS Safari/Firefox) — понятный фолбэк:
-// QR всё равно ведёт на /verify-id?t=…, поэтому подходит и обычная камера телефона.
-interface DetectedBarcode {
-  rawValue: string
-}
-interface BarcodeDetectorLike {
-  detect(source: CanvasImageSource): Promise<DetectedBarcode[]>
-}
-interface BarcodeDetectorCtor {
-  new (opts?: { formats?: string[] }): BarcodeDetectorLike
-}
-declare global {
-  interface Window {
-    BarcodeDetector?: BarcodeDetectorCtor
-  }
-}
-
-type ScanState = 'starting' | 'scanning' | 'unsupported' | 'denied' | 'error'
+// Кросс-браузерное сканирование QR в приложении: библиотека qr-scanner сама управляет камерой
+// (getUserMedia), декодирует в воркере и корректно работает в Safari/iOS и Chrome (в отличие от
+// нативного BarcodeDetector, которого в Safari/Firefox нет). Компонент грузится лениво
+// (next/dynamic в verify-id-view), поэтому библиотека не попадает в бандлы других экранов.
+type ScanState = 'starting' | 'scanning' | 'denied' | 'error'
 
 // Достаёт токен из содержимого QR: это URL вида `…/verify-id?t=<token>`.
 function extractToken(raw: string): string | null {
   try {
-    const u = new URL(raw)
-    return u.searchParams.get('t')
+    return new URL(raw).searchParams.get('t')
   } catch {
     const q = raw.split('?')[1]
     return q ? new URLSearchParams(q).get('t') : null
@@ -45,76 +31,50 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
   onTokenRef.current = onToken
 
   useEffect(() => {
-    if (
-      typeof window === 'undefined' ||
-      !('BarcodeDetector' in window) ||
-      !window.BarcodeDetector
-    ) {
-      setState('unsupported')
-      return
-    }
-    let stream: MediaStream | null = null
-    let raf = 0
+    const video = videoRef.current
+    if (!video) return
     let stopped = false
-    const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
 
-    const cleanup = (): void => {
-      cancelAnimationFrame(raf)
-      stream?.getTracks().forEach((tr) => tr.stop())
-    }
-
-    const scan = async (): Promise<void> => {
-      const video = videoRef.current
-      if (stopped || !video) return
-      try {
-        const codes = await detector.detect(video)
-        const raw = codes[0]?.rawValue
-        if (raw) {
-          const token = extractToken(raw)
-          if (token) {
-            stopped = true
-            cleanup()
-            onTokenRef.current(token)
-            return
-          }
+    const scanner = new QrScannerLib(
+      video,
+      (result) => {
+        if (stopped) return
+        const token = extractToken(result.data)
+        if (token) {
+          stopped = true
+          scanner.stop()
+          onTokenRef.current(token)
         }
-      } catch {
-        /* один кадр не распознан — не критично, пробуем следующий */
-      }
-      raf = requestAnimationFrame(() => void scan())
-    }
+      },
+      {
+        preferredCamera: 'environment',
+        maxScansPerSecond: 5,
+        highlightScanRegion: false,
+        highlightCodeOutline: false,
+        returnDetailedScanResult: true,
+      },
+    )
 
-    const start = async (): Promise<void> => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        })
-        if (stopped) {
-          stream.getTracks().forEach((tr) => tr.stop())
-          return
-        }
-        const video = videoRef.current
-        if (!video) return
-        video.srcObject = stream
-        await video.play()
-        setState('scanning')
-        void scan()
-      } catch (e) {
-        setState((e as Error)?.name === 'NotAllowedError' ? 'denied' : 'error')
-      }
-    }
+    scanner
+      .start()
+      .then(() => {
+        if (!stopped) setState('scanning')
+      })
+      .catch((e: unknown) => {
+        const msg = (e instanceof Error ? `${e.name} ${e.message}` : String(e)).toLowerCase()
+        const denied = msg.includes('allow') || msg.includes('permission') || msg.includes('denied')
+        setState(denied ? 'denied' : 'error')
+      })
 
-    void start()
     return () => {
       stopped = true
-      cleanup()
+      scanner.stop()
+      scanner.destroy()
     }
   }, [])
 
-  if (state === 'unsupported' || state === 'denied' || state === 'error') {
-    const key =
-      state === 'denied' ? 'scanDenied' : state === 'unsupported' ? 'scanUnsupported' : 'scanError'
+  if (state === 'denied' || state === 'error') {
+    const key = state === 'denied' ? 'scanDenied' : 'scanError'
     return (
       <div className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-muted/30 p-8 text-center">
         <CameraOff className="size-9 text-muted-foreground" aria-hidden />
@@ -135,7 +95,7 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
       />
       {/* Рамка наведения. */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div className="relative size-2/3 rounded-2xl">
+        <div className="relative size-2/3">
           {['left-0 top-0', 'right-0 top-0', 'left-0 bottom-0', 'right-0 bottom-0'].map(
             (pos, i) => (
               <span
