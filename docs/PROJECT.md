@@ -576,9 +576,12 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 `grade.published`). Контракт — `@studenthub/shared-schemas` (`RealtimeEnvelope`,
 `REALTIME_CHANNEL`, `REALTIME_EVENTS`). Именованные события **не удаляются** — конверт
 эмитится рядом (`RealtimeGateway.emitEventToUser/emitEventToRoom`), клиенты мигрируют
-постепенно (`useRealtimeEnvelope(type, handler)`). Сейчас продублированы `schedule:changed`
-→ `schedule.lesson.updated` и `notification:new` → `notification.created`; остальные
-переводятся по мере надобности.
+постепенно (`useRealtimeEnvelope(type, handler)`). Продублированы `schedule:changed`
+→ `schedule.lesson.updated` и `notification:new` → `notification.created`. Реализованы
+поверх конверта (без именованного дубля): **`application.status.changed`** (`{ status }` →
+владельцу заявки при каждом переходе, вкл. запрос замены документа) и **`grade.published`**
+(`{ columnId }` → каждому студенту с оценкой при публикации колонки журнала). Оба — точечно
+в user-комнату, payload минимальный, без PII; клиент делает узкий `invalidateQueries`.
 
 ### 9.3 Комнаты
 

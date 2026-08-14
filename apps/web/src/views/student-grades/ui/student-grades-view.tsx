@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { GraduationCap, Inbox } from 'lucide-react'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
@@ -15,6 +16,7 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
+import { useRealtimeEnvelope } from '../../../shared/realtime'
 
 // Процент по дисциплине: среднее (score/maxScore) по колонкам с баллом. null — нет оценок.
 function coursePercent(c: MyGradesCourse): number | null {
@@ -32,7 +34,13 @@ function toneClass(pct: number): string {
 // «Оценки» студента (задача 8): карточки дисциплин + общий балл. Только опубликованные оценки.
 export function StudentGradesView() {
   const t = useTranslations('Grades')
+  const qc = useQueryClient()
   const q = useQuery({ queryKey: gradebookKeys.me(), queryFn: () => fetchMyGrades() })
+
+  // Realtime: преподаватель опубликовал колонку с моей оценкой → обновляем «Оценки» без опроса.
+  useRealtimeEnvelope(REALTIME_EVENTS.gradePublished, () => {
+    void qc.invalidateQueries({ queryKey: gradebookKeys.me() })
+  })
 
   const overall = useMemo(() => {
     const courses = q.data ?? []

@@ -1,10 +1,15 @@
 import { Injectable } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
-import { canTransition, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
+import {
+  canTransition,
+  REALTIME_EVENTS,
+  type ApplicationServiceStatus,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
+import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
 
@@ -37,6 +42,7 @@ export class ApplicationProcessService {
     private readonly prisma: PrismaService,
     private readonly policy: ApplicationPolicy,
     private readonly queue: QueueService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /** Взять в работу: SUBMITTED/RESUBMITTED → IN_REVIEW, назначить на себя. */
@@ -265,6 +271,11 @@ export class ApplicationProcessService {
         `${to}:${eventId}`,
       )
     }
+    // Realtime: точечно уведомляем владельца заявки об изменении статуса — окно заявки
+    // обновляется вживую (без опроса). Payload минимальный (только статус), без PII.
+    this.realtime.emitEventToUser(app.studentId, REALTIME_EVENTS.applicationStatusChanged, app.id, {
+      status: to,
+    })
     return updated
   }
 
