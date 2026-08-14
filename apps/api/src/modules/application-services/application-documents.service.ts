@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common'
-import { canTransition, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
+import {
+  canTransition,
+  REALTIME_EVENTS,
+  type ApplicationServiceStatus,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
+import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
@@ -19,6 +24,7 @@ export class ApplicationDocumentsService {
     private readonly policy: ApplicationPolicy,
     private readonly files: FileService,
     private readonly queue: QueueService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /** Приложить документ из хранилища к требованию (или заменить существующий — та же строка). */
@@ -175,6 +181,10 @@ export class ApplicationDocumentsService {
       },
       { jobId: `NEEDS_CORRECTION:${eventId}` },
     )
+    // Realtime: окно заявки у студента обновляется вживую (перевод в NEEDS_CORRECTION).
+    this.realtime.emitEventToUser(app.studentId, REALTIME_EVENTS.applicationStatusChanged, appId, {
+      status: 'NEEDS_CORRECTION',
+    })
     return null
   }
 
