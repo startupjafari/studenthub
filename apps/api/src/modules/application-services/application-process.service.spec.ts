@@ -37,12 +37,14 @@ const dean: JwtPayload = {
 function setup(appRow: Record<string, unknown>) {
   const prisma = makePrisma(appRow)
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  const realtime = { emitEventToUser: jest.fn() }
   const service = new ApplicationProcessService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     queue as unknown as QueueService,
+    realtime as never,
   )
-  return { service, prisma, queue }
+  return { service, prisma, queue, realtime }
 }
 
 const base = {

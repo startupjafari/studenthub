@@ -51,11 +51,13 @@ function setup() {
   }
   const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://url') }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  const realtime = { emitEventToUser: jest.fn() }
   const service = new ApplicationDocumentsService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     files as unknown as FileService,
     queue as unknown as QueueService,
+    realtime as never,
   )
   return {
     service,
@@ -65,6 +67,7 @@ function setup() {
     applicationDocument,
     applicationEvent,
     queue,
+    realtime,
   }
 }
 
@@ -174,8 +177,8 @@ describe('ApplicationDocumentsService.review', () => {
 
   // Регрессия: запрос замены документа обязан уведомить студента (иначе заявка молча
   // застревала в NEEDS_CORRECTION).
-  it('request-replacement → уведомляет студента', async () => {
-    const { service, application, applicationDocument, queue } = setup()
+  it('request-replacement → уведомляет студента (job + realtime-событие)', async () => {
+    const { service, application, applicationDocument, queue, realtime } = setup()
     application.findFirst.mockResolvedValue({
       studentId: 'stud',
       facultyId: 'fac',
@@ -189,6 +192,13 @@ describe('ApplicationDocumentsService.review', () => {
       expect.any(String),
       expect.objectContaining({ recipientIds: ['stud'], type: 'APP_UPDATE' }),
       expect.objectContaining({ jobId: expect.stringContaining('NEEDS_CORRECTION') }),
+    )
+    // Realtime — точечно владельцу заявки, минимальный payload (статус, без PII).
+    expect(realtime.emitEventToUser).toHaveBeenCalledWith(
+      'stud',
+      'application.status.changed',
+      'a1',
+      { status: 'NEEDS_CORRECTION' },
     )
   })
 
