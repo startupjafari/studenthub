@@ -2,8 +2,8 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
-import { BadgeCheck, Info, Loader2, TriangleAlert } from 'lucide-react'
+import { useLocale, useTranslations } from 'next-intl'
+import { BadgeCheck, Clock, Info, Loader2, TriangleAlert } from 'lucide-react'
 import { Card, CardContent } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
@@ -14,6 +14,7 @@ import { StudentIdCardFace } from './student-id-card'
 export function VerifyIdView() {
   const t = useTranslations('StudentId')
   const tErr = useTranslations('Errors')
+  const locale = useLocale()
   const params = useSearchParams()
   const token = params.get('t') ?? ''
 
@@ -55,13 +56,26 @@ export function VerifyIdView() {
     )
   }
 
+  const verifiedTime = new Date(q.data.verifiedAt).toLocaleString(locale, {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4">
-      <div className="flex items-center justify-center gap-2 rounded-xl bg-success/10 p-3 text-sm font-medium text-success">
+      {/* Явный визуальный статус «✓ Подтверждено StudentHub». */}
+      <div className="flex items-center justify-center gap-2 rounded-xl bg-success/10 p-3 text-sm font-semibold text-success">
         <BadgeCheck className="size-5" aria-hidden />
-        {t('verifyValid')}
+        {t('verifiedBadge')}
       </div>
       <StudentIdCardFace card={q.data} />
+      {/* Время проверки. */}
+      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+        <Clock className="size-3.5" aria-hidden />
+        {t('verifiedAt', { time: verifiedTime })}
+      </div>
     </div>
   )
 }

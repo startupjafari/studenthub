@@ -2261,7 +2261,16 @@
     "verifyFailed": "Verification failed",
     "verifyFailedHint": "The code is invalid or expired.",
     "verifyNoToken": "No code to verify",
-    "verifyNoTokenHint": "Scan the QR on the student ID card."
+    "verifyNoTokenHint": "Scan the QR on the student ID card.",
+    "statusActive": "Active · Enrolled",
+    "course": "Year",
+    "cardNumber": "ID number",
+    "validUntil": "Valid until",
+    "refreshIn": "Refreshes in {s}s",
+    "qrEnlarge": "Enlarge QR",
+    "qrTitle": "Student ID QR",
+    "verifiedBadge": "✓ Verified by StudentHub",
+    "verifiedAt": "Verified: {time}"
   },
   "Academic": {
     "title": "Academic profile",

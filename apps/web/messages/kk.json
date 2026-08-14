@@ -2261,7 +2261,16 @@
     "verifyFailed": "Растау мүмкін болмады",
     "verifyFailedHint": "Код жарамсыз немесе мерзімі өткен.",
     "verifyNoToken": "Тексеруге код жоқ",
-    "verifyNoTokenHint": "Студенттік билеттегі QR-ды сканерлеңіз."
+    "verifyNoTokenHint": "Студенттік билеттегі QR-ды сканерлеңіз.",
+    "statusActive": "Белсенді · Оқуда",
+    "course": "Курс",
+    "cardNumber": "Билет №",
+    "validUntil": "Жарамды дейін",
+    "refreshIn": "{s} с кейін жаңарады",
+    "qrEnlarge": "QR-ды үлкейту",
+    "qrTitle": "Студенттік QR",
+    "verifiedBadge": "✓ StudentHub растады",
+    "verifiedAt": "Тексерілді: {time}"
   },
   "Academic": {
     "title": "Академиялық профиль",
