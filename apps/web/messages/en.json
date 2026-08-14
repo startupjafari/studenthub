@@ -57,6 +57,7 @@
     "appointments": "Dean office",
     "portfolio": "Portfolio",
     "studentId": "Student ID",
+    "verifyId": "Verify ID",
     "academic": "Performance",
     "myGroup": "My group"
   },
@@ -2270,7 +2271,17 @@
     "qrEnlarge": "Enlarge QR",
     "qrTitle": "Student ID QR",
     "verifiedBadge": "✓ Verified by StudentHub",
-    "verifiedAt": "Verified: {time}"
+    "verifiedAt": "Verified: {time}",
+    "scanTitle": "Verify student ID",
+    "scanHint": "Point the camera at the student ID QR code",
+    "scanStarting": "Starting camera…",
+    "scanAnother": "Verify another",
+    "scanUnsupported": "Scanner not supported in this browser",
+    "scanUnsupportedHint": "Open the QR with your phone camera — the link opens the verification page.",
+    "scanDenied": "Camera access denied",
+    "scanDeniedHint": "Allow camera access in your browser settings and reload the page.",
+    "scanError": "Couldn't start the camera",
+    "scanErrorHint": "Make sure the camera isn't used by another app and try again."
   },
   "Academic": {
     "title": "Academic profile",
