@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Inbox } from 'lucide-react'
-import type { ApplicationServiceStatus } from '@studenthub/shared-schemas'
+import { REALTIME_EVENTS, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
   fetchApplications,
@@ -12,6 +12,7 @@ import {
   type ApplicationListItem,
 } from '../../../entities/application-service'
 import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { useRealtimeEnvelope } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
 import { ApplicationCard } from './application-card'
 import { ApplicationDetail } from './application-detail'
@@ -51,6 +52,12 @@ export function StudentApplicationsView() {
   const q = useQuery({
     queryKey: applicationKeys.list({ limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }),
     queryFn: () => fetchApplications({ limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }),
+  })
+
+  // Realtime: сотрудник сменил статус заявки → WS-событие владельцу; обновляем список и
+  // открытую деталь без опроса (invalidate по префиксу applicationKeys.all).
+  useRealtimeEnvelope(REALTIME_EVENTS.applicationStatusChanged, () => {
+    void qc.invalidateQueries({ queryKey: applicationKeys.all })
   })
 
   // Prefetch детали заявки при наведении/фокусе карточки (принцип 3) — открытие мгновенное.

@@ -10,6 +10,7 @@ export interface StudentIdCard {
   academicStatus: string | null
   educationLevel: string | null
   studyForm: string | null
+  course: number | null
   enrollmentYear: number | null
   graduationYear: number | null
   group: string | null
@@ -27,4 +28,5 @@ export interface MyStudentId extends StudentIdCard {
 
 export interface VerifiedStudentId extends StudentIdCard {
   valid: boolean
+  verifiedAt: string
 }
