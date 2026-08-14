@@ -1,13 +1,27 @@
 'use client'
 
+import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { BadgeCheck, Clock, Info, Loader2, TriangleAlert } from 'lucide-react'
-import { Card, CardContent } from '../../../shared/ui'
+import { BadgeCheck, Clock, Info, Loader2, ScanLine, TriangleAlert } from 'lucide-react'
+import { Role } from '@studenthub/shared-types'
+import { Button, Card, CardContent, PageHeader } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { useAppSelector } from '../../../shared/store'
+import { QrScanner } from '../../../features/verify-scan'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
 import { StudentIdCardFace } from './student-id-card'
+
+// Роли, которым доступна проверка студенческого (сканер внутри приложения).
+const STAFF_ROLES: Role[] = [
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+  Role.TEACHER,
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+]
 
 // Верификация студенческого сотрудником (задача 20): камера открывает /verify-id?t=…,
 // показываем подлинную карту с зелёной отметкой или ошибку.
@@ -15,8 +29,12 @@ export function VerifyIdView() {
   const t = useTranslations('StudentId')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  const role = useAppSelector((s) => s.auth.role)
   const params = useSearchParams()
-  const token = params.get('t') ?? ''
+  // Токен либо из ссылки (?t=, скан внешней камерой), либо из встроенного сканера.
+  const [scanned, setScanned] = useState<string | null>(null)
+  const token = params.get('t') ?? scanned ?? ''
+  const isStaff = role != null && STAFF_ROLES.includes(role)
 
   const q = useQuery({
     queryKey: studentIdKeys.verify(token),
@@ -25,7 +43,16 @@ export function VerifyIdView() {
     retry: false,
   })
 
+  // Нет токена: сотруднику показываем встроенный сканер камеры; остальным — подсказку.
   if (!token) {
+    if (isStaff) {
+      return (
+        <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+          <PageHeader title={t('scanTitle')} subtitle={t('scanHint')} />
+          <QrScanner onToken={setScanned} />
+        </div>
+      )
+    }
     return (
       <CenterCard>
         <Info className="size-10 text-muted-foreground" aria-hidden />
@@ -52,6 +79,12 @@ export function VerifyIdView() {
         <p className="text-sm text-muted-foreground">
           {q.error ? tErr(toApiError(q.error).code) : t('verifyFailedHint')}
         </p>
+        {scanned && (
+          <Button variant="outline" onClick={() => setScanned(null)}>
+            <ScanLine className="size-4" aria-hidden />
+            {t('scanAnother')}
+          </Button>
+        )}
       </CenterCard>
     )
   }
@@ -76,6 +109,13 @@ export function VerifyIdView() {
         <Clock className="size-3.5" aria-hidden />
         {t('verifiedAt', { time: verifiedTime })}
       </div>
+      {/* После скана внутри приложения — проверить следующего студента. */}
+      {scanned && (
+        <Button variant="outline" className="self-center" onClick={() => setScanned(null)}>
+          <ScanLine className="size-4" aria-hidden />
+          {t('scanAnother')}
+        </Button>
+      )}
     </div>
   )
 }
