@@ -1,13 +1,15 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type {
-  CreateGradeColumnInput,
-  SaveGradesInput,
-  UpdateGradeColumnInput,
+import {
+  REALTIME_EVENTS,
+  type CreateGradeColumnInput,
+  type SaveGradesInput,
+  type UpdateGradeColumnInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
+import { RealtimeGateway } from '../../common/realtime'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -33,6 +35,7 @@ export class GradebookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /** Журнал дисциплины (преподаватель): колонки + студенты + матрица оценок. */
@@ -116,6 +119,19 @@ export class GradebookService {
       id,
       ctx,
     )
+    // Realtime: при публикации колонки точечно уведомляем студентов, у кого есть оценка в ней —
+    // экран «Оценки» обновляется вживую. Payload минимальный (только columnId), без значений.
+    if (published) {
+      const graded = await this.prisma.grade.findMany({
+        where: { columnId: id },
+        select: { studentId: true },
+      })
+      for (const g of graded) {
+        this.realtime.emitEventToUser(g.studentId, REALTIME_EVENTS.gradePublished, id, {
+          columnId: id,
+        })
+      }
+    }
     return column
   }
 
