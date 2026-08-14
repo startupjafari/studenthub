@@ -605,6 +605,7 @@
     "VALIDATION_ERROR": "Өрістерді тексеріңіз",
     "RATE_LIMIT": "Тым көп әрекет, күте тұрыңыз",
     "INTERNAL_ERROR": "Сервер қатесі",
+    "INVALID_2FA_CODE": "Қате код",
     "TWO_FACTOR_SETUP_REQUIRED": "Екі факторлы аутентификацияны баптау қажет"
   },
   "Notifications": {

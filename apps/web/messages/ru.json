@@ -605,6 +605,7 @@
     "VALIDATION_ERROR": "Проверьте правильность полей",
     "RATE_LIMIT": "Слишком много попыток, подождите",
     "INTERNAL_ERROR": "Ошибка сервера",
+    "INVALID_2FA_CODE": "Неверный код",
     "TWO_FACTOR_SETUP_REQUIRED": "Требуется настроить двухфакторную аутентификацию"
   },
   "Notifications": {
