@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { BadgeCheck, Clock, Info, Loader2, ScanLine, TriangleAlert } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
-import { Button, Card, CardContent, PageHeader, Skeleton } from '../../../shared/ui'
+import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
@@ -17,7 +17,7 @@ import { StudentIdCardFace } from './student-id-card'
 // пока сотрудник не откроет проверку без токена.
 const QrScanner = dynamic(() => import('../../../features/verify-scan').then((m) => m.QrScanner), {
   ssr: false,
-  loading: () => <Skeleton className="aspect-square w-full rounded-2xl" />,
+  loading: () => <Skeleton className="min-h-[70vh] w-full rounded-3xl" />,
 })
 
 // Роли, которым доступна проверка студенческого (сканер внутри приложения).
@@ -53,9 +53,9 @@ export function VerifyIdView() {
   // Нет токена: сотруднику показываем встроенный сканер камеры; остальным — подсказку.
   if (!token) {
     if (isStaff) {
+      // Иммерсивный сканер сам показывает заголовок/подсказку — PageHeader не дублируем.
       return (
-        <div className="mx-auto flex w-full max-w-md flex-col gap-4">
-          <PageHeader title={t('scanTitle')} subtitle={t('scanHint')} />
+        <div className="mx-auto w-full max-w-md">
           <QrScanner onToken={setScanned} />
         </div>
       )

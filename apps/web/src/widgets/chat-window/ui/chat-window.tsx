@@ -237,7 +237,9 @@ export function ChatWindow() {
   // Пересылка нескольких выбранных сообщений (id) — переиспользуем ForwardDialog.
   const [forwardIds, setForwardIds] = useState<string[] | null>(null)
   // Свайп-действия на строке списка чатов (мобильный): id открытой строки + учёт жеста.
-  const [swipedChatId, setSwipedChatId] = useState<string | null>(null)
+  // Открытая свайпом строка + сторона: 'left' — панель «Прочитать/Закрепить» (свайп вправо),
+  // 'right' — панель «Без звука/Удалить» (свайп влево).
+  const [swiped, setSwiped] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
   const chatSwipe = useRef<{
     id: string
     startX: number
@@ -245,7 +247,6 @@ export function ChatWindow() {
     moved: boolean
     el: HTMLElement
     base: number
-    actionsW: number
   } | null>(null)
   const chatSwipedFlag = useRef(false)
   // Узлы строк списка (по id) — чтобы императивно доводить/сбрасывать свайп и закрывать соседние.
@@ -1043,19 +1044,19 @@ export function ChatWindow() {
     exitSelect()
   }
 
-  // ── Свайп по строке списка чатов (мобильный, Telegram-стиль) ──
-  // Влево — плавно открыть действия (заглушить/удалить), следуя за пальцем; вправо по закрытой
-  // строке — пометить чат прочитанным. Во время жеста трансформируем узел напрямую (без ре-рендера
-  // ради плавности), на отпускании — доводим анимацией и синхронизируем состояние.
-  const ROW_BTN_W = 72 // ширина одной кнопки действия (w-[4.5rem]); панель = число кнопок × ROW_BTN_W
+  // ── Свайп по строке списка чатов (мобильный, iOS/Telegram-стиль, двунаправленный) ──
+  // Вправо → открывается левая панель «Прочитать · Закрепить»; влево → правая панель
+  // «Без звука · Удалить». Во время жеста трансформируем узел напрямую (без ре-рендера ради
+  // плавности), на отпускании — доводим анимацией и синхронизируем состояние.
+  const ROW_BTN_W = 72 // ширина одной кнопки действия (w-[4.5rem])
   const ROW_OPEN_THRESHOLD = 56
-  const ROW_READ_THRESHOLD = 72
+  const LEFT_ACTIONS_W = 2 * ROW_BTN_W // Прочитать + Закрепить
+  const RIGHT_ACTIONS_W = 2 * ROW_BTN_W // Без звука + Удалить
 
-  // Ширина панели действий строки: Прочитано (если есть непрочитанные) + Закрепить + Звук + Удалить.
-  function rowActionsWidth(id: string): number {
-    const c = (chatsRef.current ?? []).find((x) => x.id === id)
-    const showRead = (c?.unreadCount ?? 0) > 0
-    return (showRead ? 4 : 3) * ROW_BTN_W
+  // Текущее смещение строки по её открытому состоянию (право = +, лево = −).
+  function rowOffset(id: string): number {
+    if (swiped?.id !== id) return 0
+    return swiped.side === 'left' ? LEFT_ACTIONS_W : -RIGHT_ACTIONS_W
   }
 
   function setRowTransform(el: HTMLElement | null, x: number, animate: boolean): void {
@@ -1079,16 +1080,13 @@ export function ChatWindow() {
   function onRowTouchStart(e: React.TouchEvent<HTMLElement>, id: string): void {
     const tch = e.touches[0]
     if (!tch) return
-    const el = e.currentTarget
-    const actionsW = rowActionsWidth(id)
     chatSwipe.current = {
       id,
       startX: tch.clientX,
       startY: tch.clientY,
       moved: false,
-      el,
-      base: swipedChatId === id ? -actionsW : 0,
-      actionsW,
+      el: e.currentTarget,
+      base: rowOffset(id),
     }
   }
   function onRowTouchMove(e: React.TouchEvent<HTMLElement>): void {
@@ -1100,14 +1098,14 @@ export function ChatWindow() {
     if (!s.moved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
     if (!s.moved) return
     let x = s.base + dx
-    // Резина за пределами хода: влево дальше панели и вправо (жест «прочитать») — с сопротивлением.
-    if (x < -s.actionsW) x = -s.actionsW + (x + s.actionsW) * 0.35
-    else if (x > 0) x *= 0.5
+    // Резина за пределами хода панелей — с сопротивлением.
+    if (x > LEFT_ACTIONS_W) x = LEFT_ACTIONS_W + (x - LEFT_ACTIONS_W) * 0.35
+    else if (x < -RIGHT_ACTIONS_W) x = -RIGHT_ACTIONS_W + (x + RIGHT_ACTIONS_W) * 0.35
     setRowTransform(s.el, x, false)
   }
   function closeSwipedRow(id: string | null): void {
     if (id) setRowTransform(rowEls.current.get(id) ?? null, 0, true)
-    setSwipedChatId((cur) => (cur === id ? null : cur))
+    setSwiped((cur) => (cur?.id === id ? null : cur))
   }
   function onRowTouchEnd(e: React.TouchEvent<HTMLElement>, id: string): void {
     const s = chatSwipe.current
@@ -1115,23 +1113,23 @@ export function ChatWindow() {
     if (!s || !s.moved) return
     chatSwipedFlag.current = true
     const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
-    const wasOpen = s.base < 0
-    // Правый свайп по закрытой строке дальше порога → пометить прочитанным (снап назад).
-    if (!wasOpen && dx > ROW_READ_THRESHOLD) {
-      setRowTransform(s.el, 0, true)
-      markChatRead(id)
-      return
-    }
     const finalX = s.base + dx
-    if (finalX < -ROW_OPEN_THRESHOLD) {
-      // Открыть эту строку, соседнюю открытую — закрыть.
-      if (swipedChatId && swipedChatId !== id)
-        setRowTransform(rowEls.current.get(swipedChatId) ?? null, 0, true)
-      setRowTransform(s.el, -s.actionsW, true)
-      setSwipedChatId(id)
+    // Соседнюю открытую строку всегда закрываем.
+    const closeOther = (): void => {
+      if (swiped && swiped.id !== id)
+        setRowTransform(rowEls.current.get(swiped.id) ?? null, 0, true)
+    }
+    if (finalX > ROW_OPEN_THRESHOLD) {
+      closeOther()
+      setRowTransform(s.el, LEFT_ACTIONS_W, true)
+      setSwiped({ id, side: 'left' })
+    } else if (finalX < -ROW_OPEN_THRESHOLD) {
+      closeOther()
+      setRowTransform(s.el, -RIGHT_ACTIONS_W, true)
+      setSwiped({ id, side: 'right' })
     } else {
       setRowTransform(s.el, 0, true)
-      setSwipedChatId((cur) => (cur === id ? null : cur))
+      setSwiped((cur) => (cur?.id === id ? null : cur))
     }
   }
 
@@ -1753,23 +1751,20 @@ export function ChatWindow() {
                 key={c.id}
                 className="relative overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
-                {/* Скрытые действия под строкой — открываются свайпом влево (только мобильный/планшет).
-                    Порядок: Прочитано (если непрочитан) · Закрепить · Звук · Удалить. Ширина кнопки = ROW_BTN_W. */}
-                <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
-                  {c.unreadCount > 0 && (
-                    <button
-                      type="button"
-                      aria-label={t('markRead')}
-                      onClick={() => {
-                        markChatRead(c.id)
-                        closeSwipedRow(c.id)
-                      }}
-                      className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-sky-600 px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
-                    >
-                      <CheckCheck className="size-4" aria-hidden />
-                      {t('readShort')}
-                    </button>
-                  )}
+                {/* Левая панель — открывается свайпом ВПРАВО: Прочитать · Закрепить (мобильный). */}
+                <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
+                  <button
+                    type="button"
+                    aria-label={t('markRead')}
+                    onClick={() => {
+                      markChatRead(c.id)
+                      closeSwipedRow(c.id)
+                    }}
+                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-sky-600 px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                  >
+                    <CheckCheck className="size-4" aria-hidden />
+                    {t('readShort')}
+                  </button>
                   <button
                     type="button"
                     aria-label={c.pinned ? t('unpin') : t('pin')}
@@ -1786,6 +1781,9 @@ export function ChatWindow() {
                     )}
                     {c.pinned ? t('unpinShort') : t('pinShort')}
                   </button>
+                </div>
+                {/* Правая панель — открывается свайпом ВЛЕВО: Без звука · Удалить (мобильный). */}
+                <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
                   <button
                     type="button"
                     aria-label={c.muted ? t('unmute') : t('mute')}
@@ -1833,8 +1831,8 @@ export function ChatWindow() {
                       chatSwipedFlag.current = false
                       return
                     }
-                    if (swipedChatId) {
-                      closeSwipedRow(swipedChatId)
+                    if (swiped) {
+                      closeSwipedRow(swiped.id)
                       return
                     }
                     setActiveId(c.id)
