@@ -1,23 +1,27 @@
 import { Injectable } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
 import * as QRCode from 'qrcode'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
-import { signToken, verifyToken, type SignedPayload } from '../../common/crypto/signed-token'
+import { CryptoService } from '../../common/security/crypto.service'
+import { ConfigService } from '@nestjs/config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 
-// TTL токена верификации: дольше, чем у QR-отметки — сотрудник сканирует «вживую».
-const ID_TTL_MS = 300_000
+// TTL токена верификации ~2 мин: QR на фронте ротируется каждые ~45с (принцип «динамический QR
+// каждые 30-60с»), TTL держим чуть длиннее интервала, чтобы только что показанный код был
+// действителен при живом сканировании и не «истекал в руках» сотрудника.
+const ID_TTL_MS = 120_000
 
-// Дискриминатор назначения токена: тот же секрет подписывает и QR-отметку, поэтому проверяем typ.
+// Дискриминатор назначения токена (в зашифрованном payload): защита от подмены токеном
+// другого назначения.
 const ID_TYP = 'student-id'
 
-interface IdPayload extends SignedPayload {
+interface IdPayload {
   typ: typeof ID_TYP
   sub: string
+  exp: number
 }
 
 const CARD_SELECT = {
@@ -32,6 +36,7 @@ const CARD_SELECT = {
   academicStatus: true,
   educationLevel: true,
   studyForm: true,
+  course: true,
   enrollmentYear: true,
   graduationYear: true,
   universityId: true,
@@ -48,10 +53,15 @@ function isPlatform(role: Role): boolean {
 export class StudentIdService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
     private readonly config: ConfigService<EnvVars, true>,
   ) {}
 
-  /** Моя карта (студент/староста): данные + подписанный QR для верификации личности. */
+  /**
+   * Моя карта (студент/староста): данные + ЗАШИФРОВАННЫЙ QR-токен для верификации личности.
+   * Токен — AES-256-GCM(payload) (см. CryptoService), поэтому в QR не читается ни прямой id
+   * пользователя, ни персональные данные — только непрозрачный шифртекст с TTL внутри.
+   */
   async myCard(viewer: JwtPayload) {
     const user = await this.prisma.user.findUnique({
       where: { id: viewer.sub },
@@ -59,13 +69,11 @@ export class StudentIdService {
     })
     if (!user) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     const exp = Date.now() + ID_TTL_MS
-    const token = signToken<IdPayload>({ typ: ID_TYP, sub: viewer.sub, exp }, this.secret())
+    const payload: IdPayload = { typ: ID_TYP, sub: viewer.sub, exp }
+    const token = this.crypto.encrypt(JSON.stringify(payload))
     const qr = await QRCode.toDataURL(
       `${this.webBase()}/verify-id?t=${encodeURIComponent(token)}`,
-      {
-        margin: 1,
-        width: 320,
-      },
+      { margin: 1, width: 320 },
     )
     return {
       ...this.toCard(user),
@@ -76,7 +84,7 @@ export class StudentIdService {
     }
   }
 
-  /** Верификация карты сотрудником: сверяем подпись + область видимости (тот же вуз). */
+  /** Верификация карты сотрудником: расшифровка токена + область видимости (тот же вуз). */
   async verify(verifier: JwtPayload, token: string) {
     const payload = this.verifyIdToken(token)
     // Исключаем удалённых/заблокированных: их билет недействителен даже в пределах TTL токена.
@@ -88,7 +96,8 @@ export class StudentIdService {
     if (!isPlatform(verifier.role) && user.universityId !== verifier.universityId) {
       throw new AppException('WRONG_SCOPE', 'Студент другого университета')
     }
-    return { valid: true, ...this.toCard(user) }
+    // Время проверки — для отображения на странице верификации (когда сотрудник сканировал).
+    return { valid: true, verifiedAt: new Date().toISOString(), ...this.toCard(user) }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -105,6 +114,7 @@ export class StudentIdService {
       academicStatus: user.academicStatus,
       educationLevel: user.educationLevel,
       studyForm: user.studyForm,
+      course: user.course,
       enrollmentYear: user.enrollmentYear,
       graduationYear: user.graduationYear,
       group: user.group?.name ?? null,
@@ -114,24 +124,21 @@ export class StudentIdService {
     }
   }
 
-  private secret(): string {
-    return this.config.get('JWT_ACCESS_SECRET', { infer: true })
-  }
-
   private verifyIdToken(token: string): IdPayload {
-    const res = verifyToken<IdPayload>(token, this.secret(), Date.now())
-    if (!res.ok) {
-      if (res.reason === 'expired') {
-        throw new AppException('BAD_REQUEST', 'Код истёк — обновите карту')
-      }
-      if (res.reason === 'invalid') throw new AppException('UNAUTHORIZED', 'Недействительный код')
+    let payload: IdPayload
+    try {
+      payload = JSON.parse(this.crypto.decrypt(token)) as IdPayload
+    } catch {
+      // Битый/подделанный/чужой шифртекст — decrypt бросит на неверном auth-tag.
+      throw new AppException('UNAUTHORIZED', 'Недействительный код')
+    }
+    if (payload.typ !== ID_TYP || typeof payload.sub !== 'string') {
       throw new AppException('BAD_REQUEST', 'Некорректный код')
     }
-    // Токен другого назначения (напр. QR-отметки), но с той же подписью — не наш.
-    if (res.payload.typ !== ID_TYP || typeof res.payload.sub !== 'string') {
-      throw new AppException('BAD_REQUEST', 'Некорректный код')
+    if (typeof payload.exp !== 'number' || Date.now() > payload.exp) {
+      throw new AppException('BAD_REQUEST', 'Код истёк — обновите карту')
     }
-    return res.payload
+    return payload
   }
 
   private webBase(): string {

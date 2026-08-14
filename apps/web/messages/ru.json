@@ -2261,7 +2261,16 @@
     "verifyFailed": "Не удалось подтвердить",
     "verifyFailedHint": "Код недействителен или истёк.",
     "verifyNoToken": "Нет кода для проверки",
-    "verifyNoTokenHint": "Отсканируйте QR на студенческом билете."
+    "verifyNoTokenHint": "Отсканируйте QR на студенческом билете.",
+    "statusActive": "Активен · Обучается",
+    "course": "Курс",
+    "cardNumber": "№ студенческого",
+    "validUntil": "Действителен до",
+    "refreshIn": "Обновится через {s} с",
+    "qrEnlarge": "Открыть QR крупнее",
+    "qrTitle": "QR студенческого",
+    "verifiedBadge": "✓ Подтверждено StudentHub",
+    "verifiedAt": "Проверено: {time}"
   },
   "Academic": {
     "title": "Академический профиль",
