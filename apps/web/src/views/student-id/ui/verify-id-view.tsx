@@ -1,17 +1,24 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { BadgeCheck, Clock, Info, Loader2, ScanLine, TriangleAlert } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
-import { Button, Card, CardContent, PageHeader } from '../../../shared/ui'
+import { Button, Card, CardContent, PageHeader, Skeleton } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
-import { QrScanner } from '../../../features/verify-scan'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
 import { StudentIdCardFace } from './student-id-card'
+
+// Сканер грузим лениво (камера — только на клиенте): библиотека qr-scanner не попадает в бандл,
+// пока сотрудник не откроет проверку без токена.
+const QrScanner = dynamic(() => import('../../../features/verify-scan').then((m) => m.QrScanner), {
+  ssr: false,
+  loading: () => <Skeleton className="aspect-square w-full rounded-2xl" />,
+})
 
 // Роли, которым доступна проверка студенческого (сканер внутри приложения).
 const STAFF_ROLES: Role[] = [
