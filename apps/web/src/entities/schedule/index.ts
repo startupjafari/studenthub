@@ -12,6 +12,7 @@ export {
   updatePairRequest,
   deletePairRequest,
 } from './api/schedule-api'
+export { layoutColumns, type TimeSpan, type Placed } from './lib/layout-columns'
 export type {
   WeekType,
   ScheduleChangeType,
