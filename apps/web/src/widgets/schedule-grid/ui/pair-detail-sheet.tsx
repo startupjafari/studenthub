@@ -47,11 +47,16 @@ export function PairDetailSheet({
   change,
   gridStart,
   date,
+  col = 0,
+  cols = 1,
 }: {
   pair: Pair
   change: ScheduleChange | undefined
   gridStart: number
   date: string
+  // Колонка внутри кластера пересечений (Google-Calendar-раскладка): рядом, а не поверх.
+  col?: number
+  cols?: number
 }) {
   const t = useTranslations('Schedule')
   const locale = useLocale()
@@ -79,14 +84,19 @@ export function PairDetailSheet({
         <button
           type="button"
           className={cn(
-            'absolute inset-x-0.5 z-10 cursor-pointer overflow-hidden rounded-lg border-l-2 px-1.5 py-1 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-2 px-1.5 py-1 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             cancelled
               ? 'border-l-muted-foreground/40 bg-muted text-muted-foreground line-through'
               : change
                 ? 'border-l-amber-500 bg-amber-500/10'
                 : 'border-l-primary bg-primary/10',
           )}
-          style={{ top, height }}
+          style={{
+            top,
+            height,
+            left: `calc(${(col / cols) * 100}% + 2px)`,
+            width: `calc(${(1 / cols) * 100}% - 4px)`,
+          }}
           title={`${pair.subject} · ${minToLabel(startMin)}–${minToLabel(endMin)}`}
         >
           <div className="truncate text-xs font-semibold">{pair.subject}</div>

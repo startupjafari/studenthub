@@ -695,6 +695,8 @@
     "containerCreated": "Version created",
     "containerActivated": "Version activated",
     "addPair": "Add class",
+    "addPairHint": "Click a slot on the calendar or the button to add a class",
+    "addPairModalHint": "Fill in the class details. Pick the time by clicking the calendar",
     "subject": "Subject",
     "day": "Day",
     "weekType": "Week",

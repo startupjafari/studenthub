@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import { MapPin, Plus, User } from 'lucide-react'
-import type { Pair } from '../../../entities/schedule'
+import { layoutColumns, type Pair, type Placed } from '../../../entities/schedule'
 import { cn } from '../../../shared/lib/utils'
 
 const HOUR_PX = 56
@@ -21,55 +21,11 @@ function minLabel(min: number): string {
   return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`
 }
 
-interface Placed {
-  pair: Pair
-  col: number
-  cols: number
-}
-
-// Раскладка пар одного дня по колонкам (для перекрытий чётная/нечётная в одном слоте).
-function layoutDay(dayPairs: Pair[]): Placed[] {
-  const sorted = [...dayPairs].sort(
-    (a, b) => toMin(a.startTime) - toMin(b.startTime) || toMin(a.endTime) - toMin(b.endTime),
+// Раскладка пар одного дня по колонкам (перекрытия чётная/нечётная в одном слоте).
+function layoutDay(dayPairs: Pair[]): Placed<Pair & { startMin: number; endMin: number }>[] {
+  return layoutColumns(
+    dayPairs.map((p) => ({ ...p, startMin: toMin(p.startTime), endMin: toMin(p.endTime) })),
   )
-  const result: Placed[] = []
-  let cluster: { p: Pair; col: number }[] = []
-  let clusterEnd = -1
-  const flush = () => {
-    const colEnds: number[] = []
-    for (const item of cluster) {
-      const s = toMin(item.p.startTime)
-      const e = toMin(item.p.endTime)
-      let ci = colEnds.findIndex((end) => end <= s)
-      if (ci === -1) {
-        ci = colEnds.length
-        colEnds.push(e)
-      } else {
-        colEnds[ci] = e
-      }
-      item.col = ci
-    }
-    const cols = colEnds.length
-    for (const item of cluster) result.push({ pair: item.p, col: item.col, cols })
-    cluster = []
-  }
-  for (const p of sorted) {
-    const s = toMin(p.startTime)
-    const e = toMin(p.endTime)
-    if (cluster.length === 0) {
-      cluster.push({ p, col: 0 })
-      clusterEnd = e
-    } else if (s >= clusterEnd) {
-      flush()
-      cluster.push({ p, col: 0 })
-      clusterEnd = e
-    } else {
-      cluster.push({ p, col: 0 })
-      clusterEnd = Math.max(clusterEnd, e)
-    }
-  }
-  if (cluster.length) flush()
-  return result
 }
 
 export function ScheduleEditor({
@@ -103,7 +59,7 @@ export function ScheduleEditor({
   const gridHeight = ((gridEnd - gridStart) / 60) * HOUR_PX
 
   const byDay = useMemo(() => {
-    const map = new Map<number, Placed[]>()
+    const map = new Map<number, ReturnType<typeof layoutDay>>()
     for (let d = 1; d <= 7; d++) {
       map.set(d, layoutDay(pairs.filter((p) => p.dayOfWeek === d)))
     }
@@ -172,7 +128,7 @@ export function ScheduleEditor({
                 <div className="pointer-events-none absolute inset-0 flex items-start justify-center pt-2 opacity-0 transition-opacity group-hover/col:opacity-100">
                   <Plus className="size-4 text-primary/50" aria-hidden />
                 </div>
-                {placed.map(({ pair, col, cols }) => {
+                {placed.map(({ item: pair, col, cols }) => {
                   const s = toMin(pair.startTime)
                   const e = toMin(pair.endTime)
                   const top = ((s - gridStart) / 60) * HOUR_PX
