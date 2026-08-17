@@ -18,6 +18,11 @@ import { Role } from '@studenthub/shared-types'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   FormAlert,
   Input,
@@ -85,6 +90,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
   const [containerId, setContainerId] = useState<string>('')
   const [newContainerOpen, setNewContainerOpen] = useState(false)
   const [selectedPair, setSelectedPair] = useState<Pair | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
 
   const containers = useQuery({
     queryKey: scheduleKeys.containers(groupId),
@@ -154,6 +160,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       invalidateContainer()
       pairForm.reset({ scheduleId: containerId, weekType: 'BOTH', dayOfWeek: 1 })
       setPairTeacher(null)
+      setAddOpen(false)
       toast.success(t('pairCreated'))
     },
     onError: (e) => {
@@ -203,8 +210,9 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
   // Преподаватель редактирует только свои пары (бэк enforce'ит; тут — прячем действия).
   const canEditSelected = !isTeacher || (!!selectedPair && selectedPair.teacher?.id === me.data?.id)
 
-  // Клик по пустому слоту календаря → форма добавления с предзаполненным днём/временем.
-  function onSlotClick(dayOfWeek: number, startTime: string): void {
+  // Открыть модалку добавления с предзаполненными днём/временем.
+  function openAddPair(dayOfWeek: number, startTime: string): void {
+    resetApiError()
     setSelectedPair(null)
     pairForm.reset({
       scheduleId: containerId,
@@ -215,6 +223,12 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       subject: '',
     })
     setPairTeacher(null)
+    setAddOpen(true)
+  }
+
+  // Клик по пустому слоту календаря → модалка добавления (время выбрано на календаре).
+  function onSlotClick(dayOfWeek: number, startTime: string): void {
+    openAddPair(dayOfWeek, startTime)
   }
 
   // Клик по паре → панель деталей + замена.
@@ -532,109 +546,56 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
                 )}
               </>
             ) : (
-              <>
-                <h2 className="flex items-center gap-1.5 text-base font-semibold">
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <p className="text-sm text-muted-foreground">{t('addPairHint')}</p>
+                <Button type="button" onClick={() => openAddPair(1, '08:00')}>
                   <Plus className="size-4" aria-hidden />
                   {t('addPair')}
-                </h2>
-                <form
-                  onSubmit={pairForm.handleSubmit((v) =>
-                    createPair.mutate(isTeacher && me.data ? { ...v, teacherId: me.data.id } : v),
+                </Button>
+              </div>
+            )}
+          </aside>
+
+          {/* Модалка добавления пары — день/время предзаполняются кликом по календарю. */}
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{t('addPair')}</DialogTitle>
+                <DialogDescription>{t('addPairModalHint')}</DialogDescription>
+              </DialogHeader>
+              <FormAlert error={apiError} />
+              <form
+                onSubmit={pairForm.handleSubmit((v) =>
+                  createPair.mutate(isTeacher && me.data ? { ...v, teacherId: me.data.id } : v),
+                )}
+                className="flex flex-col gap-3"
+              >
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="subject">{t('subject')}</Label>
+                  <Input id="subject" {...pairForm.register('subject')} autoFocus />
+                  {pairForm.formState.errors.subject && (
+                    <p className="text-xs text-destructive">{t('required')}</p>
                   )}
-                  className="flex flex-col gap-3"
-                >
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="subject">{t('subject')}</Label>
-                    <Input id="subject" {...pairForm.register('subject')} autoFocus />
-                    {pairForm.formState.errors.subject && (
-                      <p className="text-xs text-destructive">{t('required')}</p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t('day')}</Label>
-                      <Controller
-                        control={pairForm.control}
-                        name="dayOfWeek"
-                        render={({ field }) => (
-                          <Select
-                            value={String(field.value)}
-                            onValueChange={(v) => field.onChange(Number(v))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DAYS.map((d) => (
-                                <SelectItem key={d} value={String(d)}>
-                                  {t(`day${d}`)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t('weekType')}</Label>
-                      <Controller
-                        control={pairForm.control}
-                        name="weekType"
-                        render={({ field }) => (
-                          <Select value={field.value ?? 'BOTH'} onValueChange={field.onChange}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {WEEK_TYPES.map((w) => (
-                                <SelectItem key={w} value={w}>
-                                  {t(`parity${w}`)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="start">{t('startTime')}</Label>
-                      <Input id="start" type="time" {...pairForm.register('startTime')} />
-                      {pairForm.formState.errors.startTime && (
-                        <p className="text-xs text-destructive">{t('timeInvalid')}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="end">{t('endTime')}</Label>
-                      <Input id="end" type="time" {...pairForm.register('endTime')} />
-                      {pairForm.formState.errors.endTime && (
-                        <p className="text-xs text-destructive">
-                          {pairForm.formState.errors.endTime.message ?? t('timeInvalid')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label>{t('room')}</Label>
+                    <Label>{t('day')}</Label>
                     <Controller
                       control={pairForm.control}
-                      name="roomId"
+                      name="dayOfWeek"
                       render={({ field }) => (
                         <Select
-                          value={field.value ?? ''}
-                          onValueChange={(v) => field.onChange(v || null)}
+                          value={String(field.value)}
+                          onValueChange={(v) => field.onChange(Number(v))}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder={t('roomOptional')} />
+                            <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {roomItems.map((r) => (
-                              <SelectItem key={r.id} value={r.id}>
-                                {r.name}
+                            {DAYS.map((d) => (
+                              <SelectItem key={d} value={String(d)}>
+                                {t(`day${d}`)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -642,30 +603,95 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
                       )}
                     />
                   </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>{t('weekType')}</Label>
+                    <Controller
+                      control={pairForm.control}
+                      name="weekType"
+                      render={({ field }) => (
+                        <Select value={field.value ?? 'BOTH'} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {WEEK_TYPES.map((w) => (
+                              <SelectItem key={w} value={w}>
+                                {t(`parity${w}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                </div>
 
-                  {!isTeacher && (
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{tPeople('teacherOptional')}</Label>
-                      <UserPicker
-                        value={pairTeacher}
-                        roleFilter={Role.TEACHER}
-                        placeholder={tPeople('pickUser')}
-                        onSelect={(u) => {
-                          setPairTeacher(u)
-                          pairForm.setValue('teacherId', u?.id ?? null)
-                        }}
-                      />
-                    </div>
-                  )}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="start">{t('startTime')}</Label>
+                    <Input id="start" type="time" {...pairForm.register('startTime')} />
+                    {pairForm.formState.errors.startTime && (
+                      <p className="text-xs text-destructive">{t('timeInvalid')}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="end">{t('endTime')}</Label>
+                    <Input id="end" type="time" {...pairForm.register('endTime')} />
+                    {pairForm.formState.errors.endTime && (
+                      <p className="text-xs text-destructive">
+                        {pairForm.formState.errors.endTime.message ?? t('timeInvalid')}
+                      </p>
+                    )}
+                  </div>
+                </div>
 
-                  <Button type="submit" loading={createPair.isPending}>
-                    <Plus className="size-4" aria-hidden />
-                    {t('addPair')}
-                  </Button>
-                </form>
-              </>
-            )}
-          </aside>
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t('room')}</Label>
+                  <Controller
+                    control={pairForm.control}
+                    name="roomId"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={(v) => field.onChange(v || null)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('roomOptional')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {roomItems.map((r) => (
+                            <SelectItem key={r.id} value={r.id}>
+                              {r.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+
+                {!isTeacher && (
+                  <div className="flex flex-col gap-1.5">
+                    <Label>{tPeople('teacherOptional')}</Label>
+                    <UserPicker
+                      value={pairTeacher}
+                      roleFilter={Role.TEACHER}
+                      placeholder={tPeople('pickUser')}
+                      onSelect={(u) => {
+                        setPairTeacher(u)
+                        pairForm.setValue('teacherId', u?.id ?? null)
+                      }}
+                    />
+                  </div>
+                )}
+
+                <Button type="submit" loading={createPair.isPending} className="mt-1">
+                  <Plus className="size-4" aria-hidden />
+                  {t('addPair')}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </div>
