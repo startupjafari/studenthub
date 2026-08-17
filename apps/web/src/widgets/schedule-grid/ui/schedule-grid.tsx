@@ -9,6 +9,7 @@ import type { ScheduleQueryInput } from '@studenthub/shared-schemas'
 import {
   fetchSchedule,
   fetchScheduleChanges,
+  layoutColumns,
   scheduleKeys,
   type ScheduleChange,
   type WeekType,
@@ -265,6 +266,21 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                 const dow = dayIdx + 1
                 const dateStr = fmtDate(date)
                 const dayPairs = pairs.filter((p) => p.dayOfWeek === dow)
+                // Раскладываем пересекающиеся пары по колонкам (учитывая перенос времени из changes),
+                // чтобы они шли рядом, а не одна поверх другой.
+                const placements = new Map<string, { col: number; cols: number }>()
+                for (const { item, col, cols } of layoutColumns(
+                  dayPairs.map((p) => {
+                    const ch = changeMap.get(`${p.id}|${dateStr}`)
+                    return {
+                      id: p.id,
+                      startMin: toMin(ch?.newStartTime ?? p.startTime),
+                      endMin: toMin(ch?.newEndTime ?? p.endTime),
+                    }
+                  }),
+                )) {
+                  placements.set(item.id, { col, cols })
+                }
                 return (
                   <div
                     key={dayIdx}
@@ -292,15 +308,20 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                       </div>
                     )}
                     {/* Занятия — клик открывает интерактивную деталь пары (PR-3b). */}
-                    {dayPairs.map((p) => (
-                      <PairDetailSheet
-                        key={p.id}
-                        pair={p}
-                        change={changeMap.get(`${p.id}|${dateStr}`)}
-                        gridStart={gridStart}
-                        date={dateStr}
-                      />
-                    ))}
+                    {dayPairs.map((p) => {
+                      const pos = placements.get(p.id) ?? { col: 0, cols: 1 }
+                      return (
+                        <PairDetailSheet
+                          key={p.id}
+                          pair={p}
+                          change={changeMap.get(`${p.id}|${dateStr}`)}
+                          gridStart={gridStart}
+                          date={dateStr}
+                          col={pos.col}
+                          cols={pos.cols}
+                        />
+                      )
+                    })}
                   </div>
                 )
               })}
