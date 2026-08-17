@@ -27,6 +27,17 @@ export {
   AlertDialogAction,
   AlertDialogCancel,
 } from './alert-dialog'
+export {
+  Dialog,
+  DialogTrigger,
+  DialogClose,
+  DialogOverlay,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from './dialog'
 export { ConfirmProvider, useConfirm, type ConfirmOptions } from './confirm-dialog'
 export { PromptDialog } from './prompt-dialog'
 export { Skeleton } from './skeleton'
