@@ -103,3 +103,4 @@ export {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from './breadcrumb'
+export { EmojiPicker } from './emoji-picker'
