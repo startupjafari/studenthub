@@ -1,6 +1,7 @@
 export {
   chatKeys,
   fetchChats,
+  fetchSavedChat,
   createChatRequest,
   joinChatRequest,
   fetchMessages,
@@ -34,7 +35,14 @@ export {
   setChatAdminRequest,
   transferOwnershipRequest,
   fetchBlockedUsers,
+  fetchChatMedia,
+  fetchChatLinks,
+  createChatPoll,
+  fetchPollResults,
+  votePollRequest,
   type MessagesPage,
+  type ChatMediaPage,
+  type ChatLinksPage,
 } from './api/chat-api'
 export {
   type ChatTypeValue,
@@ -49,9 +57,14 @@ export {
   type ChatMemberInfo,
   type ChatReadReceipt,
   type LinkPreview,
+  type ChatMediaItem,
+  type ChatLinkItem,
+  type ChatPoll,
+  type PollResults,
   type BlockedUser,
 } from './model/types'
 export { MessageContent } from './ui/message-content'
+export { ChatPollView } from './ui/chat-poll'
 export { MessageAttachments } from './ui/message-attachments'
 export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'

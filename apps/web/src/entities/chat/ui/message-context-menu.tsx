@@ -11,10 +11,12 @@ import {
   Pin,
   PinOff,
   Reply,
+  SmilePlus,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
+import { EmojiPicker } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useSheetDragClose, useBodyScrollLock } from '../../../shared/lib'
 import type { ChatMessage } from '../model/types'
@@ -60,6 +62,8 @@ export function MessageContextMenu({
   const t = useTranslations('Chats')
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
+  // §11: полный emoji-picker для реакции (по «+» в ряду быстрых реакций).
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   // Десктопное меню удерживаем в пределах вьюпорта (на мобильном оно скрыто — лист внизу).
   useLayoutEffect(() => {
@@ -145,6 +149,18 @@ export function MessageContextMenu({
             </span>
           </button>
         ))}
+        {/* §11: открыть полный пикер для реакции любым emoji. */}
+        <button
+          type="button"
+          aria-label={t('emoji')}
+          onClick={() => setPickerOpen(true)}
+          className={cn(
+            'flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform hover:scale-110 hover:bg-muted active:scale-95',
+            big ? 'size-11' : 'size-8',
+          )}
+        >
+          <SmilePlus className={big ? 'size-6' : 'size-5'} aria-hidden />
+        </button>
       </div>
     </div>
   )
@@ -187,10 +203,27 @@ export function MessageContextMenu({
         ref={ref}
         style={{ left: pos.left, top: pos.top }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute hidden w-60 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg md:block"
+        className={cn(
+          'absolute hidden md:block',
+          pickerOpen
+            ? ''
+            : 'w-60 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg',
+        )}
       >
-        {reactionsRow(false)}
-        {actionsList('menu')}
+        {pickerOpen ? (
+          <EmojiPicker
+            searchPlaceholder={t('emojiSearch')}
+            onPick={(emoji) => {
+              actions.onReact(emoji)
+              onClose()
+            }}
+          />
+        ) : (
+          <>
+            {reactionsRow(false)}
+            {actionsList('menu')}
+          </>
+        )}
       </div>
 
       {/* Мобильный: нижний лист. Тянется/закрывается свайпом вниз. */}
@@ -203,8 +236,23 @@ export function MessageContextMenu({
           className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
           aria-hidden
         />
-        {reactionsRow(true)}
-        {actionsList('sheet')}
+        {pickerOpen ? (
+          <div className="p-2">
+            <EmojiPicker
+              className="w-full"
+              searchPlaceholder={t('emojiSearch')}
+              onPick={(emoji) => {
+                actions.onReact(emoji)
+                onClose()
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            {reactionsRow(true)}
+            {actionsList('sheet')}
+          </>
+        )}
       </div>
     </div>
   )
