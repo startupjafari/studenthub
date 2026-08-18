@@ -6,7 +6,11 @@ import { RealtimeGateway } from './realtime.gateway'
 // с валидным — автоматический вход в свои комнаты и учёт присутствия.
 function setup() {
   const jwt = { verifyAsync: jest.fn() }
-  const gateway = new RealtimeGateway(jwt as unknown as JwtService)
+  const prisma = { user: { update: jest.fn().mockResolvedValue({}) } }
+  const gateway = new RealtimeGateway(
+    jwt as unknown as JwtService,
+    prisma as unknown as import('../prisma/prisma.service').PrismaService,
+  )
   // Присутствие рассылается адресно: server.to(room).emit(...). Мокаем цепочку to→emit.
   const roomEmit = jest.fn()
   const server = { emit: jest.fn(), to: jest.fn(() => ({ emit: roomEmit })) }
