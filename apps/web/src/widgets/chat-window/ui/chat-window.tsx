@@ -1,50 +1,41 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
-  AlertCircle,
-  ArrowLeft,
   Bell,
   BellOff,
-  Check,
-  CheckCheck,
   ChevronDown,
   ChevronLeft,
+  ChevronUp,
   Copy,
   Download,
   Forward,
   Loader2,
-  Mic,
   Ban,
   Eraser,
-  ShieldBan,
   MoreVertical,
-  Paperclip,
-  Pause,
-  Pencil,
   Pin,
   PinOff,
-  Play,
-  Plus,
-  Reply,
   Search,
-  Send,
   Trash2,
-  Users,
+  UserSearch,
   WifiOff,
   X,
 } from 'lucide-react'
+import type { CreateChatPollInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
 import {
   chatKeys,
   exportChatRequest,
   fetchChats,
+  fetchSavedChat,
+  createChatPoll,
   fetchMessages,
   fetchPinned,
   fetchPresence,
@@ -65,101 +56,33 @@ import {
   unpinMessageRequest,
   AttachmentDialog,
   ForwardDialog,
-  LinkPreviewCard,
-  MessageAttachments,
-  MessageContent,
   MessageContextMenu,
-  ReactionBar,
-  SharedPostCard,
-  VoiceWaveform,
   useVoiceRecorder,
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
   type MessageAttachment,
-  type ChatTypeValue,
 } from '../../../entities/chat'
-import { ProfileLink } from '../../../entities/user'
 import { GroupInfoDialog } from './group-info-dialog'
 import { PeerInfoCard } from './peer-info-card'
+import { ChatDetailsSidebar } from './chat-details-sidebar'
+import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
+import { ChatComposer } from './chat-composer'
+import { PollCreator } from './poll-creator'
 import { BlockedUsersDialog } from './blocked-users-dialog'
 import { CreateGroupDialog } from './create-group-dialog'
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  Button,
-  Skeleton,
-  useConfirm,
-} from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, DatePicker, useConfirm } from '../../../shared/ui'
+import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
 import { useChatListSlot, useMediaQuery, useSetChatOpen } from '../../../shared/lib'
 
-const OFFICIAL_LABEL: Partial<Record<ChatTypeValue, string>> = {
-  GROUP_OFFICIAL: 'typeGroupOfficial',
-  FACULTY: 'typeFaculty',
-  DEAN: 'typeDean',
-  SUPPORT: 'typeSupport',
-  SUBJECT: 'typeSubject',
-}
-
-function chatTitle(c: ChatListItem, t: (k: string) => string): string {
-  if (c.title) return c.title
-  if (c.subject) return c.subject
-  const key = OFFICIAL_LABEL[c.type]
-  return key ? t(key) : t('typePrivate')
-}
-
-function senderName(m: { sender: { firstName: string; lastName: string } }): string {
-  return `${m.sender.lastName} ${m.sender.firstName}`.trim()
-}
-
-// ── Хелперы списка чатов (Telegram-стиль) ─────────────────────────────────────
-function chatInitials(title: string): string {
-  const parts = title.split(/\s+/).filter(Boolean).slice(0, 2)
-  return parts.map((w) => w[0]?.toUpperCase() ?? '').join('') || '#'
-}
-
-const AVATAR_COLORS = [
-  'bg-rose-500',
-  'bg-orange-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-teal-500',
-  'bg-sky-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-]
-function avatarColor(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? 'bg-sky-500'
-}
-
-// Тег-категория чата под превью (Telegram-стиль «папок»): i18n-ключ + приглушённая точка-цвет по типу.
-const TYPE_TAG: Record<ChatTypeValue, { key: string; dot: string }> = {
-  PRIVATE: { key: 'tagPrivate', dot: 'bg-sky-500' },
-  GROUP: { key: 'tagGroup', dot: 'bg-indigo-500' },
-  GROUP_OFFICIAL: { key: 'tagGroupOfficial', dot: 'bg-indigo-500' },
-  SUBJECT: { key: 'tagSubject', dot: 'bg-emerald-500' },
-  FACULTY: { key: 'tagFaculty', dot: 'bg-violet-500' },
-  DEAN: { key: 'tagDean', dot: 'bg-amber-500' },
-  SUPPORT: { key: 'tagSupport', dot: 'bg-rose-500' },
-  EVENT: { key: 'tagEvent', dot: 'bg-teal-500' },
-}
-
-function listTime(iso: string, locale: string): string {
-  const d = new Date(iso)
-  const now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  return sameDay
-    ? d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })
-}
+import { ConversationList } from './conversation-list'
+import { avatarColor, chatInitials, chatTitle, senderName } from '../lib/format'
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
+  const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const router = useRouter()
   const qc = useQueryClient()
@@ -175,6 +98,9 @@ export function ChatWindow() {
   // На мобильном слота нет — список остаётся во весь экран внутри main.
   const listSlot = useChatListSlot()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
+  // Достаточно широкий экран (≥xl) — правая панель деталей докается третьей колонкой,
+  // не закрывая переписку (Telegram-стиль §1). На узких экранах — прежнее модальное окно.
+  const isWide = useMediaQuery('(min-width: 1280px)')
   const embedded = isDesktop && !!listSlot
   // Открытый чат — полноэкранная поверхность на мобильном: просим оболочку скрыть нижнюю навигацию,
   // иначе фиксированная панель перекрывает поле ввода сообщения.
@@ -197,6 +123,11 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
   }, [requestedChatId, qc])
+  // Deeplink на конкретное сообщение (#10): /chats?c=<chatId>&m=<messageId> (кнопка «Копировать ссылку»).
+  // Открываем чат c, затем после загрузки истории прыгаем к сообщению m (эффект — ниже, после messages).
+  const deepChatId = searchParams.get('c')
+  const deepMsgId = searchParams.get('m')
+  const appliedDeeplink = useRef<string | null>(null)
   // Черновики по чатам: локально (мгновенно) + синхронизация с сервером (#3, дебаунс).
   const draftsRef = useRef<Map<string, string>>(new Map())
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -206,11 +137,18 @@ export function ChatWindow() {
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined)
   const [canLoadOlder, setCanLoadOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // Курсор более НОВЫХ сообщений: не-undefined только после jump в «прыгнутое» окно (around),
+  // когда снизу есть неподгруженные сообщения (Этап 1, двунаправленная пагинация).
+  const [newerCursor, setNewerCursor] = useState<string | undefined>(undefined)
+  const [canLoadNewer, setCanLoadNewer] = useState(false)
+  const loadingNewerRef = useRef(false)
   // Ф9+: ответ, вложения, поиск.
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  // Создание опроса (§38) — диалог из attachment-меню композера.
+  const [pollCreatorOpen, setPollCreatorOpen] = useState(false)
   // Единый поиск в панели чатов: по названиям чатов + по сообщениям (глобально).
   const [listSearchRaw, setListSearchRaw] = useState('')
   const [listSearchTerm, setListSearchTerm] = useState('')
@@ -225,12 +163,27 @@ export function ChatWindow() {
   const [menu, setMenu] = useState<{ message: ChatMessage; x: number; y: number } | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+  // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
+  const [chatSearchOpen, setChatSearchOpen] = useState(false)
+  const [chatSearchRaw, setChatSearchRaw] = useState('')
+  const [chatSearchTerm, setChatSearchTerm] = useState('')
+  const [searchIdx, setSearchIdx] = useState(0)
+  const searchJumpedFor = useRef<string | null>(null)
+  // Фильтр «От кого» (§4): id+имя выбранного автора (или null — все).
+  const [searchFrom, setSearchFrom] = useState<{ id: string; name: string } | null>(null)
+  const [searchFromOpen, setSearchFromOpen] = useState(false)
   const [groupInfoOpen, setGroupInfoOpen] = useState(false)
   // Мини-карточка собеседника (личный чат, Telegram-стиль) — по клику на шапку.
   const [peerCardOpen, setPeerCardOpen] = useState(false)
+  // Докнутая правая панель деталей (десктоп ≥xl): профиль/участники/медиа без ухода из чата.
+  const [detailsOpen, setDetailsOpen] = useState(false)
   // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
   const [showScrollDown, setShowScrollDown] = useState(false)
   const [newSinceScroll, setNewSinceScroll] = useState(0)
+  // Плавающий заголовок даты (Telegram-стиль §6): дата верхнего видимого сообщения, гаснет вне скролла.
+  const [floatingDay, setFloatingDay] = useState<string | null>(null)
+  const [floatingDayShown, setFloatingDayShown] = useState(false)
+  const floatingHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Режим множественного выбора сообщений (Telegram-стиль): чекбоксы + массовые действия.
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -255,8 +208,12 @@ export function ChatWindow() {
   const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
   const chatsRef = useRef<ChatListItem[] | undefined>(undefined)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
+  // Виртуализатор списка сообщений (virtua): императивный скролл к индексу (вниз/к сообщению).
+  const virtualizerRef = useRef<VirtualizerHandle>(null)
+  // shift=true на время подгрузки старых сообщений (prepend вверх) — virtua сохраняет визуальную
+  // позицию «от конца», без прыжка. Для входящих (append в конец) shift обязан быть false.
+  const [shiftMode, setShiftMode] = useState(false)
   // Для какого чата уже выполнен первичный скролл вниз (открытие ≠ новое сообщение).
   const scrolledForRef = useRef<string | null>(null)
   // id последнего сообщения — чтобы отличать «добавилось новое» от prepend старых / update.
@@ -281,11 +238,32 @@ export function ChatWindow() {
       const page = await fetchMessages(activeId as string, { limit: 30 })
       setOlderCursor(page.cursor)
       setCanLoadOlder(page.hasNext)
+      // Первичная загрузка — у низа истории: более новых нет.
+      setNewerCursor(undefined)
+      setCanLoadNewer(false)
       // API отдаёт новые первыми — разворачиваем в хронологический порядок.
       return [...page.items].reverse()
     },
     enabled: !!activeId,
   })
+
+  // Deeplink на сообщение (#10): открыть чат c, затем — когда история загружена — прыгнуть к m.
+  useEffect(() => {
+    if (!deepChatId) return
+    const key = `${deepChatId}:${deepMsgId ?? ''}`
+    if (appliedDeeplink.current === key) return
+    if (activeId !== deepChatId) {
+      setActiveId(deepChatId)
+      return
+    }
+    if (deepMsgId) {
+      if (!messages.isSuccess) return
+      appliedDeeplink.current = key
+      void jumpToMessage(deepMsgId)
+    } else {
+      appliedDeeplink.current = key
+    }
+  }, [deepChatId, deepMsgId, activeId, messages.isSuccess, jumpToMessage])
 
   const pinned = useQuery({
     queryKey: chatKeys.pinned(activeId ?? ''),
@@ -304,6 +282,19 @@ export function ChatWindow() {
     queryKey: chatKeys.search(listSearchTerm, undefined),
     queryFn: () => searchMessages(listSearchTerm),
     enabled: listSearchTerm.length >= 2,
+  })
+
+  // Поиск внутри чата (§3): дебаунс запроса + результаты по активному чату.
+  useEffect(() => {
+    const term = chatSearchRaw.trim()
+    const id = setTimeout(() => setChatSearchTerm(term.length >= 2 ? term : ''), 300)
+    return () => clearTimeout(id)
+  }, [chatSearchRaw])
+  const chatSearchResults = useQuery({
+    queryKey: [...chatKeys.search(chatSearchTerm, activeId ?? undefined), searchFrom?.id ?? 'any'],
+    queryFn: () =>
+      searchMessages(chatSearchTerm, activeId as string, undefined, { senderId: searchFrom?.id }),
+    enabled: chatSearchOpen && !!activeId && chatSearchTerm.length >= 2,
   })
 
   // Явно pin/unpin по флагу (не полагаемся на возможно-устаревший pinnedAt) + обновляем кэш из ответа.
@@ -367,9 +358,23 @@ export function ChatWindow() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  // Создание опроса (§38): сообщение-опрос придёт по WS message:new — оптимистично не добавляем.
+  const createPoll = useMutation({
+    mutationFn: (input: CreateChatPollInput) => createChatPoll(activeId as string, input),
+    onSuccess: () => setPollCreatorOpen(false),
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
   const mute = useMutation({
-    mutationFn: ({ chatId, muted }: { chatId: string; muted: boolean }) =>
-      setChatMutedRequest(chatId, muted),
+    mutationFn: ({
+      chatId,
+      muted,
+      minutes,
+    }: {
+      chatId: string
+      muted: boolean
+      minutes?: number
+    }) => setChatMutedRequest(chatId, muted, minutes),
     // Оптимистично переключаем флаг в кэше списка — мгновенная обратная связь в UI.
     onMutate: ({ chatId, muted }) => {
       const prev = qc.getQueryData<ChatListItem[]>(chatKeys.list())
@@ -517,7 +522,10 @@ export function ChatWindow() {
   >([])
   const createdObjectUrls = useRef<string[]>([])
   const mediaRetry = useRef<
-    Map<string, { chatId: string; content?: string; replyToId?: string; files: File[] }>
+    Map<
+      string,
+      { chatId: string; content?: string; replyToId?: string; files: File[]; spoiler?: boolean }
+    >
   >(new Map())
 
   // Освобождаем object-URL'ы при размонтировании окна чата (в течение сессии держим живыми —
@@ -589,11 +597,15 @@ export function ChatWindow() {
     content: string | undefined,
     replyToId: string | undefined,
     files: File[],
+    spoiler?: boolean,
   ): Promise<void> {
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
     try {
-      const real = await sendMessageWithAttachments(chatId, { content, replyToId }, files, (f) =>
-        setUploadProgress(chatId, tempId, f),
+      const real = await sendMessageWithAttachments(
+        chatId,
+        { content, replyToId, spoiler },
+        files,
+        (f) => setUploadProgress(chatId, tempId, f),
       )
       mediaRetry.current.delete(tempId)
       // Обычно примиряет эхо message:new; страховка на случай гонки/фонового чата.
@@ -617,7 +629,12 @@ export function ChatWindow() {
     }
   }
 
-  function sendFiles(payload: { content?: string; replyToId?: string; files: File[] }): void {
+  function sendFiles(payload: {
+    content?: string
+    replyToId?: string
+    files: File[]
+    spoiler?: boolean
+  }): void {
     if (!activeId || !me || payload.files.length === 0) return
     const chatId = activeId
     const nonce =
@@ -632,6 +649,7 @@ export function ChatWindow() {
       mime: f.type || 'application/octet-stream',
       size: f.size,
       name: f.name,
+      spoiler: payload.spoiler,
       localUrl: localUrls[i],
       uploading: true,
       progress: 0,
@@ -667,6 +685,9 @@ export function ChatWindow() {
       forwardedFrom: null,
       sharedPost: null,
       reactions: [],
+      poll: null,
+      systemType: null,
+      systemMeta: null,
     }
     pendingMedia.current.push({ tempId, chatId, sig: mediaSig(media), localUrls })
     mediaRetry.current.set(tempId, {
@@ -674,6 +695,7 @@ export function ChatWindow() {
       content: payload.content,
       replyToId: payload.replyToId,
       files: payload.files,
+      spoiler: payload.spoiler,
     })
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
     // Сбрасываем композер/диалог сразу — как в Telegram (пузырь уже в ленте, грузится в фоне).
@@ -681,7 +703,14 @@ export function ChatWindow() {
     setAttachFiles([])
     setAttachOpen(false)
     setReplyTo(null)
-    void uploadFiles(tempId, chatId, payload.content, payload.replyToId, payload.files)
+    void uploadFiles(
+      tempId,
+      chatId,
+      payload.content,
+      payload.replyToId,
+      payload.files,
+      payload.spoiler,
+    )
   }
 
   // Вход/выход из комнаты чата при смене активного чата.
@@ -778,6 +807,10 @@ export function ChatWindow() {
     void qc.invalidateQueries({ queryKey: chatKeys.list() })
   })
   // Тихий сигнал активности в чате (в т.ч. по заглушённым чатам): держим список живым без уведомления.
+  // Опрос обновился (кто-то проголосовал) — инвалидируем его результаты (§39, live).
+  useRealtimeEvent('poll:updated', (p: { pollId: string }) => {
+    void qc.invalidateQueries({ queryKey: chatKeys.poll(p.pollId) })
+  })
   useRealtimeEvent('chat:activity', () => {
     void qc.invalidateQueries({ queryKey: chatKeys.list() })
   })
@@ -950,8 +983,14 @@ export function ChatWindow() {
     const firstForChat = scrolledForRef.current !== activeId
     const prevLastId = lastMsgIdRef.current
     lastMsgIdRef.current = last?.id ?? null
-    const toBottom = (behavior: ScrollBehavior): void =>
-      bottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+    const toBottom = (behavior: ScrollBehavior): void => {
+      const len = list.length
+      if (len > 0)
+        virtualizerRef.current?.scrollToIndex(len - 1, {
+          align: 'end',
+          smooth: behavior === 'smooth',
+        })
+    }
 
     if (firstForChat) {
       scrolledForRef.current = activeId
@@ -980,6 +1019,19 @@ export function ChatWindow() {
   function onMessagesScroll(): void {
     const el = messagesScrollRef.current
     if (!el) return
+    // Плавающий заголовок даты (§6): дата верхнего видимого сообщения + авто-затухание вне скролла.
+    const vh = virtualizerRef.current
+    const data = messages.data
+    if (vh && data && data.length > 0) {
+      const topIdx = Math.min(Math.max(vh.findItemIndex(vh.scrollOffset), 0), data.length - 1)
+      const top = data[topIdx]
+      if (top) {
+        setFloatingDay(dayLabel(top.createdAt))
+        setFloatingDayShown(true)
+        if (floatingHideTimer.current) clearTimeout(floatingHideTimer.current)
+        floatingHideTimer.current = setTimeout(() => setFloatingDayShown(false), 1500)
+      }
+    }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
     setShowScrollDown(!atBottom)
     if (atBottom && !wasAtBottomRef.current) {
@@ -992,19 +1044,37 @@ export function ChatWindow() {
     // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
     if (el.scrollTop < 100 && canLoadOlder && !loadingOlderRef.current) {
       loadingOlderRef.current = true
-      const prevHeight = el.scrollHeight
+      // virtua сам удержит визуальную позицию при prepend, пока shift=true — без ручной коррекции scrollTop.
+      setShiftMode(true)
       void loadOlder().finally(() => {
-        requestAnimationFrame(() => {
-          const el2 = messagesScrollRef.current
-          if (el2) el2.scrollTop = el2.scrollHeight - prevHeight
-          loadingOlderRef.current = false
-        })
+        loadingOlderRef.current = false
+        // Сбрасываем shift в следующем кадре, когда догруженные сообщения уже отрисованы.
+        requestAnimationFrame(() => setShiftMode(false))
       })
+    }
+    // Догрузка новых при подходе к низу — актуально только в «прыгнутом» окне (после jump).
+    if (
+      el.scrollHeight - el.scrollTop - el.clientHeight < 200 &&
+      canLoadNewer &&
+      !loadingNewerRef.current
+    ) {
+      void loadNewer()
     }
   }
 
   function scrollToBottom(): void {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    const id = activeId
+    if (canLoadNewer && id) {
+      // В «прыгнутом» окне последнее загруженное ≠ реальный низ — перезагружаем новейшие
+      // (эффект первичного скролла проскроллит к низу, т.к. scrolledForRef сброшен).
+      setNewerCursor(undefined)
+      setCanLoadNewer(false)
+      scrolledForRef.current = null
+      void qc.invalidateQueries({ queryKey: chatKeys.messages(id) })
+    } else {
+      const len = messages.data?.length ?? 0
+      if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: true })
+    }
     setNewSinceScroll(0)
     setShowScrollDown(false)
   }
@@ -1182,7 +1252,14 @@ export function ChatWindow() {
             : x,
         ),
       )
-      void uploadFiles(m.id, media.chatId, media.content, media.replyToId, media.files)
+      void uploadFiles(
+        m.id,
+        media.chatId,
+        media.content,
+        media.replyToId,
+        media.files,
+        media.spoiler,
+      )
       return
     }
     emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined)
@@ -1236,6 +1313,9 @@ export function ChatWindow() {
       forwardedFrom: null,
       sharedPost: null,
       reactions: [],
+      poll: null,
+      systemType: null,
+      systemMeta: null,
     }
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
     emitSend(activeId, nonce, content, replyTo?.id)
@@ -1266,15 +1346,22 @@ export function ChatWindow() {
   }
 
   function copyLink(m: ChatMessage): void {
-    const url = `${window.location.origin}/chats?c=${m.chatId}&m=${m.id}`
+    // Ссылка ведёт на текущий chats-роут отправителя (роль-корректно) с deeplink-параметрами c/m.
+    const url = `${window.location.origin}${window.location.pathname}?c=${m.chatId}&m=${m.id}`
     void navigator.clipboard?.writeText(url)
     toast.success(t('linkCopied'))
   }
 
-  // Скролл к сообщению + мягкая подсветка (Telegram-стиль).
+  // Скролл к сообщению + мягкая подсветка (Telegram-стиль). Под виртуализацией целевая строка
+  // может быть не смонтирована — скроллим по индексу через virtua (он её смонтирует), иначе фолбэк на DOM.
   function focusMessage(messageId: string): void {
-    const el = document.getElementById(`msg-${messageId}`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const idx = messages.data?.findIndex((x) => x.id === messageId) ?? -1
+    if (idx < 0) {
+      // Далёкое сообщение вне загруженного окна — подгружаем окно вокруг него (around) и скроллим там.
+      void jumpToMessage(messageId)
+      return
+    }
+    virtualizerRef.current?.scrollToIndex(idx, { align: 'center', smooth: true })
     setHighlightId(messageId)
     window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 1400)
   }
@@ -1301,7 +1388,7 @@ export function ChatWindow() {
     bubble.style.transform = ''
   }
 
-  function onMsgTouchStart(e: React.TouchEvent<HTMLLIElement>, m: ChatMessage): void {
+  function onMsgTouchStart(e: React.TouchEvent<HTMLDivElement>, m: ChatMessage): void {
     const tch = e.touches[0]
     if (!tch) return
     const bubble = e.currentTarget.querySelector<HTMLElement>('[data-bubble]')
@@ -1327,7 +1414,7 @@ export function ChatWindow() {
     }
   }
 
-  function onMsgTouchMove(e: React.TouchEvent<HTMLLIElement>): void {
+  function onMsgTouchMove(e: React.TouchEvent<HTMLDivElement>): void {
     const s = msgTouch.current
     const tch = e.touches[0]
     if (!s || !tch || s.longFired) return
@@ -1351,7 +1438,7 @@ export function ChatWindow() {
     }
   }
 
-  function onMsgTouchEnd(e: React.TouchEvent<HTMLLIElement>): void {
+  function onMsgTouchEnd(e: React.TouchEvent<HTMLDivElement>): void {
     const s = msgTouch.current
     if (!s) return
     if (s.timer) {
@@ -1459,6 +1546,111 @@ export function ChatWindow() {
     }
   }
 
+  // Подгрузка более НОВЫХ (вниз) — актуально после jump в «прыгнутое» окно (around).
+  async function loadNewer(): Promise<void> {
+    if (!activeId || !newerCursor || loadingNewerRef.current) return
+    loadingNewerRef.current = true
+    try {
+      const page = await fetchMessages(activeId, {
+        limit: 30,
+        cursor: newerCursor,
+        direction: 'newer',
+      })
+      const newer = [...page.items].reverse() // desc → asc (хронологически), в конец списка
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => {
+        const prev = old ?? []
+        const seen = new Set(prev.map((m) => m.id))
+        return [...prev, ...newer.filter((m) => !seen.has(m.id))]
+      })
+      // Догрузка вниз — не «новое входящее»: не даём эффекту автоскролла увести к низу.
+      const updated = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
+      lastMsgIdRef.current = updated?.[updated.length - 1]?.id ?? lastMsgIdRef.current
+      setNewerCursor(page.prevCursor)
+      setCanLoadNewer(page.hasPrev)
+    } finally {
+      loadingNewerRef.current = false
+    }
+  }
+
+  // Переход к далёкому сообщению (Этап 1): подгружаем окно вокруг него (around), заменяем историю,
+  // выставляем оба курсора (старее/новее), скроллим к цели и подсвечиваем.
+  // Применить «окно» (around/aroundDate) к истории: заменить кэш, выставить оба курсора,
+  // защитить эффект автоскролла (lastMsgIdRef). Возвращает хронологический массив окна.
+  function applyMessageWindow(page: Awaited<ReturnType<typeof fetchMessages>>): ChatMessage[] {
+    const win = [...page.items].reverse()
+    if (!activeId) return win
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), win)
+    lastMsgIdRef.current = win[win.length - 1]?.id ?? null
+    setOlderCursor(page.cursor)
+    setCanLoadOlder(page.hasNext)
+    setNewerCursor(page.prevCursor)
+    setCanLoadNewer(page.hasPrev)
+    return win
+  }
+
+  async function jumpToMessage(messageId: string): Promise<void> {
+    if (!activeId) return
+    const win = applyMessageWindow(await fetchMessages(activeId, { limit: 30, around: messageId }))
+    requestAnimationFrame(() => {
+      const idx = win.findIndex((x) => x.id === messageId)
+      if (idx >= 0) virtualizerRef.current?.scrollToIndex(idx, { align: 'center', smooth: true })
+      setHighlightId(messageId)
+      window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 1400)
+    })
+  }
+
+  // Переход по дате (#5): окно вокруг первого сообщения на/после начала выбранного дня (локально).
+  async function jumpToDate(ymd: string): Promise<void> {
+    if (!activeId || !ymd) return
+    const from = new Date(`${ymd}T00:00:00`)
+    const win = applyMessageWindow(
+      await fetchMessages(activeId, { limit: 30, aroundDate: from.toISOString() }),
+    )
+    requestAnimationFrame(() => {
+      // Первое сообщение дня — наверх (align:start); если на/после даты ничего нет — к низу.
+      const at = win.findIndex((m) => new Date(m.createdAt).getTime() >= from.getTime())
+      const idx = at >= 0 ? at : win.length - 1
+      if (idx >= 0) virtualizerRef.current?.scrollToIndex(idx, { align: 'start', smooth: true })
+      const hit = at >= 0 ? win[at] : undefined
+      if (hit) {
+        setHighlightId(hit.id)
+        window.setTimeout(() => setHighlightId((cur) => (cur === hit.id ? null : cur)), 1400)
+      }
+    })
+  }
+
+  // Новые результаты in-chat поиска → прыгаем к самому свежему совпадению (idx 0), один раз на набор.
+  useEffect(() => {
+    if (!chatSearchOpen) return
+    const items = chatSearchResults.data?.items ?? []
+    const first = items[0]
+    const key = `${chatSearchTerm}:${items.length}:${first?.id ?? ''}`
+    if (!first || searchJumpedFor.current === key) return
+    searchJumpedFor.current = key
+    setSearchIdx(0)
+    void jumpToMessage(first.id)
+  }, [chatSearchOpen, chatSearchTerm, chatSearchResults.data, jumpToMessage])
+
+  // Шаг по совпадениям: dir=+1 — старее (следующее), -1 — новее (предыдущее). Прыгаем к сообщению.
+  function stepSearch(dir: 1 | -1): void {
+    const items = chatSearchResults.data?.items ?? []
+    if (items.length === 0) return
+    const next = Math.min(Math.max(searchIdx + dir, 0), items.length - 1)
+    setSearchIdx(next)
+    const m = items[next]
+    if (m) void jumpToMessage(m.id)
+  }
+
+  function closeChatSearch(): void {
+    setChatSearchOpen(false)
+    setChatSearchRaw('')
+    setChatSearchTerm('')
+    setSearchIdx(0)
+    setSearchFrom(null)
+    setSearchFromOpen(false)
+    searchJumpedFor.current = null
+  }
+
   const typingCount = Object.keys(typingUsers).length
   // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
   const firstTyperId = Object.keys(typingUsers)[0]
@@ -1467,6 +1659,20 @@ export function ChatWindow() {
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
   const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
+  // Роли участников для бейджей у сообщений (§21): только «заметные» роли + админ группы, не студенты.
+  const roleByUser = useMemo(() => {
+    const map = new Map<string, { role: string; isAdmin: boolean }>()
+    for (const m of membersQuery.data ?? []) map.set(m.id, { role: m.role, isAdmin: m.isAdmin })
+    return map
+  }, [membersQuery.data])
+  function senderBadge(userId: string): string | null {
+    const info = roleByUser.get(userId)
+    if (!info) return null
+    if (info.role === 'TEACHER' || info.role === 'DEAN' || info.role === 'STAROSTA')
+      return tRoles(info.role)
+    if (info.isAdmin) return t('adminBadge')
+    return null
+  }
   // #6: сколько участников прочитали сообщение (lastReadAt ≥ его времени) — для метки в группах.
   function readByCount(createdAt: string): number {
     const at = new Date(createdAt).getTime()
@@ -1495,429 +1701,112 @@ export function ChatWindow() {
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
 
+  // Стабильный диспетчер действий над сообщением (см. MessageItem). Всегда зовёт свежие
+  // обработчики через ref — идентичность объекта не меняется между рендерами, поэтому memo
+  // реально пропускает перерисовку невизуально-изменившихся пузырей (#57).
+  const msgHandlersRef = useRef({
+    setReplyTo,
+    setMenu,
+    setForwardMsg,
+    focusMessage,
+    copyText,
+    deleteMessage,
+    retrySend,
+    toggleSelect,
+    react,
+    onMsgTouchStart,
+    onMsgTouchMove,
+    onMsgTouchEnd,
+  })
+  msgHandlersRef.current = {
+    setReplyTo,
+    setMenu,
+    setForwardMsg,
+    focusMessage,
+    copyText,
+    deleteMessage,
+    retrySend,
+    toggleSelect,
+    react,
+    onMsgTouchStart,
+    onMsgTouchMove,
+    onMsgTouchEnd,
+  }
+  const messageActions = useMemo<MessageActions>(
+    () => ({
+      reply: (m) => msgHandlersRef.current.setReplyTo(m),
+      openMenu: (m, x, y) => msgHandlersRef.current.setMenu({ message: m, x, y }),
+      focus: (id) => msgHandlersRef.current.focusMessage(id),
+      copy: (m) => msgHandlersRef.current.copyText(m),
+      forward: (m) => msgHandlersRef.current.setForwardMsg(m),
+      del: (m) => msgHandlersRef.current.deleteMessage(m),
+      retry: (m) => msgHandlersRef.current.retrySend(m),
+      toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
+      react: (id, emoji) => msgHandlersRef.current.react.mutate({ messageId: id, emoji }),
+      touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
+      touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
+      touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
+    }),
+    [],
+  )
+
   // Список чатов — на мобильном во весь экран; на десктопе порталится в сайдбар (embedded).
   const chatList = (
-    <aside
-      className={cn(
-        embedded
-          ? 'flex h-full w-full flex-col'
-          : cn(
-              // lg:hidden — на десктопе список всегда живёт в сайдбаре (портал); эта
-              // inline-панель нужна только для мобильного/планшета (<lg). Так исключаем
-              // «вторую» панель в момент, пока портал ещё не подхватил слот сайдбара.
-              'w-full shrink-0 flex-col border-r border-border md:flex md:w-80 lg:hidden',
-              activeId ? 'hidden md:flex' : 'flex',
-            ),
-      )}
-    >
-      <div className="flex flex-col gap-2 border-b border-border p-3">
-        {/* Заголовок: назад (десктоп) + «Чаты» + действия — одной строкой, кнопки одного размера. */}
-        <div className="flex items-center gap-1.5">
-          {embedded && (
-            <button
-              type="button"
-              onClick={() => router.back()}
-              aria-label={t('back')}
-              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-            >
-              <ArrowLeft className="size-5" aria-hidden />
-            </button>
-          )}
-          <span className="min-w-0 flex-1 truncate text-lg font-bold">{t('title')}</span>
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              aria-label={t('blockedTitle')}
-              title={t('blockedTitle')}
-              onClick={() => setBlockedOpen(true)}
-              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-            >
-              <ShieldBan className="size-5" aria-hidden />
-            </button>
-            {/* Меню «+» — всплывающее окно рядом с кнопкой (позиционируется от неё). */}
-            <div className="relative">
-              <button
-                type="button"
-                aria-label={t('newChat')}
-                onClick={() => setNewChatOpen((v) => !v)}
-                aria-expanded={newChatOpen}
-                className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-              >
-                <Plus
-                  className={cn(
-                    'size-5 transition-transform duration-200',
-                    newChatOpen && 'rotate-45',
-                  )}
-                  aria-hidden
-                />
-              </button>
-              {newChatOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setNewChatOpen(false)} />
-                  <div className="absolute right-0 top-full z-50 mt-1 w-52 origin-top-right overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCreateGroupOpen(true)
-                        setNewChatOpen(false)
-                      }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                    >
-                      <Users className="size-4 shrink-0 opacity-80" aria-hidden />
-                      {t('newGroup')}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-        {/* Единый поиск: по названиям чатов и по сообщениям внутри чатов. */}
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            value={listSearchRaw}
-            onChange={(e) => setListSearchRaw(e.target.value)}
-            placeholder={t('searchAll')}
-            className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-8 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-          />
-          {listSearchRaw && (
-            <button
-              type="button"
-              aria-label={t('clearSearch')}
-              onClick={() => {
-                setListSearchRaw('')
-                setListSearchTerm('')
-              }}
-              className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <X className="size-4" aria-hidden />
-            </button>
-          )}
-        </div>
-      </div>
-      {/* key вне embedded меняется при открытии/закрытии чата — список заново «въезжает»
-            слева (анимация закрытия на мобильном); на десктопе key постоянный, скролл не сбрасывается. */}
-      <div
-        key={embedded ? 'list' : activeId ? 'list-hidden' : 'list-visible'}
-        className={cn(
-          'flex-1 overflow-y-auto',
-          'duration-300 animate-in fade-in slide-in-from-left-4',
-          // Инлайн-список (мобильный/планшет) — отступ снизу под фиксированную нижнюю навигацию + safe-area.
-          !embedded && 'pb-[calc(6rem+env(safe-area-inset-bottom))]',
-        )}
-      >
-        {listSearchTerm.length >= 2 ? (
-          // Результаты единого поиска: сверху — чаты по названию, снизу — сообщения.
-          <div className="flex flex-col">
-            {chatMatches.length === 0 && msgMatches.length === 0 && !listMsgResults.isLoading ? (
-              <p className="p-4 text-center text-sm text-muted-foreground">{t('noResults')}</p>
-            ) : (
-              <>
-                {chatMatches.length > 0 && (
-                  <div className="flex flex-col">
-                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('title')}
-                    </p>
-                    {chatMatches.map((c) => {
-                      const title = chatTitle(c, t)
-                      const lm = c.lastMessage
-                      const preview = lm
-                        ? lm.content || (lm.media.length ? t('attachment') : '')
-                        : ''
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => {
-                            setActiveId(c.id)
-                            setListSearchRaw('')
-                            setListSearchTerm('')
-                          }}
-                          className={cn(
-                            'flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-muted/50',
-                            activeId === c.id ? 'bg-primary/10' : '',
-                          )}
-                        >
-                          <Avatar className="size-10 shrink-0">
-                            {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={title} />}
-                            <AvatarFallback
-                              className={cn('text-xs font-medium text-white', avatarColor(c.id))}
-                            >
-                              {chatInitials(title)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold">{title}</span>
-                            {preview && (
-                              <p className="truncate text-xs text-muted-foreground">{preview}</p>
-                            )}
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-                {(msgMatches.length > 0 || listMsgResults.isLoading) && (
-                  <div className="flex flex-col">
-                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('messagesSection')}
-                    </p>
-                    {listMsgResults.isLoading ? (
-                      <div className="flex justify-center py-4 text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                      </div>
-                    ) : (
-                      msgMatches.map((m) => {
-                        const chat = chatById.get(m.chatId)
-                        const chatName = chat ? chatTitle(chat, t) : t('typePrivate')
-                        return (
-                          <button
-                            key={m.id}
-                            type="button"
-                            onClick={() => {
-                              setActiveId(m.chatId)
-                              setListSearchRaw('')
-                              setListSearchTerm('')
-                            }}
-                            className="flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-muted/50"
-                          >
-                            <Avatar className="size-10 shrink-0">
-                              {chat?.avatarUrl && (
-                                <AvatarImage src={chat.avatarUrl} alt={chatName} />
-                              )}
-                              <AvatarFallback
-                                className={cn(
-                                  'text-xs font-medium text-white',
-                                  avatarColor(m.chatId),
-                                )}
-                              >
-                                {chatInitials(chatName)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                                  {chatName}
-                                </span>
-                                <span className="shrink-0 text-[0.7rem] text-muted-foreground">
-                                  {listTime(m.createdAt, locale)}
-                                </span>
-                              </div>
-                              <p className="truncate text-xs text-muted-foreground">
-                                <span className="text-foreground/70">{senderName(m)}: </span>
-                                {m.content || t('attachment')}
-                              </p>
-                            </div>
-                          </button>
-                        )
-                      })
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        ) : chats.isLoading ? (
-          <div className="flex flex-col gap-2 p-2">
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
-          </div>
-        ) : list.length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">{t('noChats')}</p>
-        ) : (
-          list.map((c) => {
-            const title = chatTitle(c, t)
-            const lm = c.lastMessage
-            const preview = lm ? lm.content || (lm.media.length ? t('attachment') : '') : ''
-            const previewWho =
-              lm && c.type !== 'PRIVATE'
-                ? lm.senderId === myId
-                  ? `${t('you')}: `
-                  : `${lm.sender.firstName}: `
-                : ''
-            // Статус доставки последнего своего сообщения (Telegram-стиль ✓/✓✓ в списке).
-            const lastMine = !!lm && lm.senderId === myId
-            const lastRead =
-              lastMine &&
-              !!c.othersReadAt &&
-              new Date(c.othersReadAt).getTime() >= new Date(lm!.createdAt).getTime()
-            const tag = TYPE_TAG[c.type]
-            return (
-              <div
-                key={c.id}
-                className="relative overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
-              >
-                {/* Левая панель — открывается свайпом ВПРАВО: Прочитать · Закрепить (мобильный). */}
-                <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
-                  <button
-                    type="button"
-                    aria-label={t('markRead')}
-                    onClick={() => {
-                      markChatRead(c.id)
-                      closeSwipedRow(c.id)
-                    }}
-                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-sky-600 px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
-                  >
-                    <CheckCheck className="size-4" aria-hidden />
-                    {t('readShort')}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={c.pinned ? t('unpin') : t('pin')}
-                    onClick={() => {
-                      pin.mutate({ chatId: c.id, pinned: !c.pinned })
-                      closeSwipedRow(c.id)
-                    }}
-                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-primary px-1 text-center text-[0.6rem] font-medium leading-tight text-primary-foreground"
-                  >
-                    {c.pinned ? (
-                      <PinOff className="size-4" aria-hidden />
-                    ) : (
-                      <Pin className="size-4" aria-hidden />
-                    )}
-                    {c.pinned ? t('unpinShort') : t('pinShort')}
-                  </button>
-                </div>
-                {/* Правая панель — открывается свайпом ВЛЕВО: Без звука · Удалить (мобильный). */}
-                <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
-                  <button
-                    type="button"
-                    aria-label={c.muted ? t('unmute') : t('mute')}
-                    onClick={() => {
-                      mute.mutate({ chatId: c.id, muted: !c.muted })
-                      closeSwipedRow(c.id)
-                    }}
-                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-muted px-1 text-center text-[0.6rem] font-medium leading-tight text-muted-foreground"
-                  >
-                    {c.muted ? (
-                      <Bell className="size-4" aria-hidden />
-                    ) : (
-                      <BellOff className="size-4" aria-hidden />
-                    )}
-                    {c.muted ? t('unmuteShort') : t('muteShort')}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('delete')}
-                    onClick={() => {
-                      const msg =
-                        c.type !== 'PRIVATE' && c.isOwner
-                          ? t('deleteGroupConfirm')
-                          : t('deleteChatConfirm')
-                      closeSwipedRow(c.id)
-                      void confirm({ title: msg, destructive: true }).then((ok) => {
-                        if (ok) deleteChat.mutate(c.id)
-                      })
-                    }}
-                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
-                  >
-                    <Trash2 className="size-4" aria-hidden />
-                    {t('delete')}
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  ref={(el) => {
-                    if (el) rowEls.current.set(c.id, el)
-                    else rowEls.current.delete(c.id)
-                  }}
-                  onClick={() => {
-                    // Свайп только что закрыл/открыл строку — клик игнорируем. Открытая строка → закрыть.
-                    if (chatSwipedFlag.current) {
-                      chatSwipedFlag.current = false
-                      return
-                    }
-                    if (swiped) {
-                      closeSwipedRow(swiped.id)
-                      return
-                    }
-                    setActiveId(c.id)
-                  }}
-                  onTouchStart={(e) => onRowTouchStart(e, c.id)}
-                  onTouchMove={onRowTouchMove}
-                  onTouchEnd={(e) => onRowTouchEnd(e, c.id)}
-                  className={cn(
-                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors hover:bg-muted/50',
-                    activeId === c.id ? 'bg-primary/10' : '',
-                  )}
-                >
-                  <span className="relative shrink-0">
-                    <Avatar className="size-12">
-                      {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={title} />}
-                      <AvatarFallback
-                        className={cn('text-sm font-medium text-white', avatarColor(c.id))}
-                      >
-                        {chatInitials(title)}
-                      </AvatarFallback>
-                    </Avatar>
-                    {c.type === 'PRIVATE' && c.online && (
-                      <span
-                        className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-green-500"
-                        aria-hidden
-                      />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
-                      {c.muted && (
-                        <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                      )}
-                      {lastMine &&
-                        (lastRead ? (
-                          <CheckCheck className="size-3 shrink-0 text-sky-500/80" aria-hidden />
-                        ) : (
-                          <Check className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                        ))}
-                      {lm && (
-                        <span className="shrink-0 text-[0.7rem] text-muted-foreground">
-                          {listTime(lm.createdAt, locale)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {previewWho && <span className="text-foreground/70">{previewWho}</span>}
-                        {preview}
-                      </p>
-                      {c.unreadCount > 0 ? (
-                        <span
-                          className={cn(
-                            'flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full px-1 text-[0.65rem] font-medium tabular-nums text-white',
-                            c.muted ? 'bg-muted-foreground/60' : 'bg-primary',
-                          )}
-                        >
-                          {c.unreadCount > 99 ? '99+' : c.unreadCount}
-                        </span>
-                      ) : (
-                        // Закреплён без непрочитанных — маленькая иконка-булавка (Telegram-стиль).
-                        c.pinned && (
-                          <Pin
-                            className="size-3.5 shrink-0 text-muted-foreground"
-                            aria-label={t('pinned')}
-                          />
-                        )
-                      )}
-                    </div>
-                    <span className="mt-0.5 inline-flex items-center gap-1 text-[0.6rem] font-medium uppercase tracking-wide text-muted-foreground">
-                      <span
-                        className={cn('size-1.5 shrink-0 rounded-full opacity-70', tag.dot)}
-                        aria-hidden
-                      />
-                      {t(tag.key)}
-                    </span>
-                  </div>
-                </button>
-              </div>
-            )
+    <ConversationList
+      embedded={embedded}
+      activeId={activeId}
+      onOpenChat={setActiveId}
+      onBack={() => router.back()}
+      newChatOpen={newChatOpen}
+      onToggleNewChat={() => setNewChatOpen((v) => !v)}
+      onCloseNewChat={() => setNewChatOpen(false)}
+      onNewGroup={() => {
+        setCreateGroupOpen(true)
+        setNewChatOpen(false)
+      }}
+      onOpenSaved={() => {
+        setNewChatOpen(false)
+        void fetchSavedChat()
+          .then(({ id }) => {
+            void qc.invalidateQueries({ queryKey: chatKeys.list() })
+            setActiveId(id)
           })
-        )}
-      </div>
-    </aside>
+          .catch((e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')))
+      }}
+      onOpenBlocked={() => setBlockedOpen(true)}
+      searchRaw={listSearchRaw}
+      onSearchChange={setListSearchRaw}
+      onClearSearch={() => {
+        setListSearchRaw('')
+        setListSearchTerm('')
+      }}
+      searchTerm={listSearchTerm}
+      chatMatches={chatMatches}
+      msgMatches={msgMatches}
+      msgResultsLoading={listMsgResults.isLoading}
+      chatById={chatById}
+      chats={list}
+      chatsLoading={chats.isLoading}
+      myId={myId}
+      locale={locale}
+      swiped={swiped}
+      swipedFlagRef={chatSwipedFlag}
+      rowElsRef={rowEls}
+      onRowTouchStart={onRowTouchStart}
+      onRowTouchMove={onRowTouchMove}
+      onRowTouchEnd={onRowTouchEnd}
+      onCloseSwiped={closeSwipedRow}
+      onMarkRead={markChatRead}
+      onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
+      onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
+      onDeleteChat={(c) => {
+        const msg =
+          c.type !== 'PRIVATE' && c.isOwner ? t('deleteGroupConfirm') : t('deleteChatConfirm')
+        void confirm({ title: msg, destructive: true }).then((ok) => {
+          if (ok) deleteChat.mutate(c.id)
+        })
+      }}
+    />
   )
 
   return (
@@ -1988,10 +1877,143 @@ export function ChatWindow() {
                 </button>
               </header>
             )}
+            {/* Режим поиска внутри чата (§3): ввод + счётчик совпадений + навигация ↑↓. */}
+            {chatSearchOpen &&
+              (() => {
+                const found = chatSearchResults.data?.items ?? []
+                const total = found.length
+                return (
+                  <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+                    <button
+                      type="button"
+                      aria-label={t('cancel')}
+                      onClick={closeChatSearch}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+                    >
+                      <ChevronLeft className="size-5" aria-hidden />
+                    </button>
+                    <div className="relative min-w-0 flex-1">
+                      <Search
+                        className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <input
+                        autoFocus
+                        value={chatSearchRaw}
+                        onChange={(e) => setChatSearchRaw(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            stepSearch(e.shiftKey ? -1 : 1)
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault()
+                            closeChatSearch()
+                          }
+                        }}
+                        placeholder={t('searchInChat')}
+                        className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+                      />
+                    </div>
+                    {/* Фильтр «От кого» (§4) — только в группах. */}
+                    {activeIsGroup && (
+                      <div className="relative shrink-0">
+                        <button
+                          type="button"
+                          aria-label={t('searchFrom')}
+                          onClick={() => setSearchFromOpen((v) => !v)}
+                          className={cn(
+                            'flex h-8 max-w-28 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
+                            searchFrom
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-muted-foreground hover:bg-muted',
+                          )}
+                        >
+                          <UserSearch className="size-4 shrink-0" aria-hidden />
+                          {searchFrom && <span className="truncate">{searchFrom.name}</span>}
+                        </button>
+                        {searchFromOpen && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setSearchFromOpen(false)}
+                            />
+                            <div className="absolute right-0 top-full z-50 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSearchFrom(null)
+                                  setSearchFromOpen(false)
+                                }}
+                                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                              >
+                                {t('searchFromAll')}
+                              </button>
+                              {(membersQuery.data ?? []).map((mem) => {
+                                const name = `${mem.lastName} ${mem.firstName}`.trim()
+                                return (
+                                  <button
+                                    key={mem.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSearchFrom({ id: mem.id, name })
+                                      setSearchFromOpen(false)
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                                  >
+                                    <Avatar className="size-6 shrink-0">
+                                      {mem.avatarUrl && (
+                                        <AvatarImage src={mem.avatarUrl} alt={name} />
+                                      )}
+                                      <AvatarFallback className="text-[0.6rem]">
+                                        {(mem.lastName[0] ?? '') + (mem.firstName[0] ?? '')}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <span className="min-w-0 flex-1 truncate">{name}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {chatSearchResults.isFetching ? (
+                      <Loader2
+                        className="size-4 shrink-0 animate-spin text-muted-foreground"
+                        aria-hidden
+                      />
+                    ) : (
+                      chatSearchTerm.length >= 2 && (
+                        <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
+                          {total > 0 ? `${searchIdx + 1}/${total}` : t('noResults')}
+                        </span>
+                      )
+                    )}
+                    <button
+                      type="button"
+                      aria-label={t('searchPrev')}
+                      onClick={() => stepSearch(-1)}
+                      disabled={total === 0 || searchIdx <= 0}
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                    >
+                      <ChevronUp className="size-5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('searchNext')}
+                      onClick={() => stepSearch(1)}
+                      disabled={total === 0 || searchIdx >= total - 1}
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                    >
+                      <ChevronDown className="size-5" aria-hidden />
+                    </button>
+                  </header>
+                )
+              })()}
             <header
               className={cn(
                 'flex items-center justify-between gap-1 border-b border-border px-3 py-3 md:px-4',
-                selectMode && 'hidden',
+                (selectMode || chatSearchOpen) && 'hidden',
               )}
             >
               {/* Назад к списку — только на мобильном */}
@@ -2005,7 +2027,11 @@ export function ChatWindow() {
               </button>
               <button
                 type="button"
-                onClick={() => (isPrivate ? setPeerCardOpen(true) : setGroupInfoOpen(true))}
+                onClick={() => {
+                  if (isWide) setDetailsOpen((v) => !v)
+                  else if (isPrivate) setPeerCardOpen(true)
+                  else setGroupInfoOpen(true)
+                }}
                 className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 text-left transition-colors hover:bg-muted"
               >
                 <span className="relative shrink-0">
@@ -2064,6 +2090,25 @@ export function ChatWindow() {
                     {t('offline')}
                   </span>
                 )}
+                {/* Поиск внутри чата (§3). */}
+                <button
+                  type="button"
+                  aria-label={t('searchInChat')}
+                  onClick={() => setChatSearchOpen(true)}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Search className="size-4" aria-hidden />
+                </button>
+                {/* Переход по дате (#5): value='' — контрол работает как кнопка-jump, выбор → jumpToDate. */}
+                <DatePicker
+                  value=""
+                  onChange={(ymd) => {
+                    if (ymd) void jumpToDate(ymd)
+                  }}
+                  placeholder={t('jumpToDate')}
+                  aria-label={t('jumpToDate')}
+                  className="w-9 shrink-0 sm:w-36"
+                />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
                   <button
@@ -2235,26 +2280,41 @@ export function ChatWindow() {
               })()}
 
             <div className="relative flex min-h-0 flex-1 flex-col">
+              {/* Спиннер догрузки старых — оверлей, чтобы не влиять на измерение высот virtua (startMargin=0). */}
+              {loadingOlder && (
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center text-muted-foreground">
+                  <span className="rounded-full bg-background/80 p-1 shadow-sm backdrop-blur">
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  </span>
+                </div>
+              )}
+              {/* Плавающий заголовок даты (§6): дата верхних видимых сообщений, гаснет вне скролла. */}
+              {floatingDay && !loadingOlder && (
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+                  <span
+                    className={cn(
+                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-opacity duration-300',
+                      floatingDayShown ? 'opacity-100' : 'opacity-0',
+                    )}
+                  >
+                    {floatingDay}
+                  </span>
+                </div>
+              )}
               <div
                 ref={messagesScrollRef}
                 onScroll={onMessagesScroll}
                 className="flex-1 overflow-y-auto p-4"
               >
-                {loadingOlder && (
-                  <div className="mb-3 flex justify-center text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                  </div>
-                )}
                 {messages.isLoading ? (
                   <div className="flex justify-center py-8 text-muted-foreground">
                     <Loader2 className="size-5 animate-spin" aria-hidden />
                   </div>
                 ) : (
-                  <ul className="flex flex-col">
+                  <Virtualizer ref={virtualizerRef} scrollRef={messagesScrollRef} shift={shiftMode}>
                     {(messages.data ?? []).map((m, i) => {
                       const mine = m.senderId === myId
-                      // Группировка подряд идущих сообщений одного автора (Telegram-стиль): аватар и имя —
-                      // только у первого в серии; между сообщениями серии — плотнее, между авторами — просторнее.
+                      // Группировка подряд идущих сообщений одного автора: аватар/имя — только у первого в серии.
                       const arr = messages.data ?? []
                       const prevMsg = arr[i - 1]
                       const firstOfRun = prevMsg?.senderId !== m.senderId
@@ -2263,268 +2323,59 @@ export function ChatWindow() {
                         !prevMsg ||
                         new Date(prevMsg.createdAt).toDateString() !==
                           new Date(m.createdAt).toDateString()
+                      // Статус доставки своего сообщения (#51) считаем здесь — единый источник
+                      // readWatermark/onlineOthers/sendState; в MessageItem уходит примитивом.
+                      let readState: MessageReadState = 'sent'
+                      let readCount = 0
+                      if (mine) {
+                        const st = sendState[m.id]
+                        if (st === 'pending') readState = 'pending'
+                        else if (st === 'failed') readState = 'failed'
+                        else {
+                          const read =
+                            readWatermark != null &&
+                            new Date(readWatermark).getTime() >= new Date(m.createdAt).getTime()
+                          if (read) {
+                            readState = 'read'
+                            readCount = activeIsGroup ? readByCount(m.createdAt) : 0
+                          } else if (onlineOthers > 0) readState = 'delivered'
+                        }
+                      }
                       return (
-                        <Fragment key={m.id}>
-                          {showDay && (
-                            <li className="sticky top-1 z-10 my-2 flex justify-center">
-                              <span className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
-                                {dayLabel(m.createdAt)}
-                              </span>
-                            </li>
-                          )}
-                          {unreadDividerId === m.id && (
-                            <li className="my-2 flex items-center gap-2 px-1">
-                              <span className="h-px flex-1 bg-primary/40" aria-hidden />
-                              <span className="text-xs font-medium text-primary">
-                                {t('unreadMessages')}
-                              </span>
-                              <span className="h-px flex-1 bg-primary/40" aria-hidden />
-                            </li>
-                          )}
-                          <li
-                            id={`msg-${m.id}`}
-                            className={cn(
-                              // -mx-4/px-4 — фон подсветки на всю ширину чата (в паддинг контейнера), высотой с сообщение.
-                              // select-none + touch-action:pan-y — для тач-жестов (долгое нажатие / свайп-ответ).
-                              // #5: content-visibility:auto — браузер пропускает рендер/лэйаут офф-скрин строк
-                              // (дешёвая «виртуализация» без DOM-реструктуризации и слома sticky-заголовков/скролла);
-                              // contain-intrinsic-size задаёт оценку высоты для скроллбара до первого рендера.
-                              'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none [contain-intrinsic-size:auto_44px] [content-visibility:auto]',
-                              i > 0 && (firstOfRun ? 'mt-2' : 'mt-0.5'),
-                              mine && 'flex-row-reverse',
-                              (highlightId === m.id || (selectMode && selectedIds.has(m.id))) &&
-                                'bg-primary/10',
-                              !selectMode && menu?.message.id === m.id && 'bg-primary/5',
-                              selectMode && 'cursor-pointer',
-                            )}
-                            onContextMenu={
-                              selectMode
-                                ? undefined
-                                : (e) => {
-                                    e.preventDefault()
-                                    setMenu({ message: m, x: e.clientX, y: e.clientY })
-                                  }
-                            }
-                            onTouchStart={selectMode ? undefined : (e) => onMsgTouchStart(e, m)}
-                            onTouchMove={selectMode ? undefined : onMsgTouchMove}
-                            onTouchEnd={selectMode ? undefined : onMsgTouchEnd}
-                          >
-                            {selectMode && (
-                              <>
-                                {/* Оверлей ловит тап по всей строке → переключение выбора (внутренние клики не мешают). */}
-                                <button
-                                  type="button"
-                                  aria-label={t('select')}
-                                  onClick={() => toggleSelect(m.id)}
-                                  className="absolute inset-0 z-20"
-                                />
-                                <span
-                                  className={cn(
-                                    'z-10 flex size-5 shrink-0 items-center justify-center rounded-full border',
-                                    selectedIds.has(m.id)
-                                      ? 'border-primary bg-primary text-primary-foreground'
-                                      : 'border-muted-foreground/40',
-                                  )}
-                                >
-                                  {selectedIds.has(m.id) && (
-                                    <Check className="size-3.5" aria-hidden />
-                                  )}
-                                </span>
-                              </>
-                            )}
-                            {!mine &&
-                              (firstOfRun ? (
-                                <ProfileLink userId={m.senderId} className="shrink-0 self-end">
-                                  <Avatar className="size-7">
-                                    <AvatarFallback>
-                                      {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                </ProfileLink>
-                              ) : (
-                                // Спейсер сохраняет горизонтальное место аватара — пузыри серии остаются выровненными.
-                                <span className="size-7 shrink-0" aria-hidden />
-                              ))}
-                            <div
-                              data-bubble
-                              className={cn(
-                                'relative max-w-[75%] rounded-2xl px-3 py-2 text-sm',
-                                mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
-                              )}
-                            >
-                              {/* Быстрая кнопка «Ответить» при наведении (Telegram-стиль). У своих — слева
-                              (справа мешает скроллбар), у чужих — справа; всегда со стороны к центру. */}
-                              <button
-                                type="button"
-                                aria-label={t('reply')}
-                                onClick={() => setReplyTo(m)}
-                                className={cn(
-                                  'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100',
-                                  mine ? '-left-2' : '-right-2',
-                                )}
-                              >
-                                <Reply className="size-3.5" aria-hidden />
-                              </button>
-                              {!mine && firstOfRun && (
-                                <p className="mb-0.5 text-xs font-medium opacity-70">
-                                  <ProfileLink userId={m.senderId} className="hover:underline">
-                                    {senderName(m)}
-                                  </ProfileLink>
-                                </p>
-                              )}
-                              {m.replyTo && (
-                                <button
-                                  type="button"
-                                  onClick={() => m.replyTo && focusMessage(m.replyTo.id)}
-                                  className={cn(
-                                    'mb-1 block w-full rounded-md border-l-2 py-0.5 pl-2 text-left text-xs transition-colors',
-                                    mine
-                                      ? 'border-primary-foreground/50 opacity-80 hover:bg-primary-foreground/10'
-                                      : 'border-primary/50 opacity-75 hover:bg-primary/10',
-                                  )}
-                                >
-                                  <span className="font-medium">{senderName(m.replyTo)}</span>
-                                  <p className="line-clamp-2">
-                                    {m.replyTo.content || t('attachment')}
-                                  </p>
-                                </button>
-                              )}
-                              {m.forwardedFrom && (
-                                <p className="mb-0.5 flex items-center gap-1 text-xs italic opacity-70">
-                                  <Forward className="size-3" aria-hidden />
-                                  {t('forwardedFrom', { name: senderName(m.forwardedFrom) })}
-                                </p>
-                              )}
-                              {/* Медиа/вложения сверху, подпись — всегда снизу (как в Telegram). */}
-                              {m.media.length > 0 && (
-                                <MessageAttachments
-                                  media={m.media}
-                                  mine={mine}
-                                  viewerMeta={{
-                                    senderName: senderName(m),
-                                    createdAt: m.createdAt,
-                                    mine,
-                                    caption: m.content,
-                                  }}
-                                  viewerActions={{
-                                    onGoTo: () => focusMessage(m.id),
-                                    onCopy: () => copyText(m),
-                                    onForward: () => setForwardMsg(m),
-                                    onDelete: () => deleteMessage(m),
-                                  }}
-                                />
-                              )}
-                              {m.sharedPost && (
-                                <div className={cn(m.media.length > 0 && 'mt-1')}>
-                                  <SharedPostCard post={m.sharedPost} />
-                                </div>
-                              )}
-                              {m.content && (
-                                <div className={cn((m.media.length > 0 || m.sharedPost) && 'mt-1')}>
-                                  <MessageContent content={m.content} />
-                                </div>
-                              )}
-                              {m.linkPreview && (
-                                <LinkPreviewCard preview={m.linkPreview} mine={mine} />
-                              )}
-                              <span
-                                className={cn(
-                                  'mt-0.5 flex items-center gap-1 text-[0.65rem]',
-                                  mine ? 'justify-end' : 'justify-start',
-                                )}
-                              >
-                                {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
-                                <span className="opacity-60">
-                                  {new Date(m.createdAt).toLocaleTimeString(locale, {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                  {m.editedAt && ` · ${t('edited')}`}
-                                </span>
-                                {mine &&
-                                  (() => {
-                                    // #1: оптимистичный пузырь — «отправляется» или «ошибка» (клик — повтор).
-                                    const st = sendState[m.id]
-                                    if (st === 'pending')
-                                      return (
-                                        <Loader2
-                                          className="size-3 animate-spin opacity-60"
-                                          aria-label={t('sending')}
-                                        />
-                                      )
-                                    if (st === 'failed')
-                                      return (
-                                        <button
-                                          type="button"
-                                          onClick={() => retrySend(m)}
-                                          aria-label={t('sendFailedRetry')}
-                                          title={t('sendFailedRetry')}
-                                        >
-                                          <AlertCircle
-                                            className="size-3.5 text-destructive"
-                                            aria-hidden
-                                          />
-                                        </button>
-                                      )
-                                    const read =
-                                      readWatermark != null &&
-                                      new Date(readWatermark).getTime() >=
-                                        new Date(m.createdAt).getTime()
-                                    // #6: в группах у прочитанного сообщения показываем, сколько прочитали.
-                                    const count =
-                                      read && activeIsGroup ? readByCount(m.createdAt) : 0
-                                    if (read)
-                                      return (
-                                        <span
-                                          className="flex items-center gap-0.5"
-                                          title={
-                                            count > 0 ? t('readByCount', { count }) : undefined
-                                          }
-                                        >
-                                          <CheckCheck
-                                            className="size-3.5 text-sky-300"
-                                            aria-hidden
-                                          />
-                                          {count > 0 && (
-                                            <span className="text-[10px] leading-none opacity-70">
-                                              {count}
-                                            </span>
-                                          )}
-                                        </span>
-                                      )
-                                    if (onlineOthers > 0)
-                                      return (
-                                        <CheckCheck className="size-3.5 opacity-60" aria-hidden />
-                                      )
-                                    return <Check className="size-3.5 opacity-60" aria-hidden />
-                                  })()}
-                              </span>
-                              <ReactionBar
-                                reactions={m.reactions}
-                                myId={myId}
-                                ownBubble={mine}
-                                onToggle={(emoji) => react.mutate({ messageId: m.id, emoji })}
-                              />
-                            </div>
-                            {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
-                            <button
-                              type="button"
-                              aria-label={t('messageActions')}
-                              onClick={(e) => {
-                                const r = e.currentTarget.getBoundingClientRect()
-                                setMenu({ message: m, x: r.left, y: r.bottom })
-                              }}
-                              className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                            >
-                              <ChevronDown className="size-4" aria-hidden />
-                            </button>
-                          </li>
-                        </Fragment>
+                        <MessageItem
+                          key={m.id}
+                          m={m}
+                          mine={mine}
+                          firstOfRun={firstOfRun}
+                          isFirstInList={i === 0}
+                          showDay={showDay}
+                          dayText={showDay ? dayLabel(m.createdAt) : null}
+                          isUnreadDivider={unreadDividerId === m.id}
+                          highlighted={highlightId === m.id}
+                          selecting={selectMode}
+                          selected={selectedIds.has(m.id)}
+                          menuActive={menu?.message.id === m.id}
+                          readState={readState}
+                          readCount={readCount}
+                          locale={locale}
+                          senderNameText={senderName(m)}
+                          senderBadge={!mine && activeIsGroup ? senderBadge(m.senderId) : null}
+                          replyToNameText={m.replyTo ? senderName(m.replyTo) : null}
+                          forwardedFromNameText={
+                            m.forwardedFrom ? senderName(m.forwardedFrom) : null
+                          }
+                          myId={myId}
+                          highlightTerm={
+                            chatSearchOpen && chatSearchTerm.length >= 2
+                              ? chatSearchTerm
+                              : undefined
+                          }
+                          actions={messageActions}
+                        />
                       )
                     })}
-                  </ul>
+                  </Virtualizer>
                 )}
-                <div ref={bottomRef} />
               </div>
               {/* Кнопка «вниз» со счётчиком новых — появляется, когда пролистано вверх (Telegram-стиль). */}
               {showScrollDown && (
@@ -2546,210 +2397,72 @@ export function ChatWindow() {
 
             {/* «печатает…» показываем в шапке (вместо статуса), а не здесь — Telegram-стиль. */}
 
-            {/* Панель правки */}
-            {editing && (
-              <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs">
-                <Pencil className="size-3.5 shrink-0 text-primary" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <span className="font-medium">{t('editing')}</span>
-                  <p className="line-clamp-1 text-muted-foreground">{editing.content}</p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={t('cancelReply')}
-                  onClick={() => {
-                    setEditing(null)
-                    setText('')
-                  }}
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-4" aria-hidden />
-                </button>
-              </div>
-            )}
-
-            {/* Панель ответа */}
-            {replyTo && !editing && (
-              <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs">
-                <Reply className="size-3.5 shrink-0 text-primary" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <span className="font-medium">
-                    {t('replyingTo', { name: senderName(replyTo) })}
-                  </span>
-                  <p className="line-clamp-1 text-muted-foreground">
-                    {replyTo.content || t('attachment')}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={t('cancelReply')}
-                  onClick={() => setReplyTo(null)}
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-4" aria-hidden />
-                </button>
-              </div>
-            )}
-
-            {blockedActive ? (
-              <div className="flex items-center justify-center gap-2 border-t border-border p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] text-center text-sm text-muted-foreground">
-                <Ban className="size-4 shrink-0" aria-hidden />
-                <span>{activeChat?.blocked ? t('blockedBanner') : t('blockedByBanner')}</span>
-                {activeChat?.blocked && otherId && (
-                  <button
-                    type="button"
-                    onClick={() => block.mutate({ userId: otherId, blocked: true })}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {t('unblockUser')}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="relative flex items-center gap-1.5 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-                {/* Попап @-упоминаний участников */}
-                {mentionCandidates.length > 0 && !voice.recording && (
-                  <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-lg">
-                    {mentionCandidates.map((u) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onClick={() => insertMention(u)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
-                      >
-                        <Avatar className="size-7 shrink-0">
-                          <AvatarFallback className="text-xs">
-                            {(u.lastName[0] ?? '') + (u.firstName[0] ?? '')}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="min-w-0 flex-1 truncate">
-                          {u.lastName} {u.firstName}
-                          {u.id === myId ? ` (${t('you')})` : ''}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    addFiles(e.target.files)
-                    e.target.value = ''
-                  }}
-                />
-                {voice.recording ? (
-                  // Строка записи: отмена · таймер + волны · пауза/продолжить · отправить
-                  <>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label={t('cancelRecording')}
-                      onClick={voice.cancel}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="size-5" aria-hidden />
-                    </Button>
-                    <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-input px-3">
-                      <span
-                        className={cn(
-                          'size-2 shrink-0 rounded-full bg-destructive',
-                          !voice.paused && 'animate-pulse',
-                        )}
-                        aria-hidden
-                      />
-                      <span className="w-10 shrink-0 tabular-nums text-sm text-muted-foreground">
-                        {recMMSS}
-                      </span>
-                      <VoiceWaveform analyserRef={voice.analyserRef} paused={voice.paused} />
-                    </div>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      aria-label={voice.paused ? t('resumeRecording') : t('pauseRecording')}
-                      onClick={voice.paused ? voice.resume : voice.pause}
-                    >
-                      {voice.paused ? (
-                        <Play className="size-5" aria-hidden />
-                      ) : (
-                        <Pause className="size-5" aria-hidden />
-                      )}
-                    </Button>
-                    <Button type="button" size="icon" aria-label={t('send')} onClick={voice.finish}>
-                      <Send className="size-4" aria-hidden />
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      aria-label={t('attach')}
-                      disabled={!connected || !!editing}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                    >
-                      <Paperclip className="size-5" aria-hidden />
-                    </button>
-                    <input
-                      ref={composerRef}
-                      value={text}
-                      onChange={(e) => onType(e.target.value)}
-                      onKeyDown={(e) => {
-                        // Открыт попап упоминаний: Enter — выбрать первого, Escape — закрыть.
-                        if (mentionCandidates.length > 0) {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            const first = mentionCandidates[0]
-                            if (first) insertMention(first)
-                            return
-                          }
-                          if (e.key === 'Escape') {
-                            e.preventDefault()
-                            setMentionQuery(null)
-                            return
-                          }
-                        }
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          send()
-                        }
-                      }}
-                      placeholder={t('messagePlaceholder')}
-                      className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-                    />
-                    {showSend ? (
-                      <Button
-                        type="button"
-                        size="icon"
-                        aria-label={t('send')}
-                        disabled={!connected}
-                        onClick={send}
-                      >
-                        <Send className="size-4" aria-hidden />
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        aria-label={t('recordVoice')}
-                        disabled={!connected}
-                        onClick={() => void voice.start()}
-                      >
-                        <Mic className="size-5" aria-hidden />
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
+            <ChatComposer
+              editing={editing}
+              onCancelEdit={() => {
+                setEditing(null)
+                setText('')
+              }}
+              replyTo={replyTo}
+              replyToName={replyTo ? senderName(replyTo) : ''}
+              onCancelReply={() => setReplyTo(null)}
+              blocked={!!blockedActive}
+              iBlocked={!!activeChat?.blocked}
+              otherId={otherId}
+              onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
+              text={text}
+              onType={onType}
+              onSend={send}
+              showSend={showSend}
+              connected={connected}
+              composerRef={composerRef}
+              fileInputRef={fileInputRef}
+              onFilesPicked={addFiles}
+              onCreatePoll={isPrivate ? undefined : () => setPollCreatorOpen(true)}
+              mentionCandidates={mentionCandidates}
+              onInsertMention={insertMention}
+              onCloseMentions={() => setMentionQuery(null)}
+              myId={myId}
+              voice={voice}
+              recMMSS={recMMSS}
+            />
           </div>
         )}
       </section>
+
+      {/* Правая панель деталей — докнутая третья колонка (десктоп ≥xl). Ширина анимируется,
+          центральная переписка адаптивно сужается и остаётся активной (Telegram-стиль §1, §55). */}
+      <aside
+        className={cn(
+          'hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out xl:block',
+          detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
+        )}
+        aria-hidden={!(detailsOpen && activeChat)}
+      >
+        {activeChat && (
+          <div className="h-full w-[22rem]">
+            <ChatDetailsSidebar
+              key={activeChat.id}
+              chat={activeChat}
+              title={chatTitle(activeChat, t)}
+              isPrivate={isPrivate}
+              peerOnline={otherOnline}
+              onClose={() => setDetailsOpen(false)}
+              onMute={(mode) =>
+                mute.mutate({
+                  chatId: activeChat.id,
+                  muted: true,
+                  minutes: mode === 'forever' ? undefined : mode,
+                })
+              }
+              onUnmute={() => mute.mutate({ chatId: activeChat.id, muted: false })}
+              onManageGroup={() => setGroupInfoOpen(true)}
+              onOpenPeerProfile={otherId ? () => setPeerCardOpen(true) : undefined}
+              onJump={focusMessage}
+            />
+          </div>
+        )}
+      </aside>
 
       {menu && (
         <MessageContextMenu
@@ -2808,6 +2521,14 @@ export function ChatWindow() {
         />
       )}
 
+      {pollCreatorOpen && (
+        <PollCreator
+          onClose={() => setPollCreatorOpen(false)}
+          onCreate={(input) => createPoll.mutate(input)}
+          pending={createPoll.isPending}
+        />
+      )}
+
       {groupInfoOpen && activeChat && (
         <GroupInfoDialog
           chatId={activeChat.id}
@@ -2849,11 +2570,12 @@ export function ChatWindow() {
         <AttachmentDialog
           files={attachFiles}
           sending={false}
-          onSend={(caption) =>
+          onSend={(caption, spoiler) =>
             sendFiles({
               content: caption || undefined,
               replyToId: replyTo?.id,
               files: attachFiles,
+              spoiler,
             })
           }
           onAddMore={() => fileInputRef.current?.click()}

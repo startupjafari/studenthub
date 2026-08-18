@@ -7,6 +7,10 @@ export interface ApiMeta {
   cursor?: string
   hasNext?: boolean
   total?: number
+  // Двунаправленная курсорная пагинация (история сообщений чата, jump-to-message):
+  // cursor/hasNext — подгрузка более СТАРЫХ (вверх), prevCursor/hasPrev — более НОВЫХ (вниз).
+  prevCursor?: string
+  hasPrev?: boolean
 }
 
 export interface ApiSuccessResponse<T> {

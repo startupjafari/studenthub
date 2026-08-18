@@ -72,6 +72,9 @@ function Single({
   const t = useTranslations('Chats')
   const { url, isLoading } = useAttachmentUrl(att)
   const uploading = !!att.uploading
+  // Спойлер (§34): размыто до клика.
+  const [revealed, setRevealed] = useState(false)
+  const blurred = !!att.spoiler && !revealed
 
   if (isLoading || !url) {
     return (
@@ -95,17 +98,35 @@ function Single({
   }
 
   if (att.mime.startsWith('image/')) {
+    // GIF (image/gif) автопроигрывается нативно как <img>; для остальных — lazy-загрузка (§30).
+    const isGif = att.mime === 'image/gif'
     return (
-      <span className="relative inline-block">
+      <span className="relative inline-block overflow-hidden rounded-lg">
         <img
           src={url}
           alt={t('attachment')}
+          loading="lazy"
           className={cn(
-            'max-h-64 max-w-full rounded-lg object-cover',
+            'max-h-64 max-w-full rounded-lg object-cover transition-[filter]',
+            blurred && 'scale-105 blur-xl',
             uploading ? 'cursor-default' : 'cursor-pointer',
           )}
-          onClick={uploading ? undefined : onOpen}
+          onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         />
+        {blurred && (
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
+          >
+            {t('spoiler')}
+          </button>
+        )}
+        {isGif && !uploading && !blurred && (
+          <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[0.6rem] font-semibold uppercase text-white">
+            GIF
+          </span>
+        )}
         {uploading && <MediaUploadOverlay progress={att.progress} />}
       </span>
     )
@@ -115,13 +136,22 @@ function Single({
     return (
       <button
         type="button"
-        onClick={uploading ? undefined : onOpen}
+        onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         disabled={uploading}
         className="relative block max-w-full overflow-hidden rounded-lg"
       >
-        <video src={url} preload="metadata" muted className="max-h-64 max-w-full" />
+        <video
+          src={url}
+          preload="metadata"
+          muted
+          className={cn('max-h-64 max-w-full', blurred && 'scale-105 blur-xl')}
+        />
         {uploading ? (
           <MediaUploadOverlay progress={att.progress} />
+        ) : blurred ? (
+          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-white">
+            {t('spoiler')}
+          </span>
         ) : (
           <span className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors hover:bg-black/30">
             <span className="flex size-12 items-center justify-center rounded-full bg-black/50 text-white">
