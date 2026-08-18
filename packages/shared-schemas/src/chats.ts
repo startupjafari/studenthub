@@ -12,6 +12,7 @@ export const ChatTypeSchema = z.enum([
   'DEAN',
   'SUPPORT',
   'EVENT',
+  'SAVED',
 ])
 export type ChatTypeValue = z.infer<typeof ChatTypeSchema>
 
@@ -38,15 +39,56 @@ export type EditChatInput = z.infer<typeof EditChatSchema>
 export const SaveDraftSchema = z.object({ text: z.string().max(4000) }).strict()
 export type SaveDraftInput = z.infer<typeof SaveDraftSchema>
 
-export const ChatMessagesQuerySchema = CursorPaginationSchema
+// История сообщений (cursor). Аддитивно (Этап 1, jump-to-message):
+// - around — вернуть окно вокруг сообщения (до limit старее + целевое + до limit новее);
+// - direction — направление курсорной подгрузки: older (по умолчанию, вверх) | newer (вниз, после jump).
+export const ChatMessagesQuerySchema = CursorPaginationSchema.extend({
+  around: z.string().min(1).optional(),
+  // Переход по дате (#5): окно вокруг первого сообщения на/после этой даты (ISO datetime).
+  aroundDate: z.string().datetime().optional(),
+  direction: z.enum(['older', 'newer']).optional(),
+})
 export type ChatMessagesQueryInput = z.infer<typeof ChatMessagesQuerySchema>
 
 // Поиск сообщений (Ф9+): по подстроке; chatId задан — внутри чата, иначе — по всем чатам участника.
+// Фильтры (§4): senderId — только сообщения этого автора; hasFile — только с вложениями.
 export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
   q: z.string().trim().min(2).max(100),
   chatId: z.string().min(1).optional(),
+  senderId: z.string().min(1).optional(),
+  hasFile: z.coerce.boolean().optional(),
 })
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
+
+// Отключение уведомлений на время (§17): minutes — на сколько заглушить (нет/0 — «навсегда»).
+export const MuteSchema = z
+  .object({ minutes: z.coerce.number().int().positive().optional() })
+  .strict()
+export type MuteInput = z.infer<typeof MuteSchema>
+
+// Опрос в чате (§38–39): вопрос + 2..10 вариантов + настройки.
+export const CreateChatPollSchema = z
+  .object({
+    question: z.string().trim().min(1).max(300),
+    options: z.array(z.string().trim().min(1).max(100)).min(2).max(10),
+    multiple: z.boolean().optional(),
+    anonymous: z.boolean().optional(),
+    allowRevote: z.boolean().optional(),
+    randomOrder: z.boolean().optional(),
+  })
+  .strict()
+export type CreateChatPollInput = z.infer<typeof CreateChatPollSchema>
+
+// Голос в опросе: optionIds — выбранные варианты (пустой массив = снять голос).
+export const PollVoteSchema = z.object({ optionIds: z.array(z.string().min(1)).max(10) }).strict()
+export type PollVoteInput = z.infer<typeof PollVoteSchema>
+
+// Общие материалы чата (§23, правый sidebar): вложения по типу.
+// media — фото/видео; file — документы/прочее; voice — аудио/голосовые.
+export const ChatMediaQuerySchema = CursorPaginationSchema.extend({
+  type: z.enum(['media', 'file', 'voice']).default('media'),
+})
+export type ChatMediaQueryInput = z.infer<typeof ChatMediaQuerySchema>
 
 // Отправка сообщения с вложениями через REST (multipart): текст опционален, если есть файлы.
 export const MessageSendRestSchema = z
@@ -54,6 +96,8 @@ export const MessageSendRestSchema = z
     chatId: z.string().min(1),
     content: z.string().max(4000).optional(),
     replyToId: z.string().min(1).optional(),
+    // §34: пометить все вложения сообщения спойлером (размытие до клика).
+    spoiler: z.coerce.boolean().optional(),
   })
   .strict()
 export type MessageSendRestInput = z.infer<typeof MessageSendRestSchema>
