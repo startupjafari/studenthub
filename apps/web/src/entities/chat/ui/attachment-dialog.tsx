@@ -44,7 +44,7 @@ export function AttachmentDialog({
 }: {
   files: File[]
   sending: boolean
-  onSend: (caption: string) => void
+  onSend: (caption: string, spoiler: boolean) => void
   onAddMore: () => void
   onRemove: (index: number) => void
   onClose: () => void
@@ -52,6 +52,9 @@ export function AttachmentDialog({
   useBodyScrollLock()
   const t = useTranslations('Chats')
   const [caption, setCaption] = useState('')
+  const [spoiler, setSpoiler] = useState(false)
+  // Спойлер (§34) имеет смысл только для фото/видео.
+  const hasMedia = files.some((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
 
   return (
     <div
@@ -105,12 +108,24 @@ export function AttachmentDialog({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && files.length > 0 && !sending) {
               e.preventDefault()
-              onSend(caption)
+              onSend(caption, spoiler)
             }
           }}
           placeholder={t('captionPlaceholder')}
           className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
         />
+
+        {hasMedia && (
+          <label className="flex cursor-pointer items-center gap-2 px-1 text-sm">
+            <input
+              type="checkbox"
+              checked={spoiler}
+              onChange={(e) => setSpoiler(e.target.checked)}
+              className="size-4 accent-primary"
+            />
+            {t('spoilerToggle')}
+          </label>
+        )}
 
         <div className="flex items-center justify-between">
           <Button type="button" variant="ghost" size="sm" onClick={onAddMore}>
@@ -125,7 +140,7 @@ export function AttachmentDialog({
               size="sm"
               loading={sending}
               disabled={files.length === 0}
-              onClick={() => onSend(caption)}
+              onClick={() => onSend(caption, spoiler)}
             >
               {t('send')}
             </Button>
