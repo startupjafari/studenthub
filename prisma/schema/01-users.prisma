@@ -34,6 +34,8 @@ model User {
   twoFactorSecret      String?   @map("two_factor_secret")
   twoFactorBackupCodes String[]  @default([]) @map("two_factor_backup_codes")
   deletedAt            DateTime? @map("deleted_at")
+  // Последняя активность (§49, last-seen): обновляется при отключении последнего WS-соединения.
+  lastSeenAt           DateTime? @map("last_seen_at")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -115,6 +117,7 @@ model User {
   messages         Message[]
   messagesPinned   Message[]         @relation("MessagePinnedBy")
   messageReactions MessageReaction[]
+  chatPollVotes    ChatPollVote[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized     Event[]            @relation("EventOrganizer")
