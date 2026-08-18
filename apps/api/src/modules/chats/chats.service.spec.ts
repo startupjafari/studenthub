@@ -34,7 +34,11 @@ function setup() {
       delete: jest.fn(),
       deleteMany: jest.fn(),
     },
-    file: { create: jest.fn(), findFirst: jest.fn() },
+    file: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     chat: {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
@@ -51,7 +55,16 @@ function setup() {
     },
     user: { findUnique: jest.fn(), findFirst: jest.fn() },
     pair: { findMany: jest.fn().mockResolvedValue([]) },
+    chatPoll: { findUnique: jest.fn(), create: jest.fn() },
+    chatPollVote: {
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn(),
+      createMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
   }
+  // $transaction(cb) прогоняет колбэк с тем же prisma-моком в роли tx.
+  prisma.$transaction.mockImplementation((cb: (tx: typeof prisma) => unknown) => cb(prisma))
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const realtime = {
     emitToRoom: jest.fn(),
@@ -197,6 +210,58 @@ describe('ChatsService.getMessages — cursor + членство', () => {
     expect(res.meta.hasNext).toBe(true)
     expect(res.meta.cursor).toBe('m19')
     expect(prisma.message.findMany.mock.calls[0][0].take).toBe(21)
+  })
+
+  it('around → окно: новее(desc) + целевое + старее(desc), meta старых и новых', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue({ id: 'mT', createdAt: new Date() })
+    prisma.message.findMany
+      // 1-й вызов — старее (desc), 21 > limit → есть ещё старые
+      .mockResolvedValueOnce(Array.from({ length: 21 }, (_, i) => ({ id: `o${i}` })))
+      // 2-й вызов — новее (asc), 5 ≤ limit → больше новых нет
+      .mockResolvedValueOnce(Array.from({ length: 5 }, (_, i) => ({ id: `n${i}` })))
+    prisma.message.findUnique.mockResolvedValue({ id: 'mT' })
+
+    const res = await service.getMessages(user('u1'), 'c1', { limit: 20, around: 'mT' })
+
+    expect(res.items).toHaveLength(26) // 5 новее + 1 целевое + 20 старее
+    expect(res.items[0]?.id).toBe('n4') // новее развёрнуты в desc
+    expect(res.items[5]?.id).toBe('mT')
+    expect(res.items[25]?.id).toBe('o19')
+    expect(res.meta.hasNext).toBe(true) // старее было 21 > 20
+    expect(res.meta.cursor).toBe('o19')
+    expect(res.meta.hasPrev).toBe(false) // новее было 5 ≤ 20
+    expect(res.meta.prevCursor).toBe('n4')
+  })
+
+  it('around → целевое не найдено → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue(null)
+    const err = await service
+      .getMessages(user('u1'), 'c1', { limit: 20, around: 'nope' })
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('direction=newer → отдаёт новые в desc, meta.hasPrev/prevCursor', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    // asc-выборка (21 > limit → есть ещё новые); в ответе — desc.
+    prisma.message.findMany.mockResolvedValue(
+      Array.from({ length: 21 }, (_, i) => ({ id: `n${i}` })),
+    )
+    const res = await service.getMessages(user('u1'), 'c1', {
+      limit: 20,
+      cursor: 'n-1',
+      direction: 'newer',
+    })
+    expect(res.items).toHaveLength(20)
+    expect(res.items[0]?.id).toBe('n19') // развёрнуто в desc
+    expect(res.meta.hasPrev).toBe(true)
+    expect(res.meta.prevCursor).toBe('n19')
+    expect(prisma.message.findMany.mock.calls[0][0].orderBy[0].createdAt).toBe('asc')
   })
 })
 
@@ -432,11 +497,11 @@ describe('ChatsService.forwardMessage', () => {
 })
 
 describe('ChatsService.setMuted / notifyNewMessage', () => {
-  it('mute=true проставляет mutedAt', async () => {
+  it("mute='forever' проставляет mutedAt", async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
     prisma.chatMember.updateMany.mockResolvedValue({ count: 1 })
-    const res = await service.setMuted('u1', 'c1', true)
+    const res = await service.setMuted('u1', 'c1', 'forever')
     expect(prisma.chatMember.updateMany.mock.calls[0][0].data.mutedAt).toBeInstanceOf(Date)
     expect(res).toEqual({ chatId: 'c1', muted: true })
   })
@@ -581,5 +646,145 @@ describe('ChatsService — официальные чаты (9.6)', () => {
     expect(subjectCreate?.[0].data).toMatchObject({ groupId: 'grpX', subject: 'Физика' })
     // teacher без groupId → пары ищем только по teacherId (один запрос к pair).
     expect(prisma.pair.findMany).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChatsService — общие материалы (§23)', () => {
+  it('listChatMedia: не участник → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    const err = await service
+      .listChatMedia(user('u1'), 'c1', { limit: 20, type: 'media' })
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+  })
+
+  it('listChatMedia type=media: MIME image/video, страница + hasNext', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.file.findMany.mockResolvedValue(
+      Array.from({ length: 21 }, (_, i) => ({
+        id: `f${i}`,
+        name: `p${i}.jpg`,
+        mime: 'image/jpeg',
+        size: 100,
+        posterKey: null,
+        createdAt: new Date(),
+        messageId: `msg${i}`,
+        message: { createdAt: new Date(), senderId: 'u2', sender: { id: 'u2' } },
+      })),
+    )
+    const res = await service.listChatMedia(user('u1'), 'c1', { limit: 20, type: 'media' })
+    expect(res.items).toHaveLength(20)
+    expect(res.meta.hasNext).toBe(true)
+    expect(res.items[0]).toMatchObject({ id: 'f0', messageId: 'msg0', hasPoster: false })
+    const where = prisma.file.findMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { mime: { startsWith: 'image/' } },
+      { mime: { startsWith: 'video/' } },
+    ])
+  })
+
+  it('listChatMedia type=file: MIME NOT image/video/audio', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    await service.listChatMedia(user('u1'), 'c1', { limit: 20, type: 'file' })
+    const where = prisma.file.findMany.mock.calls[0][0].where
+    expect(where.NOT).toEqual([
+      { mime: { startsWith: 'image/' } },
+      { mime: { startsWith: 'video/' } },
+      { mime: { startsWith: 'audio/' } },
+    ])
+  })
+
+  it('listChatLinks: только linkPreview != null, маппинг messageId', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findMany.mockResolvedValue([
+      {
+        id: 'msgL',
+        createdAt: new Date(),
+        senderId: 'u2',
+        sender: { id: 'u2' },
+        linkPreview: { url: 'https://x.kz' },
+      },
+    ])
+    const res = await service.listChatLinks(user('u1'), 'c1', { limit: 20 })
+    expect(res.items).toHaveLength(1)
+    expect(res.items[0]).toMatchObject({ messageId: 'msgL' })
+    const where = prisma.message.findMany.mock.calls[0][0].where
+    expect(where.linkPreview).toBeDefined()
+  })
+})
+
+describe('ChatsService — опросы (§38–39)', () => {
+  it('getPollResults: опрос не найден → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue(null)
+    const err = await service.getPollResults(user('u1'), 'p1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('votePoll: не участник чата опроса → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      multiple: false,
+      allowRevote: true,
+      closed: false,
+      message: { chatId: 'c1' },
+      options: [{ id: 'o1' }, { id: 'o2' }],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o1'] }).catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+  })
+
+  it('votePoll: один вариант, а выбрано два → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      multiple: false,
+      allowRevote: true,
+      closed: false,
+      message: { chatId: 'c1' },
+      options: [{ id: 'o1' }, { id: 'o2' }],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    const err = await service
+      .votePoll(user('u1'), 'p1', { optionIds: ['o1', 'o2'] })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  it('votePoll: опрос завершён → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      multiple: true,
+      allowRevote: true,
+      closed: true,
+      message: { chatId: 'c1' },
+      options: [{ id: 'o1' }],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o1'] }).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  it('votePoll: allowRevote=false и уже голосовал → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      multiple: false,
+      allowRevote: false,
+      closed: false,
+      message: { chatId: 'c1' },
+      options: [{ id: 'o1' }, { id: 'o2' }],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chatPollVote.findMany.mockResolvedValue([{ id: 'v1' }])
+    const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o2'] }).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
   })
 })

@@ -1,10 +1,42 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Children, useEffect, useMemo, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '../../../shared/lib/utils'
 import type { MessageContentMath } from './message-content-math'
+
+// Подсветка совпадений поиска (§3): режем строковые дети по вхождению term (без регистра) и
+// оборачиваем в <mark>. Нестроковые дети (вложенный markdown) пропускаем как есть — не ломаем разметку.
+function highlightText(text: string, term: string): ReactNode {
+  const out: ReactNode[] = []
+  const lower = text.toLowerCase()
+  const tl = term.toLowerCase()
+  let i = 0
+  let idx = lower.indexOf(tl)
+  let k = 0
+  while (idx !== -1) {
+    if (idx > i) out.push(text.slice(i, idx))
+    out.push(
+      <mark
+        key={k++}
+        className="rounded bg-yellow-300/70 px-0.5 text-inherit dark:bg-yellow-500/40"
+      >
+        {text.slice(idx, idx + term.length)}
+      </mark>,
+    )
+    i = idx + term.length
+    idx = lower.indexOf(tl, i)
+  }
+  if (i < text.length) out.push(text.slice(i))
+  return out
+}
+
+function highlightChildren(children: ReactNode, term: string): ReactNode {
+  return Children.map(children, (child) =>
+    typeof child === 'string' ? highlightText(child, term) : child,
+  )
+}
 
 // Рендер текста сообщения как Markdown + формулы LaTeX ($...$ / $$...$$) для технических предметов
 // (Ф9+). react-markdown не рендерит сырой HTML — XSS-безопасно. GFM даёт таблицы/код/списки.
@@ -30,7 +62,7 @@ const MD_COMPONENTS: Components = {
 // Грубая эвристика наличия формулы: $…$ или $$…$$ (не одиночный «$5»).
 const MATH_RE = /\$\$?[^$\n]+\$\$?/
 
-export function MessageContent({ content }: { content: string }) {
+export function MessageContent({ content, highlight }: { content: string; highlight?: string }) {
   const hasMath = content ? MATH_RE.test(content) : false
   const [MathRenderer, setMathRenderer] = useState<typeof MessageContentMath | null>(null)
 
@@ -40,15 +72,32 @@ export function MessageContent({ content }: { content: string }) {
     }
   }, [hasMath, MathRenderer])
 
+  // При активной подсветке поиска оборачиваем строковые дети текстовых узлов в <mark>.
+  const components = useMemo<Components>(() => {
+    if (!highlight) return MD_COMPONENTS
+    return {
+      ...MD_COMPONENTS,
+      p: ({ node: _n, children, ...props }) => (
+        <p {...props}>{highlightChildren(children, highlight)}</p>
+      ),
+      li: ({ node: _n, children, ...props }) => (
+        <li {...props}>{highlightChildren(children, highlight)}</li>
+      ),
+      td: ({ node: _n, children, ...props }) => (
+        <td {...props}>{highlightChildren(children, highlight)}</td>
+      ),
+    }
+  }, [highlight])
+
   if (!content) return null
   return (
     <div className={MD_CLASS}>
       {hasMath && MathRenderer ? (
         // Формула есть и рендерер загружен — рисуем с katex.
-        <MathRenderer content={content} components={MD_COMPONENTS} />
+        <MathRenderer content={content} components={components} />
       ) : (
         // Обычный путь (нет формул) + короткий момент загрузки math-рендерера: gfm без katex.
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
           {content}
         </ReactMarkdown>
       )}
