@@ -29,6 +29,8 @@ model File {
   order      Int?
   // Обложка видео профиля: ключ объекта-постера в бакете profile-covers. NULL — нет/это фото.
   posterKey  String?  @map("poster_key")
+  // Спойлер (§34): медиа показывается размытым до клика (для вложений сообщений чата).
+  spoiler    Boolean  @default(false)
   createdAt  DateTime @default(now()) @map("created_at")
 
   owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
