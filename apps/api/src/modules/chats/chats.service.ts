@@ -5,8 +5,12 @@ import { ChatType, Prisma } from '@prisma/client'
 import type {
   CreateChatInput,
   ChatMessagesQueryInput,
+  ChatMediaQueryInput,
+  CreateChatPollInput,
+  CursorPaginationInput,
   MessageSearchQueryInput,
   MessageSendInput,
+  PollVoteInput,
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -23,6 +27,43 @@ import type { EnvVars } from '../../config/env.schema'
 
 const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } }
 
+// Заглушён ли участник (§17): навсегда (mutedAt) или на время (mutedUntil ещё не истёк).
+function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): boolean {
+  return m.mutedAt != null || (m.mutedUntil != null && m.mutedUntil.getTime() > Date.now())
+}
+
+// Общие материалы (§23): фильтр MIME по типу вкладки правой панели.
+function mediaMimeWhere(type: 'media' | 'file' | 'voice'): Prisma.FileWhereInput {
+  if (type === 'voice') return { mime: { startsWith: 'audio/' } }
+  if (type === 'media')
+    return { OR: [{ mime: { startsWith: 'image/' } }, { mime: { startsWith: 'video/' } }] }
+  return {
+    NOT: [
+      { mime: { startsWith: 'image/' } },
+      { mime: { startsWith: 'video/' } },
+      { mime: { startsWith: 'audio/' } },
+    ],
+  }
+}
+
+type MediaSenderRow = { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+type ChatMediaRow = {
+  id: string
+  messageId: string
+  name: string | null
+  mime: string
+  size: number
+  hasPoster: boolean
+  createdAt: Date
+  sender: MediaSenderRow | null
+}
+type ChatLinkRow = {
+  messageId: string
+  createdAt: Date
+  sender: MediaSenderRow | null
+  linkPreview: Prisma.JsonValue
+}
+
 const MESSAGE_SELECT = {
   id: true,
   chatId: true,
@@ -34,8 +75,10 @@ const MESSAGE_SELECT = {
   pinnedAt: true,
   createdAt: true,
   linkPreview: true,
+  systemType: true,
+  systemMeta: true,
   sender: SENDER_SELECT,
-  media: { select: { id: true, mime: true, size: true, name: true } },
+  media: { select: { id: true, mime: true, size: true, name: true, spoiler: true } },
   replyTo: {
     select: { id: true, content: true, senderId: true, sender: SENDER_SELECT },
   },
@@ -55,6 +98,20 @@ const MESSAGE_SELECT = {
     },
   },
   reactions: { select: { emoji: true, userId: true, user: SENDER_SELECT } },
+  // Опрос (§38): только статика — вопрос/настройки/варианты. Результаты (счётчики + мой голос,
+  // с учётом анонимности) отдаёт отдельный viewer-aware эндпоинт getPollResults.
+  poll: {
+    select: {
+      id: true,
+      question: true,
+      multiple: true,
+      anonymous: true,
+      allowRevote: true,
+      randomOrder: true,
+      closed: true,
+      options: { select: { id: true, text: true, order: true }, orderBy: { order: 'asc' } },
+    },
+  },
 } satisfies Prisma.MessageSelect
 
 type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
@@ -124,6 +181,7 @@ export class ChatsService {
           select: {
             lastReadAt: true,
             mutedAt: true,
+            mutedUntil: true,
             isAdmin: true,
             clearedAt: true,
             draft: true,
@@ -256,7 +314,7 @@ export class ChatsService {
           lastMessage,
           unread,
           unreadCount,
-          muted: mem?.mutedAt != null,
+          muted: mem ? isMemberMuted(mem) : false,
           draft: mem?.draft ?? null,
           // Закреплён «у себя» (Telegram-стиль): показывается сверху списка.
           pinned: pinnedAt != null,
@@ -325,21 +383,353 @@ export class ChatsService {
       where: { chatId_userId: { chatId, userId: viewer.sub } },
       select: { clearedAt: true },
     })
+    const baseWhere: Prisma.MessageWhereInput = {
+      chatId,
+      deletedAt: null,
+      ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+    }
+    const limit = query.limit
+
+    // Окно вокруг сообщения (Этап 1): jump-to-message / ссылка на сообщение.
+    if (query.around) {
+      const target = await this.prisma.message.findFirst({
+        where: { ...baseWhere, id: query.around },
+        select: { id: true, createdAt: true },
+      })
+      if (!target) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+      return this.buildMessageWindow(baseWhere, target, limit)
+    }
+
+    // Окно вокруг ПЕРВОГО сообщения на/после даты (переход по дате / календарь, #5).
+    // Нет сообщений на/после даты (дата в будущем) — проваливаемся к дефолту (новейшие).
+    if (query.aroundDate) {
+      const anchor = await this.prisma.message.findFirst({
+        where: { ...baseWhere, createdAt: { gte: new Date(query.aroundDate) } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, createdAt: true },
+      })
+      if (anchor) return this.buildMessageWindow(baseWhere, anchor, limit)
+    }
+
+    // Подгрузка более НОВЫХ после jump (direction=newer): курсор — id самого нового загруженного.
+    if (query.direction === 'newer' && query.cursor) {
+      const rows = await this.prisma.message.findMany({
+        where: baseWhere,
+        select: MESSAGE_SELECT,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: limit + 1,
+        cursor: { id: query.cursor },
+        skip: 1,
+      })
+      const hasPrev = rows.length > limit
+      const asc = hasPrev ? rows.slice(0, limit) : rows
+      const items = asc.reverse()
+      return new Paginated(items, { prevCursor: items[0]?.id, hasPrev })
+    }
+
+    // По умолчанию — более СТАРЫЕ (текущее поведение, вниз истории вверх по скроллу).
     const rows = await this.prisma.message.findMany({
-      where: {
-        chatId,
-        deletedAt: null,
-        ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
-      },
+      where: baseWhere,
       select: MESSAGE_SELECT,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    })
+    const hasNext = rows.length > limit
+    const items = hasNext ? rows.slice(0, limit) : rows
+    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
+    return new Paginated(items, { cursor: nextCursor, hasNext })
+  }
+
+  // Окно сообщений вокруг целевого (для around / aroundDate): до limit СТАРЕЕ + целевое + до limit НОВЕЕ,
+  // всё по убыванию. meta: cursor/hasNext — старые (вверх), prevCursor/hasPrev — новые (вниз).
+  private async buildMessageWindow(
+    baseWhere: Prisma.MessageWhereInput,
+    target: { id: string; createdAt: Date },
+    limit: number,
+  ): Promise<Paginated<MessageRow>> {
+    const [olderRows, newerRows] = await Promise.all([
+      this.prisma.message.findMany({
+        where: {
+          ...baseWhere,
+          OR: [
+            { createdAt: { lt: target.createdAt } },
+            { createdAt: target.createdAt, id: { lt: target.id } },
+          ],
+        },
+        select: MESSAGE_SELECT,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+      }),
+      this.prisma.message.findMany({
+        where: {
+          ...baseWhere,
+          OR: [
+            { createdAt: { gt: target.createdAt } },
+            { createdAt: target.createdAt, id: { gt: target.id } },
+          ],
+        },
+        select: MESSAGE_SELECT,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: limit + 1,
+      }),
+    ])
+    const targetRow = await this.prisma.message.findUnique({
+      where: { id: target.id },
+      select: MESSAGE_SELECT,
+    })
+    const hasNext = olderRows.length > limit
+    const hasPrev = newerRows.length > limit
+    const older = hasNext ? olderRows.slice(0, limit) : olderRows
+    const newerDesc = (hasPrev ? newerRows.slice(0, limit) : newerRows).reverse()
+    const items = [...newerDesc, ...(targetRow ? [targetRow] : []), ...older]
+    return new Paginated(items, {
+      cursor: older[older.length - 1]?.id,
+      hasNext,
+      prevCursor: newerDesc[0]?.id,
+      hasPrev,
+    })
+  }
+
+  // ── Общие материалы (§23) ───────────────────────────────────────────────────
+
+  /** Вложения чата по типу (media/file/voice) для правой панели «Общие материалы». */
+  async listChatMedia(
+    viewer: JwtPayload,
+    chatId: string,
+    query: ChatMediaQueryInput,
+  ): Promise<Paginated<ChatMediaRow>> {
+    await this.assertMembership(viewer.sub, chatId)
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: viewer.sub } },
+      select: { clearedAt: true },
+    })
+    const messageWhere: Prisma.MessageWhereInput = {
+      chatId,
+      deletedAt: null,
+      ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+    }
+    const rows = await this.prisma.file.findMany({
+      where: { message: messageWhere, ...mediaMimeWhere(query.type) },
+      select: {
+        id: true,
+        name: true,
+        mime: true,
+        size: true,
+        posterKey: true,
+        createdAt: true,
+        messageId: true,
+        message: { select: { createdAt: true, senderId: true, sender: SENDER_SELECT } },
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
-    const items = hasNext ? rows.slice(0, query.limit) : rows
-    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
-    return new Paginated(items, { cursor: nextCursor, hasNext })
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    const items: ChatMediaRow[] = page.map((f) => ({
+      id: f.id,
+      messageId: f.messageId ?? '',
+      name: f.name,
+      mime: f.mime,
+      size: f.size,
+      hasPoster: !!f.posterKey,
+      createdAt: f.message?.createdAt ?? f.createdAt,
+      sender: f.message?.sender ?? null,
+    }))
+    return new Paginated(items, {
+      cursor: hasNext ? page[page.length - 1]?.id : undefined,
+      hasNext,
+    })
+  }
+
+  /** Сообщения со ссылками (linkPreview) — вкладка «Ссылки». */
+  async listChatLinks(
+    viewer: JwtPayload,
+    chatId: string,
+    query: CursorPaginationInput,
+  ): Promise<Paginated<ChatLinkRow>> {
+    await this.assertMembership(viewer.sub, chatId)
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: viewer.sub } },
+      select: { clearedAt: true },
+    })
+    const rows = await this.prisma.message.findMany({
+      where: {
+        chatId,
+        deletedAt: null,
+        linkPreview: { not: Prisma.DbNull },
+        ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        senderId: true,
+        sender: SENDER_SELECT,
+        linkPreview: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    })
+    const hasNext = rows.length > query.limit
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    const items: ChatLinkRow[] = page.map((m) => ({
+      messageId: m.id,
+      createdAt: m.createdAt,
+      sender: m.sender,
+      linkPreview: m.linkPreview,
+    }))
+    return new Paginated(items, {
+      cursor: hasNext ? page[page.length - 1]?.id : undefined,
+      hasNext,
+    })
+  }
+
+  // ── Опросы в чате (§38–39) ──────────────────────────────────────────────────
+
+  /** Создать опрос: сообщение-опрос (content=вопрос) + ChatPoll + варианты, эмит message:new. */
+  async createPoll(
+    senderId: string,
+    chatId: string,
+    input: CreateChatPollInput,
+  ): Promise<MessageRow> {
+    await this.assertMembership(senderId, chatId)
+    this.assertNotFlooding(senderId)
+    await this.assertNotBlockedInPrivate(chatId, senderId)
+    const messageId = await this.prisma.$transaction(async (tx) => {
+      const message = await tx.message.create({
+        data: { chatId, senderId, content: input.question },
+        select: { id: true },
+      })
+      await tx.chatPoll.create({
+        data: {
+          messageId: message.id,
+          question: input.question,
+          multiple: input.multiple ?? false,
+          anonymous: input.anonymous ?? false,
+          allowRevote: input.allowRevote ?? true,
+          randomOrder: input.randomOrder ?? false,
+          options: {
+            create: input.options.map((text, i) => ({ text, order: i })),
+          },
+        },
+      })
+      return message.id
+    })
+    await this.bumpChat(chatId)
+    const message = await this.prisma.message.findUniqueOrThrow({
+      where: { id: messageId },
+      select: MESSAGE_SELECT,
+    })
+    await this.notifyNewMessage(chatId, senderId, message)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+    return message
+  }
+
+  /** Результаты опроса для смотрящего: счётчики по вариантам + свой голос. Анонимный — без личностей. */
+  async getPollResults(viewer: JwtPayload, pollId: string) {
+    const poll = await this.prisma.chatPoll.findUnique({
+      where: { id: pollId },
+      select: {
+        id: true,
+        anonymous: true,
+        multiple: true,
+        allowRevote: true,
+        closed: true,
+        message: { select: { chatId: true } },
+        options: {
+          select: { id: true, text: true, order: true, _count: { select: { votes: true } } },
+          orderBy: { order: 'asc' },
+        },
+      },
+    })
+    if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
+    await this.assertMembership(viewer.sub, poll.message.chatId)
+    const myVotes = await this.prisma.chatPollVote.findMany({
+      where: { pollId, userId: viewer.sub },
+      select: { optionId: true },
+    })
+    const totalVotes = poll.options.reduce((n, o) => n + o._count.votes, 0)
+    return {
+      id: poll.id,
+      anonymous: poll.anonymous,
+      multiple: poll.multiple,
+      allowRevote: poll.allowRevote,
+      closed: poll.closed,
+      totalVotes,
+      options: poll.options.map((o) => ({
+        id: o.id,
+        text: o.text,
+        order: o.order,
+        votes: o._count.votes,
+      })),
+      myOptionIds: myVotes.map((v) => v.optionId),
+    }
+  }
+
+  /** Проголосовать/переголосовать/снять голос. optionIds пустой — снять. Эмит poll:updated. */
+  async votePoll(viewer: JwtPayload, pollId: string, input: PollVoteInput) {
+    const poll = await this.prisma.chatPoll.findUnique({
+      where: { id: pollId },
+      select: {
+        id: true,
+        multiple: true,
+        allowRevote: true,
+        closed: true,
+        message: { select: { chatId: true } },
+        options: { select: { id: true } },
+      },
+    })
+    if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
+    await this.assertMembership(viewer.sub, poll.message.chatId)
+    if (poll.closed) throw new AppException('BAD_REQUEST', 'Опрос завершён')
+
+    const optionIds = [...new Set(input.optionIds)]
+    if (!poll.multiple && optionIds.length > 1) {
+      throw new AppException('BAD_REQUEST', 'Можно выбрать только один вариант')
+    }
+    const valid = new Set(poll.options.map((o) => o.id))
+    if (optionIds.some((id) => !valid.has(id))) {
+      throw new AppException('BAD_REQUEST', 'Неизвестный вариант опроса')
+    }
+
+    const existing = await this.prisma.chatPollVote.findMany({
+      where: { pollId, userId: viewer.sub },
+      select: { id: true },
+    })
+    if (existing.length > 0 && !poll.allowRevote) {
+      throw new AppException('BAD_REQUEST', 'Изменение голоса запрещено')
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.chatPollVote.deleteMany({ where: { pollId, userId: viewer.sub } })
+      if (optionIds.length > 0) {
+        await tx.chatPollVote.createMany({
+          data: optionIds.map((optionId) => ({ pollId, optionId, userId: viewer.sub })),
+        })
+      }
+    })
+    this.realtime.emitToRoom(`chat:${poll.message.chatId}`, 'poll:updated', {
+      pollId,
+      chatId: poll.message.chatId,
+    })
+    return this.getPollResults(viewer, pollId)
+  }
+
+  // ── Сохранённые (§15) ───────────────────────────────────────────────────────
+
+  /** Личный self-chat «Сохранённые»: находим или создаём (единственный участник — сам пользователь). */
+  async getSavedChat(userId: string): Promise<{ id: string }> {
+    const existing = await this.prisma.chat.findFirst({
+      where: { type: ChatType.SAVED, createdById: userId },
+      select: { id: true },
+    })
+    if (existing) return existing
+    return this.prisma.chat.create({
+      data: { type: ChatType.SAVED, createdById: userId, members: { create: { userId } } },
+      select: { id: true },
+    })
   }
 
   // ── Участники (9.5) ─────────────────────────────────────────────────────────
@@ -355,16 +745,29 @@ export class ChatsService {
         bannedAt: true,
         isAdmin: true,
         user: {
-          select: { id: true, firstName: true, lastName: true, avatarUrl: true, role: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatarUrl: true,
+            role: true,
+            lastSeenAt: true,
+          },
         },
       },
       orderBy: { createdAt: 'asc' },
       take: 500,
     })
     const online = new Set(this.realtime.onlineAmong(members.map((m) => m.userId)))
-    return members.map((m) => ({
-      ...m.user,
+    return members.map(({ user, ...m }) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      avatarUrl: user.avatarUrl,
+      role: user.role,
       online: online.has(m.userId),
+      // §49: last-seen отдаём только оффлайн-участникам (онлайн — и так «в сети»).
+      lastSeenAt: online.has(m.userId) ? null : (user.lastSeenAt?.toISOString() ?? null),
       banned: m.bannedAt != null,
       isAdmin: m.isAdmin,
     }))
@@ -421,6 +824,11 @@ export class ChatsService {
     // (включая только что добавленного) обновляется тихим сигналом.
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-added', { chatId, user })
     await this.pingChatList(chatId)
+    if (user) {
+      await this.emitSystemMessage(chatId, actor.sub, 'member_added', {
+        targetName: `${user.lastName} ${user.firstName}`.trim(),
+      })
+    }
     return { chatId, user }
   }
 
@@ -431,11 +839,18 @@ export class ChatsService {
     if (chat.createdById && userId === chat.createdById) {
       throw new AppException('FORBIDDEN', 'Нельзя исключить создателя группы')
     }
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    })
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
     // Realtime (9.4): удалённый участник больше не в комнате — пингуем его отдельно, чтобы
     // чат исчез из его списка; остальным обновляем открытое окно и список.
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-removed', { chatId, userId })
     await this.pingChatList(chatId, [userId])
+    await this.emitSystemMessage(chatId, actor.sub, 'member_removed', {
+      targetName: target ? `${target.lastName} ${target.firstName}`.trim() : undefined,
+    })
   }
 
   // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
@@ -519,7 +934,7 @@ export class ChatsService {
    */
   async sendMessageRest(
     senderId: string,
-    input: { chatId: string; content?: string; replyToId?: string },
+    input: { chatId: string; content?: string; replyToId?: string; spoiler?: boolean },
     files: { buffer: Buffer; name?: string }[],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, input.chatId)
@@ -544,6 +959,13 @@ export class ChatsService {
         name: file.name,
       })
     }
+    // §34: помечаем все вложения сообщения спойлером (размытие до клика на клиенте).
+    if (input.spoiler && files.length > 0) {
+      await this.prisma.file.updateMany({
+        where: { messageId: created.id },
+        data: { spoiler: true },
+      })
+    }
     const message = await this.prisma.message.findUniqueOrThrow({
       where: { id: created.id },
       select: MESSAGE_SELECT,
@@ -562,6 +984,28 @@ export class ChatsService {
   // Поднять чат в списке по времени последнего события.
   private async bumpChat(chatId: string): Promise<void> {
     await this.prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } })
+  }
+
+  // Системное сообщение группы (§20): служебная запись о событии (актор = actorId). Текст рендерит
+  // клиент по systemType + systemMeta (денормализованные детали). Эмитим message:new — попадает в ленту.
+  private async emitSystemMessage(
+    chatId: string,
+    actorId: string,
+    systemType: string,
+    systemMeta?: Prisma.InputJsonValue,
+  ): Promise<void> {
+    const message = await this.prisma.message.create({
+      data: {
+        chatId,
+        senderId: actorId,
+        content: '',
+        systemType,
+        ...(systemMeta !== undefined ? { systemMeta } : {}),
+      },
+      select: MESSAGE_SELECT,
+    })
+    await this.bumpChat(chatId)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
   }
 
   // Ответ (replyToId) должен ссылаться на сообщение того же чата, иначе BAD_REQUEST.
@@ -587,7 +1031,7 @@ export class ChatsService {
     })
     const members = await this.prisma.chatMember.findMany({
       where: { chatId, userId: { not: senderId } },
-      select: { userId: true, mutedAt: true },
+      select: { userId: true, mutedAt: true, mutedUntil: true },
     })
     // Живой список чатов у всех участников (в т.ч. заглушённых): message:new уходит только в комнату
     // chat:{id} (её джойнят только с открытым чатом), поэтому для превью/счётчика/порядка в списке
@@ -599,7 +1043,7 @@ export class ChatsService {
     // Заглушённые (mutedAt != null) — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
     const recipientIds = members
-      .filter((m) => !m.mutedAt && !viewing.has(m.userId))
+      .filter((m) => !isMemberMuted(m) && !viewing.has(m.userId))
       .map((m) => m.userId)
     if (recipientIds.length > 0) {
       const preview = message.content.slice(0, 140) || '📎 Вложение'
@@ -698,6 +1142,8 @@ export class ChatsService {
     for (const m of members) {
       this.realtime.emitToUser(m.userId, 'chat:pinned', { chatId: msg.chatId })
     }
+    // Системное событие только при закреплении (открепление — без шума в ленте).
+    if (pinned) await this.emitSystemMessage(msg.chatId, userId, 'message_pinned')
     return message
   }
 
@@ -757,6 +1203,9 @@ export class ChatsService {
         deletedAt: null,
         content: { contains: query.q, mode: 'insensitive' },
         ...chatFilter,
+        // Фильтры §4: по автору и по наличию вложений.
+        ...(query.senderId ? { senderId: query.senderId } : {}),
+        ...(query.hasFile ? { media: { some: {} } } : {}),
       },
       select: MESSAGE_SELECT,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -915,17 +1364,21 @@ export class ChatsService {
   // ── Mute уведомлений (Ф9+) ─────────────────────────────────────────────────
 
   /** Заглушить/включить уведомления о новых сообщениях чата для участника. */
+  // §17: until = 'forever' (навсегда), Date (до момента), null (снять).
   async setMuted(
     userId: string,
     chatId: string,
-    muted: boolean,
+    until: Date | 'forever' | null,
   ): Promise<{ chatId: string; muted: boolean }> {
     await this.assertMembership(userId, chatId)
-    await this.prisma.chatMember.updateMany({
-      where: { chatId, userId },
-      data: { mutedAt: muted ? new Date() : null },
-    })
-    return { chatId, muted }
+    const data =
+      until === 'forever'
+        ? { mutedAt: new Date(), mutedUntil: null }
+        : until
+          ? { mutedAt: null, mutedUntil: until }
+          : { mutedAt: null, mutedUntil: null }
+    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data })
+    return { chatId, muted: until !== null }
   }
 
   /** Закрепить/открепить чат «у себя» (Telegram-стиль): персонально, влияет только на порядок списка. */
@@ -1099,6 +1552,7 @@ export class ChatsService {
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl })
     await this.pingChatList(chatId)
+    await this.emitSystemMessage(chatId, actor.sub, 'avatar_changed')
     return { id: updated.id, avatarUrl: updated.avatarUrl ?? avatarUrl }
   }
 
@@ -1178,6 +1632,9 @@ export class ChatsService {
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, title: updated.title })
     await this.pingChatList(chatId)
+    await this.emitSystemMessage(chatId, actor.sub, 'title_changed', {
+      title: updated.title ?? title,
+    })
     return { id: updated.id, title: updated.title ?? title }
   }
 
@@ -1195,6 +1652,13 @@ export class ChatsService {
       data: { isAdmin },
     })
     if (res.count === 0) throw new AppException('NOT_FOUND', 'Участник не найден')
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    })
+    await this.emitSystemMessage(chatId, actor.sub, isAdmin ? 'admin_granted' : 'admin_revoked', {
+      targetName: target ? `${target.lastName} ${target.firstName}`.trim() : undefined,
+    })
     return { userId, isAdmin }
   }
 
@@ -1215,6 +1679,13 @@ export class ChatsService {
       this.prisma.chat.update({ where: { id: chatId }, data: { createdById: userId } }),
       this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { isAdmin: true } }),
     ])
+    const owner = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    })
+    await this.emitSystemMessage(chatId, actor.sub, 'owner_changed', {
+      targetName: owner ? `${owner.lastName} ${owner.firstName}`.trim() : undefined,
+    })
     return { chatId, ownerId: userId }
   }
 
@@ -1270,6 +1741,7 @@ export class ChatsService {
       await this.prisma.chat.delete({ where: { id: chatId } })
       return { chatId, deleted: true }
     }
+    await this.emitSystemMessage(chatId, actor.sub, 'member_left')
     return { chatId, deleted: false }
   }
 

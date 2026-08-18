@@ -12,6 +12,7 @@ import {
 import type { Server, Socket } from 'socket.io'
 import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import type { JwtPayload } from '../auth/jwt-payload.type'
+import { PrismaService } from '../prisma/prisma.service'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
 const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
@@ -27,7 +28,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   // Счётчик активных соединений на пользователя: онлайн, пока > 0 (несколько вкладок/устройств).
   private readonly connections = new Map<string, number>()
 
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async handleConnection(client: Socket): Promise<void> {
     const token = this.extractToken(client)
@@ -73,6 +77,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (next <= 0) {
       this.connections.delete(userId)
       this.emitPresence(userId, universityId, false)
+      // §49 last-seen: фиксируем момент ухода в оффлайн (fire-and-forget, не блокируем disconnect).
+      void this.prisma.user
+        .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
+        .catch(() => undefined)
     } else {
       this.connections.set(userId, next)
     }
