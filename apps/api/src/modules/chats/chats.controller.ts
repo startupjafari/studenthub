@@ -31,6 +31,11 @@ import { CreateChatDto } from './dto/create-chat.dto'
 import { AddChatMemberDto } from './dto/add-chat-member.dto'
 import { EditChatDto } from './dto/edit-chat.dto'
 import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
+import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
+import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
+import { CreateChatPollDto } from './dto/create-chat-poll.dto'
+import { PollVoteDto } from './dto/poll-vote.dto'
+import { MuteDto } from './dto/mute.dto'
 import { MessageSearchQueryDto } from './dto/message-search-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
@@ -66,6 +71,13 @@ export class ChatsController {
     return this.chats.searchMessages(user, query)
   }
 
+  @Get('saved')
+  @ApiOperation({ summary: 'Личный чат «Сохранённые» (§15): найти или создать' })
+  @ApiResponse({ status: 200, description: '{ id } чата «Сохранённые»' })
+  saved(@CurrentUser() user: CurrentUserData) {
+    return this.chats.getSavedChat(user.sub)
+  }
+
   @Get('attachments/:fileId/url')
   @ApiOperation({ summary: 'Presigned URL к вложению сообщения (по членству в чате)' })
   @ApiResponse({ status: 200, description: 'Временный URL' })
@@ -84,6 +96,59 @@ export class ChatsController {
     @Query() query: ChatMessagesQueryDto,
   ) {
     return this.chats.getMessages(user, id, query)
+  }
+
+  @Get(':id/media')
+  @ApiOperation({ summary: 'Общие материалы: media|file|voice (cursor, только участник)' })
+  @ApiResponse({ status: 200, description: 'Страница вложений по типу' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  media(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ChatMediaQueryDto,
+  ) {
+    return this.chats.listChatMedia(user, id, query)
+  }
+
+  @Get(':id/links')
+  @ApiOperation({ summary: 'Ссылки чата из сообщений (cursor, только участник)' })
+  @ApiResponse({ status: 200, description: 'Страница сообщений со ссылками' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  links(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ChatLinksQueryDto,
+  ) {
+    return this.chats.listChatLinks(user, id, query)
+  }
+
+  @Post(':id/poll')
+  @ApiOperation({ summary: 'Создать опрос в чате (§38, только участник)' })
+  @ApiResponse({ status: 201, description: 'Сообщение-опрос создано и разослано' })
+  createPoll(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: CreateChatPollDto,
+  ) {
+    return this.chats.createPoll(user.sub, id, dto)
+  }
+
+  @Get('polls/:pollId')
+  @ApiOperation({ summary: 'Результаты опроса (счётчики + свой голос, только участник)' })
+  @ApiResponse({ status: 200, description: 'Результаты опроса' })
+  pollResults(@CurrentUser() user: CurrentUserData, @Param('pollId') pollId: string) {
+    return this.chats.getPollResults(user, pollId)
+  }
+
+  @Post('polls/:pollId/vote')
+  @ApiOperation({ summary: 'Проголосовать/переголосовать/снять голос (§39, только участник)' })
+  @ApiResponse({ status: 201, description: 'Обновлённые результаты опроса' })
+  votePoll(
+    @CurrentUser() user: CurrentUserData,
+    @Param('pollId') pollId: string,
+    @Body() dto: PollVoteDto,
+  ) {
+    return this.chats.votePoll(user, pollId, dto)
   }
 
   @Post(':id/messages')
@@ -110,6 +175,7 @@ export class ChatsController {
       chatId: id,
       content: fields.content,
       replyToId: fields.replyToId,
+      spoiler: fields.spoiler,
     })
     if (!parsed.success) {
       throw new AppException('BAD_REQUEST', 'Некорректные поля сообщения')
@@ -183,17 +249,20 @@ export class ChatsController {
   }
 
   @Post(':id/mute')
-  @ApiOperation({ summary: 'Отключить уведомления чата' })
+  @ApiOperation({
+    summary: 'Отключить уведомления чата (§17: minutes? — на время, иначе навсегда)',
+  })
   @ApiResponse({ status: 201, description: 'Уведомления отключены' })
-  mute(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.setMuted(user.sub, id, true)
+  mute(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: MuteDto) {
+    const until = dto.minutes ? new Date(Date.now() + dto.minutes * 60_000) : 'forever'
+    return this.chats.setMuted(user.sub, id, until)
   }
 
   @Delete(':id/mute')
   @ApiOperation({ summary: 'Включить уведомления чата' })
   @ApiResponse({ status: 200, description: 'Уведомления включены' })
   unmute(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.setMuted(user.sub, id, false)
+    return this.chats.setMuted(user.sub, id, null)
   }
 
   @Post(':id/pin')

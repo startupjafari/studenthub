@@ -1,12 +1,19 @@
-import type { ChatMessagesQueryInput, CreateChatInput } from '@studenthub/shared-schemas'
+import type {
+  ChatMessagesQueryInput,
+  CreateChatInput,
+  CreateChatPollInput,
+} from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type {
   BlockedUser,
+  ChatLinkItem,
   ChatListItem,
+  ChatMediaItem,
   ChatMemberInfo,
   ChatMessage,
   ChatReadReceipt,
+  PollResults,
   PresenceEntry,
 } from '../model/types'
 
@@ -19,7 +26,16 @@ export const chatKeys = {
   members: (id: string) => ['chats', id, 'members'] as const,
   reads: (id: string) => ['chats', id, 'reads'] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
+  media: (id: string, type: string) => ['chats', id, 'media', type] as const,
+  links: (id: string) => ['chats', id, 'links'] as const,
+  poll: (pollId: string) => ['chats', 'poll', pollId] as const,
   blocked: () => ['chats', 'blocked'] as const,
+}
+
+// «Сохранённые» (§15): id личного self-chat (создаётся на первом обращении).
+export async function fetchSavedChat(): Promise<{ id: string }> {
+  const { data } = await api.get<{ id: string }>('/chats/saved')
+  return data
 }
 
 export async function fetchChats(): Promise<ChatListItem[]> {
@@ -44,6 +60,9 @@ export interface MessagesPage {
   items: ChatMessage[]
   cursor?: string
   hasNext: boolean
+  // Двунаправленная пагинация (jump-to-message): курсор/наличие более НОВЫХ сообщений.
+  prevCursor?: string
+  hasPrev: boolean
 }
 
 export async function fetchMessages(
@@ -55,7 +74,13 @@ export async function fetchMessages(
   })) as ResponseWithMeta & {
     data: ChatMessage[]
   }
-  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    prevCursor: res.meta?.prevCursor,
+    hasPrev: res.meta?.hasPrev ?? false,
+  }
 }
 
 /**
@@ -64,13 +89,14 @@ export async function fetchMessages(
  */
 export async function sendMessageWithAttachments(
   chatId: string,
-  input: { content?: string; replyToId?: string },
+  input: { content?: string; replyToId?: string; spoiler?: boolean },
   files: File[],
   onProgress?: (fraction: number) => void,
 ): Promise<ChatMessage> {
   const form = new FormData()
   if (input.content) form.append('content', input.content)
   if (input.replyToId) form.append('replyToId', input.replyToId)
+  if (input.spoiler) form.append('spoiler', 'true')
   for (const file of files) form.append('file', file)
   const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
     onUploadProgress: onProgress
@@ -84,14 +110,22 @@ export async function searchMessages(
   q: string,
   chatId?: string,
   cursor?: string,
+  filters?: { senderId?: string; hasFile?: boolean },
 ): Promise<MessagesPage> {
-  const params: Record<string, string | number> = { q, limit: 30 }
+  const params: Record<string, string | number | boolean> = { q, limit: 30 }
   if (chatId) params.chatId = chatId
   if (cursor) params.cursor = cursor
+  if (filters?.senderId) params.senderId = filters.senderId
+  if (filters?.hasFile) params.hasFile = true
   const res = (await api.get<ChatMessage[]>('/chats/search', { params })) as ResponseWithMeta & {
     data: ChatMessage[]
   }
-  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    hasPrev: false,
+  }
 }
 
 export async function fetchPinned(chatId: string): Promise<ChatMessage[]> {
@@ -112,6 +146,56 @@ export async function unpinMessageRequest(messageId: string): Promise<ChatMessag
 export async function fetchAttachmentUrl(fileId: string): Promise<string> {
   const { data } = await api.get<string>(`/chats/attachments/${fileId}/url`)
   return data
+}
+
+// Опросы в чате (§38–39).
+export async function createChatPoll(
+  chatId: string,
+  input: CreateChatPollInput,
+): Promise<ChatMessage> {
+  const { data } = await api.post<ChatMessage>(`/chats/${chatId}/poll`, input)
+  return data
+}
+export async function fetchPollResults(pollId: string): Promise<PollResults> {
+  const { data } = await api.get<PollResults>(`/chats/polls/${pollId}`)
+  return data
+}
+export async function votePollRequest(pollId: string, optionIds: string[]): Promise<PollResults> {
+  const { data } = await api.post<PollResults>(`/chats/polls/${pollId}/vote`, { optionIds })
+  return data
+}
+
+// Общие материалы чата (§23): вложения по типу и ссылки.
+export interface ChatMediaPage {
+  items: ChatMediaItem[]
+  cursor?: string
+  hasNext: boolean
+}
+export async function fetchChatMedia(
+  chatId: string,
+  type: 'media' | 'file' | 'voice',
+  cursor?: string,
+): Promise<ChatMediaPage> {
+  const params: Record<string, string | number> = { type, limit: 30 }
+  if (cursor) params.cursor = cursor
+  const res = (await api.get<ChatMediaItem[]>(`/chats/${chatId}/media`, {
+    params,
+  })) as ResponseWithMeta & { data: ChatMediaItem[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+}
+
+export interface ChatLinksPage {
+  items: ChatLinkItem[]
+  cursor?: string
+  hasNext: boolean
+}
+export async function fetchChatLinks(chatId: string, cursor?: string): Promise<ChatLinksPage> {
+  const params: Record<string, string | number> = { limit: 30 }
+  if (cursor) params.cursor = cursor
+  const res = (await api.get<ChatLinkItem[]>(`/chats/${chatId}/links`, {
+    params,
+  })) as ResponseWithMeta & { data: ChatLinkItem[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
 }
 
 export async function toggleReactionRequest(
@@ -148,8 +232,13 @@ export async function exportChatRequest(chatId: string): Promise<ChatMessage[]> 
   return data
 }
 
-export async function setChatMutedRequest(chatId: string, muted: boolean): Promise<void> {
-  if (muted) await api.post(`/chats/${chatId}/mute`)
+// §17: muted=true заглушает (minutes — на время, иначе навсегда); false — включает уведомления.
+export async function setChatMutedRequest(
+  chatId: string,
+  muted: boolean,
+  minutes?: number,
+): Promise<void> {
+  if (muted) await api.post(`/chats/${chatId}/mute`, minutes ? { minutes } : {})
   else await api.delete(`/chats/${chatId}/mute`)
 }
 

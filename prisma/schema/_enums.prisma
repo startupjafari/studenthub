@@ -44,6 +44,8 @@ enum ChatType {
   DEAN
   SUPPORT
   EVENT
+  // «Сохранённые» (§15): личный self-chat пользователя (единственный участник — он сам).
+  SAVED
 }
 
 enum WeekType {

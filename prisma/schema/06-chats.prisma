@@ -41,8 +41,10 @@ model ChatMember {
   userId     String    @map("user_id")
   // Время последнего прочтения — база для непрочитанных и статусов message:read.
   lastReadAt DateTime? @map("last_read_at")
-  // Отключение уведомлений о новых сообщениях для этого участника (Ф9+): не null — заглушено.
+  // Отключение уведомлений о новых сообщениях для этого участника (Ф9+): не null — заглушено «навсегда».
   mutedAt    DateTime? @map("muted_at")
+  // Заглушено до момента (§17, mute на время): участник считается muted, пока mutedUntil > now.
+  mutedUntil DateTime? @map("muted_until")
   // Бан участника в группе (Ф9+): не null — забанен создателем, не может писать и не видит чат.
   bannedAt   DateTime? @map("banned_at")
   // Админ группы (Ф9+): может банить, менять аватар/название, добавлять/убирать участников.
@@ -87,6 +89,10 @@ model Message {
   // Инлайн-превью первой ссылки (Ф9+): OG-мета {url,title,description,image,siteName}.
   // Заполняется асинхронно джобой link-preview; наружу отдаётся как есть.
   linkPreview     Json?     @map("link_preview")
+  // Системное сообщение группы (§20): тип события (member_added, title_changed, …) + денормализованные
+  // детали для рендера {targetName?, title?}. NULL — обычное сообщение. senderId = инициатор события.
+  systemType      String?   @map("system_type")
+  systemMeta      Json?     @map("system_meta")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   chat          Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -99,6 +105,8 @@ model Message {
   sharedPost    Post?             @relation("MessageSharedPost", fields: [sharedPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   media         File[]
   reactions     MessageReaction[]
+  // Опрос в чате (§38): 1:1 с сообщением-опросом (ChatPoll.messageId уникален).
+  poll          ChatPoll?
 
   // История сообщений — cursor-пагинация по [chatId, createdAt] (docs/PROJECT.md §6.2).
   @@index([chatId, createdAt])
@@ -129,4 +137,58 @@ model MessageReaction {
   @@index([messageId])
   @@index([userId])
   @@map("message_reactions")
+}
+
+// Опрос в чате (§38–39). Привязан 1:1 к сообщению-опросу (ChatPoll.messageId уникален) —
+// удаление сообщения каскадно удаляет опрос. Настройки (§39): multiple — множественный выбор;
+// anonymous — скрыть, кто как проголосовал; allowRevote — можно менять голос; randomOrder —
+// показывать варианты в случайном порядке (перемешивает клиент); closed — опрос завершён.
+model ChatPoll {
+  id          String   @id @default(uuid())
+  messageId   String   @unique @map("message_id")
+  question    String
+  multiple    Boolean  @default(false)
+  anonymous   Boolean  @default(false)
+  allowRevote Boolean  @default(true) @map("allow_revote")
+  randomOrder Boolean  @default(false) @map("random_order")
+  closed      Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  message Message          @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  options ChatPollOption[]
+  votes   ChatPollVote[]
+
+  @@map("chat_polls")
+}
+
+model ChatPollOption {
+  id     String @id @default(uuid())
+  pollId String @map("poll_id")
+  text   String
+  order  Int
+
+  poll  ChatPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  votes ChatPollVote[]
+
+  @@index([pollId])
+  @@map("chat_poll_options")
+}
+
+model ChatPollVote {
+  id        String   @id @default(uuid())
+  pollId    String   @map("poll_id")
+  optionId  String   @map("option_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  poll   ChatPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  option ChatPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Один голос за конкретный вариант от пользователя (защита от дублей). Множественный выбор —
+  // это несколько строк с разными optionId. Перевыбор/снятие — удаление/вставка строк в транзакции.
+  @@unique([optionId, userId])
+  @@index([pollId, userId])
+  @@index([userId])
+  @@map("chat_poll_votes")
 }
