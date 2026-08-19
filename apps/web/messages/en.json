@@ -294,7 +294,7 @@
     "editProfile": "Edit profile",
     "completionTitle": "Profile completeness",
     "share": "Share",
-    "writeMessage": "Write a message",
+    "writeMessage": "Message",
     "shareTitle": "Profile on StudentHub",
     "linkCopied": "Profile link copied",
     "shareFailed": "Could not copy the link",
@@ -517,8 +517,8 @@
     "shareCopyLink": "Copy link",
     "shareToChat": "Send to chat",
     "sharedProfileToChat": "Profile sent to chat",
-    "profileClosed": "Profile is closed",
-    "profileClosedDesc": "This user has restricted access to their profile. Only name, photo and role are available.",
+    "profileClosed": "Profile is private",
+    "profileClosedDesc": "This user limited access to their page. Send a friend request to see more.",
     "sortBy": "Sort",
     "sortNew": "Newest first",
     "sortPopular": "Popular",
@@ -2091,13 +2091,7 @@
       "absent": "Absent",
       "retake": "Retake"
     },
-    "format": {
-      "oral": "Oral",
-      "written": "Written",
-      "test": "Test",
-      "project": "Project",
-      "other": "Other"
-    },
+    "format": "Format",
     "manageTitle": "Exams",
     "newExam": "Schedule exam",
     "deleted": "Exam deleted",
@@ -2232,12 +2226,7 @@
     "requestedFor": "Requested",
     "linkedApplication": "Linked application",
     "cancel": "Cancel",
-    "type": {
-      "consultation": "Consultation",
-      "document": "Document pickup",
-      "academic": "Academic question",
-      "other": "Other"
-    },
+    "type": "Type",
     "status": {
       "requested": "Requested",
       "confirmed": "Confirmed",

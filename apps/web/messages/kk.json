@@ -294,7 +294,7 @@
     "editProfile": "Профильді өңдеу",
     "completionTitle": "Профильдің толтырылуы",
     "share": "Бөлісу",
-    "writeMessage": "Хабарлама жазу",
+    "writeMessage": "Жазу",
     "shareTitle": "StudentHub-тегі профиль",
     "linkCopied": "Профиль сілтемесі көшірілді",
     "shareFailed": "Сілтемені көшіру мүмкін болмады",
@@ -518,7 +518,7 @@
     "shareToChat": "Чатқа жіберу",
     "sharedProfileToChat": "Профиль чатқа жіберілді",
     "profileClosed": "Профиль жабық",
-    "profileClosedDesc": "Пайдаланушы профиліне қолжетімділікті шектеген. Тек аты, фотосы мен рөлі қолжетімді.",
+    "profileClosedDesc": "Пайдаланушы бетіне қолжетімділікті шектеген. Көбірек көру үшін дос болуға өтініш жіберіңіз.",
     "sortBy": "Сұрыптау",
     "sortNew": "Алдымен жаңалары",
     "sortPopular": "Танымал",
@@ -2091,13 +2091,7 @@
       "absent": "Келмеді",
       "retake": "Қайта тапсыру"
     },
-    "format": {
-      "oral": "Ауызша",
-      "written": "Жазбаша",
-      "test": "Тест",
-      "project": "Жоба",
-      "other": "Басқа"
-    },
+    "format": "Пішімі",
     "manageTitle": "Емтихандар",
     "newExam": "Емтихан тағайындау",
     "deleted": "Емтихан жойылды",
@@ -2232,12 +2226,7 @@
     "requestedFor": "Қалаған",
     "linkedApplication": "Байланысты өтініш",
     "cancel": "Болдырмау",
-    "type": {
-      "consultation": "Кеңес",
-      "document": "Құжат алу",
-      "academic": "Академиялық сұрақ",
-      "other": "Басқа"
-    },
+    "type": "Түрі",
     "status": {
       "requested": "Күтуде",
       "confirmed": "Расталды",
