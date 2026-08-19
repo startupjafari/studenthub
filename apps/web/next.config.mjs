@@ -94,6 +94,10 @@ const withPWA = withPWAInit({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Отдельная папка сборки для e2e-стенда (NEXT_DIST_DIR=.next-e2e): позволяет держать
+  // прогон Playwright и обычный `pnpm dev` одновременно — иначе два процесса Next дерутся
+  // за общий `.next`. В обычном режиме переменной нет и путь прежний.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Линтинг — отдельным шагом (root ESLint / CI), не во время next build.
   eslint: { ignoreDuringBuilds: true },
   // Минимальный self-contained сервер для production-образа (docker/apps/web/Dockerfile).
