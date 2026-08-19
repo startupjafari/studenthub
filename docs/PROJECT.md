@@ -384,6 +384,9 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
      обеих cookie, включая нечувствительную sh_role: иначе она переживает мёртвую
      сессию и middleware разворачивает пользователя с /login обратно в приложение,
      где refresh падает снова — бесконечный редирект
+   → повтор только что ротированного токена при живой цепочке → новая ротация, а не
+     разрыв: ответ мог не доехать до клиента (окно REFRESH_REUSE_GRACE_MS,
+     BACKEND_RULES §6.2)
 
 3. Logout
    → POST /auth/logout → хэш refresh инвалидируется, cookie очищается
