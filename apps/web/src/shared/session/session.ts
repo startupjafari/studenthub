@@ -1,5 +1,5 @@
 import type { Role } from '@studenthub/shared-types'
-import { api, meRequest } from '../api'
+import { meRequest, refreshAccessToken } from '../api'
 import { store } from '../store/store'
 import { clearAuth, setAccessToken, setAuth } from '../store/auth-slice'
 import { logoutRequest } from '../api/auth-api'
@@ -22,10 +22,13 @@ export async function establishSession(accessToken: string): Promise<Role> {
 }
 
 // Восстановление сессии после перезагрузки: refresh по httpOnly cookie → профиль.
+//
+// Обмен идёт через общий дедуплицированный refreshAccessToken, а не своим запросом: refresh-токен
+// одноразовый, и параллельный обмен из интерцептора (запросы первого рендера, ушедшие без Bearer)
+// выглядел бы для сервера как повторное использование — реюз-детектор погасил бы всю сессию.
 export async function restoreSession(): Promise<Role | null> {
   try {
-    const { data } = await api.post<{ accessToken: string }>('/auth/refresh')
-    return await establishSession(data.accessToken)
+    return await establishSession(await refreshAccessToken())
   } catch {
     return null
   }
