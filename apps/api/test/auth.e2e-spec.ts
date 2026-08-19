@@ -100,8 +100,12 @@ describe('Auth (e2e)', () => {
     })
   })
 
-  describe('POST /auth/refresh — ротация и разрыв цепочки', () => {
-    it('ротация выдаёт новый токен, повтор старого рвёт всю цепочку', async () => {
+  describe('POST /auth/refresh — ротация, окно грации и разрыв цепочки', () => {
+    // Окно грации в тестах — 300 мс (test/setup-env.cjs), поэтому обе ветки проверяются
+    // в одном прогоне без долгих пауз.
+    const GRACE_MS = 300
+
+    it('ротация выдаёт новый токен', async () => {
       const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
       const cookieA = getCookie(login, 'sh_refresh') as string
 
@@ -110,8 +114,34 @@ describe('Auth (e2e)', () => {
       const cookieB = getCookie(r1, 'sh_refresh') as string
       expect(cookieB).toBeTruthy()
       expect(cookieB).not.toEqual(cookieA)
+    })
 
-      // Повтор старого (revoked) → 401 + инвалидация цепочки.
+    it('повтор сразу после ротации не рвёт сессию — ответ мог не доехать до клиента', async () => {
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const cookieA = getCookie(login, 'sh_refresh') as string
+      const r1 = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieA)
+      const cookieB = getCookie(r1, 'sh_refresh') as string
+
+      // Клиент не получил ответ (оборвалась навигация) и повторяет обмен старым токеном.
+      const retry = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieA)
+      expect([200, 201]).toContain(retry.status)
+      const cookieC = getCookie(retry, 'sh_refresh') as string
+      expect(cookieC).toBeTruthy()
+      expect(cookieC).not.toEqual(cookieB)
+
+      // Живым остаётся ровно последний выданный токен: цепочка цела, но инвариант сохранён.
+      const withLatest = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieC)
+      expect([200, 201]).toContain(withLatest.status)
+    })
+
+    it('повтор после окна грации рвёт всю цепочку', async () => {
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const cookieA = getCookie(login, 'sh_refresh') as string
+      const r1 = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieA)
+      const cookieB = getCookie(r1, 'sh_refresh') as string
+
+      await new Promise((resolve) => setTimeout(resolve, GRACE_MS + 200))
+
       const reuse = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieA)
       expect(reuse.status).toBe(401)
 
