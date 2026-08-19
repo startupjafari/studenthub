@@ -1,10 +1,10 @@
-import { expect, studentTest as test } from './support/fixtures'
+import { expect, test } from './support/fixtures'
 
 // Отправка сообщения (план 13.4). Сессия студента — из фикстуры.
 // Заодно это проверка realtime-контура: пузырь появляется не от локального стейта, а после
 // эха message:new с сервера (docs/PROJECT.md §9.4).
 
-test('сообщение отправляется и появляется в переписке', async ({ page }) => {
+test('сообщение отправляется и появляется в переписке', async ({ studentPage: page }) => {
   await page.goto('/chats')
 
   // Список виртуализирован (virtua): в DOM только видимые строки, поэтому целимся в чат
