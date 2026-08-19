@@ -78,7 +78,8 @@ describe('Complaints (e2e) — доступ к чату по жалобе (Ф11.
       data: { type: 'PRIVATE', members: { create: [{ userId: a }, { userId: b }] } },
     })
     const msg = await prisma.message.create({
-      data: { chatId: chat.id, senderId: a, content: 'спорное сообщение' },
+      // seq обязателен: нумерацию в обход сервиса задаём вручную (в чате это единственное сообщение).
+      data: { chatId: chat.id, seq: 1, senderId: a, content: 'спорное сообщение' },
     })
     return { chatId: chat.id, messageId: msg.id }
   }
