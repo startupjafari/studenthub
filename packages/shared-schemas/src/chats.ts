@@ -50,6 +50,17 @@ export const ChatMessagesQuerySchema = CursorPaginationSchema.extend({
 })
 export type ChatMessagesQueryInput = z.infer<typeof ChatMessagesQuerySchema>
 
+// Дельта-догон после обрыва связи (docs/PROJECT.md §9): вернуть только изменения с позиции клиента.
+// - since — последний применённый Message.seq; 0 означает «ничего не знаю, отдай всё с начала»;
+// - sinceTs — время последней успешной синхронизации; без него правки/удаления не запрашиваются.
+export const ChatUpdatesQuerySchema = z
+  .object({
+    since: z.coerce.number().int().min(0),
+    sinceTs: z.string().datetime().optional(),
+  })
+  .strict()
+export type ChatUpdatesQueryInput = z.infer<typeof ChatUpdatesQuerySchema>
+
 // Поиск сообщений (Ф9+): по подстроке; chatId задан — внутри чата, иначе — по всем чатам участника.
 // Фильтры (§4): senderId — только сообщения этого автора; hasFile — только с вложениями.
 export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
