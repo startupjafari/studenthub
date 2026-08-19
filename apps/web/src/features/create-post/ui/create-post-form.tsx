@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -85,6 +85,16 @@ export function CreatePostForm({
     defaultValues: { audience: audiences[0], content: '' },
   })
   const audience = form.watch('audience')
+
+  // Роль приезжает из Redux после восстановления сессии, а useForm фиксирует defaultValues один
+  // раз при монтировании. На холодной загрузке страницы форма успевает создаться с role === null,
+  // аудитория остаётся пустой — и «Опубликовать» молча не отправляет запрос (zod требует
+  // audience). Поэтому доставляем значение по умолчанию, когда роль стала известна.
+  useEffect(() => {
+    if (!form.getValues('audience') && audiences[0]) {
+      form.setValue('audience', audiences[0], { shouldValidate: false })
+    }
+  }, [audiences, form])
 
   const showGroupPicker = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFacultyPicker =
