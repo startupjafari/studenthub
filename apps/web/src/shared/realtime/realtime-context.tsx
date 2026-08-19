@@ -5,11 +5,21 @@ import { io, type Socket } from 'socket.io-client'
 import { useQueryClient } from '@tanstack/react-query'
 import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../store/hooks'
+import { createLeaderElection } from './leader-election'
+import { createRealtimeBus } from './realtime-bus'
+import { createFollowerClient, createLeaderClient, type RealtimeClient } from './realtime-client'
 
-// Единый socket-провайдер (docs/PROJECT.md §9). В Ф3.7 обслуживает уведомления;
-// в Ф9 к тому же соединению добавятся чат-события. Токен берём из Redux (не из localStorage).
+// Единый socket-провайдер (docs/PROJECT.md §9). Обслуживает уведомления и чат-события на одном
+// соединении. Токен берём из Redux (не из localStorage).
+//
+// Соединение держит одна вкладка-лидер на аккаунт (leader-election.ts): остальные вкладки
+// получают события и отправляют свои emit'ы через неё по BroadcastChannel. Для потребителей
+// разницы нет — контекст в обоих случаях отдаёт `RealtimeClient` с тем же API.
 
-const RealtimeContext = createContext<Socket | null>(null)
+const RealtimeContext = createContext<RealtimeClient | null>(null)
+
+// Идентификатор вкладки: лидер по нему считает, сколько вкладок держат комнату чата.
+const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
 // Origin WS-сервера. Сокет всегда идёт ПРЯМО на api (авторизация токеном, не cookie),
 // даже когда HTTP проксируется через web (единый origin) — поэтому берём отдельный
@@ -34,74 +44,114 @@ function wsOrigin(): string {
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const accessToken = useAppSelector((s) => s.auth.accessToken)
+  // Ключ выборов — аккаунт: вкладки разных пользователей не делят соединение.
+  const userId = useAppSelector((s) => s.auth.user?.id)
   const queryClient = useQueryClient()
   // Держим клиент в ref: обращаемся к нему из onConnect, не добавляя в deps эффекта (иначе
   // нестабильная ссылка пересоздавала бы сокет). Тот же приём, что и с tokenRef ниже.
   const queryClientRef = useRef(queryClient)
   queryClientRef.current = queryClient
-  const [socket, setSocket] = useState<Socket | null>(null)
+  const [client, setClient] = useState<RealtimeClient | null>(null)
   const socketRef = useRef<Socket | null>(null)
+  const isLeaderRef = useRef(false)
   // Актуальный токен для первичного handshake создаваемого сокета (без пересоздания при ротации).
   const tokenRef = useRef(accessToken)
   tokenRef.current = accessToken
+  // Реконнект-ресинк: пока связи не было, клиент мог пропустить события (schedule:changed,
+  // notification:new, изменения заявок и т.п.) — их никто не переприсылает. На ПОВТОРНОМ connect
+  // инвалидируем весь react-query кэш, чтобы все подписанные экраны разом подтянули актуальное
+  // состояние. Первый connect вкладки пропускаем (данные только что загружены). Флаг живёт на
+  // уровне вкладки, а не сокета: перехват лидерства создаёт новый сокет, но пропуск событий в
+  // окне перевыборов реален — ресинк там нужен.
+  const hasConnectedOnceRef = useRef(false)
 
   // Соединение создаём/рвём только по ФАКТУ наличия токена (login ↔ logout), а не на каждую
   // его смену: тихая ротация access-токена каждые ~15 мин иначе роняла бы сокет (мигание
   // presence/typing и лишний реконнект).
   const hasToken = Boolean(accessToken)
+  const channelKey = userId ?? 'anon'
+
   useEffect(() => {
     if (!hasToken) {
-      socketRef.current?.disconnect()
-      socketRef.current = null
-      setSocket(null)
+      setClient(null)
       return
     }
 
-    const instance = io(wsOrigin(), {
-      auth: { token: tokenRef.current },
-      transports: ['websocket'],
-      // Переподключение при обрыве связи; сервер восстановит комнаты в handleConnection.
-      reconnection: true,
-    })
-    socketRef.current = instance
-    setSocket(instance)
+    const bus = createRealtimeBus(channelKey)
+    const election = createLeaderElection(channelKey)
+    // Освобождение текущей роли: при смене лидерства старый клиент нужно погасить до создания нового.
+    let releaseRole: (() => void) | undefined
 
-    // Реконнект-ресинк: пока сокет был отключён, клиент мог пропустить события (schedule:changed,
-    // notification:new, изменения заявок и т.п.) — их никто не переприсылает. На ПОВТОРНОМ connect
-    // инвалидируем весь react-query кэш, чтобы все подписанные экраны разом подтянули актуальное
-    // состояние с сервера. Первый connect пропускаем (данные только что загружены).
-    let firstConnect = true
     const onConnect = (): void => {
-      if (firstConnect) {
-        firstConnect = false
+      if (!hasConnectedOnceRef.current) {
+        hasConnectedOnceRef.current = true
         return
       }
       void queryClientRef.current.invalidateQueries()
     }
-    instance.on('connect', onConnect)
+
+    const applyRole = (isLeader: boolean): void => {
+      releaseRole?.()
+      releaseRole = undefined
+      isLeaderRef.current = isLeader
+
+      // Ведомой вкладке нужна шина; без BroadcastChannel лидером становится каждая вкладка.
+      if (!isLeader && bus) {
+        const follower = createFollowerClient(bus, TAB_ID)
+        follower.on('connect', onConnect)
+        setClient(follower)
+        releaseRole = () => {
+          follower.off('connect', onConnect)
+          follower.dispose()
+        }
+        return
+      }
+
+      const socket = io(wsOrigin(), {
+        auth: { token: tokenRef.current },
+        transports: ['websocket'],
+        // Переподключение при обрыве связи; сервер восстановит комнаты в handleConnection.
+        reconnection: true,
+      })
+      socketRef.current = socket
+      // Ресинк вешаем до обёртки — она добавит свои служебные слушатели поверх.
+      socket.on('connect', onConnect)
+      const leader = createLeaderClient(socket, bus, TAB_ID)
+      setClient(leader)
+      releaseRole = () => {
+        socket.off('connect', onConnect)
+        leader.dispose()
+        socket.disconnect()
+        socketRef.current = null
+      }
+    }
+
+    const unsubscribe = election.onChange(applyRole)
 
     return () => {
-      instance.off('connect', onConnect)
-      instance.disconnect()
-      socketRef.current = null
-      setSocket(null)
+      unsubscribe()
+      election.destroy()
+      releaseRole?.()
+      bus?.close()
+      setClient(null)
     }
-  }, [hasToken])
+  }, [hasToken, channelKey])
 
   // Ротация токена: обновляем сессию соединения событием auth:refresh (сервер принимает новый
   // токен без разрыва — realtime.gateway §10). Также правим instance.auth, чтобы возможный
-  // реконнект после ротации выполнял handshake уже свежим токеном.
+  // реконнект после ротации выполнял handshake уже свежим токеном. Ведомой вкладке делать нечего:
+  // сокет аутентифицирован токеном лидера, который ротирует его сам.
   useEffect(() => {
     const instance = socketRef.current
-    if (!instance || !accessToken) return
+    if (!instance || !accessToken || !isLeaderRef.current) return
     instance.auth = { token: accessToken }
     instance.emit('auth:refresh', { token: accessToken })
   }, [accessToken])
 
-  return <RealtimeContext.Provider value={socket}>{children}</RealtimeContext.Provider>
+  return <RealtimeContext.Provider value={client}>{children}</RealtimeContext.Provider>
 }
 
-export function useRealtimeSocket(): Socket | null {
+export function useRealtimeSocket(): RealtimeClient | null {
   return useContext(RealtimeContext)
 }
 
@@ -114,7 +164,7 @@ export function useRealtimeEvent<T = unknown>(event: string, handler: (payload: 
 
   useEffect(() => {
     if (!socket) return
-    const listener = (payload: T): void => handlerRef.current(payload)
+    const listener = (...args: unknown[]): void => handlerRef.current(args[0] as T)
     socket.on(event, listener)
     return () => {
       socket.off(event, listener)
@@ -135,7 +185,8 @@ export function useRealtimeEnvelope<T = unknown>(
 
   useEffect(() => {
     if (!socket) return
-    const listener = (envelope: RealtimeEnvelope<T>): void => {
+    const listener = (...args: unknown[]): void => {
+      const envelope = args[0] as RealtimeEnvelope<T> | undefined
       if (envelope?.type === type) handlerRef.current(envelope)
     }
     socket.on(REALTIME_CHANNEL, listener)
