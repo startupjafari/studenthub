@@ -18,6 +18,7 @@ import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { FileService } from '../files/file.service'
+import { UserService } from '../users/users.service'
 import type { EnvVars } from '../../config/env.schema'
 
 const ARTICLE_SELECT = {
@@ -91,6 +92,7 @@ export class ProfileContentService {
     private readonly prisma: PrismaService,
     private readonly files: FileService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly users: UserService,
   ) {}
 
   private get bucket(): string {
@@ -127,8 +129,13 @@ export class ProfileContentService {
     return this.toMediaDto(file)
   }
 
-  /** Медиа профиля пользователя (для вкладок Фото/Видео). Видит любой аутентифицированный. */
-  async listMedia(userId: string): Promise<ProfileMediaDto[]> {
+  /**
+   * Медиа профиля пользователя (вкладки Фото/Видео) — по видимости профиля, как и статьи рядом.
+   * Раньше отдавалось любому аутентифицированному: закрытый профиль (profileVisibility) скрывал
+   * карточку, но фото и видео оставались доступны кому угодно по прямому запросу (§14.7).
+   */
+  async listMedia(viewer: JwtPayload, userId: string): Promise<ProfileMediaDto[]> {
+    if (!(await this.users.canViewProfileContent(viewer, userId))) return []
     const files = await this.prisma.file.findMany({
       where: { ownerId: userId, bucket: this.bucket },
       select: {
@@ -242,8 +249,9 @@ export class ProfileContentService {
     return { ...album, coverUrl: null, count: 0 }
   }
 
-  /** Альбомы пользователя (с обложкой и числом фото). Видит любой аутентифицированный. */
-  async listAlbums(userId: string): Promise<AlbumDto[]> {
+  /** Альбомы пользователя (с обложкой и числом фото) — по видимости профиля, как и медиа. */
+  async listAlbums(viewer: JwtPayload, userId: string): Promise<AlbumDto[]> {
+    if (!(await this.users.canViewProfileContent(viewer, userId))) return []
     const albums = await this.prisma.album.findMany({
       where: { userId },
       select: {
