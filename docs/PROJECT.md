@@ -377,7 +377,13 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 2. Каждый запрос: Authorization: Bearer <access>
    → 401 + code=TOKEN_EXPIRED → POST /auth/refresh (cookie отправляется браузером)
+   → то же для 401 + code=UNAUTHORIZED, если запрос ушёл БЕЗ Bearer (холодная
+     загрузка страницы: токен ещё не восстановлен) — FRONTEND_RULES §5.3
    → новый access → прозрачный повтор исходного запроса (один раз)
+   → refresh отклонён (истёк, погашен реюз-детектором, подделан) → 401 И гашение
+     обеих cookie, включая нечувствительную sh_role: иначе она переживает мёртвую
+     сессию и middleware разворачивает пользователя с /login обратно в приложение,
+     где refresh падает снова — бесконечный редирект
 
 3. Logout
    → POST /auth/logout → хэш refresh инвалидируется, cookie очищается
