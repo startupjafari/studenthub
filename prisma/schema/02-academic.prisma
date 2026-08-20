@@ -97,12 +97,29 @@ model Group {
 }
 
 model Room {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   name         String
   capacity     Int?
-  universityId String   @map("university_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  universityId String    @map("university_id")
+  // Назначение помещения (Ф16): определяет, что показывать студенту по QR — пару из
+  // расписания (учебные) или часы работы и контакт (библиотека, бухгалтерия, актовый зал).
+  kind         RoomKind  @default(AUDITORIUM)
+  // Ориентиры для навигации и для печатной наклейки: «Корпус Б, 3 этаж».
+  building     String?
+  floor        Int?
+  // Только для неучебных помещений: свободный текст, т.к. режимы работы у вузов разные
+  // («Пн–Пт 09:00–18:00, обед 13:00–14:00»). Разбирать в структуру смысла нет — показываем как есть.
+  openHours    String?   @map("open_hours")
+  phone        String?
+  info         String?
+  // Код в печатном QR (Ф16). Отдельный короткий код, а НЕ id аудитории:
+  //   1) короче → QR менее плотный, читается с большего расстояния и лучше печатается;
+  //   2) перевыпуск кода обесценивает старые распечатки (помещение перепрофилировали,
+  //      наклейка утекла) — id так не отозвать.
+  qrCode       String?   @unique @map("qr_code")
+  qrIssuedAt   DateTime? @map("qr_issued_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   university      University       @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   pairs           Pair[]

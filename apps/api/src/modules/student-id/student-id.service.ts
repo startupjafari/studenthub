@@ -8,6 +8,7 @@ import { CryptoService } from '../../common/security/crypto.service'
 import { ConfigService } from '@nestjs/config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
+import { webBaseUrl } from '../../config/web-base'
 
 // TTL токена верификации ~2 мин: QR на фронте ротируется каждые ~45с (принцип «динамический QR
 // каждые 30-60с»), TTL держим чуть длиннее интервала, чтобы только что показанный код был
@@ -72,7 +73,7 @@ export class StudentIdService {
     const payload: IdPayload = { typ: ID_TYP, sub: viewer.sub, exp }
     const token = this.crypto.encrypt(JSON.stringify(payload))
     const qr = await QRCode.toDataURL(
-      `${this.webBase()}/verify-id?t=${encodeURIComponent(token)}`,
+      `${webBaseUrl(this.config)}/verify-id?t=${encodeURIComponent(token)}`,
       { margin: 1, width: 320 },
     )
     return {
@@ -139,9 +140,5 @@ export class StudentIdService {
       throw new AppException('BAD_REQUEST', 'Код истёк — обновите карту')
     }
     return payload
-  }
-
-  private webBase(): string {
-    return this.config.get('CORS_ORIGIN', { infer: true }).split(',')[0]?.trim() ?? ''
   }
 }
