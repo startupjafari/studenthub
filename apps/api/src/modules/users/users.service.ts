@@ -434,24 +434,7 @@ export class UserService {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
 
-    let access = this.resolveAccess(viewer, target)
-    // Дружба открывает профиль: принятая дружба — взаимно; ПЕНДИНГ-заявка ОТ владельца закрытого
-    // профиля к смотрящему — открывает профиль владельца этому смотрящему (он решает, принять ли).
-    if (access.level === 'limited' && viewer.sub !== target.id) {
-      const link = await this.prisma.friendship.findFirst({
-        where: {
-          OR: [
-            { requesterId: viewer.sub, addresseeId: target.id },
-            { requesterId: target.id, addresseeId: viewer.sub },
-          ],
-        },
-        select: { status: true, requesterId: true },
-      })
-      const opened =
-        link?.status === 'ACCEPTED' ||
-        (link?.status === 'PENDING' && link.requesterId === target.id)
-      if (opened) access = { level: 'full', audit: false }
-    }
+    const access = await this.resolveAccessWithFriendship(viewer, target)
     if (access.level === 'limited') {
       return this.toLimitedProfile(target)
     }
@@ -590,6 +573,61 @@ export class UserService {
       return { level: 'full', audit: false }
     }
     return { level: 'limited', audit: false }
+  }
+
+  /**
+   * Доступ к профилю с учётом дружбы: принятая дружба открывает профиль взаимно; ПЕНДИНГ-заявка ОТ
+   * владельца закрытого профиля к смотрящему тоже открывает (тот решает, принимать ли).
+   */
+  private async resolveAccessWithFriendship(
+    viewer: JwtPayload,
+    target: {
+      id: string
+      role: Role
+      profileVisibility: string
+      universityId: string | null
+      facultyId: string | null
+      groupId: string | null
+    },
+  ): Promise<{ level: ProfileAccessLevel; audit: boolean }> {
+    const access = this.resolveAccess(viewer, target)
+    if (access.level !== 'limited' || viewer.sub === target.id) return access
+    const link = await this.prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId: viewer.sub, addresseeId: target.id },
+          { requesterId: target.id, addresseeId: viewer.sub },
+        ],
+      },
+      select: { status: true, requesterId: true },
+    })
+    const opened =
+      link?.status === 'ACCEPTED' || (link?.status === 'PENDING' && link.requesterId === target.id)
+    return opened ? { level: 'full', audit: false } : access
+  }
+
+  /**
+   * Виден ли смотрящему КОНТЕНТ профиля (медиа, альбомы) — по тому же правилу, что решает, отдать
+   * полную карточку или «визитку». Отдельный метод нужен модулю profile-content: фото и альбомы —
+   * такие же персональные данные, как поля карточки, и закрытый профиль обязан скрывать и их
+   * (docs/BACKEND_RULES.md §14.7).
+   */
+  async canViewProfileContent(viewer: JwtPayload, targetId: string): Promise<boolean> {
+    if (viewer.sub === targetId) return true
+    const target = await this.prisma.user.findFirst({
+      where: { id: targetId, deletedAt: null },
+      select: {
+        id: true,
+        role: true,
+        profileVisibility: true,
+        universityId: true,
+        facultyId: true,
+        groupId: true,
+      },
+    })
+    if (!target) return false
+    const access = await this.resolveAccessWithFriendship(viewer, target)
+    return access.level === 'full'
   }
 
   // Академические записи (gpa) видят только владелец и надзорные роли — не одногруппники/староста.

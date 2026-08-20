@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // vi.mock хойстится в начало файла — моки и общее состояние объявляем через vi.hoisted.
 const { socketMock, ioMock, state, invalidateMock } = vi.hoisted(() => {
@@ -7,7 +7,11 @@ const { socketMock, ioMock, state, invalidateMock } = vi.hoisted(() => {
     on: vi.fn(),
     off: vi.fn(),
     emit: vi.fn(),
+    // Обёртка вкладки-лидера ретранслирует все события сервера в шину между вкладками.
+    onAny: vi.fn(),
+    offAny: vi.fn(),
     disconnect: vi.fn(),
+    connected: false,
     auth: {} as { token?: string },
   }
   return {
@@ -36,11 +40,21 @@ beforeEach(() => {
   socketMock.on.mockClear()
   socketMock.off.mockClear()
   socketMock.emit.mockClear()
+  socketMock.onAny.mockClear()
+  socketMock.offAny.mockClear()
   socketMock.disconnect.mockClear()
+  socketMock.connected = false
   socketMock.auth = {}
   ioMock.mockClear()
   invalidateMock.mockClear()
   state.token = null
+  // Здесь проверяется одиночная вкладка: без BroadcastChannel выборы мастера вырождаются и
+  // вкладка становится лидером синхронно. Многовкладочный режим — realtime-multitab.test.tsx.
+  vi.stubGlobal('BroadcastChannel', undefined)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('RealtimeProvider — жизненный цикл соединения', () => {

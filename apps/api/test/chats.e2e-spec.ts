@@ -167,9 +167,12 @@ describe('Chats (e2e) — изоляция и доставка', () => {
       const chatId = await createGroupChat(ownerTok, [otherMember])
       // Сеем историю напрямую (минуя анти-флуд): 25 сообщений, часть — с одинаковым createdAt,
       // чтобы проверить устойчивость составного курсора (createdAt, id).
+      // seq обязателен и уникален в пределах чата (аллокатор Chat.lastSeq живёт в сервисе,
+      // а здесь пишем напрямую) — нумеруем сами, порядок совпадает с порядком вставки.
       await prisma.message.createMany({
         data: Array.from({ length: 25 }, (_, i) => ({
           chatId,
+          seq: i + 1,
           senderId: ownerId,
           content: `msg-${i}`,
         })),
@@ -228,6 +231,7 @@ describe('Chats (e2e) — изоляция и доставка', () => {
       await prisma.message.createMany({
         data: Array.from({ length: 3 }, (_, i) => ({
           chatId: withUnread,
+          seq: i + 1,
           senderId,
           content: `u${i}`,
         })),
