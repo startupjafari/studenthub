@@ -83,6 +83,27 @@ export async function fetchMessages(
   }
 }
 
+// Разница по чату с позиции клиента (докачка после обрыва связи вместо перезапроса истории).
+export interface ChatUpdates {
+  created: ChatMessage[]
+  mutated: ChatMessage[]
+  deletedIds: string[]
+  latestSeq: number
+  // Разрыв больше серверного лимита — склеить ленту нельзя, нужен полный рефетч истории.
+  overflow: boolean
+}
+
+export async function fetchChatUpdates(
+  chatId: string,
+  since: number,
+  sinceTs?: string,
+): Promise<ChatUpdates> {
+  const { data } = await api.get<ChatUpdates>(`/chats/${chatId}/updates`, {
+    params: { since, sinceTs },
+  })
+  return data
+}
+
 /**
  * Отправка сообщения с вложениями (multipart, Ф9+). Текст опционален при наличии файлов.
  * message:new придёт по WS всем участникам (включая отправителя) — оптимистично не добавляем.

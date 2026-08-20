@@ -57,12 +57,14 @@ import {
   AttachmentDialog,
   ForwardDialog,
   MessageContextMenu,
+  fetchChatUpdates,
   useVoiceRecorder,
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
   type MessageAttachment,
 } from '../../../entities/chat'
+import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import { GroupInfoDialog } from './group-info-dialog'
 import { PeerInfoCard } from './peer-info-card'
 import { ChatDetailsSidebar } from './chat-details-sidebar'
@@ -134,6 +136,10 @@ export function ChatWindow() {
   const [text, setText] = useState('')
   const [typingUsers, setTypingUsers] = useState<Record<string, number>>({})
   const [connected, setConnected] = useState(true)
+  // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
+  // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
+  // disconnect (перехват лидерства мастер-вкладки).
+  const lastSyncAt = useRef(new Date().toISOString())
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined)
   const [canLoadOlder, setCanLoadOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -657,6 +663,8 @@ export function ChatWindow() {
     const temp: ChatMessage = {
       id: tempId,
       chatId,
+      // Серверного номера у оптимистичного пузыря ещё нет; 0 не участвует в расчёте точки догона.
+      seq: 0,
       senderId: me.id,
       content: payload.content ?? '',
       replyToId: payload.replyToId ?? null,
@@ -727,19 +735,49 @@ export function ChatWindow() {
     }
   }, [socket, activeId])
 
-  // Индикатор связи + рефетч истории и повторный вход в комнату при реконнекте.
+  // Индикатор связи + догон пропущенного и повторный вход в комнату при реконнекте.
   useEffect(() => {
     if (!socket) return
     setConnected(socket.connected)
+
+    // Пока связи не было, события никто не переприсылает. Вместо перезапроса страницы истории
+    // забираем ровно разницу с последнего известного seq (docs/PROJECT.md §9). Полный рефетч
+    // остаётся фолбэком: разрыв больше серверного лимита, пустой кэш или ошибка запроса.
+    const catchUp = async (chatId: string): Promise<void> => {
+      const cached = qc.getQueryData<ChatMessage[]>(chatKeys.messages(chatId))
+      const since = latestSeqOf(cached)
+      if (!since) {
+        void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
+        return
+      }
+      try {
+        const delta = await fetchChatUpdates(chatId, since, lastSyncAt.current)
+        if (delta.overflow) {
+          void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
+        } else {
+          qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
+            mergeUpdates(old, delta),
+          )
+        }
+        lastSyncAt.current = new Date().toISOString()
+      } catch {
+        void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
+      }
+    }
+
     const onConnect = (): void => {
       setConnected(true)
       if (activeId) {
         socket.emit('chat:join', { chatId: activeId })
-        void qc.invalidateQueries({ queryKey: chatKeys.messages(activeId) })
+        void catchUp(activeId)
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
-    const onDisconnect = (): void => setConnected(false)
+    const onDisconnect = (): void => {
+      setConnected(false)
+      // До этого момента события приходили — с него и запрашиваем правки при догоне.
+      lastSyncAt.current = new Date().toISOString()
+    }
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     return () => {
@@ -1286,6 +1324,8 @@ export function ChatWindow() {
     const temp: ChatMessage = {
       id: `tmp:${nonce}`,
       chatId: activeId,
+      // Серверного номера у оптимистичного пузыря ещё нет; 0 не участвует в расчёте точки догона.
+      seq: 0,
       senderId: me.id,
       content,
       replyToId: replyTo?.id ?? null,

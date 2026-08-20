@@ -91,8 +91,8 @@ export class ProfileContentController {
 
   @Get(':userId/media')
   @ApiOperation({ summary: 'Медиа профиля пользователя (фото и видео)' })
-  listMedia(@Param('userId') userId: string) {
-    return this.content.listMedia(userId)
+  listMedia(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
+    return this.content.listMedia(user, userId)
   }
 
   @Delete('media/:fileId')
@@ -115,8 +115,8 @@ export class ProfileContentController {
 
   @Get(':userId/albums')
   @ApiOperation({ summary: 'Альбомы пользователя (с обложкой и счётчиком)' })
-  listAlbums(@Param('userId') userId: string) {
-    return this.content.listAlbums(userId)
+  listAlbums(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
+    return this.content.listAlbums(user, userId)
   }
 
   @Patch('albums/:id')

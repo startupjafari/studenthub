@@ -19,6 +19,10 @@ model Chat {
   groupId      String? @map("group_id")
   subject      String?
 
+  // Аллокатор Message.seq: инкрементируется атомарно при создании каждого сообщения чата.
+  // Нужен для дельта-догона после обрыва связи (GET /chats/:id/updates, docs/PROJECT.md §9).
+  lastSeq Int @default(0) @map("last_seq")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -73,6 +77,9 @@ model ChatMember {
 model Message {
   id              String    @id @default(uuid())
   chatId          String    @map("chat_id")
+  // Монотонный номер сообщения внутри чата (аллокатор — Chat.lastSeq). Клиент хранит последний
+  // применённый seq и после реконнекта забирает только разницу, а не страницу истории заново.
+  seq             Int
   senderId        String    @map("sender_id")
   content         String
   // Thread-ответ на другое сообщение того же чата.
@@ -108,6 +115,9 @@ model Message {
   // Опрос в чате (§38): 1:1 с сообщением-опросом (ChatPoll.messageId уникален).
   poll          ChatPoll?
 
+  // Дельта-догон: range-скан `chatId + seq > since`. Уникальность заодно защищает от дублей
+  // при гонке аллокатора.
+  @@unique([chatId, seq])
   // История сообщений — cursor-пагинация по [chatId, createdAt] (docs/PROJECT.md §6.2).
   @@index([chatId, createdAt])
   @@index([senderId])

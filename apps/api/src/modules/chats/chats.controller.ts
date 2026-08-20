@@ -31,6 +31,7 @@ import { CreateChatDto } from './dto/create-chat.dto'
 import { AddChatMemberDto } from './dto/add-chat-member.dto'
 import { EditChatDto } from './dto/edit-chat.dto'
 import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
+import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
 import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
 import { CreateChatPollDto } from './dto/create-chat-poll.dto'
@@ -96,6 +97,25 @@ export class ChatsController {
     @Query() query: ChatMessagesQueryDto,
   ) {
     return this.chats.getMessages(user, id, query)
+  }
+
+  @Get(':id/updates')
+  @ApiOperation({
+    summary: 'Разница по чату с позиции клиента (догон после обрыва связи, только участник)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Новые сообщения (created), изменённые (mutated), удалённые (deletedIds), актуальный latestSeq. ' +
+      'overflow=true — разрыв больше лимита, историю нужно перезапросить целиком',
+  })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  updates(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ChatUpdatesQueryDto,
+  ) {
+    return this.chats.getUpdates(user, id, query)
   }
 
   @Get(':id/media')

@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { FileService } from '../files/file.service'
+import { UserService } from '../users/users.service'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ProfileContentService } from './profile-content.service'
@@ -57,12 +58,15 @@ function setup() {
     confirmDirectUpload: jest.fn(),
   }
   const config = { get: (k: string) => CONFIG[k] }
+  // По умолчанию профиль открыт смотрящему; закрытый проверяется отдельным тестом.
+  const users = { canViewProfileContent: jest.fn().mockResolvedValue(true) }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
     config as unknown as ConfigService<EnvVars, true>,
+    users as unknown as UserService,
   )
-  return { service, prisma, files }
+  return { service, prisma, files, users }
 }
 
 const file = (over: Record<string, unknown> = {}) => ({
@@ -96,7 +100,7 @@ describe('ProfileContentService — медиа', () => {
   it('классифицирует видео как VIDEO', async () => {
     const { service, prisma } = setup()
     prisma.file.findMany.mockResolvedValue([file({ mime: 'video/mp4', key: 'v.mp4' })])
-    const list = await service.listMedia('me')
+    const list = await service.listMedia(user('me'), 'me')
     expect(list[0]?.type).toBe('VIDEO')
   })
 
@@ -250,5 +254,41 @@ describe('ProfileContentService — альбомы (Ф3)', () => {
     prisma.file.findFirst.mockResolvedValue(null)
     const err = await service.updateAlbum(user('me'), 'al1', { coverFileId: 'fX' }).catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
+  })
+})
+
+describe('ProfileContentService — видимость контента профиля (§14.7)', () => {
+  it('закрытый профиль не отдаёт медиа чужому смотрящему', async () => {
+    const { service, prisma, users } = setup()
+    users.canViewProfileContent.mockResolvedValue(false)
+
+    const list = await service.listMedia(user('stranger'), 'owner')
+
+    expect(list).toEqual([])
+    // До запроса в БД дело не доходит — иначе чужие фото утекли бы вместе с ответом.
+    expect(prisma.file.findMany).not.toHaveBeenCalled()
+  })
+
+  it('закрытый профиль не отдаёт альбомы чужому смотрящему', async () => {
+    const { service, prisma, users } = setup()
+    users.canViewProfileContent.mockResolvedValue(false)
+
+    const list = await service.listAlbums(user('stranger'), 'owner')
+
+    expect(list).toEqual([])
+    expect(prisma.album.findMany).not.toHaveBeenCalled()
+  })
+
+  it('открытый профиль отдаёт медиа как прежде', async () => {
+    const { service, prisma, users } = setup()
+    prisma.file.findMany.mockResolvedValue([file()])
+
+    const list = await service.listMedia(user('friend'), 'owner')
+
+    expect(list).toHaveLength(1)
+    expect(users.canViewProfileContent).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'friend' }),
+      'owner',
+    )
   })
 })

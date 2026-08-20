@@ -6,6 +6,7 @@ import type {
   CreateChatInput,
   ChatMessagesQueryInput,
   ChatMediaQueryInput,
+  ChatUpdatesQueryInput,
   CreateChatPollInput,
   CursorPaginationInput,
   MessageSearchQueryInput,
@@ -26,6 +27,10 @@ import { PostsService } from '../posts/posts.service'
 import type { EnvVars } from '../../config/env.schema'
 
 const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } }
+
+// Потолок дельты догона (GET /chats/:id/updates). Больше — клиенту дешевле перезапросить историю,
+// чем склеивать: непрерывность ленты всё равно не гарантируется.
+const CHAT_UPDATES_LIMIT = 200
 
 // Заглушён ли участник (§17): навсегда (mutedAt) или на время (mutedUntil ещё не истёк).
 function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): boolean {
@@ -67,6 +72,8 @@ type ChatLinkRow = {
 const MESSAGE_SELECT = {
   id: true,
   chatId: true,
+  // Позиция в чате: клиент хранит максимальный полученный seq и догоняет разницу после обрыва.
+  seq: true,
   senderId: true,
   content: true,
   replyToId: true,
@@ -441,6 +448,85 @@ export class ChatsService {
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
 
+  /**
+   * Разница по чату с позиции клиента — для догона после обрыва связи вместо перезапроса истории.
+   *
+   * `created` — сообщения новее `since` (по Message.seq). `mutated` — уже известные клиенту
+   * сообщения, изменившиеся после `sinceTs` (правка, (от)закрепление). `deletedIds` — удалённые
+   * за то же время: отдельным списком, потому что MESSAGE_SELECT намеренно не отдаёт deletedAt.
+   *
+   * `overflow` — новых оказалось больше лимита: клиент не может достроить непрерывную ленту и
+   * должен перезапросить историю целиком. Снятие реакции дельтой не покрывается: удалённая строка
+   * MessageReaction не оставляет следа (см. план, «Не входит»).
+   */
+  async getUpdates(
+    viewer: JwtPayload,
+    chatId: string,
+    query: ChatUpdatesQueryInput,
+  ): Promise<{
+    created: MessageRow[]
+    mutated: MessageRow[]
+    deletedIds: string[]
+    latestSeq: number
+    overflow: boolean
+  }> {
+    await this.assertMembership(viewer.sub, chatId)
+    // Очистка истории «для меня» — та же граница, что и в getMessages.
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: viewer.sub } },
+      select: { clearedAt: true },
+    })
+    const baseWhere: Prisma.MessageWhereInput = {
+      chatId,
+      ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+    }
+    const sinceTs = query.sinceTs ? new Date(query.sinceTs) : undefined
+
+    // Уже известные клиенту сообщения — только они могут «мутировать» с его точки зрения.
+    const knownWhere: Prisma.MessageWhereInput = { ...baseWhere, seq: { lte: query.since } }
+
+    const [createdRows, mutated, deleted, chat] = await Promise.all([
+      this.prisma.message.findMany({
+        where: { ...baseWhere, deletedAt: null, seq: { gt: query.since } },
+        select: MESSAGE_SELECT,
+        orderBy: { seq: 'asc' },
+        take: CHAT_UPDATES_LIMIT + 1,
+      }),
+      sinceTs
+        ? this.prisma.message.findMany({
+            where: {
+              ...knownWhere,
+              deletedAt: null,
+              OR: [{ editedAt: { gt: sinceTs } }, { pinnedAt: { gt: sinceTs } }],
+            },
+            select: MESSAGE_SELECT,
+            orderBy: { seq: 'asc' },
+            take: CHAT_UPDATES_LIMIT,
+          })
+        : Promise.resolve([]),
+      sinceTs
+        ? this.prisma.message.findMany({
+            where: { ...knownWhere, deletedAt: { gt: sinceTs } },
+            select: { id: true },
+            orderBy: { seq: 'asc' },
+            take: CHAT_UPDATES_LIMIT,
+          })
+        : Promise.resolve([]),
+      this.prisma.chat.findUnique({ where: { id: chatId }, select: { lastSeq: true } }),
+    ])
+
+    // Разрыв больше лимита достроить нельзя — отдаём пустую дельту, клиент перезапросит историю.
+    const overflow = createdRows.length > CHAT_UPDATES_LIMIT
+
+    return {
+      created: overflow ? [] : createdRows,
+      mutated,
+      deletedIds: deleted.map((m) => m.id),
+      latestSeq: chat?.lastSeq ?? query.since,
+      overflow,
+    }
+  }
+
   // Окно сообщений вокруг целевого (для around / aroundDate): до limit СТАРЕЕ + целевое + до limit НОВЕЕ,
   // всё по убыванию. meta: cursor/hasNext — старые (вверх), prevCursor/hasPrev — новые (вниз).
   private async buildMessageWindow(
@@ -599,7 +685,12 @@ export class ChatsService {
     await this.assertNotBlockedInPrivate(chatId, senderId)
     const messageId = await this.prisma.$transaction(async (tx) => {
       const message = await tx.message.create({
-        data: { chatId, senderId, content: input.question },
+        data: {
+          chatId,
+          seq: await this.allocateSeq(chatId, tx),
+          senderId,
+          content: input.question,
+        },
         select: { id: true },
       })
       await tx.chatPoll.create({
@@ -896,15 +987,18 @@ export class ChatsService {
     this.assertNotFlooding(senderId)
     await this.assertNotBlockedInPrivate(input.chatId, senderId)
     await this.assertReplyInChat(input.chatId, input.replyToId)
-    const message = await this.prisma.message.create({
-      data: {
-        chatId: input.chatId,
-        senderId,
-        content: input.content,
-        replyToId: input.replyToId,
-      },
-      select: MESSAGE_SELECT,
-    })
+    const message = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId: input.chatId,
+          seq: await this.allocateSeq(input.chatId, tx),
+          senderId,
+          content: input.content,
+          replyToId: input.replyToId,
+        },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.bumpChat(input.chatId)
     await this.enqueueLinkPreview(message.id, input.chatId, input.content)
     const recipientIds = await this.notifyNewMessage(input.chatId, senderId, message)
@@ -946,10 +1040,18 @@ export class ChatsService {
       throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
     }
     const bucket = this.config.get('MINIO_BUCKET_CHAT', { infer: true })
-    const created = await this.prisma.message.create({
-      data: { chatId: input.chatId, senderId, content, replyToId: input.replyToId },
-      select: { id: true },
-    })
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId: input.chatId,
+          seq: await this.allocateSeq(input.chatId, tx),
+          senderId,
+          content,
+          replyToId: input.replyToId,
+        },
+        select: { id: true },
+      }),
+    )
     for (const file of files) {
       await this.files.upload({
         buffer: file.buffer,
@@ -986,6 +1088,23 @@ export class ChatsService {
     await this.prisma.chat.update({ where: { id: chatId }, data: { updatedAt: new Date() } })
   }
 
+  /**
+   * Выдать следующий seq сообщения в чате: один UPDATE ... RETURNING под блокировкой строки чата.
+   *
+   * Вызывать только внутри транзакции, вместе со вставкой сообщения — отсюда обязательный `tx`.
+   * Блокировка строки чата держится до конца транзакции, поэтому параллельная отправка ждёт и
+   * порядок коммитов совпадает с порядком номеров. Аллокация отдельным запросом сняла бы блокировку
+   * сразу, и сообщение с меньшим seq могло бы закоммититься позже — дельта догона его пропустила бы.
+   */
+  private async allocateSeq(chatId: string, tx: Prisma.TransactionClient): Promise<number> {
+    const rows = await tx.$queryRaw<{ last_seq: number }[]>`
+      UPDATE "chats" SET "last_seq" = "last_seq" + 1 WHERE "id" = ${chatId} RETURNING "last_seq"
+    `
+    const next = rows[0]?.last_seq
+    if (next == null) throw new AppException('NOT_FOUND', 'Чат не найден')
+    return next
+  }
+
   // Системное сообщение группы (§20): служебная запись о событии (актор = actorId). Текст рендерит
   // клиент по systemType + systemMeta (денормализованные детали). Эмитим message:new — попадает в ленту.
   private async emitSystemMessage(
@@ -994,16 +1113,19 @@ export class ChatsService {
     systemType: string,
     systemMeta?: Prisma.InputJsonValue,
   ): Promise<void> {
-    const message = await this.prisma.message.create({
-      data: {
-        chatId,
-        senderId: actorId,
-        content: '',
-        systemType,
-        ...(systemMeta !== undefined ? { systemMeta } : {}),
-      },
-      select: MESSAGE_SELECT,
-    })
+    const message = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId,
+          seq: await this.allocateSeq(chatId, tx),
+          senderId: actorId,
+          content: '',
+          systemType,
+          ...(systemMeta !== undefined ? { systemMeta } : {}),
+        },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
   }
@@ -1280,15 +1402,18 @@ export class ChatsService {
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
     await this.assertMembership(userId, source.chatId)
-    const created = await this.prisma.message.create({
-      data: {
-        chatId: targetChatId,
-        senderId: userId,
-        content: source.content,
-        forwardedFromId: source.id,
-      },
-      select: { id: true },
-    })
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId: targetChatId,
+          seq: await this.allocateSeq(targetChatId, tx),
+          senderId: userId,
+          content: source.content,
+          forwardedFromId: source.id,
+        },
+        select: { id: true },
+      }),
+    )
     // Копируем каждое вложение на новый ключ (у File @@unique([bucket,key]) — переиспользовать нельзя).
     for (const f of source.media) {
       await this.files.copyToMessage(f, userId, created.id)
@@ -1321,15 +1446,18 @@ export class ChatsService {
     await this.assertMembership(viewer.sub, targetChatId)
     // Бросит NOT_FOUND, если пост не виден отправителю (IDOR-защита).
     await this.posts.assertVisibleToViewer(viewer, postId)
-    const created = await this.prisma.message.create({
-      data: {
-        chatId: targetChatId,
-        senderId: viewer.sub,
-        content: comment?.trim() ?? '',
-        sharedPostId: postId,
-      },
-      select: { id: true },
-    })
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId: targetChatId,
+          seq: await this.allocateSeq(targetChatId, tx),
+          senderId: viewer.sub,
+          content: comment?.trim() ?? '',
+          sharedPostId: postId,
+        },
+        select: { id: true },
+      }),
+    )
     const message = await this.prisma.message.findUniqueOrThrow({
       where: { id: created.id },
       select: MESSAGE_SELECT,

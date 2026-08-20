@@ -1,4 +1,4 @@
-export { api } from './instance'
+export { api, refreshAccessToken } from './instance'
 export { makeQueryClient } from './query-client'
 export {
   loginRequest,
