@@ -226,6 +226,35 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 
 ---
 
+### 3.9 Помещения и QR над дверью (Ф16)
+
+Над каждым помещением вуза висит печатная наклейка с QR. Студент наводит камеру телефона
+(без установки приложения) и попадает на страницу `/r/<код>`, где видит:
+
+- **учебные помещения** (аудитория, лаборатория, спортзал) — «Свободно» или «Занято до 12:30»,
+  идущую пару с предметом, **группой** и преподавателем, следующую пару и остаток дня;
+- **неучебные** (библиотека, актовый зал, деканат, бухгалтерия, столовая, общежитие) — часы
+  работы, телефон и примечание. Часы работы печатаются и на самой наклейке: у двери
+  бухгалтерии это нужнее возможности отсканировать.
+
+Занятость считается из расписания с наложением разовых изменений (`ScheduleChange`): отменённая
+пара освобождает помещение, перенос в другую аудиторию убирает занятость отсюда, перенос сюда —
+добавляет. Чётность недели и «сейчас» — те же правила, что в сетке расписания и на экране
+«Сегодня» (общий `buildDayPairs` в `entities/schedule`), иначе экраны расходились бы в показаниях.
+«Сейчас» приходит с сервера в таймзоне вуза: часы на телефоне студента могут врать.
+
+**Доступ.** Страница закрыта авторизацией — расписание группы это внутренние данные вуза (§1),
+а наклейка висит в открытом коридоре. Незалогиненного ведём на `/login?next=/r/<код>` и после
+входа возвращаем на помещение. Неизвестный код и помещение чужого вуза дают ОДИНАКОВЫЙ `NOT_FOUND`:
+иначе код становится оракулом для перебора.
+
+**Код.** Короткий (8 символов, алфавит без похожих `0/O`, `1/I/L`) и отдельный от `id` помещения:
+QR получается менее плотным (сканируется с большего расстояния) и код можно перевыпустить, обесценив
+утёкшую или устаревшую распечатку. Печатается на наклейке текстом как запасной путь. Выдаёт
+администратор вуза — по одному помещению или пачкой на корпус/этаж (`/university-admin/rooms`).
+
+---
+
 ## 4. MVP и порядок
 
 ### v1.0 — Ядро
@@ -489,7 +518,9 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members`
 
-**Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id` · `GET|POST /rooms` · `GET|PATCH|DELETE /rooms/:id`
+**Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id`
+
+**Помещения (Ф16)** — `GET /rooms` (`?kind=`) · `POST /rooms` (вуз из JWT, платформа указывает явно) · `GET|PATCH|DELETE /rooms/:id` · `GET /rooms/qr/:code` (статус по коду из печатного QR: помещение, «сейчас» по часам сервера в таймзоне вуза, пары дня и изменения) · `POST /rooms/qr/batch` (выдать коды пачкой, идемпотентно) · `POST /rooms/:id/qr/rotate` (перевыпуск — расклеенные наклейки перестают работать, пишется в аудит)
 
 **Заявки (услуги)** — каталог: `GET /application-categories` (категории с доступными услугами) · `GET /application-services/:id` (детали: требования-документы + поля формы). Заявки: `POST /applications` (черновик по `serviceId`) · `PATCH /applications/:id` (правка черновика: `deliveryType`+`formData`, только владелец/DRAFT) · `POST /applications/:id/submit` (DRAFT→SUBMITTED: номер SH-YYYY-N + `dueAt` по SLA + валидация формы) · `POST /applications/:id/cancel` (→CANCELLED, владелец до подготовки) · `GET /applications` (список/очередь: server-side пагинация + фильтры `status/serviceId/categoryCode/facultyId/assignedToId/search/overdue/dueToday`, scope через `ApplicationPolicy`) · `GET /applications/:id` (детали + timeline, scope-гейт). Обработка/результат/выдача (process/assign/document-review/result/issue) — следующими под-фазами. Права — `ApplicationPolicy` (роль+scope, единый источник).
 
