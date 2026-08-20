@@ -226,6 +226,35 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 
 ---
 
+### 3.9 Помещения и QR над дверью (Ф16)
+
+Над каждым помещением вуза висит печатная наклейка с QR. Студент наводит камеру телефона
+(без установки приложения) и попадает на страницу `/r/<код>`, где видит:
+
+- **учебные помещения** (аудитория, лаборатория, спортзал) — «Свободно» или «Занято до 12:30»,
+  идущую пару с предметом, **группой** и преподавателем, следующую пару и остаток дня;
+- **неучебные** (библиотека, актовый зал, деканат, бухгалтерия, столовая, общежитие) — часы
+  работы, телефон и примечание. Часы работы печатаются и на самой наклейке: у двери
+  бухгалтерии это нужнее возможности отсканировать.
+
+Занятость считается из расписания с наложением разовых изменений (`ScheduleChange`): отменённая
+пара освобождает помещение, перенос в другую аудиторию убирает занятость отсюда, перенос сюда —
+добавляет. Чётность недели и «сейчас» — те же правила, что в сетке расписания и на экране
+«Сегодня» (общий `buildDayPairs` в `entities/schedule`), иначе экраны расходились бы в показаниях.
+«Сейчас» приходит с сервера в таймзоне вуза: часы на телефоне студента могут врать.
+
+**Доступ.** Страница закрыта авторизацией — расписание группы это внутренние данные вуза (§1),
+а наклейка висит в открытом коридоре. Незалогиненного ведём на `/login?next=/r/<код>` и после
+входа возвращаем на помещение. Неизвестный код и помещение чужого вуза дают ОДИНАКОВЫЙ `NOT_FOUND`:
+иначе код становится оракулом для перебора.
+
+**Код.** Короткий (8 символов, алфавит без похожих `0/O`, `1/I/L`) и отдельный от `id` помещения:
+QR получается менее плотным (сканируется с большего расстояния) и код можно перевыпустить, обесценив
+утёкшую или устаревшую распечатку. Печатается на наклейке текстом как запасной путь. Выдаёт
+администратор вуза — по одному помещению или пачкой на корпус/этаж (`/university-admin/rooms`).
+
+---
+
 ## 4. MVP и порядок
 
 ### v1.0 — Ядро
@@ -489,7 +518,9 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members`
 
-**Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id` · `GET|POST /rooms` · `GET|PATCH|DELETE /rooms/:id`
+**Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id`
+
+**Помещения (Ф16)** — `GET /rooms` (`?kind=`) · `POST /rooms` (вуз из JWT, платформа указывает явно) · `GET|PATCH|DELETE /rooms/:id` · `GET /rooms/qr/:code` (статус по коду из печатного QR: помещение, «сейчас» по часам сервера в таймзоне вуза, пары дня и изменения) · `POST /rooms/qr/batch` (выдать коды пачкой, идемпотентно) · `POST /rooms/:id/qr/rotate` (перевыпуск — расклеенные наклейки перестают работать, пишется в аудит)
 
 **Заявки (услуги)** — каталог: `GET /application-categories` (категории с доступными услугами) · `GET /application-services/:id` (детали: требования-документы + поля формы). Заявки: `POST /applications` (черновик по `serviceId`) · `PATCH /applications/:id` (правка черновика: `deliveryType`+`formData`, только владелец/DRAFT) · `POST /applications/:id/submit` (DRAFT→SUBMITTED: номер SH-YYYY-N + `dueAt` по SLA + валидация формы) · `POST /applications/:id/cancel` (→CANCELLED, владелец до подготовки) · `GET /applications` (список/очередь: server-side пагинация + фильтры `status/serviceId/categoryCode/facultyId/assignedToId/search/overdue/dueToday`, scope через `ApplicationPolicy`) · `GET /applications/:id` (детали + timeline, scope-гейт). Обработка/результат/выдача (process/assign/document-review/result/issue) — следующими под-фазами. Права — `ApplicationPolicy` (роль+scope, единый источник).
 
@@ -691,6 +722,32 @@ Guard не заменяет проверку в сервисе: сервис д�
 
 `AuditLog` фиксирует: login, logout, все операции с инвайтами, смену роли, смену статуса университета, блокировку пользователя, решения модератора, доступ администратора к личным чатам. Поля: `userId`, `action`, `entity`, `entityId`, `metadata`, IP, user-agent, `createdAt`.
 
+### 11.5 Наблюдаемость и внешний трекер ошибок (Ф13.8)
+
+Sentry подключён и на api (`@sentry/nestjs`), и на web (`@sentry/nextjs`). Без DSN не
+инициализируется — dev, тесты и CI работают как раньше.
+
+Что покрыто: HTTP-5xx (глобальный фильтр), падения job'ов очередей, сбои WS-обработчиков,
+падения cron-задач, ошибки серверного рендера Next (`onRequestError`) и любые исключения в
+браузере (error-boundary + глобальные обработчики SDK).
+
+**Персональные данные во внешний сервис не уходят.** `sendDefaultPii: false` (без IP и
+cookie), плюс собственный `beforeSend`: вырезаются тела запросов, cookie, `Authorization`,
+`job.data`; из URL, имён транзакций и хлебных крошек вычищаются секреты (`?token=` ссылки
+приглашения и QR студенческого, токен в пути `/invites/:token/preview`). Пользователь
+идентифицируется только `id` — без email и ФИО. Session Replay сознательно не подключён.
+Правила чистки — общий `scrubSentryEvent` в `@studenthub/shared-config`, покрыт тестами
+в обоих приложениях.
+
+Событие Sentry и строка лога связаны в обе стороны: тег `request_id` в событии и
+`sentryEventId` в логе pino.
+
+Цена на фронте (§11 — производительность важна, аудитория мобильная): shared First Load JS
+106 → 142 кБ, **+36 кБ**. Без tree-shaking трейсинга было бы +89 кБ, поэтому в
+`next.config.mjs` включён `webpack.treeshake.removeTracing` — но по условию от
+`NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE`, иначе включение сэмплирования через env тихо не
+работало бы.
+
 ---
 
 ## 12. Карта экранов по ролям
@@ -769,7 +826,12 @@ SMTP_FROM="StudentHub <noreply@studenthub.app>"
 CORS_ORIGIN=http://localhost:3000
 THROTTLE_TTL=900
 THROTTLE_LIMIT=5
+
+# Мониторинг (Ф13.8). Пусто = Sentry не инициализируется (dev, тесты, CI).
 SENTRY_DSN=
+SENTRY_ENVIRONMENT=          # production/staging/pilot; по умолчанию NODE_ENV
+SENTRY_RELEASE=              # обычно git sha
+SENTRY_TRACES_SAMPLE_RATE=0  # 0 = только ошибки, без трейсинга производительности
 ```
 
 ### `apps/web/.env.local`
@@ -779,6 +841,19 @@ NEXT_PUBLIC_WS_URL=http://localhost:3001
 NEXT_PUBLIC_MINIO_URL=http://localhost:9000
 NEXT_PUBLIC_APP_NAME=StudentHub
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Мониторинг (Ф13.8). DSN публичный (только принимает события), поэтому NEXT_PUBLIC_.
+# Пусто = SDK не инициализируется.
+NEXT_PUBLIC_SENTRY_DSN=
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=
+NEXT_PUBLIC_SENTRY_RELEASE=
+NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0
+
+# Только на этапе сборки: загрузка source maps. Без токена шаг молча пропускается,
+# но стектрейсы в трекере останутся минифицированными.
+SENTRY_ORG=
+SENTRY_PROJECT=
+SENTRY_AUTH_TOKEN=
 ```
 
 ### `docker/.env`

@@ -3,13 +3,14 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Eye, EyeOff, QrCode } from 'lucide-react'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
 import { Button, FormAlert, Input, Label } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+// safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
+import { useFormAlert, safeNextPath } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
@@ -18,6 +19,7 @@ import { QrLoginPanel } from './qr-login-panel'
 export function LoginForm() {
   const t = useTranslations('Auth')
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [showPassword, setShowPassword] = useState(false)
   const [mode, setMode] = useState<'password' | 'qr'>('password')
   // Если у пользователя включена 2FA — после пароля храним challenge и показываем ввод кода.
@@ -31,7 +33,9 @@ export function LoginForm() {
 
   async function completeLogin(token: string) {
     const role = await establishSession(token)
-    router.replace(ROLE_HOME[role])
+    // ?next= проставляет middleware, когда пользователь пришёл по ссылке без сессии
+    // (например, отсканировал печатный QR помещения, Ф16). Возвращаем его туда.
+    router.replace(safeNextPath(searchParams.get('next')) ?? ROLE_HOME[role])
   }
 
   async function onSubmit(values: LoginInput) {

@@ -1,7 +1,8 @@
 import { Logger } from '@nestjs/common'
-import { Processor, WorkerHost } from '@nestjs/bullmq'
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq'
 import type { Job } from 'bullmq'
 import { Prisma } from '@prisma/client'
+import { reportJobFailure } from '../../common/monitoring'
 import { QUEUES } from '../../common/queue'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { RealtimeGateway } from '../../common/realtime'
@@ -27,6 +28,13 @@ export class LinkPreviewProcessor extends WorkerHost {
     private readonly chats: ChatsService,
   ) {
     super()
+  }
+
+  // Ф13.8: исчерпавший попытки job больше не пропадает молча — лог + Sentry.
+  // `job.data` в трекер не уходит (в payload'ах — получатели и тексты, §11.3).
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, error: Error): void {
+    reportJobFailure(this.logger, QUEUES.LINK_PREVIEW, job, error)
   }
 
   async process(job: Job<LinkPreviewJob>): Promise<void> {

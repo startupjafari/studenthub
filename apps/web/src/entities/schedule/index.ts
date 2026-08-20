@@ -13,6 +13,15 @@ export {
   deletePairRequest,
 } from './api/schedule-api'
 export { layoutColumns, type TimeSpan, type Placed } from './lib/layout-columns'
+export {
+  buildDayPairs,
+  nextPair,
+  nowInTz,
+  isoWeekParity,
+  type DayPair,
+  type PairState,
+  type NowInTz,
+} from './lib/day'
 export type {
   WeekType,
   ScheduleChangeType,

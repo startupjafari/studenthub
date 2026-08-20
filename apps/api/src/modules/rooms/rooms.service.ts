@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
+import { Prisma, type RoomKind } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { CreateRoomInput, UpdateRoomInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -14,6 +14,16 @@ const ROOM_SELECT = {
   name: true,
   capacity: true,
   universityId: true,
+  // Ф16: назначение помещения и ориентиры — нужны и в админке, и на печатной наклейке.
+  kind: true,
+  building: true,
+  floor: true,
+  openHours: true,
+  phone: true,
+  info: true,
+  // Выдан ли QR (сам код и картинку отдаёт RoomQrService).
+  qrCode: true,
+  qrIssuedAt: true,
   createdAt: true,
 } satisfies Prisma.RoomSelect
 
@@ -30,18 +40,34 @@ export class RoomService {
     private readonly audit: AuditService,
   ) {}
 
-  /** Создание аудитории (PLATFORM_ADMIN / UNIVERSITY_ADMIN своего вуза). */
+  /** Создание помещения (PLATFORM_ADMIN / UNIVERSITY_ADMIN своего вуза). */
   async create(actor: JwtPayload, input: CreateRoomInput, ctx: RequestContext): Promise<RoomDto> {
-    this.assertManageScope(actor, input.universityId)
+    // Вуз из JWT, если в теле не указан (§6.1): админ вуза создаёт помещения только у себя,
+    // и заставлять фронт знать свой universityId незачем. Платформенный админ указывает явно.
+    const universityId = input.universityId ?? actor.universityId
+    if (!universityId) {
+      throw new AppException('BAD_REQUEST', 'Не указан университет')
+    }
+    this.assertManageScope(actor, universityId)
     const university = await this.prisma.university.findUnique({
-      where: { id: input.universityId },
+      where: { id: universityId },
       select: { id: true },
     })
     if (!university) {
       throw new AppException('NOT_FOUND', 'Университет не найден')
     }
     const room = await this.prisma.room.create({
-      data: { name: input.name, capacity: input.capacity, universityId: input.universityId },
+      data: {
+        name: input.name,
+        capacity: input.capacity,
+        universityId,
+        kind: input.kind,
+        building: input.building,
+        floor: input.floor,
+        openHours: input.openHours,
+        phone: input.phone,
+        info: input.info,
+      },
       select: ROOM_SELECT,
     })
     await this.audit.record({
@@ -49,7 +75,7 @@ export class RoomService {
       action: 'room_created',
       entity: 'Room',
       entityId: room.id,
-      metadata: { universityId: input.universityId },
+      metadata: { universityId },
       ...ctx,
     })
     return room
@@ -61,8 +87,9 @@ export class RoomService {
     page: number,
     limit: number,
     universityId?: string,
+    kind?: RoomKind,
   ): Promise<Paginated<RoomDto>> {
-    const where = this.listWhere(viewer, universityId)
+    const where = { ...this.listWhere(viewer, universityId), ...(kind ? { kind } : {}) }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.room.findMany({
         where,
@@ -92,7 +119,18 @@ export class RoomService {
     this.assertManageScope(actor, room.universityId)
     const updated = await this.prisma.room.update({
       where: { id },
-      data: { name: input.name, capacity: input.capacity ?? undefined },
+      // `null` — осознанная очистка поля (например, убрали телефон), `undefined` — «не меняем».
+      // Поэтому nullable-поля прокидываем как есть, а не через `?? undefined`.
+      data: {
+        name: input.name,
+        capacity: input.capacity,
+        kind: input.kind,
+        building: input.building,
+        floor: input.floor,
+        openHours: input.openHours,
+        phone: input.phone,
+        info: input.info,
+      },
       select: ROOM_SELECT,
     })
     await this.audit.record({
