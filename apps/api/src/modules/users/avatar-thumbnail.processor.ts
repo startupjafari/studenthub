@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common'
-import { Processor, WorkerHost } from '@nestjs/bullmq'
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq'
 import type { Job } from 'bullmq'
+import { reportJobFailure } from '../../common/monitoring'
 import { FILE_JOBS, QUEUES } from '../../common/queue'
 import type { JobPayload } from '../../common/queue'
 import { UserService } from './users.service'
@@ -20,6 +21,13 @@ export class AvatarThumbnailProcessor extends WorkerHost {
 
   constructor(private readonly users: UserService) {
     super()
+  }
+
+  // Ф13.8: исчерпавший попытки job больше не пропадает молча — лог + Sentry.
+  // `job.data` в трекер не уходит (в payload'ах — получатели и тексты, §11.3).
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, error: Error): void {
+    reportJobFailure(this.logger, QUEUES.FILE_PROCESSING, job, error)
   }
 
   async process(job: Job<JobPayload>): Promise<void> {

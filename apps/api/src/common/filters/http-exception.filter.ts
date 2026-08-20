@@ -10,6 +10,8 @@ import {
   type ErrorDetail,
 } from '@studenthub/shared-types'
 import { AppException } from '../exceptions/app.exception'
+import type { CurrentUserData } from '../auth/jwt-payload.type'
+import { captureException } from '../monitoring/sentry'
 
 // Глобальный фильтр: любую ошибку приводит к контракту
 // { success:false, error:{ code, message, details? }, statusCode, timestamp, path }.
@@ -58,9 +60,29 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      // Необработанное/серверное — логируем с полным контекстом (но не в ответ).
+      // Необработанное/серверное — логируем с полным контекстом (но не в ответ)
+      // и отправляем в Sentry (Ф13.8). Порог тот же, что у лога: 5xx = наш баг,
+      // 4xx = ожидаемый отказ, его в трекер не шлём (иначе шум от 401/403/404).
+      //
+      // Захват именно здесь, а не декоратором @SentryExceptionCaptured: декоратор
+      // считает «ожидаемым» любой HttpException, включая наш AppException с 500-м
+      // статусом, и не даёт приложить requestId/userId для склейки с логами pino.
+      const userId = (request as FastifyRequest & { user?: CurrentUserData }).user?.sub
+      const eventId = captureException(exception, {
+        source: 'http',
+        requestId: String(request.id),
+        userId,
+        path: request.url,
+        method: request.method,
+        code,
+      })
       this.logger.error(
-        { err: exception, path: request.url, method: request.method },
+        {
+          err: exception,
+          path: request.url,
+          method: request.method,
+          ...(eventId ? { sentryEventId: eventId } : {}),
+        },
         'Необработанное исключение',
       )
     }

@@ -11,7 +11,7 @@ ss -ltnp | grep -E ':3000|:3001|:5432|:6379|:9000'  # что слушает
 ```
 
 `GET /health` (@nestjs/terminus, публичный) проверяет PostgreSQL, Redis, MinIO. Заведите на него
-внешний аптайм-мониторинг; алерты по error-rate / p95 / пулу соединений — см. `docs/IMPLEMENTATION_PLAN.md` 13.8.
+внешний аптайм-мониторинг. Алерты по error-rate настраиваются в Sentry (см. ниже).
 
 ## Отказ зависимостей (graceful degradation)
 
@@ -70,6 +70,45 @@ node prisma/seed.mjs
 - API пишет `pino` (JSON) в stdout; в проде агрегировать через docker log-driver + ротация
   (`max-size`/`max-file`) или внешний коллектор. Секреты (`authorization`, `password`, `token`)
   редактируются на уровне pino — в логах их нет.
+
+## Мониторинг ошибок (Sentry)
+
+Включается DSN'ом: `SENTRY_DSN` у api, `NEXT_PUBLIC_SENTRY_DSN` у web. Пусто — трекер молчит.
+
+**Проверить, что включён.** В логе старта api есть строка `Sentry включён (env=…)` либо
+`Sentry выключен: SENTRY_DSN не задан`. Для web: открыть страницу и проверить в консоли
+браузера `Boolean(window.__SENTRY__)`.
+
+**Ошибки есть, а в трекере пусто** — по порядку:
+1. DSN действительно виден процессу? Для web он «впекается» в бандл **на сборке** — после
+   добавления переменной нужен ре-деплой (пересборка), рестарта недостаточно.
+2. Ошибка — 4xx? Ожидаемые отказы (401/403/404, бизнес-`AppException`) не отправляются
+   намеренно. Порог — `status >= 500`.
+3. Ошибка попала в `ignoreErrors` (обрыв сети, расширения браузера)? Список —
+   `apps/web/src/shared/lib/sentry-options.ts`.
+4. С мобильных: события идут через свой домен (`/monitoring`, обход блокировщиков). Туннель
+   работает **только** с DSN Sentry SaaS (`*.ingest.sentry.io`); для self-hosted его нет.
+5. Исчерпана квота проекта в Sentry — видно в самом Sentry (Stats).
+
+**Найти в логах то, что видно в трекере, и наоборот.** В событии Sentry есть тег
+`request_id`; тот же идентификатор — в строке pino (`requestId`). Обратно: в строке лога об
+ошибке есть `sentryEventId`.
+
+**Проверить, что персональные данные не утекают** (после изменений в захвате ошибок).
+Поднять фейковый приёмник и посмотреть, что реально уходит:
+
+```bash
+# 1. Приёмник на :9911, пишет envelope в файл
+node -e "require('http').createServer((q,r)=>{let b='';q.on('data',c=>b+=c);q.on('end',()=>{require('fs').appendFileSync('/tmp/env.txt',b+'\n');r.end('{}')})}).listen(9911)" &
+# 2. Запустить сервис с фейковым DSN и воспроизвести ошибку
+SENTRY_DSN=http://key@localhost:9911/1 pnpm --filter api start
+# 3. Убедиться, что в /tmp/env.txt нет токенов, cookie, ФИО, тел запросов
+```
+
+Именно так были найдены две настоящие утечки при внедрении (токен в `?token=` и в крошке
+навигации `data.from`/`data.to`) — ревью их не показало. Правила чистки и их тесты:
+`packages/shared-config/src/monitoring.ts`, `apps/api/src/common/monitoring/sentry-scrub.spec.ts`,
+`apps/web/src/shared/lib/sentry-options.test.ts`.
 
 ## Частые вопросы
 

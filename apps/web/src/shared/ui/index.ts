@@ -54,6 +54,7 @@ export {
 export { Toaster } from './sonner'
 export { Forbidden } from './forbidden'
 export { StatusScreen, type StatusScreenProps } from './status-screen'
+export { ErrorScreen } from './error-screen'
 export { Flag, type FlagCode } from './flag'
 export { LanguageFlag } from './language-flag'
 export { CountryFlag } from './country-flag'
