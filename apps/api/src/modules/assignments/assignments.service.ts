@@ -18,6 +18,9 @@ import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 
+// Потолок на список студентов группы при рассылке (BACKEND_RULES §7.2).
+const GROUP_STUDENTS_LIMIT = 500
+
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 function isPlatform(role: Role): boolean {
@@ -498,6 +501,7 @@ export class AssignmentsService {
         isBlocked: false,
       },
       select: { id: true },
+      take: GROUP_STUDENTS_LIMIT,
     })
     if (students.length === 0) return
     await this.queue.enqueue(

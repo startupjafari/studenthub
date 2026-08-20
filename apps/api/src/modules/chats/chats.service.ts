@@ -32,6 +32,20 @@ const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, ava
 // чем склеивать: непрерывность ленты всё равно не гарантируется.
 const CHAT_UPDATES_LIMIT = 200
 
+// Потолки на списки (BACKEND_RULES §7.2 «findMany без take запрещён»). Списки чатов и
+// участников — экранные, поэтому режутся потолком; рассылки участникам обязаны дойти до
+// всех, поэтому читаются батчами (см. allMembers).
+const CHAT_LIST_LIMIT = 100
+/** Личный чат — ровно два участника, поэтому собеседников не больше двух на чат. */
+const PRIVATE_PEER_LIMIT = CHAT_LIST_LIMIT * 2
+const BLOCKED_LIST_LIMIT = 200
+/** Голоса одного пользователя в одном опросе: не больше, чем вариантов. */
+const POLL_VOTES_LIMIT = 100
+/** Реакция на сообщение одна на пользователя; потолок — страховка от исторических дублей. */
+const MESSAGE_REACTION_LIMIT = 10
+/** Размер батча при чтении участников чата целиком. */
+const MEMBER_BATCH = 500
+
 // Заглушён ли участник (§17): навсегда (mutedAt) или на время (mutedUntil ещё не истёк).
 function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): boolean {
   return m.mutedAt != null || (m.mutedUntil != null && m.mutedUntil.getTime() > Date.now())
@@ -228,6 +242,7 @@ export class ChatsService {
       privateIds.length > 0
         ? await this.prisma.chatMember.findMany({
             where: { chatId: { in: privateIds }, userId: { not: viewer.sub } },
+            take: PRIVATE_PEER_LIMIT,
             select: {
               chatId: true,
               userId: true,
@@ -252,6 +267,8 @@ export class ChatsService {
                 { blockedId: viewer.sub, blockerId: { in: otherIds } },
               ],
             },
+            // Не больше двух записей на собеседника (по одной в каждую сторону).
+            take: PRIVATE_PEER_LIMIT,
             select: { blockerId: true, blockedId: true },
           })
         : []
@@ -739,6 +756,7 @@ export class ChatsService {
     await this.assertMembership(viewer.sub, poll.message.chatId)
     const myVotes = await this.prisma.chatPollVote.findMany({
       where: { pollId, userId: viewer.sub },
+      take: POLL_VOTES_LIMIT,
       select: { optionId: true },
     })
     const totalVotes = poll.options.reduce((n, o) => n + o._count.votes, 0)
@@ -787,6 +805,7 @@ export class ChatsService {
 
     const existing = await this.prisma.chatPollVote.findMany({
       where: { pollId, userId: viewer.sub },
+      take: POLL_VOTES_LIMIT,
       select: { id: true },
     })
     if (existing.length > 0 && !poll.allowRevote) {
@@ -945,12 +964,44 @@ export class ChatsService {
   }
 
   // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
+  /**
+   * Все участники чата — батчами по курсору.
+   *
+   * Рассылки (`chat:activity`, `chat:pinned`, уведомления о новом сообщении) обязаны дойти
+   * до каждого участника, поэтому обрезать список потолком нельзя: в группе на 600 человек
+   * сотня молча осталась бы без сигнала. Но и тянуть чат целиком одним запросом нельзя
+   * (BACKEND_RULES §7.2), поэтому читаем страницами по MEMBER_BATCH.
+   */
+  private async allMembers(
+    chatId: string,
+    opts: { exceptUserId?: string } = {},
+  ): Promise<{ userId: string; mutedAt: Date | null; mutedUntil: Date | null }[]> {
+    const out: { userId: string; mutedAt: Date | null; mutedUntil: Date | null }[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await this.prisma.chatMember.findMany({
+        where: {
+          chatId,
+          ...(opts.exceptUserId ? { userId: { not: opts.exceptUserId } } : {}),
+        },
+        select: { id: true, userId: true, mutedAt: true, mutedUntil: true },
+        orderBy: { id: 'asc' },
+        take: MEMBER_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      if (batch.length === 0) break
+      for (const m of batch) {
+        out.push({ userId: m.userId, mutedAt: m.mutedAt, mutedUntil: m.mutedUntil })
+      }
+      if (batch.length < MEMBER_BATCH) break
+      cursor = batch.at(-1)?.id
+    }
+    return out
+  }
+
   // Аналог chat:activity из notifyNewMessage: не создаёт уведомление, только просит рефетч.
   private async pingChatList(chatId: string, extraUserIds: string[] = []): Promise<void> {
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId },
-      select: { userId: true },
-    })
+    const members = await this.allMembers(chatId)
     const ids = new Set<string>([...members.map((m) => m.userId), ...extraUserIds])
     for (const id of ids) this.realtime.emitToUser(id, 'chat:activity', { chatId })
   }
@@ -1151,10 +1202,7 @@ export class ChatsService {
       where: { chatId, hiddenAt: { not: null } },
       data: { hiddenAt: null },
     })
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId, userId: { not: senderId } },
-      select: { userId: true, mutedAt: true, mutedUntil: true },
-    })
+    const members = await this.allMembers(chatId, { exceptUserId: senderId })
     // Живой список чатов у всех участников (в т.ч. заглушённых): message:new уходит только в комнату
     // chat:{id} (её джойнят только с открытым чатом), поэтому для превью/счётчика/порядка в списке
     // шлём тихий сигнал в user:{id}. Он НЕ создаёт уведомление — только просит обновить список.
@@ -1257,10 +1305,7 @@ export class ChatsService {
     })
     // Комната chat:{id} есть только у тех, кто открыл чат. Чтобы закрепление подтянулось и при
     // закрытом чате, шлём сигнал в user:{id} каждому участнику — клиент инвалидирует pinned/messages.
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId: msg.chatId },
-      select: { userId: true },
-    })
+    const members = await this.allMembers(msg.chatId)
     for (const m of members) {
       this.realtime.emitToUser(m.userId, 'chat:pinned', { chatId: msg.chatId })
     }
@@ -1355,6 +1400,7 @@ export class ChatsService {
     await this.assertMembership(userId, msg.chatId)
     const existing = await this.prisma.messageReaction.findMany({
       where: { messageId, userId },
+      take: MESSAGE_REACTION_LIMIT,
       select: { id: true, emoji: true },
     })
     const same = existing.find((r) => r.emoji === emoji)
@@ -1531,10 +1577,7 @@ export class ChatsService {
     chatId: string,
   ): Promise<{ userId: string; online: boolean }[]> {
     await this.assertMembership(userId, chatId)
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId },
-      select: { userId: true },
-    })
+    const members = await this.allMembers(chatId)
     const ids = members.map((m) => m.userId)
     const online = new Set(this.realtime.onlineAmong(ids))
     return ids.map((id) => ({ userId: id, online: online.has(id) }))
@@ -1879,13 +1922,14 @@ export class ChatsService {
       where: { blockerId: actorId },
       select: { blockedId: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      take: BLOCKED_LIST_LIMIT,
     })
     const ids = blocks.map((b) => b.blockedId)
     const users =
       ids.length > 0
         ? await this.prisma.user.findMany({
             where: { id: { in: ids } },
+            take: BLOCKED_LIST_LIMIT,
             select: { id: true, firstName: true, lastName: true, avatarUrl: true },
           })
         : []

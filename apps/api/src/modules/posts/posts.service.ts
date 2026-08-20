@@ -622,6 +622,7 @@ export class PostsService {
     const files = await this.prisma.file.findMany({
       where: { id: { in: mediaIds } },
       select: { id: true, ownerId: true, bucket: true, postId: true },
+      take: mediaIds.length,
     })
     const valid = files.filter(
       (f) => f.ownerId === ownerId && f.bucket === bucket && f.postId === null,
