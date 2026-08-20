@@ -691,6 +691,26 @@ Guard не заменяет проверку в сервисе: сервис д�
 
 `AuditLog` фиксирует: login, logout, все операции с инвайтами, смену роли, смену статуса университета, блокировку пользователя, решения модератора, доступ администратора к личным чатам. Поля: `userId`, `action`, `entity`, `entityId`, `metadata`, IP, user-agent, `createdAt`.
 
+### 11.5 Наблюдаемость и внешний трекер ошибок (Ф13.8)
+
+Sentry подключён и на api (`@sentry/nestjs`), и на web (`@sentry/nextjs`). Без DSN не
+инициализируется — dev, тесты и CI работают как раньше.
+
+Что покрыто: HTTP-5xx (глобальный фильтр), падения job'ов очередей, сбои WS-обработчиков,
+падения cron-задач, ошибки серверного рендера Next (`onRequestError`) и любые исключения в
+браузере (error-boundary + глобальные обработчики SDK).
+
+**Персональные данные во внешний сервис не уходят.** `sendDefaultPii: false` (без IP и
+cookie), плюс собственный `beforeSend`: вырезаются тела запросов, cookie, `Authorization`,
+`job.data`; из URL, имён транзакций и хлебных крошек вычищаются секреты (`?token=` ссылки
+приглашения и QR студенческого, токен в пути `/invites/:token/preview`). Пользователь
+идентифицируется только `id` — без email и ФИО. Session Replay сознательно не подключён.
+Правила чистки — общий `scrubSentryEvent` в `@studenthub/shared-config`, покрыт тестами
+в обоих приложениях.
+
+Событие Sentry и строка лога связаны в обе стороны: тег `request_id` в событии и
+`sentryEventId` в логе pino.
+
 ---
 
 ## 12. Карта экранов по ролям
@@ -769,7 +789,12 @@ SMTP_FROM="StudentHub <noreply@studenthub.app>"
 CORS_ORIGIN=http://localhost:3000
 THROTTLE_TTL=900
 THROTTLE_LIMIT=5
+
+# Мониторинг (Ф13.8). Пусто = Sentry не инициализируется (dev, тесты, CI).
 SENTRY_DSN=
+SENTRY_ENVIRONMENT=          # production/staging/pilot; по умолчанию NODE_ENV
+SENTRY_RELEASE=              # обычно git sha
+SENTRY_TRACES_SAMPLE_RATE=0  # 0 = только ошибки, без трейсинга производительности
 ```
 
 ### `apps/web/.env.local`
@@ -779,6 +804,19 @@ NEXT_PUBLIC_WS_URL=http://localhost:3001
 NEXT_PUBLIC_MINIO_URL=http://localhost:9000
 NEXT_PUBLIC_APP_NAME=StudentHub
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Мониторинг (Ф13.8). DSN публичный (только принимает события), поэтому NEXT_PUBLIC_.
+# Пусто = SDK не инициализируется.
+NEXT_PUBLIC_SENTRY_DSN=
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=
+NEXT_PUBLIC_SENTRY_RELEASE=
+NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0
+
+# Только на этапе сборки: загрузка source maps. Без токена шаг молча пропускается,
+# но стектрейсы в трекере останутся минифицированными.
+SENTRY_ORG=
+SENTRY_PROJECT=
+SENTRY_AUTH_TOKEN=
 ```
 
 ### `docker/.env`

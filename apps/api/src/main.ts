@@ -1,3 +1,6 @@
+// ПЕРВЫЙ импорт: Sentry.init должен выполниться раньше загрузки Nest и инструментируемых
+// библиотек (Ф13.8). Без SENTRY_DSN — no-op. Порядок значим, не переставлять.
+import { sentryEnabled } from './instrument'
 import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
@@ -99,7 +102,15 @@ async function bootstrap(): Promise<void> {
   // TCP-reset → 502 «Application failed to respond». Локально '::' тоже принимает IPv4.
   await app.listen({ port, host: '::' })
 
-  new Logger('Bootstrap').log(`API слушает http://localhost:${port}/${apiPrefix}`)
+  const bootstrapLogger = new Logger('Bootstrap')
+  bootstrapLogger.log(`API слушает http://localhost:${port}/${apiPrefix}`)
+  // Явно сообщаем режим наблюдаемости: молчащий Sentry из-за незаданного DSN — самая
+  // частая причина «ошибки есть, а в трекере пусто».
+  bootstrapLogger.log(
+    sentryEnabled
+      ? `Sentry включён (env=${config.get('SENTRY_ENVIRONMENT', { infer: true }) ?? config.get('NODE_ENV', { infer: true })})`
+      : 'Sentry выключен: SENTRY_DSN не задан',
+  )
 }
 
 void bootstrap()
