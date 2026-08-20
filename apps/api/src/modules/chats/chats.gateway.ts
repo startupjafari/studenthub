@@ -16,6 +16,7 @@ import {
   TypingSchema,
 } from '@studenthub/shared-schemas'
 import type { ZodSchema } from 'zod'
+import { captureUnexpected, isExpectedBusinessError } from '../../common/monitoring'
 import { ChatsService } from './chats.service'
 
 // WS-обработчики чата (docs/PROJECT.md §9, задачи 9.3–9.4). Подключение/handshake-аутентификацию
@@ -46,6 +47,23 @@ export class ChatGateway {
   private fail(client: Socket, event: string, error: unknown): void {
     const code = (error as { code?: string }).code ?? 'INTERNAL_ERROR'
     client.emit('error', { event, code })
+
+    // Ф13.8: до этого сбой WS-обработчика был виден только клиенту (одно `error`-событие),
+    // в логах и трекере — ничего. Бизнес-отказы (нет прав, не найдено) не шумят;
+    // неожиданные — в лог и в Sentry. Содержимое сообщений в трекер не уходит.
+    if (isExpectedBusinessError(error)) {
+      return
+    }
+    const eventId = captureUnexpected(error, {
+      source: 'ws',
+      userId: this.userId(client) ?? undefined,
+      path: event,
+      code,
+    })
+    this.logger.error(
+      { err: error, event, code, ...(eventId ? { sentryEventId: eventId } : {}) },
+      `Сбой WS-обработчика ${event}`,
+    )
   }
 
   @SubscribeMessage('chat:join')

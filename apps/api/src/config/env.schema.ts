@@ -78,7 +78,20 @@ export const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   THROTTLE_TTL: z.coerce.number().int().positive().default(900),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(5),
-  SENTRY_DSN: z.string().optional(),
+  // Мониторинг (Ф13.8). Без SENTRY_DSN трекер не инициализируется вовсе — ни в dev,
+  // ни в тестах (см. apps/api/src/instrument.ts). Схема валидирует значения на старте,
+  // но instrument.ts читает их из process.env напрямую: Sentry.init обязан выполниться
+  // до загрузки Nest и инструментируемых библиотек, т.е. раньше ConfigModule.
+  SENTRY_DSN: z.string().url().optional(),
+  /** Имя окружения в Sentry (`production`/`staging`/`pilot`). По умолчанию — NODE_ENV. */
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  /** Версия сборки для группировки и source maps (обычно git sha). */
+  SENTRY_RELEASE: z.string().optional(),
+  /**
+   * Доля запросов, попадающих в трейсинг производительности. По умолчанию 0 —
+   * на пилоте нужны только ошибки, а трейсинг стоит квоты и добавляет накладные расходы.
+   */
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
