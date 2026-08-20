@@ -2428,6 +2428,16 @@
       "OTHER": "Other"
     },
     "checkFields": "Check the entered values",
-    "scanHintService": "Opening hours, contacts and details about the room."
+    "scanHintService": "Opening hours, contacts and details about the room.",
+    "manualTitle": "Room code",
+    "manualDescription": "If the QR above the door is unreadable, type the code from the sticker.",
+    "manualLabel": "Code from the sticker",
+    "manualPlaceholder": "ABCD-2345",
+    "manualHint": "Eight characters below the QR code. The dash is optional.",
+    "manualSubmit": "Open room",
+    "manualCta": "Enter code manually",
+    "layoutLabel": "Print layout",
+    "layoutFull": "One per sheet",
+    "layoutCompact": "4 per sheet"
   }
 }

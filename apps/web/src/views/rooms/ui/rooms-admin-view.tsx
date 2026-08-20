@@ -44,7 +44,7 @@ import {
   type Room,
   type RoomQr,
 } from '../../../entities/room'
-import { RoomQrSheet } from './room-qr-sheet'
+import { RoomQrSheet, type QrSheetLayout } from './room-qr-sheet'
 import { formatRoomCode } from '../lib/format-code'
 
 // Ф16: экран администратора вуза — помещения и печатные QR над дверью.
@@ -63,6 +63,8 @@ export function RoomsAdminView() {
 
   // Что уходит в печать. Пусто — печатать нечего, лист не рендерим.
   const [sheet, setSheet] = useState<RoomQr[]>([])
+  // Раскладка печати: по наклейке на лист или четыре под разрезание (Ф16).
+  const [layout, setLayout] = useState<QrSheetLayout>('full')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const rooms = useQuery({ queryKey: roomKeys.list(), queryFn: () => fetchRooms() })
@@ -280,7 +282,30 @@ export function RoomsAdminView() {
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle className="text-base">{t('listTitle')}</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Раскладка выбирается до печати: браузер печатает то, что отрисовано. */}
+              <div
+                role="group"
+                aria-label={t('layoutLabel')}
+                className="flex items-center rounded-md border border-border p-0.5"
+              >
+                <Button
+                  variant={layout === 'full' ? 'default' : 'ghost'}
+                  size="sm"
+                  aria-pressed={layout === 'full'}
+                  onClick={() => setLayout('full')}
+                >
+                  {t('layoutFull')}
+                </Button>
+                <Button
+                  variant={layout === 'compact' ? 'default' : 'ghost'}
+                  size="sm"
+                  aria-pressed={layout === 'compact'}
+                  onClick={() => setLayout('compact')}
+                >
+                  {t('layoutCompact')}
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -399,7 +424,7 @@ export function RoomsAdminView() {
       </div>
 
       {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу. */}
-      {sheet.length > 0 && <RoomQrSheet items={sheet} />}
+      {sheet.length > 0 && <RoomQrSheet items={sheet} layout={layout} />}
     </div>
   )
 }

@@ -16,6 +16,8 @@ export interface StatusScreenProps {
   showHome?: boolean
   showBack?: boolean
   onRetry?: () => void
+  /** Доп. путь вместо тупика: напр. «ввести код помещения вручную» на экране «QR не найден». */
+  action?: { href: string; label: string; icon?: LucideIcon }
 }
 
 // Единый системный экран статуса (403/404/ошибка): декоративный фон (свечение + точки),
@@ -29,6 +31,7 @@ export function StatusScreen({
   showHome = true,
   showBack = false,
   onRetry,
+  action,
 }: StatusScreenProps) {
   const t = useTranslations('Common')
   const router = useRouter()
@@ -103,6 +106,15 @@ export function StatusScreen({
                 <ArrowLeft className="size-4" aria-hidden />
                 {t('goBack')}
               </Button>
+            )}
+            {action && (
+              <Link
+                href={action.href}
+                className={cn(buttonVariants({ variant: 'outline' }), 'gap-2')}
+              >
+                {action.icon && <action.icon className="size-4" aria-hidden />}
+                {action.label}
+              </Link>
             )}
           </div>
         </div>
