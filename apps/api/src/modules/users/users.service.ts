@@ -47,6 +47,10 @@ export interface TwoFactorLoginRecord {
   twoFactorBackupCodes: string[]
 }
 
+// Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
+// но потолок обязателен и здесь (BACKEND_RULES §7.2).
+const OLD_AVATARS_LIMIT = 100
+
 const PROFILE_SELECT = {
   id: true,
   email: true,
@@ -408,6 +412,7 @@ export class UserService {
     const existing = await this.prisma.file.findMany({
       where: { ownerId: userId, bucket },
       select: { id: true },
+      take: OLD_AVATARS_LIMIT,
     })
     for (const f of existing) {
       await this.files.delete(f.id)

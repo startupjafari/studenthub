@@ -18,6 +18,11 @@ import { AuditService } from '../../common/audit/audit.service'
 import { DocumentTypesService } from './document-types.service'
 
 // Документы принимаем только как PDF/JPG/PNG (ТЗ §5, шаг 2).
+// Потолки на выборки (BACKEND_RULES §7.2). Страниц у документа не больше, чем разрешает
+// схема reorder (30), грантов на документ — единицы; лимит фиксируем в запросе.
+const DOCUMENT_FILES_LIMIT = 30
+const DOCUMENT_ACCESS_LIMIT = 200
+
 const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
 const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
@@ -191,6 +196,7 @@ export class DocumentsService {
         documentId: null,
       },
       select: { id: true },
+      take: DOCUMENT_FILES_LIMIT,
     })
     if (files.length !== input.fileIds.length) {
       throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
@@ -225,6 +231,7 @@ export class DocumentsService {
     const files = await this.prisma.file.findMany({
       where: { documentId: id },
       select: { id: true },
+      take: DOCUMENT_FILES_LIMIT,
     })
     const ids = new Set(files.map((f) => f.id))
     if (input.fileIds.length !== files.length || !input.fileIds.every((x) => ids.has(x))) {
@@ -311,6 +318,7 @@ export class DocumentsService {
     const rows = await this.prisma.documentAccess.findMany({
       where: { documentId: id },
       orderBy: { grantedAt: 'desc' },
+      take: DOCUMENT_ACCESS_LIMIT,
     })
     const now = Date.now()
     return rows.map((r) => ({

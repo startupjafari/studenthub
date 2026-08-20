@@ -11,6 +11,10 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
+// Потолки на выборки (BACKEND_RULES §7.2). Голоса одного пользователя ограничены числом
+// вариантов опроса, поэтому здесь потолок — честная граница, а не обрезка данных.
+const POLL_OPTIONS_LIMIT = 100
+
 const POLL_SELECT = {
   id: true,
   userId: true,
@@ -149,6 +153,7 @@ export class PollsService {
     const existing = await this.prisma.pollVote.findMany({
       where: { pollId: id, userId: actor.sub },
       select: { id: true },
+      take: POLL_OPTIONS_LIMIT,
     })
     if (existing.length > 0 && !poll.allowRevote) {
       throw new AppException('CONFLICT', 'Вы уже проголосовали')
@@ -244,6 +249,8 @@ export class PollsService {
     const mine = await this.prisma.pollVote.findMany({
       where: { pollId: { in: ids }, userId: viewer.sub },
       select: { pollId: true, optionId: true },
+      // Свои голоса: не больше, чем вариантов в каждом из запрошенных опросов.
+      take: ids.length * POLL_OPTIONS_LIMIT,
     })
     const mineByPoll = new Map<string, string[]>()
     for (const v of mine) {
@@ -251,16 +258,19 @@ export class PollsService {
       arr.push(v.optionId)
       mineByPoll.set(v.pollId, arr)
     }
-    // Уникальные участники: distinct (pollId, userId) — при мультивыборе ≠ суммы голосов.
-    const voters = await this.prisma.pollVote.findMany({
-      where: { pollId: { in: ids } },
-      select: { pollId: true, userId: true },
-      distinct: ['pollId', 'userId'],
-    })
-    const participantsByPoll = new Map<string, number>()
-    for (const v of voters) {
-      participantsByPoll.set(v.pollId, (participantsByPoll.get(v.pollId) ?? 0) + 1)
-    }
+    // Уникальные участники: при мультивыборе это НЕ сумма голосов, а число различных
+    // пользователей. Раньше считалось через findMany(distinct) — то есть весь список
+    // голосовавших вытягивался в память ради одного числа: у опроса на 5000 человек это
+    // 5000 строк на каждый показ ленты. COUNT(DISTINCT ...) считает то же самое в БД.
+    const voterRows = await this.prisma.$queryRaw<{ poll_id: string; voters: bigint }[]>`
+      SELECT poll_id, COUNT(DISTINCT user_id) AS voters
+      FROM poll_votes
+      WHERE poll_id IN (${Prisma.join(ids)})
+      GROUP BY poll_id
+    `
+    const participantsByPoll = new Map<string, number>(
+      voterRows.map((r) => [r.poll_id, Number(r.voters)]),
+    )
     return polls.map((p) =>
       this.toView(
         p,

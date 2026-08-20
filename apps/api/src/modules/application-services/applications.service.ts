@@ -15,6 +15,11 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
 
 // Поля заявки для scope-проверок (без загрузки всей записи).
+// Потолки на выборки (BACKEND_RULES §7.2). Анкета услуги и её список требований —
+// справочники, которые заводит вуз: они малы, но не ограничены схемой.
+const SERVICE_FORM_FIELDS_LIMIT = 100
+const SERVICE_REQUIREMENTS_LIMIT = 100
+
 const SCOPE_SELECT = {
   studentId: true,
   facultyId: true,
@@ -400,6 +405,7 @@ export class ApplicationsService {
     const fields = await this.prisma.serviceFormField.findMany({
       where: { serviceId, active: true },
       select: { code: true, required: true, type: true, options: true, labelRu: true },
+      take: SERVICE_FORM_FIELDS_LIMIT,
     })
     const data = (formData && typeof formData === 'object' ? formData : {}) as Record<
       string,
@@ -425,6 +431,7 @@ export class ApplicationsService {
     const reqs = await this.prisma.serviceRequirement.findMany({
       where: { serviceId, active: true, required: true },
       select: { id: true, titleRu: true },
+      take: SERVICE_REQUIREMENTS_LIMIT,
     })
     if (!reqs.length) return
     const docs = await this.prisma.applicationDocument.findMany({
@@ -434,6 +441,8 @@ export class ApplicationsService {
         status: { not: 'REPLACEMENT_REQUIRED' },
       },
       select: { requirementId: true },
+      // Документов не больше, чем требований, по которым мы их и спрашиваем.
+      take: SERVICE_REQUIREMENTS_LIMIT,
     })
     const satisfied = new Set(docs.map((d) => d.requirementId))
     const missing = reqs.find((r) => !satisfied.has(r.id))

@@ -7,6 +7,9 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 // Каталог услуг: категории + услуги, видимые зрителю (глобальные шаблоны + услуги его вуза).
 // Локализованные поля отдаются как есть (nameRu/Kk/En) — фронт выбирает по локали.
 
+// Каталог услуг — справочник вуза (BACKEND_RULES §7.2: потолок обязателен и здесь).
+const CATEGORIES_LIMIT = 100
+
 const SERVICE_CARD_SELECT = {
   id: true,
   categoryId: true,
@@ -39,6 +42,7 @@ export class CatalogService {
     const categories = await this.prisma.applicationCategory.findMany({
       where: { active: true },
       orderBy: { sortOrder: 'asc' },
+      take: CATEGORIES_LIMIT,
       select: {
         id: true,
         code: true,

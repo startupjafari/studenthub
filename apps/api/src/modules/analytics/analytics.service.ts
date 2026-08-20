@@ -13,6 +13,10 @@ function rateOf(counts: { total: number; absent: number }): number {
   return counts.total === 0 ? 0 : Math.round(((counts.total - counts.absent) / counts.total) * 100)
 }
 
+// Потолок на список групп факультета (BACKEND_RULES §7.2); остальные агрегаты
+// уже читаются с явными take.
+const FACULTY_GROUPS_LIMIT = 500
+
 const AT_RISK_THRESHOLD = 60
 const GRADE_RISK_THRESHOLD = 50
 
@@ -33,7 +37,11 @@ export class AnalyticsService {
     const now = new Date()
 
     const [groups, students, attendance, submissionsPending, examsUpcoming] = await Promise.all([
-      this.prisma.group.findMany({ where: { facultyId }, select: { id: true, name: true } }),
+      this.prisma.group.findMany({
+        where: { facultyId },
+        select: { id: true, name: true },
+        take: FACULTY_GROUPS_LIMIT,
+      }),
       this.prisma.user.findMany({
         where: {
           facultyId,
@@ -177,7 +185,11 @@ export class AnalyticsService {
           select: { id: true, firstName: true, lastName: true, groupId: true },
           take: 20000,
         }),
-        this.prisma.group.findMany({ where: { facultyId }, select: { id: true, name: true } }),
+        this.prisma.group.findMany({
+          where: { facultyId },
+          select: { id: true, name: true },
+          take: FACULTY_GROUPS_LIMIT,
+        }),
         this.prisma.attendance.findMany({
           where: { pair: { group: { facultyId } } },
           select: { studentId: true, status: true },

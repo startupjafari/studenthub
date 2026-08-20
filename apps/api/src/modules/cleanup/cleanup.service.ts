@@ -180,6 +180,7 @@ export class CleanupService {
           const existing = await this.prisma.file.findMany({
             where: { bucket, key: { in: chunk.map((c) => c.name) } },
             select: { key: true },
+            take: chunk.length,
           })
           const known = new Set(existing.map((e) => e.key))
           const orphans = chunk.filter((c) => !known.has(c.name))
