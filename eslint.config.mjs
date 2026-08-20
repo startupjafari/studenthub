@@ -9,8 +9,11 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      // Сборка api для e2e-стенда (отдельный outDir, чтобы не драться с работающим `pnpm dev`).
+      '**/dist-e2e/**',
       '**/build/**',
       '**/.next/**',
+      '**/.next-e2e/**',
       '**/out/**',
       '**/.turbo/**',
       '**/coverage/**',
@@ -29,6 +32,25 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Общие правила — ДО блоков с `files`: в flat config побеждает последний подходящий блок,
+  // поэтому этот набор должен идти раньше точечных послаблений (иначе `no-console: 'off'`
+  // для Node-скриптов ниже перебивался бы обратно на 'warn').
+  {
+    rules: {
+      'no-console': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
+      // Аргументы/переменные с префиксом _ считаются намеренно неиспользуемыми.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
+    },
+  },
   {
     // CommonJS-файлы (jest-конфиги, e2e-инфраструктура): require/module/exports разрешены.
     files: ['**/*.cjs'],
@@ -45,8 +67,10 @@ export default tseslint.config(
   },
   {
     // Node-скрипты (seed и пр.): console/process разрешены.
-    files: ['prisma/**/*.mjs'],
-    languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
+    files: ['prisma/**/*.mjs', 'apps/web/e2e/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+    },
     rules: { 'no-console': 'off' },
   },
   {
@@ -54,22 +78,6 @@ export default tseslint.config(
     files: ['**/*.config.mjs', '**/*.config.js'],
     languageOptions: {
       globals: { process: 'readonly', URL: 'readonly', __dirname: 'readonly', console: 'readonly' },
-    },
-  },
-  {
-    rules: {
-      'no-console': 'warn',
-      '@typescript-eslint/no-explicit-any': 'error',
-      // Аргументы/переменные с префиксом _ считаются намеренно неиспользуемыми.
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        {
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-          caughtErrorsIgnorePattern: '^_',
-          ignoreRestSiblings: true,
-        },
-      ],
     },
   },
   prettier,

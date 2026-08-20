@@ -19,3 +19,6 @@ process.env.DATABASE_URL = readTestDbUrl()
 process.env.NODE_ENV = 'test'
 // В e2e привилегированные роли используются без 2FA — форс выключаем (в проде по умолчанию включён).
 process.env.TWO_FACTOR_ENFORCE = 'false'
+// Окно грации при повторе ротированного refresh-токена: в тестах узкое, чтобы один прогон
+// проверял обе ветки — повтор внутри окна (новая ротация) и после него (разрыв цепочки).
+process.env.REFRESH_REUSE_GRACE_MS = '300'

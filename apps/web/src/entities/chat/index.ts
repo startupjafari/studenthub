@@ -40,6 +40,8 @@ export {
   createChatPoll,
   fetchPollResults,
   votePollRequest,
+  fetchChatUpdates,
+  type ChatUpdates,
   type MessagesPage,
   type ChatMediaPage,
   type ChatLinksPage,

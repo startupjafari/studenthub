@@ -207,7 +207,15 @@ export class AuthService {
     }
 
     // Повторное использование инвалидированного токена → рвём всю цепочку (§6.2).
-    if (record.revokedAt) {
+    //
+    // Кроме окна грации: повтор ТОЛЬКО ЧТО ротированного токена, когда цепочка ещё жива, — это,
+    // как правило, не кража, а недоставленный ответ. Браузер обрывает запрос при навигации,
+    // закрытии вкладки или выгрузке страницы на мобильном: сервер ротацию выполнил, а новая cookie
+    // до клиента не доехала, и он честно повторяет обмен старым токеном. Рвать за это сессию
+    // значит выкидывать пользователя на ровном месте. В окне выдаём новую ротацию в той же цепочке,
+    // оставляя ровно один живой токен. Ширина окна — REFRESH_REUSE_GRACE_MS (0 отключает).
+    const reuseInGrace = await this.withinReuseGrace(record)
+    if (record.revokedAt && !reuseInGrace) {
       await this.revokeFamily(record.familyId)
       await this.audit.record({
         userId: record.userId,
@@ -221,6 +229,14 @@ export class AuthService {
         'Повторное использование refresh-токена — цепочка инвалидирована',
       )
       throw new AppException('UNAUTHORIZED', 'Сессия скомпрометирована, войдите заново')
+    }
+
+    if (reuseInGrace) {
+      // Не инцидент, но и не норма: частые попадания сюда означают, что клиент теряет ответы.
+      this.logger.debug(
+        { userId: record.userId, familyId: record.familyId },
+        'Повтор только что ротированного токена в окне грации — выдаём новую ротацию',
+      )
     }
 
     if (record.expiresAt.getTime() < Date.now()) {
@@ -238,8 +254,14 @@ export class AuthService {
       throw new AppException('UNAUTHORIZED', 'Учётная запись недоступна')
     }
 
-    // Ротация атомарно: старый revoked + новый в той же цепочке.
+    // Ротация атомарно: старый revoked + новый в той же цепочке. Гасим и остальные живые токены
+    // цепочки — на пути грации там остаётся успешно выданный ранее «преемник», а инвариант
+    // «один активный токен на цепочку» терять нельзя.
     const session = await this.prisma.$transaction(async (tx) => {
+      await tx.refreshToken.updateMany({
+        where: { familyId: record.familyId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
       await tx.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } })
       return this.issueSession(this.toPayload(user), record.familyId, tx)
     })
@@ -276,6 +298,24 @@ export class AuthService {
   }
 
   // --- приватные ---
+
+  /**
+   * Попадает ли повтор в окно грации: токен ротирован только что И цепочка ещё жива (есть активный
+   * преемник). Если активных токенов не осталось, повтор пришёл уже после разрыва — это настоящий
+   * инцидент, и обрабатывать его надо строго.
+   */
+  private async withinReuseGrace(record: {
+    revokedAt: Date | null
+    familyId: string
+  }): Promise<boolean> {
+    const graceMs = this.config.get('REFRESH_REUSE_GRACE_MS', { infer: true })
+    if (!record.revokedAt || graceMs <= 0) return false
+    if (Date.now() - record.revokedAt.getTime() > graceMs) return false
+    const alive = await this.prisma.refreshToken.count({
+      where: { familyId: record.familyId, revokedAt: null },
+    })
+    return alive > 0
+  }
 
   private async revokeFamily(familyId: string): Promise<void> {
     await this.prisma.refreshToken.updateMany({

@@ -32,6 +32,12 @@ export const envSchema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
 
+  // Окно грации при повторе ротированного refresh-токена (AuthService.refresh). Повтор ТОЛЬКО ЧТО
+  // использованного токена — обычно не кража, а недоставленный ответ: браузер оборвал запрос
+  // (навигация, закрытие вкладки, спящая мобильная вкладка), новая cookie до клиента не доехала.
+  // В окне вместо разрыва цепочки выдаём новую ротацию. 0 — строгое поведение без послаблений.
+  REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
+
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),

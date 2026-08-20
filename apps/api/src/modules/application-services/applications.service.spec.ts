@@ -161,4 +161,15 @@ describe('ApplicationsService.listGroupRequests — только группа с
     expect(arg.where.student).toEqual({ is: { groupId: 'g1' } })
     expect(arg.where.deletedAt).toBeNull()
   })
+
+  it('не отдаёт formData одногруппников — там свободный текст (§14.7)', async () => {
+    const { service, application } = setup()
+    await service.listGroupRequests(starosta, query)
+    const arg = application.findMany.mock.calls[0][0] as { select: Record<string, unknown> }
+    expect(arg.select.formData).toBeUndefined()
+    expect(arg.select.assignedToId).toBeUndefined()
+    // Список старосты рисует имя, номер и статус — они остаются.
+    expect(arg.select.status).toBe(true)
+    expect(arg.select.student).toBeDefined()
+  })
 })

@@ -5,6 +5,7 @@ import type { ApiErrorBody, ApiErrorResponse, ApiMeta } from '@studenthub/shared
 export type ResponseWithMeta = AxiosResponse & { meta?: ApiMeta }
 import { store } from '../store/store'
 import { clearAuth, setAccessToken } from '../store/auth-slice'
+import { isRecoverableAuthError } from './auth-retry'
 
 // Единственная точка входа для HTTP (docs/FRONTEND_RULES.md §5.1).
 export const api = axios.create({
@@ -28,9 +29,15 @@ api.interceptors.request.use((config) => {
 })
 
 // Дедупликация refresh: параллельные 401 ждут один общий промис (§5.3).
+//
+// Это ЕДИНСТВЕННАЯ точка обмена refresh-токена в приложении — восстановление сессии после
+// перезагрузки (shared/session/session.ts) идёт через неё же. Иначе два независимых обмена могут
+// уйти одновременно с одной cookie, и сервер расценит второй как повторное использование
+// одноразового токена: реюз-детектор гасит всю сессию, а пользователя выбрасывает на /login
+// (docs/PROJECT.md §7.2).
 let refreshPromise: Promise<string> | null = null
 
-async function refreshAccessToken(): Promise<string> {
+export async function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
     refreshPromise = refreshClient
       .post<{ success: true; data: { accessToken: string } }>('/auth/refresh')
@@ -59,15 +66,17 @@ api.interceptors.response.use(
   async (error: AxiosError<ApiErrorResponse>): Promise<unknown> => {
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
     const code = error.response?.data?.error?.code
-    const isRefreshCall = original?.url?.includes('/auth/refresh')
-
-    // 401 TOKEN_EXPIRED → один refresh (с дедупликацией) и один повтор исходного запроса.
+    // Восстановимый 401 → один refresh (с дедупликацией) и один повтор исходного запроса.
+    // Само правило — в auth-retry.ts (там же разбор случаев и почему их именно два).
     if (
-      error.response?.status === 401 &&
-      code === 'TOKEN_EXPIRED' &&
       original &&
-      !original._retry &&
-      !isRefreshCall
+      isRecoverableAuthError({
+        status: error.response?.status,
+        code,
+        hasBearer: Boolean(original.headers?.Authorization),
+        url: original.url,
+        alreadyRetried: Boolean(original._retry),
+      })
     ) {
       original._retry = true
       try {

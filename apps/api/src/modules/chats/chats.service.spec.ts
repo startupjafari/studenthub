@@ -62,6 +62,8 @@ function setup() {
       createMany: jest.fn(),
     },
     $transaction: jest.fn(),
+    // Аллокатор Message.seq — сырой UPDATE ... RETURNING. По умолчанию выдаёт первый номер.
+    $queryRaw: jest.fn().mockResolvedValue([{ last_seq: 1 }]),
   }
   // $transaction(cb) прогоняет колбэк с тем же prisma-моком в роли tx.
   prisma.$transaction.mockImplementation((cb: (tx: typeof prisma) => unknown) => cb(prisma))
@@ -786,5 +788,147 @@ describe('ChatsService — опросы (§38–39)', () => {
     prisma.chatPollVote.findMany.mockResolvedValue([{ id: 'v1' }])
     const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o2'] }).catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
+  })
+})
+
+describe('ChatsService — seq сообщений', () => {
+  it('createMessage пишет выданный аллокатором seq', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.$queryRaw.mockResolvedValue([{ last_seq: 42 }])
+    prisma.message.create.mockResolvedValue({ id: 'msg1', chatId: 'c1', seq: 42 })
+
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    expect(prisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ seq: 42 }) }),
+    )
+  })
+
+  it('аллокация и вставка идут одной транзакцией (порядок коммитов = порядок seq)', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({ id: 'msg1', chatId: 'c1', seq: 1 })
+
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    // Вне транзакции блокировка строки чата снималась бы сразу и меньший seq мог бы
+    // закоммититься после большего — дельта догона пропустила бы такое сообщение.
+    expect(prisma.$transaction).toHaveBeenCalled()
+  })
+
+  it('чат исчез между проверкой членства и аллокацией → NOT_FOUND, сообщение не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.$queryRaw.mockResolvedValue([])
+
+    const err = await service.createMessage('u1', { chatId: 'c1', content: 'hi' }).catch((e) => e)
+
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatsService.getUpdates — дельта догона', () => {
+  const member = { id: 'm1', clearedAt: null }
+
+  it('не участник → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    const err = await service.getUpdates(user('u1'), 'c1', { since: 5 }).catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.message.findMany).not.toHaveBeenCalled()
+  })
+
+  it('отдаёт сообщения новее since и актуальный latestSeq', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    prisma.message.findMany.mockResolvedValueOnce([{ id: 'm6', seq: 6 }])
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 6 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', { since: 5 })
+
+    expect(res).toEqual({
+      created: [{ id: 'm6', seq: 6 }],
+      mutated: [],
+      deletedIds: [],
+      latestSeq: 6,
+      overflow: false,
+    })
+    // Выборка новых идёт строго по seq, а не по времени.
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ chatId: 'c1', deletedAt: null, seq: { gt: 5 } }),
+        orderBy: { seq: 'asc' },
+      }),
+    )
+  })
+
+  it('без sinceTs правки и удаления не запрашиваются', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    prisma.message.findMany.mockResolvedValueOnce([])
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 5 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', { since: 5 })
+
+    expect(prisma.message.findMany).toHaveBeenCalledTimes(1)
+    expect(res.mutated).toEqual([])
+    expect(res.deletedIds).toEqual([])
+  })
+
+  it('с sinceTs возвращает правки и id удалённых отдельно', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    prisma.message.findMany
+      .mockResolvedValueOnce([]) // created
+      .mockResolvedValueOnce([{ id: 'm2', seq: 2 }]) // mutated
+      .mockResolvedValueOnce([{ id: 'm3' }]) // deleted
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 5 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', {
+      since: 5,
+      sinceTs: '2026-08-19T10:00:00.000Z',
+    })
+
+    expect(res.mutated).toEqual([{ id: 'm2', seq: 2 }])
+    expect(res.deletedIds).toEqual(['m3'])
+    // Мутации ищем только среди уже известных клиенту сообщений.
+    expect(prisma.message.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: expect.objectContaining({ seq: { lte: 5 } }) }),
+    )
+  })
+
+  it('разрыв больше лимита → overflow и пустой created (клиент перезапросит историю)', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    // Сервис берёт limit + 1, чтобы отличить «ровно лимит» от переполнения.
+    const overflowing = Array.from({ length: 201 }, (_, i) => ({ id: `m${i}`, seq: i + 1 }))
+    prisma.message.findMany.mockResolvedValueOnce(overflowing)
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 201 })
+
+    const res = await service.getUpdates(user('u1'), 'c1', { since: 0 })
+
+    expect(res.overflow).toBe(true)
+    expect(res.created).toEqual([])
+    expect(res.latestSeq).toBe(201)
+  })
+
+  it('очищенная «у себя» история ограничивает дельту по clearedAt', async () => {
+    const { service, prisma } = setup()
+    const clearedAt = new Date('2026-08-18T00:00:00.000Z')
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', clearedAt })
+    prisma.message.findMany.mockResolvedValueOnce([])
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 5 })
+
+    await service.getUpdates(user('u1'), 'c1', { since: 5 })
+
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ createdAt: { gt: clearedAt } }),
+      }),
+    )
   })
 })
