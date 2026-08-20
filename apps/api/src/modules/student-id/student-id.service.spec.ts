@@ -1,5 +1,15 @@
 import { Role } from '@studenthub/shared-types'
 import { StudentIdService } from './student-id.service'
+
+// Та же причина, что в room-qr.service.spec.ts: загрузка qrcode+pngjs через резолвер Jest
+// стоит ~1.5 с, и на CI-раннере (втрое медленнее) тест карты подходил к таймауту 5 с.
+// Кодирование PNG — не наша логика, проверяем только что ссылка в QR построена верно.
+jest.mock('qrcode', () => ({
+  toDataURL: jest.fn(async () => 'data:image/png;base64,stub'),
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const QRCode = require('qrcode') as { toDataURL: jest.Mock }
 import { CryptoService } from '../../common/security/crypto.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { ConfigService } from '@nestjs/config'
@@ -61,6 +71,11 @@ describe('StudentIdService — непрозрачный токен', () => {
     // base64-декод компонент шифртекста не должен раскрывать id.
     expect(Buffer.from(card.token, 'base64').toString('utf8')).not.toContain('stu-1')
     expect(card.qr).toMatch(/^data:image\/png/)
+    // В QR уходит страница верификации с токеном — это и есть смысл карты.
+    expect(QRCode.toDataURL).toHaveBeenCalledWith(
+      expect.stringContaining('http://localhost:3000/verify-id?t='),
+      expect.anything(),
+    )
     expect(card.course).toBe(2)
   })
 
