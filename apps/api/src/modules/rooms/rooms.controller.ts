@@ -19,15 +19,20 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { RoomService } from './rooms.service'
+import { RoomQrService } from './room-qr.service'
 import { CreateRoomDto } from './dto/create-room.dto'
 import { UpdateRoomDto } from './dto/update-room.dto'
 import { RoomListQueryDto } from './dto/room-list-query.dto'
+import { RoomQrBatchDto } from './dto/room-qr-batch.dto'
 
-@ApiTags('Аудитории')
+@ApiTags('Помещения')
 @ApiBearerAuth()
 @Controller('rooms')
 export class RoomsController {
-  constructor(private readonly rooms: RoomService) {}
+  constructor(
+    private readonly rooms: RoomService,
+    private readonly qr: RoomQrService,
+  ) {}
 
   @Post()
   @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN)
@@ -47,11 +52,54 @@ export class RoomsController {
   @ApiOperation({ summary: 'Список аудиторий (по scope смотрящего)' })
   @ApiResponse({ status: 200, description: 'Страница аудиторий' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: RoomListQueryDto) {
-    return this.rooms.list(user, query.page, query.limit, query.universityId)
+    return this.rooms.list(user, query.page, query.limit, query.universityId, query.kind)
+  }
+
+  // ── Ф16: печатный QR помещения ────────────────────────────────────────────
+  // ВНИМАНИЕ: маршруты `qr/...` объявлены ДО `:id` — иначе Fastify сматчит `/rooms/qr`
+  // на параметрический `:id` и вернёт 404 «помещение не найдено».
+
+  @Get('qr/:code')
+  @ApiOperation({
+    summary: 'Статус помещения по коду из QR (что видит студент после сканирования)',
+  })
+  @ApiResponse({ status: 200, description: 'Помещение, «сейчас», пары дня и изменения' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — код неизвестен, устарел или чужой вуз' })
+  statusByCode(@CurrentUser() user: CurrentUserData, @Param('code') code: string) {
+    return this.qr.statusByCode(user, code)
+  }
+
+  @Post('qr/batch')
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN)
+  @ApiOperation({
+    summary: 'Выдать QR помещениям пачкой (идемпотентно: существующий код не меняется)',
+  })
+  @ApiResponse({ status: 201, description: 'Коды, ссылки и изображения QR для печати' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE' })
+  issueQrBatch(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: RoomQrBatchDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.qr.issueBatch(user, dto.roomIds, this.ctx(req))
+  }
+
+  @Post(':id/qr/rotate')
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN)
+  @ApiOperation({ summary: 'Перевыпустить код: расклеенные распечатки перестают работать' })
+  @ApiResponse({ status: 201, description: 'Новый код и QR' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
+  rotateQr(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.qr.rotate(user, id, this.ctx(req))
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Аудитория (scope)' })
+  @ApiOperation({ summary: 'Помещение (scope)' })
   @ApiResponse({ status: 200, description: 'Аудитория' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND' })

@@ -11,6 +11,7 @@ import {
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  DoorClosed,
   FileCog,
   FileText,
   FolderLock,
@@ -89,6 +90,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'specialties', href: '/university-admin/specialties', icon: ScrollText },
   { key: 'groups', href: '/university-admin/groups', icon: Users },
   { key: 'schedule', href: '/university-admin/schedule', icon: CalendarDays },
+  // Ф16: помещения и печатные QR над дверью.
+  { key: 'rooms', href: '/university-admin/rooms', icon: DoorClosed },
   { key: 'courses', href: '/university-admin/courses', icon: BookOpen },
   { key: 'invites', href: '/university-admin/invites', icon: Send },
   { key: 'students', href: '/university-admin/students', icon: GraduationCap },

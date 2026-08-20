@@ -356,3 +356,50 @@ summary {
     opacity: 0;
   }
 }
+
+/* ─── Печать наклеек с QR помещений (Ф16) ────────────────────────────────────
+   Печатаем ТОЛЬКО лист наклеек: скрываем интерфейс приложения (сайдбар, шапку,
+   кнопки), а лист разворачиваем на всю страницу. `visibility` вместо `display`,
+   потому что скрывать родителей через display:none снесло бы и сам лист. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .sh-print-root,
+  .sh-print-root * {
+    visibility: visible;
+  }
+  .sh-print-root {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    /* Фон и цвета печатаются как заданы — иначе браузер «экономит» и наклейка выцветает. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Одна наклейка = одна страница. last-child без разрыва, иначе печатается пустой лист. */
+  .sh-print-page {
+    page-break-after: always;
+    break-after: page;
+  }
+  .sh-print-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  .sh-no-print {
+    display: none !important;
+  }
+}
+@page {
+  size: A4 portrait;
+  margin: 10mm;
+}
+
+/* На экране лист наклеек не показываем: он существует только ради печати.
+   display:none задан в @media screen, поэтому при печати правило НЕ применяется
+   (иначе браузер выкинул бы лист из вывода вместе с остальным интерфейсом). */
+@media screen {
+  .sh-print-root {
+    display: none;
+  }
+}
