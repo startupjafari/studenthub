@@ -711,6 +711,12 @@ cookie), плюс собственный `beforeSend`: вырезаются те
 Событие Sentry и строка лога связаны в обе стороны: тег `request_id` в событии и
 `sentryEventId` в логе pino.
 
+Цена на фронте (§11 — производительность важна, аудитория мобильная): shared First Load JS
+106 → 142 кБ, **+36 кБ**. Без tree-shaking трейсинга было бы +89 кБ, поэтому в
+`next.config.mjs` включён `webpack.treeshake.removeTracing` — но по условию от
+`NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE`, иначе включение сэмплирования через env тихо не
+работало бы.
+
 ---
 
 ## 12. Карта экранов по ролям
