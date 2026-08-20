@@ -1200,7 +1200,8 @@
     "selectChatPrompt": "Выберите, кому бы хотели написать?",
     "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
     "sending": "Отправляется…",
-    "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить"
+    "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить",
+    "pollVotersMore": "и ещё {count}"
   },
   "Events": {
     "title": "События",

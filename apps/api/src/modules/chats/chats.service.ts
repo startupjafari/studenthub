@@ -26,6 +26,14 @@ import { FileService } from '../files/file.service'
 import { PostsService } from '../posts/posts.service'
 import type { EnvVars } from '../../config/env.schema'
 
+/** Проголосовавший в неанонимном опросе (§39). */
+interface PollVoter {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+}
+
 const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } }
 
 // Потолок дельты догона (GET /chats/:id/updates). Больше — клиенту дешевле перезапросить историю,
@@ -41,6 +49,8 @@ const PRIVATE_PEER_LIMIT = CHAT_LIST_LIMIT * 2
 const BLOCKED_LIST_LIMIT = 200
 /** Голоса одного пользователя в одном опросе: не больше, чем вариантов. */
 const POLL_VOTES_LIMIT = 100
+/** Сколько голосов неанонимного опроса раскрываем по именам (§39). */
+const POLL_VOTERS_LIMIT = 300
 /** Реакция на сообщение одна на пользователя; потолок — страховка от исторических дублей. */
 const MESSAGE_REACTION_LIMIT = 10
 /** Размер батча при чтении участников чата целиком. */
@@ -760,6 +770,33 @@ export class ChatsService {
       select: { optionId: true },
     })
     const totalVotes = poll.options.reduce((n, o) => n + o._count.votes, 0)
+
+    // §39: у неанонимного опроса видно, кто как проголосовал — иначе пометка «не анонимный»
+    // ничего не означала. Анонимный опрос личностей не раскрывает никогда, даже автору:
+    // именно это ему и обещано в момент голосования.
+    const votersByOption = new Map<string, PollVoter[]>()
+    if (!poll.anonymous) {
+      const votes = await this.prisma.chatPollVote.findMany({
+        where: { pollId },
+        select: {
+          optionId: true,
+          user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: POLL_VOTERS_LIMIT,
+      })
+      for (const v of votes) {
+        const list = votersByOption.get(v.optionId) ?? []
+        list.push({
+          id: v.user.id,
+          firstName: v.user.firstName,
+          lastName: v.user.lastName,
+          avatarUrl: v.user.avatarUrl,
+        })
+        votersByOption.set(v.optionId, list)
+      }
+    }
+
     return {
       id: poll.id,
       anonymous: poll.anonymous,
@@ -772,6 +809,9 @@ export class ChatsService {
         text: o.text,
         order: o.order,
         votes: o._count.votes,
+        // Пусто у анонимного опроса и у варианта, чьи голоса не попали в POLL_VOTERS_LIMIT:
+        // счётчик `votes` остаётся полным, имена — только для первых проголосовавших.
+        voters: votersByOption.get(o.id) ?? [],
       })),
       myOptionIds: myVotes.map((v) => v.optionId),
     }

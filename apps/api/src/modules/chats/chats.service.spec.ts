@@ -727,6 +727,63 @@ describe('ChatsService — опросы (§38–39)', () => {
     expect(err.code).toBe('NOT_FOUND')
   })
 
+  it('getPollResults: неанонимный опрос раскрывает проголосовавших по вариантам', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      anonymous: false,
+      multiple: false,
+      allowRevote: true,
+      closed: false,
+      message: { chatId: 'c1' },
+      options: [
+        { id: 'o1', text: 'Да', order: 0, _count: { votes: 1 } },
+        { id: 'o2', text: 'Нет', order: 1, _count: { votes: 0 } },
+      ],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.chatPollVote.findMany
+      // Свои голоса.
+      .mockResolvedValueOnce([{ optionId: 'o1' }])
+      // Голоса всех — для раскрытия имён.
+      .mockResolvedValueOnce([
+        {
+          optionId: 'o1',
+          user: { id: 'u2', firstName: 'Айгуль', lastName: 'Сериковна', avatarUrl: null },
+        },
+      ])
+
+    const res = await service.getPollResults(user('u1'), 'p1')
+
+    expect(res.options[0]?.voters).toEqual([
+      { id: 'u2', firstName: 'Айгуль', lastName: 'Сериковна', avatarUrl: null },
+    ])
+    // Вариант без голосов — пустой список, а не отсутствующее поле.
+    expect(res.options[1]?.voters).toEqual([])
+  })
+
+  it('getPollResults: анонимный опрос личности не раскрывает и голосов не читает', async () => {
+    const { service, prisma } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      anonymous: true,
+      multiple: false,
+      allowRevote: true,
+      closed: false,
+      message: { chatId: 'c1' },
+      options: [{ id: 'o1', text: 'Да', order: 0, _count: { votes: 3 } }],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.chatPollVote.findMany.mockResolvedValue([])
+
+    const res = await service.getPollResults(user('u1'), 'p1')
+
+    expect(res.options[0]?.votes).toBe(3)
+    expect(res.options[0]?.voters).toEqual([])
+    // Запрос был только за своими голосами — второго обращения за именами быть не должно.
+    expect(prisma.chatPollVote.findMany).toHaveBeenCalledTimes(1)
+  })
+
   it('votePoll: не участник чата опроса → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
     prisma.chatPoll.findUnique.mockResolvedValue({

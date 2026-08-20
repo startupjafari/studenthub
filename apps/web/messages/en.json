@@ -1200,7 +1200,8 @@
     "selectChatPrompt": "Choose who you’d like to message",
     "readByCount": "Read by {count, plural, one {# member} other {# members}}",
     "sending": "Sending…",
-    "sendFailedRetry": "Not sent. Click to retry"
+    "sendFailedRetry": "Not sent. Click to retry",
+    "pollVotersMore": "and {count} more"
   },
   "Events": {
     "title": "Events",

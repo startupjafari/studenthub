@@ -68,6 +68,13 @@ export interface ChatPoll {
   closed: boolean
   options: ChatPollOptionStatic[]
 }
+/** Проголосовавший в неанонимном опросе (§39): у анонимного список всегда пуст. */
+export interface PollVoter {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+}
 // Результаты опроса для смотрящего (viewer-aware, анонимный — без личностей).
 export interface PollResults {
   id: string
@@ -76,7 +83,7 @@ export interface PollResults {
   allowRevote: boolean
   closed: boolean
   totalVotes: number
-  options: { id: string; text: string; order: number; votes: number }[]
+  options: { id: string; text: string; order: number; votes: number; voters: PollVoter[] }[]
   myOptionIds: string[]
 }
 
