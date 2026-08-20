@@ -8,6 +8,18 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { AppException } from '../../common/exceptions/app.exception'
 
+// Библиотека qrcode (вместе с PNG-кодировщиком pngjs) грузится через резолвер Jest
+// ~1.5 с — на CI-раннере втрое дольше, и тест выдачи кода упирался в таймаут 5 с
+// (само кодирование картинки при этом занимает ~57 мс). Кодирование PNG — не наша
+// логика; подменяем библиотеку и проверяем, ЧТО мы ей передаём. Реальная генерация
+// проверена сквозным прогоном в браузере: наклейка печатается и сканируется.
+jest.mock('qrcode', () => ({
+  toDataURL: jest.fn(async () => 'data:image/png;base64,stub'),
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const QRCode = require('qrcode') as { toDataURL: jest.Mock }
+
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
 function setup() {
@@ -182,6 +194,12 @@ describe('RoomQrService.issueBatch', () => {
     expect(dto?.url).toBe(`https://app.studenthub.kz/r/${dto?.code}`)
     // Картинка для печати генерируется на сервере (qrcode уже есть в зависимостях).
     expect(dto?.qr.startsWith('data:image/png;base64,')).toBe(true)
+    // Параметры печати — наша логика: коррекция выше средней, потому что наклейку
+    // на двери заляпают и поцарапают, и запас по ширине для печати.
+    expect(QRCode.toDataURL).toHaveBeenCalledWith(
+      dto?.url,
+      expect.objectContaining({ errorCorrectionLevel: 'Q', width: 600, margin: 1 }),
+    )
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'room_qr_issued' }))
   })
 
