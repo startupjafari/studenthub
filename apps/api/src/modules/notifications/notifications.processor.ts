@@ -1,7 +1,8 @@
 import { Logger } from '@nestjs/common'
-import { Processor, WorkerHost } from '@nestjs/bullmq'
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq'
 import type { Job } from 'bullmq'
 import { NotificationType, type NotificationSettings, type Prisma } from '@prisma/client'
+import { reportJobFailure } from '../../common/monitoring'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { EMAIL_JOBS, QUEUES, QueueService, type JobPayload } from '../../common/queue'
@@ -26,6 +27,13 @@ export class NotificationsProcessor extends WorkerHost {
     private readonly push: PushService,
   ) {
     super()
+  }
+
+  // Ф13.8: исчерпавший попытки job больше не пропадает молча — лог + Sentry.
+  // `job.data` в трекер не уходит (в payload'ах — получатели и тексты, §11.3).
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, error: Error): void {
+    reportJobFailure(this.logger, QUEUES.NOTIFICATIONS, job, error)
   }
 
   async process(job: Job<JobPayload>): Promise<void> {

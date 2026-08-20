@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { SentryModule } from '@sentry/nestjs/setup'
 import { validateEnv } from './config/env.schema'
 import { CommonModule } from './common/common.module'
 import { PrismaModule } from './common/prisma/prisma.module'
@@ -57,6 +58,10 @@ import { AppController } from './app.controller'
       isGlobal: true,
       validate: validateEnv,
     }),
+    // Мониторинг (Ф13.8): даёт транзакциям Sentry имя роута вместо сырого URL.
+    // Сам Sentry.init — в src/instrument.ts (до загрузки Nest); без DSN модуль безвреден.
+    // Ошибки отправляет НЕ этот модуль, а HttpExceptionFilter (см. common/filters).
+    SentryModule.forRoot(),
     // Глобальный rate limit по умолчанию 100/мин (§6.3); точечные лимиты — через @Throttle.
     ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 100 }] }),
     CommonModule,

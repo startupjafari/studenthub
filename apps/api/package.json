@@ -34,6 +34,7 @@
     "@nestjs/throttler": "^6.4.0",
     "@nestjs/websockets": "^11.1.28",
     "@prisma/client": "^6.19.0",
+    "@sentry/nestjs": "^10.70.0",
     "@studenthub/shared-config": "workspace:*",
     "@studenthub/shared-schemas": "workspace:*",
     "@studenthub/shared-types": "workspace:*",

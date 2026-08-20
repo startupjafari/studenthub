@@ -62,5 +62,8 @@ export function middleware(request: NextRequest): NextResponse {
 export const config = {
   // /api/* исключены: это прокси на бэкенд (next.config rewrites), а не страницы —
   // без исключения middleware редиректил бы API-запросы на /login.
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
+  // /monitoring — туннель Sentry (next.config tunnelRoute, Ф13.8): браузер POST'ит туда
+  // события. Без исключения ошибки с экрана логина (сессии ещё нет) улетали бы
+  // редиректом на /login и терялись.
+  matcher: ['/((?!api|monitoring|_next/static|_next/image|favicon.ico|.*\\.).*)'],
 }
