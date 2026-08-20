@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    // Отдельная папка сборки для e2e-стенда: прогон Playwright поднимает свой экземпляр api,
+    // и без разделения он дерётся за общий ./dist с работающим `pnpm dev` (тот его ещё и чистит).
+    "outDir": "./dist-e2e",
+    // Инкрементальную сборку здесь выключаем: nest-cli чистит outDir перед сборкой
+    // (deleteOutDir), а tsc по .tsbuildinfo считает, что всё уже собрано, и не пишет ничего.
+    "incremental": false
+  }
+}

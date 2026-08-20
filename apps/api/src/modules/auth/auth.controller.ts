@@ -125,7 +125,17 @@ export class AuthController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<{ accessToken: string }> {
-    const session = await this.authService.refresh(req.cookies?.[REFRESH_COOKIE], this.ctx(req))
+    let session: SessionResult
+    try {
+      session = await this.authService.refresh(req.cookies?.[REFRESH_COOKIE], this.ctx(req))
+    } catch (error) {
+      // Сессия невосстановима (токен истёк, погашен реюз-детектором или подделан) — гасим обе
+      // cookie, а не только отвечаем 401. Иначе role-cookie переживает мёртвую сессию, и
+      // middleware гоняет пользователя с /login обратно на его home, где refresh падает снова:
+      // получается бесконечный редирект и до формы входа не добраться (§7.2).
+      this.clearAuthCookies(reply)
+      throw error
+    }
     this.setAuthCookies(reply, session)
     return { accessToken: session.accessToken }
   }

@@ -83,6 +83,9 @@ export interface PollResults {
 export interface ChatMessage {
   id: string
   chatId: string
+  // Монотонная позиция в чате: максимум по загруженным сообщениям — точка догона после обрыва
+  // связи (GET /chats/:id/updates). У оптимистичных «pending» пузырей seq ещё нет.
+  seq: number
   senderId: string
   content: string
   replyToId: string | null
