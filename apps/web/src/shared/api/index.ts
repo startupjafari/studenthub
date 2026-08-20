@@ -20,3 +20,4 @@ export {
   type TwoFactorSetupResponse,
 } from './auth-api'
 export { uploadFileRequest, type UploadedFile } from './files-api'
+export { needsDirectUpload, uploadDirect, type PresignedTarget } from './direct-upload'

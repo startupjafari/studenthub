@@ -587,8 +587,7 @@
     "retry": "Retry",
     "done": "Uploaded",
     "invalidType": "Unsupported file type",
-    "fileTooLarge": "File exceeds {max}",
-    "directUploadUnavailable": "Files larger than {max} are not supported yet"
+    "fileTooLarge": "File exceeds {max}"
   },
   "Errors": {
     "BAD_REQUEST": "Bad request",

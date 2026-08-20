@@ -50,7 +50,6 @@ export function FileUpload<T>({
 
   const allowedMimes = FILE_UPLOAD.ALLOWED_MIME[category] as readonly string[]
   const categoryMax = FILE_UPLOAD.MAX_BYTES[category]
-  const bufferMax = FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES
 
   // Освобождаем object URL превью при замене/размонтировании.
   useEffect(() => {
@@ -86,15 +85,8 @@ export function FileUpload<T>({
       setPreviewUrl(null)
       return
     }
-    // Файлы ≤ лимита категории, но больше порога буфера, требуют прямой presigned-загрузки —
-    // эндпоинт пока не реализован на бэкенде (Ф2, отложено).
-    if (picked.size > bufferMax) {
-      setError(t('directUploadUnavailable', { max: formatMb(bufferMax) }))
-      setStatus('error')
-      setFile(null)
-      setPreviewUrl(null)
-      return
-    }
+    // Файлы больше порога буферной загрузки не отклоняем: uploadFn сам уходит на прямую
+    // presigned-загрузку в MinIO. Ограничение здесь — только лимит категории выше.
 
     setError(null)
     setProgress(0)
@@ -167,7 +159,7 @@ export function FileUpload<T>({
         >
           <Upload className="size-6" aria-hidden />
           <span className="text-sm font-medium">{t('dropHint')}</span>
-          <span className="text-xs">{t('limitHint', { max: formatMb(bufferMax) })}</span>
+          <span className="text-xs">{t('limitHint', { max: formatMb(categoryMax) })}</span>
         </button>
       )}
 

@@ -5,7 +5,7 @@ import type {
   GrantDocumentAccessInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, needsDirectUpload, uploadDirect, type PresignedTarget } from '../../../shared/api'
 
 export const documentKeys = {
   all: ['documents'] as const,
@@ -91,10 +91,33 @@ export async function fetchDocumentEvents(id: string): Promise<DocumentEvent[]> 
   return data
 }
 
+/**
+ * Загрузка файла документа. Путь выбирается по размеру: до порога — буферный (multipart
+ * через api), больше — прямой в MinIO по подписанной ссылке. Скан диплома в 300 dpi
+ * обычно перевешивает порог, и раньше такой файл загрузить было нельзя вовсе.
+ */
 export async function uploadDocumentFile(
   file: File,
   onProgress?: (percent: number) => void,
 ): Promise<UploadedDocFile> {
+  if (needsDirectUpload(file.size)) {
+    return uploadDirect<UploadedDocFile>({
+      file,
+      presign: async (mime) => {
+        const { data } = await api.post<PresignedTarget>('/documents/upload/presign', { mime })
+        return data
+      },
+      confirm: async (key, name) => {
+        const { data } = await api.post<UploadedDocFile>('/documents/upload/confirm', {
+          key,
+          name,
+        })
+        return data
+      },
+      onProgress,
+    })
+  }
+
   const form = new FormData()
   form.append('file', file)
   const { data } = await api.post<UploadedDocFile>('/documents/upload', form, {

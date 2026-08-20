@@ -587,8 +587,7 @@
     "retry": "Қайталау",
     "done": "Жүктелді",
     "invalidType": "Файл түрі жарамсыз",
-    "fileTooLarge": "Файл {max} асып тұр",
-    "directUploadUnavailable": "{max} үлкен файлдар әзірге қолданылмайды"
+    "fileTooLarge": "Файл {max} асып тұр"
   },
   "Errors": {
     "BAD_REQUEST": "Қате сұраныс",
