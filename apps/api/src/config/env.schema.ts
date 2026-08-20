@@ -10,6 +10,18 @@ const booleanFromString = z
   .default('false')
   .transform((v) => v === 'true')
 
+/**
+ * Необязательная переменная окружения.
+ *
+ * В `.env` и `.env.example` необязательные переменные принято объявлять пустыми
+ * (`SENTRY_DSN=`), и такая строка приходит как `''`, а не как `undefined`. Для
+ * `z.string().url().optional()` это ОТКАЗ валидации — то есть приложение не стартует
+ * у любого, кто скопировал `.env.example` по инструкции первого запуска (§14).
+ * Поэтому пустую строку и пробелы трактуем как «переменная не задана».
+ */
+const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema.optional())
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
@@ -82,11 +94,11 @@ export const envSchema = z.object({
   // ни в тестах (см. apps/api/src/instrument.ts). Схема валидирует значения на старте,
   // но instrument.ts читает их из process.env напрямую: Sentry.init обязан выполниться
   // до загрузки Nest и инструментируемых библиотек, т.е. раньше ConfigModule.
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: optionalEnv(z.string().url()),
   /** Имя окружения в Sentry (`production`/`staging`/`pilot`). По умолчанию — NODE_ENV. */
-  SENTRY_ENVIRONMENT: z.string().optional(),
+  SENTRY_ENVIRONMENT: optionalEnv(z.string().min(1)),
   /** Версия сборки для группировки и source maps (обычно git sha). */
-  SENTRY_RELEASE: z.string().optional(),
+  SENTRY_RELEASE: optionalEnv(z.string().min(1)),
   /**
    * Доля запросов, попадающих в трейсинг производительности. По умолчанию 0 —
    * на пилоте нужны только ошибки, а трейсинг стоит квоты и добавляет накладные расходы.
