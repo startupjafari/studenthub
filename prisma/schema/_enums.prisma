@@ -54,6 +54,24 @@ enum WeekType {
   BOTH
 }
 
+// Назначение помещения (Ф16 «QR кабинета»). От него зависит, что показывать по QR:
+// у учебных помещений — текущая пара из расписания, у остальных — часы работы и контакт.
+enum RoomKind {
+  // Учебные: занятия приходят из расписания (Pair.roomId).
+  AUDITORIUM
+  LAB
+  SPORT_HALL
+  // Неучебные: расписания пар нет, показываем часы работы/телефон/описание.
+  LIBRARY
+  ASSEMBLY_HALL
+  ADMIN_OFFICE
+  DEAN_OFFICE
+  ACCOUNTING
+  CANTEEN
+  DORMITORY
+  OTHER
+}
+
 enum NotificationType {
   SCHEDULE_CHANGE
   APP_UPDATE

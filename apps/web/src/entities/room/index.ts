@@ -4,5 +4,9 @@ export {
   createRoomRequest,
   updateRoomRequest,
   deleteRoomRequest,
-  type Room,
+  issueRoomQrRequest,
+  rotateRoomQrRequest,
+  fetchRoomStatus,
 } from './api/room-api'
+export { buildRoomStatus, type Occupancy, type RoomStatus } from './lib/room-day'
+export type { Room, RoomKind, RoomPair, RoomQr, RoomStatusResponse } from './model/types'
