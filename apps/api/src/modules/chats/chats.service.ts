@@ -56,6 +56,14 @@ const MESSAGE_REACTION_LIMIT = 10
 /** Размер батча при чтении участников чата целиком. */
 const MEMBER_BATCH = 500
 
+/** Участник в контексте рассылки уведомлений: членство + режим заглушения (§17). */
+interface ChatMemberNotifyRow {
+  userId: string
+  mutedAt: Date | null
+  mutedUntil: Date | null
+  muteImportantOnly: boolean
+}
+
 // Заглушён ли участник (§17): навсегда (mutedAt) или на время (mutedUntil ещё не истёк).
 function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): boolean {
   return m.mutedAt != null || (m.mutedUntil != null && m.mutedUntil.getTime() > Date.now())
@@ -213,6 +221,7 @@ export class ChatsService {
             lastReadAt: true,
             mutedAt: true,
             mutedUntil: true,
+            muteImportantOnly: true,
             isAdmin: true,
             clearedAt: true,
             draft: true,
@@ -349,6 +358,8 @@ export class ChatsService {
           unread,
           unreadCount,
           muted: mem ? isMemberMuted(mem) : false,
+          // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
+          mutedImportantOnly: mem?.muteImportantOnly ?? false,
           draft: mem?.draft ?? null,
           // Закреплён «у себя» (Telegram-стиль): показывается сверху списка.
           pinned: pinnedAt != null,
@@ -1005,6 +1016,47 @@ export class ChatsService {
 
   // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
   /**
+   * Кому из заглушённых с режимом «только важные» (§17) сообщение всё равно адресовано:
+   * ответ на его сообщение или упоминание его по имени.
+   *
+   * Упоминания в чате — обычный текст, отдельной сущности у них нет: композер вставляет
+   * «@Фамилия Имя», поэтому по этой же строке и ищем (плюс обратный порядок — набрать руками
+   * можно как угодно). Имена подтягиваем только для тех, у кого включён режим, и только если
+   * в сообщении вообще есть «@»: на каждое сообщение в чате лишний join не нужен.
+   */
+  private async importantRecipients(
+    members: ChatMemberNotifyRow[],
+    message: MessageRow,
+  ): Promise<Set<string>> {
+    const candidates = members.filter((m) => m.muteImportantOnly && isMemberMuted(m))
+    if (candidates.length === 0) return new Set()
+
+    const out = new Set<string>()
+    // Ответ на моё сообщение — важное всегда, никакого разбора текста не нужно.
+    const replyToSenderId = message.replyTo?.senderId
+    if (replyToSenderId) {
+      for (const m of candidates) {
+        if (m.userId === replyToSenderId) out.add(m.userId)
+      }
+    }
+
+    if (!message.content.includes('@')) return out
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: candidates.map((m) => m.userId) } },
+      select: { id: true, firstName: true, lastName: true },
+      take: candidates.length,
+    })
+    const text = message.content.toLowerCase()
+    for (const u of users) {
+      const asComposed = `@${u.lastName} ${u.firstName}`.toLowerCase()
+      const reversed = `@${u.firstName} ${u.lastName}`.toLowerCase()
+      if (text.includes(asComposed) || text.includes(reversed)) out.add(u.id)
+    }
+    return out
+  }
+
+  /**
    * Все участники чата — батчами по курсору.
    *
    * Рассылки (`chat:activity`, `chat:pinned`, уведомления о новом сообщении) обязаны дойти
@@ -1015,8 +1067,8 @@ export class ChatsService {
   private async allMembers(
     chatId: string,
     opts: { exceptUserId?: string } = {},
-  ): Promise<{ userId: string; mutedAt: Date | null; mutedUntil: Date | null }[]> {
-    const out: { userId: string; mutedAt: Date | null; mutedUntil: Date | null }[] = []
+  ): Promise<ChatMemberNotifyRow[]> {
+    const out: ChatMemberNotifyRow[] = []
     let cursor: string | undefined
     for (;;) {
       const batch = await this.prisma.chatMember.findMany({
@@ -1024,14 +1076,25 @@ export class ChatsService {
           chatId,
           ...(opts.exceptUserId ? { userId: { not: opts.exceptUserId } } : {}),
         },
-        select: { id: true, userId: true, mutedAt: true, mutedUntil: true },
+        select: {
+          id: true,
+          userId: true,
+          mutedAt: true,
+          mutedUntil: true,
+          muteImportantOnly: true,
+        },
         orderBy: { id: 'asc' },
         take: MEMBER_BATCH,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       })
       if (batch.length === 0) break
       for (const m of batch) {
-        out.push({ userId: m.userId, mutedAt: m.mutedAt, mutedUntil: m.mutedUntil })
+        out.push({
+          userId: m.userId,
+          mutedAt: m.mutedAt,
+          mutedUntil: m.mutedUntil,
+          muteImportantOnly: m.muteImportantOnly,
+        })
       }
       if (batch.length < MEMBER_BATCH) break
       cursor = batch.at(-1)?.id
@@ -1250,10 +1313,13 @@ export class ChatsService {
       this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
     }
     // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую.
-    // Заглушённые (mutedAt != null) — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
+    // Заглушённые — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
+    const important = await this.importantRecipients(members, message)
     const recipientIds = members
-      .filter((m) => !isMemberMuted(m) && !viewing.has(m.userId))
+      .filter((m) => !viewing.has(m.userId))
+      // §17: заглушённый участник получает уведомление, только если сообщение «важное» для него.
+      .filter((m) => !isMemberMuted(m) || important.has(m.userId))
       .map((m) => m.userId)
     if (recipientIds.length > 0) {
       const preview = message.content.slice(0, 140) || '📎 Вложение'
@@ -1579,20 +1645,28 @@ export class ChatsService {
 
   /** Заглушить/включить уведомления о новых сообщениях чата для участника. */
   // §17: until = 'forever' (навсегда), Date (до момента), null (снять).
+  // importantOnly — режим «только важные»: чат заглушён, но ответы на мои сообщения и
+  // упоминания меня по имени уведомление всё равно создают. При снятии заглушения флаг
+  // сбрасывается: он описывает исключение из заглушения, а не самостоятельную настройку.
   async setMuted(
     userId: string,
     chatId: string,
     until: Date | 'forever' | null,
-  ): Promise<{ chatId: string; muted: boolean }> {
+    importantOnly = false,
+  ): Promise<{ chatId: string; muted: boolean; importantOnly: boolean }> {
     await this.assertMembership(userId, chatId)
+    const muted = until !== null
     const data =
       until === 'forever'
         ? { mutedAt: new Date(), mutedUntil: null }
         : until
           ? { mutedAt: null, mutedUntil: until }
           : { mutedAt: null, mutedUntil: null }
-    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data })
-    return { chatId, muted: until !== null }
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, userId },
+      data: { ...data, muteImportantOnly: muted ? importantOnly : false },
+    })
+    return { chatId, muted, importantOnly: muted ? importantOnly : false }
   }
 
   /** Закрепить/открепить чат «у себя» (Telegram-стиль): персонально, влияет только на порядок списка. */

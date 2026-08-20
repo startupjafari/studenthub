@@ -1201,7 +1201,22 @@
     "readByCount": "Read by {count, plural, one {# member} other {# members}}",
     "sending": "Sending…",
     "sendFailedRetry": "Not sent. Click to retry",
-    "pollVotersMore": "and {count} more"
+    "pollVotersMore": "and {count} more",
+    "muteImportantOnly": "Important only",
+    "unmuteImportantOnly": "Unmute all",
+    "foldersTitle": "Chat folders",
+    "foldersDescription": "Your own tabs over the list: group the chats you read together.",
+    "foldersEmpty": "No folders of your own yet",
+    "foldersCreate": "New folder",
+    "foldersRename": "Rename",
+    "foldersDelete": "Delete folder",
+    "foldersSave": "Save",
+    "foldersCancel": "Cancel",
+    "foldersNameLabel": "Folder name",
+    "foldersNamePlaceholder": "For example, “Studies”",
+    "foldersPickChats": "Chats in folder: {count}",
+    "foldersChatCount": "{count, plural, one {# chat} other {# chats}}",
+    "foldersLimit": "More than {max} folders is not supported"
   },
   "Events": {
     "title": "Events",

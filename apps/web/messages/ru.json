@@ -1201,7 +1201,22 @@
     "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
     "sending": "Отправляется…",
     "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить",
-    "pollVotersMore": "и ещё {count}"
+    "pollVotersMore": "и ещё {count}",
+    "muteImportantOnly": "Только важные",
+    "unmuteImportantOnly": "Включить всё",
+    "foldersTitle": "Папки чатов",
+    "foldersDescription": "Свои вкладки поверх списка: соберите чаты, которые смотрите вместе.",
+    "foldersEmpty": "Своих папок пока нет",
+    "foldersCreate": "Новая папка",
+    "foldersRename": "Переименовать",
+    "foldersDelete": "Удалить папку",
+    "foldersSave": "Сохранить",
+    "foldersCancel": "Отмена",
+    "foldersNameLabel": "Название папки",
+    "foldersNamePlaceholder": "Например, «Учёба»",
+    "foldersPickChats": "Чаты в папке: {count}",
+    "foldersChatCount": "{count, plural, one {# чат} few {# чата} other {# чатов}}",
+    "foldersLimit": "Больше {max} папок не поддерживается"
   },
   "Events": {
     "title": "События",

@@ -58,7 +58,12 @@ import {
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
+  fetchChatFolders,
+  createChatFolderRequest,
+  updateChatFolderRequest,
+  deleteChatFolderRequest,
   useVoiceRecorder,
+  type ChatFolder,
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
@@ -68,6 +73,7 @@ import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import { GroupInfoDialog } from './group-info-dialog'
 import { PeerInfoCard } from './peer-info-card'
 import { ChatDetailsSidebar } from './chat-details-sidebar'
+import { ChatFoldersSheet } from './chat-folders-sheet'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
@@ -371,21 +377,54 @@ export function ChatWindow() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  // Пользовательские папки чатов (§2): вкладки списка. Держим здесь, потому что список чатов
+  // порталится в сайдбар и своего состояния не имеет.
+  const [foldersOpen, setFoldersOpen] = useState(false)
+  const folders = useQuery({ queryKey: chatKeys.folders(), queryFn: fetchChatFolders })
+  const folderList: ChatFolder[] = folders.data ?? []
+
+  const folderError = (e: unknown) =>
+    toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+  const invalidateFolders = () => void qc.invalidateQueries({ queryKey: chatKeys.folders() })
+
+  const createFolder = useMutation({
+    mutationFn: createChatFolderRequest,
+    onSuccess: invalidateFolders,
+    onError: folderError,
+  })
+  const updateFolder = useMutation({
+    mutationFn: ({ id, ...input }: { id: string; name?: string; chatIds?: string[] }) =>
+      updateChatFolderRequest(id, input),
+    onSuccess: invalidateFolders,
+    onError: folderError,
+  })
+  const deleteFolder = useMutation({
+    mutationFn: deleteChatFolderRequest,
+    onSuccess: invalidateFolders,
+    onError: folderError,
+  })
+
   const mute = useMutation({
     mutationFn: ({
       chatId,
       muted,
       minutes,
+      importantOnly,
     }: {
       chatId: string
       muted: boolean
       minutes?: number
-    }) => setChatMutedRequest(chatId, muted, minutes),
+      importantOnly?: boolean
+    }) => setChatMutedRequest(chatId, muted, minutes, importantOnly),
     // Оптимистично переключаем флаг в кэше списка — мгновенная обратная связь в UI.
-    onMutate: ({ chatId, muted }) => {
+    onMutate: ({ chatId, muted, importantOnly }) => {
       const prev = qc.getQueryData<ChatListItem[]>(chatKeys.list())
       qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
-        (old ?? []).map((c) => (c.id === chatId ? { ...c, muted } : c)),
+        (old ?? []).map((c) =>
+          c.id === chatId
+            ? { ...c, muted, mutedImportantOnly: muted ? (importantOnly ?? false) : false }
+            : c,
+        ),
       )
       return { prev }
     },
@@ -1797,6 +1836,8 @@ export function ChatWindow() {
       activeId={activeId}
       onOpenChat={setActiveId}
       onBack={() => router.back()}
+      folders={folderList}
+      onManageFolders={() => setFoldersOpen(true)}
       newChatOpen={newChatOpen}
       onToggleNewChat={() => setNewChatOpen((v) => !v)}
       onCloseNewChat={() => setNewChatOpen(false)}
@@ -2488,11 +2529,12 @@ export function ChatWindow() {
               isPrivate={isPrivate}
               peerOnline={otherOnline}
               onClose={() => setDetailsOpen(false)}
-              onMute={(mode) =>
+              onMute={(mode, importantOnly) =>
                 mute.mutate({
                   chatId: activeChat.id,
                   muted: true,
                   minutes: mode === 'forever' ? undefined : mode,
+                  importantOnly,
                 })
               }
               onUnmute={() => mute.mutate({ chatId: activeChat.id, muted: false })}
@@ -2560,6 +2602,17 @@ export function ChatWindow() {
           }}
         />
       )}
+
+      <ChatFoldersSheet
+        open={foldersOpen}
+        onOpenChange={setFoldersOpen}
+        folders={folderList}
+        chats={chats.data ?? []}
+        busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
+        onCreate={(input) => createFolder.mutate(input)}
+        onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
+        onDelete={(id) => deleteFolder.mutate(id)}
+      />
 
       {pollCreatorOpen && (
         <PollCreator

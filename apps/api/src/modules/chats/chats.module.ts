@@ -3,6 +3,8 @@ import { FilesModule } from '../files/files.module'
 import { PostsModule } from '../posts/posts.module'
 import { ChatsService } from './chats.service'
 import { ChatsController } from './chats.controller'
+import { ChatFoldersService } from './chat-folders.service'
+import { ChatFoldersController } from './chat-folders.controller'
 import { ChatGateway } from './chats.gateway'
 import { LinkPreviewProcessor } from './link-preview.processor'
 import { LinkPreviewService } from '../../common/link-preview/link-preview.service'
@@ -12,8 +14,15 @@ import { LinkPreviewService } from '../../common/link-preview/link-preview.servi
 // QueueService (job new-message) — из глобального QueueModule. FilesModule — вложения (FileService).
 @Module({
   imports: [FilesModule, PostsModule],
-  controllers: [ChatsController],
-  providers: [ChatsService, ChatGateway, LinkPreviewProcessor, LinkPreviewService],
+  // ChatFoldersController — первым: путь `chats/folders` не должен попасть в `chats/:id`.
+  controllers: [ChatFoldersController, ChatsController],
+  providers: [
+    ChatsService,
+    ChatFoldersService,
+    ChatGateway,
+    LinkPreviewProcessor,
+    LinkPreviewService,
+  ],
   exports: [ChatsService],
 })
 export class ChatsModule {}
