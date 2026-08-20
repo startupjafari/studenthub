@@ -1201,7 +1201,22 @@
     "readByCount": "Оқыды: {count, plural, one {# қатысушы} other {# қатысушы}}",
     "sending": "Жіберілуде…",
     "sendFailedRetry": "Жіберілмеді. Қайталау үшін басыңыз",
-    "pollVotersMore": "және {count}"
+    "pollVotersMore": "және {count}",
+    "muteImportantOnly": "Тек маңыздылар",
+    "unmuteImportantOnly": "Барлығын қосу",
+    "foldersTitle": "Чат қалталары",
+    "foldersDescription": "Тізім үстіндегі өз бөлімдеріңіз: бірге қарайтын чаттарды жинаңыз.",
+    "foldersEmpty": "Әзірге өз қалтаңыз жоқ",
+    "foldersCreate": "Жаңа қалта",
+    "foldersRename": "Атын өзгерту",
+    "foldersDelete": "Қалтаны жою",
+    "foldersSave": "Сақтау",
+    "foldersCancel": "Бас тарту",
+    "foldersNameLabel": "Қалта атауы",
+    "foldersNamePlaceholder": "Мысалы, «Оқу»",
+    "foldersPickChats": "Қалтадағы чаттар: {count}",
+    "foldersChatCount": "{count, plural, one {# чат} other {# чат}}",
+    "foldersLimit": "{max} қалтадан көп қолданылмайды"
   },
   "Events": {
     "title": "Іс-шаралар",

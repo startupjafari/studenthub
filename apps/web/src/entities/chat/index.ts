@@ -41,6 +41,10 @@ export {
   fetchPollResults,
   votePollRequest,
   fetchChatUpdates,
+  fetchChatFolders,
+  createChatFolderRequest,
+  updateChatFolderRequest,
+  deleteChatFolderRequest,
   type ChatUpdates,
   type MessagesPage,
   type ChatMediaPage,
@@ -64,6 +68,7 @@ export {
   type ChatPoll,
   type PollResults,
   type BlockedUser,
+  type ChatFolder,
 } from './model/types'
 export { MessageContent } from './ui/message-content'
 export { ChatPollView } from './ui/chat-poll'

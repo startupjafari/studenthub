@@ -53,7 +53,11 @@ function setup() {
       upsert: jest.fn(),
       deleteMany: jest.fn(),
     },
-    user: { findUnique: jest.fn(), findFirst: jest.fn() },
+    user: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     pair: { findMany: jest.fn().mockResolvedValue([]) },
     chatPoll: { findUnique: jest.fn(), create: jest.fn() },
     chatPollVote: {
@@ -505,7 +509,96 @@ describe('ChatsService.setMuted / notifyNewMessage', () => {
     prisma.chatMember.updateMany.mockResolvedValue({ count: 1 })
     const res = await service.setMuted('u1', 'c1', 'forever')
     expect(prisma.chatMember.updateMany.mock.calls[0][0].data.mutedAt).toBeInstanceOf(Date)
-    expect(res).toEqual({ chatId: 'c1', muted: true })
+    expect(res).toEqual({ chatId: 'c1', muted: true, importantOnly: false })
+  })
+
+  it('mute с importantOnly сохраняет режим «только важные»', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.chatMember.updateMany.mockResolvedValue({ count: 1 })
+
+    const res = await service.setMuted('u1', 'c1', 'forever', true)
+
+    expect(prisma.chatMember.updateMany.mock.calls[0][0].data.muteImportantOnly).toBe(true)
+    expect(res).toEqual({ chatId: 'c1', muted: true, importantOnly: true })
+  })
+
+  it('снятие заглушения сбрасывает режим: он описывает исключение из mute, а не отдельную настройку', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.chatMember.updateMany.mockResolvedValue({ count: 1 })
+
+    const res = await service.setMuted('u1', 'c1', null, true)
+
+    expect(prisma.chatMember.updateMany.mock.calls[0][0].data.muteImportantOnly).toBe(false)
+    expect(res).toEqual({ chatId: 'c1', muted: false, importantOnly: false })
+  })
+
+  it('«только важные»: упоминание по имени пробивает заглушение', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      content: '@Сериков Асхат посмотри, пожалуйста',
+      sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+    })
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([
+      { userId: 'u2', mutedAt: new Date(), mutedUntil: null, muteImportantOnly: true },
+    ])
+    // Композер вставляет «@Фамилия Имя» — по этой строке и ищем.
+    prisma.user.findMany.mockResolvedValue([{ id: 'u2', firstName: 'Асхат', lastName: 'Сериков' }])
+
+    await service.createMessage('u1', { chatId: 'c1', content: '@Сериков Асхат посмотри' })
+
+    expect(queue.enqueue).toHaveBeenCalled()
+    expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['u2'])
+  })
+
+  it('«только важные»: ответ на моё сообщение пробивает заглушение без разбора текста', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue({ id: 'm0' })
+    prisma.message.create.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      content: 'да, согласен',
+      sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+      replyTo: { id: 'm0', senderId: 'u2', content: 'вопрос', sender: null },
+    })
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([
+      { userId: 'u2', mutedAt: new Date(), mutedUntil: null, muteImportantOnly: true },
+    ])
+
+    await service.createMessage('u1', { chatId: 'c1', content: 'да, согласен', replyToId: 'm0' })
+
+    expect(queue.enqueue).toHaveBeenCalled()
+    // Имена не запрашивали: «@» в тексте нет, а ответ и так важный.
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
+  it('«только важные»: обычное сообщение по-прежнему без уведомления', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      content: 'всем привет',
+      sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+    })
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([
+      { userId: 'u2', mutedAt: new Date(), mutedUntil: null, muteImportantOnly: true },
+    ])
+
+    await service.createMessage('u1', { chatId: 'c1', content: 'всем привет' })
+
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
   it('заглушённому: сообщение доставляется (chat:activity), но уведомление не шлётся', async () => {

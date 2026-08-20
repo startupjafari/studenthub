@@ -167,6 +167,8 @@ export interface ChatListItem {
   // Число непрочитанных сообщений (для бейджа-счётчика).
   unreadCount: number
   muted: boolean
+  // §17: чат заглушён, но ответы мне и упоминания меня уведомление всё равно создают.
+  mutedImportantOnly: boolean
   // Чат закреплён «у себя» (Telegram-стиль): показывается сверху списка. Персонально.
   pinned: boolean
   // Черновик сообщения (синхронизируется с сервером): восстанавливается при открытии чата.
@@ -212,4 +214,12 @@ export interface BlockedUser {
   lastName: string
   avatarUrl: string | null
   blockedAt: string
+}
+
+/** Пользовательская папка чатов (§2): личный ярлык поверх готового списка чатов. */
+export interface ChatFolder {
+  id: string
+  name: string
+  position: number
+  chatIds: string[]
 }
