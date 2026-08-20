@@ -5,6 +5,7 @@ import { InviteStatus } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
+import { CronLockService } from '../../common/redis/cron-lock.service'
 import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
@@ -12,8 +13,23 @@ import { DocumentsService } from '../documents/documents.service'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
 // Разбрасывать @Cron по модулям запрещено. Все задачи работают батчами и логируют счётчик.
-// TODO(Ф13.9): в multi-instance деплое оборачивать в Redis-лок, чтобы задача шла на одном инстансе.
+//
+// Каждая задача идёт под Redis-локом (`CronLockService`): при нескольких инстансах API
+// расписание живёт в каждом процессе и без лока задача стартует одновременно везде.
+// Возврат `null` из метода = «лок занят, задача идёт на другом инстансе».
 const BATCH_SIZE = 500
+
+// Страховочные TTL локов: с запасом больше ожидаемой работы, но меньше интервала запуска
+// (иначе следующий тик наткнётся на собственный несnятый лок).
+const LOCK_TTL_MS = {
+  scheduleEventReminders: 10 * 60 * 1000,
+  publishScheduledPosts: 55 * 1000,
+  sweepDocumentExpiry: 15 * 60 * 1000,
+  expireInvites: 10 * 60 * 1000,
+  cleanOldNotifications: 30 * 60 * 1000,
+  cleanAuditLogs: 30 * 60 * 1000,
+  cleanOrphanFiles: 60 * 60 * 1000,
+} as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
 // Не трогаем свежие объекты MinIO — они могут быть в процессе загрузки (запись File ещё не создана).
@@ -32,31 +48,44 @@ export class CleanupService {
     private readonly events: EventsService,
     private readonly posts: PostsService,
     private readonly documents: DocumentsService,
+    private readonly locks: CronLockService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
   // дедуп через Event.reminderSentAt. Логика — в EventsService.remindDue (владелец домена).
   @Cron('*/15 * * * *', { name: 'scheduleEventReminders' })
-  async scheduleEventReminders(): Promise<number> {
-    return this.events.remindDue()
+  async scheduleEventReminders(): Promise<number | null> {
+    return this.locks.run('scheduleEventReminders', LOCK_TTL_MS.scheduleEventReminders, () =>
+      this.events.remindDue(),
+    )
   }
 
   // Отложенная публикация постов: каждую минуту публикуем посты, у которых наступил scheduledAt.
   @Cron('* * * * *', { name: 'publishScheduledPosts' })
-  async publishScheduledPosts(): Promise<number> {
-    return this.posts.publishDueScheduled()
+  async publishScheduledPosts(): Promise<number | null> {
+    return this.locks.run('publishScheduledPosts', LOCK_TTL_MS.publishScheduledPosts, () =>
+      this.posts.publishDueScheduled(),
+    )
   }
 
   // Документы по сроку `expiresAt` → EXPIRING/EXPIRED + уведомления владельцам (§15.19).
   // Ежедневно в 03:30. Логика — в DocumentsService.sweepExpiry (владелец домена).
   @Cron('30 3 * * *', { name: 'sweepDocumentExpiry' })
-  async sweepDocumentExpiry(): Promise<{ expired: number; expiring: number }> {
-    return this.documents.sweepExpiry()
+  async sweepDocumentExpiry(): Promise<{ expired: number; expiring: number } | null> {
+    return this.locks.run('sweepDocumentExpiry', LOCK_TTL_MS.sweepDocumentExpiry, () =>
+      this.documents.sweepExpiry(),
+    )
   }
 
   // Просроченные PENDING-инвайты → EXPIRED. Ежечасно.
   @Cron('0 * * * *', { name: 'expireInvites' })
-  async expireInvites(): Promise<number> {
+  async expireInvites(): Promise<number | null> {
+    return this.locks.run('expireInvites', LOCK_TTL_MS.expireInvites, () =>
+      this.expireInvitesTask(),
+    )
+  }
+
+  private async expireInvitesTask(): Promise<number> {
     const now = new Date()
     let total = 0
     for (;;) {
@@ -79,7 +108,13 @@ export class CleanupService {
 
   // Прочитанные уведомления старше 30 дней. Еженедельно (вс, 02:00).
   @Cron('0 2 * * 0', { name: 'cleanOldNotifications' })
-  async cleanOldNotifications(): Promise<number> {
+  async cleanOldNotifications(): Promise<number | null> {
+    return this.locks.run('cleanOldNotifications', LOCK_TTL_MS.cleanOldNotifications, () =>
+      this.cleanOldNotificationsTask(),
+    )
+  }
+
+  private async cleanOldNotificationsTask(): Promise<number> {
     const cutoff = new Date(Date.now() - NOTIFICATION_RETENTION_DAYS * DAY_MS)
     const total = await this.deleteInBatches(
       () =>
@@ -96,7 +131,13 @@ export class CleanupService {
 
   // AuditLog старше 90 дней. Раз в месяц (1-е число, 01:00).
   @Cron('0 1 1 * *', { name: 'cleanAuditLogs' })
-  async cleanAuditLogs(): Promise<number> {
+  async cleanAuditLogs(): Promise<number | null> {
+    return this.locks.run('cleanAuditLogs', LOCK_TTL_MS.cleanAuditLogs, () =>
+      this.cleanAuditLogsTask(),
+    )
+  }
+
+  private async cleanAuditLogsTask(): Promise<number> {
     const cutoff = new Date(Date.now() - AUDIT_RETENTION_DAYS * DAY_MS)
     const total = await this.deleteInBatches(
       () =>
@@ -113,7 +154,13 @@ export class CleanupService {
 
   // Объекты MinIO без записи в File. Ежедневно, 04:00.
   @Cron('0 4 * * *', { name: 'cleanOrphanFiles' })
-  async cleanOrphanFiles(): Promise<number> {
+  async cleanOrphanFiles(): Promise<number | null> {
+    return this.locks.run('cleanOrphanFiles', LOCK_TTL_MS.cleanOrphanFiles, () =>
+      this.cleanOrphanFilesTask(),
+    )
+  }
+
+  private async cleanOrphanFilesTask(): Promise<number> {
     const buckets = [
       this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
       this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
