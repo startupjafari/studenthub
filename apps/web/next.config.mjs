@@ -1,5 +1,6 @@
 import createNextIntlPlugin from 'next-intl/plugin'
 import withPWAInit from '@ducanh2912/next-pwa'
+import { withSentryConfig } from '@sentry/nextjs'
 
 // Плагин next-intl указывает на src/i18n/request.ts (i18n без locale-префикса в URL).
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
@@ -115,4 +116,34 @@ const nextConfig = {
   },
 }
 
-export default withPWA(withNextIntl(nextConfig))
+// Sentry (Ф13.8) — самый внешний слой: ему нужен уже собранный webpack-конфиг, чтобы
+// подложить плагин загрузки source maps. Без SENTRY_AUTH_TOKEN загрузка карт молча
+// пропускается, сборка не падает — так собирается dev и CI без секретов.
+export default withSentryConfig(withPWA(withNextIntl(nextConfig)), {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // Без source maps стектрейс минифицирован и бесполезен. Карты загружаются в Sentry
+  // и удаляются из сборки, чтобы не отдавать исходники браузеру.
+  sourcemaps: { deleteSourcemapFilesAfterUpload: true },
+
+  // Прокси-роут на своём домене: мобильные блокировщики рекламы и корпоративные DNS
+  // режут запросы к *.sentry.io, и ошибки с телефонов просто не доходили бы.
+  tunnelRoute: '/monitoring',
+
+  // Логи самого плагина в консоль сборки — только если что-то пошло не так.
+  silent: !process.env.CI,
+
+  webpack: {
+    treeshake: {
+      // Вырезать внутренние debug-логи SDK из бандла (меньше кода в браузере).
+      removeDebugLogging: true,
+      // Трейсинг производительности выключен (см. tracesSampleRate в shared/lib/
+      // sentry-options.ts) — вырезаем и его код. Условие, а не жёсткое true: иначе
+      // включение сэмплирования через env не заработало бы, а причину пришлось бы
+      // искать долго. Sample rate тоже читается на сборке, так что решение согласовано.
+      removeTracing: !Number(process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE),
+    },
+  },
+})

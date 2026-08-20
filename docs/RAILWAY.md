@@ -39,7 +39,11 @@ config-as-code (`apps/api/railway.json`, `apps/web/railway.json`).
    | `MINIO_PUBLIC_ENDPOINT` | публичный домен MinIO для presigned-ссылок (см. ниже) |
    | `CORS_ORIGIN` | публичный URL web-сервиса (после шага 3) |
 
-   Опционально: `SMTP_HOST/PORT/USER/PASS/SMTP_FROM`, `SENTRY_DSN`.
+   Опционально: `SMTP_HOST/PORT/USER/PASS/SMTP_FROM`, `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`.
+
+   Мониторинг (Ф13.8) — `SENTRY_DSN` (без него трекер молчит), плюс по желанию
+   `SENTRY_ENVIRONMENT` (напр. `pilot`) и `SENTRY_RELEASE`. Здесь достаточно
+   выставить переменную и перезапустить — пересборка не нужна.
    **`PORT` не задавать** — Railway присваивает его сам, приложение читает `$PORT`
    и слушает `0.0.0.0`.
 
@@ -62,9 +66,15 @@ config-as-code (`apps/api/railway.json`, `apps/web/railway.json`).
    | `NEXT_PUBLIC_WS_URL` | `https://<api-домен>` |
    | `NEXT_PUBLIC_APP_URL` | `https://<web-домен>` |
    | `NEXT_PUBLIC_APP_NAME` | `StudentHub` |
+   | `NEXT_PUBLIC_SENTRY_DSN` | DSN проекта Sentry (пусто = трекер выключен) |
+
+   Опционально там же: `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_RELEASE`
+   и — для читаемых стектрейсов вместо минифицированных — `SENTRY_ORG`, `SENTRY_PROJECT`,
+   `SENTRY_AUTH_TOKEN` (загрузка source maps на сборке; без токена шаг молча пропускается).
 
    > `NEXT_PUBLIC_*` инлайнятся во время **сборки** — Railway передаёт переменные
-   > сервиса как build-args, поэтому менять их = пересобрать web.
+   > сервиса как build-args, поэтому менять их = пересобрать web. Это относится и к
+   > `NEXT_PUBLIC_SENTRY_DSN`: добавили DSN → нужен ре-деплой, рестарта недостаточно.
 
 4. **Generate Domain** — публичный URL web. Затем вернуться в `api` и выставить
    `CORS_ORIGIN` = этот URL.
