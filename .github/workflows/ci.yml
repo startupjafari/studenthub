@@ -13,6 +13,10 @@ jobs:
   ci:
     name: lint · typecheck · test · build
     runs-on: ubuntu-latest
+    # Весь прогон укладывается в ~6 минут. Потолок нужен не для медленных шагов, а для
+    # зависших: если e2e не смог поднять AppModule, jest остаётся с открытыми соединениями
+    # и не выходит — без этого лимита шаг досиживает до дефолтных 6 часов.
+    timeout-minutes: 25
 
     services:
       postgres:
