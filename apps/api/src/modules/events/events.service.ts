@@ -34,6 +34,10 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
 // Окно напоминаний за час (docs/BACKEND_RULES.md §9.3): [now+55м, now+70м].
 const REMINDER_WINDOW_MIN = { from: 55, to: 70 }
 const BATCH = 500
+// Участников у события может быть сколько угодно (событие вуза — это весь вуз), а напоминание
+// обязано дойти до каждого. Поэтому читаем участников страницами и на каждую ставим свой job:
+// обрезать список потолком нельзя, тянуть целиком одним findMany — нельзя (BACKEND_RULES §7.2).
+const PARTICIPANTS_BATCH = 500
 
 const ORGANIZER_SELECT = { select: { id: true, firstName: true, lastName: true } }
 
@@ -261,11 +265,17 @@ export class EventsService {
       })
       if (events.length === 0) break
       for (const event of events) {
-        const participants = await this.prisma.eventParticipant.findMany({
-          where: { eventId: event.id },
-          select: { userId: true },
-        })
-        if (participants.length > 0) {
+        let cursor: string | undefined
+        let page = 0
+        for (;;) {
+          const participants = await this.prisma.eventParticipant.findMany({
+            where: { eventId: event.id },
+            select: { id: true, userId: true },
+            orderBy: { id: 'asc' },
+            take: PARTICIPANTS_BATCH,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          })
+          if (participants.length === 0) break
           await this.queue.enqueue(
             QUEUES.NOTIFICATIONS,
             NOTIFICATION_JOBS.EVENT_REMINDER,
@@ -275,10 +285,15 @@ export class EventsService {
               title: 'Скоро событие',
               body: `«${event.title}» начнётся примерно через час`,
               data: { eventId: event.id, url: '/events' },
+              // dedupeKey один на событие: повторная доставка отсекается по (пользователь, ключ),
+              // а jobId разный — иначе BullMQ отбросил бы все страницы кроме первой.
               dedupeKey: `event-reminder:${event.id}`,
             },
-            { jobId: `event-reminder:${event.id}` },
+            { jobId: `event-reminder:${event.id}:${page}` },
           )
+          if (participants.length < PARTICIPANTS_BATCH) break
+          cursor = participants.at(-1)?.id
+          page += 1
         }
         total += 1
       }

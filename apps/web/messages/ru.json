@@ -1200,7 +1200,23 @@
     "selectChatPrompt": "Выберите, кому бы хотели написать?",
     "readByCount": "Прочитали: {count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
     "sending": "Отправляется…",
-    "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить"
+    "sendFailedRetry": "Не отправлено. Нажмите, чтобы повторить",
+    "pollVotersMore": "и ещё {count}",
+    "muteImportantOnly": "Только важные",
+    "unmuteImportantOnly": "Включить всё",
+    "foldersTitle": "Папки чатов",
+    "foldersDescription": "Свои вкладки поверх списка: соберите чаты, которые смотрите вместе.",
+    "foldersEmpty": "Своих папок пока нет",
+    "foldersCreate": "Новая папка",
+    "foldersRename": "Переименовать",
+    "foldersDelete": "Удалить папку",
+    "foldersSave": "Сохранить",
+    "foldersCancel": "Отмена",
+    "foldersNameLabel": "Название папки",
+    "foldersNamePlaceholder": "Например, «Учёба»",
+    "foldersPickChats": "Чаты в папке: {count}",
+    "foldersChatCount": "{count, plural, one {# чат} few {# чата} other {# чатов}}",
+    "foldersLimit": "Больше {max} папок не поддерживается"
   },
   "Events": {
     "title": "События",
@@ -2428,6 +2444,16 @@
       "OTHER": "Другое"
     },
     "checkFields": "Проверьте заполненные поля",
-    "scanHintService": "Часы работы, контакты и подробности о помещении."
+    "scanHintService": "Часы работы, контакты и подробности о помещении.",
+    "manualTitle": "Код помещения",
+    "manualDescription": "Если QR над дверью не читается, наберите код с наклейки.",
+    "manualLabel": "Код с наклейки",
+    "manualPlaceholder": "ABCD-2345",
+    "manualHint": "Восемь символов под QR-кодом. Дефис можно не набирать.",
+    "manualSubmit": "Открыть помещение",
+    "manualCta": "Ввести код вручную",
+    "layoutLabel": "Раскладка печати",
+    "layoutFull": "По одной на лист",
+    "layoutCompact": "4 на лист"
   }
 }

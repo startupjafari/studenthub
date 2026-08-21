@@ -18,6 +18,9 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
 
+// Ростер пары: потолок общий для студентов и их отметок (BACKEND_RULES §7.2).
+const ROSTER_LIMIT = 500
+
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 // Время жизни QR-токена самоотметки: короткое, чтобы окно «переслать скрин» было мало.
@@ -59,11 +62,13 @@ export class AttendanceService {
         },
         select: { id: true, firstName: true, lastName: true, avatarUrl: true },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-        take: 500,
+        take: ROSTER_LIMIT,
       }),
       this.prisma.attendance.findMany({
         where: { pairId: query.pairId, date: new Date(query.date) },
         select: { studentId: true, status: true, note: true },
+        // Отметок не больше, чем студентов в ростере выше.
+        take: ROSTER_LIMIT,
       }),
     ])
     const byStudent = new Map(marks.map((m) => [m.studentId, m]))

@@ -400,6 +400,7 @@ export class ProfileContentService {
     const ids = rows.map((r) => r.id)
     const marks = ids.length
       ? await this.prisma.bookmark.findMany({
+          take: ids.length,
           where: { userId: viewerId, articleId: { in: ids } },
           select: { articleId: true },
         })

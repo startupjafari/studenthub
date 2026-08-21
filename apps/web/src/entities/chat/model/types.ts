@@ -68,6 +68,13 @@ export interface ChatPoll {
   closed: boolean
   options: ChatPollOptionStatic[]
 }
+/** Проголосовавший в неанонимном опросе (§39): у анонимного список всегда пуст. */
+export interface PollVoter {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+}
 // Результаты опроса для смотрящего (viewer-aware, анонимный — без личностей).
 export interface PollResults {
   id: string
@@ -76,7 +83,7 @@ export interface PollResults {
   allowRevote: boolean
   closed: boolean
   totalVotes: number
-  options: { id: string; text: string; order: number; votes: number }[]
+  options: { id: string; text: string; order: number; votes: number; voters: PollVoter[] }[]
   myOptionIds: string[]
 }
 
@@ -160,6 +167,8 @@ export interface ChatListItem {
   // Число непрочитанных сообщений (для бейджа-счётчика).
   unreadCount: number
   muted: boolean
+  // §17: чат заглушён, но ответы мне и упоминания меня уведомление всё равно создают.
+  mutedImportantOnly: boolean
   // Чат закреплён «у себя» (Telegram-стиль): показывается сверху списка. Персонально.
   pinned: boolean
   // Черновик сообщения (синхронизируется с сервером): восстанавливается при открытии чата.
@@ -205,4 +214,12 @@ export interface BlockedUser {
   lastName: string
   avatarUrl: string | null
   blockedAt: string
+}
+
+/** Пользовательская папка чатов (§2): личный ярлык поверх готового списка чатов. */
+export interface ChatFolder {
+  id: string
+  name: string
+  position: number
+  chatIds: string[]
 }
