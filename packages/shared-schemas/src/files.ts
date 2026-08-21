@@ -20,3 +20,43 @@ export const UploadFileSchema = z
   .strict()
 
 export type UploadFileInput = z.infer<typeof UploadFileSchema>
+
+// ── Прямая (presigned) загрузка крупных файлов, минуя API-процесс ────────────
+// Буферная загрузка ограничена FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES: файл целиком
+// попадает в память процесса. Файлы больше порога (скан диплома, лекция, видео) грузятся
+// напрямую в MinIO по подписанной ссылке в три шага: presign → PUT → confirm.
+
+/** Шаг 1: получить подписанную ссылку. `mime` влияет только на расширение ключа. */
+export const PresignUploadSchema = z
+  .object({
+    bucket: z.enum(Object.values(FileBucketKind) as [FileBucketKind, ...FileBucketKind[]]),
+    mime: z.string().min(1).max(120),
+  })
+  .strict()
+export type PresignUploadInput = z.infer<typeof PresignUploadSchema>
+
+/**
+ * Шаг 3: подтвердить загрузку — сервер сам смотрит объект в MinIO (размер и реальный тип
+ * по magic bytes) и создаёт запись File. Ни размер, ни MIME из тела запроса не берутся.
+ */
+export const ConfirmUploadSchema = z
+  .object({
+    bucket: z.enum(Object.values(FileBucketKind) as [FileBucketKind, ...FileBucketKind[]]),
+    key: z.string().min(1).max(300),
+    name: z.string().min(1).max(255).optional(),
+  })
+  .strict()
+export type ConfirmUploadInput = z.infer<typeof ConfirmUploadSchema>
+
+/** Подтверждение для доменных загрузок (документ, материал) — бакет определяет сам модуль. */
+export const ConfirmDomainUploadSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    name: z.string().min(1).max(255).optional(),
+  })
+  .strict()
+export type ConfirmDomainUploadInput = z.infer<typeof ConfirmDomainUploadSchema>
+
+/** Запрос presigned-ссылки для доменной загрузки (бакет неявный). */
+export const PresignDomainUploadSchema = z.object({ mime: z.string().min(1).max(120) }).strict()
+export type PresignDomainUploadInput = z.infer<typeof PresignDomainUploadSchema>

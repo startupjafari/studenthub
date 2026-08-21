@@ -1,6 +1,6 @@
 import type { AxiosProgressEvent } from 'axios'
 import type { CreateMaterialInput } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, needsDirectUpload, uploadDirect, type PresignedTarget } from '../../../shared/api'
 import type { Material, MaterialFile } from '../model/types'
 
 export const materialKeys = {
@@ -18,11 +18,36 @@ export async function createMaterialRequest(input: CreateMaterialInput): Promise
   return data
 }
 
+/**
+ * Загрузка файла материала. Путь выбирается по размеру: до порога — буферный,
+ * больше — прямой в MinIO по подписанной ссылке (лекция или презентация легко
+ * перевешивает порог, а лимит категории DOCUMENT — 25 МБ).
+ */
 export async function uploadMaterialFileRequest(
   id: string,
   file: File,
   onProgress?: (percent: number) => void,
 ): Promise<MaterialFile> {
+  if (needsDirectUpload(file.size)) {
+    return uploadDirect<MaterialFile>({
+      file,
+      presign: async (mime) => {
+        const { data } = await api.post<PresignedTarget>(`/materials/${id}/files/presign`, {
+          mime,
+        })
+        return data
+      },
+      confirm: async (key, name) => {
+        const { data } = await api.post<MaterialFile>(`/materials/${id}/files/confirm`, {
+          key,
+          name,
+        })
+        return data
+      },
+      onProgress,
+    })
+  }
+
   const form = new FormData()
   form.append('file', file)
   const { data } = await api.post<MaterialFile>(`/materials/${id}/files`, form, {

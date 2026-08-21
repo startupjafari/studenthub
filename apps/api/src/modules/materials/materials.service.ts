@@ -85,6 +85,45 @@ export class MaterialsService {
   }
 
   /** Прикрепить файл к материалу (автор или админ). Файл → приватный бакет materials. */
+  /**
+   * Прямая загрузка крупного файла материала (лекция, презентация — лимит категории 25 МБ,
+   * порог буферной загрузки 10 МБ). Шаг 1: подписанная ссылка.
+   */
+  async presignFile(actor: JwtPayload, id: string, mime: string) {
+    // Права на материал проверяем ДО выдачи ключа: подписанная ссылка — это уже доступ на запись.
+    await this.findManageable(actor, id)
+    const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
+    return this.files.presignPut(bucket, mime, actor.sub)
+  }
+
+  /** Шаг 3: подтверждение — тип и размер определяет FileService по самому объекту. */
+  async confirmFile(
+    actor: JwtPayload,
+    id: string,
+    key: string,
+    name: string | undefined,
+    ctx: RequestContext,
+  ) {
+    const material = await this.findManageable(actor, id)
+    const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
+    const file = await this.files.confirmDirectUpload({
+      bucket,
+      key,
+      ownerId: actor.sub,
+      materialId: material.id,
+      name,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'material_file_added',
+      entity: 'Material',
+      entityId: id,
+      metadata: { fileId: file.id, direct: true },
+      ...ctx,
+    })
+    return { id: file.id, mime: file.mime, size: file.size, createdAt: file.createdAt }
+  }
+
   async addFile(actor: JwtPayload, id: string, buffer: Buffer, ctx: RequestContext) {
     const material = await this.findManageable(actor, id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
