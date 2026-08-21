@@ -4,11 +4,12 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Eye, Heart, Images, MessageCircle, Pin, Play, Share2 } from 'lucide-react'
+import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2, Share2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
   addReactionRequest,
+  canRepost,
   removeReactionRequest,
   type FeedPost,
   type PostReaction,
@@ -20,6 +21,7 @@ import {
   ForwardDialog,
   type ChatListItem,
 } from '../../../entities/chat'
+import { RepostDialog } from '../../../features/repost-post'
 import { cn } from '../../../shared/lib/utils'
 import { PostMediaView } from './post-media'
 import { PostTileMenu } from './post-tile-menu'
@@ -57,11 +59,13 @@ export function PostTile({
 
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
   const [sharing, setSharing] = useState(false)
+  const [reposting, setReposting] = useState(false)
 
   const first = post.media[0]
   const comments = post._count.comments
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
+  const showRepost = canRepost(myRole, post)
   const date = new Date(post.createdAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'long',
@@ -188,6 +192,16 @@ export function PostTile({
             <MessageCircle className="size-5" aria-hidden />
             {comments}
           </button>
+          {showRepost && (
+            <button
+              type="button"
+              aria-label={t('repost')}
+              onClick={() => setReposting(true)}
+              className="transition-transform hover:scale-105 hover:text-foreground"
+            >
+              <Repeat2 className="size-5" aria-hidden />
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('shareToChat')}
@@ -202,6 +216,8 @@ export function PostTile({
           </span>
         </div>
       </div>
+
+      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
 
       {sharing && (
         <ForwardDialog
