@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { ModuleRef } from '@nestjs/core'
 import Redis from 'ioredis'
 import type { EnvVars } from '../../config/env.schema'
+import { CronLockService } from './cron-lock.service'
 
 export const REDIS_CLIENT = Symbol('REDIS_CLIENT')
 
@@ -31,8 +32,9 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT')
           commandTimeout: 3000,
         }),
     },
+    CronLockService,
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, CronLockService],
 })
 export class RedisModule implements OnApplicationShutdown {
   constructor(private readonly moduleRef: ModuleRef) {}

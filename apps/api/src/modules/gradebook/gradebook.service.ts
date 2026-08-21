@@ -16,6 +16,15 @@ import type { RequestContext } from '../auth/auth.service'
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
+// Потолки на выборки (BACKEND_RULES §7.2). Журнал ограничен размерами группы и числом
+// колонок по смыслу, но лимит обязан стоять в запросе, а не жить в предположении:
+// «в группе же не больше тридцати» — это не гарантия, а надежда.
+const GROUP_STUDENTS_LIMIT = 200
+const COURSE_COLUMNS_LIMIT = 100
+const GROUP_COURSES_LIMIT = 100
+/** Матрица оценок дисциплины: студенты × колонки. */
+const GRADES_MATRIX_LIMIT = GROUP_STUDENTS_LIMIT * COURSE_COLUMNS_LIMIT
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -47,6 +56,7 @@ export class GradebookService {
         where: { courseId },
         select: COLUMN_SELECT,
         orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        take: COURSE_COLUMNS_LIMIT,
       }),
       this.prisma.user.findMany({
         where: {
@@ -57,10 +67,12 @@ export class GradebookService {
         },
         select: { id: true, firstName: true, lastName: true },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        take: GROUP_STUDENTS_LIMIT,
       }),
       this.prisma.grade.findMany({
         where: { column: { courseId } },
         select: { columnId: true, studentId: true, score: true },
+        take: GRADES_MATRIX_LIMIT,
       }),
     ])
     return { courseId, columns, students, grades }
@@ -125,6 +137,7 @@ export class GradebookService {
       const graded = await this.prisma.grade.findMany({
         where: { columnId: id },
         select: { studentId: true },
+        take: GROUP_STUDENTS_LIMIT,
       })
       for (const g of graded) {
         this.realtime.emitEventToUser(g.studentId, REALTIME_EVENTS.gradePublished, id, {
@@ -147,6 +160,7 @@ export class GradebookService {
     const groupStudents = await this.prisma.user.findMany({
       where: { groupId: col.course.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
       select: { id: true },
+      take: GROUP_STUDENTS_LIMIT,
     })
     const allowed = new Set(groupStudents.map((s) => s.id))
     for (const e of input.entries) {
@@ -179,6 +193,7 @@ export class GradebookService {
     return this.prisma.grade.findMany({
       where: { columnId: input.columnId },
       select: { columnId: true, studentId: true, score: true },
+      take: GROUP_STUDENTS_LIMIT,
     })
   }
 
@@ -188,6 +203,7 @@ export class GradebookService {
       throw new AppException('FORBIDDEN', 'Только для студентов')
     }
     const courses = await this.prisma.course.findMany({
+      take: GROUP_COURSES_LIMIT,
       where: { groupId: viewer.groupId ?? '__none__' },
       select: {
         id: true,

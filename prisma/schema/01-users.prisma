@@ -118,6 +118,7 @@ model User {
   messagesPinned   Message[]         @relation("MessagePinnedBy")
   messageReactions MessageReaction[]
   chatPollVotes    ChatPollVote[]
+  chatFolders      ChatFolder[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized     Event[]            @relation("EventOrganizer")

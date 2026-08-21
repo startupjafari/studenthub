@@ -17,6 +17,11 @@ function makeService() {
   const documents = {
     sweepExpiry: jest.fn().mockResolvedValue({ expired: 0, expiring: 0 }) as Mock,
   }
+  // Лок по умолчанию свободен: проверяем сами задачи. Поведение занятого лока — в
+  // cron-lock.service.spec.ts, здесь только то, что задача под ним не запускается.
+  const locks = {
+    run: jest.fn((_name: string, _ttl: number, task: () => Promise<unknown>) => task()) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -24,8 +29,9 @@ function makeService() {
     events as never,
     posts as never,
     documents as never,
+    locks as never,
   )
-  return { service, prisma, minio, config, events, posts, documents }
+  return { service, prisma, minio, config, events, posts, documents, locks }
 }
 
 // Поток MinIO listObjectsV2 → синхронно эмитим data+end при подписке на 'end'
@@ -146,5 +152,38 @@ describe('CleanupService', () => {
       minio.listObjectsV2.mockImplementation(() => errorStream('minio down'))
       await expect(service.cleanOrphanFiles()).resolves.toBe(0)
     })
+  })
+})
+
+describe('CleanupService — Redis-лок задач (Ф13.9)', () => {
+  it('лок занят другим инстансом → задача не работает с БД и отдаёт null', async () => {
+    const { service, prisma, locks } = makeService()
+    locks.run.mockResolvedValue(null)
+
+    await expect(service.expireInvites()).resolves.toBeNull()
+    expect(prisma.invite.findMany).not.toHaveBeenCalled()
+  })
+
+  it('каждая cron-задача берёт лок под своим именем', async () => {
+    const { service, locks } = makeService()
+    locks.run.mockResolvedValue(null)
+
+    await service.scheduleEventReminders()
+    await service.publishScheduledPosts()
+    await service.sweepDocumentExpiry()
+    await service.expireInvites()
+    await service.cleanOldNotifications()
+    await service.cleanAuditLogs()
+    await service.cleanOrphanFiles()
+
+    expect(locks.run.mock.calls.map((c) => c[0])).toEqual([
+      'scheduleEventReminders',
+      'publishScheduledPosts',
+      'sweepDocumentExpiry',
+      'expireInvites',
+      'cleanOldNotifications',
+      'cleanAuditLogs',
+      'cleanOrphanFiles',
+    ])
   })
 })

@@ -10,6 +10,21 @@ import { NotificationsService } from './notifications.service'
 import { PushService } from '../push/push.service'
 import type { NotificationJobData } from './notification-job.type'
 
+// Сколько адресатов читаем за один запрос. Рассылка на факультет — это тысячи получателей
+// в payload'е job'а, поэтому запросы по `id IN (...)` разбиваем на страницы: обрезать список
+// потолком нельзя (часть людей молча не получит уведомление), а тянуть всех одним
+// findMany — тот самый запрет из BACKEND_RULES §7.2.
+const RECIPIENT_CHUNK = 500
+
+/** Разбивка списка на страницы по RECIPIENT_CHUNK. */
+function chunked<T>(items: T[]): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += RECIPIENT_CHUNK) {
+    out.push(items.slice(i, i + RECIPIENT_CHUNK))
+  }
+  return out
+}
+
 // Воркер очереди `notifications` (docs/PROJECT.md §10.1, задача Ф3.4).
 // Для каждого получателя: создать Notification (идемпотентно по dedupeKey) →
 // онлайн → WS `notification:new`; офлайн + включён email-канал → job в очередь `email`.
@@ -47,10 +62,15 @@ export class NotificationsProcessor extends WorkerHost {
     }
 
     // Активные адресаты + их настройки каналов.
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: data.recipientIds }, deletedAt: null, isBlocked: false },
-      select: { id: true, email: true, firstName: true, notificationSettings: true },
-    })
+    const users = []
+    for (const ids of chunked(data.recipientIds)) {
+      const page = await this.prisma.user.findMany({
+        where: { id: { in: ids }, deletedAt: null, isBlocked: false },
+        select: { id: true, email: true, firstName: true, notificationSettings: true },
+        take: ids.length,
+      })
+      users.push(...page)
+    }
 
     // Фильтр по пер-тип настройке (SYSTEM доставляется всегда).
     const allowed = users.filter((u) => this.typeEnabled(data.type, u.notificationSettings))
@@ -60,11 +80,15 @@ export class NotificationsProcessor extends WorkerHost {
 
     // Идемпотентность: адресаты, у которых уведомление с этим dedupeKey уже есть, — пропускаются
     // целиком (ни повторной записи, ни повторных WS/email при перезапуске job'а).
-    const existing = await this.prisma.notification.findMany({
-      where: { userId: { in: allowedIds }, dedupeKey: data.dedupeKey },
-      select: { userId: true },
-    })
-    const existingIds = new Set(existing.map((e) => e.userId))
+    const existingIds = new Set<string>()
+    for (const ids of chunked(allowedIds)) {
+      const page = await this.prisma.notification.findMany({
+        where: { userId: { in: ids }, dedupeKey: data.dedupeKey },
+        select: { userId: true },
+        take: ids.length,
+      })
+      for (const e of page) existingIds.add(e.userId)
+    }
     const fresh = allowed.filter((u) => !existingIds.has(u.id))
     if (!fresh.length) {
       this.logger.debug(`notifications ${job.name} dedupeKey=${data.dedupeKey}: всё уже доставлено`)
@@ -86,9 +110,14 @@ export class NotificationsProcessor extends WorkerHost {
     // Создали новые непрочитанные — сбрасываем кэш счётчика у каждого адресата.
     await Promise.all(fresh.map((u) => this.notifications.invalidateUnread(u.id)))
 
-    const created = await this.prisma.notification.findMany({
-      where: { userId: { in: fresh.map((u) => u.id) }, dedupeKey: data.dedupeKey },
-    })
+    const created = []
+    for (const ids of chunked(fresh.map((u) => u.id))) {
+      const page = await this.prisma.notification.findMany({
+        where: { userId: { in: ids }, dedupeKey: data.dedupeKey },
+        take: ids.length,
+      })
+      created.push(...page)
+    }
     const byUser = new Map(created.map((n) => [n.userId, n]))
 
     const online = await this.realtime.getOnlineUserIds(fresh.map((u) => u.id))

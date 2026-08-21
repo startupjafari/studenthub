@@ -7,6 +7,7 @@ import { api } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type {
   BlockedUser,
+  ChatFolder,
   ChatLinkItem,
   ChatListItem,
   ChatMediaItem,
@@ -30,6 +31,7 @@ export const chatKeys = {
   links: (id: string) => ['chats', id, 'links'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
   blocked: () => ['chats', 'blocked'] as const,
+  folders: () => ['chats', 'folders'] as const,
 }
 
 // «Сохранённые» (§15): id личного self-chat (создаётся на первом обращении).
@@ -254,13 +256,50 @@ export async function exportChatRequest(chatId: string): Promise<ChatMessage[]> 
 }
 
 // §17: muted=true заглушает (minutes — на время, иначе навсегда); false — включает уведомления.
+// importantOnly — режим «только важные»: заглушено, но ответы мне и упоминания уведомляют.
 export async function setChatMutedRequest(
   chatId: string,
   muted: boolean,
   minutes?: number,
+  importantOnly?: boolean,
 ): Promise<void> {
-  if (muted) await api.post(`/chats/${chatId}/mute`, minutes ? { minutes } : {})
-  else await api.delete(`/chats/${chatId}/mute`)
+  if (muted) {
+    await api.post(`/chats/${chatId}/mute`, {
+      ...(minutes ? { minutes } : {}),
+      ...(importantOnly ? { importantOnly: true } : {}),
+    })
+  } else {
+    await api.delete(`/chats/${chatId}/mute`)
+  }
+}
+
+// ── Пользовательские папки чатов (§2) ────────────────────────────────────────
+// Состав папки правится целиком (итоговый набор галочек), а не дельтой: так два устройства,
+// правящие папку одновременно, не расходятся в непредсказуемое состояние.
+
+export async function fetchChatFolders(): Promise<ChatFolder[]> {
+  const { data } = await api.get<ChatFolder[]>('/chats/folders')
+  return data
+}
+
+export async function createChatFolderRequest(input: {
+  name: string
+  chatIds?: string[]
+}): Promise<ChatFolder> {
+  const { data } = await api.post<ChatFolder>('/chats/folders', input)
+  return data
+}
+
+export async function updateChatFolderRequest(
+  id: string,
+  input: { name?: string; chatIds?: string[]; position?: number },
+): Promise<ChatFolder> {
+  const { data } = await api.patch<ChatFolder>(`/chats/folders/${id}`, input)
+  return data
+}
+
+export async function deleteChatFolderRequest(id: string): Promise<void> {
+  await api.delete(`/chats/folders/${id}`)
 }
 
 // Закрепить/открепить чат «у себя» (сверху списка, Telegram-стиль).

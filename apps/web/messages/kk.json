@@ -1200,7 +1200,23 @@
     "selectChatPrompt": "Кімге жазғыңыз келетінін таңдаңыз",
     "readByCount": "Оқыды: {count, plural, one {# қатысушы} other {# қатысушы}}",
     "sending": "Жіберілуде…",
-    "sendFailedRetry": "Жіберілмеді. Қайталау үшін басыңыз"
+    "sendFailedRetry": "Жіберілмеді. Қайталау үшін басыңыз",
+    "pollVotersMore": "және {count}",
+    "muteImportantOnly": "Тек маңыздылар",
+    "unmuteImportantOnly": "Барлығын қосу",
+    "foldersTitle": "Чат қалталары",
+    "foldersDescription": "Тізім үстіндегі өз бөлімдеріңіз: бірге қарайтын чаттарды жинаңыз.",
+    "foldersEmpty": "Әзірге өз қалтаңыз жоқ",
+    "foldersCreate": "Жаңа қалта",
+    "foldersRename": "Атын өзгерту",
+    "foldersDelete": "Қалтаны жою",
+    "foldersSave": "Сақтау",
+    "foldersCancel": "Бас тарту",
+    "foldersNameLabel": "Қалта атауы",
+    "foldersNamePlaceholder": "Мысалы, «Оқу»",
+    "foldersPickChats": "Қалтадағы чаттар: {count}",
+    "foldersChatCount": "{count, plural, one {# чат} other {# чат}}",
+    "foldersLimit": "{max} қалтадан көп қолданылмайды"
   },
   "Events": {
     "title": "Іс-шаралар",
@@ -2428,6 +2444,16 @@
       "OTHER": "Басқа"
     },
     "checkFields": "Толтырылған өрістерді тексеріңіз",
-    "scanHintService": "Жұмыс уақыты, байланыс және бөлме туралы мәліметтер."
+    "scanHintService": "Жұмыс уақыты, байланыс және бөлме туралы мәліметтер.",
+    "manualTitle": "Бөлме коды",
+    "manualDescription": "Есік үстіндегі QR оқылмаса, жапсырмадағы кодты теріңіз.",
+    "manualLabel": "Жапсырмадағы код",
+    "manualPlaceholder": "ABCD-2345",
+    "manualHint": "QR астындағы сегіз таңба. Сызықшаны термесе де болады.",
+    "manualSubmit": "Бөлмені ашу",
+    "manualCta": "Кодты қолмен енгізу",
+    "layoutLabel": "Басып шығару орналасуы",
+    "layoutFull": "Бір бетке біреу",
+    "layoutCompact": "Бір бетке 4"
   }
 }

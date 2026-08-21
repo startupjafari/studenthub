@@ -21,6 +21,11 @@ import { RoomService } from '../rooms/rooms.service'
 
 // ── select'ы ─────────────────────────────────────────────────────────────────
 
+// Потолки на выборки (BACKEND_RULES §7.2). Пар в дне у группы/преподавателя/помещения
+// единицы, студентов в группе — десятки; лимит фиксируем в запросе.
+const PAIR_CONFLICT_LIMIT = 500
+const GROUP_MEMBERS_LIMIT = 500
+
 const PAIR_SELECT = {
   id: true,
   scheduleId: true,
@@ -507,6 +512,7 @@ export class SchedulesService {
         schedule: { is: { OR: [{ isActive: true }, { id: slot.scheduleId }] } },
         OR: orResource,
       },
+      take: PAIR_CONFLICT_LIMIT,
       select: {
         id: true,
         subject: true,
@@ -618,6 +624,7 @@ export class SchedulesService {
     const members = await this.prisma.user.findMany({
       where: { groupId: pair.groupId, deletedAt: null },
       select: { id: true },
+      take: GROUP_MEMBERS_LIMIT,
     })
     const recipientIds = new Set(members.map((m) => m.id))
     if (pair.teacherId) recipientIds.add(pair.teacherId)

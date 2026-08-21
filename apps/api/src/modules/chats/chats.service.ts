@@ -26,11 +26,43 @@ import { FileService } from '../files/file.service'
 import { PostsService } from '../posts/posts.service'
 import type { EnvVars } from '../../config/env.schema'
 
+/** Проголосовавший в неанонимном опросе (§39). */
+interface PollVoter {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+}
+
 const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } }
 
 // Потолок дельты догона (GET /chats/:id/updates). Больше — клиенту дешевле перезапросить историю,
 // чем склеивать: непрерывность ленты всё равно не гарантируется.
 const CHAT_UPDATES_LIMIT = 200
+
+// Потолки на списки (BACKEND_RULES §7.2 «findMany без take запрещён»). Списки чатов и
+// участников — экранные, поэтому режутся потолком; рассылки участникам обязаны дойти до
+// всех, поэтому читаются батчами (см. allMembers).
+const CHAT_LIST_LIMIT = 100
+/** Личный чат — ровно два участника, поэтому собеседников не больше двух на чат. */
+const PRIVATE_PEER_LIMIT = CHAT_LIST_LIMIT * 2
+const BLOCKED_LIST_LIMIT = 200
+/** Голоса одного пользователя в одном опросе: не больше, чем вариантов. */
+const POLL_VOTES_LIMIT = 100
+/** Сколько голосов неанонимного опроса раскрываем по именам (§39). */
+const POLL_VOTERS_LIMIT = 300
+/** Реакция на сообщение одна на пользователя; потолок — страховка от исторических дублей. */
+const MESSAGE_REACTION_LIMIT = 10
+/** Размер батча при чтении участников чата целиком. */
+const MEMBER_BATCH = 500
+
+/** Участник в контексте рассылки уведомлений: членство + режим заглушения (§17). */
+interface ChatMemberNotifyRow {
+  userId: string
+  mutedAt: Date | null
+  mutedUntil: Date | null
+  muteImportantOnly: boolean
+}
 
 // Заглушён ли участник (§17): навсегда (mutedAt) или на время (mutedUntil ещё не истёк).
 function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): boolean {
@@ -189,6 +221,7 @@ export class ChatsService {
             lastReadAt: true,
             mutedAt: true,
             mutedUntil: true,
+            muteImportantOnly: true,
             isAdmin: true,
             clearedAt: true,
             draft: true,
@@ -228,6 +261,7 @@ export class ChatsService {
       privateIds.length > 0
         ? await this.prisma.chatMember.findMany({
             where: { chatId: { in: privateIds }, userId: { not: viewer.sub } },
+            take: PRIVATE_PEER_LIMIT,
             select: {
               chatId: true,
               userId: true,
@@ -252,6 +286,8 @@ export class ChatsService {
                 { blockedId: viewer.sub, blockerId: { in: otherIds } },
               ],
             },
+            // Не больше двух записей на собеседника (по одной в каждую сторону).
+            take: PRIVATE_PEER_LIMIT,
             select: { blockerId: true, blockedId: true },
           })
         : []
@@ -322,6 +358,8 @@ export class ChatsService {
           unread,
           unreadCount,
           muted: mem ? isMemberMuted(mem) : false,
+          // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
+          mutedImportantOnly: mem?.muteImportantOnly ?? false,
           draft: mem?.draft ?? null,
           // Закреплён «у себя» (Telegram-стиль): показывается сверху списка.
           pinned: pinnedAt != null,
@@ -739,9 +777,37 @@ export class ChatsService {
     await this.assertMembership(viewer.sub, poll.message.chatId)
     const myVotes = await this.prisma.chatPollVote.findMany({
       where: { pollId, userId: viewer.sub },
+      take: POLL_VOTES_LIMIT,
       select: { optionId: true },
     })
     const totalVotes = poll.options.reduce((n, o) => n + o._count.votes, 0)
+
+    // §39: у неанонимного опроса видно, кто как проголосовал — иначе пометка «не анонимный»
+    // ничего не означала. Анонимный опрос личностей не раскрывает никогда, даже автору:
+    // именно это ему и обещано в момент голосования.
+    const votersByOption = new Map<string, PollVoter[]>()
+    if (!poll.anonymous) {
+      const votes = await this.prisma.chatPollVote.findMany({
+        where: { pollId },
+        select: {
+          optionId: true,
+          user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: POLL_VOTERS_LIMIT,
+      })
+      for (const v of votes) {
+        const list = votersByOption.get(v.optionId) ?? []
+        list.push({
+          id: v.user.id,
+          firstName: v.user.firstName,
+          lastName: v.user.lastName,
+          avatarUrl: v.user.avatarUrl,
+        })
+        votersByOption.set(v.optionId, list)
+      }
+    }
+
     return {
       id: poll.id,
       anonymous: poll.anonymous,
@@ -754,6 +820,9 @@ export class ChatsService {
         text: o.text,
         order: o.order,
         votes: o._count.votes,
+        // Пусто у анонимного опроса и у варианта, чьи голоса не попали в POLL_VOTERS_LIMIT:
+        // счётчик `votes` остаётся полным, имена — только для первых проголосовавших.
+        voters: votersByOption.get(o.id) ?? [],
       })),
       myOptionIds: myVotes.map((v) => v.optionId),
     }
@@ -787,6 +856,7 @@ export class ChatsService {
 
     const existing = await this.prisma.chatPollVote.findMany({
       where: { pollId, userId: viewer.sub },
+      take: POLL_VOTES_LIMIT,
       select: { id: true },
     })
     if (existing.length > 0 && !poll.allowRevote) {
@@ -945,12 +1015,96 @@ export class ChatsService {
   }
 
   // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
+  /**
+   * Кому из заглушённых с режимом «только важные» (§17) сообщение всё равно адресовано:
+   * ответ на его сообщение или упоминание его по имени.
+   *
+   * Упоминания в чате — обычный текст, отдельной сущности у них нет: композер вставляет
+   * «@Фамилия Имя», поэтому по этой же строке и ищем (плюс обратный порядок — набрать руками
+   * можно как угодно). Имена подтягиваем только для тех, у кого включён режим, и только если
+   * в сообщении вообще есть «@»: на каждое сообщение в чате лишний join не нужен.
+   */
+  private async importantRecipients(
+    members: ChatMemberNotifyRow[],
+    message: MessageRow,
+  ): Promise<Set<string>> {
+    const candidates = members.filter((m) => m.muteImportantOnly && isMemberMuted(m))
+    if (candidates.length === 0) return new Set()
+
+    const out = new Set<string>()
+    // Ответ на моё сообщение — важное всегда, никакого разбора текста не нужно.
+    const replyToSenderId = message.replyTo?.senderId
+    if (replyToSenderId) {
+      for (const m of candidates) {
+        if (m.userId === replyToSenderId) out.add(m.userId)
+      }
+    }
+
+    if (!message.content.includes('@')) return out
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: candidates.map((m) => m.userId) } },
+      select: { id: true, firstName: true, lastName: true },
+      take: candidates.length,
+    })
+    const text = message.content.toLowerCase()
+    for (const u of users) {
+      const asComposed = `@${u.lastName} ${u.firstName}`.toLowerCase()
+      const reversed = `@${u.firstName} ${u.lastName}`.toLowerCase()
+      if (text.includes(asComposed) || text.includes(reversed)) out.add(u.id)
+    }
+    return out
+  }
+
+  /**
+   * Все участники чата — батчами по курсору.
+   *
+   * Рассылки (`chat:activity`, `chat:pinned`, уведомления о новом сообщении) обязаны дойти
+   * до каждого участника, поэтому обрезать список потолком нельзя: в группе на 600 человек
+   * сотня молча осталась бы без сигнала. Но и тянуть чат целиком одним запросом нельзя
+   * (BACKEND_RULES §7.2), поэтому читаем страницами по MEMBER_BATCH.
+   */
+  private async allMembers(
+    chatId: string,
+    opts: { exceptUserId?: string } = {},
+  ): Promise<ChatMemberNotifyRow[]> {
+    const out: ChatMemberNotifyRow[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await this.prisma.chatMember.findMany({
+        where: {
+          chatId,
+          ...(opts.exceptUserId ? { userId: { not: opts.exceptUserId } } : {}),
+        },
+        select: {
+          id: true,
+          userId: true,
+          mutedAt: true,
+          mutedUntil: true,
+          muteImportantOnly: true,
+        },
+        orderBy: { id: 'asc' },
+        take: MEMBER_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      if (batch.length === 0) break
+      for (const m of batch) {
+        out.push({
+          userId: m.userId,
+          mutedAt: m.mutedAt,
+          mutedUntil: m.mutedUntil,
+          muteImportantOnly: m.muteImportantOnly,
+        })
+      }
+      if (batch.length < MEMBER_BATCH) break
+      cursor = batch.at(-1)?.id
+    }
+    return out
+  }
+
   // Аналог chat:activity из notifyNewMessage: не создаёт уведомление, только просит рефетч.
   private async pingChatList(chatId: string, extraUserIds: string[] = []): Promise<void> {
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId },
-      select: { userId: true },
-    })
+    const members = await this.allMembers(chatId)
     const ids = new Set<string>([...members.map((m) => m.userId), ...extraUserIds])
     for (const id of ids) this.realtime.emitToUser(id, 'chat:activity', { chatId })
   }
@@ -1151,10 +1305,7 @@ export class ChatsService {
       where: { chatId, hiddenAt: { not: null } },
       data: { hiddenAt: null },
     })
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId, userId: { not: senderId } },
-      select: { userId: true, mutedAt: true, mutedUntil: true },
-    })
+    const members = await this.allMembers(chatId, { exceptUserId: senderId })
     // Живой список чатов у всех участников (в т.ч. заглушённых): message:new уходит только в комнату
     // chat:{id} (её джойнят только с открытым чатом), поэтому для превью/счётчика/порядка в списке
     // шлём тихий сигнал в user:{id}. Он НЕ создаёт уведомление — только просит обновить список.
@@ -1162,10 +1313,13 @@ export class ChatsService {
       this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
     }
     // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую.
-    // Заглушённые (mutedAt != null) — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
+    // Заглушённые — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
+    const important = await this.importantRecipients(members, message)
     const recipientIds = members
-      .filter((m) => !isMemberMuted(m) && !viewing.has(m.userId))
+      .filter((m) => !viewing.has(m.userId))
+      // §17: заглушённый участник получает уведомление, только если сообщение «важное» для него.
+      .filter((m) => !isMemberMuted(m) || important.has(m.userId))
       .map((m) => m.userId)
     if (recipientIds.length > 0) {
       const preview = message.content.slice(0, 140) || '📎 Вложение'
@@ -1257,10 +1411,7 @@ export class ChatsService {
     })
     // Комната chat:{id} есть только у тех, кто открыл чат. Чтобы закрепление подтянулось и при
     // закрытом чате, шлём сигнал в user:{id} каждому участнику — клиент инвалидирует pinned/messages.
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId: msg.chatId },
-      select: { userId: true },
-    })
+    const members = await this.allMembers(msg.chatId)
     for (const m of members) {
       this.realtime.emitToUser(m.userId, 'chat:pinned', { chatId: msg.chatId })
     }
@@ -1355,6 +1506,7 @@ export class ChatsService {
     await this.assertMembership(userId, msg.chatId)
     const existing = await this.prisma.messageReaction.findMany({
       where: { messageId, userId },
+      take: MESSAGE_REACTION_LIMIT,
       select: { id: true, emoji: true },
     })
     const same = existing.find((r) => r.emoji === emoji)
@@ -1493,20 +1645,28 @@ export class ChatsService {
 
   /** Заглушить/включить уведомления о новых сообщениях чата для участника. */
   // §17: until = 'forever' (навсегда), Date (до момента), null (снять).
+  // importantOnly — режим «только важные»: чат заглушён, но ответы на мои сообщения и
+  // упоминания меня по имени уведомление всё равно создают. При снятии заглушения флаг
+  // сбрасывается: он описывает исключение из заглушения, а не самостоятельную настройку.
   async setMuted(
     userId: string,
     chatId: string,
     until: Date | 'forever' | null,
-  ): Promise<{ chatId: string; muted: boolean }> {
+    importantOnly = false,
+  ): Promise<{ chatId: string; muted: boolean; importantOnly: boolean }> {
     await this.assertMembership(userId, chatId)
+    const muted = until !== null
     const data =
       until === 'forever'
         ? { mutedAt: new Date(), mutedUntil: null }
         : until
           ? { mutedAt: null, mutedUntil: until }
           : { mutedAt: null, mutedUntil: null }
-    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data })
-    return { chatId, muted: until !== null }
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, userId },
+      data: { ...data, muteImportantOnly: muted ? importantOnly : false },
+    })
+    return { chatId, muted, importantOnly: muted ? importantOnly : false }
   }
 
   /** Закрепить/открепить чат «у себя» (Telegram-стиль): персонально, влияет только на порядок списка. */
@@ -1531,10 +1691,7 @@ export class ChatsService {
     chatId: string,
   ): Promise<{ userId: string; online: boolean }[]> {
     await this.assertMembership(userId, chatId)
-    const members = await this.prisma.chatMember.findMany({
-      where: { chatId },
-      select: { userId: true },
-    })
+    const members = await this.allMembers(chatId)
     const ids = members.map((m) => m.userId)
     const online = new Set(this.realtime.onlineAmong(ids))
     return ids.map((id) => ({ userId: id, online: online.has(id) }))
@@ -1879,13 +2036,14 @@ export class ChatsService {
       where: { blockerId: actorId },
       select: { blockedId: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      take: BLOCKED_LIST_LIMIT,
     })
     const ids = blocks.map((b) => b.blockedId)
     const users =
       ids.length > 0
         ? await this.prisma.user.findMany({
             where: { id: { in: ids } },
+            take: BLOCKED_LIST_LIMIT,
             select: { id: true, firstName: true, lastName: true, avatarUrl: true },
           })
         : []
