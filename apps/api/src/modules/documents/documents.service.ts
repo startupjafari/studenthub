@@ -18,6 +18,11 @@ import { AuditService } from '../../common/audit/audit.service'
 import { DocumentTypesService } from './document-types.service'
 
 // Документы принимаем только как PDF/JPG/PNG (ТЗ §5, шаг 2).
+// Потолки на выборки (BACKEND_RULES §7.2). Страниц у документа не больше, чем разрешает
+// схема reorder (30), грантов на документ — единицы; лимит фиксируем в запросе.
+const DOCUMENT_FILES_LIMIT = 30
+const DOCUMENT_ACCESS_LIMIT = 200
+
 const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
 const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
@@ -176,6 +181,39 @@ export class DocumentsService {
     return { id: file.id, mime: file.mime, size: file.size }
   }
 
+  /**
+   * Прямая загрузка файла документа (скан крупнее порога буферной загрузки — типичный
+   * случай: диплом в 300 dpi). Шаг 1: подписанная ссылка.
+   */
+  async presignFile(
+    actor: JwtPayload,
+    mime: string,
+  ): Promise<{ key: string; url: string; expiresAt: string }> {
+    if (!DOCUMENT_MIME.has(mime)) {
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Поддерживаются только PDF, JPG и PNG')
+    }
+    return this.files.presignPut(this.bucket, mime, actor.sub)
+  }
+
+  /**
+   * Шаг 3: подтверждение. Реальный тип определяет FileService по содержимому объекта —
+   * заявленный на шаге 1 MIME здесь не участвует, иначе PDF-«обёртка» пропустила бы что угодно.
+   */
+  async confirmFile(
+    actor: JwtPayload,
+    key: string,
+    name?: string,
+  ): Promise<{ id: string; mime: string; size: number }> {
+    const file = await this.files.confirmDirectUpload({
+      bucket: this.bucket,
+      key,
+      ownerId: actor.sub,
+      allowedMimes: DOCUMENT_MIME,
+      name,
+    })
+    return { id: file.id, mime: file.mime, size: file.size }
+  }
+
   /** Прикрепить уже загруженные файлы к документу (страницы/стороны), сохраняя порядок. */
   async attachFiles(
     actor: JwtPayload,
@@ -191,6 +229,7 @@ export class DocumentsService {
         documentId: null,
       },
       select: { id: true },
+      take: DOCUMENT_FILES_LIMIT,
     })
     if (files.length !== input.fileIds.length) {
       throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
@@ -225,6 +264,7 @@ export class DocumentsService {
     const files = await this.prisma.file.findMany({
       where: { documentId: id },
       select: { id: true },
+      take: DOCUMENT_FILES_LIMIT,
     })
     const ids = new Set(files.map((f) => f.id))
     if (input.fileIds.length !== files.length || !input.fileIds.every((x) => ids.has(x))) {
@@ -311,6 +351,7 @@ export class DocumentsService {
     const rows = await this.prisma.documentAccess.findMany({
       where: { documentId: id },
       orderBy: { grantedAt: 'desc' },
+      take: DOCUMENT_ACCESS_LIMIT,
     })
     const now = Date.now()
     return rows.map((r) => ({

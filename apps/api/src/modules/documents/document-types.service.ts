@@ -9,6 +9,9 @@ import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
+// Переопределений типов не больше, чем типов в каталоге плюс собственные (BACKEND_RULES §7.2).
+const DOCUMENT_TYPE_OVERRIDES_LIMIT = 200
+
 // Набор полей по умолчанию для custom-типа, если вуз не указал свой.
 const DEFAULT_CUSTOM_FIELDS = ['comment']
 
@@ -44,7 +47,10 @@ export class DocumentTypesService {
   /** Эффективный каталог типов для вуза: merge(static, overrides). */
   async effective(universityId: string | null): Promise<EffectiveDocumentType[]> {
     const overrides = universityId
-      ? await this.prisma.documentType.findMany({ where: { universityId } })
+      ? await this.prisma.documentType.findMany({
+          where: { universityId },
+          take: DOCUMENT_TYPE_OVERRIDES_LIMIT,
+        })
       : []
     const byType = new Map(overrides.map((o) => [o.typeId, o]))
 

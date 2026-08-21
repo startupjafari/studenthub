@@ -13,6 +13,9 @@ import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 
+// Потолки на выборки (BACKEND_RULES §7.2): ведомость ограничена размером группы.
+const GROUP_STUDENTS_LIMIT = 200
+
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 function isPlatform(role: Role): boolean {
@@ -95,8 +98,13 @@ export class ExamsService {
         },
         select: { id: true, firstName: true, lastName: true },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        take: GROUP_STUDENTS_LIMIT,
       }),
-      this.prisma.examResult.findMany({ where: { examId }, select: RESULT_SELECT }),
+      this.prisma.examResult.findMany({
+        where: { examId },
+        select: RESULT_SELECT,
+        take: GROUP_STUDENTS_LIMIT,
+      }),
     ])
     const byStudent = new Map(results.map((r) => [r.student.id, r]))
     return {
@@ -171,6 +179,7 @@ export class ExamsService {
     const groupStudents = await this.prisma.user.findMany({
       where: { groupId: exam.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
       select: { id: true },
+      take: GROUP_STUDENTS_LIMIT,
     })
     const allowed = new Set(groupStudents.map((s) => s.id))
     for (const e of input.entries) {

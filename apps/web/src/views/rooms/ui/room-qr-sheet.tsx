@@ -7,14 +7,85 @@ import { isAcademicRoomKind } from '@studenthub/shared-schemas'
 import type { RoomQr } from '../../../entities/room'
 import { formatRoomCode } from '../lib/format-code'
 
-// Ф16: печатный лист наклеек. Одна наклейка = одна страница A4 (класс sh-print-page),
-// интерфейс приложения при печати скрыт правилами @media print в globals.css.
+// Ф16: печатный лист наклеек. Интерфейс приложения при печати скрыт правилами
+// @media print в globals.css, печатается только .sh-print-root.
 //
-// Вёрстка рассчитана на печать, а не на экран: крупный номер помещения читается издалека,
-// QR — 62 мм (сканируется с ~1.5 м обычной камерой), под ним код текстом на случай,
-// если QR заляпан или камера не берёт.
-export function RoomQrSheet({ items }: { items: RoomQr[] }) {
+// Две раскладки:
+//   full    — одна наклейка на страницу A4: крупный номер читается издалека, QR 62 мм
+//             (сканируется с ~1.5 м обычной камерой);
+//   compact — четыре наклейки на страницу под разрезание. Нужна, когда вуз обходит
+//             корпус и клеит коды десятками: раньше на 40 помещений уходило 40 листов.
+//             QR здесь 45 мм — с расстояния вытянутой руки берётся так же, а вот номер
+//             помещения издалека уже не прочитать, поэтому это не замена full-режиму.
+export type QrSheetLayout = 'full' | 'compact'
+
+/** Сколько наклеек влезает на A4 в компактном режиме (2×2 с полем под разрез). */
+const COMPACT_PER_PAGE = 4
+
+export function RoomQrSheet({
+  items,
+  layout = 'full',
+}: {
+  items: RoomQr[]
+  layout?: QrSheetLayout
+}) {
   const t = useTranslations('Rooms')
+
+  if (layout === 'compact') {
+    const pages: RoomQr[][] = []
+    for (let i = 0; i < items.length; i += COMPACT_PER_PAGE) {
+      pages.push(items.slice(i, i + COMPACT_PER_PAGE))
+    }
+    return (
+      <div className="sh-print-root">
+        {pages.map((page) => (
+          <div
+            key={page[0]?.roomId}
+            className="sh-print-page mx-auto grid w-full max-w-[190mm] grid-cols-2 gap-0"
+          >
+            {page.map((item) => (
+              <article
+                key={item.roomId}
+                // Пунктир — линия разреза: без неё непонятно, где резать лист.
+                className="flex flex-col items-center border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-slate-900"
+              >
+                <p className="text-[9pt] font-semibold tracking-[0.16em] text-blue-700 uppercase">
+                  {t(`kind.${item.kind}`)}
+                </p>
+                <h2 className="mt-1 text-[28pt] leading-none font-bold tracking-tight">
+                  {item.name}
+                </h2>
+                {(item.building || item.floor !== null) && (
+                  <p className="mt-1 text-[9pt] text-slate-500">
+                    {[
+                      item.building ? t('buildingValue', { value: item.building }) : null,
+                      item.floor !== null ? t('floorValue', { value: item.floor }) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                )}
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2">
+                  <Image
+                    src={item.qr}
+                    alt={t('qrAlt', { room: item.name })}
+                    width={170}
+                    height={170}
+                    unoptimized
+                    className="size-[45mm]"
+                  />
+                </div>
+                <p className="mt-2 text-[9pt] font-semibold text-blue-700">{t('scanCta')}</p>
+                <p className="mt-1 font-mono text-[8pt] tracking-[0.2em] text-slate-400">
+                  {formatRoomCode(item.code)}
+                </p>
+              </article>
+            ))}
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="sh-print-root">

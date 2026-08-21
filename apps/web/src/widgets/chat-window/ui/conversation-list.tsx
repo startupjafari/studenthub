@@ -9,6 +9,7 @@ import {
   Bookmark,
   Check,
   CheckCheck,
+  FolderCog,
   Loader2,
   Pin,
   PinOff,
@@ -19,23 +20,11 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import type { ChatListItem, ChatTypeValue } from '../../../entities/chat'
+import type { ChatFolder, ChatListItem } from '../../../entities/chat'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
-
-// Папки чатов (Telegram-стиль §2): клиентский фильтр поверх готового GET /chats.
-// Все/Непрочитанные — всегда; тип-папки показываем только если в них есть чаты.
-type ChatFolder = { key: string; types?: ChatTypeValue[]; unread?: boolean }
-const CHAT_FOLDERS: ChatFolder[] = [
-  { key: 'folderAll' },
-  { key: 'folderUnread', unread: true },
-  { key: 'folderPersonal', types: ['PRIVATE'] },
-  { key: 'folderGroups', types: ['GROUP', 'GROUP_OFFICIAL'] },
-  { key: 'folderSubjects', types: ['SUBJECT'] },
-  { key: 'folderDean', types: ['DEAN'] },
-  { key: 'folderUniversity', types: ['FACULTY', 'SUPPORT'] },
-]
+import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
 type MsgSearchItem = {
@@ -81,6 +70,9 @@ export type ConversationListProps = {
   onMarkRead: (id: string) => void
   onTogglePin: (c: ChatListItem) => void
   onToggleMute: (c: ChatListItem) => void
+  // Пользовательские папки (§2) и вход в их настройку — данные и мутации живут в родителе.
+  folders: ChatFolder[]
+  onManageFolders: () => void
   onDeleteChat: (c: ChatListItem) => void
 }
 
@@ -118,28 +110,22 @@ export function ConversationList({
   onTogglePin,
   onToggleMute,
   onDeleteChat,
+  folders,
+  onManageFolders,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
   const [folder, setFolder] = useState<string>('folderAll')
 
-  // Вкладки-папки: Все/Непрочитанные всегда; тип-папки — только непустые (иначе бар зашумлён).
-  const folderTabs = useMemo(
-    () =>
-      CHAT_FOLDERS.filter(
-        (f) =>
-          f.key === 'folderAll' ||
-          f.key === 'folderUnread' ||
-          chats.some((c) => f.types?.includes(c.type)),
-      ),
-    [chats],
-  )
+  const folderTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
   const unreadTotal = useMemo(() => chats.filter((c) => c.unreadCount > 0).length, [chats])
-  const visibleChats = useMemo(() => {
-    const f = CHAT_FOLDERS.find((x) => x.key === folder)
-    if (!f || f.key === 'folderAll') return chats
-    if (f.unread) return chats.filter((c) => c.unreadCount > 0)
-    return chats.filter((c) => f.types?.includes(c.type))
-  }, [chats, folder])
+  const visibleChats = useMemo(
+    () =>
+      filterChatsByTab(
+        chats,
+        folderTabs.find((f) => f.id === folder),
+      ),
+    [chats, folderTabs, folder],
+  )
 
   return (
     <aside
@@ -244,16 +230,16 @@ export function ConversationList({
         </div>
       </div>
       {/* Папки-фильтры (Telegram-стиль §2) — только вне режима поиска. */}
-      {searchTerm.length < 2 && chats.length > 0 && folderTabs.length > 1 && (
+      {searchTerm.length < 2 && chats.length > 0 && (
         <div className="flex gap-1 overflow-x-auto border-b border-border px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none]">
           {folderTabs.map((f) => {
-            const active = folder === f.key
-            const badge = f.key === 'folderUnread' && unreadTotal > 0 ? unreadTotal : null
+            const active = folder === f.id
+            const badge = f.id === 'folderUnread' && unreadTotal > 0 ? unreadTotal : null
             return (
               <button
-                key={f.key}
+                key={f.id}
                 type="button"
-                onClick={() => setFolder(f.key)}
+                onClick={() => setFolder(f.id)}
                 className={cn(
                   'flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors',
                   active
@@ -261,7 +247,7 @@ export function ConversationList({
                     : 'text-muted-foreground hover:bg-muted',
                 )}
               >
-                {t(f.key)}
+                {folderTabLabel(f, t)}
                 {badge != null && (
                   <span
                     className={cn(
@@ -275,6 +261,16 @@ export function ConversationList({
               </button>
             )
           })}
+          {/* Свои папки настраиваются здесь же: вкладки — единственное место, где они видны. */}
+          <button
+            type="button"
+            onClick={onManageFolders}
+            aria-label={t('foldersTitle')}
+            title={t('foldersTitle')}
+            className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <FolderCog className="size-3.5" aria-hidden />
+          </button>
         </div>
       )}
       <div

@@ -8,6 +8,10 @@ import { chatKeys, fetchPollResults, votePollRequest } from '../api/chat-api'
 import type { ChatPoll } from '../model/types'
 import { cn } from '../../../shared/lib/utils'
 
+// Сколько имён проголосовавших показываем в пузыре, прежде чем свернуть в «и ещё N»:
+// список должен помещаться в сообщение, а не превращать его в простыню.
+const VOTERS_SHOWN = 5
+
 // Детерминированный порядок при randomOrder: сортируем по хэшу (seed + optionId).
 function hash(s: string): number {
   let h = 0
@@ -85,41 +89,58 @@ export function ChatPollView({
       )}
       <div className="mt-1.5 space-y-1.5">
         {options.map((o) => {
-          const votes = r?.options.find((x) => x.id === o.id)?.votes ?? 0
+          const res = r?.options.find((x) => x.id === o.id)
+          const votes = res?.votes ?? 0
+          const voters = res?.voters ?? []
           const pct = total > 0 ? Math.round((votes / total) * 100) : 0
           const selected = my.has(o.id)
           return (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => toggle(o.id)}
-              disabled={closed || vote.isPending}
-              className={cn(
-                'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-default',
-                mine ? 'bg-primary-foreground/10' : 'bg-background/60',
-              )}
-            >
-              {/* Шкала-заливка по проценту. */}
-              <span
+            <div key={o.id}>
+              <button
+                type="button"
+                onClick={() => toggle(o.id)}
+                disabled={closed || vote.isPending}
                 className={cn(
-                  'absolute inset-y-0 left-0 rounded-lg transition-[width] duration-500',
-                  mine ? 'bg-primary-foreground/20' : 'bg-primary/15',
-                )}
-                style={{ width: `${pct}%` }}
-                aria-hidden
-              />
-              <span
-                className={cn(
-                  'relative z-10 flex size-4 shrink-0 items-center justify-center rounded-full border',
-                  poll.multiple ? 'rounded-[0.3rem]' : 'rounded-full',
-                  selected ? 'border-current bg-current/20' : 'border-current/40',
+                  'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-default',
+                  mine ? 'bg-primary-foreground/10' : 'bg-background/60',
                 )}
               >
-                {selected && <Check className="size-3" aria-hidden />}
-              </span>
-              <span className="relative z-10 min-w-0 flex-1 break-words">{o.text}</span>
-              <span className="relative z-10 shrink-0 text-xs tabular-nums opacity-70">{pct}%</span>
-            </button>
+                {/* Шкала-заливка по проценту. */}
+                <span
+                  className={cn(
+                    'absolute inset-y-0 left-0 rounded-lg transition-[width] duration-500',
+                    mine ? 'bg-primary-foreground/20' : 'bg-primary/15',
+                  )}
+                  style={{ width: `${pct}%` }}
+                  aria-hidden
+                />
+                <span
+                  className={cn(
+                    'relative z-10 flex size-4 shrink-0 items-center justify-center rounded-full border',
+                    poll.multiple ? 'rounded-[0.3rem]' : 'rounded-full',
+                    selected ? 'border-current bg-current/20' : 'border-current/40',
+                  )}
+                >
+                  {selected && <Check className="size-3" aria-hidden />}
+                </span>
+                <span className="relative z-10 min-w-0 flex-1 break-words">{o.text}</span>
+                <span className="relative z-10 shrink-0 text-xs tabular-nums opacity-70">
+                  {pct}%
+                </span>
+              </button>
+              {/* §39: в неанонимном опросе видно, кто выбрал вариант. Список приходит только
+                для неанонимных — здесь нечего дополнительно проверять. */}
+              {voters.length > 0 && (
+                <p className="mt-0.5 pl-8 text-[0.7rem] leading-snug opacity-70">
+                  {voters
+                    .slice(0, VOTERS_SHOWN)
+                    .map((v) => `${v.lastName} ${v.firstName}`.trim())
+                    .join(', ')}
+                  {voters.length > VOTERS_SHOWN &&
+                    ` ${t('pollVotersMore', { count: voters.length - VOTERS_SHOWN })}`}
+                </p>
+              )}
+            </div>
           )
         })}
       </div>

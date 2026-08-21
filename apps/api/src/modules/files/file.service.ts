@@ -24,6 +24,10 @@ export interface UploadFileParams {
   name?: string
 }
 
+// Сколько байт читать из MinIO для определения типа: file-type смотрит только заголовок,
+// 4100 байт — рекомендованный минимум библиотеки, покрывающий все её сигнатуры.
+const MIME_SNIFF_BYTES = 4100
+
 // Поля File, безопасные для отдачи наружу (passwordHash и т.п. здесь неприменимы, но select фиксируем).
 const FILE_SELECT = {
   id: true,
@@ -31,6 +35,9 @@ const FILE_SELECT = {
   key: true,
   mime: true,
   size: true,
+  // Оригинальное имя файла: нужно и чату (отображение как в Telegram), и подтверждению
+  // прямой загрузки — иначе принимаем name, но наружу его не отдаём.
+  name: true,
   ownerId: true,
   materialId: true,
   messageId: true,
@@ -117,29 +124,56 @@ export class FileService {
   /**
    * Presigned PUT URL для прямой загрузки крупного объекта в MinIO, минуя API-процесс
    * (docs/BACKEND_RULES.md §8: файлы > порога — только presigned). Ключ генерируется здесь.
+   *
+   * Ключ ПРЕФИКСИРУЕТСЯ идентификатором владельца, и `confirmDirectUpload` требует этот
+   * префикс. Без привязки владелец подтверждения не проверяем никак: зная ключ чужого
+   * объекта (а он виден в presigned-ссылке на скачивание), пользователь мог бы объявить
+   * чужой объект своим файлом и удалить его вместе со «своей» записью.
+   *
+   * `mime` от клиента влияет ТОЛЬКО на расширение в ключе — реальный тип определяется
+   * на подтверждении по содержимому.
    */
-  async presignPut(bucket: string, mime: string): Promise<{ key: string; url: string }> {
+  async presignPut(
+    bucket: string,
+    mime: string,
+    ownerId: string,
+  ): Promise<{ key: string; url: string; expiresAt: string }> {
     const ext = (mime.split('/')[1] ?? 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 10) || 'bin'
-    const key = `${randomUUID()}.${ext}`
-    const url = await this.minioPublic.presignedPutObject(
-      bucket,
-      key,
-      TTL.PRESIGNED_URL_MINUTES * 60,
-    )
-    return { key, url }
+    const key = `${ownerId}/${randomUUID()}.${ext}`
+    const ttlSeconds = TTL.PRESIGNED_URL_MINUTES * 60
+    const url = await this.minioPublic.presignedPutObject(bucket, key, ttlSeconds)
+    return { key, url, expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString() }
   }
 
   /**
-   * Подтверждение прямой (presigned) загрузки: объект должен существовать в бакете; размер
-   * берётся из MinIO (stat), не из тела запроса, и проверяется по лимиту. Затем создаётся File.
+   * Подтверждение прямой (presigned) загрузки. Ничему из запроса не верим:
+   *
+   * - ключ обязан принадлежать вызывающему (префикс владельца, см. `presignPut`);
+   * - размер берётся из MinIO (`statObject`), не из тела;
+   * - **тип определяется по magic bytes** — читаем начало объекта из MinIO и прогоняем
+   *   через тот же детектор, что и буферная загрузка. При presigned API не видит байтов,
+   *   и объявленный клиентом MIME здесь был бы просто утверждением: можно объявить
+   *   `application/pdf`, а положить SVG со скриптом — он потом откроется в браузере
+   *   по presigned-ссылке (§14.9).
+   *
+   * Любая неудачная проверка удаляет объект: в приватном бакете не должно оставаться
+   * мусора, за который никто не отвечает.
    */
   async confirmDirectUpload(params: {
     bucket: string
     key: string
     ownerId: string
-    mime: string
-    maxBytes: number
+    /** Если задано — реальная категория обязана совпасть (напр. аватар → IMAGE). */
+    expectedCategory?: FileCategory
+    /** Если задано — реальный MIME обязан входить в набор (напр. документ → PDF/JPG/PNG). */
+    allowedMimes?: ReadonlySet<string>
+    materialId?: string
+    name?: string
   }) {
+    if (!params.key.startsWith(`${params.ownerId}/`)) {
+      throw new AppException('FORBIDDEN', 'Ключ не принадлежит вызывающему')
+    }
+
     let size: number
     try {
       const stat = await this.minio.statObject(params.bucket, params.key)
@@ -147,20 +181,81 @@ export class FileService {
     } catch {
       throw new AppException('NOT_FOUND', 'Объект не найден — загрузка не завершена')
     }
-    if (size > params.maxBytes) {
-      await this.minio.removeObject(params.bucket, params.key)
-      throw new AppException('FILE_TOO_LARGE', `Файл превышает лимит ${params.maxBytes} байт`)
+
+    const detected = await this.detectUploadedType(params.bucket, params.key)
+    if (!detected) {
+      await this.discard(params.bucket, params.key)
+      throw new AppException(
+        'FILE_TYPE_NOT_ALLOWED',
+        'Тип файла не поддерживается или не распознан',
+      )
     }
-    return this.prisma.file.create({
+    if (params.expectedCategory && detected.category !== params.expectedCategory) {
+      await this.discard(params.bucket, params.key)
+      throw new AppException(
+        'FILE_TYPE_NOT_ALLOWED',
+        `Ожидается файл категории ${params.expectedCategory}`,
+      )
+    }
+    if (params.allowedMimes && !params.allowedMimes.has(detected.mime)) {
+      await this.discard(params.bucket, params.key)
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Тип файла не поддерживается')
+    }
+
+    const maxBytes = FILE_UPLOAD.MAX_BYTES[detected.category]
+    if (size > maxBytes) {
+      await this.discard(params.bucket, params.key)
+      throw new AppException('FILE_TOO_LARGE', `Файл превышает лимит ${maxBytes} байт`)
+    }
+
+    const file = await this.prisma.file.create({
       data: {
         bucket: params.bucket,
         key: params.key,
-        mime: params.mime,
+        mime: detected.mime,
         size,
         ownerId: params.ownerId,
+        materialId: params.materialId,
+        name: params.name?.slice(0, 255) || null,
       },
       select: FILE_SELECT,
     })
+    this.logger.log(
+      `Подтверждена прямая загрузка ${file.id} (${detected.mime}, ${size} байт) → ${params.bucket}`,
+    )
+    return file
+  }
+
+  /** Тип загруженного объекта по началу содержимого (magic bytes хватает первых килобайт). */
+  private async detectUploadedType(bucket: string, key: string) {
+    let head: Buffer
+    try {
+      head = await this.readHead(bucket, key, MIME_SNIFF_BYTES)
+    } catch {
+      throw new AppException('NOT_FOUND', 'Объект недоступен для проверки типа')
+    }
+    return detectAllowedFileType(head)
+  }
+
+  /** Первые `length` байт объекта из MinIO. */
+  private async readHead(bucket: string, key: string, length: number): Promise<Buffer> {
+    const stream = await this.minio.getPartialObject(bucket, key, 0, length)
+    const chunks: Buffer[] = []
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer)
+    }
+    return Buffer.concat(chunks)
+  }
+
+  /** Удалить объект, не сорвав основную ошибку, если удаление тоже не удалось. */
+  private async discard(bucket: string, key: string): Promise<void> {
+    try {
+      await this.minio.removeObject(bucket, key)
+    } catch (error) {
+      this.logger.warn(
+        `Не удалось удалить отклонённый объект ${bucket}/${key}: ${(error as Error).message}`,
+      )
+    }
   }
 
   /**

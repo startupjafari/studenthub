@@ -8,6 +8,7 @@ import {
   Clock,
   DoorOpen,
   Info,
+  Keyboard,
   Layers,
   Phone,
   RefreshCw,
@@ -60,6 +61,9 @@ export function RoomStatusView({ code }: { code: string }) {
         description={t('notFoundDesc')}
         onRetry={() => void query.refetch()}
         showHome
+        // Неверно прочитанный с наклейки код — самая частая причина попасть сюда,
+        // поэтому даём набрать его руками, а не только «на главную».
+        action={{ href: '/r', label: t('manualCta'), icon: Keyboard }}
       />
     )
   }

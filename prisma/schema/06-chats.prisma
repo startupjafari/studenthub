@@ -26,11 +26,13 @@ model Chat {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  university University?  @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  faculty    Faculty?     @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  group      Group?       @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  members    ChatMember[]
-  messages   Message[]
+  university  University?      @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty     Faculty?         @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group       Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  members     ChatMember[]
+  messages    Message[]
+  // Вхождения чата в пользовательские папки (§2): удаление чата убирает и их.
+  folderItems ChatFolderItem[]
 
   @@index([type])
   @@index([universityId])
@@ -40,31 +42,35 @@ model Chat {
 }
 
 model ChatMember {
-  id         String    @id @default(uuid())
-  chatId     String    @map("chat_id")
-  userId     String    @map("user_id")
+  id                String    @id @default(uuid())
+  chatId            String    @map("chat_id")
+  userId            String    @map("user_id")
   // Время последнего прочтения — база для непрочитанных и статусов message:read.
-  lastReadAt DateTime? @map("last_read_at")
+  lastReadAt        DateTime? @map("last_read_at")
   // Отключение уведомлений о новых сообщениях для этого участника (Ф9+): не null — заглушено «навсегда».
-  mutedAt    DateTime? @map("muted_at")
+  mutedAt           DateTime? @map("muted_at")
   // Заглушено до момента (§17, mute на время): участник считается muted, пока mutedUntil > now.
-  mutedUntil DateTime? @map("muted_until")
+  mutedUntil        DateTime? @map("muted_until")
+  // §17, режим «только важные»: пока чат заглушён, уведомления всё равно приходят на ответы
+  // на мои сообщения и на упоминания меня по имени. Само заглушение задаётся mutedAt/mutedUntil —
+  // без него флаг ни на что не влияет (нечего пропускать).
+  muteImportantOnly Boolean   @default(false) @map("mute_important_only")
   // Бан участника в группе (Ф9+): не null — забанен создателем, не может писать и не видит чат.
-  bannedAt   DateTime? @map("banned_at")
+  bannedAt          DateTime? @map("banned_at")
   // Админ группы (Ф9+): может банить, менять аватар/название, добавлять/убирать участников.
-  isAdmin    Boolean   @default(false) @map("is_admin")
+  isAdmin           Boolean   @default(false) @map("is_admin")
   // Очистка истории «для меня» (Ф9+): сообщения с createdAt <= clearedAt скрыты у этого участника.
-  clearedAt  DateTime? @map("cleared_at")
+  clearedAt         DateTime? @map("cleared_at")
   // «Удалить чат у себя» для PRIVATE (Telegram-стиль): не null — чат скрыт из списка этого участника.
   // Членство сохраняется (сообщения продолжают приходить); новое сообщение сбрасывает hiddenAt → чат возвращается.
-  hiddenAt   DateTime? @map("hidden_at")
+  hiddenAt          DateTime? @map("hidden_at")
   // Черновик сообщения (Ф9+, синхронизация между устройствами как в Telegram): последний
   // несохранённый текст ввода этого участника в чате. null/пусто — черновика нет.
-  draft      String?
+  draft             String?
   // Закрепление чата «у себя» (Telegram-стиль): не null — чат закреплён этим участником и показывается
   // сверху списка (сортировка по времени закрепления). Персонально, другим участникам не видно.
-  pinnedAt   DateTime? @map("pinned_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  pinnedAt          DateTime? @map("pinned_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -153,6 +159,40 @@ model MessageReaction {
 // удаление сообщения каскадно удаляет опрос. Настройки (§39): multiple — множественный выбор;
 // anonymous — скрыть, кто как проголосовал; allowRevote — можно менять голос; randomOrder —
 // показывать варианты в случайном порядке (перемешивает клиент); closed — опрос завершён.
+// Пользовательские папки чатов (§2). Встроенные вкладки списка («Личные», «Группы», …)
+// считаются на клиенте по типу чата и в БД не хранятся — здесь только то, что человек собрал
+// сам. Папка личная: у каждого участника чата свои папки, чужие ему не видны.
+model ChatFolder {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  // Порядок вкладок; при равных — по createdAt (стабильность важнее, чем плотная нумерация).
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  items ChatFolderItem[]
+
+  // Два одноимённых ярлыка в одном списке вкладок неразличимы — запрещаем на уровне БД.
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("chat_folders")
+}
+
+model ChatFolderItem {
+  id        String   @id @default(uuid())
+  folderId  String   @map("folder_id")
+  chatId    String   @map("chat_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  folder ChatFolder @relation(fields: [folderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  chat   Chat       @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([folderId, chatId])
+  @@index([chatId])
+  @@map("chat_folder_items")
+}
+
 model ChatPoll {
   id          String   @id @default(uuid())
   messageId   String   @unique @map("message_id")
