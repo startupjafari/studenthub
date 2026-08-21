@@ -16,6 +16,13 @@ export {
   type FeedPage,
 } from './api/post-api'
 export {
+  AUDIENCES_BY_ROLE,
+  REPOST_AUDIENCES_BY_ROLE,
+  GROUP_PICKER_ROLES,
+  FACULTY_PICKER_ROLES,
+  canRepost,
+} from './model/audiences'
+export {
   POST_AUDIENCES,
   type PostAudienceValue,
   type PostAuthor,
