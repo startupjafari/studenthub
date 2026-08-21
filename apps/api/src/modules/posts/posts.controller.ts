@@ -127,6 +127,8 @@ export class PostsController {
   @Roles(...AUTHOR_ROLES)
   @ApiOperation({ summary: 'Репост (ссылка на оригинал)' })
   @ApiResponse({ status: 201, description: 'Репост создан' })
+  @ApiResponse({ status: 400, description: 'Оригинал не опубликован (черновик или отложенный)' })
+  @ApiResponse({ status: 403, description: 'Личный пост репостить нельзя' })
   repost(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
