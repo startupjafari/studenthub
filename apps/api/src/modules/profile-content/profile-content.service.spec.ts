@@ -126,13 +126,15 @@ describe('ProfileContentService — медиа', () => {
     files.presignPut.mockResolvedValue({ key: 'k.mp4', url: 'http://put' })
     const res = await service.presignMedia(user('me'), { mime: 'video/mp4', size: 20_000_000 })
     expect(res.url).toBe('http://put')
-    expect(files.presignPut).toHaveBeenCalledWith('profile-media', 'video/mp4')
+    // Владелец уходит в presignPut третьим аргументом: ключ префиксируется им, и только
+    // такой ключ примет confirm (иначе можно подтвердить чужой объект как свой).
+    expect(files.presignPut).toHaveBeenCalledWith('profile-media', 'video/mp4', 'me')
   })
 
   it('confirm создаёт медиа-DTO', async () => {
     const { service, files } = setup()
-    files.confirmDirectUpload.mockResolvedValue(file({ mime: 'video/mp4', key: 'k.mp4' }))
-    const dto = await service.confirmMedia(user('me'), { key: 'k.mp4', mime: 'video/mp4' })
+    files.confirmDirectUpload.mockResolvedValue(file({ mime: 'video/mp4', key: 'me/k.mp4' }))
+    const dto = await service.confirmMedia(user('me'), { key: 'me/k.mp4', mime: 'video/mp4' })
     expect(dto.type).toBe('VIDEO')
   })
 })

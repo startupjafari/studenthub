@@ -26,6 +26,7 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
 import type { RequestContext } from '../auth/auth.service'
 import { MaterialsService } from './materials.service'
+import { ConfirmMaterialFileDto, PresignMaterialFileDto } from './dto/presign-material-file.dto'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { MaterialListQueryDto } from './dto/material-list-query.dto'
 
@@ -53,6 +54,33 @@ export class MaterialsController {
     @Req() req: FastifyRequest,
   ) {
     return this.materials.create(user, dto, this.ctx(req))
+  }
+
+  @Post(':id/files/presign')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Прямая загрузка крупного файла: подписанная ссылка (шаг 1 из 3)' })
+  @ApiResponse({ status: 201, description: 'key + PUT-URL + срок действия' })
+  presignFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: PresignMaterialFileDto,
+  ) {
+    return this.materials.presignFile(user, id, dto.mime)
+  }
+
+  @Post(':id/files/confirm')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Подтвердить прямую загрузку файла материала (шаг 3 из 3)' })
+  @ApiResponse({ status: 201, description: 'Файл прикреплён к материалу' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  confirmFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ConfirmMaterialFileDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.materials.confirmFile(user, id, dto.key, dto.name, this.ctx(req))
   }
 
   @Post(':id/files')

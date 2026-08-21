@@ -587,8 +587,7 @@
     "retry": "Повторить",
     "done": "Загружено",
     "invalidType": "Недопустимый тип файла",
-    "fileTooLarge": "Файл больше {max}",
-    "directUploadUnavailable": "Файлы больше {max} пока не поддерживаются"
+    "fileTooLarge": "Файл больше {max}"
   },
   "Errors": {
     "BAD_REQUEST": "Некорректный запрос",

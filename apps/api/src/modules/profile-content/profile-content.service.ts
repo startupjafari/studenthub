@@ -19,6 +19,13 @@ import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { FileService } from '../files/file.service'
 import { UserService } from '../users/users.service'
+
+// Что принимаем в медиа профиля — из белого списка категорий shared-config, а не по
+// префиксу строки: проверка идёт против РЕАЛЬНОГО типа объекта (magic bytes).
+const PROFILE_MEDIA_MIMES: ReadonlySet<string> = new Set([
+  ...FILE_UPLOAD.ALLOWED_MIME.IMAGE,
+  ...FILE_UPLOAD.ALLOWED_MIME.VIDEO,
+])
 import type { EnvVars } from '../../config/env.schema'
 
 const ARTICLE_SELECT = {
@@ -167,22 +174,26 @@ export class ProfileContentService {
 
   /** Presigned PUT для крупных фото/видео (>порога буферной загрузки). Прямая заливка в MinIO. */
   async presignMedia(
-    _actor: JwtPayload,
+    actor: JwtPayload,
     input: PresignProfileMediaInput,
-  ): Promise<{ key: string; url: string }> {
+  ): Promise<{ key: string; url: string; expiresAt: string }> {
+    // Заявленный MIME отсеивает очевидно неподходящее сразу; окончательная проверка —
+    // на подтверждении, по содержимому объекта.
     this.assertMediaMime(input.mime)
-    return this.files.presignPut(this.bucket, input.mime)
+    return this.files.presignPut(this.bucket, input.mime, actor.sub)
   }
 
-  /** Подтверждение presigned-загрузки: бэкенд проверяет объект (stat) и создаёт File. */
+  /**
+   * Подтверждение presigned-загрузки: бэкенд сам смотрит объект в MinIO — размер и реальный
+   * тип по magic bytes — и создаёт File. MIME из тела запроса больше не используется:
+   * при прямой загрузке API не видит байтов, и верить объявленному типу нельзя.
+   */
   async confirmMedia(actor: JwtPayload, input: ConfirmProfileMediaInput): Promise<ProfileMediaDto> {
-    this.assertMediaMime(input.mime)
     const file = await this.files.confirmDirectUpload({
       bucket: this.bucket,
       key: input.key,
       ownerId: actor.sub,
-      mime: input.mime,
-      maxBytes: FILE_UPLOAD.MAX_BYTES.VIDEO,
+      allowedMimes: PROFILE_MEDIA_MIMES,
     })
     this.logger.log(`Медиа профиля ${file.id} подтверждено (presigned) пользователем ${actor.sub}`)
     return this.toMediaDto(file)

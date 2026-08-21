@@ -26,6 +26,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
 import { DocumentsService } from './documents.service'
+import { ConfirmDocumentFileDto, PresignDocumentFileDto } from './dto/presign-document-file.dto'
 import { CreateDocumentDto } from './dto/create-document.dto'
 import { UpdateDocumentDto } from './dto/update-document.dto'
 import { DocumentListQueryDto } from './dto/document-list-query.dto'
@@ -53,6 +54,27 @@ export class DocumentsController {
   async upload(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest) {
     const buffer = await readSingleUpload(req)
     return this.documents.uploadFile(user, buffer)
+  }
+
+  @Post('upload/presign')
+  @ApiOperation({
+    summary: 'Прямая загрузка крупного скана: подписанная ссылка (шаг 1 из 3)',
+  })
+  @ApiResponse({ status: 201, description: 'key + PUT-URL + срок действия' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED — только PDF/JPG/PNG' })
+  presignUpload(@CurrentUser() user: CurrentUserData, @Body() dto: PresignDocumentFileDto) {
+    return this.documents.presignFile(user, dto.mime)
+  }
+
+  @Post('upload/confirm')
+  @ApiOperation({
+    summary: 'Подтвердить прямую загрузку — вернёт id файла для прикрепления (шаг 3 из 3)',
+  })
+  @ApiResponse({ status: 201, description: 'id, реальный mime и размер' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  confirmUpload(@CurrentUser() user: CurrentUserData, @Body() dto: ConfirmDocumentFileDto) {
+    return this.documents.confirmFile(user, dto.key, dto.name)
   }
 
   @Post()
