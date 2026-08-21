@@ -106,8 +106,9 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'audit', href: '/university-admin/audit', icon: ScrollText },
 ]
 
-// Ролевые дашборды (docs/PROJECT.md §12). Разделы ведут на заглушки «в разработке»
-// до своих фаз (расписание Ф6, заявки Ф7, посты Ф8, чаты Ф9, события Ф10, админ-экраны Ф12).
+// Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
+// catch-all [...section] в ролевых сегментах остался предохранителем для неизвестных URL
+// (например ссылки на раздел, которого больше нет), а не «разделом в разработке».
 export const DEAN_NAV: NavItem[] = [
   { key: 'today', href: '/dean/today', icon: CalendarCheck },
   { key: 'dashboard', href: '/dean', icon: LayoutDashboard, exact: true },

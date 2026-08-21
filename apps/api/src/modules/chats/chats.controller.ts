@@ -270,12 +270,14 @@ export class ChatsController {
 
   @Post(':id/mute')
   @ApiOperation({
-    summary: 'Отключить уведомления чата (§17: minutes? — на время, иначе навсегда)',
+    summary:
+      'Отключить уведомления чата (§17: minutes? — на время, иначе навсегда; ' +
+      'importantOnly? — пропускать ответы мне и упоминания)',
   })
   @ApiResponse({ status: 201, description: 'Уведомления отключены' })
   mute(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: MuteDto) {
     const until = dto.minutes ? new Date(Date.now() + dto.minutes * 60_000) : 'forever'
-    return this.chats.setMuted(user.sub, id, until)
+    return this.chats.setMuted(user.sub, id, until, dto.importantOnly ?? false)
   }
 
   @Delete(':id/mute')

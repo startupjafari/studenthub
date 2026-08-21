@@ -72,10 +72,46 @@ export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
 
 // Отключение уведомлений на время (§17): minutes — на сколько заглушить (нет/0 — «навсегда»).
+// importantOnly — режим «только важные»: чат заглушён, но ответы на мои сообщения и упоминания
+// меня по имени уведомление всё равно создают.
 export const MuteSchema = z
-  .object({ minutes: z.coerce.number().int().positive().optional() })
+  .object({
+    minutes: z.coerce.number().int().positive().optional(),
+    importantOnly: z.boolean().optional(),
+  })
   .strict()
 export type MuteInput = z.infer<typeof MuteSchema>
+
+// ── Пользовательские папки чатов (§2) ───────────────────────────────────────────
+// Встроенные вкладки («Личные», «Группы», …) считает клиент по типу чата; здесь — папки,
+// которые человек собрал сам. Лимиты: список вкладок должен оставаться листаемым, а папка —
+// осмысленной выборкой, а не «вторым списком всех чатов».
+export const CHAT_FOLDER_LIMITS = {
+  MAX_FOLDERS: 20,
+  MAX_CHATS_PER_FOLDER: 200,
+  NAME_MAX: 40,
+} as const
+
+export const CreateChatFolderSchema = z
+  .object({
+    name: z.string().trim().min(1).max(CHAT_FOLDER_LIMITS.NAME_MAX),
+    chatIds: z.array(z.string().min(1)).max(CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER).optional(),
+  })
+  .strict()
+export type CreateChatFolderInput = z.infer<typeof CreateChatFolderSchema>
+
+/** Правка папки: переименование и/или полная замена состава (не дельта — так проще на клиенте). */
+export const UpdateChatFolderSchema = z
+  .object({
+    name: z.string().trim().min(1).max(CHAT_FOLDER_LIMITS.NAME_MAX).optional(),
+    chatIds: z.array(z.string().min(1)).max(CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER).optional(),
+    position: z.coerce.number().int().min(0).max(CHAT_FOLDER_LIMITS.MAX_FOLDERS).optional(),
+  })
+  .strict()
+  .refine((v) => v.name !== undefined || v.chatIds !== undefined || v.position !== undefined, {
+    message: 'Нужно передать хотя бы одно поле',
+  })
+export type UpdateChatFolderInput = z.infer<typeof UpdateChatFolderSchema>
 
 // Опрос в чате (§38–39): вопрос + 2..10 вариантов + настройки.
 export const CreateChatPollSchema = z

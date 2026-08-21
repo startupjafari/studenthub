@@ -153,6 +153,69 @@ describe('FileService (integration, реальный MinIO)', () => {
     expect(row).toBeNull()
   })
 
+  // ── Прямая (presigned) загрузка: единственный путь для файлов больше порога буфера ──
+
+  it('presign → PUT → confirm: файл 12 МБ доезжает и тип берётся из содержимого', async () => {
+    const { key, url } = await service.presignPut(TEST_BUCKET, 'application/pdf', ownerId)
+    // Крупный, но валидный PDF: заголовок настоящий, дальше набивка.
+    const big = Buffer.concat([PDF, Buffer.alloc(12 * 1024 * 1024, 0x20)])
+
+    const put = await fetch(url, { method: 'PUT', body: new Uint8Array(big) })
+    expect(put.ok).toBe(true)
+
+    const file = await service.confirmDirectUpload({
+      bucket: TEST_BUCKET,
+      key,
+      ownerId,
+      allowedMimes: new Set(['application/pdf']),
+      name: 'diploma.pdf',
+    })
+
+    // Буферным путём такой файл получил бы FILE_DIRECT_UPLOAD_REQUIRED — здесь он проходит.
+    expect(file.size).toBe(big.byteLength)
+    expect(file.mime).toBe('application/pdf')
+    expect(file.name).toBe('diploma.pdf')
+    await service.delete(file.id, ownerId)
+  })
+
+  it('confirm: подделанный тип (PNG под именем .pdf) отклоняется и объект удаляется', async () => {
+    const { key, url } = await service.presignPut(TEST_BUCKET, 'application/pdf', ownerId)
+    await fetch(url, { method: 'PUT', body: new Uint8Array(PNG) })
+
+    await expect(
+      service.confirmDirectUpload({
+        bucket: TEST_BUCKET,
+        key,
+        ownerId,
+        allowedMimes: new Set(['application/pdf']),
+      }),
+    ).rejects.toMatchObject({ code: 'FILE_TYPE_NOT_ALLOWED' })
+
+    // Объект не должен остаться в приватном бакете «ничьим».
+    await expect(minio.statObject(TEST_BUCKET, key)).rejects.toBeDefined()
+  })
+
+  it('confirm: чужой ключ отклоняется, объект владельца остаётся цел', async () => {
+    const { key, url } = await service.presignPut(TEST_BUCKET, 'application/pdf', ownerId)
+    await fetch(url, { method: 'PUT', body: new Uint8Array(PDF) })
+
+    await expect(
+      service.confirmDirectUpload({ bucket: TEST_BUCKET, key, ownerId: otherUserId }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+
+    // Ключ принадлежит владельцу — чужая попытка подтверждения не удаляет его объект.
+    await expect(minio.statObject(TEST_BUCKET, key)).resolves.toBeDefined()
+    await minio.removeObject(TEST_BUCKET, key)
+  })
+
+  it('confirm: без загрузки объекта → NOT_FOUND', async () => {
+    const { key } = await service.presignPut(TEST_BUCKET, 'application/pdf', ownerId)
+
+    await expect(
+      service.confirmDirectUpload({ bucket: TEST_BUCKET, key, ownerId }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
   it('getPresignedUrl: несуществующий файл → NOT_FOUND', async () => {
     await expect(service.getPresignedUrl(randomUUID(), ownerId)).rejects.toMatchObject({
       code: 'NOT_FOUND',

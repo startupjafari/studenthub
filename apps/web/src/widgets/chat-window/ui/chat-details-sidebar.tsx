@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import {
+  Check,
   Bell,
   BellOff,
   Download,
@@ -450,7 +451,8 @@ export function ChatDetailsSidebar({
   peerOnline?: boolean
   onClose: () => void
   // §17: заглушить на время (minutes) или навсегда ('forever'); onUnmute — включить.
-  onMute: (mode: number | 'forever') => void
+  // importantOnly — режим «только важные»: ответы мне и упоминания уведомляют и в mute.
+  onMute: (mode: number | 'forever', importantOnly?: boolean) => void
   onUnmute: () => void
   onManageGroup: () => void
   onOpenPeerProfile?: () => void
@@ -460,6 +462,8 @@ export function ChatDetailsSidebar({
   const tr = useTranslations('Roles')
   const isGroup = !isPrivate
   const [muteMenuOpen, setMuteMenuOpen] = useState(false)
+  // Режим выбирается до срока: галочка применяется к любому выбранному сроку заглушения.
+  const [importantOnly, setImportantOnly] = useState(false)
 
   const members = useQuery({
     queryKey: chatKeys.members(chat.id),
@@ -503,7 +507,7 @@ export function ChatDetailsSidebar({
           {chat.muted ? (
             <Button variant="outline" size="sm" onClick={onUnmute}>
               <Bell className="size-3.5" aria-hidden />
-              {t('unmute')}
+              {chat.mutedImportantOnly ? t('unmuteImportantOnly') : t('unmute')}
             </Button>
           ) : (
             <div className="relative">
@@ -514,14 +518,37 @@ export function ChatDetailsSidebar({
               {muteMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setMuteMenuOpen(false)} />
-                  <div className="absolute left-1/2 top-full z-50 mt-1 w-40 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg">
+                  <div className="absolute left-1/2 top-full z-50 mt-1 w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg">
+                    {/* §17: «только важные» — не отдельный срок, а модификатор к выбранному:
+                        чат заглушён, но ответы мне и упоминания меня всё равно уведомляют. */}
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={importantOnly}
+                      onClick={() => setImportantOnly((v) => !v)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                    >
+                      <span
+                        className={cn(
+                          'flex size-4 shrink-0 items-center justify-center rounded border',
+                          importantOnly
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border',
+                        )}
+                        aria-hidden
+                      >
+                        {importantOnly && <Check className="size-3" />}
+                      </span>
+                      {t('muteImportantOnly')}
+                    </button>
+                    <div className="my-1 h-px bg-border" aria-hidden />
                     {MUTE_DURATIONS.map((d) => (
                       <button
                         key={d.key}
                         type="button"
                         onClick={() => {
                           setMuteMenuOpen(false)
-                          onMute(d.mode)
+                          onMute(d.mode, importantOnly)
                         }}
                         className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                       >

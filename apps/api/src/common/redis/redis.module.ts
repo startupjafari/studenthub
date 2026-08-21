@@ -3,8 +3,11 @@ import { ConfigService } from '@nestjs/config'
 import { ModuleRef } from '@nestjs/core'
 import Redis from 'ioredis'
 import type { EnvVars } from '../../config/env.schema'
+import { CronLockService } from './cron-lock.service'
+import { REDIS_CLIENT } from './redis.constants'
 
-export const REDIS_CLIENT = Symbol('REDIS_CLIENT')
+// Ре-экспорт для существующих импортов `from './redis.module'`.
+export { REDIS_CLIENT }
 
 // Глобальный ioredis-клиент. Используется health-индикатором; с Фазы 3 — BullMQ и кэшем.
 // lazyConnect: соединение открывается при первой команде, чтобы старт не падал раньше health-проверки.
@@ -31,8 +34,9 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT')
           commandTimeout: 3000,
         }),
     },
+    CronLockService,
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, CronLockService],
 })
 export class RedisModule implements OnApplicationShutdown {
   constructor(private readonly moduleRef: ModuleRef) {}

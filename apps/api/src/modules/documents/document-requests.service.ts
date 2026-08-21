@@ -16,6 +16,10 @@ import { DocumentTypesService } from './document-types.service'
 // Ролевая матрица §15.2 (задача 15.18). Запросы создают/проверяют только деканат/студ.офис
 // и преподаватель; админ вуза — НЕ участвует в запросах (управляет типами/правами/сроками),
 // студент/староста — только отвечают. Преподаватель ограничен учебными типами (см. createRequest).
+// Адресаты запроса (вуз/факультет/группа/студент) — их задаёт сотрудник; потолок
+// обязателен и здесь (BACKEND_RULES §7.2).
+const REQUEST_TARGETS_LIMIT = 200
+
 const REQUEST_STAFF_ROLES: ReadonlySet<Role> = new Set([
   Role.DEAN,
   Role.UNIVERSITY_MODERATOR,
@@ -47,6 +51,7 @@ export class DocumentRequestsService {
     const targets = await this.prisma.documentRequestTarget.findMany({
       where: { requestId },
       select: { targetType: true, targetId: true },
+      take: REQUEST_TARGETS_LIMIT,
     })
     const or: Prisma.UserWhereInput[] = []
     for (const t of targets) {
