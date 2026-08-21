@@ -340,7 +340,22 @@ export class PostsService {
     ctx: RequestContext,
   ): Promise<PostRow> {
     // Репостить можно только видимый пост.
-    const original = await this.findVisibleOrThrow(actor, id, { id: true, originalPostId: true })
+    const original = await this.findVisibleOrThrow(actor, id, {
+      id: true,
+      originalPostId: true,
+      audience: true,
+      status: true,
+    })
+    // Личный пост адресован одному человеку: репост переопубликовал бы чужую переписку
+    // на группу или факультет (docs/BACKEND_RULES.md §14.7). Видимости для этого мало.
+    if (original.audience === PostAudience.PERSONAL) {
+      throw new AppException('FORBIDDEN', 'Личный пост нельзя репостить')
+    }
+    // Черновик и отложенный видит только автор (visibilityWhere), но их текст уехал бы наружу
+    // в цитате оригинала у опубликованного репоста.
+    if (original.status !== 'PUBLISHED') {
+      throw new AppException('BAD_REQUEST', 'Нельзя репостить неопубликованный пост')
+    }
     // Репост репоста ссылается на первоисточник.
     const originalPostId = original.originalPostId ?? original.id
     const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
