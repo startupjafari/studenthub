@@ -7,16 +7,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Loader2, Play, Upload, X } from 'lucide-react'
-import {
-  CreatePostSchema,
-  type CreatePostInput,
-  type PostAudienceValue,
-} from '@studenthub/shared-schemas'
-import { Role } from '@studenthub/shared-types'
+import { CreatePostSchema, type CreatePostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { useFormAlert } from '../../../shared/lib'
 import { uploadFileRequest } from '../../../shared/api'
-import { createPostRequest, postKeys } from '../../../entities/post'
+import {
+  AUDIENCES_BY_ROLE,
+  FACULTY_PICKER_ROLES,
+  GROUP_PICKER_ROLES,
+  createPostRequest,
+  postKeys,
+} from '../../../entities/post'
 import { fetchGroups, groupKeys } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { UserPicker, type PickedUser } from '../../../entities/user'
@@ -43,20 +44,6 @@ interface UploadedMedia {
 }
 const MAX_MEDIA = 10
 
-// Аудитории для UI по роли (PERSONAL отложен до списка пользователей Ф12.2).
-const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
-  [Role.PLATFORM_ADMIN]: ['ALL', 'PERSONAL'],
-  [Role.UNIVERSITY_ADMIN]: ['UNIVERSITY', 'FACULTY', 'GROUP', 'TEACHERS', 'PERSONAL'],
-  [Role.DEAN]: ['FACULTY', 'GROUP', 'PERSONAL'],
-  [Role.TEACHER]: ['GROUP', 'SUBJECT', 'PERSONAL'],
-  [Role.STAROSTA]: ['GROUP', 'PERSONAL'],
-  [Role.STUDENT]: ['GROUP', 'PERSONAL'],
-}
-
-// Кто выбирает конкретную группу/факультет (у студента/старосты/декана — свои, без пикера).
-const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
-const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
-
 // onCreated — необязательный колбэк после успешной публикации (например, закрыть модалку в профиле).
 // bare — без обёртки Card (когда форма уже внутри модалки/карточки).
 export function CreatePostForm({
@@ -78,7 +65,7 @@ export function CreatePostForm({
     stripRef.current?.scrollBy({ left: dir * 220, behavior: 'smooth' })
   }
 
-  const audiences = role ? (UI_AUDIENCES[role] ?? []) : []
+  const audiences = role ? (AUDIENCES_BY_ROLE[role] ?? []) : []
 
   const form = useForm<CreatePostInput>({
     resolver: zodResolver(CreatePostSchema),

@@ -13,6 +13,7 @@ import {
   MessageCircle,
   MoreHorizontal,
   Pin,
+  Repeat2,
   Share2,
   Smile,
   Trash2,
@@ -23,6 +24,7 @@ import { useAppSelector } from '../../../shared/store'
 import {
   addCommentRequest,
   addReactionRequest,
+  canRepost,
   deleteCommentRequest,
   deletePostRequest,
   fetchComments,
@@ -41,6 +43,7 @@ import {
   type ChatListItem,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
+import { RepostDialog } from '../../../features/repost-post'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -241,6 +244,7 @@ function PostView({
       .catch(() => {})
   }, [post.id])
   const [sharing, setSharing] = useState(false)
+  const [reposting, setReposting] = useState(false)
   const [text, setText] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -319,6 +323,7 @@ function PostView({
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
+  const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
 
   const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
@@ -599,6 +604,24 @@ function PostView({
             </li>
           )}
 
+          {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
+          {post.original && (
+            <li>
+              <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
+                <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Repeat2 className="size-3.5" aria-hidden />
+                  <ProfileLink
+                    userId={post.original.author.id}
+                    className="hover:text-primary hover:underline"
+                  >
+                    {post.original.author.lastName} {post.original.author.firstName}
+                  </ProfileLink>
+                </p>
+                <p className="whitespace-pre-wrap">{post.original.content}</p>
+              </div>
+            </li>
+          )}
+
           {comments.isLoading ? (
             <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
           ) : roots.length === 0 ? (
@@ -665,6 +688,16 @@ function PostView({
             >
               <MessageCircle className="size-6" aria-hidden />
             </button>
+            {showRepost && (
+              <button
+                type="button"
+                aria-label={t('repost')}
+                onClick={() => setReposting(true)}
+                className="cursor-pointer transition-transform hover:scale-110"
+              >
+                <Repeat2 className="size-6" aria-hidden />
+              </button>
+            )}
             <button
               type="button"
               aria-label={t('shareToChat')}
@@ -749,6 +782,8 @@ function PostView({
           </button>
         </div>
       </div>
+
+      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
 
       {sharing && (
         <ForwardDialog
