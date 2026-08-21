@@ -10,6 +10,7 @@ import { useAppSelector } from '../../../shared/store'
 import {
   addCommentRequest,
   addReactionRequest,
+  canRepost,
   deleteCommentRequest,
   deletePostRequest,
   fetchComments,
@@ -27,6 +28,7 @@ import {
   type ChatListItem,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
+import { RepostDialog } from '../../../features/repost-post'
 import { Avatar, AvatarFallback, Button, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -61,6 +63,7 @@ export function PostCard({ post }: { post: FeedPost }) {
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [reposting, setReposting] = useState(false)
 
   const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
   const shareMut = useMutation({
@@ -74,6 +77,7 @@ export function PostCard({ post }: { post: FeedPost }) {
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
+  const showRepost = canRepost(myRole, post)
 
   const groups = useMemo(() => {
     const map = new Map<string, { count: number; mine: boolean }>()
@@ -229,6 +233,17 @@ export function PostCard({ post }: { post: FeedPost }) {
           <MessageSquare className="size-3.5" aria-hidden />
           {post._count.comments}
         </button>
+        {showRepost && (
+          <button
+            type="button"
+            aria-label={t('repost')}
+            onClick={() => setReposting(true)}
+            className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Repeat2 className="size-3.5" aria-hidden />
+            <span className="hidden sm:inline">{t('repost')}</span>
+          </button>
+        )}
         <button
           type="button"
           aria-label={t('shareToChat')}
@@ -241,6 +256,8 @@ export function PostCard({ post }: { post: FeedPost }) {
       </div>
 
       {commentsOpen && <Comments postId={post.id} />}
+
+      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
 
       {sharing && (
         <ForwardDialog
