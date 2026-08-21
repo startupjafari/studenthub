@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type Redis from 'ioredis'
-import { REDIS_CLIENT } from './redis.module'
+import { REDIS_CLIENT } from './redis.constants'
 
 // Снимаем лок только если он всё ещё наш: за время работы задачи TTL мог истечь, лок мог
 // перейти другому инстансу, и слепой DEL погасил бы чужую задачу.
