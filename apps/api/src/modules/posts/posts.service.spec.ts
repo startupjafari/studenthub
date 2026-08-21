@@ -311,6 +311,77 @@ describe('PostsService.setPinned — иерархия (8.6)', () => {
   })
 })
 
+// ── 8.6 Репост ──────────────────────────────────────────────────────────────
+describe('PostsService.repost — что репостить нельзя', () => {
+  it('личный пост → FORBIDDEN: репост переопубликовал бы адресованное одному человеку', async () => {
+    const { service, prisma } = setup()
+    // Пост адресован самому зрителю — по видимости он его читает, но репостить не может.
+    prisma.post.findFirst.mockResolvedValue({
+      id: 'p1',
+      originalPostId: null,
+      audience: PostAudience.PERSONAL,
+      status: 'PUBLISHED',
+    })
+    const err = await service
+      .repost(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p1', { audience: 'GROUP' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('FORBIDDEN')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('свой черновик → BAD_REQUEST: текст уехал бы наружу в цитате оригинала', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({
+      id: 'p1',
+      originalPostId: null,
+      audience: PostAudience.GROUP,
+      status: 'DRAFT',
+    })
+    const err = await service
+      .repost(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p1', { audience: 'GROUP' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('BAD_REQUEST')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('невидимый пост → NOT_FOUND (проверка видимости осталась на месте)', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(null)
+    const err = await service
+      .repost(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p1', { audience: 'GROUP' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('NOT_FOUND')
+  })
+
+  it('опубликованный пост группы → репост ссылается на первоисточник', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst
+      // Репост репоста: original ведёт на исходный пост, а не на промежуточный.
+      .mockResolvedValueOnce({
+        id: 'p2',
+        originalPostId: 'p1',
+        audience: PostAudience.GROUP,
+        status: 'PUBLISHED',
+      })
+      .mockResolvedValueOnce(postRow({ originalPostId: 'p1' }))
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    await service.repost(
+      viewer(Role.STUDENT, { groupId: 'grp-1', facultyId: 'fac-1', universityId: 'uni-1' }),
+      'p2',
+      { audience: 'GROUP', content: 'мой комментарий' },
+      ctx,
+    )
+    expect(prisma.post.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ originalPostId: 'p1', content: 'мой комментарий' }),
+      }),
+    )
+  })
+})
+
 // ── 8.5 Удаление поста ──────────────────────────────────────────────────────
 describe('PostsService.remove — автор/модератор (8.5)', () => {
   it('чужой пост не-модератором → FORBIDDEN', async () => {
