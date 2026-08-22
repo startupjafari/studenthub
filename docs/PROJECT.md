@@ -163,6 +163,22 @@ academicTitle, department, subjects, officeRoom, officeHours, employeeNumber, re
 publicationsUrl, appointmentDate, workPhone, responsibilities, moderationAreas). Редактирование —
 `PATCH /users/me` (роль/scope не меняются); форма показывает поля релевантные роли.
 
+**Доступность полей профиля по роли.** Набор «самоописываемых» полей зависит от роли —
+единый источник `PROFILE_FIELD_ROLES` в `@studenthub/shared-schemas` (одна карта на форму
+и на валидацию). Общие поля (ФИО, headline, bio, phone, telegram, languages, timezone,
+showEmail/showPhone, profileVisibility) — у всех ролей; личное и соцсети (birthDate, gender,
+country, website, instagram) — студенты и преподаватели; академические (academicDegree,
+academicTitle, department, subjects, officeHours, researchInterests, publicationsUrl) —
+только TEACHER и DEAN; вузовские служебные (employeeNumber, appointmentDate, officeRoom,
+jobTitle) — сотрудники вуза; position и workPhone — все не-студенты; responsibilities —
+администраторы и модераторы вуза и платформы; moderationAreas — только модераторы;
+duties — только STAROSTA. Платформенные роли вне вуза, поэтому кафедры, предметов
+и табельного номера у них нет.
+
+`PATCH /users/me` с полем, недоступным роли, отвечает `400 BAD_REQUEST`; `details[]`
+перечисляет отклонённые поля (`field` + сообщение). Запрос отклоняется целиком, разрешённая
+часть тоже не сохраняется. Роль читается из JWT, не из тела.
+
 **Контент профиля (вкладки).** Профиль разбит на вкладки: Профиль / Фото / Видео / Статьи /
 Опросы. Просмотр — любой аутентифицированный с учётом `visibility` (ALL/UNIVERSITY/FACULTY/GROUP);
 черновики (`status=DRAFT`) видит только автор; загрузка/редактирование — только владелец.
@@ -543,6 +559,33 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 **Поиск** (Academic Core, задача 22; расширен Unified UX PR-6) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials, events, chats }` (по 6). События — по названию в пределах вуза; чаты — только те, где смотрящий состоит (scope = членство). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
 
 **Аналитика декана** (Academic Core, задача 14) — read-only агрегаты (декан/админ вуза): `GET /analytics/faculty` (`?facultyId=` для админа; декан — свой факультет из JWT) → показатели (студенты, группы, посещаемость %, работ на проверке, экзаменов впереди) + посещаемость по группам + блок «требует внимания» (группы с посещаемостью < 60%) · `GET /analytics/group/:id/attendance` (drill-down: посещаемость по студентам группы) · `GET /analytics/at-risk` (Early Warning, Unified UX PR-7: студенты «требует внимания» с ЯВНЫМИ причинами — `LOW_ATTENDANCE`<60% / `OVERDUE_ASSIGNMENTS` шт / `LOW_GRADES`<50%, каждая с числовым `value`; `severity` = число причин; без скрытого скоринга). Без новых моделей — агрегация поверх `Attendance`/`Submission`/`Grade`/`Exam` в пределах scope.
+
+**Аналитика платформы** (дашборд `PLATFORM_ADMIN`) — read-only агрегаты по всем вузам, только
+`PLATFORM_ADMIN`/`PLATFORM_MODERATOR`, префикс `GET /analytics/platform/*`. Общие query-параметры
+периода: `from`, `to` (полуинтервал `[from, to)`, по умолчанию последние 30 дней), `interval`
+(`day|week|month`, по умолчанию `day`). Все ряды приходят с ПОЛНЫМИ корзинами — сервер досыпает
+нули, клиент ничего не достраивает. Каждый агрегат кэшируется в Redis (TTL 300 с, ключ
+`analytics:platform:<имя>:<параметры>`).
+
+- `overview` — плитки: вузы по статусам, всего пользователей, жалоб в очереди, медиана времени
+  разбора жалобы (за 30 дней + предыдущие 30 для дельты), DAU/WAU; спарклайны за 14 дней.
+- `users-growth` — новые регистрации по корзинам, три группы ролей (`students` = STUDENT+STAROSTA,
+  `teachers`, `staff`).
+- `active-users` — `dau`/`wau` по `COUNT(DISTINCT audit_logs.user_id)`. Источник — журнал аудита,
+  а НЕ `users.last_seen_at`: последнее поле перезаписывается при каждом уходе в оффлайн и
+  исторического ряда не даёт. Считаются пользователи, чьи действия попадают в аудит.
+- `universities-size` — студенты/преподаватели/всего по каждому вузу одним запросом (заменяет
+  N+1 на странице «Статистика»), сортировка по убыванию размера.
+- `complaints-flow` — `created`/`resolved` по корзинам (обе величины — счётчики, одна ось).
+- `complaints-latency` — распределение `resolved_at − created_at` по неравным корзинам
+  (`lt1h`,`lt4h`,`lt1d`,`lt3d`,`lt7d`,`gte7d`) + медиана в часах (`percentile_cont`).
+- `invites-funnel` — конверсия в регистрацию (`USED`/всего, проценты), разбивка по статусам и
+  ряд статусов по корзинам.
+- `activity-heatmap` — сетка 7×24 событий аудита, `cells[dow][hour]`, `dow` 0 = понедельник.
+  Время в **UTC**: у вузов свои таймзоны, единого локального часа у платформы нет.
+- `top-actions` — топ действий аудита за период (`limit` 1…20, по умолчанию 8).
+
+Без новых моделей — агрегация поверх `User`/`University`/`Complaint`/`Invite`/`AuditLog`.
 
 **Экзамены** (Academic Core, задача 11) — `GET /exams` (по роли; фильтры `groupId/courseId/mine`; студент видит свою сессию + поле `myResult`) · `GET /exams/:id` · `POST /exams` (декан/препод: дисциплина+дата+формат+аудитория?+экзаменатор?) · `PATCH|DELETE /exams/:id` · `GET /exams/:id/results` (ведомость: студенты группы + результаты) · `PUT /exams/results` (массово: `{examId,entries:[{studentId,admitted,status,score?,note?}]}`). Формат: `ORAL|WRITTEN|TEST|PROJECT|OTHER`; статус результата: `SCHEDULED|PASSED|FAILED|ABSENT|RETAKE`; допуск — `admitted:boolean`; пересдача — `attempt`. Модели: `Exam` (courseId/groupId/examinerId?/roomId?/date/format/maxScore), `ExamResult` (`@@unique([examId,studentId])`).
 

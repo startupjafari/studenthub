@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { UserListQueryInput, UpdateProfileInput } from '@studenthub/shared-schemas'
+import { disallowedProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
@@ -273,9 +274,22 @@ export class UserService {
     return { universityId: viewer.universityId ?? '__none__' }
   }
 
-  // Обновление профиля: принимает валидированный расширенный DTO (Zod-strict), пишем как есть.
+  // Обновление профиля: принимает валидированный расширенный DTO (Zod-strict).
   // Роль и scope (university/faculty/group) здесь не меняются — только «самоописываемые» поля.
-  async updateProfile(userId: string, data: UpdateProfileInput): Promise<UserProfile> {
+  // Набор полей зависит от роли (PROFILE_FIELD_ROLES): у платформенных ролей нет кафедры,
+  // предметов и табельного номера вуза. Роль берётся из JWT, а не из тела (§0) — Zod-схема
+  // общая для всех ролей, поэтому без этой проверки прямой PATCH записал бы чужие поля.
+  // Недоступные поля — ошибка 400, а не тихое отбрасывание: клиент должен узнать,
+  // что данные не сохранены, иначе PATCH выглядит успешным.
+  async updateProfile(userId: string, role: Role, data: UpdateProfileInput): Promise<UserProfile> {
+    const disallowed = disallowedProfileFields(role, data)
+    if (disallowed.length > 0) {
+      throw new AppException(
+        'BAD_REQUEST',
+        `Поля недоступны для роли ${role}: ${disallowed.join(', ')}`,
+        disallowed.map((field) => ({ field, message: 'Поле недоступно для вашей роли' })),
+      )
+    }
     return this.prisma.user.update({
       where: { id: userId },
       data,

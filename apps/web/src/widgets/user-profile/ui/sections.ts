@@ -1,8 +1,12 @@
 import { Role } from '@studenthub/shared-types'
-import type { UpdateProfileInput } from '@studenthub/shared-schemas'
+import { profileFieldAllowed, type ProfileFieldKey } from '@studenthub/shared-schemas'
 
 // Конфиг секций/полей профиля (data-driven). Порядок = порядок отображения.
 // Используется и в режиме просмотра, и в форме редактирования — единый источник истины.
+//
+// Видимость полей по роли живёт НЕ здесь, а в PROFILE_FIELD_ROLES (@studenthub/shared-schemas):
+// та же карта фильтрует запись на бэке, поэтому UI и валидация не могут разойтись.
+// Здесь — только группировка, порядок и тип виджета.
 
 export const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
@@ -36,26 +40,23 @@ export type DictKind =
   | 'specialty'
 
 export interface FieldDef {
-  key: keyof UpdateProfileInput
+  key: ProfileFieldKey
   type: FieldType
   dict?: DictKind
 }
 
 export interface Section {
   title: string // i18n-ключ (Profile namespace)
-  when: 'all' | 'student' | 'starosta' | 'staff'
   fields: FieldDef[]
 }
 
 export const SECTIONS: Section[] = [
   {
     title: 'sectionAbout',
-    when: 'all',
     fields: [{ key: 'bio', type: 'textarea' }],
   },
   {
     title: 'sectionContacts',
-    when: 'all',
     fields: [
       { key: 'phone', type: 'phone' },
       { key: 'telegram', type: 'telegram' },
@@ -65,7 +66,6 @@ export const SECTIONS: Section[] = [
   },
   {
     title: 'sectionPersonal',
-    when: 'all',
     fields: [
       { key: 'birthDate', type: 'date' },
       { key: 'gender', type: 'gender' },
@@ -76,7 +76,6 @@ export const SECTIONS: Section[] = [
   },
   {
     title: 'sectionStudy',
-    when: 'student',
     fields: [
       { key: 'course', type: 'number' },
       { key: 'educationLevel', type: 'text', dict: 'educationLevel' },
@@ -94,33 +93,39 @@ export const SECTIONS: Section[] = [
   },
   {
     title: 'sectionStarosta',
-    when: 'starosta',
     fields: [{ key: 'duties', type: 'textarea' }],
   },
+  // Академический блок: кафедра, степень, предметы. Только преподаватель и декан —
+  // у административных и платформенных ролей этих сущностей не существует.
   {
-    title: 'sectionWork',
-    when: 'staff',
+    title: 'sectionAcademic',
     fields: [
-      { key: 'position', type: 'text' },
-      { key: 'jobTitle', type: 'text' },
       { key: 'academicDegree', type: 'text' },
       { key: 'academicTitle', type: 'text' },
       { key: 'department', type: 'text' },
       { key: 'subjects', type: 'list' },
-      { key: 'officeRoom', type: 'text' },
       { key: 'officeHours', type: 'text' },
-      { key: 'employeeNumber', type: 'text' },
-      { key: 'appointmentDate', type: 'date' },
-      { key: 'workPhone', type: 'text' },
       { key: 'researchInterests', type: 'textarea' },
       { key: 'publicationsUrl', type: 'url' },
+    ],
+  },
+  // Служебный блок. Для платформенных ролей от него остаётся минимум:
+  // должность, рабочий телефон, зона ответственности (+ модерация у модератора).
+  {
+    title: 'sectionWork',
+    fields: [
+      { key: 'position', type: 'text' },
+      { key: 'jobTitle', type: 'text' },
+      { key: 'employeeNumber', type: 'text' },
+      { key: 'appointmentDate', type: 'date' },
+      { key: 'officeRoom', type: 'text' },
+      { key: 'workPhone', type: 'text' },
       { key: 'responsibilities', type: 'textarea' },
       { key: 'moderationAreas', type: 'textarea' },
     ],
   },
   {
     title: 'sectionInterests',
-    when: 'student',
     fields: [
       { key: 'interests', type: 'list', dict: 'interests' },
       { key: 'skills', type: 'list', dict: 'skills' },
@@ -128,10 +133,19 @@ export const SECTIONS: Section[] = [
   },
 ]
 
-export function sectionVisible(when: Section['when'], role: Role): boolean {
-  if (when === 'all') return true
-  if (when === 'staff') return !STUDENT_ROLES.includes(role)
-  if (when === 'student') return STUDENT_ROLES.includes(role)
-  if (when === 'starosta') return role === Role.STAROSTA
-  return false
+/**
+ * Секции с полями, доступными роли. Секция без полей отбрасывается целиком —
+ * так у платформенного администратора не остаётся пустых карточек, которые
+ * нечем заполнить (например «Академическое»).
+ */
+export function visibleSections(role: Role): Section[] {
+  return SECTIONS.map((s) => ({
+    ...s,
+    fields: s.fields.filter((f) => profileFieldAllowed(f.key, role)),
+  })).filter((s) => s.fields.length > 0)
+}
+
+/** Доступно ли роли конкретное поле профиля (для карточек вне SECTIONS: навыки/интересы). */
+export function fieldVisible(key: ProfileFieldKey, role: Role): boolean {
+  return profileFieldAllowed(key, role)
 }
