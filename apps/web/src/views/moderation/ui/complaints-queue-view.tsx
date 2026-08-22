@@ -22,6 +22,7 @@ import {
   EmptyState,
   Input,
   PageHeader,
+  SegmentedTabs,
   Skeleton,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -43,23 +44,15 @@ export function ComplaintsQueueView() {
       <PageHeader
         title={t('complaintsTitle')}
         tabs={
-          <div className="inline-flex w-fit flex-wrap rounded-lg border border-border bg-muted/50 p-0.5">
-            {STATUS_TABS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setStatus(s)}
-                className={cn(
-                  'cursor-pointer rounded-md px-2.5 py-1 text-sm font-medium transition-colors',
-                  status === s
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {s === 'all' ? t('all') : t(`status${s}`)}
-              </button>
-            ))}
-          </div>
+          <SegmentedTabs
+            aria-label={t('complaintsTitle')}
+            value={status}
+            onChange={setStatus}
+            items={STATUS_TABS.map((s) => ({
+              value: s,
+              label: s === 'all' ? t('all') : t(`status${s}`),
+            }))}
+          />
         }
       />
 

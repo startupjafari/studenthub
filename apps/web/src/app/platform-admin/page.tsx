@@ -1,5 +1,5 @@
-import { RoleLanding } from '../../views/role-landing'
+import { PlatformDashboardView } from '../../views/platform-admin'
 
 export default function Page() {
-  return <RoleLanding variant="platform-admin" />
+  return <PlatformDashboardView />
 }

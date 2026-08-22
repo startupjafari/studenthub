@@ -11,9 +11,8 @@ import {
   fetchApplication,
   type ApplicationListItem,
 } from '../../../entities/application-service'
-import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, PageHeader, SegmentedTabs, Skeleton } from '../../../shared/ui'
 import { useRealtimeEnvelope } from '../../../shared/realtime'
-import { cn } from '../../../shared/lib/utils'
 import { ApplicationCard } from './application-card'
 import { ApplicationDetail } from './application-detail'
 import { CreateWizard } from './create-wizard'
@@ -106,45 +105,18 @@ export function StudentApplicationsView() {
 
   const current = grouped[tab]
 
-  // Табы — системный segmented control, встраивается в шапку рядом с заголовком.
+  // Табы — общий SegmentedTabs, встраивается в шапку рядом с заголовком.
   const tabsNode = (
-    <div
-      role="tablist"
+    <SegmentedTabs
       aria-label={t('myApplications')}
-      className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/50 p-0.5"
-    >
-      {TAB_ORDER.map((id) => {
-        const active = tab === id
-        const count = grouped[id].length
-        return (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => setTab(id)}
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-              active
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
-            )}
-          >
-            {t(TAB_LABEL[id])}
-            {count > 0 && (
-              <span
-                className={cn(
-                  'shrink-0 rounded-full px-1.5 text-xs font-semibold tabular-nums',
-                  active ? 'bg-primary-foreground/20' : 'bg-foreground/10',
-                )}
-              >
-                {count}
-              </span>
-            )}
-          </button>
-        )
-      })}
-    </div>
+      value={tab}
+      onChange={setTab}
+      items={TAB_ORDER.map((id) => ({
+        value: id,
+        label: t(TAB_LABEL[id]),
+        count: grouped[id].length,
+      }))}
+    />
   )
 
   return (
