@@ -1,5 +1,5 @@
 import type { Role } from '@studenthub/shared-types'
-import { SECTIONS, sectionVisible } from './sections'
+import { visibleSections } from './sections'
 
 // Подсчёт заполненности профиля. Единый источник полей — SECTIONS (тот же,
 // что и форма редактирования), плюс фото и подпись из шапки. Роль определяет
@@ -34,8 +34,9 @@ export function computeProfileCompletion(
     { key: 'avatarUrl', labelKey: 'completionAvatar' },
     { key: 'headline', labelKey: 'headline' },
   ]
-  for (const section of SECTIONS) {
-    if (!sectionVisible(section.when, role)) continue
+  // Считаем только поля, доступные роли: иначе платформенный админ никогда не
+  // дойдёт до 100% — плашка требовала бы у него учёную степень и кафедру.
+  for (const section of visibleSections(role)) {
     for (const f of section.fields) fields.push({ key: f.key, labelKey: f.key })
   }
 

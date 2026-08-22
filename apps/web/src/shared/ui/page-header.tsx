@@ -12,15 +12,27 @@ export interface PageHeaderProps {
   /** Кнопка «назад» слева (детальные/вложенные страницы). */
   onBack?: () => void
   backLabel?: string
-  /** Инлайн-табы или сегмент-контрол рядом с заголовком. */
+  /** Переключатель разделов рядом с заголовком — обычно `SegmentedTabs`. */
   tabs?: ReactNode
-  /** Действия справа (обычно кнопки). */
+  /** Действия справа (кнопки, поиск, скачивание). */
   actions?: ReactNode
+  /**
+   * Растянуть шапку на всю ширину области контента, погасив внутренние отступы `main`
+   * (по умолчанию). Выключать там, где шапка стоит не на верхнем уровне страницы —
+   * например внутри колонки grid: отрицательные отступы вытащили бы её из колонки.
+   */
+  bleed?: boolean
   className?: string
 }
 
-// Минималистичная шапка страницы в одну строку: [назад] Заголовок · табы · действия(справа).
-// Всё на одной горизонтали, на узких экранах элементы переносятся. Единый заголовок для всех страниц.
+// Шапка страницы — самостоятельная горизонтальная полоса в том же визуальном языке,
+// что сайдбар: поверхность `bg-sidebar`, снизу разделительная линия. Внутри в одну
+// строку: [назад] Заголовок(+описание) · табы · действия(справа).
+//
+// Полоса идёт вплотную к сайдбару и к верху области контента, без скругления и внешних
+// отступов. `main` в AppShell задаёт свой padding (p-4 / md:p-6 + safe-area сверху),
+// поэтому шапка гасит его отрицательными margin'ами — значения обязаны совпадать с main.
+// Оформление задаётся здесь одним местом: все страницы уже используют PageHeader.
 export function PageHeader({
   title,
   subtitle,
@@ -28,15 +40,24 @@ export function PageHeader({
   backLabel,
   tabs,
   actions,
+  bleed = true,
   className,
 }: PageHeaderProps) {
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2', className)}>
+    <header
+      className={cn(
+        'flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border bg-sidebar px-4 py-3 md:px-6',
+        // Значения зеркалят padding `main`: p-4 / md:p-6 по бокам и
+        // pt-[calc(1rem+env(safe-area-inset-top))] / md:pt-6 сверху.
+        bleed && 'mt-[calc(-1rem-env(safe-area-inset-top))] -mx-4 md:-mx-6 md:-mt-6',
+        className,
+      )}
+    >
       {onBack && (
         <Button
           variant="ghost"
           size="icon-sm"
-          className="-ml-1 shrink-0"
+          className="-ml-1.5 shrink-0"
           onClick={onBack}
           aria-label={backLabel}
         >
@@ -49,6 +70,6 @@ export function PageHeader({
       </div>
       {tabs}
       {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
-    </div>
+    </header>
   )
 }

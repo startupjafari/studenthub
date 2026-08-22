@@ -25,7 +25,7 @@ export class UsersController {
   @Patch('me')
   @ApiOperation({ summary: 'Обновить свой профиль (имя, настройка приватности email)' })
   updateMe(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateProfileDto) {
-    return this.users.updateProfile(user.sub, dto)
+    return this.users.updateProfile(user.sub, user.role, dto)
   }
 
   @Patch('me/password')

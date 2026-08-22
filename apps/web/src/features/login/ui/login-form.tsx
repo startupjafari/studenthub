@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Eye, EyeOff, QrCode } from 'lucide-react'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
-import { Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { Button, CodeInput, FormAlert, Input, Label } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
 import { useFormAlert, safeNextPath } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
@@ -158,7 +158,14 @@ export function LoginForm() {
   )
 }
 
+// Длины кодов заданы сервером: TOTP — 6 цифр, backup — 8 hex-символов
+// (two-factor.service.ts: /^\d{6}$/ → TOTP, иначе сверка с backup-хэшами).
+const TOTP_LENGTH = 6
+const BACKUP_LENGTH = 8
+
 // Второй шаг входа при включённой 2FA: ввод 6-значного кода из приложения или backup-кода.
+// Ввод сегментированный (пин-код), поэтому у двух форматов кода — два режима: длина
+// и алфавит ячеек разные, одним полем их не покрыть.
 function TwoFactorStep({
   onVerify,
   onBack,
@@ -171,42 +178,90 @@ function TwoFactorStep({
   const t = useTranslations('Auth')
   const [code, setCode] = useState('')
   const [verifying, setVerifying] = useState(false)
+  const [backupMode, setBackupMode] = useState(false)
+  // Счётчик попыток входит в key поля: после неверного кода поле пересоздаётся,
+  // фокус возвращается в первую ячейку — иначе пришлось бы стирать код вручную.
+  const [attempt, setAttempt] = useState(0)
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!code.trim() || verifying) return
+  const length = backupMode ? BACKUP_LENGTH : TOTP_LENGTH
+  const canSubmit = code.length === length && !verifying
+
+  useEffect(() => {
+    if (!apiError) return
+    setCode('')
+    setAttempt((n) => n + 1)
+  }, [apiError])
+
+  async function verify(value: string) {
+    if (verifying) return
     setVerifying(true)
     try {
-      await onVerify(code.trim())
+      await onVerify(value)
     } finally {
       setVerifying(false)
     }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    await verify(code)
+  }
+
+  function switchMode() {
+    setBackupMode((v) => !v)
+    setCode('')
   }
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <h2 className="text-2xl font-semibold">{t('twoFactorTitle')}</h2>
-        <p className="text-sm text-muted-foreground">{t('twoFactorPrompt')}</p>
+        <p className="text-sm text-muted-foreground">
+          {backupMode ? t('twoFactorBackupPrompt') : t('twoFactorPrompt')}
+        </p>
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
         <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
-          <Label htmlFor="twoFactorCode">{t('twoFactorCodeLabel')}</Label>
-          <Input
+          <Label htmlFor="twoFactorCode">
+            {backupMode ? t('twoFactorBackupCodeLabel') : t('twoFactorCodeLabel')}
+          </Label>
+          <CodeInput
             id="twoFactorCode"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            autoFocus
-            placeholder="123456"
+            aria-label={backupMode ? t('twoFactorBackupCodeLabel') : t('twoFactorCodeLabel')}
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={setCode}
+            length={length}
+            // Полный код отправляем сразу — лишнее нажатие «Подтвердить» не нужно.
+            onComplete={verify}
+            alphabet={backupMode ? 'hex' : 'numeric'}
+            groupSize={backupMode ? 4 : 3}
+            disabled={verifying}
+            // Красная рамка только пока поле пусто после ошибки: начал вводить — снялась.
+            invalid={!!apiError && code.length === 0}
+            autoFocus
+            // key — чтобы при смене режима и после неверной попытки ячейки
+            // пересоздались и фокус встал в первую.
+            key={`${backupMode ? 'backup' : 'totp'}-${attempt}`}
           />
-          <p className="text-xs text-muted-foreground">{t('twoFactorBackupHint')}</p>
+          <button
+            type="button"
+            onClick={switchMode}
+            className="cursor-pointer self-start rounded text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+          >
+            {backupMode ? t('twoFactorUseAppHint') : t('twoFactorBackupHint')}
+          </button>
         </div>
 
-        <Button type="submit" size="lg" loading={verifying} className="mt-2 w-full">
+        <Button
+          type="submit"
+          size="lg"
+          loading={verifying}
+          disabled={!canSubmit}
+          className="mt-2 w-full"
+        >
           {t('twoFactorVerify')}
         </Button>
         <button
