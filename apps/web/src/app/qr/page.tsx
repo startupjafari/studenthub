@@ -39,7 +39,7 @@ function QrApprove() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-5 text-center">
+    <div className="flex flex-col items-center gap-4 text-center">
       <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
         <MonitorSmartphone className="size-7" aria-hidden />
       </span>

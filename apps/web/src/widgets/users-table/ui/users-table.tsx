@@ -196,7 +196,7 @@ export function UsersTable({ title, role, showRoleFilter = false }: UsersTablePr
                           size="sm"
                           loading={blockMut.isPending && blockMut.variables?.id === u.id}
                           onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
-                          className={u.isBlocked ? 'text-emerald-600' : 'text-destructive'}
+                          className={u.isBlocked ? 'text-success' : 'text-destructive'}
                         >
                           {u.isBlocked ? (
                             <>

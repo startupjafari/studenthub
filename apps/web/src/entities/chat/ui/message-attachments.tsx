@@ -170,7 +170,7 @@ function Single({
       rel="noopener noreferrer"
       download
       className={cn(
-        'flex min-w-[220px] items-center gap-2.5 py-0.5',
+        'flex min-w-[220px] items-center gap-2 py-0.5',
         uploading && 'pointer-events-none',
       )}
     >

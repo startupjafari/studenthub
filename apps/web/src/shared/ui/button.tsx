@@ -71,7 +71,18 @@ function Button({
       aria-busy={isLoading || undefined}
       {...props}
     >
-      {isLoading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : children}
+      {isLoading ? (
+        // Ширину держит исходное содержимое: иначе кнопка схлопывается до кружка
+        // и ряд кнопок дёргается на время запроса.
+        <span className="grid place-items-center">
+          <span className="invisible col-start-1 row-start-1 inline-flex items-center gap-2">
+            {children}
+          </span>
+          <Loader2 className="col-start-1 row-start-1 size-4 animate-spin" aria-hidden />
+        </span>
+      ) : (
+        children
+      )}
     </Comp>
   )
 }

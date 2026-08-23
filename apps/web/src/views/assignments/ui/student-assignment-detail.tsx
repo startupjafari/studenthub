@@ -106,7 +106,7 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
   const sub = a.mySubmission
 
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <PageHeader
         title={a.title}
         subtitle={a.course.subject.name}

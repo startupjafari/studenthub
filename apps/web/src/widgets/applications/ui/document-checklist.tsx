@@ -120,7 +120,7 @@ export function DocumentChecklist({
     PENDING: 'text-muted-foreground',
     ACCEPTED: 'text-success',
     REJECTED: 'text-destructive',
-    REPLACEMENT_REQUIRED: 'text-amber-600 dark:text-amber-400',
+    REPLACEMENT_REQUIRED: 'text-warning',
   }
 
   return (
@@ -134,10 +134,7 @@ export function DocumentChecklist({
               {attached && !needsReplace ? (
                 <Check className="size-4 shrink-0 text-success" aria-hidden />
               ) : needsReplace ? (
-                <AlertTriangle
-                  className="size-4 shrink-0 text-amber-600 dark:text-amber-400"
-                  aria-hidden
-                />
+                <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />
               ) : (
                 <span
                   className="size-4 shrink-0 rounded-full border border-muted-foreground/40"
@@ -179,7 +176,7 @@ export function DocumentChecklist({
             )}
 
             {needsReplace && attached?.reviewComment && (
-              <p className="pl-6 text-xs text-amber-600 dark:text-amber-400">
+              <p className="pl-6 text-xs text-warning">
                 {t('reviewReason')}: {attached.reviewComment}
               </p>
             )}

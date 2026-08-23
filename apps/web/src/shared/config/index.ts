@@ -20,3 +20,4 @@ export {
   TIMEZONE_DICT,
   yearOptions,
 } from './profile-enums'
+export { BRAND_GRADIENT } from './brand'

@@ -20,6 +20,7 @@ import {
   FormAlert,
   Input,
   Label,
+  PageHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -129,181 +130,186 @@ export function CreateInvite() {
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <h1 className="text-2xl font-bold">{t('title')}</h1>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle className="text-base">{t('createTitle')}</CardTitle>
-          <BulkInvite />
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
-            <FormAlert error={apiError} />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label>{t('roleLabel')}</Label>
-                <Controller
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('selectRole')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {invitable.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {tRoles(r)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+    <div className="flex flex-col gap-6">
+      <PageHeader title={t('title')} />
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardTitle className="text-base">{t('createTitle')}</CardTitle>
+            <BulkInvite />
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+              <FormAlert error={apiError} />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <Label>{t('roleLabel')}</Label>
+                  <Controller
+                    control={form.control}
+                    name="role"
+                    render={({ field }) => (
+                      <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('selectRole')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {invitable.map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {tRoles(r)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {form.formState.errors.role && (
+                    <p className="text-xs text-destructive">{t('selectRole')}</p>
                   )}
-                />
-                {form.formState.errors.role && (
-                  <p className="text-xs text-destructive">{t('selectRole')}</p>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="inv-email">
+                    {t('emailLabel')}{' '}
+                    <span className="font-normal text-muted-foreground">
+                      ({t('emailOptional')})
+                    </span>
+                  </Label>
+                  <Input
+                    id="inv-email"
+                    type="email"
+                    placeholder="user@example.com"
+                    {...form.register('email')}
+                  />
+                </div>
+
+                {needsFaculty && (
+                  <div className="flex flex-col gap-2">
+                    <Label>{t('faculty')}</Label>
+                    <Controller
+                      control={form.control}
+                      name="facultyId"
+                      render={({ field }) => (
+                        <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('selectFaculty')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {faculties.data?.map((f) => (
+                              <SelectItem key={f.id} value={f.id}>
+                                {f.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    {form.formState.errors.facultyId && (
+                      <p className="text-xs text-destructive">{t('facultyRequired')}</p>
+                    )}
+                  </div>
+                )}
+
+                {needsGroup && (
+                  <div className="flex flex-col gap-2">
+                    <Label>{t('group')}</Label>
+                    <Controller
+                      control={form.control}
+                      name="groupId"
+                      render={({ field }) => (
+                        <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('selectGroup')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {groups.data?.map((g) => (
+                              <SelectItem key={g.id} value={g.id}>
+                                {g.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    {form.formState.errors.groupId && (
+                      <p className="text-xs text-destructive">{t('groupRequired')}</p>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="inv-email">
-                  {t('emailLabel')}{' '}
-                  <span className="font-normal text-muted-foreground">({t('emailOptional')})</span>
-                </Label>
-                <Input
-                  id="inv-email"
-                  type="email"
-                  placeholder="user@example.com"
-                  {...form.register('email')}
-                />
-              </div>
-
-              {needsFaculty && (
-                <div className="flex flex-col gap-2">
-                  <Label>{t('faculty')}</Label>
-                  <Controller
-                    control={form.control}
-                    name="facultyId"
-                    render={({ field }) => (
-                      <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('selectFaculty')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {faculties.data?.map((f) => (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  {form.formState.errors.facultyId && (
-                    <p className="text-xs text-destructive">{t('facultyRequired')}</p>
-                  )}
-                </div>
-              )}
-
-              {needsGroup && (
-                <div className="flex flex-col gap-2">
-                  <Label>{t('group')}</Label>
-                  <Controller
-                    control={form.control}
-                    name="groupId"
-                    render={({ field }) => (
-                      <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('selectGroup')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {groups.data?.map((g) => (
-                            <SelectItem key={g.id} value={g.id}>
-                              {g.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  {form.formState.errors.groupId && (
-                    <p className="text-xs text-destructive">{t('groupRequired')}</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <Button type="submit" loading={createMut.isPending} className="w-fit">
-              {t('create')}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {created && (
-        <Card className="border-primary/40 bg-primary/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Link2 className="size-4 text-primary" aria-hidden />
-              {t('inviteLinkTitle')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <code className="truncate rounded-lg bg-background px-3 py-2 text-sm">
-              /register?token={created.token}
-            </code>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={copyLink}>
-                <Copy className="size-4" aria-hidden />
-                {t('copyLink')}
+              <Button type="submit" loading={createMut.isPending} className="w-fit">
+                {t('create')}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setCreated(null)}>
-                {t('dismiss')}
-              </Button>
-            </div>
+            </form>
           </CardContent>
         </Card>
-      )}
 
-      <div className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">{t('listTitle')}</h2>
-        {invites.isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : invites.data && invites.data.length > 0 ? (
-          invites.data.map((inv) => (
-            <Card key={inv.id} className="flex-row items-center justify-between gap-3 p-4">
-              <div className="flex min-w-0 flex-col">
-                <span className="font-medium">{tRoles(inv.role)}</span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {inv.email ?? '—'} · {t('expires')}:{' '}
-                  {new Date(inv.expiresAt).toLocaleDateString()}
-                </span>
+        {created && (
+          <Card className="border-primary/40 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Link2 className="size-4 text-primary" aria-hidden />
+                {t('inviteLinkTitle')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <code className="truncate rounded-lg bg-background px-3 py-2 text-sm">
+                /register?token={created.token}
+              </code>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={copyLink}>
+                  <Copy className="size-4" aria-hidden />
+                  {t('copyLink')}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setCreated(null)}>
+                  {t('dismiss')}
+                </Button>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={STATUS_VARIANT[inv.status]}>{t(`status.${inv.status}`)}</Badge>
-                {inv.status === 'PENDING' && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t('revoke')}
-                    loading={revokeMut.isPending && revokeMut.variables === inv.id}
-                    onClick={() => {
-                      void confirm({ title: t('revokeConfirm'), destructive: true }).then((ok) => {
-                        if (ok) revokeMut.mutate(inv.id)
-                      })
-                    }}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" aria-hidden />
-                  </Button>
-                )}
-              </div>
-            </Card>
-          ))
-        ) : (
-          <EmptyState title={t('noInvites')} description={t('noInvitesHint')} />
+            </CardContent>
+          </Card>
         )}
+
+        <div className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">{t('listTitle')}</h2>
+          {invites.isLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : invites.data && invites.data.length > 0 ? (
+            invites.data.map((inv) => (
+              <Card key={inv.id} className="flex-row items-center justify-between gap-3 p-4">
+                <div className="flex min-w-0 flex-col">
+                  <span className="font-medium">{tRoles(inv.role)}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {inv.email ?? '—'} · {t('expires')}:{' '}
+                    {new Date(inv.expiresAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={STATUS_VARIANT[inv.status]}>{t(`status.${inv.status}`)}</Badge>
+                  {inv.status === 'PENDING' && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t('revoke')}
+                      loading={revokeMut.isPending && revokeMut.variables === inv.id}
+                      onClick={() => {
+                        void confirm({ title: t('revokeConfirm'), destructive: true }).then(
+                          (ok) => {
+                            if (ok) revokeMut.mutate(inv.id)
+                          },
+                        )
+                      }}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            ))
+          ) : (
+            <EmptyState title={t('noInvites')} description={t('noInvitesHint')} />
+          )}
+        </div>
       </div>
     </div>
   )

@@ -10,6 +10,10 @@ const OFFICIAL_LABEL: Partial<Record<ChatTypeValue, string>> = {
   SUBJECT: 'typeSubject',
 }
 
+// Цвет и инициалы кружка — общий источник для всего продукта (shared/lib/identity-color).
+// В чатах прижились имена avatarColor/chatInitials, поэтому реэкспортируем под ними.
+export { identityColor as avatarColor, identityInitials as chatInitials } from '../../../shared/lib'
+
 export function chatTitle(c: ChatListItem, t: (k: string) => string): string {
   if (c.type === 'SAVED') return t('savedMessages')
   if (c.title) return c.title
@@ -20,28 +24,6 @@ export function chatTitle(c: ChatListItem, t: (k: string) => string): string {
 
 export function senderName(m: { sender: { firstName: string; lastName: string } }): string {
   return `${m.sender.lastName} ${m.sender.firstName}`.trim()
-}
-
-export function chatInitials(title: string): string {
-  const parts = title.split(/\s+/).filter(Boolean).slice(0, 2)
-  return parts.map((w) => w[0]?.toUpperCase() ?? '').join('') || '#'
-}
-
-const AVATAR_COLORS = [
-  'bg-rose-500',
-  'bg-orange-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-teal-500',
-  'bg-sky-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-]
-
-export function avatarColor(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? 'bg-sky-500'
 }
 
 // Тег-категория чата под превью (Telegram-стиль «папок»): i18n-ключ + приглушённая точка-цвет по типу.

@@ -18,6 +18,7 @@ import {
   UserRoundPlus,
 } from 'lucide-react'
 import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
+import { BRAND_GRADIENT } from '../../../shared/config'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
 import { createChatRequest } from '../../../entities/chat'
 import {
@@ -116,7 +117,7 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const u = q.data
 
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
         {/* Назад — иконкой поверх обложки слева, чтобы не занимать место сверху. */}
         <Button
@@ -161,10 +162,10 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               className="object-cover"
             />
           ) : (
-            <div className="size-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500" />
+            <div className={`size-full ${BRAND_GRADIENT}`} />
           )}
         </div>
-        <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
+        <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-4 sm:px-6">
           <div className="-mt-14 shrink-0 sm:-mt-16">
             <div className="relative size-28 sm:size-32">
               {u.avatarUrl ? (
@@ -285,10 +286,10 @@ function FriendButton({ userId }: { userId: string }) {
 
 function PublicSkeleton() {
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <Card className="overflow-hidden p-0">
         <Skeleton className="h-36 w-full rounded-none sm:h-44" />
-        <div className="flex items-end gap-5 px-6 pb-4">
+        <div className="flex items-end gap-4 px-6 pb-4">
           <Skeleton className="-mt-16 size-32 rounded-full" />
           <div className="flex flex-1 flex-col gap-2 pb-2">
             <Skeleton className="h-6 w-48" />
@@ -296,7 +297,7 @@ function PublicSkeleton() {
           </div>
         </div>
       </Card>
-      <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <Skeleton className="h-40 w-full rounded-xl" />
         <Skeleton className="h-56 w-full rounded-xl" />
       </div>

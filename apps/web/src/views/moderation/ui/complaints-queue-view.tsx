@@ -77,9 +77,9 @@ export function ComplaintsQueueView() {
 }
 
 const STATUS_STYLE: Record<ComplaintStatusValue, string> = {
-  PENDING: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  PENDING: 'bg-warning/15 text-warning',
   REVIEWING: 'bg-primary/10 text-primary',
-  RESOLVED: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  RESOLVED: 'bg-success/15 text-success',
   DISMISSED: 'bg-muted text-muted-foreground',
 }
 
