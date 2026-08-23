@@ -301,10 +301,10 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                     {/* Линия «сейчас» */}
                     {dayIdx === todayIdx && nowMin >= gridStart && nowMin <= gridEnd && (
                       <div
-                        className="absolute inset-x-0 z-20 border-t-2 border-red-500"
+                        className="absolute inset-x-0 z-20 border-t-2 border-destructive"
                         style={{ top: ((nowMin - gridStart) / 60) * HOUR_PX }}
                       >
-                        <span className="absolute -left-1 -top-1 size-2 rounded-full bg-red-500" />
+                        <span className="absolute -left-1 -top-1 size-2 rounded-full bg-destructive" />
                       </div>
                     )}
                     {/* Занятия — клик открывает интерактивную деталь пары (PR-3b). */}

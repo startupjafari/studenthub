@@ -71,7 +71,7 @@ export function StudentConsultationsView() {
   // Экран слотов преподавателя.
   if (teacher) {
     return (
-      <div className="flex w-full flex-col gap-5">
+      <div className="flex w-full flex-col gap-4">
         <PageHeader
           title={teacher.name}
           subtitle={t('pickSlot')}

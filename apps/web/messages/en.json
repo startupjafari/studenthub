@@ -611,7 +611,8 @@
     "RATE_LIMIT": "Too many attempts, wait a moment",
     "INTERNAL_ERROR": "Server error",
     "INVALID_2FA_CODE": "Invalid code",
-    "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required"
+    "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required",
+    "USERNAME_TAKEN": "This username is already taken"
   },
   "Notifications": {
     "title": "Notifications",
@@ -1453,7 +1454,11 @@
     "theme": "Theme",
     "themeSystem": "System",
     "themeLight": "Light",
-    "themeDark": "Dark"
+    "themeDark": "Dark",
+    "usernameLabel": "Username",
+    "usernamePlaceholder": "ivan_petrov",
+    "usernameHint": "You can sign in with this name instead of email. 3–32 characters: letters, digits and _",
+    "usernameEmptyHint": "Not set yet — sign-in by email only. 3–32 characters: letters, digits and _"
   },
   "Offline": {
     "title": "You are offline",

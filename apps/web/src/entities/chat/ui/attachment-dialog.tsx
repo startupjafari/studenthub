@@ -83,7 +83,7 @@ export function AttachmentDialog({
           {files.map((f, i) => (
             <div
               key={`${f.name}-${i}`}
-              className="flex items-center gap-2.5 rounded-xl border border-border p-2"
+              className="flex items-center gap-2 rounded-xl border border-border p-2"
             >
               <AttachmentThumb file={f} />
               <span className="min-w-0 flex-1">

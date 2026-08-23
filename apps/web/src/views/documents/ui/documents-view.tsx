@@ -33,7 +33,7 @@ export function DocumentsView() {
   const [section, setSection] = useState<Section>('overview')
 
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}

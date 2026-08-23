@@ -55,6 +55,9 @@ const OLD_AVATARS_LIMIT = 100
 const PROFILE_SELECT = {
   id: true,
   email: true,
+  // Имя входа (Telegram-стиль). Приватная деталь владельца: в чужой карточке вырезается
+  // в getProfileForViewer — знать чужой логин посторонним незачем.
+  username: true,
   firstName: true,
   lastName: true,
   middleName: true,
@@ -132,6 +135,7 @@ export type PublicProfile = Omit<
   | 'employeeNumber'
   | 'address'
   | 'twoFactorEnabled'
+  | 'username'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
 @Injectable()
@@ -295,6 +299,38 @@ export class UserService {
       data,
       select: PROFILE_SELECT,
     })
+  }
+
+  /**
+   * Смена имени пользователя (имени входа). Отдельно от updateProfile: у операции своя
+   * ошибка «занято» и свой аудит — по нему видно, кто и когда сменил идентификатор входа.
+   *
+   * Уникальность обеспечивает БД (`username String? @unique`), а не предварительный SELECT:
+   * проверка «свободно ли» и вставка — не атомарны, между ними имя может занять другой.
+   * Ловим P2002 и переводим в USERNAME_TAKEN.
+   */
+  async updateUsername(userId: string, username: string): Promise<UserProfile> {
+    // Схема уже приводит к нижнему регистру; trim на случай прямого вызова из кода.
+    const normalized = username.trim().toLowerCase()
+    try {
+      const updated = await this.prisma.user.update({
+        where: { id: userId },
+        data: { username: normalized },
+        select: PROFILE_SELECT,
+      })
+      await this.audit.record({
+        userId,
+        action: 'change_username',
+        entity: 'User',
+        entityId: userId,
+      })
+      return updated
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppException('USERNAME_TAKEN', 'Это имя пользователя уже занято')
+      }
+      throw error
+    }
   }
 
   /**
@@ -480,6 +516,7 @@ export class UserService {
       address,
       gpa,
       twoFactorEnabled,
+      username,
       ...rest
     } = target
     void showEmail
@@ -488,6 +525,8 @@ export class UserService {
     void address
     // Наличие 2FA — приватная деталь владельца, не отдаём чужим.
     void twoFactorEnabled
+    // Имя входа — тоже: это половина учётных данных, а не публичный хэндл.
+    void username
     return {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,

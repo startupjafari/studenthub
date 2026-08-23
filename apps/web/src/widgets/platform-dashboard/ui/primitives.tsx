@@ -95,11 +95,11 @@ export function StatTile({
     <div
       style={{ animationDelay: `${index * 70}ms` }}
       className={cn(
-        'flex flex-col gap-1.5 rounded-xl border border-border bg-card p-4',
+        'flex flex-col gap-1.5 rounded-xl bg-card p-4 ring-1 ring-foreground/10',
         'animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-500 motion-reduce:animate-none',
         // Отклик на наведение: плитка кликабельной не является, поэтому только
-        // рамка и тень — без подъёма, чтобы не обещать переход.
-        'transition-colors hover:border-ring/50',
+        // кольцо — без подъёма, чтобы не обещать переход.
+        'transition-[box-shadow] hover:ring-ring/50',
       )}
     >
       <span className="text-xs text-muted-foreground">{label}</span>

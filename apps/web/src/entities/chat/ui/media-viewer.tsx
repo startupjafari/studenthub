@@ -109,7 +109,7 @@ export function MediaViewer({
         <button
           type="button"
           onClick={run(actions.onGoTo)}
-          className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-white/10"
+          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
         >
           <Eye className="size-4 shrink-0 opacity-80" aria-hidden />
           {t('goToMessage')}
@@ -117,7 +117,7 @@ export function MediaViewer({
         <button
           type="button"
           onClick={run(actions.onCopy)}
-          className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-white/10"
+          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
         >
           <Copy className="size-4 shrink-0 opacity-80" aria-hidden />
           {t('copyText')}
@@ -125,7 +125,7 @@ export function MediaViewer({
         <button
           type="button"
           onClick={run(actions.onForward)}
-          className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-white/10"
+          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
         >
           <Forward className="size-4 shrink-0 opacity-80" aria-hidden />
           {t('forward')}
@@ -134,7 +134,7 @@ export function MediaViewer({
           <button
             type="button"
             onClick={run(actions.onDelete)}
-            className="flex h-9 w-full items-center gap-2.5 px-3 text-sm text-red-400 transition-colors hover:bg-white/10"
+            className="flex h-9 w-full items-center gap-2 px-3 text-sm text-red-400 transition-colors hover:bg-white/10"
           >
             <Trash2 className="size-4 shrink-0" aria-hidden />
             {t('delete')}

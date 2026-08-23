@@ -330,7 +330,7 @@ function MessageItemInner({
                   className="flex items-center gap-0.5"
                   title={readCount > 0 ? t('readByCount', { count: readCount }) : undefined}
                 >
-                  <CheckCheck className="size-3.5 text-sky-300" aria-hidden />
+                  <CheckCheck className="size-3.5" aria-hidden />
                   {readCount > 0 && (
                     <span className="text-[10px] leading-none opacity-70">{readCount}</span>
                   )}

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { Role } from '@studenthub/shared-types'
-import { PasswordSchema } from './auth.js'
+import { PasswordSchema, UsernameSchema } from './auth.js'
 import { OffsetPaginationSchema } from './pagination.js'
 import { RoleSchema } from './invites.js'
 
@@ -82,6 +82,13 @@ export const UpdateProfileSchema = z
   .strict()
 
 export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>
+
+// Смена имени пользователя (входа): та же политика, что при регистрации по инвайту —
+// 3–32 символа [a-z0-9_], хранится и сравнивается в нижнем регистре. Отдельный эндпоинт,
+// а не поле UpdateProfileSchema: у него своя ошибка «занято» и свой аудит.
+export const UpdateUsernameSchema = z.object({ username: UsernameSchema }).strict()
+
+export type UpdateUsernameInput = z.infer<typeof UpdateUsernameSchema>
 
 // Смена пароля: текущий + новый по политике (docs/BACKEND_RULES.md §3).
 export const ChangePasswordSchema = z

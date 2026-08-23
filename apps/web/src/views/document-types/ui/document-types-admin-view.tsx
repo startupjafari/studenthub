@@ -50,7 +50,7 @@ export function DocumentTypesAdminView() {
     t2.custom ? (t2.label ?? t2.typeId) : t(`docType_${t2.typeId}`)
 
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <PageHeader
         title={t('dt_title')}
         subtitle={t('dt_subtitle')}

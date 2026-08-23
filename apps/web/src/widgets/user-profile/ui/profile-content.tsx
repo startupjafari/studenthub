@@ -236,9 +236,9 @@ export function ProfileBody({ data }: { data: ProfileData }) {
   const langs = data.languages ?? []
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+    <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       {/* Левая колонка */}
-      <div className="flex flex-col gap-5 lg:sticky lg:top-2">
+      <div className="flex flex-col gap-4 lg:sticky lg:top-2">
         <ContactsCard data={data} />
         {showSkills && <ChipsCard title={t('skills')} icon={Code2} items={skills} tone="primary" />}
         {showInterests && (
@@ -254,7 +254,7 @@ export function ProfileBody({ data }: { data: ProfileData }) {
       </div>
 
       {/* Правая колонка */}
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <AboutCard bio={data.bio ?? ''} title={t('sectionAbout')} />
         {infoSections.map(({ section, rows }) => (
           <InfoCard

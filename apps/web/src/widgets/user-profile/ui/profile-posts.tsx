@@ -71,7 +71,7 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
                     <Skeleton className="h-4 w-2/3" />
                     <Skeleton className="h-3 w-14" />
                   </div>
-                  <div className="flex items-center gap-5 border-t border-border pt-3">
+                  <div className="flex items-center gap-4 border-t border-border pt-3">
                     <Skeleton className="h-5 w-10 rounded-full" />
                     <Skeleton className="h-5 w-10 rounded-full" />
                     <Skeleton className="size-5 rounded-full" />

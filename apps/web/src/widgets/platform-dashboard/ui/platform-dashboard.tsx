@@ -72,9 +72,9 @@ export function PlatformDashboard() {
   const range = useRange()
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <KpiRow />
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <GrowthPanel range={range} />
         <ActiveUsersPanel range={range} />
         <UniversitiesPanel />

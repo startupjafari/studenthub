@@ -188,7 +188,7 @@ export function CreateWizard({
         ) : !catalogQ.data?.length ? (
           <EmptyState icon={<FileText className="size-6" aria-hidden />} title={t('noServices')} />
         ) : (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             {catalogQ.data.map((cat) => (
               <section key={cat.id} className="flex flex-col gap-2">
                 <h3 className="px-1 text-sm font-semibold text-muted-foreground">
@@ -446,7 +446,7 @@ function ServiceInfo({
   const sla =
     hours % 24 === 0 ? t('daysShort', { count: hours / 24 }) : t('hoursShort', { count: hours })
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {desc && <p className="text-sm text-muted-foreground">{desc}</p>}
       <Card className="flex items-center gap-2 p-3 text-sm">
         <Clock className="size-4 text-muted-foreground" aria-hidden />

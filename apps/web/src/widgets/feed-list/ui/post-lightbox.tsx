@@ -47,6 +47,7 @@ import { RepostDialog } from '../../../features/repost-post'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { BRAND_GRADIENT } from '../../../shared/config'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 
@@ -441,7 +442,7 @@ function PostView({
             />
           )
         ) : (
-          <div className="flex size-full items-center justify-center bg-gradient-to-br from-primary via-indigo-500 to-violet-500 p-8">
+          <div className={cn('flex size-full items-center justify-center p-8', BRAND_GRADIENT)}>
             <p className="max-h-full overflow-y-auto whitespace-pre-wrap text-center text-lg font-medium text-white">
               {post.content}
             </p>
@@ -556,7 +557,7 @@ function PostView({
                         setMenuOpen(false)
                         pinMut.mutate()
                       }}
-                      className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted"
+                      className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
                     >
                       <Pin
                         className={cn(
@@ -579,7 +580,7 @@ function PostView({
                           },
                         )
                       }}
-                      className="flex h-9 w-full items-center gap-2.5 px-3 text-sm text-destructive transition-colors hover:bg-muted"
+                      className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-muted"
                     >
                       <Trash2 className="size-4 shrink-0" aria-hidden />
                       {t('delete')}
@@ -676,7 +677,10 @@ function PostView({
               className="cursor-pointer transition-transform hover:scale-110"
             >
               <Heart
-                className={cn('size-6', liked ? 'fill-red-500 text-red-500' : 'text-foreground')}
+                className={cn(
+                  'size-6',
+                  liked ? 'fill-destructive text-destructive' : 'text-foreground',
+                )}
                 aria-hidden
               />
             </button>
@@ -820,7 +824,7 @@ function CommentRow({
 }) {
   const t = useTranslations('Feed')
   return (
-    <div className="group flex gap-2.5">
+    <div className="group flex gap-2">
       <ProfileLink userId={author.id} className="shrink-0">
         <Avatar className={small ? 'size-6' : 'size-8'}>
           {author.avatarUrl && <AvatarImage src={author.avatarUrl} alt="" />}
