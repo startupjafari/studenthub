@@ -611,7 +611,8 @@
     "RATE_LIMIT": "Тым көп әрекет, күте тұрыңыз",
     "INTERNAL_ERROR": "Сервер қатесі",
     "INVALID_2FA_CODE": "Қате код",
-    "TWO_FACTOR_SETUP_REQUIRED": "Екі факторлы аутентификацияны баптау қажет"
+    "TWO_FACTOR_SETUP_REQUIRED": "Екі факторлы аутентификацияны баптау қажет",
+    "USERNAME_TAKEN": "Бұл пайдаланушы аты бос емес"
   },
   "Notifications": {
     "title": "Хабарламалар",
@@ -1453,7 +1454,11 @@
     "theme": "Тақырып",
     "themeSystem": "Жүйелік",
     "themeLight": "Ашық",
-    "themeDark": "Күңгірт"
+    "themeDark": "Күңгірт",
+    "usernameLabel": "Пайдаланушы аты",
+    "usernamePlaceholder": "ivan_petrov",
+    "usernameHint": "Осы атпен email орнына кіруге болады. 3–32 таңба: латын әріптері, сандар және _",
+    "usernameEmptyHint": "Әзірге белгіленбеген — тек email арқылы кіру. 3–32 таңба: латын әріптері, сандар және _"
   },
   "Offline": {
     "title": "Байланыс жоқ",
