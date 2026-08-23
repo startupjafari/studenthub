@@ -176,7 +176,7 @@ export function MessageContextMenu({
             onClick={run(it.onClick)}
             className={cn(
               'flex w-full items-center text-left transition-colors hover:bg-muted',
-              variant === 'sheet' ? 'gap-3 px-4 py-3 text-base' : 'gap-2.5 px-3 py-2 text-sm',
+              variant === 'sheet' ? 'gap-3 px-4 py-3 text-base' : 'gap-2 px-3 py-2 text-sm',
               it.danger ? 'text-destructive' : 'text-foreground',
             )}
           >

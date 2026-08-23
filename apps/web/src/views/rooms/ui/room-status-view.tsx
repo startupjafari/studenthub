@@ -178,16 +178,10 @@ function OccupancyHero({ status }: { status: RoomStatus }) {
 
   const busy = status.occupancy === 'busy'
   return (
-    <Card
-      className={
-        busy ? 'border-amber-500/40 bg-amber-500/10' : 'border-emerald-500/40 bg-emerald-500/10'
-      }
-    >
+    <Card className={busy ? 'border-warning/40 bg-warning/10' : 'border-success/40 bg-success/10'}>
       <CardContent className="flex flex-col items-center gap-1 py-8 text-center">
         <p
-          className={`text-3xl font-bold tracking-tight ${
-            busy ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'
-          }`}
+          className={`text-3xl font-bold tracking-tight ${busy ? 'text-warning' : 'text-success'}`}
         >
           {busy ? t('busy') : t('free')}
         </p>

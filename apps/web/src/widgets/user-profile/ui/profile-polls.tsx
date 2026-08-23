@@ -64,7 +64,7 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
                 key={i}
                 className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5"
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2">
                   <Skeleton className="size-9 rounded-full" />
                   <div className="flex flex-1 flex-col gap-1.5">
                     <Skeleton className="h-3.5 w-1/3" />

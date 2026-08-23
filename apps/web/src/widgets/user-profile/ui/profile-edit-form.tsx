@@ -276,7 +276,7 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
         e.preventDefault()
         submit()
       }}
-      className="flex flex-col gap-5"
+      className="flex flex-col gap-4"
     >
       {/* Основное: ФИО + статус + приватность */}
       <Card>

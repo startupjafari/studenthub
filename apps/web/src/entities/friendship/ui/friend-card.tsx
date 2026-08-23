@@ -19,7 +19,7 @@ function initials(u: FriendUser): string {
 export function FriendCard({ user, action }: { user: FriendUser; action?: ReactNode }) {
   const tRoles = useTranslations('Roles')
   return (
-    <Card className="flex items-center gap-3 p-3">
+    <Card className="flex-row items-center gap-3 p-3">
       <Link href={`/profile/${user.id}`} className="flex min-w-0 flex-1 items-center gap-3">
         {user.avatarUrl ? (
           <Image

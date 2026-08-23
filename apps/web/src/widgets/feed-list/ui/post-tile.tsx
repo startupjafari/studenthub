@@ -23,6 +23,7 @@ import {
 } from '../../../entities/chat'
 import { RepostDialog } from '../../../features/repost-post'
 import { cn } from '../../../shared/lib/utils'
+import { BRAND_GRADIENT } from '../../../shared/config'
 import { PostMediaView } from './post-media'
 import { PostTileMenu } from './post-tile-menu'
 
@@ -102,7 +103,7 @@ export function PostTile({
   }
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:shadow-md">
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
       <button
         type="button"
         onClick={onOpen}
@@ -117,7 +118,7 @@ export function PostTile({
             className="size-full transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
-          <div className="flex size-full items-center justify-center bg-gradient-to-br from-primary via-indigo-500 to-violet-500 p-4">
+          <div className={cn('flex size-full items-center justify-center p-4', BRAND_GRADIENT)}>
             <span className="line-clamp-4 text-center text-sm font-medium text-white">
               {post.content}
             </span>
@@ -126,12 +127,12 @@ export function PostTile({
 
         <span className="absolute left-2 top-2 flex flex-wrap items-center gap-1">
           {post.status === 'DRAFT' && (
-            <span className="rounded-full bg-amber-500/90 px-2 py-0.5 text-[11px] font-medium text-white">
+            <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
               {t('statusDraft')}
             </span>
           )}
           {post.status === 'SCHEDULED' && (
-            <span className="rounded-full bg-sky-500/90 px-2 py-0.5 text-[11px] font-medium text-white">
+            <span className="rounded-full bg-info px-2 py-0.5 text-[11px] font-medium text-info-foreground">
               {t('statusScheduled')}
             </span>
           )}
@@ -172,7 +173,7 @@ export function PostTile({
         </div>
 
         {/* Действия: лайк · комментарий (открывает модалку + фокус) · поделиться */}
-        <div className="mt-auto flex items-center gap-5 border-t border-border pt-3 text-sm text-muted-foreground">
+        <div className="mt-auto flex items-center gap-4 border-t border-border pt-3 text-sm text-muted-foreground">
           <button
             type="button"
             aria-label={t('like')}
@@ -180,7 +181,10 @@ export function PostTile({
             onClick={toggleLike}
             className="flex items-center gap-1.5 transition-transform hover:scale-105 hover:text-foreground"
           >
-            <Heart className={cn('size-5', liked && 'fill-red-500 text-red-500')} aria-hidden />
+            <Heart
+              className={cn('size-5', liked && 'fill-destructive text-destructive')}
+              aria-hidden
+            />
             {reactions.length}
           </button>
           <button

@@ -19,6 +19,9 @@ export interface MeResponse {
   profileVisibility?: ProfileVisibilityValue
   // Включена ли 2FA (только владельцу; в /users/me и /auth/me).
   twoFactorEnabled?: boolean
+  // Имя входа (Telegram-стиль). Только у владельца: в чужой карточке бэкенд его вырезает.
+  // null — у зарегистрированных до появления фичи; такие входят только по email.
+  username?: string | null
   universityId: string | null
   facultyId: string | null
   groupId: string | null

@@ -82,7 +82,7 @@ export function StatusScreen({
             </p>
           )}
 
-          <div className="mt-8 flex flex-col gap-2.5 sm:flex-row sm:justify-center">
+          <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
             {onRetry && (
               <Button onClick={onRetry} className="gap-2">
                 <RotateCcw className="size-4" aria-hidden />

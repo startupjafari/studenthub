@@ -167,7 +167,7 @@ function SubmissionsList({
                 type="button"
                 onClick={() => onSelect(s.id)}
                 className={cn(
-                  'flex w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
+                  'flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
                   selectedId === s.id ? 'bg-primary/[0.08]' : 'hover:bg-muted/50',
                 )}
               >

@@ -5,31 +5,11 @@ import { useTranslations } from 'next-intl'
 import { Check, Search, X } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Button, Input } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useBodyScrollLock } from '../../../shared/lib'
+import { identityColor, identityInitials, useBodyScrollLock } from '../../../shared/lib'
 import type { ChatListItem } from '../model/types'
 
 // ── Визуал строки (Telegram-стиль) ───────────────────────────────────────────
 // Аватар — цветной кружок с инициалами (картинок у чатов нет; как в сайдбаре).
-function chatInitials(title: string): string {
-  const parts = title.split(/\s+/).filter(Boolean).slice(0, 2)
-  return parts.map((w) => w[0]?.toUpperCase() ?? '').join('') || '#'
-}
-
-const AVATAR_COLORS = [
-  'bg-rose-500',
-  'bg-orange-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-teal-500',
-  'bg-sky-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-]
-function avatarColor(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? 'bg-sky-500'
-}
 
 // Диалог пересылки (Ф9+): множественный выбор целевых чатов с поиском.
 // Подпись чата даёт вызывающий (titleOf). onPick вызывается по одному разу на каждый
@@ -144,9 +124,9 @@ export function ForwardDialog({
                     <Avatar className="size-12">
                       {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={title} />}
                       <AvatarFallback
-                        className={cn('text-sm font-medium text-white', avatarColor(c.id))}
+                        className={cn('text-sm font-medium text-white', identityColor(c.id))}
                       >
-                        {chatInitials(title)}
+                        {identityInitials(title)}
                       </AvatarFallback>
                     </Avatar>
                     {isChecked && (

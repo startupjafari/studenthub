@@ -11,7 +11,7 @@ import { cn } from '../../../shared/lib/utils'
 export function ContentLayout({ sidebar, children }: { sidebar: ReactNode; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-6">
-      <aside className="flex flex-row flex-wrap gap-2 lg:sticky lg:top-4 lg:flex-col lg:gap-5">
+      <aside className="flex flex-row flex-wrap gap-2 lg:sticky lg:top-4 lg:flex-col lg:gap-4">
         {sidebar}
       </aside>
       <div className="min-w-0">{children}</div>

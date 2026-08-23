@@ -144,7 +144,7 @@ export function ScheduleEditor({
                         onPairClick(pair)
                       }}
                       className={cn(
-                        'absolute z-10 overflow-hidden rounded-lg border-l-2 border-l-primary bg-primary/10 px-1.5 py-1 text-left transition-shadow hover:shadow-md',
+                        'absolute z-10 overflow-hidden rounded-lg border-l-2 border-l-primary bg-primary/10 px-1.5 py-1 text-left transition-shadow hover:ring-1 hover:ring-ring/50',
                         selected && 'ring-2 ring-primary',
                       )}
                       style={{

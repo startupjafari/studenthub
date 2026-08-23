@@ -55,23 +55,8 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useBodyScrollLock } from '../../../shared/lib'
+import { identityColor, useBodyScrollLock } from '../../../shared/lib'
 
-const COLORS = [
-  'bg-rose-500',
-  'bg-orange-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-teal-500',
-  'bg-sky-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-]
-function colorOf(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return COLORS[h % COLORS.length] ?? 'bg-sky-500'
-}
 function initials(a: string, b: string): string {
   return `${a[0] ?? ''}${b[0] ?? ''}`.toUpperCase() || '#'
 }
@@ -343,7 +328,7 @@ export function GroupInfoDialog({
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 duration-150 animate-in fade-in md:p-4"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/50 duration-150 animate-in fade-in md:p-4"
         role="dialog"
         aria-modal="true"
         onClick={onClose}
@@ -365,7 +350,9 @@ export function GroupInfoDialog({
             <div className="relative">
               <Avatar className="size-20">
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={title} />}
-                <AvatarFallback className={cn('text-2xl font-medium text-white', colorOf(chatId))}>
+                <AvatarFallback
+                  className={cn('text-2xl font-medium text-white', identityColor(chatId))}
+                >
                   {title
                     .split(/\s+/)
                     .filter(Boolean)
@@ -542,14 +529,14 @@ export function GroupInfoDialog({
                       <Avatar className="size-9">
                         {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.firstName} />}
                         <AvatarFallback
-                          className={cn('text-xs font-medium text-white', colorOf(m.id))}
+                          className={cn('text-xs font-medium text-white', identityColor(m.id))}
                         >
                           {initials(m.lastName, m.firstName)}
                         </AvatarFallback>
                       </Avatar>
                       {m.online && (
                         <span
-                          className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-background bg-green-500"
+                          className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-background bg-success"
                           aria-hidden
                         />
                       )}
@@ -660,7 +647,7 @@ function MemberMenu({
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-[60]" role="menu">
+    <div className="fixed inset-0 z-[110]" role="menu">
       <div
         ref={ref}
         style={{ left: pos.left, top: pos.top }}
@@ -677,7 +664,7 @@ function MemberMenu({
                 onClose()
               }}
               className={cn(
-                'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
+                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
                 it.danger ? 'text-destructive' : 'text-foreground',
               )}
             >

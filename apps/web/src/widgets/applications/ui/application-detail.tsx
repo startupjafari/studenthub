@@ -135,15 +135,10 @@ export function ApplicationDetail({
           </Card>
 
           {app.status === 'NEEDS_CORRECTION' && (
-            <Card className="flex items-start gap-3 border-amber-500/40 bg-amber-500/5 p-4">
-              <AlertTriangle
-                className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400"
-                aria-hidden
-              />
+            <Card className="flex items-start gap-3 border-warning/40 bg-warning/5 p-4">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden />
               <div className="text-sm">
-                <p className="font-semibold text-amber-700 dark:text-amber-300">
-                  {t('actionNeeded')}
-                </p>
+                <p className="font-semibold text-warning">{t('actionNeeded')}</p>
               </div>
             </Card>
           )}
