@@ -23,6 +23,9 @@ export const ErrorCode = {
   // Привилегированной роли требуется включить 2FA: доступ к API закрыт до настройки
   // (кроме эндпоинтов настройки/включения 2FA). Клиент ведёт на экран настройки.
   TWO_FACTOR_SETUP_REQUIRED: 'TWO_FACTOR_SETUP_REQUIRED',
+  // Имя пользователя занято другим аккаунтом. Отдельно от CONFLICT: форма подсвечивает
+  // именно поле «имя пользователя» и предлагает выбрать другое.
+  USERNAME_TAKEN: 'USERNAME_TAKEN',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -51,6 +54,7 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   INTERNAL_ERROR: 500,
   INVALID_2FA_CODE: 401,
   TWO_FACTOR_SETUP_REQUIRED: 403,
+  USERNAME_TAKEN: 409,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { ConfigService } from '@nestjs/config'
 import { UserService } from './users.service'
@@ -665,5 +666,62 @@ describe('UserService.updateProfile — набор полей по роли (PRO
       await service.updateProfile('x', role, { headline: 'Статус', timezone: 'Asia/Almaty' })
       expect(dataOf(prisma)).toEqual({ headline: 'Статус', timezone: 'Asia/Almaty' })
     }
+  })
+})
+
+describe('UserService.updateUsername', () => {
+  const conflict = () =>
+    new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+      meta: { target: ['username'] },
+    })
+
+  it('нормализует имя в нижний регистр и обрезает пробелы', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u1', username: 'ivan_petrov' })
+
+    await service.updateUsername('u1', '  Ivan_Petrov ')
+
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'u1' }, data: { username: 'ivan_petrov' } }),
+    )
+  })
+
+  it('пишет аудит смены имени входа', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u1', username: 'ivan' })
+
+    await service.updateUsername('u1', 'ivan')
+
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', action: 'change_username', entityId: 'u1' }),
+    )
+  })
+
+  it('занятое имя → USERNAME_TAKEN, а не 500', async () => {
+    // Уникальность держит БД: между «проверить свободно» и «записать» имя может занять другой,
+    // поэтому обрабатываем именно отказ вставки.
+    const { service, prisma } = setup()
+    prisma.user.update.mockRejectedValue(conflict())
+
+    await expect(service.updateUsername('u1', 'taken')).rejects.toMatchObject({
+      code: 'USERNAME_TAKEN',
+    })
+  })
+
+  it('прочие ошибки БД не маскируются под «занято»', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockRejectedValue(new Error('соединение потеряно'))
+
+    await expect(service.updateUsername('u1', 'ivan')).rejects.toThrow('соединение потеряно')
+  })
+
+  it('аудит не пишется, если запись не удалась', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.update.mockRejectedValue(conflict())
+
+    await expect(service.updateUsername('u1', 'taken')).rejects.toBeInstanceOf(AppException)
+    expect(audit.record).not.toHaveBeenCalled()
   })
 })

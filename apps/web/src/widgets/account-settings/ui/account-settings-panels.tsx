@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { Controller, useForm } from 'react-hook-form'
@@ -27,9 +28,9 @@ import {
 import {
   ChangePasswordSchema,
   UpdateProfileSchema,
+  UsernameSchema,
   PROFILE_VISIBILITY,
   type ChangePasswordInput,
-  type UpdateProfileInput,
   type ProfileVisibilityValue,
 } from '@studenthub/shared-schemas'
 import type { MeResponse } from '../../../shared/api'
@@ -68,6 +69,7 @@ import {
   deleteAccountRequest,
   fetchMe,
   updateProfileRequest,
+  updateUsernameRequest,
   userKeys,
 } from '../../../entities/user'
 import {
@@ -78,7 +80,7 @@ import {
 } from '../../../entities/notification'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
-import { useFormAlert } from '../../../shared/lib'
+import { toApiError, useFormAlert } from '../../../shared/lib'
 import { subscribeToPush, unsubscribeFromPush, pushSupported } from '../../../shared/lib/push'
 
 function errCode(e: unknown): string {
@@ -110,7 +112,7 @@ export function AccountSettingsPanels() {
   const [tab, setTab] = useState('personal')
 
   return (
-    <div className="grid w-full items-start gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
+    <div className="grid w-full items-start gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
       {/* Левая навигация по блокам настроек */}
       <nav
         aria-label={tS('title')}
@@ -127,7 +129,7 @@ export function AccountSettingsPanels() {
               aria-current={active ? 'true' : undefined}
               onClick={() => setTab(item.id)}
               className={cn(
-                'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                'flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 active
                   ? danger
                     ? 'bg-destructive/10 text-destructive'
@@ -145,7 +147,7 @@ export function AccountSettingsPanels() {
       </nav>
 
       {/* Активный блок */}
-      <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex min-w-0 flex-col gap-4">
         {me.isLoading && <SectionSkeleton />}
         {me.isError && <p className="text-destructive">{tErr('INTERNAL_ERROR')}</p>}
         {me.data && (
@@ -164,29 +166,60 @@ export function AccountSettingsPanels() {
 }
 
 // ── Личные данные ────────────────────────────────────────────────────────────
-function PersonalSection({ me }: { me: MeResponse }) {
+/**
+ * Имя входа живёт в этой же форме, хотя у него отдельный эндпоинт: для пользователя это
+ * такое же поле профиля, как фамилия, и своя кнопка «Сохранить» рядом сбивала бы с толку.
+ * Пустая строка = имя не задано (у аккаунтов, заведённых до появления фичи) — такое значение
+ * пропускаем, а не отправляем.
+ */
+const PersonalFormSchema = UpdateProfileSchema.extend({
+  username: z.union([z.literal(''), UsernameSchema]),
+})
+
+type PersonalFormInput = z.infer<typeof PersonalFormSchema>
+
+export function PersonalSection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
+  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  // Ошибка занятого имени принадлежит конкретному полю, поэтому живёт под ним,
+  // а не в общем баннере формы (docs/DESIGN_SYSTEM.md §10.3).
+  const [usernameError, setUsernameError] = useState<string | null>(null)
 
-  const form = useForm<UpdateProfileInput>({
-    resolver: zodResolver(UpdateProfileSchema),
+  const form = useForm<PersonalFormInput>({
+    resolver: zodResolver(PersonalFormSchema),
     values: {
       firstName: me.firstName,
       lastName: me.lastName,
       middleName: me.middleName ?? '',
       headline: me.headline ?? '',
+      username: me.username ?? '',
     },
   })
 
   const mut = useMutation({
-    mutationFn: updateProfileRequest,
+    // Два эндпоинта за одно нажатие. Имя входа — первым и с остановкой при ошибке:
+    // иначе «занято» пришло бы уже после того, как ФИО сохранилось.
+    mutationFn: async ({ username, ...profile }: PersonalFormInput) => {
+      if (username && username !== (me.username ?? '')) {
+        await updateUsernameRequest({ username })
+      }
+      return updateProfileRequest(profile)
+    },
     onSuccess: (data) => {
       qc.setQueryData(userKeys.me(), data)
       toast.success(tP('saved'))
     },
-    onError: (e) => showApiError(e),
+    onError: (e) => {
+      const code = toApiError(e).code
+      if (code === 'USERNAME_TAKEN') {
+        setUsernameError(tErr(code))
+        return
+      }
+      showApiError(e)
+    },
   })
 
   return (
@@ -194,12 +227,46 @@ function PersonalSection({ me }: { me: MeResponse }) {
       <form
         onSubmit={form.handleSubmit((v) => {
           resetApiError()
+          setUsernameError(null)
           mut.mutate(v)
         })}
         className="flex flex-col gap-4"
       >
         <FormAlert error={apiError} />
         <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2 sm:col-span-2">
+            <Label htmlFor="username">{tS('usernameLabel')}</Label>
+            {/* Собачка — часть оформления поля, а не значения: в БД username хранится без неё. */}
+            <div
+              className={cn(
+                'flex h-11 max-w-xs items-center rounded-xl border border-input bg-background transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15 dark:bg-input/30',
+                (usernameError || form.formState.errors.username) &&
+                  'border-destructive ring-4 ring-destructive/15',
+              )}
+            >
+              <span className="pl-3.5 text-muted-foreground select-none" aria-hidden>
+                @
+              </span>
+              <input
+                id="username"
+                autoComplete="username"
+                spellCheck={false}
+                aria-invalid={!!(usernameError || form.formState.errors.username) || undefined}
+                className="h-full w-full min-w-0 bg-transparent px-1.5 text-base outline-none placeholder:text-muted-foreground/70 md:text-sm"
+                placeholder={tS('usernamePlaceholder')}
+                {...form.register('username', { onChange: () => setUsernameError(null) })}
+              />
+            </div>
+            {usernameError || form.formState.errors.username ? (
+              <p role="alert" className="text-xs text-destructive">
+                {usernameError ?? form.formState.errors.username?.message}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
+              </p>
+            )}
+          </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{tP('lastName')}</Label>
             <Input id="lastName" {...form.register('lastName')} />

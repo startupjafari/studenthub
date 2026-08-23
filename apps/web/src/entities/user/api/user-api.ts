@@ -1,6 +1,7 @@
 import type { AxiosProgressEvent } from 'axios'
 import type {
   UpdateProfileInput,
+  UpdateUsernameInput,
   ChangePasswordInput,
   UserListQueryInput,
   ProfileVisibilityValue,
@@ -93,6 +94,12 @@ export async function fetchUserById(id: string): Promise<PublicUser> {
 
 export async function updateProfileRequest(input: UpdateProfileInput): Promise<MeResponse> {
   const { data } = await api.patch<MeResponse>('/users/me', input)
+  return data
+}
+
+// Смена имени входа. Отдельный эндпоинт от профиля: у него своя ошибка USERNAME_TAKEN.
+export async function updateUsernameRequest(input: UpdateUsernameInput): Promise<MeResponse> {
+  const { data } = await api.patch<MeResponse>('/users/me/username', input)
   return data
 }
 

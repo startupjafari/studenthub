@@ -611,7 +611,8 @@
     "RATE_LIMIT": "Слишком много попыток, подождите",
     "INTERNAL_ERROR": "Ошибка сервера",
     "INVALID_2FA_CODE": "Неверный код",
-    "TWO_FACTOR_SETUP_REQUIRED": "Требуется настроить двухфакторную аутентификацию"
+    "TWO_FACTOR_SETUP_REQUIRED": "Требуется настроить двухфакторную аутентификацию",
+    "USERNAME_TAKEN": "Это имя пользователя уже занято"
   },
   "Notifications": {
     "title": "Уведомления",
@@ -1453,7 +1454,11 @@
     "theme": "Тема",
     "themeSystem": "Системная",
     "themeLight": "Светлая",
-    "themeDark": "Тёмная"
+    "themeDark": "Тёмная",
+    "usernameLabel": "Имя пользователя",
+    "usernamePlaceholder": "ivan_petrov",
+    "usernameHint": "С этим именем можно входить вместо email. 3–32 символа: латиница, цифры и _",
+    "usernameEmptyHint": "Пока не задано — вход только по email. 3–32 символа: латиница, цифры и _"
   },
   "Offline": {
     "title": "Нет соединения",
