@@ -60,3 +60,71 @@ export interface AtRiskStudents {
   thresholds: { attendance: number; gradeAvg: number }
   students: AtRiskStudent[]
 }
+
+// ── Аналитика платформы (дашборд PLATFORM_ADMIN) ─────────────────────────────
+// Формы повторяют ответы GET /analytics/platform/*. Ряды приходят уже с полными
+// корзинами (сервер досыпает нули), клиент их не достраивает.
+
+export type PlatformInterval = 'day' | 'week' | 'month'
+
+export interface SeriesPoint {
+  /** Начало корзины, ISO. */
+  at: string
+  value: number
+}
+
+export interface MultiSeries {
+  interval: PlatformInterval
+  from: string
+  to: string
+  series: { key: string; points: SeriesPoint[] }[]
+}
+
+export interface PlatformOverview {
+  universities: { active: number; pending: number; blocked: number }
+  users: { total: number; spark: number[] }
+  complaints: { pending: number; spark: number[] }
+  resolutionHours: { median: number | null; previousMedian: number | null }
+  activeUsers: { dau: number; wau: number; spark: number[] }
+}
+
+export interface UniversitySize {
+  id: string
+  name: string
+  status: string
+  students: number
+  teachers: number
+  total: number
+}
+
+export interface ComplaintsLatency {
+  from: string
+  to: string
+  medianHours: number | null
+  buckets: { key: string; value: number }[]
+}
+
+export interface InvitesFunnel {
+  from: string
+  to: string
+  total: number
+  used: number
+  /** Доля использованных, проценты. */
+  conversion: number
+  byStatus: { key: string; value: number }[]
+  series: MultiSeries
+}
+
+export interface ActivityHeatmap {
+  from: string
+  to: string
+  /** cells[dow][hour], dow: 0 = понедельник. */
+  cells: number[][]
+  max: number
+}
+
+export interface TopActions {
+  from: string
+  to: string
+  items: { action: string; value: number }[]
+}

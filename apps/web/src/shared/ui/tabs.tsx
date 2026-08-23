@@ -5,10 +5,11 @@ import { Tabs as TabsPrimitive } from 'radix-ui'
 
 import { cn } from 'shared/lib/utils'
 
-// Единый Tabs (radix-ui) в визуальном языке StudentHub: сегмент-контрол на
-// `bg-muted/50` с активной вкладкой `bg-background`. Тот же облик, что у
-// profile-tabs/schedule-parity, но переиспользуемый примитив (курсы, оценки,
-// календарь, экзамены, академ-профиль). На мобильном список вкладок скроллится.
+// Единый Tabs (radix-ui) в визуальном языке StudentHub — том же, что у SegmentedTabs:
+// видимая дорожка `bg-muted/50` и «приподнятая» активная вкладка `bg-background`.
+// Вариант без дорожки (одна подсветка `bg-primary/10`) пробовали и откатили: на
+// поверхности шапки `bg-sidebar` такие табы почти не читались.
+// На мобильном список вкладок скроллится.
 const Tabs = TabsPrimitive.Root
 
 function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.List>) {
@@ -29,7 +30,7 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        'inline-flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-[color,background-color] outline-none select-none focus-visible:ring-4 focus-visible:ring-ring/20 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground sm:flex-none',
+        'inline-flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-[color,background-color] outline-none select-none hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm sm:flex-none',
         className,
       )}
       {...props}

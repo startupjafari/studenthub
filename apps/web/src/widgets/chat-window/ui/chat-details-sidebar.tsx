@@ -45,17 +45,7 @@ import {
   TabsTrigger,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-
-const AVATAR_COLORS = [
-  'bg-rose-500',
-  'bg-orange-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-teal-500',
-  'bg-sky-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-]
+import { identityColor, identityInitials } from '../../../shared/lib'
 
 // §17: варианты «заглушить на время».
 const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
@@ -66,23 +56,6 @@ const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
   { key: 'mute3d', mode: 4320 },
   { key: 'muteForever', mode: 'forever' },
 ]
-
-function colorOf(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return AVATAR_COLORS[h % AVATAR_COLORS.length] ?? 'bg-sky-500'
-}
-
-function initialsOf(name: string): string {
-  return (
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? '')
-      .join('') || '#'
-  )
-}
 
 // §49: относительное «был N назад» из ISO last-seen.
 function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) => string): string {
@@ -495,8 +468,8 @@ export function ChatDetailsSidebar({
       <div className="flex flex-col items-center gap-2 border-b border-border p-5">
         <Avatar className="size-20">
           {chat.avatarUrl && <AvatarImage src={chat.avatarUrl} alt={title} />}
-          <AvatarFallback className={cn('text-2xl font-medium text-white', colorOf(chat.id))}>
-            {initialsOf(title)}
+          <AvatarFallback className={cn('text-2xl font-medium text-white', identityColor(chat.id))}>
+            {identityInitials(title)}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 text-center">
@@ -624,13 +597,13 @@ export function ChatDetailsSidebar({
                           <span className="relative shrink-0">
                             <Avatar className="size-9">
                               {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={name} />}
-                              <AvatarFallback className={cn('text-white', colorOf(m.id))}>
-                                {initialsOf(name)}
+                              <AvatarFallback className={cn('text-white', identityColor(m.id))}>
+                                {identityInitials(name)}
                               </AvatarFallback>
                             </Avatar>
                             {m.online && (
                               <span
-                                className="absolute right-0 bottom-0 size-2.5 rounded-full border-2 border-background bg-green-500"
+                                className="absolute right-0 bottom-0 size-2.5 rounded-full border-2 border-background bg-success"
                                 aria-hidden
                               />
                             )}

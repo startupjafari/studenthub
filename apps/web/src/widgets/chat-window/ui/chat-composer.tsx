@@ -262,7 +262,7 @@ export function ChatComposer({
                           setAttachMenuOpen(false)
                           fileInputRef.current?.click()
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                       >
                         <FileText className="size-4 shrink-0 opacity-80" aria-hidden />
                         {t('attachFile')}
@@ -273,7 +273,7 @@ export function ChatComposer({
                           setAttachMenuOpen(false)
                           onCreatePoll()
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                       >
                         <BarChart3 className="size-4 shrink-0 opacity-80" aria-hidden />
                         {t('createPoll')}

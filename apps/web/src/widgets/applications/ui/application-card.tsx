@@ -42,9 +42,7 @@ export function ApplicationCard({
       <span
         className={cn(
           'flex size-10 shrink-0 items-center justify-center rounded-lg',
-          needsAction
-            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-            : 'bg-primary/10 text-primary',
+          needsAction ? 'bg-warning/15 text-warning' : 'bg-primary/10 text-primary',
         )}
       >
         <FileText className="size-5" aria-hidden />
@@ -59,7 +57,7 @@ export function ApplicationCard({
         </div>
         <span className="truncate font-medium">{serviceName}</span>
         {needsAction ? (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
             <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
             {t('actionNeeded')}
           </span>

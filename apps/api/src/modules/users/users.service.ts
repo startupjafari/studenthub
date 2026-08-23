@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { UserListQueryInput, UpdateProfileInput } from '@studenthub/shared-schemas'
+import { disallowedProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
@@ -54,6 +55,9 @@ const OLD_AVATARS_LIMIT = 100
 const PROFILE_SELECT = {
   id: true,
   email: true,
+  // Имя входа (Telegram-стиль). Приватная деталь владельца: в чужой карточке вырезается
+  // в getProfileForViewer — знать чужой логин посторонним незачем.
+  username: true,
   firstName: true,
   lastName: true,
   middleName: true,
@@ -131,6 +135,7 @@ export type PublicProfile = Omit<
   | 'employeeNumber'
   | 'address'
   | 'twoFactorEnabled'
+  | 'username'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
 @Injectable()
@@ -273,14 +278,59 @@ export class UserService {
     return { universityId: viewer.universityId ?? '__none__' }
   }
 
-  // Обновление профиля: принимает валидированный расширенный DTO (Zod-strict), пишем как есть.
+  // Обновление профиля: принимает валидированный расширенный DTO (Zod-strict).
   // Роль и scope (university/faculty/group) здесь не меняются — только «самоописываемые» поля.
-  async updateProfile(userId: string, data: UpdateProfileInput): Promise<UserProfile> {
+  // Набор полей зависит от роли (PROFILE_FIELD_ROLES): у платформенных ролей нет кафедры,
+  // предметов и табельного номера вуза. Роль берётся из JWT, а не из тела (§0) — Zod-схема
+  // общая для всех ролей, поэтому без этой проверки прямой PATCH записал бы чужие поля.
+  // Недоступные поля — ошибка 400, а не тихое отбрасывание: клиент должен узнать,
+  // что данные не сохранены, иначе PATCH выглядит успешным.
+  async updateProfile(userId: string, role: Role, data: UpdateProfileInput): Promise<UserProfile> {
+    const disallowed = disallowedProfileFields(role, data)
+    if (disallowed.length > 0) {
+      throw new AppException(
+        'BAD_REQUEST',
+        `Поля недоступны для роли ${role}: ${disallowed.join(', ')}`,
+        disallowed.map((field) => ({ field, message: 'Поле недоступно для вашей роли' })),
+      )
+    }
     return this.prisma.user.update({
       where: { id: userId },
       data,
       select: PROFILE_SELECT,
     })
+  }
+
+  /**
+   * Смена имени пользователя (имени входа). Отдельно от updateProfile: у операции своя
+   * ошибка «занято» и свой аудит — по нему видно, кто и когда сменил идентификатор входа.
+   *
+   * Уникальность обеспечивает БД (`username String? @unique`), а не предварительный SELECT:
+   * проверка «свободно ли» и вставка — не атомарны, между ними имя может занять другой.
+   * Ловим P2002 и переводим в USERNAME_TAKEN.
+   */
+  async updateUsername(userId: string, username: string): Promise<UserProfile> {
+    // Схема уже приводит к нижнему регистру; trim на случай прямого вызова из кода.
+    const normalized = username.trim().toLowerCase()
+    try {
+      const updated = await this.prisma.user.update({
+        where: { id: userId },
+        data: { username: normalized },
+        select: PROFILE_SELECT,
+      })
+      await this.audit.record({
+        userId,
+        action: 'change_username',
+        entity: 'User',
+        entityId: userId,
+      })
+      return updated
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppException('USERNAME_TAKEN', 'Это имя пользователя уже занято')
+      }
+      throw error
+    }
   }
 
   /**
@@ -466,6 +516,7 @@ export class UserService {
       address,
       gpa,
       twoFactorEnabled,
+      username,
       ...rest
     } = target
     void showEmail
@@ -474,6 +525,8 @@ export class UserService {
     void address
     // Наличие 2FA — приватная деталь владельца, не отдаём чужим.
     void twoFactorEnabled
+    // Имя входа — тоже: это половина учётных данных, а не публичный хэндл.
+    void username
     return {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,

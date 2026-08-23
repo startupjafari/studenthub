@@ -165,7 +165,7 @@ export function PeerInfoCard({
             </Avatar>
             {online && (
               <span
-                className="absolute right-1 bottom-1 size-4 rounded-full border-2 border-card bg-green-500"
+                className="absolute right-1 bottom-1 size-4 rounded-full border-2 border-card bg-success"
                 aria-hidden
               />
             )}

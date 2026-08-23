@@ -9,6 +9,7 @@ import { readSingleUpload } from '../../common/http/read-upload'
 import { UserService } from './users.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
+import { UpdateUsernameDto } from './dto/update-username.dto'
 import { UserListQueryDto } from './dto/user-list-query.dto'
 
 @ApiTags('Пользователи')
@@ -25,7 +26,13 @@ export class UsersController {
   @Patch('me')
   @ApiOperation({ summary: 'Обновить свой профиль (имя, настройка приватности email)' })
   updateMe(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateProfileDto) {
-    return this.users.updateProfile(user.sub, dto)
+    return this.users.updateProfile(user.sub, user.role, dto)
+  }
+
+  @Patch('me/username')
+  @ApiOperation({ summary: 'Сменить имя пользователя (имя входа); 409 USERNAME_TAKEN если занято' })
+  updateUsername(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateUsernameDto) {
+    return this.users.updateUsername(user.sub, dto.username)
   }
 
   @Patch('me/password')

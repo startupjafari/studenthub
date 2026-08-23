@@ -168,7 +168,7 @@ export function ContentComments({
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-1">
           {comments.map((c) => (
-            <li key={c.id} className="group flex gap-2.5">
+            <li key={c.id} className="group flex gap-2">
               <ProfileLink userId={c.author.id} className="shrink-0">
                 <Avatar className="size-8">
                   {c.author.avatarUrl && <AvatarImage src={c.author.avatarUrl} alt="" />}

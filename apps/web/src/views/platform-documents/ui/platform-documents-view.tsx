@@ -10,7 +10,15 @@ import {
   platformDocumentFileUrl,
   type DocumentDto,
 } from '../../../entities/document'
-import { Button, Input, Label, PageHeader, Textarea } from '../../../shared/ui'
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Input,
+  Label,
+  PageHeader,
+  Textarea,
+} from '../../../shared/ui'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -45,13 +53,13 @@ export function PlatformDocumentsView() {
   const reasonValid = reason.trim().length >= 5
 
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <PageHeader title={t('pa_title')} subtitle={t('pa_subtitle')} />
 
-      <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-        <span>{t('pa_warning')}</span>
-      </div>
+      <Alert variant="warning">
+        <AlertTriangle aria-hidden />
+        <AlertDescription>{t('pa_warning')}</AlertDescription>
+      </Alert>
 
       <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
         <div className="flex flex-col gap-1.5">

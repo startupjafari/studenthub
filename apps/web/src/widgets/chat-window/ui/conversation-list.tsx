@@ -186,7 +186,7 @@ export function ConversationList({
                     <button
                       type="button"
                       onClick={onNewGroup}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                     >
                       <Users className="size-4 shrink-0 opacity-80" aria-hidden />
                       {t('newGroup')}
@@ -194,7 +194,7 @@ export function ConversationList({
                     <button
                       type="button"
                       onClick={onOpenSaved}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                     >
                       <Bookmark className="size-4 shrink-0 opacity-80" aria-hidden />
                       {t('savedMessages')}
@@ -433,7 +433,7 @@ export function ConversationList({
                       onMarkRead(c.id)
                       onCloseSwiped(c.id)
                     }}
-                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-sky-600 px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-info px-1 text-center text-[0.6rem] font-medium leading-tight text-info-foreground"
                   >
                     <CheckCheck className="size-4" aria-hidden />
                     {t('readShort')}
@@ -522,7 +522,7 @@ export function ConversationList({
                     </Avatar>
                     {c.type === 'PRIVATE' && c.online && (
                       <span
-                        className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-green-500"
+                        className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-success"
                         aria-hidden
                       />
                     )}
@@ -535,7 +535,7 @@ export function ConversationList({
                       )}
                       {lastMine &&
                         (lastRead ? (
-                          <CheckCheck className="size-3 shrink-0 text-sky-500/80" aria-hidden />
+                          <CheckCheck className="size-3 shrink-0 text-info" aria-hidden />
                         ) : (
                           <Check className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                         ))}

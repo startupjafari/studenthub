@@ -5,6 +5,7 @@ export {
   fetchUserById,
   type PublicUser,
   updateProfileRequest,
+  updateUsernameRequest,
   changePasswordRequest,
   deleteAccountRequest,
   uploadAvatarRequest,

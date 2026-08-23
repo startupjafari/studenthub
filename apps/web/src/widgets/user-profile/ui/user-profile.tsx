@@ -24,6 +24,7 @@ import {
 import type { MeResponse } from '../../../shared/api'
 import { Button, Card, CardContent, CardHeader, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { BRAND_GRADIENT } from '../../../shared/config'
 import { useSheetDragClose } from '../../../shared/lib'
 import { AccountSettingsPanels } from '../../account-settings'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
@@ -36,7 +37,7 @@ import {
   uploadCoverRequest,
   userKeys,
 } from '../../../entities/user'
-import { SECTIONS, sectionVisible } from './sections'
+import { visibleSections } from './sections'
 import { ProfileEditForm, PROFILE_EDIT_FORM_ID } from './profile-edit-form'
 import {
   ENTER,
@@ -104,10 +105,7 @@ export function UserProfile() {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const editSections = useMemo(
-    () => (me.data ? SECTIONS.filter((s) => sectionVisible(s.when, me.data.role)) : []),
-    [me.data],
-  )
+  const editSections = useMemo(() => (me.data ? visibleSections(me.data.role) : []), [me.data])
 
   if (me.isLoading) return <ProfileSkeleton />
   if (me.isError || !me.data)
@@ -120,7 +118,7 @@ export function UserProfile() {
   const u = me.data
 
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       <ProfileTabs
         userId={u.id}
         isOwner
@@ -149,7 +147,7 @@ export function UserProfile() {
             onSave={(payload) => updateMut.mutate(payload)}
           />
         ) : (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             <ProfileCompletion
               data={u as unknown as Record<string, unknown>}
               role={u.role}
@@ -302,7 +300,7 @@ function ProfileHeader({
         {me.coverUrl ? (
           <Image src={me.coverUrl} alt="" fill unoptimized sizes="100vw" className="object-cover" />
         ) : (
-          <div className="size-full bg-gradient-to-br from-primary via-indigo-500 to-violet-500" />
+          <div className={cn('size-full', BRAND_GRADIENT)} />
         )}
         <div className="absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4">
           <button
@@ -342,7 +340,7 @@ function ProfileHeader({
         />
       </div>
 
-      <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
+      <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-4 sm:px-6">
         {/* Аватар: смена фото (пикер → кроп), удаление, статус (вверху справа), меню «+» (внизу справа).
             self-start в колоночной раскладке (моб.) — иначе контейнер растягивается на всю ширину
             (align-items: stretch) и «+» (left-85%) уезжает вправо; на sm+ (ряд) — обычное выравнивание. */}
@@ -502,7 +500,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
           }}
           className={cn(
             'flex w-full items-center rounded-lg font-medium transition-colors hover:bg-muted',
-            variant === 'sheet' ? 'gap-3 px-3 py-3 text-base' : 'gap-2.5 px-2.5 py-2 text-sm',
+            variant === 'sheet' ? 'gap-3 px-3 py-3 text-base' : 'gap-2 px-2.5 py-2 text-sm',
           )}
         >
           <Icon
@@ -541,12 +539,12 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
                 type="button"
                 aria-label={t('close')}
                 onClick={() => setOpen(false)}
-                className="fixed inset-0 z-[90] bg-foreground/40 animate-in fade-in-0 duration-150"
+                className="fixed inset-0 z-[190] bg-foreground/50 animate-in fade-in-0 duration-150"
               />
               <div
                 ref={setSheetRef}
                 role="menu"
-                className="fixed inset-x-0 bottom-0 z-[91] rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(1rem+env(safe-area-inset-bottom))] text-popover-foreground animate-in slide-in-from-bottom duration-200"
+                className="fixed inset-x-0 bottom-0 z-[190] rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(1rem+env(safe-area-inset-bottom))] text-popover-foreground animate-in slide-in-from-bottom duration-200"
               >
                 <div
                   className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"
@@ -563,7 +561,7 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
                 onPointerEnter={hoverOpen}
                 onPointerLeave={hoverClose}
                 style={{ top: pos.top, left: pos.left }}
-                className="fixed z-[91] hidden w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150 md:block"
+                className="fixed z-[190] hidden w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground animate-in fade-in-0 zoom-in-95 duration-150 md:block"
               >
                 {renderItems('dropdown')}
               </div>
@@ -591,11 +589,11 @@ function SkelCardTitle() {
 
 function ProfileSkeleton() {
   return (
-    <div className="flex w-full flex-col gap-5">
+    <div className="flex w-full flex-col gap-4">
       {/* Шапка: обложка + аватар + имя/подпись/мета + действия */}
       <Card className="overflow-hidden p-0">
         <Skeleton className={cn('h-20 w-full rounded-none sm:h-28 lg:h-52', SK)} />
-        <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-5 sm:px-6">
+        <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-4 sm:px-6">
           <Skeleton
             className={cn(
               '-mt-12 size-24 shrink-0 rounded-full border-4 border-background sm:-mt-14 sm:size-28 lg:-mt-20 lg:size-36',
@@ -622,9 +620,9 @@ function ProfileSkeleton() {
       <Skeleton className={cn('h-[52px] w-full rounded-xl', SK)} />
 
       {/* Тело: две колонки */}
-      <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         {/* Левая колонка: контакты + чипы */}
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
               <SkelCardTitle />
@@ -659,7 +657,7 @@ function ProfileSkeleton() {
         </div>
 
         {/* Правая колонка: «О себе» + инфо-карточка */}
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
               <SkelCardTitle />
