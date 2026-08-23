@@ -1,6 +1,8 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { ConfigService } from '@nestjs/config'
 import { UserService } from './users.service'
+import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { PasswordService } from '../../common/security/password.service'
 import type { FileService } from '../files/file.service'
@@ -563,5 +565,163 @@ describe('UserService.list — scope (12.2)', () => {
     } as never)
     expect(where.AND[0]).toEqual({ facultyId: 'fac-A' })
     expect(where.AND).toContainEqual({ facultyId: 'fac-B' })
+  })
+})
+
+describe('UserService.updateProfile — набор полей по роли (PROFILE_FIELD_ROLES)', () => {
+  // Zod-схема UpdateProfileSchema одна для всех ролей, поэтому единственная защита
+  // от записи чужих полей прямым PATCH — проверка по роли из JWT внутри сервиса.
+  // Недоступное поле = 400 BAD_REQUEST, а не тихий игнор: иначе клиент считает,
+  // что данные сохранены.
+  function dataOf(prisma: ReturnType<typeof setup>['prisma']): Record<string, unknown> {
+    return (prisma.user.update.mock.calls[0][0] as { data: Record<string, unknown> }).data
+  }
+
+  async function expectRejected(
+    role: Role,
+    input: Parameters<UserService['updateProfile']>[2],
+    fields: string[],
+  ): Promise<void> {
+    const { service, prisma } = setup()
+    const err = await service.updateProfile('u1', role, input).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(AppException)
+    const app = err as AppException
+    expect(app.code).toBe('BAD_REQUEST')
+    expect(app.getStatus()).toBe(400)
+    expect(app.details?.map((d) => d.field)).toEqual(fields)
+    // Запрос отклонён целиком — в БД не уходит даже разрешённая часть.
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  }
+
+  it('платформенному админу пишет только служебный минимум', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u1' })
+
+    await service.updateProfile('u1', Role.PLATFORM_ADMIN, {
+      headline: 'Дежурный',
+      responsibilities: 'Вузы Астаны',
+      workPhone: '+7 700 000 00 00',
+      timezone: 'Asia/Almaty',
+    })
+
+    expect(dataOf(prisma)).toEqual({
+      headline: 'Дежурный',
+      responsibilities: 'Вузы Астаны',
+      workPhone: '+7 700 000 00 00',
+      timezone: 'Asia/Almaty',
+    })
+  })
+
+  it('платформенному админу отказывает в академических и вузовских полях', async () => {
+    await expectRejected(
+      Role.PLATFORM_ADMIN,
+      { headline: 'Дежурный', academicDegree: 'к.т.н.', department: 'Кафедра ИБ', gpa: 5 },
+      ['academicDegree', 'department', 'gpa'],
+    )
+  })
+
+  it('преподавателю пишет академические поля', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u2' })
+
+    await service.updateProfile('u2', Role.TEACHER, {
+      academicDegree: 'к.т.н.',
+      department: 'Кафедра ИБ',
+      subjects: ['Матан'],
+    })
+
+    expect(dataOf(prisma)).toEqual({
+      academicDegree: 'к.т.н.',
+      department: 'Кафедра ИБ',
+      subjects: ['Матан'],
+    })
+  })
+
+  it('преподавателю отказывает в студенческих полях', async () => {
+    await expectRejected(Role.TEACHER, { gpa: 5, dormitory: 'Общежитие 3' }, ['gpa', 'dormitory'])
+  })
+
+  it('зона модерации доступна модератору, но не администратору', async () => {
+    const mod = setup()
+    mod.prisma.user.update.mockResolvedValue({ id: 'm1' })
+    await mod.service.updateProfile('m1', Role.PLATFORM_MODERATOR, { moderationAreas: 'Жалобы' })
+    expect(dataOf(mod.prisma)).toEqual({ moderationAreas: 'Жалобы' })
+
+    await expectRejected(Role.PLATFORM_ADMIN, { moderationAreas: 'Жалобы' }, ['moderationAreas'])
+  })
+
+  it('обязанности старосты доступны только старосте', async () => {
+    const starosta = setup()
+    starosta.prisma.user.update.mockResolvedValue({ id: 's1' })
+    await starosta.service.updateProfile('s1', Role.STAROSTA, { duties: 'Журнал' })
+    expect(dataOf(starosta.prisma)).toEqual({ duties: 'Журнал' })
+
+    await expectRejected(Role.STUDENT, { duties: 'Журнал' }, ['duties'])
+  })
+
+  it('общие поля доступны любой роли', async () => {
+    for (const role of Object.values(Role)) {
+      const { service, prisma } = setup()
+      prisma.user.update.mockResolvedValue({ id: 'x' })
+      await service.updateProfile('x', role, { headline: 'Статус', timezone: 'Asia/Almaty' })
+      expect(dataOf(prisma)).toEqual({ headline: 'Статус', timezone: 'Asia/Almaty' })
+    }
+  })
+})
+
+describe('UserService.updateUsername', () => {
+  const conflict = () =>
+    new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+      meta: { target: ['username'] },
+    })
+
+  it('нормализует имя в нижний регистр и обрезает пробелы', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u1', username: 'ivan_petrov' })
+
+    await service.updateUsername('u1', '  Ivan_Petrov ')
+
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'u1' }, data: { username: 'ivan_petrov' } }),
+    )
+  })
+
+  it('пишет аудит смены имени входа', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u1', username: 'ivan' })
+
+    await service.updateUsername('u1', 'ivan')
+
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', action: 'change_username', entityId: 'u1' }),
+    )
+  })
+
+  it('занятое имя → USERNAME_TAKEN, а не 500', async () => {
+    // Уникальность держит БД: между «проверить свободно» и «записать» имя может занять другой,
+    // поэтому обрабатываем именно отказ вставки.
+    const { service, prisma } = setup()
+    prisma.user.update.mockRejectedValue(conflict())
+
+    await expect(service.updateUsername('u1', 'taken')).rejects.toMatchObject({
+      code: 'USERNAME_TAKEN',
+    })
+  })
+
+  it('прочие ошибки БД не маскируются под «занято»', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockRejectedValue(new Error('соединение потеряно'))
+
+    await expect(service.updateUsername('u1', 'ivan')).rejects.toThrow('соединение потеряно')
+  })
+
+  it('аудит не пишется, если запись не удалась', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.update.mockRejectedValue(conflict())
+
+    await expect(service.updateUsername('u1', 'taken')).rejects.toBeInstanceOf(AppException)
+    expect(audit.record).not.toHaveBeenCalled()
   })
 })

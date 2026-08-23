@@ -31,21 +31,21 @@ export function OverviewPanel() {
       value: o.toUpload,
       label: t('statToUpload'),
       icon: RefreshCw,
-      tone: 'text-amber-500',
+      tone: 'text-warning',
     },
     {
       key: 'inReview',
       value: o.inReview,
       label: t('statInReview'),
       icon: Clock,
-      tone: 'text-sky-500',
+      tone: 'text-info',
     },
     {
       key: 'expiring',
       value: o.expiringSoon,
       label: t('statExpiring'),
       icon: AlertTriangle,
-      tone: 'text-orange-500',
+      tone: 'text-warning',
     },
     {
       key: 'needs',
@@ -61,7 +61,7 @@ export function OverviewPanel() {
       {tiles.map((tile) => {
         const Icon = tile.icon
         return (
-          <Card key={tile.key} className="transition-shadow hover:shadow-sm">
+          <Card key={tile.key} className="transition-shadow hover:ring-ring/50">
             <CardContent className="flex flex-col gap-1.5 p-4">
               <Icon className={cn('size-5', tile.tone)} aria-hidden />
               <span className="text-2xl font-bold tabular-nums">{tile.value}</span>

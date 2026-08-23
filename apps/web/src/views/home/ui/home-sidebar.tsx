@@ -50,9 +50,9 @@ export function HomeSidebar() {
           ) : todayPairs.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noPairsToday')}</p>
           ) : (
-            <ul className="flex flex-col gap-2.5">
+            <ul className="flex flex-col gap-2">
               {todayPairs.map((p) => (
-                <li key={p.id} className="flex items-start gap-2.5 text-sm">
+                <li key={p.id} className="flex items-start gap-2 text-sm">
                   <span className="shrink-0 tabular-nums text-muted-foreground">{p.startTime}</span>
                   <div className="min-w-0">
                     <span className="block truncate font-medium">{p.subject}</span>

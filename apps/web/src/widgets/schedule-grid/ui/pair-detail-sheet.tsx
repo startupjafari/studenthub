@@ -84,11 +84,11 @@ export function PairDetailSheet({
         <button
           type="button"
           className={cn(
-            'absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-2 px-1.5 py-1 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-2 px-1.5 py-1 text-left transition-shadow hover:ring-1 hover:ring-ring/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             cancelled
               ? 'border-l-muted-foreground/40 bg-muted text-muted-foreground line-through'
               : change
-                ? 'border-l-amber-500 bg-amber-500/10'
+                ? 'border-l-warning bg-warning/10'
                 : 'border-l-primary bg-primary/10',
           )}
           style={{

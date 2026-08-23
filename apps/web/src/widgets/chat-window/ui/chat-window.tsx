@@ -2113,7 +2113,7 @@ export function ChatWindow() {
                   else if (isPrivate) setPeerCardOpen(true)
                   else setGroupInfoOpen(true)
                 }}
-                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 text-left transition-colors hover:bg-muted"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left transition-colors hover:bg-muted"
               >
                 <span className="relative shrink-0">
                   <Avatar className="size-9">
@@ -2134,7 +2134,7 @@ export function ChatWindow() {
                   </Avatar>
                   {isPrivate && otherOnline && (
                     <span
-                      className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-background bg-green-500"
+                      className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-background bg-success"
                       aria-hidden
                     />
                   )}
@@ -2224,7 +2224,7 @@ export function ChatWindow() {
                             setHeaderMenuOpen(false)
                           }}
                           className={cn(
-                            'flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted',
+                            'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted',
                             activeChat?.muted && 'text-destructive',
                           )}
                         >
@@ -2244,7 +2244,7 @@ export function ChatWindow() {
                             exportChat.mutate('txt')
                             setHeaderMenuOpen(false)
                           }}
-                          className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50"
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50"
                         >
                           {exportChat.isPending ? (
                             <Loader2
@@ -2265,7 +2265,7 @@ export function ChatWindow() {
                               setHeaderMenuOpen(false)
                             }}
                             className={cn(
-                              'flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
+                              'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
                               !activeChat.blocked && 'text-destructive',
                             )}
                           >
@@ -2287,7 +2287,7 @@ export function ChatWindow() {
                                 if (ok) clearChat.mutate(activeChat.id)
                               })
                             }}
-                            className="flex h-9 w-full items-center gap-2.5 px-3 text-sm transition-colors hover:bg-muted"
+                            className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
                           >
                             <Eraser className="size-4 shrink-0 opacity-80" aria-hidden />
                             <span className="flex-1 text-left">{t('clearHistory')}</span>
@@ -2306,7 +2306,7 @@ export function ChatWindow() {
                                 if (ok) deleteChat.mutate(activeChat.id)
                               })
                             }}
-                            className="flex h-9 w-full items-center gap-2.5 px-3 text-sm text-destructive transition-colors hover:bg-destructive/10"
+                            className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-destructive/10"
                           >
                             <Trash2 className="size-4 shrink-0 opacity-80" aria-hidden />
                             <span className="flex-1 text-left">

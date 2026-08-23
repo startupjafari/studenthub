@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { PasswordSchema } from './auth.js'
+import { Role } from '@studenthub/shared-types'
+import { PasswordSchema, UsernameSchema } from './auth.js'
 import { OffsetPaginationSchema } from './pagination.js'
 import { RoleSchema } from './invites.js'
 
@@ -82,6 +83,13 @@ export const UpdateProfileSchema = z
 
 export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>
 
+// Смена имени пользователя (входа): та же политика, что при регистрации по инвайту —
+// 3–32 символа [a-z0-9_], хранится и сравнивается в нижнем регистре. Отдельный эндпоинт,
+// а не поле UpdateProfileSchema: у него своя ошибка «занято» и свой аудит.
+export const UpdateUsernameSchema = z.object({ username: UsernameSchema }).strict()
+
+export type UpdateUsernameInput = z.infer<typeof UpdateUsernameSchema>
+
 // Смена пароля: текущий + новый по политике (docs/BACKEND_RULES.md §3).
 export const ChangePasswordSchema = z
   .object({
@@ -91,3 +99,120 @@ export const ChangePasswordSchema = z
   .strict()
 
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>
+
+// ── Доступность полей профиля по роли (docs/PROJECT.md §3.7) ─────────────────
+// Единый источник истины: форма профиля на фронте и фильтр в UserService читают
+// эту карту. Смысл: набор «самоописываемых» полей зависит от роли — у платформенных
+// ролей нет кафедры, предметов, учёной степени и табельного номера вуза; у студента
+// нет служебных полей. Поле, не разрешённое роли, не показывается в UI и не пишется
+// в БД, даже если пришло прямым PATCH.
+//
+// Record<keyof UpdateProfileInput, …> обязателен намеренно: добавив поле в
+// UpdateProfileSchema, его нельзя забыть классифицировать — TypeScript не соберётся.
+
+const EVERY_ROLE: readonly Role[] = Object.values(Role)
+const STUDENT_ROLES: readonly Role[] = [Role.STUDENT, Role.STAROSTA]
+/** Преподавательские (академические) поля: кафедра, степень, предметы. */
+const ACADEMIC_ROLES: readonly Role[] = [Role.TEACHER, Role.DEAN]
+/** Сотрудники вуза — у них есть табельный номер, кабинет и дата назначения. */
+const UNIVERSITY_STAFF: readonly Role[] = [
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+]
+/** Платформенные роли — вне вуза: только служебный минимум. */
+const PLATFORM_STAFF: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
+const MODERATOR_ROLES: readonly Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
+/** Все не-студенты. */
+const STAFF_ROLES: readonly Role[] = [...PLATFORM_STAFF, ...UNIVERSITY_STAFF, Role.TEACHER]
+/** Роли, у которых профиль «человеческий», а не служебный: студенты и преподаватели. */
+const PERSONAL_ROLES: readonly Role[] = [...STUDENT_ROLES, ...ACADEMIC_ROLES]
+const EMPLOYEE_ROLES: readonly Role[] = [...ACADEMIC_ROLES, ...UNIVERSITY_STAFF]
+
+export type ProfileFieldKey = keyof UpdateProfileInput
+
+export const PROFILE_FIELD_ROLES: Readonly<Record<ProfileFieldKey, readonly Role[]>> = {
+  // Общие: идентификация, контактность, приватность — нужны каждой роли.
+  firstName: EVERY_ROLE,
+  lastName: EVERY_ROLE,
+  middleName: EVERY_ROLE,
+  headline: EVERY_ROLE,
+  bio: EVERY_ROLE,
+  phone: EVERY_ROLE,
+  showPhone: EVERY_ROLE,
+  showEmail: EVERY_ROLE,
+  profileVisibility: EVERY_ROLE,
+  telegram: EVERY_ROLE,
+  languages: EVERY_ROLE,
+  // Часовой пояс нужен и служебным ролям: дежурства, окна обслуживания, чтение аудита.
+  timezone: EVERY_ROLE,
+
+  // Личное и соцсети: студентам и преподавателям. Служебным роли не собираем —
+  // меньше персональных данных в базе, меньше утечки.
+  birthDate: PERSONAL_ROLES,
+  gender: PERSONAL_ROLES,
+  country: PERSONAL_ROLES,
+  website: PERSONAL_ROLES,
+  instagram: STUDENT_ROLES,
+
+  // Учёба — студент и староста.
+  course: STUDENT_ROLES,
+  enrollmentYear: STUDENT_ROLES,
+  graduationYear: STUDENT_ROLES,
+  educationLevel: STUDENT_ROLES,
+  studyForm: STUDENT_ROLES,
+  fundingType: STUDENT_ROLES,
+  specialty: STUDENT_ROLES,
+  studentCardNumber: STUDENT_ROLES,
+  academicStatus: STUDENT_ROLES,
+  gpa: STUDENT_ROLES,
+  dormitory: STUDENT_ROLES,
+  address: STUDENT_ROLES,
+  interests: STUDENT_ROLES,
+  skills: STUDENT_ROLES,
+  duties: [Role.STAROSTA],
+
+  // Академические — только преподаватель и декан.
+  academicDegree: ACADEMIC_ROLES,
+  academicTitle: ACADEMIC_ROLES,
+  department: ACADEMIC_ROLES,
+  subjects: ACADEMIC_ROLES,
+  officeHours: ACADEMIC_ROLES,
+  researchInterests: ACADEMIC_ROLES,
+  publicationsUrl: ACADEMIC_ROLES,
+
+  // Служебные внутри вуза: табельный номер и кабинет выдаёт вуз, платформенной роли их не даём.
+  employeeNumber: EMPLOYEE_ROLES,
+  appointmentDate: EMPLOYEE_ROLES,
+  officeRoom: EMPLOYEE_ROLES,
+  jobTitle: EMPLOYEE_ROLES,
+
+  // Служебные у всех не-студентов.
+  position: STAFF_ROLES,
+  workPhone: STAFF_ROLES,
+  responsibilities: [...UNIVERSITY_STAFF, ...PLATFORM_STAFF],
+  // Зона модерации — только у модераторов.
+  moderationAreas: MODERATOR_ROLES,
+}
+
+/** Разрешено ли роли заполнять это поле профиля. */
+export function profileFieldAllowed(field: ProfileFieldKey, role: Role): boolean {
+  return PROFILE_FIELD_ROLES[field].includes(role)
+}
+
+/** Список полей профиля, доступных роли (порядок = порядок объявления в карте). */
+export function profileFieldsForRole(role: Role): ProfileFieldKey[] {
+  return (Object.keys(PROFILE_FIELD_ROLES) as ProfileFieldKey[]).filter((f) =>
+    profileFieldAllowed(f, role),
+  )
+}
+
+/**
+ * Поля DTO, недоступные роли. Пустой массив — запрос валиден.
+ * Роль передаётся вызывающим из JWT, никогда из тела (docs/BACKEND_RULES.md §0).
+ * Вызывающий отвечает на непустой результат ошибкой 400, а не тихим отбрасыванием:
+ * молчаливый игнор выглядел бы для клиента как успешное сохранение.
+ */
+export function disallowedProfileFields(role: Role, input: UpdateProfileInput): ProfileFieldKey[] {
+  return (Object.keys(input) as ProfileFieldKey[]).filter((key) => !profileFieldAllowed(key, role))
+}

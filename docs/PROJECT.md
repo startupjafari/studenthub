@@ -163,6 +163,22 @@ academicTitle, department, subjects, officeRoom, officeHours, employeeNumber, re
 publicationsUrl, appointmentDate, workPhone, responsibilities, moderationAreas). Редактирование —
 `PATCH /users/me` (роль/scope не меняются); форма показывает поля релевантные роли.
 
+**Доступность полей профиля по роли.** Набор «самоописываемых» полей зависит от роли —
+единый источник `PROFILE_FIELD_ROLES` в `@studenthub/shared-schemas` (одна карта на форму
+и на валидацию). Общие поля (ФИО, headline, bio, phone, telegram, languages, timezone,
+showEmail/showPhone, profileVisibility) — у всех ролей; личное и соцсети (birthDate, gender,
+country, website, instagram) — студенты и преподаватели; академические (academicDegree,
+academicTitle, department, subjects, officeHours, researchInterests, publicationsUrl) —
+только TEACHER и DEAN; вузовские служебные (employeeNumber, appointmentDate, officeRoom,
+jobTitle) — сотрудники вуза; position и workPhone — все не-студенты; responsibilities —
+администраторы и модераторы вуза и платформы; moderationAreas — только модераторы;
+duties — только STAROSTA. Платформенные роли вне вуза, поэтому кафедры, предметов
+и табельного номера у них нет.
+
+`PATCH /users/me` с полем, недоступным роли, отвечает `400 BAD_REQUEST`; `details[]`
+перечисляет отклонённые поля (`field` + сообщение). Запрос отклоняется целиком, разрешённая
+часть тоже не сохраняется. Роль читается из JWT, не из тела.
+
 **Контент профиля (вкладки).** Профиль разбит на вкладки: Профиль / Фото / Видео / Статьи /
 Опросы. Просмотр — любой аутентифицированный с учётом `visibility` (ALL/UNIVERSITY/FACULTY/GROUP);
 черновики (`status=DRAFT`) видит только автор; загрузка/редактирование — только владелец.
@@ -492,13 +508,14 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 | 429 | `RATE_LIMIT` | Превышен лимит |
 | 401 | `INVALID_2FA_CODE` | Неверный/просроченный код 2FA (TOTP или backup) на втором шаге входа |
 | 403 | `TWO_FACTOR_SETUP_REQUIRED` | Привилегированной роли нужно включить 2FA; доступ к API закрыт до настройки (кроме эндпоинтов 2FA). Клиент ведёт на `/setup-2fa` |
+| 409 | `USERNAME_TAKEN` | Имя пользователя занято другим аккаунтом (`PATCH /users/me/username`). Отдельно от `CONFLICT`: форма подсвечивает именно поле имени |
 | 500 | `INTERNAL_ERROR` | Внутренняя ошибка |
 
 Коды — публичный контракт: клиент реагирует на `code`, не на `message`. Тексты для пользователя формирует фронтенд через i18n.
 
 ### 8.3 Реестр эндпоинтов
 
-**Auth** — `POST /auth/login` (публ.; тело `{ identifier, password }` — `identifier` это email ИЛИ username, регистронезависимо; при включённой 2FA возвращает `{ twoFactorRequired: true, challengeToken }` вместо токенов) · `POST /auth/login/2fa` (публ.; `{ challengeToken, code }` → сессия) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`. Регистрация (`/auth/register-by-invite`) требует `username` (обязателен, 3–32 [a-z0-9_], хранится в нижнем регистре, уникален). Модель: `User.username String? @unique` (nullable — у зарегистрированных до фичи его нет).
+**Auth** — `POST /auth/login` (публ.; тело `{ identifier, password }` — `identifier` это email ИЛИ username, регистронезависимо; при включённой 2FA возвращает `{ twoFactorRequired: true, challengeToken }` вместо токенов) · `POST /auth/login/2fa` (публ.; `{ challengeToken, code }` → сессия) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`. Регистрация (`/auth/register-by-invite`) требует `username` (обязателен, 3–32 [a-z0-9_], хранится в нижнем регистре, уникален). Модель: `User.username String? @unique` (nullable — у зарегистрированных до фичи его нет; задать или сменить можно в настройках, в карточке «Личные данные» — тем же сохранением, что и ФИО; запрос отдельный: `PATCH /users/me/username`). `username` отдаётся **только владельцу** (в `/users/me`): в чужой карточке он вырезается, как и `twoFactorEnabled` — это половина учётных данных, а не публичный хэндл.
 
 **2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
 
@@ -508,7 +525,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `POST /invites/bulk/preview` · `POST /invites/bulk` · `PATCH /invites/:id/revoke`
 
-**Пользователи** — `GET|PATCH /users/me` · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
+**Пользователи** — `GET|PATCH /users/me` · `PATCH /users/me/username` (смена имени входа; тело `{ username }`, нормализуется в нижний регистр, `409 USERNAME_TAKEN` если занято; пишется в аудит как `change_username`) · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
 
 **Друзья** (симметричная дружба, ВК-стиль; Social-зона — все роли) — `POST /friends/requests {userId}` (заявка; встречная PENDING → авто-принятие) · `POST /friends/requests/:id/accept` (только адресат) · `DELETE /friends/:id` (отмена/отклонение/удаление из друзей — любой участник) · `GET /friends` (друзья, cursor) · `GET /friends/requests?direction=incoming|outgoing` (заявки, cursor) · `GET /friends/count` (счётчики) · `GET /friends/status/:userId` (статус `NONE|PENDING_OUTGOING|PENDING_INCOMING|ACCEPTED` + `friendshipId` — для кнопки в профиле). Модель `Friendship` (`requesterId`/`addresseeId`/`status`, `@@unique([requesterId, addresseeId])`); enum `FriendshipStatus = PENDING|ACCEPTED` (блокировка — отдельная `UserBlock`). Уведомления о заявке/принятии — тип `SYSTEM` (`data.url='/friends'`).
 
@@ -543,6 +560,33 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 **Поиск** (Academic Core, задача 22; расширен Unified UX PR-6) — `GET /search?q=` (мин. 2 символа) → кросс-модульно по scope: `{ people, courses, assignments, materials, events, chats }` (по 6). События — по названию в пределах вуза; чаты — только те, где смотрящий состоит (scope = членство). Устойчив к непримененным миграциям (`Promise.allSettled` — недоступный источник просто пуст). Command Palette (Ctrl/Cmd+K) на фронте использует этот же эндпоинт.
 
 **Аналитика декана** (Academic Core, задача 14) — read-only агрегаты (декан/админ вуза): `GET /analytics/faculty` (`?facultyId=` для админа; декан — свой факультет из JWT) → показатели (студенты, группы, посещаемость %, работ на проверке, экзаменов впереди) + посещаемость по группам + блок «требует внимания» (группы с посещаемостью < 60%) · `GET /analytics/group/:id/attendance` (drill-down: посещаемость по студентам группы) · `GET /analytics/at-risk` (Early Warning, Unified UX PR-7: студенты «требует внимания» с ЯВНЫМИ причинами — `LOW_ATTENDANCE`<60% / `OVERDUE_ASSIGNMENTS` шт / `LOW_GRADES`<50%, каждая с числовым `value`; `severity` = число причин; без скрытого скоринга). Без новых моделей — агрегация поверх `Attendance`/`Submission`/`Grade`/`Exam` в пределах scope.
+
+**Аналитика платформы** (дашборд `PLATFORM_ADMIN`) — read-only агрегаты по всем вузам, только
+`PLATFORM_ADMIN`/`PLATFORM_MODERATOR`, префикс `GET /analytics/platform/*`. Общие query-параметры
+периода: `from`, `to` (полуинтервал `[from, to)`, по умолчанию последние 30 дней), `interval`
+(`day|week|month`, по умолчанию `day`). Все ряды приходят с ПОЛНЫМИ корзинами — сервер досыпает
+нули, клиент ничего не достраивает. Каждый агрегат кэшируется в Redis (TTL 300 с, ключ
+`analytics:platform:<имя>:<параметры>`).
+
+- `overview` — плитки: вузы по статусам, всего пользователей, жалоб в очереди, медиана времени
+  разбора жалобы (за 30 дней + предыдущие 30 для дельты), DAU/WAU; спарклайны за 14 дней.
+- `users-growth` — новые регистрации по корзинам, три группы ролей (`students` = STUDENT+STAROSTA,
+  `teachers`, `staff`).
+- `active-users` — `dau`/`wau` по `COUNT(DISTINCT audit_logs.user_id)`. Источник — журнал аудита,
+  а НЕ `users.last_seen_at`: последнее поле перезаписывается при каждом уходе в оффлайн и
+  исторического ряда не даёт. Считаются пользователи, чьи действия попадают в аудит.
+- `universities-size` — студенты/преподаватели/всего по каждому вузу одним запросом (заменяет
+  N+1 на странице «Статистика»), сортировка по убыванию размера.
+- `complaints-flow` — `created`/`resolved` по корзинам (обе величины — счётчики, одна ось).
+- `complaints-latency` — распределение `resolved_at − created_at` по неравным корзинам
+  (`lt1h`,`lt4h`,`lt1d`,`lt3d`,`lt7d`,`gte7d`) + медиана в часах (`percentile_cont`).
+- `invites-funnel` — конверсия в регистрацию (`USED`/всего, проценты), разбивка по статусам и
+  ряд статусов по корзинам.
+- `activity-heatmap` — сетка 7×24 событий аудита, `cells[dow][hour]`, `dow` 0 = понедельник.
+  Время в **UTC**: у вузов свои таймзоны, единого локального часа у платформы нет.
+- `top-actions` — топ действий аудита за период (`limit` 1…20, по умолчанию 8).
+
+Без новых моделей — агрегация поверх `User`/`University`/`Complaint`/`Invite`/`AuditLog`.
 
 **Экзамены** (Academic Core, задача 11) — `GET /exams` (по роли; фильтры `groupId/courseId/mine`; студент видит свою сессию + поле `myResult`) · `GET /exams/:id` · `POST /exams` (декан/препод: дисциплина+дата+формат+аудитория?+экзаменатор?) · `PATCH|DELETE /exams/:id` · `GET /exams/:id/results` (ведомость: студенты группы + результаты) · `PUT /exams/results` (массово: `{examId,entries:[{studentId,admitted,status,score?,note?}]}`). Формат: `ORAL|WRITTEN|TEST|PROJECT|OTHER`; статус результата: `SCHEDULED|PASSED|FAILED|ABSENT|RETAKE`; допуск — `admitted:boolean`; пересдача — `attempt`. Модели: `Exam` (courseId/groupId/examinerId?/roomId?/date/format/maxScore), `ExamResult` (`@@unique([examId,studentId])`).
 

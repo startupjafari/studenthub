@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   BadgeCheck,
+  BookOpen,
   Briefcase,
   CalendarDays,
   Code2,
@@ -36,7 +37,13 @@ import {
 } from '../../../shared/ui'
 import { countryCodeOf, languageFlagOf } from '../../../shared/config'
 import { cn } from '../../../shared/lib/utils'
-import { SECTIONS, STUDENT_ROLES, sectionVisible, type FieldDef, type Section } from './sections'
+import {
+  STUDENT_ROLES,
+  fieldVisible,
+  visibleSections,
+  type FieldDef,
+  type Section,
+} from './sections'
 
 // Значение языка с флагом (иконка языка в профиле).
 function languageChip(v: string): ReactNode {
@@ -122,13 +129,20 @@ const HANDLED_ELSEWHERE = new Set<string>([
 
 const SECTION_ICON: Record<string, LucideIcon> = {
   sectionStudy: GraduationCap,
+  sectionAcademic: BookOpen,
   sectionWork: Briefcase,
   sectionStarosta: UserRound,
   sectionPersonal: UserRound,
 }
 
 // Порядок инфо-секций в правой колонке.
-const RIGHT_ORDER = ['sectionStudy', 'sectionWork', 'sectionStarosta', 'sectionPersonal']
+const RIGHT_ORDER = [
+  'sectionStudy',
+  'sectionAcademic',
+  'sectionWork',
+  'sectionStarosta',
+  'sectionPersonal',
+]
 
 // ── Имя + подпись + мета (read-only, общий для своего и чужого профиля) ──────
 export function ProfileIdentity({ data }: { data: ProfileData }) {
@@ -137,13 +151,19 @@ export function ProfileIdentity({ data }: { data: ProfileData }) {
   const locale = useLocale()
 
   const isStudent = STUDENT_ROLES.includes(data.role)
-  const metaPrimary = isStudent ? data.specialty : data.department
+  // У служебных ролей кафедры нет (поле им недоступно) — в первой строке показываем
+  // должность, чтобы мета-строка не осталась пустой; во второй тогда дублировать нечего.
+  const metaPrimary = isStudent
+    ? data.specialty
+    : (data.department ?? data.position ?? data.jobTitle)
   const MetaPrimaryIcon = isStudent ? GraduationCap : Briefcase
   const metaSecondary = isStudent
     ? data.course
       ? `${data.course} ${t('courseShort')}`
       : null
-    : (data.position ?? data.jobTitle ?? null)
+    : data.department
+      ? (data.position ?? data.jobTitle ?? null)
+      : null
 
   return (
     <div className="min-w-0 flex-1">
@@ -196,7 +216,7 @@ export function ProfileBody({ data }: { data: ProfileData }) {
   }
 
   // Показываем ВСЕ блоки и ВСЕ поля секций (пустые значения → «Нет данных»).
-  const editSections = SECTIONS.filter((s) => sectionVisible(s.when, data.role))
+  const editSections = visibleSections(data.role)
   const infoSections = RIGHT_ORDER.map((title) => editSections.find((s) => s.title === title))
     .filter((s): s is Section => Boolean(s))
     .map((s) => ({
@@ -207,17 +227,23 @@ export function ProfileBody({ data }: { data: ProfileData }) {
     }))
     .filter((x) => x.rows.length > 0)
 
+  // Навыки/интересы — поля студента. Рендерим карточку только если роль их вообще
+  // может заполнить, иначе получаются вечные «Нет данных» без пути в форму.
+  const showSkills = fieldVisible('skills', data.role)
+  const showInterests = fieldVisible('interests', data.role)
   const skills = data.skills ?? []
   const interests = data.interests ?? []
   const langs = data.languages ?? []
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+    <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       {/* Левая колонка */}
-      <div className="flex flex-col gap-5 lg:sticky lg:top-2">
+      <div className="flex flex-col gap-4 lg:sticky lg:top-2">
         <ContactsCard data={data} />
-        <ChipsCard title={t('skills')} icon={Code2} items={skills} tone="primary" />
-        <ChipsCard title={t('interests')} icon={Heart} items={interests} tone="accent" />
+        {showSkills && <ChipsCard title={t('skills')} icon={Code2} items={skills} tone="primary" />}
+        {showInterests && (
+          <ChipsCard title={t('interests')} icon={Heart} items={interests} tone="accent" />
+        )}
         <ChipsCard
           title={t('languages')}
           icon={Languages}
@@ -228,7 +254,7 @@ export function ProfileBody({ data }: { data: ProfileData }) {
       </div>
 
       {/* Правая колонка */}
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <AboutCard bio={data.bio ?? ''} title={t('sectionAbout')} />
         {infoSections.map(({ section, rows }) => (
           <InfoCard

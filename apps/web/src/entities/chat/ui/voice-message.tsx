@@ -176,7 +176,7 @@ export function VoiceMessage({ url, seed, mine }: { url: string; seed: string; m
   )
 
   return (
-    <div className="flex min-w-[220px] max-w-full items-center gap-2.5 py-0.5">
+    <div className="flex min-w-[220px] max-w-full items-center gap-2 py-0.5">
       <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
       <button
         type="button"

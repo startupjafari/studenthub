@@ -264,7 +264,7 @@ function ArticleCard({
   const date = new Date(a.publishedAt ?? a.createdAt).toLocaleDateString(locale)
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:shadow-md">
+    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
       <button
         type="button"
         onClick={onRead}
@@ -475,7 +475,7 @@ function ArticleReader({
               className="h-52 w-full shrink-0 sm:h-64"
             />
           )}
-          <div className="flex w-full flex-col gap-5 px-6 py-6 sm:px-8">
+          <div className="flex w-full flex-col gap-4 px-6 py-6 sm:px-8">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
               {a.category && <Badge variant="default">{t(`cat_${a.category}`)}</Badge>}
               <time>{new Date(a.publishedAt ?? a.createdAt).toLocaleDateString(locale)}</time>

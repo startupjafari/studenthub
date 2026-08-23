@@ -104,7 +104,7 @@ function RequestCard({ req, onOpen }: { req: StudentRequestSummary; onOpen: () =
       <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <FileCheck2 className="size-4" aria-hidden />
-          <span className={cn(done && 'text-emerald-600')}>
+          <span className={cn(done && 'text-success')}>
             {t('req_progress', { done: req.filledRequired, total: req.requiredCount })}
           </span>
         </span>

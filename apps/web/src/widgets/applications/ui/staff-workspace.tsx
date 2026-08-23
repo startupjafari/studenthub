@@ -434,7 +434,7 @@ function StaffDocumentReview({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-amber-600 dark:text-amber-400"
+                  className="text-warning"
                   onClick={() => setReplaceFor(d.id)}
                 >
                   <RefreshCw className="size-4" aria-hidden />

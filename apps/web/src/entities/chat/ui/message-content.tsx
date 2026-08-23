@@ -18,10 +18,7 @@ function highlightText(text: string, term: string): ReactNode {
   while (idx !== -1) {
     if (idx > i) out.push(text.slice(i, idx))
     out.push(
-      <mark
-        key={k++}
-        className="rounded bg-yellow-300/70 px-0.5 text-inherit dark:bg-yellow-500/40"
-      >
+      <mark key={k++} className="rounded bg-warning/30 px-0.5 text-inherit dark:bg-warning/40">
         {text.slice(idx, idx + term.length)}
       </mark>,
     )

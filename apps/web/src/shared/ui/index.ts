@@ -1,5 +1,7 @@
 export { Button, buttonVariants } from './button'
 export { Input } from './input'
+export { CodeInput, type CodeAlphabet, type CodeInputProps } from './code-input'
+export { SegmentedTabs, type SegmentedTabItem, type SegmentedTabsProps } from './segmented-tabs'
 export { Label } from './label'
 export {
   Card,

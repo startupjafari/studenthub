@@ -8,23 +8,7 @@ import { chatKeys, fetchBlockedUsers, unblockUserRequest } from '../../../entiti
 import { ProfileLink } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage, EmptyState, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useBodyScrollLock } from '../../../shared/lib'
-
-const COLORS = [
-  'bg-rose-500',
-  'bg-orange-500',
-  'bg-amber-500',
-  'bg-emerald-500',
-  'bg-teal-500',
-  'bg-sky-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-]
-function colorOf(id: string): string {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return COLORS[h % COLORS.length] ?? 'bg-sky-500'
-}
+import { identityColor, useBodyScrollLock } from '../../../shared/lib'
 
 // Экран «Заблокированные»: список заблокированных мной пользователей + разблокировка.
 export function BlockedUsersDialog({ onClose }: { onClose: () => void }) {
@@ -87,7 +71,9 @@ export function BlockedUsersDialog({ onClose }: { onClose: () => void }) {
                 <ProfileLink userId={u.id} className="flex min-w-0 flex-1 items-center gap-3">
                   <Avatar className="size-9 shrink-0">
                     {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.firstName} />}
-                    <AvatarFallback className={cn('text-xs font-medium text-white', colorOf(u.id))}>
+                    <AvatarFallback
+                      className={cn('text-xs font-medium text-white', identityColor(u.id))}
+                    >
                       {`${u.lastName[0] ?? ''}${u.firstName[0] ?? ''}`.toUpperCase() || '#'}
                     </AvatarFallback>
                   </Avatar>

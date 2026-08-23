@@ -39,8 +39,8 @@ import { cn } from '../../../shared/lib/utils'
 
 const STATUSES: UniversityStatusValue[] = ['PENDING', 'ACTIVE', 'BLOCKED']
 const STATUS_STYLE: Record<UniversityStatusValue, string> = {
-  PENDING: 'text-amber-600 dark:text-amber-400',
-  ACTIVE: 'text-emerald-600 dark:text-emerald-400',
+  PENDING: 'text-warning',
+  ACTIVE: 'text-success',
   BLOCKED: 'text-destructive',
 }
 
