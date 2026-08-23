@@ -35,7 +35,7 @@ export function StudentIdCardFace({ card, footer }: { card: Card; footer?: React
   if (card.graduationYear) rows.push({ label: t('validUntil'), value: String(card.graduationYear) })
 
   return (
-    <div className="relative isolate overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    <div className="relative isolate overflow-hidden rounded-2xl border border-border bg-card">
       {/* Голографический блик поверх карты (анти-скриншот), не перехватывает клики. */}
       <div className="sh-holo pointer-events-none absolute inset-0 z-20" aria-hidden />
 

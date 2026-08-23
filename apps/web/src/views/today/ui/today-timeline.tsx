@@ -29,7 +29,7 @@ export function TodayTimeline({ dayPairs, showTeacher = true }: TodayTimelinePro
         {dayPairs.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('noPairsToday')}</p>
         ) : (
-          <ul className="flex flex-col gap-2.5">
+          <ul className="flex flex-col gap-2">
             {dayPairs.map((dp) => {
               const start = dp.change?.newStartTime ?? dp.pair.startTime
               const end = dp.change?.newEndTime ?? dp.pair.endTime

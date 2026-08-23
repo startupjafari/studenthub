@@ -262,7 +262,7 @@ export function ProfileMediaGrid({
           sidebar={
             // Мобильный: «Альбомы» и «Сортировка» в один компактный ряд (flex-wrap, меньше отступы).
             // Десктоп (lg): прежняя вертикальная колонка.
-            <div className="flex flex-wrap gap-x-8 gap-y-3 lg:flex-col lg:flex-nowrap lg:gap-5">
+            <div className="flex flex-wrap gap-x-8 gap-y-3 lg:flex-col lg:flex-nowrap lg:gap-4">
               {/* Альбомы (только фото) */}
               {isPhoto && (albums.length > 0 || isOwner) && (
                 <FilterGroup

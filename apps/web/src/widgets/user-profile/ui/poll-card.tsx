@@ -90,13 +90,13 @@ export function PollCard({ poll, isOwner }: Props) {
   return (
     <Card
       className={cn(
-        'group flex flex-col rounded-2xl transition-shadow hover:shadow-md',
+        'group flex flex-col rounded-2xl transition-shadow hover:ring-ring/50',
         poll.closed && 'opacity-95',
       )}
     >
       <CardContent className="flex flex-1 flex-col gap-3 p-4">
         {/* Автор + дата */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <ProfileLink userId={poll.author.id} className="shrink-0">
             <Avatar className="size-9">
               {poll.author.avatarUrl && <AvatarImage src={poll.author.avatarUrl} alt="" />}
