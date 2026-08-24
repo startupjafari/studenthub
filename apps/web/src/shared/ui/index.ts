@@ -69,6 +69,27 @@ export { DatePicker, type DatePickerProps } from './date-picker'
 export { DateRangePicker, type DateRangePickerProps, type DateRange } from './date-range-picker'
 export { PageLoader, type PageLoaderProps } from './page-loader'
 export { PageHeader, type PageHeaderProps } from './page-header'
+export {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableScroll,
+  TableSkeletonRows,
+  TableText,
+  nextSort,
+  pageItems,
+  sortRows,
+  useSortState,
+  useTableSort,
+  type SortDirection,
+  type SortState,
+  type TableHeadProps,
+  type TablePaginationProps,
+} from './table'
 export { Modal, type ModalProps } from './modal'
 export { Stepper, type StepperStep } from './stepper'
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs'

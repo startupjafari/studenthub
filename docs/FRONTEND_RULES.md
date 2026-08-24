@@ -41,7 +41,7 @@
 | Realtime | `socket.io-client` через единый провайдер | Несколько сокет-соединений, polling |
 | Иконки | `lucide-react` | Прочие наборы, SVG-инлайн копипастой |
 | Даты | `date-fns` + локаль | `moment`, ручное форматирование строк |
-| Графики | `chart.js` + `react-chartjs-2` через `next/dynamic` | Синхронный импорт чартов |
+| Графики | `recharts` через `next/dynamic`, набор в `shared/ui/chart` | Синхронный импорт чартов, второй чарт-движок, своя обёртка вместо `shared/ui/chart` |
 | i18n | `next-intl` | Хардкод строк в JSX |
 | PWA | `@ducanh2912/next-pwa` | Ручной service worker |
 

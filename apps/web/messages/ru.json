@@ -1269,7 +1269,9 @@
   },
   "Moderation": {
     "complaintsTitle": "Жалобы",
+    "complaintsSubtitle": "Очередь модерации: жалобы пользователей",
     "auditTitle": "Журнал действий",
+    "auditSubtitle": "Действия пользователей и системы",
     "all": "Все",
     "empty": "Жалоб нет",
     "auditEmpty": "Записей нет",
@@ -1296,10 +1298,26 @@
     "colTime": "Время",
     "colAction": "Действие",
     "colEntity": "Объект",
-    "colUser": "Пользователь"
+    "colUser": "Пользователь",
+    "colPriority": "Приоритет",
+    "colCategory": "Категория",
+    "colReason": "Причина",
+    "colDate": "Дата",
+    "colStatus": "Статус",
+    "priorityHIGH": "Высокий",
+    "priorityMEDIUM": "Средний",
+    "priorityLOW": "Низкий",
+    "allPriorities": "Любой приоритет",
+    "detailTitle": "Жалоба",
+    "resolvedBy": "Обработал",
+    "chatTitle": "Переписка",
+    "commentLabel": "Комментарий к решению",
+    "chatUnavailable": "Переписка недоступна: сообщение удалено или не найдено",
+    "chatEmpty": "Сообщений в переписке нет"
   },
   "Users": {
     "title": "Пользователи",
+    "subtitle": "Все пользователи платформы",
     "searchPlaceholder": "Поиск по имени или email",
     "allRoles": "Все роли",
     "exportCsv": "Экспорт CSV",
@@ -1323,7 +1341,9 @@
     "teachers": "Преподаватели",
     "rooms": "Аудитории",
     "platformTitle": "Статистика платформы",
-    "noUniversities": "Университетов нет"
+    "platformSubtitle": "Показатели по каждому вузу платформы",
+    "noUniversities": "Университетов нет",
+    "chartTitle": "Сравнение по количеству"
   },
   "People": {
     "myGroup": "Моя группа",
@@ -1342,7 +1362,9 @@
   },
   "Universities": {
     "title": "Университеты",
+    "subtitle": "Вузы платформы и их статус",
     "add": "Добавить университет",
+    "create": "Создать",
     "name": "Название",
     "shortName": "Аббревиатура",
     "city": "Город",
@@ -2473,6 +2495,7 @@
   },
   "PlatformDashboard": {
     "hours": "{h} ч",
+    "subtitle": "Показатели платформы за выбранный период",
     "kpiUniversities": "Вузов активно",
     "kpiUniversitiesHint": "ожидают активации: {pending}",
     "kpiUsers": "Пользователей",
@@ -2526,6 +2549,20 @@
     "weekday_3": "Чт",
     "weekday_4": "Пт",
     "weekday_5": "Сб",
-    "weekday_6": "Вс"
+    "weekday_6": "Вс",
+    "rangeLabel": "Период",
+    "rangeDays": "{days} дней",
+    "tooltipTotal": "всего"
+  },
+  "Table": {
+    "rows": "{count, plural, one {# строка} few {# строки} many {# строк} other {# строки}}",
+    "page": "Страница {page} из {pages}",
+    "prev": "Предыдущая страница",
+    "next": "Следующая страница",
+    "goToPage": "Страница {page}",
+    "copy": "Копировать",
+    "copied": "Скопировано",
+    "copyFailed": "Не удалось скопировать",
+    "perPage": "На странице"
   }
 }

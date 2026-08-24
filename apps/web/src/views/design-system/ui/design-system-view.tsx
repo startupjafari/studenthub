@@ -27,6 +27,7 @@ const NAV = [
   { id: 'badges', label: 'Бейджи' },
   { id: 'inputs', label: 'Поля' },
   { id: 'surfaces', label: 'Карточки' },
+  { id: 'table', label: 'Таблица' },
   { id: 'nav', label: 'Шапка и табы' },
   { id: 'feedback', label: 'Состояния' },
   { id: 'overlays', label: 'Оверлеи' },

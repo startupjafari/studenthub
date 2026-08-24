@@ -159,10 +159,19 @@ async function seedComplaints(reporters, resolvers, universityId) {
     const resolvedTime = createdAt.getTime() + delay
     const resolved = !stillOpen && resolvedTime < now
 
+    // Приоритет — по категории цели, как это делает API (complaintPriorityFor):
+    // иначе вся демо-очередь оказалась бы «средней» по дефолту колонки.
+    const targetType = pick(TARGET_TYPES)
     rows.push({
       id: `analytics-complaint-${i}`,
       reporterId: pick(reporters),
-      targetType: pick(TARGET_TYPES),
+      targetType,
+      priority:
+        targetType === 'USER' || targetType === 'MESSAGE'
+          ? 'HIGH'
+          : targetType === 'COMMENT'
+            ? 'LOW'
+            : 'MEDIUM',
       targetId: `analytics-target-${randInt(1, 400)}`,
       reason: pick(COMPLAINT_REASONS),
       universityId,

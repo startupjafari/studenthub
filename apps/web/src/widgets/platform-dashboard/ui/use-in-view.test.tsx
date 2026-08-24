@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { useInView } from './use-in-view'
 
-// Ленивое монтирование — основная оптимизация дашборда: восемь полотен chart.js
+// Ленивое монтирование — основная оптимизация дашборда: восемь полотен графиков
 // и восемь запросов при открытии страницы не нужны, видно от них один-два.
 
 function Probe() {

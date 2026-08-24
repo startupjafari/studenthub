@@ -18,6 +18,26 @@ export interface AuditEntry {
 
 // Пишет запись в audit_logs (docs/BACKEND_RULES.md §13). Никогда не логирует пароли/токены.
 // Ф11 добавит AuditInterceptor и GET /audit поверх этого сервиса.
+// Сортировка журнала: колонка таблицы → orderBy Prisma, через белый список (произвольное
+// поле из query в orderBy не попадает). Вторая ступень — createdAt desc: при равных
+// значениях порядок внутри страницы обязан быть стабильным, иначе строки прыгают между
+// страницами. По умолчанию — свежие сверху.
+function auditOrderBy(query: AuditListQueryInput): Prisma.AuditLogOrderByWithRelationInput[] {
+  const dir = query.order ?? 'asc'
+  switch (query.sort) {
+    case 'createdAt':
+      return [{ createdAt: dir }]
+    case 'action':
+      return [{ action: dir }, { createdAt: 'desc' }]
+    case 'entity':
+      return [{ entity: dir }, { createdAt: 'desc' }]
+    case 'userId':
+      return [{ userId: dir }, { createdAt: 'desc' }]
+    default:
+      return [{ createdAt: 'desc' }]
+  }
+}
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name)
@@ -58,7 +78,7 @@ export class AuditService {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.auditLog.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: auditOrderBy(query),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),

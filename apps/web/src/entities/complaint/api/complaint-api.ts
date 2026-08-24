@@ -1,18 +1,19 @@
-import type { ResolveComplaintInput } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
-import type { Complaint, ComplaintChatMessage, ComplaintStatusValue } from '../model/types'
+import type { ComplaintListQueryInput, ResolveComplaintInput } from '@studenthub/shared-schemas'
+import { api, getPaged } from '../../../shared/api'
+import type { Paged } from '../../../shared/api'
+import type { Complaint, ComplaintChatMessage } from '../model/types'
 
 export const complaintKeys = {
   all: ['complaints'] as const,
-  list: (status?: string) => ['complaints', 'list', status ?? 'all'] as const,
+  list: (params: Partial<ComplaintListQueryInput> = {}) => ['complaints', 'list', params] as const,
   messages: (id: string) => ['complaints', id, 'messages'] as const,
 }
 
-export async function fetchComplaints(status?: ComplaintStatusValue): Promise<Complaint[]> {
-  const { data } = await api.get<Complaint[]>('/complaints', {
-    params: { page: 1, limit: 50, status },
-  })
-  return data
+// Страница очереди: фильтры/сортировка/пагинация — на сервере (по всей выборке).
+export async function fetchComplaints(
+  params: Partial<ComplaintListQueryInput> = {},
+): Promise<Paged<Complaint>> {
+  return getPaged<Complaint>('/complaints', { page: 1, limit: 20, ...params })
 }
 
 export async function resolveComplaintRequest(

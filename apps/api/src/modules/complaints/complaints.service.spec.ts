@@ -105,6 +105,94 @@ describe('ComplaintsService.create (11.2)', () => {
   })
 })
 
+describe('ComplaintsService — приоритет и сортировка очереди', () => {
+  async function orderFor(query: Record<string, unknown>) {
+    const { service, prisma } = setup()
+    await service.list(user(Role.PLATFORM_MODERATOR), { page: 1, limit: 20, ...query } as never)
+    return prisma.complaint.findMany.mock.calls[0][0].orderBy
+  }
+
+  // Приоритет выводится из категории цели и пишется при создании — клиент его не присылает.
+  it('жалоба на пользователя создаётся с высоким приоритетом', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'u9', universityId: 'uni1' })
+    await service.create(
+      user(Role.STUDENT),
+      { targetType: 'USER', targetId: 'u9', reason: 'травля' },
+      ctx,
+    )
+    expect(prisma.complaint.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ priority: 'HIGH' }) }),
+    )
+  })
+
+  it('жалоба на комментарий — низкий приоритет, на пост — средний', async () => {
+    const c = setup()
+    c.prisma.comment.findFirst.mockResolvedValue({
+      authorId: 'a1',
+      post: { universityId: 'uni1' },
+      author: { universityId: 'uni1' },
+    })
+    await c.service.create(
+      user(Role.STUDENT),
+      { targetType: 'COMMENT', targetId: 'cm1', reason: 'x' },
+      ctx,
+    )
+    expect(c.prisma.complaint.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ priority: 'LOW' }) }),
+    )
+
+    const p = setup()
+    p.prisma.post.findFirst.mockResolvedValue({
+      authorId: 'a1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    await p.service.create(
+      user(Role.STUDENT),
+      { targetType: 'POST', targetId: 'p1', reason: 'x' },
+      ctx,
+    )
+    expect(p.prisma.complaint.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ priority: 'MEDIUM' }) }),
+    )
+  })
+
+  // Порядок по умолчанию и есть очередь: необработанные → HIGH раньше LOW → свежие раньше.
+  it('без sort очередь идёт по статусу, приоритету и дате', async () => {
+    expect(await orderFor({})).toEqual([
+      { status: 'asc' },
+      { priority: 'asc' },
+      { createdAt: 'desc' },
+    ])
+  })
+
+  it('sort=priority с order=desc разворачивает приоритет, дата остаётся второй ступенью', async () => {
+    expect(await orderFor({ sort: 'priority', order: 'desc' })).toEqual([
+      { priority: 'desc' },
+      { createdAt: 'desc' },
+    ])
+  })
+
+  it('неизвестное поле сортировки не попадает в orderBy', async () => {
+    expect(await orderFor({ sort: 'resolution', order: 'desc' })).toEqual([
+      { status: 'asc' },
+      { priority: 'asc' },
+      { createdAt: 'desc' },
+    ])
+  })
+
+  it('фильтр по приоритету сужает выборку', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.PLATFORM_MODERATOR), {
+      page: 1,
+      limit: 20,
+      priority: 'HIGH',
+    } as never)
+    expect(prisma.complaint.findMany.mock.calls[0][0].where.priority).toBe('HIGH')
+  })
+})
+
 describe('ComplaintsService — scope очереди (11.3)', () => {
   it('модератор вуза видит только свой вуз', async () => {
     const { service, prisma } = setup()

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Archive,
+  FolderLock,
   Inbox,
   LayoutGrid,
   Send,
@@ -35,6 +36,7 @@ export function DocumentsView() {
   return (
     <div className="flex w-full flex-col gap-4">
       <PageHeader
+        icon={FolderLock}
         title={t('title')}
         subtitle={t('subtitle')}
         tabs={
