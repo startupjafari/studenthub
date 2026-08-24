@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { ComplaintStatus, ComplaintTargetType, Prisma } from '@prisma/client'
+import { ComplaintPriority, ComplaintStatus, ComplaintTargetType, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
   ComplaintListQueryInput,
   CreateComplaintInput,
   ResolveComplaintInput,
 } from '@studenthub/shared-schemas'
+import { complaintPriorityFor } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -23,6 +24,7 @@ const COMPLAINT_SELECT = {
   targetId: true,
   reason: true,
   status: true,
+  priority: true,
   universityId: true,
   resolution: true,
   resolvedAt: true,
@@ -40,6 +42,29 @@ interface TargetInfo {
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
+}
+
+// Сортировка очереди: колонка таблицы → orderBy Prisma, через белый список (произвольное
+// поле из query в orderBy не попадает). Порядок по умолчанию и есть «очередь»: сначала
+// необработанные (PENDING/REVIEWING идут раньше по порядку enum), внутри — по приоритету
+// (HIGH первым, тоже порядок enum), внутри — свежие раньше. Вторая ступень всюду —
+// createdAt: при равных значениях строки не должны прыгать между страницами.
+function complaintsOrderBy(
+  query: ComplaintListQueryInput,
+): Prisma.ComplaintOrderByWithRelationInput[] {
+  const dir = query.order ?? 'asc'
+  switch (query.sort) {
+    case 'priority':
+      return [{ priority: dir }, { createdAt: 'desc' }]
+    case 'createdAt':
+      return [{ createdAt: dir }]
+    case 'status':
+      return [{ status: dir }, { priority: 'asc' }, { createdAt: 'desc' }]
+    case 'targetType':
+      return [{ targetType: dir }, { createdAt: 'desc' }]
+    default:
+      return [{ status: 'asc' }, { priority: 'asc' }, { createdAt: 'desc' }]
+  }
 }
 
 @Injectable()
@@ -63,6 +88,9 @@ export class ComplaintsService {
         targetType: input.targetType as ComplaintTargetType,
         targetId: input.targetId,
         reason: input.reason,
+        // Приоритет очереди выводится из категории цели (общее правило в shared-schemas),
+        // а не приходит от клиента: иначе жалующийся сам назначал бы себе «срочно».
+        priority: complaintPriorityFor(input.targetType) as ComplaintPriority,
         universityId: target.universityId,
       },
       select: COMPLAINT_SELECT,
@@ -84,12 +112,13 @@ export class ComplaintsService {
     const where: Prisma.ComplaintWhereInput = {
       ...this.scopeWhere(viewer),
       ...(query.status ? { status: query.status as ComplaintStatus } : {}),
+      ...(query.priority ? { priority: query.priority as ComplaintPriority } : {}),
     }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.complaint.findMany({
         where,
         select: COMPLAINT_SELECT,
-        orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+        orderBy: complaintsOrderBy(query),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),

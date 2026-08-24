@@ -55,7 +55,8 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
 
   const adminQuery = useQuery({
     queryKey: adminUserKeys.list({ search, role: roleFilter }),
-    queryFn: () => fetchUsers({ search, role: roleFilter, limit: 20 }),
+    // Пикеру нужны только строки — общее число страниц ему ни к чему.
+    queryFn: async () => (await fetchUsers({ search, role: roleFilter, limit: 20 })).items,
     enabled: canAdminSearch && search.trim().length >= 2,
   })
 

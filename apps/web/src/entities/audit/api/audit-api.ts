@@ -1,4 +1,6 @@
-import { api } from '../../../shared/api'
+import type { AuditListQueryInput } from '@studenthub/shared-schemas'
+import { getPaged } from '../../../shared/api'
+import type { Paged } from '../../../shared/api'
 
 export interface AuditLogItem {
   id: string
@@ -14,14 +16,12 @@ export interface AuditLogItem {
 
 export const auditKeys = {
   all: ['audit'] as const,
-  list: (action?: string) => ['audit', 'list', action ?? 'all'] as const,
+  list: (params: Partial<AuditListQueryInput> = {}) => ['audit', 'list', params] as const,
 }
 
+// sort/order уходят на сервер: сортировка по всей выборке, а не по открытой странице.
 export async function fetchAudit(
-  params: { action?: string; page?: number; limit?: number } = {},
-): Promise<AuditLogItem[]> {
-  const { data } = await api.get<AuditLogItem[]>('/audit', {
-    params: { page: 1, limit: 50, ...params },
-  })
-  return data
+  params: Partial<AuditListQueryInput> = {},
+): Promise<Paged<AuditLogItem>> {
+  return getPaged<AuditLogItem>('/audit', { page: 1, limit: 20, ...params })
 }

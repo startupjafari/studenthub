@@ -5,7 +5,9 @@ export {
   fetchComplaintMessages,
 } from './api/complaint-api'
 export {
+  COMPLAINT_PRIORITIES,
   COMPLAINT_STATUSES,
+  type ComplaintPriorityValue,
   type ComplaintStatusValue,
   type ComplaintTargetTypeValue,
   type Complaint,

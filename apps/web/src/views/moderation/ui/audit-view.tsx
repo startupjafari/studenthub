@@ -1,77 +1,150 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { ScrollText } from 'lucide-react'
+import { ADMIN_PAGE_SIZES, type AuditSortValue } from '@studenthub/shared-schemas'
 import { auditKeys, fetchAudit } from '../../../entities/audit'
-import { Card, CardContent, EmptyState, Input, PageHeader, Skeleton } from '../../../shared/ui'
+import {
+  Card,
+  EmptyState,
+  Input,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  useSortState,
+} from '../../../shared/ui'
+
+const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Ширины колонок: время · действие · объект · пользователь.
+const COLS = ['20%', '28%', '28%', '24%'] as const
 
 export function AuditView() {
   const t = useTranslations('Moderation')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const [action, setAction] = useState('')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // Сортировка серверная (sort/order в запросе): упорядочен весь журнал, а не страница.
+  const { sort, toggle } = useSortState()
 
+  const query = {
+    ...(action ? { action } : {}),
+    ...(sort ? { sort: sort.key as AuditSortValue, order: sort.dir } : {}),
+    page,
+    limit,
+  }
   const audit = useQuery({
-    queryKey: auditKeys.list(action || undefined),
-    queryFn: () => fetchAudit(action ? { action } : {}),
+    queryKey: auditKeys.list(query),
+    queryFn: () => fetchAudit(query),
+    // Прошлая страница остаётся на экране, пока грузится новая.
+    placeholderData: keepPreviousData,
   })
+  const total = audit.data?.total ?? 0
+  const rows = audit.data?.items ?? []
+
+  // Новый фильтр или порядок — снова с первой страницы.
+  const sortBy = (key: string): void => {
+    toggle(key)
+    setPage(1)
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title={t('auditTitle')} />
-
-      <Input
-        value={action}
-        onChange={(e) => setAction(e.target.value.trim())}
-        placeholder={t('filterAction')}
-        className="max-w-sm"
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      {/* Фильтр — в шапке (DESIGN_SYSTEM §10.1): управление списком стоит рядом с
+          заголовком, а не отдельной строкой над таблицей. */}
+      <PageHeader
+        icon={ScrollText}
+        title={t('auditTitle')}
+        subtitle={t('auditSubtitle')}
+        actions={
+          <Input
+            value={action}
+            onChange={(e) => {
+              setAction(e.target.value.trim())
+              setPage(1)
+            }}
+            placeholder={t('filterAction')}
+            className="h-9 w-full text-sm sm:w-64"
+          />
+        }
       />
 
-      {audit.isLoading ? (
-        <Skeleton className="h-64 w-full" />
-      ) : audit.isError ? (
+      {audit.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : (audit.data?.length ?? 0) === 0 ? (
+      ) : !audit.isLoading && rows.length === 0 ? (
         <EmptyState icon={<ScrollText className="size-6" aria-hidden />} title={t('auditEmpty')} />
       ) : (
-        <Card>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2 font-medium">{t('colTime')}</th>
-                  <th className="px-4 py-2 font-medium">{t('colAction')}</th>
-                  <th className="px-4 py-2 font-medium">{t('colEntity')}</th>
-                  <th className="px-4 py-2 font-medium">{t('colUser')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {audit.data!.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
-                      {new Date(r.createdAt).toLocaleString(locale, {
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                    <td className="px-4 py-2 font-medium">{r.action}</td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {r.entity
-                        ? `${r.entity}${r.entityId ? ` · ${r.entityId.slice(0, 8)}` : ''}`
-                        : '—'}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {r.userId ? r.userId.slice(0, 8) : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
+        // Загрузка идёт скелетоном в строках, таблица остаётся на экране целиком.
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="createdAt" sort={sort} onSort={sortBy}>
+                  {t('colTime')}
+                </TableHead>
+                <TableHead sortKey="action" sort={sort} onSort={sortBy}>
+                  {t('colAction')}
+                </TableHead>
+                <TableHead sortKey="entity" sort={sort} onSort={sortBy}>
+                  {t('colEntity')}
+                </TableHead>
+                <TableHead sortKey="userId" sort={sort} onSort={sortBy}>
+                  {t('colUser')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {audit.isLoading && <TableSkeletonRows columns={4} />}
+              {rows.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {new Date(r.createdAt).toLocaleString(locale, {
+                      day: '2-digit',
+                      month: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <TableText value={r.action} />
+                  </TableCell>
+                  {/* Полные id, а не `slice(0, 8)`: колонка их обрежет сама, а в подсказке
+                        значение целиком — и его можно скопировать для поиска по логам. */}
+                  <TableCell className="text-muted-foreground">
+                    {r.entity ? (
+                      <TableText value={r.entityId ? `${r.entity} · ${r.entityId}` : r.entity} />
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.userId ? <TableText value={r.userId} /> : '—'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            page={page}
+            total={total}
+            limit={limit}
+            onPageChange={setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={(n) => {
+              setLimit(n)
+              setPage(1)
+            }}
+          />
         </Card>
       )}
     </div>
