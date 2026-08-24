@@ -18,7 +18,15 @@ import {
   EmptyState,
   Input,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroll,
   useConfirm,
+  useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError, useMediaQuery } from '../../../shared/lib'
@@ -34,6 +42,12 @@ import {
 import { AddColumnModal } from './add-column-modal'
 
 const cellKey = (columnId: string, studentId: string) => `${columnId}|${studentId}`
+
+// Сортировка матрицы — только по студенту: остальные колонки динамические (оценки),
+// и их порядок задаёт преподаватель. Ссылка стабильная — вне компонента.
+function sortValue(s: GradebookStudent): unknown {
+  return `${s.lastName} ${s.firstName}`
+}
 
 // Журнал оценок дисциплины: матрица колонок×студентов с inline-редактированием,
 // публикацией колонок (черновик/опубликовано) и итогом. Desktop — таблица, mobile — карточки.
@@ -130,6 +144,9 @@ export function GradebookTable({ courseId }: { courseId: string }) {
     }
   }, [q.data?.columns, values])
 
+  // Хук до ранних выходов: порядок хуков не должен зависеть от состояния запроса.
+  const { rows: sortedStudents, sort, toggle } = useTableSort(q.data?.students ?? [], sortValue)
+
   if (q.isLoading) return <Skeleton className="h-80 w-full rounded-xl" />
   if (!q.data) return null
   const { columns, students } = q.data
@@ -190,55 +207,64 @@ export function GradebookTable({ courseId }: { courseId: string }) {
 
       {isDesktop ? (
         <Card>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-border text-xs text-muted-foreground">
-                  <th className="sticky left-0 z-10 bg-card px-3 py-2 font-medium">
-                    {t('student')}
-                  </th>
-                  {columns.map((col) => (
-                    <th key={col.id} className="px-2 py-2 text-center font-medium">
-                      <div className="flex items-center justify-center gap-1">
-                        <span className="truncate">{col.title}</span>
-                        {columnMenu(col)}
-                      </div>
-                      <div className="flex items-center justify-center gap-1 text-[11px] font-normal">
-                        {col.maxScore != null && <span>/{col.maxScore}</span>}
-                        {!col.published && <Badge variant="secondary">{t('draft')}</Badge>}
-                      </div>
-                    </th>
-                  ))}
-                  <th className="px-3 py-2 text-center font-medium">{t('total')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {students.map((s) => (
-                  <tr key={s.id}>
-                    <td className="sticky left-0 z-10 truncate bg-card px-3 py-1.5 font-medium">
-                      {s.lastName} {s.firstName[0]}.
-                    </td>
+          <CardContent className="p-0">
+            {/* Матрица «студенты × колонки»: шапка липнет к верху, первая колонка — к левому
+                краю, поэтому при любом скролле видно, чья оценка и в какую колонку. */}
+            <TableScroll className="max-h-[70vh]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead
+                      sortKey="student"
+                      sort={sort}
+                      onSort={toggle}
+                      className="sticky left-0 z-20 px-3"
+                    >
+                      {t('student')}
+                    </TableHead>
                     {columns.map((col) => (
-                      <td key={col.id} className="px-2 py-1.5 text-center">
-                        <Input
-                          type="number"
-                          value={values[cellKey(col.id, s.id)] ?? ''}
-                          onChange={(e) => setCell(col.id, s.id, e.target.value)}
-                          className={cn(
-                            'mx-auto h-8 w-16 px-2 text-center',
-                            !col.published && 'bg-muted/40',
-                          )}
-                          max={col.maxScore ?? undefined}
-                        />
-                      </td>
+                      <TableHead key={col.id} className="px-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="truncate">{col.title}</span>
+                          {columnMenu(col)}
+                        </div>
+                        <div className="flex items-center justify-center gap-1 text-[11px] font-normal">
+                          {col.maxScore != null && <span>/{col.maxScore}</span>}
+                          {!col.published && <Badge variant="secondary">{t('draft')}</Badge>}
+                        </div>
+                      </TableHead>
                     ))}
-                    <td className="px-3 py-1.5 text-center font-semibold tabular-nums">
-                      {total(s.id)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    <TableHead className="px-3 text-center">{t('total')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedStudents.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell className="sticky left-0 z-10 truncate bg-card px-3 py-1.5 font-medium">
+                        {s.lastName} {s.firstName[0]}.
+                      </TableCell>
+                      {columns.map((col) => (
+                        <TableCell key={col.id} className="px-2 py-1.5 text-center">
+                          <Input
+                            type="number"
+                            value={values[cellKey(col.id, s.id)] ?? ''}
+                            onChange={(e) => setCell(col.id, s.id, e.target.value)}
+                            className={cn(
+                              'mx-auto h-8 w-16 px-2 text-center',
+                              !col.published && 'bg-muted/40',
+                            )}
+                            max={col.maxScore ?? undefined}
+                          />
+                        </TableCell>
+                      ))}
+                      <TableCell className="px-3 py-1.5 text-center font-semibold tabular-nums">
+                        {total(s.id)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableScroll>
           </CardContent>
         </Card>
       ) : (

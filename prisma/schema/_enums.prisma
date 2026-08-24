@@ -102,6 +102,16 @@ enum ComplaintTargetType {
   USER
 }
 
+// Приоритет жалобы в очереди модерации. Определяется категорией цели (см.
+// complaintPriorityFor в packages/shared-schemas): жалобы на человека и на личные
+// сообщения разбираются первыми. Порядок значений = порядок разбора: ORDER BY priority ASC
+// в Postgres идёт по порядку объявления, поэтому HIGH объявлен первым.
+enum ComplaintPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
 enum ComplaintStatus {
   PENDING
   REVIEWING

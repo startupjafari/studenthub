@@ -45,7 +45,7 @@ const STATUS_FILLS = [
 const CHARTS = ['bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4', 'bg-chart-5']
 
 const TYPE_SCALE = [
-  { role: 'Заголовок страницы', cls: 'text-xl font-bold', where: 'только PageHeader' },
+  { role: 'Заголовок страницы', cls: 'text-lg font-bold', where: 'только PageHeader' },
   { role: 'Заголовок диалога', cls: 'text-base font-semibold', where: 'Modal, шапки панелей' },
   { role: 'Заголовок карточки', cls: 'text-base font-medium', where: 'CardTitle' },
   { role: 'Основной текст', cls: 'text-sm', where: 'тело, строки, поля' },
@@ -145,7 +145,7 @@ export function FoundationsSection() {
 
         <Demo
           label="Цвет данных"
-          rule="только для графиков; серьёзные дашборды берут палитру из platform-dashboard/model/palette.ts"
+          rule="только для графиков; серьёзные дашборды берут палитру из shared/ui/chart/palette.ts"
         >
           {CHARTS.map((c) => (
             <Swatch key={c} token={c.replace('bg-', '')} className={c} />

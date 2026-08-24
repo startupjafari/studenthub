@@ -23,6 +23,10 @@ const buttonVariants = cva(
       },
       size: {
         default: 'h-10 px-4',
+        // Плотная строка контролов в шапке страницы: кнопка, поле и селект там идут
+        // одной высотой h-9 (в формах у поля своя, крупная — h-11). Разная высота в
+        // одной строке читается как поломка вёрстки.
+        field: 'h-9 px-3.5',
         xs: "h-7 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 px-3 text-[0.8rem] [&_svg:not([class*='size-'])]:size-3.5",
         lg: 'h-11 px-6 text-base',

@@ -568,6 +568,65 @@ describe('UserService.list — scope (12.2)', () => {
   })
 })
 
+describe('UserService.list — сортировка (sort/order)', () => {
+  const viewer: JwtPayload = {
+    sub: 'v1',
+    role: Role.PLATFORM_ADMIN,
+    universityId: null,
+    facultyId: null,
+    groupId: null,
+  }
+  async function orderFor(query: Record<string, unknown>) {
+    const { service, prisma } = setup()
+    await service.list(viewer, { page: 1, limit: 20, ...query } as never)
+    return prisma.user.findMany.mock.calls[0][0].orderBy
+  }
+
+  it('по умолчанию — по фамилии и имени', async () => {
+    expect(await orderFor({})).toEqual([{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }])
+  })
+
+  it('sort=name с order=desc разворачивает обе ступени имени', async () => {
+    expect(await orderFor({ sort: 'name', order: 'desc' })).toEqual([
+      { lastName: 'desc' },
+      { firstName: 'desc' },
+      { id: 'asc' },
+    ])
+  })
+
+  it('sort=email / sort=blocked / sort=createdAt отдают свои колонки', async () => {
+    expect(await orderFor({ sort: 'email' })).toEqual([{ email: 'asc' }, { id: 'asc' }])
+    expect(await orderFor({ sort: 'blocked', order: 'desc' })).toEqual([
+      { isBlocked: 'desc' },
+      { lastName: 'asc' },
+      { id: 'asc' },
+    ])
+    expect(await orderFor({ sort: 'createdAt', order: 'desc' })).toEqual([
+      { createdAt: 'desc' },
+      { id: 'asc' },
+    ])
+  })
+
+  // Поле из query не подставляется в orderBy напрямую: неизвестное имя даёт порядок
+  // по умолчанию, а не сортировку по чужой колонке модели.
+  it('неизвестное поле сортировки не попадает в orderBy', async () => {
+    expect(await orderFor({ sort: 'passwordHash', order: 'desc' })).toEqual([
+      { lastName: 'asc' },
+      { firstName: 'asc' },
+      { id: 'asc' },
+    ])
+  })
+
+  // Ключ сортировки всегда доопределён id: иначе строки с равными значениями
+  // перескакивают между страницами от запроса к запросу.
+  it('последняя ступень сортировки — id', async () => {
+    for (const sort of ['name', 'email', 'role', 'blocked', 'createdAt']) {
+      const order = await orderFor({ sort })
+      expect(order[order.length - 1]).toEqual({ id: 'asc' })
+    }
+  })
+})
+
 describe('UserService.updateProfile — набор полей по роли (PROFILE_FIELD_ROLES)', () => {
   // Zod-схема UpdateProfileSchema одна для всех ролей, поэтому единственная защита
   // от записи чужих полей прямым PATCH — проверка по роли из JWT внутри сервиса.

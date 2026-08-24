@@ -138,6 +138,29 @@ export type PublicProfile = Omit<
   | 'username'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
+// Сортировка списка пользователей: имя колонки таблицы → orderBy Prisma. Отображение
+// через белый список, а не подстановка query.sort в orderBy: иначе клиент сортировал бы по
+// любому полю модели, включая passwordHash, и по нему же утекал бы порядок значений.
+// «Имя» — это фамилия + имя, поэтому две ступени; вторая ступень везде — id, чтобы страницы
+// не перемешивались между запросами при равных значениях.
+function userListOrderBy(query: UserListQueryInput): Prisma.UserOrderByWithRelationInput[] {
+  const dir = query.order ?? 'asc'
+  switch (query.sort) {
+    case 'name':
+      return [{ lastName: dir }, { firstName: dir }, { id: 'asc' }]
+    case 'email':
+      return [{ email: dir }, { id: 'asc' }]
+    case 'role':
+      return [{ role: dir }, { lastName: 'asc' }, { id: 'asc' }]
+    case 'blocked':
+      return [{ isBlocked: dir }, { lastName: 'asc' }, { id: 'asc' }]
+    case 'createdAt':
+      return [{ createdAt: dir }, { id: 'asc' }]
+    default:
+      return [{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }]
+  }
+}
+
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name)
@@ -258,7 +281,7 @@ export class UserService {
           isBlocked: true,
           createdAt: true,
         },
-        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        orderBy: userListOrderBy(query),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),

@@ -17,9 +17,14 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
+import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { searchKeys, fetchSearch } from '../../../entities/search'
 import { quickActionsFor } from '../model/quick-actions'
+
+// Ширины строк скелетона: разной длины, иначе блок читается как таблица, а не как
+// список названий. Значения же и служат ключами — индекс в key запрещён (§15).
+const SKELETON_WIDTHS = ['42%', '61%', '35%', '54%', '47%']
 
 interface Item {
   id: string
@@ -84,6 +89,15 @@ export function CommandPalette() {
     enabled: open && debounced.length >= 2,
     retry: false,
   })
+
+  // «Ищем» начинается с ввода, а не с ухода запроса: между ними лежат 250 мс
+  // дебаунса, и без этого флага список на них успевает мигнуть быстрыми
+  // действиями — как будто набранный запрос сбросился.
+  const typed = query.trim()
+  const searching = typed.length >= 2 && (typed !== debounced || search.isFetching)
+  // Уже показанные результаты при уточнении запроса не заменяем скелетоном: строки
+  // просто обновятся. Скелетон — только когда показывать пока нечего.
+  const hasResults = debounced.length >= 2 && !!search.data
 
   const items: Item[] = useMemo(() => {
     if (debounced.length >= 2) {
@@ -206,13 +220,20 @@ export function CommandPalette() {
           </div>
 
           <div ref={listRef} className="flex-1 overflow-y-auto p-2">
-            {items.length === 0 ? (
+            {searching && !hasResults ? (
+              // Скелетон повторяет геометрию строки результата — иконка и название
+              // на тех же местах, поэтому приход данных не сдвигает список.
+              <ul aria-busy className="flex flex-col" aria-label={t('searching')}>
+                {SKELETON_WIDTHS.map((width) => (
+                  <li key={width} className="flex items-center gap-3 px-2.5 py-2">
+                    <Skeleton className="size-4 shrink-0 rounded-md" />
+                    <Skeleton className="h-3.5 rounded-md" style={{ width }} />
+                  </li>
+                ))}
+              </ul>
+            ) : items.length === 0 ? (
               <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                {debounced.length >= 2
-                  ? search.isLoading
-                    ? t('searching')
-                    : t('empty')
-                  : t('hint')}
+                {debounced.length >= 2 ? t('empty') : t('hint')}
               </p>
             ) : (
               items.map((item, i) => {

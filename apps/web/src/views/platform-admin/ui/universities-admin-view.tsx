@@ -1,18 +1,12 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { Building2 } from 'lucide-react'
+import { Building2, Plus } from 'lucide-react'
+import { type UniversityStatusValue } from '@studenthub/shared-schemas'
 import {
-  CreateUniversitySchema,
-  type CreateUniversityInput,
-  type UniversityStatusValue,
-} from '@studenthub/shared-schemas'
-import {
-  createUniversityRequest,
   fetchUniversities,
   setUniversityStatusRequest,
   universityKeys,
@@ -21,12 +15,7 @@ import {
 import {
   Button,
   Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   EmptyState,
-  Input,
-  Label,
   PageHeader,
   Select,
   SelectContent,
@@ -36,6 +25,7 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { CreateUniversityModal } from './create-university-modal'
 
 const STATUSES: UniversityStatusValue[] = ['PENDING', 'ACTIVE', 'BLOCKED']
 const STATUS_STYLE: Record<UniversityStatusValue, string> = {
@@ -49,19 +39,9 @@ export function UniversitiesAdminView() {
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
 
+  const [createOpen, setCreateOpen] = useState(false)
+
   const universities = useQuery({ queryKey: universityKeys.list(), queryFn: fetchUniversities })
-
-  const form = useForm<CreateUniversityInput>({ resolver: zodResolver(CreateUniversitySchema) })
-
-  const createMut = useMutation({
-    mutationFn: (input: CreateUniversityInput) => createUniversityRequest(input),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: universityKeys.list() })
-      form.reset({ name: '', shortName: '', city: '', country: '' })
-      toast.success(t('created'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
 
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: UniversityStatusValue }) =>
@@ -75,40 +55,21 @@ export function UniversitiesAdminView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('title')} />
+      {/* Создание — кнопка в шапке и модалка: постоянная форма наверху страницы
+          отодвигала сам список вниз, хотя вуз добавляют редко. */}
+      <PageHeader
+        icon={Building2}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <Button size="field" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            {t('add')}
+          </Button>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('add')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={form.handleSubmit((v) => createMut.mutate(v))}
-            className="grid gap-3 sm:grid-cols-2"
-          >
-            <div className="flex flex-col gap-2 sm:col-span-2">
-              <Label htmlFor="u-name">{t('name')}</Label>
-              <Input id="u-name" {...form.register('name')} />
-              {form.formState.errors.name && (
-                <p className="text-xs text-destructive">{t('required')}</p>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="u-short">{t('shortName')}</Label>
-              <Input id="u-short" {...form.register('shortName')} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="u-city">{t('city')}</Label>
-              <Input id="u-city" {...form.register('city')} />
-            </div>
-            <div className="sm:col-span-2">
-              <Button type="submit" loading={createMut.isPending}>
-                {t('add')}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      {createOpen && <CreateUniversityModal onClose={() => setCreateOpen(false)} />}
 
       {universities.isLoading ? (
         <Skeleton className="h-40 w-full" />

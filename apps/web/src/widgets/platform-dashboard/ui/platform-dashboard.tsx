@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
+import { LayoutDashboard } from 'lucide-react'
 import {
   fetchActiveUsers,
   fetchActivityHeatmap,
@@ -18,28 +19,55 @@ import {
   type MultiSeries,
   type PlatformRange,
 } from '../../../entities/analytics'
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../../../shared/ui'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  PageHeader,
+  SegmentedTabs,
+  Skeleton,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useChartTheme } from './use-chart-theme'
+import { useChartTheme } from '../../../shared/ui/chart'
 import { useInView } from './use-in-view'
 import { Sparkline } from './sparkline'
 import { ActivityGrid, ChartLegend, Meter, StatTile } from './primitives'
 import { useCountUp } from './use-count-up'
 
-// Тяжёлый chart.js — только на клиенте (FRONTEND_RULES §4, §11), со скелетоном.
+// Тяжёлый recharts — только на клиенте (FRONTEND_RULES §4, §11), со скелетоном.
 const loading = (h: number) => () => <Skeleton className="w-full" style={{ height: h }} />
-const LineChart = dynamic(() => import('./charts/line-chart'), {
+const LineChart = dynamic(() => import('../../../shared/ui/chart/line-chart'), {
   ssr: false,
   loading: loading(260),
 })
-const BarChart = dynamic(() => import('./charts/bar-chart'), { ssr: false, loading: loading(260) })
-const StackedBarChart = dynamic(() => import('./charts/stacked-bar-chart'), {
+const BarChart = dynamic(() => import('../../../shared/ui/chart/bar-chart'), {
+  ssr: false,
+  loading: loading(260),
+})
+const StackedBarChart = dynamic(() => import('../../../shared/ui/chart/stacked-bar-chart'), {
   ssr: false,
   loading: loading(200),
 })
 
-/** Окно дашборда фиксировано: переключателя периода нет. */
-const RANGE_DAYS = 30
+/**
+ * Окно дашборда. Шаг корзины растёт вместе с окном: 90 дней по дням дают 90 точек
+ * на панель шириной в пол-экрана — это уже не форма, а шум, поэтому неделя.
+ */
+const RANGES = [
+  { key: '7', days: 7, interval: 'day' },
+  { key: '30', days: 30, interval: 'day' },
+  { key: '90', days: 90, interval: 'week' },
+] as const
+type RangeKey = (typeof RANGES)[number]['key']
+const DEFAULT_RANGE: RangeKey = '30'
+
+/**
+ * Курсор синхронизирован между временными панелями: наведение на дату в одной
+ * показывает эту же дату в остальных. Идентификатор общий — на нём и держится связь.
+ */
+const TIME_SYNC = 'platform-time'
+
 /** Данные живут в Redis 300 с — держим их свежими столько же и на клиенте. */
 const STALE_MS = 300_000
 
@@ -53,26 +81,48 @@ const ACTIVE_KEYS = ['dau', 'wau'] as const
 const FLOW_KEYS = ['created', 'resolved'] as const
 
 /**
- * Период: последние 30 дней, правый край округлён до часа. Округление важно —
+ * Период по выбранному окну, правый край округлён до часа. Округление важно —
  * иначе `new Date()` на каждом монтировании даёт новый ключ запроса, и кэш
  * (и клиентский, и Redis) не переиспользуется ни разу.
  */
-function useRange(): PlatformRange {
+function useRange(rangeKey: RangeKey): PlatformRange {
   return useMemo(() => {
+    const preset = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1]
     const now = new Date()
     const to = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours()),
     )
-    const from = new Date(to.getTime() - RANGE_DAYS * 86_400_000)
-    return { from: from.toISOString(), to: to.toISOString(), interval: 'day' }
-  }, [])
+    const from = new Date(to.getTime() - preset.days * 86_400_000)
+    return { from: from.toISOString(), to: to.toISOString(), interval: preset.interval }
+  }, [rangeKey])
 }
 
 export function PlatformDashboard() {
-  const range = useRange()
+  const t = useTranslations('PlatformDashboard')
+  const tNav = useTranslations('Nav')
+  const [rangeKey, setRangeKey] = useState<RangeKey>(DEFAULT_RANGE)
+  const range = useRange(rangeKey)
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Шапка страницы (DESIGN_SYSTEM §10.1) — она же держит переключатель окна.
+          Переключатель один на все панели: у каждой свой период графики показывали бы
+          разные срезы рядом друг с другом. Плитки сверху ему не подчиняются — у них окна
+          зафиксированы на сервере и подписаны в подсказке. Место — слот `actions`
+          (справа), а не `tabs`: это фильтр периода, а не разделы страницы. */}
+      <PageHeader
+        icon={LayoutDashboard}
+        title={tNav('dashboard')}
+        subtitle={t('subtitle')}
+        actions={
+          <SegmentedTabs
+            aria-label={t('rangeLabel')}
+            value={rangeKey}
+            onChange={setRangeKey}
+            items={RANGES.map((r) => ({ value: r.key, label: t('rangeDays', { days: r.days }) }))}
+          />
+        }
+      />
       <KpiRow />
       <div className="grid gap-4 lg:grid-cols-2">
         <GrowthPanel range={range} />
@@ -195,7 +245,7 @@ function GrowthPanel({ range }: { range: PlatformRange }) {
   const t = useTranslations('PlatformDashboard')
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
-  const { hidden, toggle } = useSeriesToggle()
+  const { hidden, toggle, focus, setFocus } = useSeriesToggle()
 
   const q = useQuery({
     queryKey: platformAnalyticsKeys.usersGrowth(range),
@@ -221,6 +271,7 @@ function GrowthPanel({ range }: { range: PlatformRange }) {
         className="mb-3"
         hidden={hidden}
         onToggle={toggle}
+        onFocusChange={setFocus}
         items={series.map((s) => ({
           key: s.key,
           label: s.label,
@@ -229,7 +280,14 @@ function GrowthPanel({ range }: { range: PlatformRange }) {
           value: sum(s.values),
         }))}
       />
-      <LineChart ariaLabel={t('growthTitle')} labels={labels} palette={palette} series={series} />
+      <LineChart
+        ariaLabel={t('growthTitle')}
+        labels={labels}
+        palette={palette}
+        series={series}
+        syncId={TIME_SYNC}
+        focus={focus}
+      />
     </ChartPanel>
   )
 }
@@ -238,7 +296,7 @@ function ActiveUsersPanel({ range }: { range: PlatformRange }) {
   const t = useTranslations('PlatformDashboard')
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
-  const { hidden, toggle } = useSeriesToggle()
+  const { hidden, toggle, focus, setFocus } = useSeriesToggle()
 
   const q = useQuery({
     queryKey: platformAnalyticsKeys.activeUsers(range),
@@ -262,6 +320,7 @@ function ActiveUsersPanel({ range }: { range: PlatformRange }) {
         className="mb-3"
         hidden={hidden}
         onToggle={toggle}
+        onFocusChange={setFocus}
         items={series.map((s) => ({
           key: s.key,
           label: s.label,
@@ -270,7 +329,14 @@ function ActiveUsersPanel({ range }: { range: PlatformRange }) {
           value: last(s.values),
         }))}
       />
-      <LineChart ariaLabel={t('activeTitle')} labels={labels} palette={palette} series={series} />
+      <LineChart
+        ariaLabel={t('activeTitle')}
+        labels={labels}
+        palette={palette}
+        series={series}
+        syncId={TIME_SYNC}
+        focus={focus}
+      />
     </ChartPanel>
   )
 }
@@ -312,7 +378,7 @@ function ComplaintsFlowPanel({ range }: { range: PlatformRange }) {
   const t = useTranslations('PlatformDashboard')
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
-  const { hidden, toggle } = useSeriesToggle()
+  const { hidden, toggle, focus, setFocus } = useSeriesToggle()
 
   const q = useQuery({
     queryKey: platformAnalyticsKeys.complaintsFlow(range),
@@ -336,6 +402,7 @@ function ComplaintsFlowPanel({ range }: { range: PlatformRange }) {
         className="mb-3"
         hidden={hidden}
         onToggle={toggle}
+        onFocusChange={setFocus}
         items={series.map((s) => ({
           key: s.key,
           label: s.label,
@@ -344,7 +411,14 @@ function ComplaintsFlowPanel({ range }: { range: PlatformRange }) {
           value: sum(s.values),
         }))}
       />
-      <LineChart ariaLabel={t('flowTitle')} labels={labels} palette={palette} series={series} />
+      <LineChart
+        ariaLabel={t('flowTitle')}
+        labels={labels}
+        palette={palette}
+        series={series}
+        syncId={TIME_SYNC}
+        focus={focus}
+      />
     </ChartPanel>
   )
 }
@@ -384,7 +458,7 @@ function InvitesPanel({ range }: { range: PlatformRange }) {
   const t = useTranslations('PlatformDashboard')
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
-  const { hidden, toggle } = useSeriesToggle()
+  const { hidden, toggle, focus, setFocus } = useSeriesToggle()
 
   const q = useQuery({
     queryKey: platformAnalyticsKeys.invitesFunnel(range),
@@ -420,6 +494,7 @@ function InvitesPanel({ range }: { range: PlatformRange }) {
         className="mt-4 mb-3"
         hidden={hidden}
         onToggle={toggle}
+        onFocusChange={setFocus}
         items={stacks.map((s) => ({
           key: s.key,
           label: s.label,
@@ -433,6 +508,8 @@ function InvitesPanel({ range }: { range: PlatformRange }) {
         palette={palette}
         height={200}
         series={stacks}
+        totalLabel={t('tooltipTotal')}
+        focus={focus}
       />
     </ChartPanel>
   )
@@ -548,16 +625,26 @@ function ChartPanel({
   )
 }
 
-/** Скрытые серии графика (переключаются кликом по легенде). */
-function useSeriesToggle(): { hidden: Set<string>; toggle: (key: string) => void } {
+/**
+ * Состояние легенды: скрытые серии (клик) и серия под курсором (наведение).
+ * Клик — насовсем убрать линию из картины, наведение — на секунду выделить её
+ * среди остальных. Две разные задачи, поэтому и два состояния.
+ */
+function useSeriesToggle(): {
+  hidden: Set<string>
+  toggle: (key: string) => void
+  focus: string | null
+  setFocus: (key: string | null) => void
+} {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set())
+  const [focus, setFocus] = useState<string | null>(null)
   const toggle = (key: string): void =>
     setHidden((prev) => {
       const next = new Set(prev)
       if (!next.delete(key)) next.add(key)
       return next
     })
-  return { hidden, toggle }
+  return { hidden, toggle, focus, setFocus }
 }
 
 /** Серии графика из ответа API: цвет по фиксированному слоту, подпись из i18n. */
