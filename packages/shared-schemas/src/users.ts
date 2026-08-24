@@ -1,16 +1,26 @@
 import { z } from 'zod'
 import { Role } from '@studenthub/shared-types'
 import { PasswordSchema, UsernameSchema } from './auth.js'
-import { OffsetPaginationSchema } from './pagination.js'
+import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 import { RoleSchema } from './invites.js'
 
+// Колонки таблицы пользователей, по которым разрешена сортировка (docs/PROJECT.md §12.2).
+export const USER_SORT_FIELDS = ['name', 'email', 'role', 'blocked', 'createdAt'] as const
+export const UserSortSchema = z.enum(USER_SORT_FIELDS)
+export type UserSortValue = z.infer<typeof UserSortSchema>
+
 // Список пользователей (docs/PROJECT.md §12.2, только Admin+). Scope по роли смотрящего.
+// sort/order — сортировка по всей выборке, а не по открытой странице.
 export const UserListQuerySchema = OffsetPaginationSchema.extend({
   role: RoleSchema.optional(),
   facultyId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
   search: z.string().min(1).max(100).optional(),
   blocked: z.coerce.boolean().optional(),
+  sort: UserSortSchema.optional(),
+  order: SortOrderSchema.optional(),
+  // Таблица даёт выбрать 20/100/150/200 строк на странице — предел здесь выше общего.
+  limit: AdminLimitSchema,
 })
 export type UserListQueryInput = z.infer<typeof UserListQuerySchema>
 

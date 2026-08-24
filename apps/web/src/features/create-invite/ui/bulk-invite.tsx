@@ -10,8 +10,39 @@ import type {
   BulkInvitePreviewRow,
   BulkInviteRowStatus,
 } from '@studenthub/shared-schemas'
-import { Badge, Button, EmptyState, Modal, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Modal,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableText,
+  useTableSort,
+} from '../../../shared/ui'
 import { bulkPreviewRequest, bulkCreateRequest, inviteKeys } from '../../../entities/invite'
+
+const PREVIEW_PAGE_SIZES = [20, 100, 150, 200] as const
+// Ширины колонок: строка · email · группа · роль · статус · ошибка.
+const COLS = ['8%', '26%', '16%', '14%', '14%', '22%'] as const
+
+// Значение колонки для сортировки — вне компонента (стабильная ссылка для useMemo).
+// Строки предпросмотра целиком на клиенте, поэтому сортировка здесь полная, не постраничная.
+function sortValue(r: BulkInvitePreviewRow, key: string): unknown {
+  if (key === 'line') return r.line
+  if (key === 'email') return r.email
+  if (key === 'groupName') return r.groupName
+  if (key === 'role') return r.role
+  if (key === 'status') return r.status
+  if (key === 'error') return r.error
+  return undefined
+}
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -145,37 +176,78 @@ function PreviewTable({
   rows: BulkInvitePreviewRow[]
   t: ReturnType<typeof useTranslations>
 }) {
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(PREVIEW_PAGE_SIZES[0])
+  const { rows: ordered, sort, toggle } = useTableSort(rows, sortValue)
+
   if (rows.length === 0) {
     return <EmptyState title={t('bulk.nothingReady')} />
   }
+  // Строки уже разобраны на клиенте — пагинация тоже клиентская: 500 строк импорта
+  // в один список превращают предпросмотр в бесконечную простыню.
+  const pages = Math.max(1, Math.ceil(rows.length / limit))
+  const current = Math.min(page, pages)
+  const visible = ordered.slice((current - 1) * limit, current * limit)
+
   return (
-    <div className="max-h-[45vh] overflow-auto rounded-xl border border-border">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-muted/60 text-left text-xs text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2 font-medium">{t('bulk.colLine')}</th>
-            <th className="px-3 py-2 font-medium">{t('bulk.colEmail')}</th>
-            <th className="px-3 py-2 font-medium">{t('bulk.colGroup')}</th>
-            <th className="px-3 py-2 font-medium">{t('bulk.colRole')}</th>
-            <th className="px-3 py-2 font-medium">{t('bulk.colStatus')}</th>
-            <th className="px-3 py-2 font-medium">{t('bulk.colError')}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map((r) => (
-            <tr key={`${r.line}-${r.email}`} className="align-top">
-              <td className="px-3 py-2 tabular-nums text-muted-foreground">{r.line}</td>
-              <td className="px-3 py-2">{r.email}</td>
-              <td className="px-3 py-2">{r.groupName}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.role}</td>
-              <td className="px-3 py-2">
+    <div className="overflow-hidden rounded-xl border border-border">
+      <Table fixed scrollBody cols={COLS}>
+        <TableHeader>
+          <TableRow>
+            <TableHead sortKey="line" sort={sort} onSort={toggle}>
+              {t('bulk.colLine')}
+            </TableHead>
+            <TableHead sortKey="email" sort={sort} onSort={toggle}>
+              {t('bulk.colEmail')}
+            </TableHead>
+            <TableHead sortKey="groupName" sort={sort} onSort={toggle}>
+              {t('bulk.colGroup')}
+            </TableHead>
+            <TableHead sortKey="role" sort={sort} onSort={toggle}>
+              {t('bulk.colRole')}
+            </TableHead>
+            <TableHead sortKey="status" sort={sort} onSort={toggle}>
+              {t('bulk.colStatus')}
+            </TableHead>
+            <TableHead sortKey="error" sort={sort} onSort={toggle}>
+              {t('bulk.colError')}
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody className="max-h-[45vh]">
+          {visible.map((r) => (
+            <TableRow key={`${r.line}-${r.email}`} className="align-top">
+              <TableCell className="tabular-nums text-muted-foreground">{r.line}</TableCell>
+              <TableCell>
+                <TableText value={r.email} />
+              </TableCell>
+              <TableCell>
+                <TableText value={r.groupName} />
+              </TableCell>
+              <TableCell className="text-muted-foreground">
+                <TableText value={r.role} />
+              </TableCell>
+              <TableCell>
                 <Badge variant={STATUS_VARIANT[r.status]}>{t(`bulk.status${r.status}`)}</Badge>
-              </td>
-              <td className="px-3 py-2 text-xs text-muted-foreground">{r.error ?? ''}</td>
-            </tr>
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                <TableText value={r.error ?? ''} />
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
+      <TablePagination
+        page={current}
+        total={rows.length}
+        limit={limit}
+        onPageChange={setPage}
+        limitOptions={PREVIEW_PAGE_SIZES}
+        onLimitChange={(n) => {
+          setLimit(n)
+          setPage(1)
+        }}
+      />
     </div>
   )
 }

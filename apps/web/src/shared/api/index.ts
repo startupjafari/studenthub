@@ -1,4 +1,5 @@
-export { api, refreshAccessToken } from './instance'
+export { api, refreshAccessToken, type ResponseWithMeta } from './instance'
+export { getPaged, type Paged } from './paged'
 export { makeQueryClient } from './query-client'
 export {
   loginRequest,

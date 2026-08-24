@@ -1269,7 +1269,9 @@
   },
   "Moderation": {
     "complaintsTitle": "Шағымдар",
+    "complaintsSubtitle": "Модерация кезегі: пайдаланушы шағымдары",
     "auditTitle": "Әрекеттер журналы",
+    "auditSubtitle": "Пайдаланушы мен жүйенің әрекеттері",
     "all": "Барлығы",
     "empty": "Шағым жоқ",
     "auditEmpty": "Жазба жоқ",
@@ -1296,10 +1298,26 @@
     "colTime": "Уақыт",
     "colAction": "Әрекет",
     "colEntity": "Нысан",
-    "colUser": "Пайдаланушы"
+    "colUser": "Пайдаланушы",
+    "colPriority": "Басымдық",
+    "colCategory": "Санат",
+    "colReason": "Себебі",
+    "colDate": "Күні",
+    "colStatus": "Күйі",
+    "priorityHIGH": "Жоғары",
+    "priorityMEDIUM": "Орташа",
+    "priorityLOW": "Төмен",
+    "allPriorities": "Кез келген басымдық",
+    "detailTitle": "Шағым",
+    "resolvedBy": "Қараған",
+    "chatTitle": "Хат алмасу",
+    "commentLabel": "Шешім бойынша түсініктеме",
+    "chatUnavailable": "Хат алмасу қолжетімсіз: хабарлама жойылған немесе табылмады",
+    "chatEmpty": "Хат алмасуда хабарлама жоқ"
   },
   "Users": {
     "title": "Пайдаланушылар",
+    "subtitle": "Платформаның барлық пайдаланушылары",
     "searchPlaceholder": "Аты немесе email бойынша іздеу",
     "allRoles": "Барлық рөлдер",
     "exportCsv": "CSV экспорт",
@@ -1323,7 +1341,9 @@
     "teachers": "Оқытушылар",
     "rooms": "Аудиториялар",
     "platformTitle": "Платформа статистикасы",
-    "noUniversities": "Университеттер жоқ"
+    "platformSubtitle": "Платформаның әрбір жоосы бойынша көрсеткіштер",
+    "noUniversities": "Университеттер жоқ",
+    "chartTitle": "Сан бойынша салыстыру"
   },
   "People": {
     "myGroup": "Менің тобым",
@@ -1342,7 +1362,9 @@
   },
   "Universities": {
     "title": "Университеттер",
+    "subtitle": "Платформаның жоолары және олардың күйі",
     "add": "Университет қосу",
+    "create": "Құру",
     "name": "Атауы",
     "shortName": "Аббревиатура",
     "city": "Қала",
@@ -2473,6 +2495,7 @@
   },
   "PlatformDashboard": {
     "hours": "{h} сағ",
+    "subtitle": "Таңдалған кезеңдегі платформа көрсеткіштері",
     "kpiUniversities": "Белсенді жоо",
     "kpiUniversitiesHint": "белсендіруді күтуде: {pending}",
     "kpiUsers": "Пайдаланушылар",
@@ -2526,6 +2549,20 @@
     "weekday_3": "Бс",
     "weekday_4": "Жм",
     "weekday_5": "Сн",
-    "weekday_6": "Жс"
+    "weekday_6": "Жс",
+    "rangeLabel": "Кезең",
+    "rangeDays": "{days} күн",
+    "tooltipTotal": "барлығы"
+  },
+  "Table": {
+    "rows": "{count} жол",
+    "page": "{pages} беттің {page}-беті",
+    "prev": "Алдыңғы бет",
+    "next": "Келесі бет",
+    "goToPage": "{page}-бет",
+    "copy": "Көшіру",
+    "copied": "Көшірілді",
+    "copyFailed": "Көшіру мүмкін болмады",
+    "perPage": "Бетте"
   }
 }

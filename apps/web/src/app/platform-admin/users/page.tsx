@@ -3,5 +3,5 @@ import { UsersTable } from '../../../widgets/users-table'
 
 export default async function Page() {
   const t = await getTranslations('Users')
-  return <UsersTable title={t('title')} showRoleFilter />
+  return <UsersTable title={t('title')} subtitle={t('subtitle')} showRoleFilter />
 }

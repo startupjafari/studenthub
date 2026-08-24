@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ActivityGrid, ChartLegend, Meter, StatTile } from './primitives'
-import { chartPalette } from '../model/palette'
+import { chartPalette } from '../../../shared/ui/chart'
 
 const palette = chartPalette(false)
 

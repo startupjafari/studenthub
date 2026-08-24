@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, FileSearch, FileText } from 'lucide-react'
+import { AlertTriangle, FileSearch, FileText, FolderLock } from 'lucide-react'
 import {
   fetchDocumentPlatform,
   platformDocumentFileUrl,
@@ -54,7 +54,7 @@ export function PlatformDocumentsView() {
 
   return (
     <div className="flex w-full flex-col gap-4">
-      <PageHeader title={t('pa_title')} subtitle={t('pa_subtitle')} />
+      <PageHeader icon={FolderLock} title={t('pa_title')} subtitle={t('pa_subtitle')} />
 
       <Alert variant="warning">
         <AlertTriangle aria-hidden />
