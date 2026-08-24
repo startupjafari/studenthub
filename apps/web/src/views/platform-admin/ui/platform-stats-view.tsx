@@ -26,14 +26,7 @@ export function PlatformStatsView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <BarChart3 className="size-5 text-primary" aria-hidden />
-            {t('platformTitle')}
-          </span>
-        }
-      />
+      <PageHeader icon={BarChart3} title={t('platformTitle')} subtitle={t('platformSubtitle')} />
       {unis.isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : unis.isError ? (

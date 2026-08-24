@@ -11,6 +11,10 @@ model Complaint {
   targetId   String              @map("target_id")
   reason     String
   status     ComplaintStatus     @default(PENDING)
+  // Приоритет очереди: вычисляется из targetType при создании (одна функция на фронт и бэк).
+  // Хранится, а не считается на чтении: только так очередь сортируется и фильтруется по нему
+  // на сервере — на всей выборке, а не в пределах страницы.
+  priority   ComplaintPriority   @default(MEDIUM)
 
   // Scope цели для очереди модератора (вычисляется при создании из сущности-цели).
   universityId String? @map("university_id")
@@ -28,6 +32,7 @@ model Complaint {
   university University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([status])
+  @@index([status, priority])
   @@index([universityId, status])
   @@index([targetType, targetId])
   @@index([reporterId])

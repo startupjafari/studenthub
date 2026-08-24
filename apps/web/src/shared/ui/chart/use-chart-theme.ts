@@ -1,7 +1,7 @@
 'use client'
 
 import { useTheme } from 'next-themes'
-import { chartPalette, type ChartPalette } from '../model/palette'
+import { chartPalette, type ChartPalette } from './palette'
 
 // Цвета графиков зависят от активной темы: тёмные шаги палитры выбраны под тёмную
 // поверхность, автоматическая «инверсия» светлых здесь не годится.

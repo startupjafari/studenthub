@@ -1269,7 +1269,9 @@
   },
   "Moderation": {
     "complaintsTitle": "Complaints",
+    "complaintsSubtitle": "Moderation queue: user complaints",
     "auditTitle": "Audit log",
+    "auditSubtitle": "User and system actions",
     "all": "All",
     "empty": "No complaints",
     "auditEmpty": "No records",
@@ -1296,10 +1298,26 @@
     "colTime": "Time",
     "colAction": "Action",
     "colEntity": "Entity",
-    "colUser": "User"
+    "colUser": "User",
+    "colPriority": "Priority",
+    "colCategory": "Category",
+    "colReason": "Reason",
+    "colDate": "Date",
+    "colStatus": "Status",
+    "priorityHIGH": "High",
+    "priorityMEDIUM": "Medium",
+    "priorityLOW": "Low",
+    "allPriorities": "Any priority",
+    "detailTitle": "Complaint",
+    "resolvedBy": "Handled by",
+    "chatTitle": "Conversation",
+    "commentLabel": "Resolution comment",
+    "chatUnavailable": "Conversation unavailable: the message was deleted or not found",
+    "chatEmpty": "No messages in the conversation"
   },
   "Users": {
     "title": "Users",
+    "subtitle": "All users on the platform",
     "searchPlaceholder": "Search by name or email",
     "allRoles": "All roles",
     "exportCsv": "Export CSV",
@@ -1323,7 +1341,9 @@
     "teachers": "Teachers",
     "rooms": "Rooms",
     "platformTitle": "Platform statistics",
-    "noUniversities": "No universities"
+    "platformSubtitle": "Metrics for every university on the platform",
+    "noUniversities": "No universities",
+    "chartTitle": "Comparison by count"
   },
   "People": {
     "myGroup": "My group",
@@ -1342,7 +1362,9 @@
   },
   "Universities": {
     "title": "Universities",
+    "subtitle": "Platform universities and their status",
     "add": "Add university",
+    "create": "Create",
     "name": "Name",
     "shortName": "Short name",
     "city": "City",
@@ -2473,6 +2495,7 @@
   },
   "PlatformDashboard": {
     "hours": "{h} h",
+    "subtitle": "Platform metrics for the selected period",
     "kpiUniversities": "Active universities",
     "kpiUniversitiesHint": "awaiting activation: {pending}",
     "kpiUsers": "Users",
@@ -2526,6 +2549,20 @@
     "weekday_3": "Thu",
     "weekday_4": "Fri",
     "weekday_5": "Sat",
-    "weekday_6": "Sun"
+    "weekday_6": "Sun",
+    "rangeLabel": "Period",
+    "rangeDays": "{days} days",
+    "tooltipTotal": "total"
+  },
+  "Table": {
+    "rows": "{count, plural, one {# row} other {# rows}}",
+    "page": "Page {page} of {pages}",
+    "prev": "Previous page",
+    "next": "Next page",
+    "goToPage": "Page {page}",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Could not copy",
+    "perPage": "Per page"
   }
 }

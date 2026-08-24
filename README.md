@@ -16,7 +16,7 @@
 - **Backend**: `@nestjs/platform-fastify`, `@prisma/client`, `zod` + `nestjs-zod`, `passport-jwt`
   - `bcrypt`, `@nestjs/bullmq` (Redis), `@nestjs/schedule`, `socket.io`, `minio`, `pino`, `nodemailer`.
 - **Frontend**: Next.js (App Router), Tailwind + shadcn/ui, Redux Toolkit (auth/UI),
-  TanStack Query, React Hook Form + Zod, axios, socket.io-client, chart.js, next-intl (ru/kk/en).
+  TanStack Query, React Hook Form + Zod, axios, socket.io-client, recharts, next-intl (ru/kk/en).
 - **Shared**: `packages/shared-types`, `shared-schemas` (единый Zod-контракт API↔формы),
   `shared-utils`, `shared-config`.
 

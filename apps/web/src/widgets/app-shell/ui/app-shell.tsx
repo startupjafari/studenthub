@@ -241,8 +241,11 @@ export function AppShell({
           onToggleNotif={() => setNotifOpen((o) => !o)}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Мобильный header убран целиком (поиск по платформе удалён). Контент — сразу под ним. */}
-          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-24 md:p-6 md:pt-6 lg:pb-6">
+          {/* Мобильный header убран целиком (поиск по платформе удалён). Контент — сразу под ним.
+              `flex flex-col` — чтобы страница могла занять всю свободную высоту (`flex-1` у
+              обёртки): так работают экраны с таблицей во всю высоту. Обычные страницы от этого
+              не меняются — блок с авто-высотой в колонке ведёт себя как раньше. */}
+          <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-24 md:p-6 md:pt-6 lg:pb-6">
             {children}
           </main>
         </div>
