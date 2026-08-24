@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Ellipsis, Inbox, Plus, Search, Trash2 } from 'lucide-react'
+import { Check, Ellipsis, FileText, Inbox, Plus, Search, Trash2 } from 'lucide-react'
 
 import {
   Alert,
@@ -53,6 +53,14 @@ import {
   SheetHeader,
   SheetTitle,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableText,
   Stepper,
   Tabs,
   TabsContent,
@@ -63,6 +71,7 @@ import {
   TooltipContent,
   TooltipTrigger,
   useConfirm,
+  useTableSort,
 } from '../../../shared/ui'
 import { Caption, Code, Demo, Pitfall, Section } from './kit'
 
@@ -85,6 +94,22 @@ const DEMO_TABS = [
   { value: 'done', label: 'Готовые' },
 ] as const
 
+const DEMO_ROWS = [
+  { id: '1', name: 'Абишев Абылай', email: 'st.it.1.7@alatau.edu.kz', role: 'Студент' },
+  { id: '2', name: 'Байжанова Инжу', email: 'st.eco.0.4@alatau.edu.kz', role: 'Студент' },
+  {
+    id: '3',
+    name: 'Сулейменова Камила',
+    email: 'teacher.law.2@alatau.edu.kz',
+    role: 'Преподаватель',
+  },
+]
+
+// Аксессор сортировки — на уровне модуля: useTableSort держит его в зависимостях useMemo.
+function demoSortValue(r: (typeof DEMO_ROWS)[number], key: string): unknown {
+  return key === 'name' ? r.name : key === 'email' ? r.email : r.role
+}
+
 const STEPS = [
   { id: 'service', label: 'Услуга' },
   { id: 'form', label: 'Данные' },
@@ -95,6 +120,9 @@ const STEPS = [
 export function ComponentsSection() {
   const confirm = useConfirm()
   const [tab, setTab] = useState<(typeof DEMO_TABS)[number]['value']>('all')
+  const [tablePage, setTablePage] = useState(1)
+  const [tableLimit, setTableLimit] = useState(3)
+  const { rows: demoRows, sort, toggle } = useTableSort(DEMO_ROWS, demoSortValue)
   const [checked, setChecked] = useState(true)
   const [select, setSelect] = useState('')
   const [date, setDate] = useState('')
@@ -118,10 +146,14 @@ export function ComponentsSection() {
           ))}
         </Demo>
 
-        <Demo label="Размеры" rule="sm — в шапках и строках, default — в формах">
+        <Demo
+          label="Размеры"
+          rule="sm — в шапках и строках, default — в формах, field — в линию с полем (h-11)"
+        >
           <Button size="xs">xs</Button>
           <Button size="sm">sm</Button>
           <Button>default</Button>
+          <Button size="field">field</Button>
           <Button size="lg">lg</Button>
         </Demo>
 
@@ -315,6 +347,64 @@ export function ComponentsSection() {
       </Section>
 
       <Section
+        id="table"
+        title="Таблица"
+        note="Скролл живёт внутри таблицы: шапка липнет к её верхнему краю и отличается поверхностью, у колонок свои ширины и сортировка, не влезшее значение показывает подсказку с копированием, снизу — номера страниц и число строк. Ручной <table> — отклонение (§10.7)."
+      >
+        <Demo label="Table + TablePagination" className="block p-0">
+          <Card className="gap-0 py-0">
+            <Table fixed scrollBody cols={['30%', '40%', '30%']}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead sortKey="name" sort={sort} onSort={toggle}>
+                    Имя
+                  </TableHead>
+                  <TableHead sortKey="email" sort={sort} onSort={toggle}>
+                    Email
+                  </TableHead>
+                  <TableHead sortKey="role" sort={sort} onSort={toggle}>
+                    Роль
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="max-h-40">
+                {demoRows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">
+                      <TableText value={r.name} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <TableText value={r.email} />
+                    </TableCell>
+                    <TableCell>
+                      <TableText value={r.role} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination
+              page={tablePage}
+              total={57}
+              limit={tableLimit}
+              onPageChange={setTablePage}
+              limitOptions={[3, 20, 100]}
+              onLimitChange={(n) => {
+                setTableLimit(n)
+                setTablePage(1)
+              }}
+            />
+          </Card>
+        </Demo>
+        <Caption>
+          Высота <Code>max-h-40</Code> задана для витрины — прокрути список, шапка останется на
+          месте (по умолчанию <Code>max-h-[60vh]</Code>). Клик по заголовку: возрастание → убывание
+          → без сортировки. Наведи курсор на длинный email — подсказку можно выделить и скопировать
+          кнопкой.
+        </Caption>
+      </Section>
+
+      <Section
         id="nav"
         title="Шапка и переключатели"
         note="Заголовок страницы существует только как проп title у PageHeader. SegmentedTabs — фильтр разделов в шапке, Tabs — вкладки со связанными панелями внутри контента."
@@ -322,6 +412,7 @@ export function ComponentsSection() {
         <Demo label="PageHeader" className="block p-0">
           <PageHeader
             bleed={false}
+            icon={FileText}
             title="Заявки"
             subtitle="Каталог услуг деканата"
             tabs={

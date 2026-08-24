@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useChartTheme } from './use-chart-theme'
+import { useChartTheme } from '../../../shared/ui/chart'
 
-// Спарклайн плитки: инлайновый SVG, а не chart.js — для 14 точек без осей
+// Спарклайн плитки: инлайновый SVG, а не полотно графика — для 14 точек без осей
 // и подписей полотно и регистрация контроллеров не нужны.
 // Линия в приглушённом тоне, последняя точка — акцентом (контракт stat tile).
 //

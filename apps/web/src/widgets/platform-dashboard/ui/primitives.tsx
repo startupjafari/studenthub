@@ -2,9 +2,9 @@
 
 import { useState, type ReactNode } from 'react'
 import { cn } from '../../../shared/lib/utils'
-import { sequentialStep, type ChartPalette } from '../model/palette'
+import { sequentialStep, type ChartPalette } from '../../../shared/ui/chart'
 
-// Части дашборда, которым chart.js не нужен: сетка теплокарты, метр, легенда,
+// Части дашборда, которым полотно графика не нужно: сетка теплокарты, метр, легенда,
 // плитка-показатель. Всё это обычная разметка — полотно тут только мешало бы
 // (нет ни осей, ни интерполяции, зато нужен доступ с клавиатуры).
 
@@ -12,16 +12,22 @@ import { sequentialStep, type ChartPalette } from '../model/palette'
  * Легенда: цветной ключ + подпись + значение. Если передан onToggle — элементы
  * становятся кнопками и скрывают/показывают серию на графике (обычный способ
  * разглядеть одну линию, когда остальные её перекрывают).
+ *
+ * `onFocusChange` — наведение (и фокус с клавиатуры) на элемент легенды: график
+ * гасит остальные серии, пока курсор здесь. Это разглядывание без выключения, то
+ * есть без потери контекста: линия остаётся на своём месте среди остальных.
  */
 export function ChartLegend({
   items,
   hidden,
   onToggle,
+  onFocusChange,
   className,
 }: {
   items: { key: string; label: string; color: string; value?: string; line?: boolean }[]
   hidden?: ReadonlySet<string>
   onToggle?: (key: string) => void
+  onFocusChange?: (key: string | null) => void
   className?: string
 }) {
   return (
@@ -49,6 +55,10 @@ export function ChartLegend({
               <button
                 type="button"
                 onClick={() => onToggle(item.key)}
+                onPointerEnter={() => onFocusChange?.(item.key)}
+                onPointerLeave={() => onFocusChange?.(null)}
+                onFocus={() => onFocusChange?.(item.key)}
+                onBlur={() => onFocusChange?.(null)}
                 aria-pressed={!off}
                 className={cn(
                   'flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-0.5 text-xs outline-none transition-opacity hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40',

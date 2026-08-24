@@ -8,18 +8,22 @@ import type { LucideIcon } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { fetchUniversityStats, universityKeys } from '../../../entities/university'
 import { Card, CardContent, EmptyState, Skeleton } from '../../../shared/ui'
+import { useChartTheme } from '../../../shared/ui/chart'
 
-// Тяжёлый chart.js — только на клиенте, с скелетоном (docs/FRONTEND_RULES.md §4, §11).
-const StatsBarChart = dynamic(() => import('./stats-bar-chart'), {
+// Тяжёлый recharts — только на клиенте, со скелетоном (docs/FRONTEND_RULES.md §4, §11).
+// Полотно — общее из shared/ui/chart: то же «сравнить величину», что на дашборде
+// платформы, поэтому второй реализации бара здесь не нужно.
+const BarChart = dynamic(() => import('../../../shared/ui/chart/bar-chart'), {
   ssr: false,
-  loading: () => <Skeleton className="h-64 w-full" />,
+  loading: () => <Skeleton className="h-56 w-full" />,
 })
 
-// Дашборд статистики вуза (docs/PROJECT.md §12.1). Пока плитки-показатели;
-// графики (chart.js через next/dynamic, задача 12.7) отложены до добавления зависимости.
+// Дашборд статистики вуза (docs/PROJECT.md §12.1): плитки-показатели и график
+// сравнения величин.
 export function StatsDashboard() {
   const t = useTranslations('Stats')
   const tErr = useTranslations('Errors')
+  const { palette } = useChartTheme()
   const universityId = useAppSelector((s) => s.auth.universityId)
 
   const stats = useQuery({
@@ -72,7 +76,10 @@ export function StatsDashboard() {
       </div>
       <Card>
         <CardContent className="pt-6">
-          <StatsBarChart
+          <BarChart
+            ariaLabel={t('chartTitle')}
+            palette={palette}
+            height={tiles.length * 34 + 40}
             labels={tiles.map((tile) => t(tile.key))}
             values={tiles.map((tile) => tile.value)}
           />

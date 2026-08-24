@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import {
   adminUserKeys,
@@ -19,7 +21,6 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
   EmptyState,
   Input,
   PageHeader,
@@ -28,11 +29,23 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  useSortState,
 } from '../../../shared/ui'
 
 interface UsersTableProps {
   title: string
+  subtitle?: string
+  /** Иконка раздела в шапке; по умолчанию — «люди», список людей на всех экранах. */
+  icon?: LucideIcon
   // Фиксированная роль (экраны студентов/преподавателей/деканов) — тогда фильтр роли скрыт.
   role?: Role
   showRoleFilter?: boolean
@@ -46,6 +59,11 @@ const FILTER_ROLES: Role[] = [
   Role.STAROSTA,
   Role.STUDENT,
 ]
+// Варианты размера страницы — те же, что разрешает серверная схема (предел 200).
+const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Ширины колонок: имя · email · роль · статус · действие (последняя — только тем,
+// кто может блокировать; без неё берём первые четыре).
+const COLS = ['26%', '30%', '18%', '14%', '12%'] as const
 const CAN_BLOCK: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
@@ -63,7 +81,13 @@ function toCsv(users: AdminUser[]): string {
   return [head.join(','), ...rows].join('\n')
 }
 
-export function UsersTable({ title, role, showRoleFilter = false }: UsersTableProps) {
+export function UsersTable({
+  title,
+  subtitle,
+  icon = UsersIcon,
+  role,
+  showRoleFilter = false,
+}: UsersTableProps) {
   const t = useTranslations('Users')
   const tRoles = useTranslations('Roles')
   const tErr = useTranslations('Errors')
@@ -73,17 +97,37 @@ export function UsersTable({ title, role, showRoleFilter = false }: UsersTablePr
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // Сортировка серверная (sort/order в запросе) — упорядочены все записи выборки,
+  // а не только открытая страница.
+  const { sort, toggle } = useSortState()
 
   const effectiveRole = role ?? (roleFilter === 'all' ? undefined : roleFilter)
   const filters = {
     ...(effectiveRole ? { role: effectiveRole } : {}),
     ...(search ? { search } : {}),
+    ...(sort ? { sort: sort.key as UserSortValue, order: sort.dir } : {}),
   }
+  const query = { ...filters, page, limit }
 
   const users = useQuery({
-    queryKey: adminUserKeys.list(filters),
-    queryFn: () => fetchUsers(filters),
+    queryKey: adminUserKeys.list(query),
+    queryFn: () => fetchUsers(query),
+    // Прошлая страница остаётся на экране, пока грузится новая: иначе таблица
+    // мигает скелетоном на каждый клик по стрелке.
+    placeholderData: keepPreviousData,
   })
+  const total = users.data?.total ?? 0
+  const rows = users.data?.items ?? []
+
+  // Новый фильтр или порядок — снова с первой страницы: на «странице 5» отфильтрованной
+  // выборки может не быть строк вовсе, а после смены сортировки там уже другие строки.
+  function refilter(apply: () => void): void {
+    apply()
+    setPage(1)
+  }
+  const sortBy = (key: string): void => refilter(() => toggle(key))
 
   const blockMut = useMutation({
     mutationFn: ({ id, blocked }: { id: string; blocked: boolean }) =>
@@ -95,9 +139,10 @@ export function UsersTable({ title, role, showRoleFilter = false }: UsersTablePr
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
-  function exportCsv(): void {
-    const data = users.data ?? []
-    const blob = new Blob(['﻿' + toCsv(data)], { type: 'text/csv;charset=utf-8;' })
+  // Экспорт — по всей выборке фильтров, а не по видимой странице (лимит сервера — 200).
+  async function exportCsv(): Promise<void> {
+    const all = await fetchUsers({ ...filters, page: 1, limit: 200 })
+    const blob = new Blob(['﻿' + toCsv(all.items)], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -107,116 +152,144 @@ export function UsersTable({ title, role, showRoleFilter = false }: UsersTablePr
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      {/* Поиск, фильтр роли и экспорт — в шапке (DESIGN_SYSTEM §10.1): это управление
+          списком, отдельной строки над таблицей оно не заслуживает. На узком экране
+          шапка переносит их на вторую строку сама (flex-wrap). */}
       <PageHeader
+        icon={icon}
         title={title}
+        subtitle={subtitle}
         actions={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={exportCsv}
-            disabled={(users.data?.length ?? 0) === 0}
-          >
-            <Download className="size-4" aria-hidden />
-            {t('exportCsv')}
-          </Button>
+          <>
+            <Input
+              value={search}
+              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              placeholder={t('searchPlaceholder')}
+              className="h-9 w-40 text-sm sm:w-56"
+            />
+            {showRoleFilter && (
+              <Select
+                value={roleFilter}
+                onValueChange={(v) => refilter(() => setRoleFilter(v as Role | 'all'))}
+              >
+                <SelectTrigger className="h-9 w-36 text-sm sm:w-44">
+                  <SelectValue placeholder={t('allRoles')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('allRoles')}</SelectItem>
+                  {FILTER_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {tRoles(r)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              type="button"
+              size="field"
+              onClick={() => void exportCsv()}
+              disabled={total === 0}
+            >
+              <Download className="size-4" aria-hidden />
+              {t('exportCsv')}
+            </Button>
+          </>
         }
       />
 
-      <div className="flex flex-wrap gap-3">
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value.trim())}
-          placeholder={t('searchPlaceholder')}
-          className="max-w-xs"
-        />
-        {showRoleFilter && (
-          <div className="w-52">
-            <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as Role | 'all')}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('allRoles')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('allRoles')}</SelectItem>
-                {FILTER_ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {tRoles(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
-
-      {users.isLoading ? (
-        <Skeleton className="h-64 w-full" />
-      ) : users.isError ? (
+      {users.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : (users.data?.length ?? 0) === 0 ? (
+      ) : !users.isLoading && rows.length === 0 ? (
         <EmptyState icon={<UsersIcon className="size-6" aria-hidden />} title={t('empty')} />
       ) : (
-        <Card>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2 font-medium">{t('colName')}</th>
-                  <th className="px-4 py-2 font-medium">{t('colEmail')}</th>
-                  <th className="px-4 py-2 font-medium">{t('colRole')}</th>
-                  <th className="px-4 py-2 font-medium">{t('colStatus')}</th>
-                  {canBlock && <th className="px-4 py-2" />}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {users.data!.map((u) => (
-                  <tr key={u.id}>
-                    <td className="px-4 py-2 font-medium">
-                      <ProfileLink userId={u.id} className="hover:text-primary hover:underline">
-                        {u.lastName} {u.firstName}
-                      </ProfileLink>
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">{u.email}</td>
-                    <td className="px-4 py-2">{tRoles(u.role)}</td>
-                    <td className="px-4 py-2">
-                      {u.isBlocked ? (
-                        <Badge variant="secondary" className="text-destructive">
-                          {t('blocked')}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">{t('active')}</span>
-                      )}
-                    </td>
-                    {canBlock && (
-                      <td className="px-4 py-2 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          loading={blockMut.isPending && blockMut.variables?.id === u.id}
-                          onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
-                          className={u.isBlocked ? 'text-success' : 'text-destructive'}
-                        >
-                          {u.isBlocked ? (
-                            <>
-                              <ShieldCheck className="size-4" aria-hidden />
-                              {t('unblock')}
-                            </>
-                          ) : (
-                            <>
-                              <Ban className="size-4" aria-hidden />
-                              {t('block')}
-                            </>
-                          )}
-                        </Button>
-                      </td>
+        // Загрузка идёт скелетоном в строках: шапка, ширины колонок и подвал остаются
+        // на месте, экран не «прыгает», когда данные приходят.
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={canBlock ? COLS : COLS.slice(0, 4)}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="name" sort={sort} onSort={sortBy}>
+                  {t('colName')}
+                </TableHead>
+                <TableHead sortKey="email" sort={sort} onSort={sortBy}>
+                  {t('colEmail')}
+                </TableHead>
+                <TableHead sortKey="role" sort={sort} onSort={sortBy}>
+                  {t('colRole')}
+                </TableHead>
+                <TableHead sortKey="blocked" sort={sort} onSort={sortBy}>
+                  {t('colStatus')}
+                </TableHead>
+                {canBlock && <TableHead />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.isLoading && <TableSkeletonRows columns={canBlock ? 5 : 4} />}
+              {rows.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell className="font-medium">
+                    <ProfileLink
+                      userId={u.id}
+                      className="block truncate hover:text-primary hover:underline"
+                    >
+                      {u.lastName} {u.firstName}
+                    </ProfileLink>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <TableText value={u.email} />
+                  </TableCell>
+                  <TableCell>
+                    <TableText value={tRoles(u.role)} />
+                  </TableCell>
+                  <TableCell>
+                    {u.isBlocked ? (
+                      <Badge variant="secondary" className="text-destructive">
+                        {t('blocked')}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{t('active')}</span>
                     )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
+                  </TableCell>
+                  {canBlock && (
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        loading={blockMut.isPending && blockMut.variables?.id === u.id}
+                        onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
+                        className={u.isBlocked ? 'text-success' : 'text-destructive'}
+                      >
+                        {u.isBlocked ? (
+                          <>
+                            <ShieldCheck className="size-4" aria-hidden />
+                            {t('unblock')}
+                          </>
+                        ) : (
+                          <>
+                            <Ban className="size-4" aria-hidden />
+                            {t('block')}
+                          </>
+                        )}
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            page={page}
+            total={total}
+            limit={limit}
+            onPageChange={setPage}
+            limitOptions={PAGE_SIZES}
+            // Новый размер страницы — снова с первой: «страницы 34» при 200 строках
+            // на странице может уже не быть.
+            onLimitChange={(n) => refilter(() => setLimit(n))}
+          />
         </Card>
       )}
     </div>

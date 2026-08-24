@@ -7,8 +7,8 @@ import type {
   ProfileVisibilityValue,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
-import { api } from '../../../shared/api'
-import type { MeResponse } from '../../../shared/api'
+import { api, getPaged } from '../../../shared/api'
+import type { MeResponse, Paged } from '../../../shared/api'
 
 export const userKeys = {
   me: () => ['user', 'me'] as const,
@@ -175,11 +175,10 @@ export const adminUserKeys = {
   list: (filters: Partial<UserListQueryInput>) => ['admin-users', 'list', filters] as const,
 }
 
-export async function fetchUsers(query: Partial<UserListQueryInput> = {}): Promise<AdminUser[]> {
-  const { data } = await api.get<AdminUser[]>('/users', {
-    params: { page: 1, limit: 100, ...query },
-  })
-  return data
+export async function fetchUsers(
+  query: Partial<UserListQueryInput> = {},
+): Promise<Paged<AdminUser>> {
+  return getPaged<AdminUser>('/users', { page: 1, limit: 20, ...query })
 }
 
 export async function blockUserRequest(id: string): Promise<void> {
