@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { Role } from '@studenthub/shared-types'
 import {
   Badge,
   Button,
@@ -23,8 +24,15 @@ import {
   EmptyState,
   PageHeader,
   Progress,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Skeleton,
 } from '../../../shared/ui'
+import { useAppSelector } from '../../../shared/store'
+import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   analyticsKeys,
   fetchFacultyOverview,
@@ -37,12 +45,38 @@ function rateTone(rate: number): string {
   return rate >= 75 ? 'bg-success' : rate >= 60 ? 'bg-warning' : 'bg-destructive'
 }
 
-// Аналитика декана (задача 14): показатели факультета, «требует внимания», drill-down по группам.
+// Аналитика факультета (задача 14): показатели, «требует внимания», drill-down по группам.
+// У декана факультет один — берётся из токена. Админу и модератору вуза сервер факультет
+// не выводит (analytics.service: resolveFaculty), поэтому им нужен выбор в шапке.
 export function DeanAnalyticsView() {
   const t = useTranslations('Analytics')
-  const q = useQuery({ queryKey: analyticsKeys.faculty(), queryFn: () => fetchFacultyOverview() })
+  const role = useAppSelector((s) => s.auth.role)
+  const picksFaculty = role !== null && role !== Role.DEAN
+  const faculties = useQuery({
+    queryKey: facultyKeys.list(),
+    queryFn: () => fetchFaculties(),
+    enabled: picksFaculty,
+  })
+  const [facultyId, setFacultyId] = useState('')
+  // Первый факультет выбираем сами: пустой экран с одним селектом ничего не сообщает.
+  useEffect(() => {
+    const first = faculties.data?.[0]
+    if (picksFaculty && !facultyId && first) setFacultyId(first.id)
+  }, [picksFaculty, facultyId, faculties.data])
+
+  const ready = !picksFaculty || !!facultyId
+  const scope = picksFaculty ? facultyId : undefined
+  const q = useQuery({
+    queryKey: analyticsKeys.faculty(scope),
+    queryFn: () => fetchFacultyOverview(scope),
+    enabled: ready,
+  })
   // Early Warning (PR-7): студенты «требует внимания» с явными причинами.
-  const risk = useQuery({ queryKey: analyticsKeys.atRisk(), queryFn: () => fetchAtRiskStudents() })
+  const risk = useQuery({
+    queryKey: analyticsKeys.atRisk(scope),
+    queryFn: () => fetchAtRiskStudents(scope),
+    enabled: ready,
+  })
   const [drillGroup, setDrillGroup] = useState<{ id: string; name: string } | null>(null)
 
   if (drillGroup) {
@@ -57,7 +91,25 @@ export function DeanAnalyticsView() {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader title={t('title')} />
+      <PageHeader
+        title={t('title')}
+        actions={
+          picksFaculty ? (
+            <Select value={facultyId} onValueChange={setFacultyId}>
+              <SelectTrigger className="h-9 w-56 text-sm" aria-label={t('faculty')}>
+                <SelectValue placeholder={t('faculty')} />
+              </SelectTrigger>
+              <SelectContent>
+                {faculties.data?.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null
+        }
+      />
 
       {q.isLoading ? (
         <div className="flex flex-col gap-3">

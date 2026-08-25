@@ -71,6 +71,9 @@
     "emailLabel": "Email",
     "emailOptional": "optional",
     "faculty": "Faculty",
+    "university": "University",
+    "selectUniversity": "Select a university",
+    "universityRequired": "Select a university",
     "selectFaculty": "Select a faculty",
     "group": "Group",
     "selectGroup": "Select a group",
@@ -210,7 +213,13 @@
     "rotate": "Rotate",
     "cancel": "Cancel",
     "confirmTitle": "Confirm action",
-    "confirmOk": "Confirm"
+    "confirmOk": "Confirm",
+    "fieldRequired": "Fill in this field",
+    "dateRequired": "Pick a date",
+    "endAfterStart": "End must be later than start",
+    "numberRange": "Enter a number between {min} and {max}",
+    "urlInvalid": "The link must start with http:// or https://",
+    "endNotBeforeStart": "The end date cannot be earlier than the start date"
   },
   "Auth": {
     "loginTitle": "Sign in",
@@ -1227,7 +1236,8 @@
     "foldersNamePlaceholder": "For example, “Studies”",
     "foldersPickChats": "Chats in folder: {count}",
     "foldersChatCount": "{count, plural, one {# chat} other {# chats}}",
-    "foldersLimit": "More than {max} folders is not supported"
+    "foldersLimit": "More than {max} folders is not supported",
+    "pollNeedTwoOptions": "At least two options are required"
   },
   "Events": {
     "title": "Events",
@@ -1343,7 +1353,15 @@
     "platformTitle": "Platform statistics",
     "platformSubtitle": "Metrics for every university on the platform",
     "noUniversities": "No universities",
-    "chartTitle": "Comparison by count"
+    "chartTitle": "Comparison by count",
+    "universities": "Universities",
+    "activeUniversities": "Active universities",
+    "status": "Status",
+    "people": "People total",
+    "searchUniversity": "Search university",
+    "nothingFound": "Nothing found",
+    "universitiesCount": "Universities: {n}",
+    "totalPeople": "People total: {n}"
   },
   "People": {
     "myGroup": "My group",
@@ -1503,19 +1521,26 @@
     "statInReview": "In review",
     "statExpiring": "Expiring soon",
     "statNeedsReplacement": "Needs replacement",
+    "ovAttention": "Needs attention",
+    "ovAttentionEmpty": "All good: no expired or rejected documents",
+    "ovRecent": "Recent documents",
+    "ovShowAll": "All ({n})",
+    "ovExpiresOn": "Expires {date}",
+    "ovExpiredOn": "Expired {date}",
     "search": "Search",
     "category": "Category",
     "status": "Status",
-    "sort": "Sort",
     "allCategories": "All categories",
     "allStatuses": "All statuses",
-    "sortNew": "Newest first",
-    "sortOld": "Oldest first",
-    "sortExpiring": "By expiry",
-    "sortTitle": "By title",
+    "filtersReset": "Reset filters",
+    "found": "Found: {n}",
     "upload": "Upload document",
     "emptyActive": "No documents yet",
     "emptyArchive": "Archive is empty",
+    "emptyActiveDesc": "Upload a document — it is stored securely and opens only to those you grant access to.",
+    "emptyArchiveDesc": "Documents you send to the archive appear here.",
+    "nothingFound": "Nothing found",
+    "nothingFoundDesc": "Change the query or reset the filters — the document may be in another section.",
     "actions": "Actions",
     "actionOpen": "Open",
     "actionDownload": "Download",
@@ -1529,9 +1554,9 @@
     "deleted": "Document deleted",
     "fieldTitle": "Title",
     "fieldNumber": "Number",
-    "fieldFiles": "Files",
     "fieldIssuedAt": "Issued",
     "fieldExpiresAt": "Expires",
+    "colAccess": "Access",
     "fieldIssuedBy": "Issued by",
     "fieldComment": "Comment",
     "sharedWith": "{count, plural, one {shared with # recipient} other {shared with # recipients}}",
@@ -1632,6 +1657,8 @@
     "grantRevoked": "Revoked",
     "emptyShared": "No documents with granted access",
     "emptyIssued": "The university has not issued any documents yet",
+    "emptySharedDesc": "Documents you shared with the university, a faculty or a staff member appear here.",
+    "emptyIssuedDesc": "Diplomas, certificates and orders issued by the university appear here automatically.",
     "close": "Close",
     "req_title": "Document request",
     "req_emptyStudent": "No requests addressed to you yet",
@@ -1715,9 +1742,21 @@
     "pa_reason": "Access reason",
     "pa_reasonHint": "e.g. reviewing complaint #12",
     "pa_reasonRequired": "Enter a reason (5+ chars) to open files",
+    "pa_request": "Open document",
+    "pa_change": "Change request",
+    "pa_reasonLogged": "Reason: {reason}",
     "pa_files": "files: {n}",
     "pa_noFiles": "Document has no files",
-    "pa_openFile": "File {n}"
+    "pa_openFile": "File {n}",
+    "pa_logEmpty": "No access to other people’s documents yet",
+    "pa_colDate": "When",
+    "pa_colDocument": "Document ID",
+    "pa_colAction": "Access",
+    "pa_actionCard": "Card",
+    "pa_actionFile": "File",
+    "pa_repeat": "Repeat",
+    "req_targetsRequired": "Choose at least one recipient",
+    "fieldFilesCount": "Files: {n}"
   },
   "DatePicker": {
     "placeholder": "Pick date & time",
@@ -2210,7 +2249,8 @@
       "lowAttendance": "Attendance {value}%",
       "overdue": "Overdue: {value}",
       "lowGrades": "Avg {value}%"
-    }
+    },
+    "faculty": "Faculty"
   },
   "Command": {
     "title": "Search & commands",
@@ -2563,6 +2603,7 @@
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Could not copy",
+    "empty": "empty",
     "perPage": "Per page"
   }
 }

@@ -145,7 +145,7 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>

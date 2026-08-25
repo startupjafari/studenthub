@@ -14,6 +14,7 @@ import {
   Button,
   Checkbox,
   DateTimePicker,
+  FieldError,
   Input,
   Label,
   Modal,
@@ -36,6 +37,7 @@ interface Props {
 // (safeParse), т.к. dueAt требует ISO с оффсетом (преобразуем из локального DateTimePicker).
 export function CreateAssignmentModal({ onClose }: Props) {
   const t = useTranslations('Assignments')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const courses = useQuery({
@@ -53,9 +55,23 @@ export function CreateAssignmentModal({ onClose }: Props) {
   const [dueAtLocal, setDueAtLocal] = useState('')
   const [allowLate, setAllowLate] = useState(false)
   const [pending, setPending] = useState(false)
-  const [titleError, setTitleError] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+
+  const errors = {
+    course: !courseId ? tCommon('fieldRequired') : null,
+    title: !title.trim() ? tCommon('fieldRequired') : null,
+    // Балл необязателен, но если введён — серверная схема ждёт целое 1…1000.
+    maxScore:
+      maxScore.trim() &&
+      (!Number.isInteger(Number(maxScore)) || Number(maxScore) < 1 || Number(maxScore) > 1000)
+        ? tCommon('numberRange', { min: 1, max: 1000 })
+        : null,
+  }
+  const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
   async function onSubmit() {
+    setSubmitted(true)
+    if (Object.values(errors).some(Boolean)) return
     const payload: CreateAssignmentInput = {
       courseId,
       title: title.trim(),
@@ -68,7 +84,6 @@ export function CreateAssignmentModal({ onClose }: Props) {
     }
     const parsed = CreateAssignmentSchema.safeParse(payload)
     if (!parsed.success) {
-      setTitleError(!title.trim())
       toast.error(t('formInvalid'))
       return
     }
@@ -91,7 +106,7 @@ export function CreateAssignmentModal({ onClose }: Props) {
         <div className="flex flex-col gap-1.5">
           <Label>{t('course')}</Label>
           <Select value={courseId} onValueChange={setCourseId}>
-            <SelectTrigger>
+            <SelectTrigger aria-invalid={!!show('course')}>
               <SelectValue placeholder={t('selectCourse')} />
             </SelectTrigger>
             <SelectContent>
@@ -109,13 +124,11 @@ export function CreateAssignmentModal({ onClose }: Props) {
           <Input
             id="a-title"
             value={title}
-            onChange={(e) => {
-              setTitle(e.target.value)
-              setTitleError(false)
-            }}
+            onChange={(e) => setTitle(e.target.value)}
             autoFocus
+            aria-invalid={!!show('title')}
           />
-          {titleError && <p className="text-sm text-destructive">{t('required')}</p>}
+          <FieldError>{show('title')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -172,7 +185,9 @@ export function CreateAssignmentModal({ onClose }: Props) {
               type="number"
               value={maxScore}
               onChange={(e) => setMaxScore(e.target.value)}
+              aria-invalid={!!show('maxScore')}
             />
+            <FieldError>{show('maxScore')}</FieldError>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>{t('dueAt')}</Label>
@@ -185,11 +200,11 @@ export function CreateAssignmentModal({ onClose }: Props) {
           {t('allowLate')}
         </label>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button onClick={onSubmit} loading={pending} disabled={!courseId}>
+          <Button onClick={onSubmit} loading={pending}>
             {t('create')}
           </Button>
         </div>

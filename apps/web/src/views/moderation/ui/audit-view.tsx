@@ -63,7 +63,6 @@ export function AuditView() {
       {/* Фильтр — в шапке (DESIGN_SYSTEM §10.1): управление списком стоит рядом с
           заголовком, а не отдельной строкой над таблицей. */}
       <PageHeader
-        icon={ScrollText}
         title={t('auditTitle')}
         subtitle={t('auditSubtitle')}
         actions={
@@ -121,14 +120,12 @@ export function AuditView() {
                   {/* Полные id, а не `slice(0, 8)`: колонка их обрежет сама, а в подсказке
                         значение целиком — и его можно скопировать для поиска по логам. */}
                   <TableCell className="text-muted-foreground">
-                    {r.entity ? (
-                      <TableText value={r.entityId ? `${r.entity} · ${r.entityId}` : r.entity} />
-                    ) : (
-                      '—'
-                    )}
+                    <TableText
+                      value={r.entity && r.entityId ? `${r.entity} · ${r.entityId}` : r.entity}
+                    />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {r.userId ? <TableText value={r.userId} /> : '—'}
+                    <TableText value={r.userId} />
                   </TableCell>
                 </TableRow>
               ))}

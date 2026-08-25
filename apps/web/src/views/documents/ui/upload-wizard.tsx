@@ -19,6 +19,8 @@ import {
 } from '../../../entities/document'
 import {
   Button,
+  DatePicker,
+  FieldError,
   Input,
   Select,
   SelectContent,
@@ -41,6 +43,7 @@ interface Picked {
 // Мастер загрузки документа (ТЗ §5): 4 шага — тип → файлы → данные → доступ.
 export function UploadWizard({ onClose }: { onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -114,11 +117,33 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const canNext =
-    (step === 1 && category && type) ||
-    step === 2 ||
-    (step === 3 && title.trim().length > 0) ||
-    step === 4
+  // Ошибки шага — после попытки уйти дальше: подсвечивать поля, которые человек ещё не
+  // трогал, бессмысленно. Отметка снимается при переходе на другой шаг.
+  const [tried, setTried] = useState(false)
+  const errors = {
+    category: !category ? tCommon('fieldRequired') : null,
+    type: category && !type ? tCommon('fieldRequired') : null,
+    title: !title.trim() ? tCommon('fieldRequired') : null,
+    expiresAt: issuedAt && expiresAt && expiresAt < issuedAt ? tCommon('endNotBeforeStart') : null,
+  }
+  const stepErrors: Record<number, (keyof typeof errors)[]> = {
+    1: ['category', 'type'],
+    2: [],
+    3: ['title', 'expiresAt'],
+    4: [],
+  }
+  const stepInvalid = (stepErrors[step] ?? []).some((k) => errors[k])
+  const show = (key: keyof typeof errors): string | null => (tried ? errors[key] : null)
+
+  function goTo(next: number): void {
+    setTried(false)
+    setStep(next)
+  }
+  function goNext(): void {
+    setTried(true)
+    if (!stepInvalid) goTo(step + 1)
+  }
+
   const stepTitle = [t('step1Title'), t('step2Title'), t('step3Title'), t('step4Title')][step - 1]
 
   const footer = (
@@ -126,20 +151,28 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
       <Button
         type="button"
         variant="ghost"
-        onClick={() => (step === 1 ? onClose() : setStep(step - 1))}
+        onClick={() => (step === 1 ? onClose() : goTo(step - 1))}
       >
         {step === 1 ? t('cancel') : t('back')}
       </Button>
       {step < 4 ? (
-        <Button type="button" disabled={!canNext} onClick={() => setStep(step + 1)}>
+        <Button type="button" onClick={goNext}>
           {t('next')}
         </Button>
       ) : (
         <Button
           type="button"
           loading={createMut.isPending}
-          disabled={!title.trim()}
-          onClick={() => createMut.mutate()}
+          onClick={() => {
+            // На последнем шаге поля названия уже нет на экране — при ошибке возвращаем
+            // на шаг с данными и подсвечиваем поле, а не молча блокируем кнопку.
+            if (errors.title || errors.expiresAt) {
+              setStep(3)
+              setTried(true)
+              return
+            }
+            createMut.mutate()
+          }}
         >
           {t('finish')}
         </Button>
@@ -170,7 +203,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                 setType('')
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-invalid={!!show('category')}>
                 <SelectValue placeholder={t('chooseCategory')} />
               </SelectTrigger>
               <SelectContent>
@@ -181,12 +214,13 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                 ))}
               </SelectContent>
             </Select>
+            <FieldError>{show('category')}</FieldError>
           </label>
           {category && (
             <label className="flex flex-col gap-1 text-sm">
               {t('chooseType')}
               <Select value={type} onValueChange={setType}>
-                <SelectTrigger>
+                <SelectTrigger aria-invalid={!!show('type')}>
                   <SelectValue placeholder={t('chooseType')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -197,6 +231,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                   ))}
                 </SelectContent>
               </Select>
+              <FieldError>{show('type')}</FieldError>
             </label>
           )}
         </div>
@@ -226,16 +261,24 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
               e.target.value = ''
             }}
           />
-          <div className="flex gap-2">
+          {/* Две равные половины: кнопки одного веса не должны разъезжаться по ширине
+              подписи. */}
+          <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
               variant="outline"
+              className="w-full"
               loading={uploading}
               onClick={() => fileRef.current?.click()}
             >
               <Upload className="size-4" aria-hidden /> {t('addFiles')}
             </Button>
-            <Button type="button" variant="outline" onClick={() => camRef.current?.click()}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => camRef.current?.click()}
+            >
               <Camera className="size-4" aria-hidden /> {t('fromCamera')}
             </Button>
           </div>
@@ -296,7 +339,9 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={type ? t(`docType_${type}`) : ''}
+              aria-invalid={!!show('title')}
             />
+            <FieldError>{show('title')}</FieldError>
           </label>
           {showField('number') && (
             <label className="flex flex-col gap-1 text-sm">
@@ -304,24 +349,32 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
               <Input value={number} onChange={(e) => setNumber(e.target.value)} />
             </label>
           )}
-          <div className="grid grid-cols-2 gap-3">
-            {showField('issuedAt') && (
-              <label className="flex flex-col gap-1 text-sm">
-                {t('fieldIssuedAt')}
-                <Input type="date" value={issuedAt} onChange={(e) => setIssuedAt(e.target.value)} />
-              </label>
-            )}
-            {showField('expiresAt') && (
-              <label className="flex flex-col gap-1 text-sm">
-                {t('fieldExpiresAt')}
-                <Input
-                  type="date"
-                  value={expiresAt}
-                  onChange={(e) => setExpiresAt(e.target.value)}
-                />
-              </label>
-            )}
-          </div>
+          {/* Поля даты — такие же поля формы, как название или номер: во всю ширину
+              шага, а не полуширинной парой. */}
+          {showField('issuedAt') && (
+            <label className="flex flex-col gap-1 text-sm">
+              {t('fieldIssuedAt')}
+              <DatePicker
+                value={issuedAt}
+                onChange={setIssuedAt}
+                max={expiresAt || undefined}
+                aria-label={t('fieldIssuedAt')}
+              />
+            </label>
+          )}
+          {showField('expiresAt') && (
+            <label className="flex flex-col gap-1 text-sm">
+              {t('fieldExpiresAt')}
+              <DatePicker
+                value={expiresAt}
+                onChange={setExpiresAt}
+                min={issuedAt || undefined}
+                aria-label={t('fieldExpiresAt')}
+                aria-invalid={!!show('expiresAt')}
+              />
+              <FieldError>{show('expiresAt')}</FieldError>
+            </label>
+          )}
           {showField('issuedBy') && (
             <label className="flex flex-col gap-1 text-sm">
               {t('fieldIssuedBy')}

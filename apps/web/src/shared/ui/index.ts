@@ -45,6 +45,7 @@ export { PromptDialog } from './prompt-dialog'
 export { Skeleton } from './skeleton'
 export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 export { EmptyState, type EmptyStateProps } from './empty-state'
+export { FieldError } from './field-error'
 export {
   Select,
   SelectGroup,
@@ -80,6 +81,7 @@ export {
   TableScroll,
   TableSkeletonRows,
   TableText,
+  TableEmpty,
   nextSort,
   pageItems,
   sortRows,

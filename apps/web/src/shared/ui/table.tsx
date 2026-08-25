@@ -75,8 +75,9 @@ export function Table({
    */
   scrollBody?: boolean
   /**
-   * Занять всю свободную высоту (вместо `max-h-*`) и растянуть строки, если они все
-   * поместились: пустой низ таблицы с обрывом на середине смотрится как ошибка загрузки.
+   * Занять всю свободную высоту (вместо `max-h-*`): таблица доходит до низа области
+   * контента, но строки остаются нормальной высоты — короткий список не растягивается
+   * на весь экран, под ним просто остаётся свободное место карточки.
    * Требует flex-цепочки до `main`: у обёртки страницы и у `Card` — `flex min-h-0 flex-1`.
    */
   fill?: boolean
@@ -122,11 +123,12 @@ export function Table({
         scrollBody &&
           'block [&>tbody>tr]:table [&>tbody>tr]:w-full [&>tbody>tr]:table-fixed [&>thead]:table [&>thead]:table-fixed',
         scrollBody && !fill && '[&>tbody]:block',
-        // Тело — flex-колонка: строки `grow` делят излишек высоты между собой, но
-        // `shrink-0` не даёт им сжаться, когда строк больше, чем места, — тогда скролл.
+        // Тело — flex-колонка на всю свободную высоту, но строки в ней своей высоты:
+        // `shrink-0` не даёт им сжаться, когда строк больше, чем места (тогда скролл), и
+        // никакого `grow` — десяток строк не должен раздуваться на весь экран.
         scrollBody &&
           fill &&
-          'flex min-h-0 flex-1 flex-col [&>tbody]:flex [&>tbody]:min-h-0 [&>tbody]:max-h-none [&>tbody]:flex-1 [&>tbody]:flex-col [&>tbody>tr]:grow [&>tbody>tr]:shrink-0',
+          'flex min-h-0 flex-1 flex-col [&>tbody]:flex [&>tbody]:min-h-0 [&>tbody]:max-h-none [&>tbody]:flex-1 [&>tbody]:flex-col [&>tbody>tr]:shrink-0',
         // Шапка на `calc(100% - полоса прокрутки)` оставляет справа от себя полоску шириной
         // полосы — «пустой угол». Заливка таблицы = цвет шапки, заливка тела = цвет карточки:
         // угол становится продолжением шапки, а строки остаются на своём фоне.
@@ -230,12 +232,28 @@ export function TableCell({ className, ...props }: ComponentProps<'td'>) {
 }
 
 /**
+ * Отсутствующее значение в ячейке: слово «пусто», а не прочерк. Прочерк читается и как
+ * «нет данных», и как настоящее значение (минус, диапазон), а скринридер его пропускает.
+ * Правило общее для всех таблиц (DESIGN_SYSTEM §10.7).
+ */
+export function TableEmpty({ className }: { className?: string }) {
+  const t = useTranslations('Table')
+  return <span className={cn('text-muted-foreground', className)}>{t('empty')}</span>
+}
+
+/**
  * Значение в одну строку: не влезло — обрезается, а на наведении показывает полный
  * текст с кнопкой «Копировать» (подсказка hoverable, текст в ней можно выделить).
  * Подсказка появляется только у реально обрезанных значений — иначе она мешала бы
- * на каждой ячейке.
+ * на каждой ячейке. Пустое значение (`null`, `''`) — это `TableEmpty`.
  */
-export function TableText({ value, className }: { value: string; className?: string }) {
+export function TableText({
+  value,
+  className,
+}: {
+  value: string | null | undefined
+  className?: string
+}) {
   const t = useTranslations('Table')
   const ref = useRef<HTMLSpanElement>(null)
   const [clipped, setClipped] = useState(false)
@@ -248,11 +266,14 @@ export function TableText({ value, className }: { value: string; className?: str
   }
 
   function copy(): void {
-    navigator.clipboard.writeText(value).then(
+    navigator.clipboard.writeText(value ?? '').then(
       () => toast.success(t('copied')),
       () => toast.error(t('copyFailed')),
     )
   }
+
+  // Проверка после хуков: порядок хуков не должен зависеть от значения ячейки.
+  if (value == null || value.trim() === '') return <TableEmpty className={className} />
 
   return (
     <Tooltip>

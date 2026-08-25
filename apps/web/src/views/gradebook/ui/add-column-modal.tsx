@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { GRADE_COLUMN_KINDS, CreateGradeColumnSchema } from '@studenthub/shared-schemas'
 import {
   Button,
+  FieldError,
   Input,
   Label,
   Modal,
@@ -27,15 +28,29 @@ interface Props {
 // Модалка добавления контрольной точки (колонки журнала).
 export function AddColumnModal({ courseId, onClose }: Props) {
   const t = useTranslations('Gradebook')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
   const [kind, setKind] = useState<(typeof GRADE_COLUMN_KINDS)[number]>('LAB')
   const [maxScore, setMaxScore] = useState('100')
   const [pending, setPending] = useState(false)
-  const [titleError, setTitleError] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+
+  const errors = {
+    title: !title.trim() ? tCommon('fieldRequired') : null,
+    // Серверная схема: целое 1…1000.
+    maxScore: !maxScore.trim()
+      ? tCommon('fieldRequired')
+      : !Number.isInteger(Number(maxScore)) || Number(maxScore) < 1 || Number(maxScore) > 1000
+        ? tCommon('numberRange', { min: 1, max: 1000 })
+        : null,
+  }
+  const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
   async function onSubmit() {
+    setSubmitted(true)
+    if (Object.values(errors).some(Boolean)) return
     const payload = {
       courseId,
       title: title.trim(),
@@ -44,7 +59,6 @@ export function AddColumnModal({ courseId, onClose }: Props) {
     }
     const parsed = CreateGradeColumnSchema.safeParse(payload)
     if (!parsed.success) {
-      setTitleError(!title.trim())
       toast.error(t('formInvalid'))
       return
     }
@@ -70,13 +84,11 @@ export function AddColumnModal({ courseId, onClose }: Props) {
             id="col-title"
             placeholder={t('columnTitlePlaceholder')}
             value={title}
-            onChange={(e) => {
-              setTitle(e.target.value)
-              setTitleError(false)
-            }}
+            onChange={(e) => setTitle(e.target.value)}
             autoFocus
+            aria-invalid={!!show('title')}
           />
-          {titleError && <p className="text-sm text-destructive">{t('required')}</p>}
+          <FieldError>{show('title')}</FieldError>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
@@ -101,10 +113,12 @@ export function AddColumnModal({ courseId, onClose }: Props) {
               type="number"
               value={maxScore}
               onChange={(e) => setMaxScore(e.target.value)}
+              aria-invalid={!!show('maxScore')}
             />
+            <FieldError>{show('maxScore')}</FieldError>
           </div>
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>

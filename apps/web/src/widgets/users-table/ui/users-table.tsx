@@ -5,7 +5,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
@@ -44,8 +43,6 @@ import {
 interface UsersTableProps {
   title: string
   subtitle?: string
-  /** Иконка раздела в шапке; по умолчанию — «люди», список людей на всех экранах. */
-  icon?: LucideIcon
   // Фиксированная роль (экраны студентов/преподавателей/деканов) — тогда фильтр роли скрыт.
   role?: Role
   showRoleFilter?: boolean
@@ -81,13 +78,7 @@ function toCsv(users: AdminUser[]): string {
   return [head.join(','), ...rows].join('\n')
 }
 
-export function UsersTable({
-  title,
-  subtitle,
-  icon = UsersIcon,
-  role,
-  showRoleFilter = false,
-}: UsersTableProps) {
+export function UsersTable({ title, subtitle, role, showRoleFilter = false }: UsersTableProps) {
   const t = useTranslations('Users')
   const tRoles = useTranslations('Roles')
   const tErr = useTranslations('Errors')
@@ -157,7 +148,6 @@ export function UsersTable({
           списком, отдельной строки над таблицей оно не заслуживает. На узком экране
           шапка переносит их на вторую строку сама (flex-wrap). */}
       <PageHeader
-        icon={icon}
         title={title}
         subtitle={subtitle}
         actions={
