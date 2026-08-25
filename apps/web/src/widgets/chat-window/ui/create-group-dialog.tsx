@@ -106,7 +106,7 @@ export function CreateGroupDialog({
           }}
         />
 
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             {t('cancel')}
           </Button>

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Plus, X } from 'lucide-react'
 import type { CreateChatPollInput } from '@studenthub/shared-schemas'
-import { Button, Checkbox, Input, Modal } from '../../../shared/ui'
+import { Button, Checkbox, FieldError, Input, Modal } from '../../../shared/ui'
 
 // Создание опроса в чате (§38–39): вопрос + 2..10 вариантов + настройки. Отправка — через onCreate.
 export function PollCreator({
@@ -17,6 +17,7 @@ export function PollCreator({
   pending: boolean
 }) {
   const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
   const [question, setQuestion] = useState('')
   const [options, setOptions] = useState<string[]>(['', ''])
   const [multiple, setMultiple] = useState(false)
@@ -25,10 +26,17 @@ export function PollCreator({
   const [randomOrder, setRandomOrder] = useState(false)
 
   const trimmed = options.map((o) => o.trim()).filter(Boolean)
-  const canSubmit = question.trim().length > 0 && trimmed.length >= 2
+  // Ошибки показываем после первой попытки создать опрос.
+  const [submitted, setSubmitted] = useState(false)
+  const errors = {
+    question: !question.trim() ? tCommon('fieldRequired') : null,
+    options: trimmed.length < 2 ? t('pollNeedTwoOptions') : null,
+  }
+  const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
   function submit(): void {
-    if (!canSubmit || pending) return
+    setSubmitted(true)
+    if (Object.values(errors).some(Boolean) || pending) return
     onCreate({
       question: question.trim(),
       options: trimmed,
@@ -49,13 +57,17 @@ export function PollCreator({
   return (
     <Modal onClose={onClose} title={t('createPoll')}>
       <div className="space-y-3">
-        <Input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder={t('pollQuestion')}
-          maxLength={300}
-          autoFocus
-        />
+        <div className="space-y-1.5">
+          <Input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder={t('pollQuestion')}
+            maxLength={300}
+            autoFocus
+            aria-invalid={!!show('question')}
+          />
+          <FieldError>{show('question')}</FieldError>
+        </div>
         <div className="space-y-2">
           {options.map((o, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -79,6 +91,7 @@ export function PollCreator({
               )}
             </div>
           ))}
+          <FieldError>{show('options')}</FieldError>
           {options.length < 10 && (
             <Button
               type="button"
@@ -97,11 +110,11 @@ export function PollCreator({
           {toggle(t('pollAllowRevote'), allowRevote, setAllowRevote)}
           {toggle(t('pollRandomOrder'), randomOrder, setRandomOrder)}
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button type="button" size="sm" disabled={!canSubmit || pending} onClick={submit}>
+          <Button type="button" size="sm" loading={pending} onClick={submit}>
             {t('createPollSubmit')}
           </Button>
         </div>

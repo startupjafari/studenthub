@@ -3,6 +3,12 @@
 import { useEffect, useRef, type RefObject } from 'react'
 
 interface Options {
+  /**
+   * Затемнение под шторкой. Передан — гаснет вместе с ней: во время драга прозрачность
+   * падает пропорционально смещению, при закрытии уходит в 0 той же анимацией. Без него
+   * фон оставался бы плотным до самого конца, и лист «проваливался» бы в тёмный экран.
+   */
+  backdropRef?: RefObject<HTMLElement | null>
   /** Смещение вниз (px), после которого шторка закрывается. */
   threshold?: number
   /** Порог начала драга (px) — чтобы не реагировать на микродвижения/тапы. */
@@ -34,10 +40,12 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
   const ref = useRef<T | null>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
+  const backdropRef = options.backdropRef
 
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    const backdrop = backdropRef?.current ?? null
     const threshold = options.threshold ?? 96
     const startThreshold = options.startThreshold ?? 6
     const flingVelocity = options.flingVelocity ?? 0.55
@@ -49,6 +57,13 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
     let lastT = 0
     let velocity = 0 // px/ms, положительная — движение вниз
 
+    // Прозрачность фона по смещению: 1 → 0 к концу «уезда» листа.
+    const setBackdrop = (offset: number): void => {
+      if (!backdrop) return
+      const span = el.offsetHeight || 1
+      backdrop.style.opacity = String(Math.max(0, 1 - offset / span))
+    }
+
     const clearTransitionOnEnd = (e: TransitionEvent): void => {
       if (e.propertyName !== 'transform') return
       el.style.transition = ''
@@ -59,6 +74,10 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
     const animateClose = (): void => {
       settling = true
       el.style.transition = SETTLE_EASE
+      if (backdrop) {
+        backdrop.style.transition = 'opacity 0.24s ease-out'
+        backdrop.style.opacity = '0'
+      }
       // Уезжаем за нижний край экрана, затем закрываем по завершении анимации.
       el.style.transform = `translateY(${el.offsetHeight}px)`
       let done = false
@@ -80,6 +99,10 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
       settling = true
       el.style.transition = SETTLE_EASE
       el.style.transform = ''
+      if (backdrop) {
+        backdrop.style.transition = 'opacity 0.24s ease-out'
+        backdrop.style.opacity = ''
+      }
       el.addEventListener('transitionend', clearTransitionOnEnd)
       // Страховка на случай, если transform уже был 0 и transitionend не сработает.
       window.setTimeout(() => {
@@ -98,6 +121,7 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
       dy = 0
       velocity = 0
       el.style.transition = 'none' // во время драга — мгновенное следование за пальцем
+      if (backdrop) backdrop.style.transition = 'none'
     }
 
     const onMove = (e: TouchEvent): void => {
@@ -110,11 +134,13 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
       lastT = e.timeStamp
       if (dy <= startThreshold) {
         el.style.transform = ''
+        setBackdrop(0)
         return
       }
       // Жест принадлежит шторке — не даём странице подхватить его (pull-to-refresh/скролл).
       if (e.cancelable) e.preventDefault()
       el.style.transform = `translateY(${dy}px)`
+      setBackdrop(dy)
     }
 
     const onEnd = (): void => {
@@ -139,7 +165,7 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
       el.removeEventListener('touchcancel', onEnd)
       el.removeEventListener('transitionend', clearTransitionOnEnd)
     }
-  }, [options.threshold, options.startThreshold, options.flingVelocity])
+  }, [options.threshold, options.startThreshold, options.flingVelocity, backdropRef])
 
   return ref
 }

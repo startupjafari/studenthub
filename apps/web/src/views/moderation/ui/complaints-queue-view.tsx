@@ -85,7 +85,6 @@ export function ComplaintsQueueView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeader
-        icon={ShieldAlert}
         title={t('complaintsTitle')}
         subtitle={t('complaintsSubtitle')}
         tabs={

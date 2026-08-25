@@ -2,7 +2,6 @@
 
 import type { ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { Button } from './button'
 import { cn } from '../lib/utils'
 
@@ -10,11 +9,6 @@ export interface PageHeaderProps {
   title: ReactNode
   /** Подзаголовок под заголовком (мелкий, приглушённый). */
   subtitle?: ReactNode
-  /**
-   * Иконка раздела слева от заголовка — тот же изразец `bg-primary/10`, что в строках
-   * списков. Даёт шапке опору: без неё голый текст висит в пустой полосе.
-   */
-  icon?: LucideIcon
   /** Кнопка «назад» слева (детальные/вложенные страницы). */
   onBack?: () => void
   backLabel?: string
@@ -33,7 +27,7 @@ export interface PageHeaderProps {
 
 // Шапка страницы — самостоятельная горизонтальная полоса в том же визуальном языке,
 // что сайдбар: поверхность `bg-sidebar`, снизу разделительная линия. Внутри в одну
-// строку: [назад] [иконка] Заголовок(+описание) … справа: табы + действия.
+// строку: [назад] [полоса] Заголовок(+описание) … справа: табы + действия.
 //
 // Полоса идёт вплотную к сайдбару и к верху области контента, без скругления и внешних
 // отступов. `main` в AppShell задаёт свой padding (p-4 / md:p-6 + safe-area сверху),
@@ -42,7 +36,6 @@ export interface PageHeaderProps {
 export function PageHeader({
   title,
   subtitle,
-  icon: Icon,
   onBack,
   backLabel,
   tabs,
@@ -72,14 +65,10 @@ export function PageHeader({
         </Button>
       )}
       <div className="flex min-w-0 items-center gap-3">
-        {Icon && (
-          <span
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            aria-hidden
-          >
-            <Icon className="size-4" />
-          </span>
-        )}
+        {/* Вертикальная полоса вместо иконки раздела: та же опора для заголовка, но без
+            картинки, которая на каждой странице своя и спорит с иконкой того же раздела
+            в сайдбаре. */}
+        <span className="h-8 w-1 shrink-0 rounded-full bg-primary" aria-hidden />
         {/* `leading-tight` — полоса шапки не должна расти: с обычной высотой строки
             заголовок с подзаголовком добавляют к ней лишние ~6 px. */}
         <div className="min-w-0">

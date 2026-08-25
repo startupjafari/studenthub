@@ -18,6 +18,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  FieldError,
   Select,
   SelectContent,
   SelectItem,
@@ -121,6 +122,7 @@ function RequestCard({ req, onOpen }: { req: StudentRequestSummary; onOpen: () =
 
 function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const detail = useQuery({
@@ -185,6 +187,10 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
   const locked = d?.submission?.status === 'SUBMITTED' || d?.submission?.status === 'ACCEPTED'
   const requiredFilled =
     d?.items.filter((it) => it.required).every((it) => !!current[it.id]) ?? false
+  // Отправку не блокируем молча: по нажатию подсвечиваем незаполненные обязательные позиции.
+  const [submitted, setSubmitted] = useState(false)
+  const itemError = (it: { id: string; required: boolean }): string | null =>
+    submitted && it.required && !current[it.id] ? tCommon('fieldRequired') : null
 
   const docsByType = (type: string): DocumentDto[] =>
     (docsQ.data ?? []).filter((x) => x.type === type)
@@ -201,9 +207,11 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
               {t('req_saveDraft')}
             </Button>
             <Button
-              onClick={() => submitMut.mutate()}
+              onClick={() => {
+                setSubmitted(true)
+                if (requiredFilled) submitMut.mutate()
+              }}
               loading={submitMut.isPending}
-              disabled={!requiredFilled}
             >
               {t('req_submit')}
             </Button>
@@ -254,7 +262,7 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
                         setPicks({ ...current, [it.id]: v === '__none__' ? null : v })
                       }
                     >
-                      <SelectTrigger aria-label={it.title}>
+                      <SelectTrigger aria-label={it.title} aria-invalid={!!itemError(it)}>
                         <SelectValue placeholder={t('req_pickDoc')} />
                       </SelectTrigger>
                       <SelectContent>
@@ -269,6 +277,7 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
                   ) : (
                     <p className="text-sm">{si?.document?.title ?? t('req_notSelected')}</p>
                   )}
+                  {!locked && <FieldError className="mt-1">{itemError(it)}</FieldError>}
                   {options.length === 0 && !locked && (
                     <p className="mt-1 text-xs text-muted-foreground">{t('req_noMatchingDocs')}</p>
                   )}

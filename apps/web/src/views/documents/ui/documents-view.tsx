@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Archive,
-  FolderLock,
   Inbox,
   LayoutGrid,
   Send,
@@ -13,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { PageHeader, SegmentedTabs } from '../../../shared/ui'
-import { OverviewPanel } from './overview-panel'
+import { OverviewPanel, type OverviewOpen } from './overview-panel'
 import { DocumentsList } from './documents-list'
 import { RequestsPanel } from './requests-panel'
 
@@ -32,18 +31,27 @@ const SECTIONS: { id: Section; icon: LucideIcon }[] = [
 export function DocumentsView() {
   const t = useTranslations('Documents')
   const [section, setSection] = useState<Section>('overview')
+  // Фильтр, с которым открывают «Мои документы» из обзора (клик по плитке/строке).
+  const [listStatus, setListStatus] = useState<string | undefined>(undefined)
+
+  const open: OverviewOpen = (target, status) => {
+    setListStatus(status)
+    setSection(target === 'requests' ? 'requests' : 'my')
+  }
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
-        icon={FolderLock}
         title={t('title')}
         subtitle={t('subtitle')}
         tabs={
           <SegmentedTabs
             aria-label={t('title')}
             value={section}
-            onChange={setSection}
+            onChange={(next) => {
+              setListStatus(undefined)
+              setSection(next)
+            }}
             items={SECTIONS.map((s) => ({
               value: s.id,
               icon: s.icon,
@@ -53,8 +61,11 @@ export function DocumentsView() {
         }
       />
 
-      {section === 'overview' && <OverviewPanel />}
-      {section === 'my' && <DocumentsList preset="active" />}
+      {section === 'overview' && <OverviewPanel onOpen={open} />}
+      {/* key: приход из обзора с новым фильтром пересоздаёт список с этим статусом. */}
+      {section === 'my' && (
+        <DocumentsList preset="active" initialStatus={listStatus} key={listStatus ?? 'all'} />
+      )}
       {section === 'archive' && <DocumentsList preset="archived" />}
       {section === 'access' && <DocumentsList preset="shared" />}
       {section === 'from-university' && <DocumentsList preset="issued" />}

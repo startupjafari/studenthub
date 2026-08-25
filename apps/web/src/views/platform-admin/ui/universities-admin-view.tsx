@@ -58,7 +58,6 @@ export function UniversitiesAdminView() {
       {/* Создание — кнопка в шапке и модалка: постоянная форма наверху страницы
           отодвигала сам список вниз, хотя вуз добавляют редко. */}
       <PageHeader
-        icon={Building2}
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
