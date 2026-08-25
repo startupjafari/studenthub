@@ -11,6 +11,7 @@ import {
   Button,
   Checkbox,
   FormAlert,
+  DateTimePicker,
   Input,
   Label,
   Select,
@@ -226,10 +227,10 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
                 </SelectContent>
               </Select>
               {closePreset === 'custom' && (
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={customClose}
-                  onChange={(e) => setCustomClose(e.target.value)}
+                  onChange={setCustomClose}
+                  aria-label={t('pollClose')}
                 />
               )}
             </div>

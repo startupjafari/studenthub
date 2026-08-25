@@ -14,6 +14,10 @@ export const INVITABLE_ROLES: Record<Role, Role[]> = {
   [Role.STUDENT]: [],
 }
 
+// Роль, для которой платформенный админ обязан выбрать целевой вуз (invite-hierarchy.ts:
+// UNIVERSITY_ADMIN — единственный случай, когда scope не выводится из выдающего).
+export const UNIVERSITY_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
+
 // Роли, требующие/допускающие выбор факультета при выдаче инвайта.
 export const FACULTY_ROLES: Role[] = [Role.DEAN, Role.TEACHER]
 // Роли, требующие выбор группы.

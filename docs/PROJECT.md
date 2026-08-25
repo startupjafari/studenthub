@@ -802,25 +802,27 @@ cookie), плюс собственный `beforeSend`: вырезаются те
 
 ```
 PLATFORM_ADMIN → /platform-admin/
-  dashboard · universities · users · roles · posts · stories · events
-  complaints · chats · stats · settings · audit
+  dashboard · universities · users · invites · roles · posts · stories · events
+  complaints · chats · stats · settings · audit · document-access
 
 PLATFORM_MODERATOR → /moderator/platform/
-  dashboard · complaints · posts · comments · stories · events · users · universities · audit
+  dashboard (те же графики, что у админа) · complaints · posts · comments · stories · events
+  users · universities · stats · audit · chats
 
 UNIVERSITY_ADMIN → /university-admin/
   dashboard · profile · faculties · groups · students · teachers · deans
-  schedule · applications · posts · stories · events · chats · stats · settings · audit
+  schedule · applications · analytics · complaints · posts · stories · events · chats
+  stats · settings · audit
 
 UNIVERSITY_MODERATOR → /moderator/university/
-  dashboard · complaints · posts · comments · stories · events · users · audit
+  dashboard · complaints · posts · comments · stories · events · users · audit · chats
 
 DEAN → /dean/
-  dashboard · faculty · groups · students · teachers · starostas · schedule
+  dashboard · faculty · groups · students · teachers · starostas · schedule · calendar
   applications · posts · stories · events · chats · complaints · reports
 
 TEACHER → /teacher/
-  dashboard · profile · subjects · groups · schedule · materials
+  dashboard · profile · subjects · groups · schedule · calendar · materials
   posts · stories · events · chats · notifications
 
 STAROSTA → /starosta/

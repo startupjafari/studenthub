@@ -148,7 +148,7 @@ export function ForwardDialog({
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <footer className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('cancel')}
           </Button>

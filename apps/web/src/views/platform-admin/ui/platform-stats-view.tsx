@@ -1,90 +1,278 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useMemo, useState } from 'react'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { BarChart3, BookOpen, Building2, GraduationCap, Users } from 'lucide-react'
+import {
+  BookOpen,
+  Building2,
+  CheckCircle2,
+  GraduationCap,
+  Layers,
+  Search,
+  Users,
+} from 'lucide-react'
 import {
   fetchUniversities,
   fetchUniversityStats,
   universityKeys,
+  type University,
+  type UniversityStats,
 } from '../../../entities/university'
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
   EmptyState,
+  Input,
   PageHeader,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 
-// Агрегированная статистика платформы: список вузов, у каждого — плитки из GET /universities/:id/stats.
+// Ширины: вуз · статус · факультеты · группы · аудитории · студенты · преподаватели · всего людей.
+const COLS = ['24%', '12%', '10%', '10%', '10%', '11%', '13%', '10%'] as const
+const HIDE = {
+  faculties: 'hidden md:table-cell',
+  groups: 'hidden md:table-cell',
+  rooms: 'hidden xl:table-cell',
+} as const
+
+const STATUS_STYLE: Record<string, string> = {
+  PENDING: 'text-warning',
+  ACTIVE: 'text-success',
+  BLOCKED: 'text-destructive',
+}
+
+interface Row extends University {
+  stats: UniversityStats | null
+  people: number | null
+}
+
+// Статистика платформы: сводка по всем вузам сверху и таблица сравнения ниже —
+// раскладка та же, что у остальных экранов админа платформы (шапка → карточка с таблицей).
 export function PlatformStatsView() {
   const t = useTranslations('Stats')
+  const tUni = useTranslations('Universities')
   const tErr = useTranslations('Errors')
+  const [search, setSearch] = useState('')
+
   const unis = useQuery({ queryKey: universityKeys.list(), queryFn: fetchUniversities })
+  const list = useMemo(() => unis.data ?? [], [unis.data])
+
+  // Счётчики по вузу отдаёт отдельный эндпоинт (кэш 5 мин на сервере) — тянем их
+  // параллельно одним хуком, а не по карточке, чтобы собрать общую таблицу и итоги.
+  const statsQueries = useQueries({
+    queries: list.map((u) => ({
+      queryKey: universityKeys.stats(u.id),
+      queryFn: () => fetchUniversityStats(u.id),
+    })),
+  })
+  const statsLoading = statsQueries.some((q) => q.isLoading)
+
+  // Вузов на платформе десятки, не тысячи — сборку строк не мемоизируем.
+  const rows: Row[] = list.map((u, i) => {
+    const stats = statsQueries[i]?.data ?? null
+    return { ...u, stats, people: stats ? stats.students + stats.teachers : null }
+  })
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      faculties: acc.faculties + (r.stats?.faculties ?? 0),
+      groups: acc.groups + (r.stats?.groups ?? 0),
+      rooms: acc.rooms + (r.stats?.rooms ?? 0),
+      students: acc.students + (r.stats?.students ?? 0),
+      teachers: acc.teachers + (r.stats?.teachers ?? 0),
+      active: acc.active + (r.status === 'ACTIVE' ? 1 : 0),
+    }),
+    { faculties: 0, groups: 0, rooms: 0, students: 0, teachers: 0, active: 0 },
+  )
+
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? rows.filter((r) => [r.name, r.shortName, r.city].some((v) => v?.toLowerCase().includes(q)))
+    : rows
+
+  const cellValue = useCallback(
+    (row: Row, key: string): unknown => {
+      switch (key) {
+        case 'name':
+          return row.name
+        case 'status':
+          return tUni(`status${row.status}`)
+        case 'faculties':
+          return row.stats?.faculties ?? null
+        case 'groups':
+          return row.stats?.groups ?? null
+        case 'rooms':
+          return row.stats?.rooms ?? null
+        case 'students':
+          return row.stats?.students ?? null
+        case 'teachers':
+          return row.stats?.teachers ?? null
+        case 'people':
+          return row.people
+        default:
+          return null
+      }
+    },
+    [tUni],
+  )
+  const { rows: sorted, sort, toggle } = useTableSort(filtered, cellValue)
+
+  const tiles = [
+    { key: 'universities', value: list.length, label: t('universities'), icon: Building2 },
+    { key: 'active', value: totals.active, label: t('activeUniversities'), icon: CheckCircle2 },
+    { key: 'faculties', value: totals.faculties, label: t('faculties'), icon: Layers },
+    { key: 'groups', value: totals.groups, label: t('groups'), icon: Users },
+    { key: 'students', value: totals.students, label: t('students'), icon: GraduationCap },
+    { key: 'teachers', value: totals.teachers, label: t('teachers'), icon: BookOpen },
+  ]
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader icon={BarChart3} title={t('platformTitle')} subtitle={t('platformSubtitle')} />
-      {unis.isLoading ? (
-        <Skeleton className="h-40 w-full" />
-      ) : unis.isError ? (
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+      {/* Поиск — в шапке, как на остальных экранах платформы (DESIGN_SYSTEM §10.1). */}
+      <PageHeader
+        title={t('platformTitle')}
+        subtitle={t('platformSubtitle')}
+        actions={
+          <div className="relative w-40 sm:w-56">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('searchUniversity')}
+              className="h-9 pl-9 text-sm"
+            />
+          </div>
+        }
+      />
+
+      {/* Итоги по платформе: сумма того, что ниже разложено по вузам. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {tiles.map((tile) => {
+          const Icon = tile.icon
+          return (
+            <Card key={tile.key}>
+              <CardContent className="flex flex-col gap-1.5 p-4">
+                <Icon className="size-5 text-primary" aria-hidden />
+                <span className="text-2xl font-bold tabular-nums">
+                  {unis.isLoading || statsLoading ? <Skeleton className="h-7 w-12" /> : tile.value}
+                </span>
+                <span className="text-xs text-muted-foreground">{tile.label}</span>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+
+      {unis.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : (unis.data?.length ?? 0) === 0 ? (
+      ) : !unis.isLoading && sorted.length === 0 ? (
         <EmptyState
           icon={<Building2 className="size-6" aria-hidden />}
-          title={t('noUniversities')}
+          title={q ? t('nothingFound') : t('noUniversities')}
         />
       ) : (
-        unis.data!.map((u) => <UniversityStatsCard key={u.id} id={u.id} name={u.name} />)
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="name" sort={sort} onSort={toggle}>
+                  {tUni('name')}
+                </TableHead>
+                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                  {t('status')}
+                </TableHead>
+                <TableHead
+                  sortKey="faculties"
+                  sort={sort}
+                  onSort={toggle}
+                  className={cn(HIDE.faculties, 'text-right')}
+                >
+                  {t('faculties')}
+                </TableHead>
+                <TableHead
+                  sortKey="groups"
+                  sort={sort}
+                  onSort={toggle}
+                  className={cn(HIDE.groups, 'text-right')}
+                >
+                  {t('groups')}
+                </TableHead>
+                <TableHead
+                  sortKey="rooms"
+                  sort={sort}
+                  onSort={toggle}
+                  className={cn(HIDE.rooms, 'text-right')}
+                >
+                  {t('rooms')}
+                </TableHead>
+                <TableHead sortKey="students" sort={sort} onSort={toggle} className="text-right">
+                  {t('students')}
+                </TableHead>
+                <TableHead sortKey="teachers" sort={sort} onSort={toggle} className="text-right">
+                  {t('teachers')}
+                </TableHead>
+                <TableHead sortKey="people" sort={sort} onSort={toggle} className="text-right">
+                  {t('people')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {unis.isLoading && <TableSkeletonRows columns={8} />}
+              {sorted.map((row) => (
+                <TableRow key={row.id} className="hover:bg-muted/40">
+                  <TableCell className="font-medium">
+                    <TableText value={row.name} />
+                    {(row.city || row.shortName) && (
+                      <span className="block truncate text-xs font-normal text-muted-foreground">
+                        {row.city ?? row.shortName}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className={cn('text-sm', STATUS_STYLE[row.status])}>
+                    <TableText value={tUni(`status${row.status}`)} />
+                  </TableCell>
+                  <Num value={row.stats?.faculties} className={HIDE.faculties} />
+                  <Num value={row.stats?.groups} className={HIDE.groups} />
+                  <Num value={row.stats?.rooms} className={HIDE.rooms} />
+                  <Num value={row.stats?.students} />
+                  <Num value={row.stats?.teachers} />
+                  <Num value={row.people ?? undefined} className="font-semibold" />
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {/* Итоговая строка: сравнение вузов без общей суммы читается наполовину. */}
+          <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2 text-sm text-muted-foreground">
+            <span>{t('universitiesCount', { n: sorted.length })}</span>
+            <span className="tabular-nums">
+              {t('totalPeople', { n: totals.students + totals.teachers })}
+            </span>
+          </div>
+        </Card>
       )}
     </div>
   )
 }
 
-function UniversityStatsCard({ id, name }: { id: string; name: string }) {
-  const t = useTranslations('Stats')
-  const stats = useQuery({
-    queryKey: universityKeys.stats(id),
-    queryFn: () => fetchUniversityStats(id),
-  })
-
-  const tiles = stats.data
-    ? [
-        { key: 'faculties', value: stats.data.faculties, icon: Building2 },
-        { key: 'groups', value: stats.data.groups, icon: Users },
-        { key: 'students', value: stats.data.students, icon: GraduationCap },
-        { key: 'teachers', value: stats.data.teachers, icon: BookOpen },
-      ]
-    : []
-
+// Числовая ячейка: пока счётчики вуза грузятся — скелетон вместо прыжка нулей.
+function Num({ value, className }: { value?: number; className?: string }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{name}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {stats.isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {tiles.map((tile) => {
-              const Icon = tile.icon
-              return (
-                <div
-                  key={tile.key}
-                  className="flex flex-col gap-1 rounded-xl border border-border p-3"
-                >
-                  <Icon className="size-4 text-primary" aria-hidden />
-                  <span className="text-xl font-bold">{tile.value}</span>
-                  <span className="text-xs text-muted-foreground">{t(tile.key)}</span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <TableCell className={cn('text-right tabular-nums', className)}>
+      {value === undefined ? <Skeleton className="ml-auto h-4 w-8" /> : value}
+    </TableCell>
   )
 }

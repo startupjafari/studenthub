@@ -1,17 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   Archive,
   ArchiveRestore,
-  Clock,
   Download,
   FileText,
   History,
-  Lock,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -34,8 +32,13 @@ import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
+  DatePicker,
+  FieldError,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Input,
   Select,
   SelectContent,
@@ -44,47 +47,23 @@ import {
   SelectValue,
   useConfirm,
 } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
 
-// Тон бейджа статуса.
-const STATUS_TONE: Record<string, string> = {
-  DRAFT: 'secondary',
-  UPLOADED: 'info',
-  IN_REVIEW: 'info',
-  VERIFIED: 'success',
-  ACCEPTED: 'success',
-  REJECTED: 'outline',
-  NEEDS_REPLACEMENT: 'outline',
-  EXPIRING: 'outline',
-  EXPIRED: 'outline',
-  ARCHIVED: 'secondary',
-}
-
-export function DocumentCard({ doc }: { doc: DocumentDto }) {
+// Действия над документом: меню «…» в строке таблицы плюс его модалки (данные, доступ,
+// история). Вынесено из строки отдельным компонентом — строка остаётся разметкой, а
+// состояние меню и модалок живёт рядом с мутациями.
+export function DocumentActions({ doc }: { doc: DocumentDto }) {
   const t = useTranslations('Documents')
   const tErr = useTranslations('Errors')
   const confirm = useConfirm()
-  const locale = useLocale()
   const qc = useQueryClient()
-  const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [history, setHistory] = useState(false)
   const [access, setAccess] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    function onDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
-    }
-    window.addEventListener('mousedown', onDown)
-    return () => window.removeEventListener('mousedown', onDown)
-  }, [menuOpen])
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: documentKeys.all })
@@ -127,193 +106,76 @@ export function DocumentCard({ doc }: { doc: DocumentDto }) {
   }
 
   const firstFile = doc.files[0]
-  const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(locale) : '—')
-  const menuItem =
-    'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted'
 
   return (
-    <Card className="transition-shadow hover:ring-ring/50">
-      <CardContent className="flex flex-col gap-3 p-4">
-        <div className="flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <FileText className="size-5" aria-hidden />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold">{doc.title}</p>
-            <p className="text-xs text-muted-foreground">
-              {t(`docCat_${doc.category}`)} · {t(`docType_${doc.type}`)}
-            </p>
-          </div>
-          <Badge variant={(STATUS_TONE[doc.status] ?? 'secondary') as 'secondary'}>
-            {t(`docStatus_${doc.status}`)}
-          </Badge>
-          {/* Меню действий */}
-          <div ref={menuRef} className="relative shrink-0">
-            <button
-              type="button"
-              aria-label={t('actions')}
-              onClick={() => setMenuOpen((o) => !o)}
-              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <MoreHorizontal className="size-4" aria-hidden />
-            </button>
-            {menuOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md"
-              >
-                {firstFile && (
-                  <>
-                    <button
-                      type="button"
-                      className={menuItem}
-                      onClick={() => {
-                        setMenuOpen(false)
-                        void openFile(firstFile.id, false)
-                      }}
-                    >
-                      <FileText className="size-4 text-muted-foreground" aria-hidden />{' '}
-                      {t('actionOpen')}
-                    </button>
-                    <button
-                      type="button"
-                      className={menuItem}
-                      onClick={() => {
-                        setMenuOpen(false)
-                        void openFile(firstFile.id, true)
-                      }}
-                    >
-                      <Download className="size-4 text-muted-foreground" aria-hidden />{' '}
-                      {t('actionDownload')}
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className={menuItem}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setEditing(true)
-                  }}
-                >
-                  <Pencil className="size-4 text-muted-foreground" aria-hidden /> {t('actionEdit')}
-                </button>
-                <button
-                  type="button"
-                  className={menuItem}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setAccess(true)
-                  }}
-                >
-                  <Users className="size-4 text-muted-foreground" aria-hidden /> {t('actionAccess')}
-                </button>
-                <button
-                  type="button"
-                  className={menuItem}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setHistory(true)
-                  }}
-                >
-                  <History className="size-4 text-muted-foreground" aria-hidden />{' '}
-                  {t('actionHistory')}
-                </button>
-                {doc.archivedAt ? (
-                  <button
-                    type="button"
-                    className={menuItem}
-                    onClick={() => {
-                      setMenuOpen(false)
-                      unarchiveMut.mutate()
-                    }}
-                  >
-                    <ArchiveRestore className="size-4 text-muted-foreground" aria-hidden />{' '}
-                    {t('actionUnarchive')}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className={menuItem}
-                    onClick={() => {
-                      setMenuOpen(false)
-                      archiveMut.mutate()
-                    }}
-                  >
-                    <Archive className="size-4 text-muted-foreground" aria-hidden />{' '}
-                    {t('actionArchive')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={cn(menuItem, 'text-destructive hover:bg-destructive/10')}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
-                      if (ok) delMut.mutate()
-                    })
-                  }}
-                >
-                  <Trash2 className="size-4" aria-hidden /> {t('actionDelete')}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Данные документа */}
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-          <Field label={t('fieldNumber')} value={doc.numberMasked ?? '—'} mono />
-          <Field label={t('fieldFiles')} value={String(doc.fileCount)} />
-          <Field label={t('fieldIssuedAt')} value={fmt(doc.issuedAt)} />
-          <Field label={t('fieldExpiresAt')} value={fmt(doc.expiresAt)} />
-        </dl>
-
-        {doc.rejectionReason && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {doc.rejectionReason}
-          </p>
-        )}
-
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            {doc.accessCount > 0 ? (
-              <Users className="size-3.5" aria-hidden />
-            ) : (
-              <Lock className="size-3.5" aria-hidden />
-            )}
-            {doc.accessCount > 0 ? t('sharedWith', { count: doc.accessCount }) : t('onlyMe')}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Clock className="size-3.5" aria-hidden />
-            {fmt(doc.createdAt)}
-          </span>
-        </div>
-      </CardContent>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={t('actions')}>
+            <MoreHorizontal className="size-4" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          {firstFile && (
+            <>
+              <DropdownMenuItem onSelect={() => void openFile(firstFile.id, false)}>
+                <FileText aria-hidden /> {t('actionOpen')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void openFile(firstFile.id, true)}>
+                <Download aria-hidden /> {t('actionDownload')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <DropdownMenuItem onSelect={() => setEditing(true)}>
+            <Pencil aria-hidden /> {t('actionEdit')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setAccess(true)}>
+            <Users aria-hidden /> {t('actionAccess')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setHistory(true)}>
+            <History aria-hidden /> {t('actionHistory')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {doc.archivedAt ? (
+            <DropdownMenuItem onSelect={() => unarchiveMut.mutate()}>
+              <ArchiveRestore aria-hidden /> {t('actionUnarchive')}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => archiveMut.mutate()}>
+              <Archive aria-hidden /> {t('actionArchive')}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => {
+              void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
+                if (ok) delMut.mutate()
+              })
+            }}
+          >
+            <Trash2 aria-hidden /> {t('actionDelete')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {editing && <EditModal doc={doc} onClose={() => setEditing(false)} />}
       {history && <HistoryModal docId={doc.id} onClose={() => setHistory(false)} />}
       {access && <AccessModal docId={doc.id} onClose={() => setAccess(false)} />}
-    </Card>
-  )
-}
-
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex flex-col">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={cn('truncate', mono && 'font-mono tabular-nums')}>{value}</dd>
-    </div>
+    </>
   )
 }
 
 function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const [title, setTitle] = useState(doc.title)
   const [issuedBy, setIssuedBy] = useState(doc.issuedBy ?? '')
   const [comment, setComment] = useState(doc.comment ?? '')
+  const [submitted, setSubmitted] = useState(false)
+  const titleError = !title.trim() ? tCommon('fieldRequired') : null
 
   const mut = useMutation({
     mutationFn: () =>
@@ -338,8 +200,10 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
           <Button
             type="button"
             loading={mut.isPending}
-            disabled={!title.trim()}
-            onClick={() => mut.mutate()}
+            onClick={() => {
+              setSubmitted(true)
+              if (!titleError) mut.mutate()
+            }}
           >
             {t('save')}
           </Button>
@@ -348,7 +212,12 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
     >
       <label className="flex flex-col gap-1 text-sm">
         {t('fieldTitle')}
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          aria-invalid={submitted && !!titleError}
+        />
+        <FieldError>{submitted ? titleError : null}</FieldError>
       </label>
       <label className="flex flex-col gap-1 text-sm">
         {t('fieldIssuedBy')}
@@ -403,6 +272,7 @@ function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }
 // Управление доступом к документу (ТЗ §9): список грантов + выдача + отзыв.
 function AccessModal({ docId, onClose }: { docId: string; onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
@@ -411,6 +281,9 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
   const [target, setTarget] = useState<'UNIVERSITY' | 'DEPARTMENT'>('UNIVERSITY')
   const [reason, setReason] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  // Основание обязательно: оно уходит в журнал документа и в аудит.
+  const reasonError = !reason.trim() ? tCommon('fieldRequired') : null
 
   const q = useQuery({
     queryKey: documentKeys.access(docId),
@@ -433,6 +306,7 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
       void qc.invalidateQueries({ queryKey: documentKeys.all })
       setReason('')
       setExpiresAt('')
+      setSubmitted(false)
       toast.success(t('granted'))
     },
     onError: err,
@@ -514,21 +388,27 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder={t('grantReasonHint')}
+            aria-invalid={submitted && !!reasonError}
           />
+          <FieldError>{submitted ? reasonError : null}</FieldError>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           {t('grantExpiry')}
-          <Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+          <DatePicker value={expiresAt} onChange={setExpiresAt} aria-label={t('grantExpiry')} />
         </label>
-        <Button
-          type="button"
-          className="w-fit"
-          loading={grantMut.isPending}
-          disabled={!reason.trim()}
-          onClick={() => grantMut.mutate()}
-        >
-          {t('grantSubmit')}
-        </Button>
+        {/* Подтверждающее действие — справа, как во всех окнах (DESIGN_SYSTEM §10.5). */}
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            loading={grantMut.isPending}
+            onClick={() => {
+              setSubmitted(true)
+              if (!reasonError) grantMut.mutate()
+            }}
+          >
+            {t('grantSubmit')}
+          </Button>
+        </div>
       </div>
     </DocModal>
   )

@@ -50,7 +50,7 @@ export function CreateSubjectModal({ universityId, onClose }: Props) {
           <Label htmlFor="subject-code">{t('subjectCode')}</Label>
           <Input id="subject-code" placeholder="CS101" {...form.register('code')} />
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
