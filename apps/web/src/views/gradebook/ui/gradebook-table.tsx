@@ -21,6 +21,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -130,7 +131,7 @@ export function GradebookTable({ courseId }: { courseId: string }) {
 
   const total = useMemo(() => {
     const cols = q.data?.columns ?? []
-    return (studentId: string): string => {
+    return (studentId: string): string | null => {
       const scored = cols
         .map((c) => {
           const raw = values[cellKey(c.id, studentId)]
@@ -139,7 +140,7 @@ export function GradebookTable({ courseId }: { courseId: string }) {
           return Number.isNaN(n) ? null : n / c.maxScore
         })
         .filter((x): x is number => x !== null)
-      if (scored.length === 0) return '—'
+      if (scored.length === 0) return null
       return `${Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)}%`
     }
   }, [q.data?.columns, values])
@@ -258,7 +259,7 @@ export function GradebookTable({ courseId }: { courseId: string }) {
                         </TableCell>
                       ))}
                       <TableCell className="px-3 py-1.5 text-center font-semibold tabular-nums">
-                        {total(s.id)}
+                        {total(s.id) ?? <TableEmpty />}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -300,7 +301,8 @@ function StudentCard({
   columns: GradeColumnItem[]
   values: Record<string, string>
   setCell: (columnId: string, studentId: string, v: string) => void
-  total: string
+  // null — ни одна работа не оценена: в карточке это «пусто», а не прочерк.
+  total: string | null
   t: ReturnType<typeof useTranslations>
 }) {
   return (
@@ -311,7 +313,9 @@ function StudentCard({
             <span className="text-sm font-semibold">
               {student.lastName} {student.firstName}
             </span>
-            <span className="text-sm font-semibold tabular-nums text-primary">{total}</span>
+            <span className="text-sm font-semibold tabular-nums text-primary">
+              {total ?? <TableEmpty />}
+            </span>
           </div>
           <div className="flex flex-col gap-2">
             {columns.map((col) => (

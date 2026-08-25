@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
@@ -45,9 +45,21 @@ function BottomNav({
   const tShell = useTranslations('Dashboard')
   const queryClient = useQueryClient()
   const [moreOpen, setMoreOpen] = useState(false)
+  // Закрытие по крестику/фону тоже анимируем: лист уезжает вниз, фон гаснет, и только
+  // потом размонтируется — иначе шторка «пропадала» рывком, а свайп закрывался плавно.
+  const [closing, setClosing] = useState(false)
+  const backdropRef = useRef<HTMLDivElement>(null)
   // Свайп вниз закрывает лист «Ещё» — общий хук (touchmove не-passive + preventDefault, чтобы
-  // жест не уходил в страницу/pull-to-refresh под листом).
-  const sheetRef = useSheetDragClose<HTMLDivElement>(() => setMoreOpen(false))
+  // жест не уходил в страницу/pull-to-refresh под листом). Фон гаснет вместе с листом.
+  const sheetRef = useSheetDragClose<HTMLDivElement>(() => setMoreOpen(false), { backdropRef })
+
+  function closeMore(): void {
+    setClosing(true)
+    window.setTimeout(() => {
+      setMoreOpen(false)
+      setClosing(false)
+    }, 200)
+  }
 
   const unread = useQuery({
     queryKey: notificationKeys.unreadCount(),
@@ -63,6 +75,7 @@ function BottomNav({
   // Закрываем лист «Ещё» при любой навигации.
   useEffect(() => {
     setMoreOpen(false)
+    setClosing(false)
   }, [pathname])
 
   const overflow = nav.slice(4) // разделы роли, не влезшие в основные вкладки
@@ -73,8 +86,12 @@ function BottomNav({
     window.location.assign('/login')
   }
 
-  const sheetItem =
-    'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted'
+  // Ряд-действие в шторке: высота ≥48 px — палец попадает без прицеливания.
+  const sheetRow =
+    'flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors hover:bg-muted active:bg-muted'
+  // Плитка раздела: крупная цель (~80 px) вместо строки списка в 40 px.
+  const sheetTile =
+    'flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl px-1.5 py-3 text-center text-xs font-medium transition-colors hover:bg-muted active:bg-muted'
 
   return (
     <>
@@ -88,7 +105,7 @@ function BottomNav({
               href={item.href}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                'flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 py-2 text-[0.625rem] font-medium transition-colors',
+                'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 py-2 text-[0.6875rem] font-medium transition-colors',
                 active ? 'text-primary' : 'text-muted-foreground',
               )}
             >
@@ -99,10 +116,10 @@ function BottomNav({
         })}
         <button
           type="button"
-          onClick={() => setMoreOpen(true)}
+          onClick={() => (moreOpen ? closeMore() : setMoreOpen(true))}
           aria-expanded={moreOpen}
           className={cn(
-            'flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-1 px-0.5 py-2 text-[0.625rem] font-medium transition-colors',
+            'flex min-h-14 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 px-0.5 py-2 text-[0.6875rem] font-medium transition-colors',
             moreOpen ? 'text-primary' : 'text-muted-foreground',
           )}
         >
@@ -118,77 +135,113 @@ function BottomNav({
         </button>
       </nav>
 
-      {/* Нижний лист «Ещё»: уведомления + остальные разделы + профиль + выход. */}
+      {/* Нижний лист «Ещё»: быстрые действия, разделы роли плитками, профиль и выход.
+          Плитки вместо списка: цель ~80 px против строки в 40 px, и весь набор виден без
+          прокрутки у большинства ролей. */}
       {moreOpen && (
         <div
-          className="fixed inset-0 z-50 bg-foreground/40 duration-150 animate-in fade-in lg:hidden"
-          onClick={() => setMoreOpen(false)}
+          ref={backdropRef}
+          className={cn(
+            'fixed inset-0 z-50 bg-overlay/50 lg:hidden',
+            closing ? 'duration-200 animate-out fade-out' : 'duration-150 animate-in fade-in',
+          )}
+          onClick={closeMore}
         >
           <div
             ref={sheetRef}
-            className="absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] duration-200 animate-in slide-in-from-bottom"
+            className={cn(
+              'absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover pb-[calc(0.75rem+env(safe-area-inset-bottom))]',
+              closing
+                ? 'duration-200 animate-out slide-out-to-bottom fill-mode-forwards'
+                : 'duration-200 animate-in slide-in-from-bottom',
+            )}
             onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="mx-auto mt-1 mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/30"
-              aria-hidden
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setMoreOpen(false)
-                window.dispatchEvent(new Event('open-command-palette'))
-              }}
-              className={sheetItem}
-            >
-              <Search className="size-5 shrink-0 opacity-80" aria-hidden />
-              {tNav('search')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMoreOpen(false)
-                onToggleNotif()
-              }}
-              className={cn(sheetItem, notifOpen && 'text-primary')}
-            >
-              <span className="relative">
-                <Bell className="size-5 shrink-0 opacity-80" aria-hidden />
-                {count > 0 && (
-                  <span className="absolute -top-1.5 -right-2 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
-                    {badge}
-                  </span>
+            {/* Зона захвата шторки: сама полоска маленькая, но тянуть можно за всю шапку. */}
+            <div className="sticky top-0 z-10 bg-popover pt-2 pb-1" aria-hidden>
+              <div className="mx-auto h-1.5 w-12 rounded-full bg-muted-foreground/30" />
+            </div>
+
+            {/* Быстрые действия — поиск и уведомления, самое частое в этом листе. */}
+            <div className="grid grid-cols-2 gap-2 px-3 pb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  closeMore()
+                  window.dispatchEvent(new Event('open-command-palette'))
+                }}
+                className={cn(sheetRow, 'justify-center border border-border')}
+              >
+                <Search className="size-5 shrink-0 opacity-80" aria-hidden />
+                {tNav('search')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeMore()
+                  onToggleNotif()
+                }}
+                className={cn(
+                  sheetRow,
+                  'justify-center border border-border',
+                  notifOpen && 'text-primary',
                 )}
-              </span>
-              {tNav('notifications')}
-            </button>
-            {overflow.map((item) => {
-              const Icon = item.icon
-              const active = isActive(item, pathname)
-              return (
-                <Link
-                  key={item.key}
-                  href={item.href}
-                  onClick={() => setMoreOpen(false)}
-                  className={cn(sheetItem, active && 'text-primary')}
-                >
-                  <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
-                  {tNav(item.key)}
-                </Link>
-              )
-            })}
-            <Link
-              href="/profile"
-              onClick={() => setMoreOpen(false)}
-              className={cn(sheetItem, profileActive && 'text-primary')}
-            >
-              <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
-              {tNav('profile')}
-            </Link>
-            <button type="button" onClick={logout} className={cn(sheetItem, 'text-destructive')}>
-              <LogOut className="size-5 shrink-0 opacity-80" aria-hidden />
-              {tShell('logout')}
-            </button>
+              >
+                <span className="relative">
+                  <Bell className="size-5 shrink-0 opacity-80" aria-hidden />
+                  {count > 0 && (
+                    <span className="absolute -top-1.5 -right-2 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
+                      {badge}
+                    </span>
+                  )}
+                </span>
+                {tNav('notifications')}
+              </button>
+            </div>
+
+            {/* Разделы роли, не влезшие в нижние вкладки. */}
+            <div className="grid grid-cols-3 gap-2 px-3 pb-2">
+              {overflow.map((item) => {
+                const Icon = item.icon
+                const active = isActive(item, pathname)
+                return (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    onClick={() => setMoreOpen(false)}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(sheetTile, active && 'bg-primary/10 text-primary')}
+                  >
+                    <Icon className="size-6 shrink-0 opacity-80" aria-hidden />
+                    <span className="line-clamp-2 leading-tight">{tNav(item.key)}</span>
+                  </Link>
+                )
+              })}
+            </div>
+
+            {/* Профиль и выход — отдельной секцией: это не разделы роли. */}
+            <div className="mt-1 grid grid-cols-2 gap-2 border-t border-border px-3 pt-3">
+              <Link
+                href="/profile"
+                onClick={() => setMoreOpen(false)}
+                className={cn(
+                  sheetRow,
+                  'justify-center border border-border',
+                  profileActive && 'text-primary',
+                )}
+              >
+                <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
+                {tNav('profile')}
+              </Link>
+              <button
+                type="button"
+                onClick={logout}
+                className={cn(sheetRow, 'justify-center border border-border text-destructive')}
+              >
+                <LogOut className="size-5 shrink-0 opacity-80" aria-hidden />
+                {tShell('logout')}
+              </button>
+            </div>
           </div>
         </div>
       )}

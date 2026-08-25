@@ -71,6 +71,9 @@
     "emailLabel": "Email",
     "emailOptional": "міндетті емес",
     "faculty": "Факультет",
+    "university": "Университет",
+    "selectUniversity": "Университетті таңдаңыз",
+    "universityRequired": "Университетті таңдаңыз",
     "selectFaculty": "Факультетті таңдаңыз",
     "group": "Топ",
     "selectGroup": "Топты таңдаңыз",
@@ -210,7 +213,13 @@
     "rotate": "Бұру",
     "cancel": "Бас тарту",
     "confirmTitle": "Әрекетті растаңыз",
-    "confirmOk": "Растау"
+    "confirmOk": "Растау",
+    "fieldRequired": "Өрісті толтырыңыз",
+    "dateRequired": "Күнді таңдаңыз",
+    "endAfterStart": "Аяқталу уақыты басталудан кеш болуы керек",
+    "numberRange": "{min} мен {max} аралығындағы санды енгізіңіз",
+    "urlInvalid": "Сілтеме http:// немесе https:// деп басталуы керек",
+    "endNotBeforeStart": "Аяқталу күні басталу күнінен ерте болмауы керек"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -1227,7 +1236,8 @@
     "foldersNamePlaceholder": "Мысалы, «Оқу»",
     "foldersPickChats": "Қалтадағы чаттар: {count}",
     "foldersChatCount": "{count, plural, one {# чат} other {# чат}}",
-    "foldersLimit": "{max} қалтадан көп қолданылмайды"
+    "foldersLimit": "{max} қалтадан көп қолданылмайды",
+    "pollNeedTwoOptions": "Кемінде екі нұсқа қажет"
   },
   "Events": {
     "title": "Іс-шаралар",
@@ -1343,7 +1353,15 @@
     "platformTitle": "Платформа статистикасы",
     "platformSubtitle": "Платформаның әрбір жоосы бойынша көрсеткіштер",
     "noUniversities": "Университеттер жоқ",
-    "chartTitle": "Сан бойынша салыстыру"
+    "chartTitle": "Сан бойынша салыстыру",
+    "universities": "Университеттер",
+    "activeUniversities": "Белсенді ЖОО",
+    "status": "Күйі",
+    "people": "Барлығы адам",
+    "searchUniversity": "ЖОО іздеу",
+    "nothingFound": "Ештеңе табылмады",
+    "universitiesCount": "ЖОО саны: {n}",
+    "totalPeople": "Барлық адам: {n}"
   },
   "People": {
     "myGroup": "Менің тобым",
@@ -1503,19 +1521,26 @@
     "statInReview": "Тексерілуде",
     "statExpiring": "Мерзімі бітуде",
     "statNeedsReplacement": "Ауыстыру қажет",
+    "ovAttention": "Назар аударуды қажет етеді",
+    "ovAttentionEmpty": "Бәрі ретінде: мерзімі өткен және қабылданбаған құжат жоқ",
+    "ovRecent": "Соңғы құжаттар",
+    "ovShowAll": "Барлығы ({n})",
+    "ovExpiresOn": "{date} аяқталады",
+    "ovExpiredOn": "{date} аяқталған",
     "search": "Іздеу",
     "category": "Санат",
     "status": "Мәртебе",
-    "sort": "Сұрыптау",
     "allCategories": "Барлық санат",
     "allStatuses": "Барлық мәртебе",
-    "sortNew": "Алдымен жаңалары",
-    "sortOld": "Алдымен ескілері",
-    "sortExpiring": "Мерзімі бойынша",
-    "sortTitle": "Атауы бойынша",
+    "filtersReset": "Сүзгілерді тазалау",
+    "found": "Табылды: {n}",
     "upload": "Құжат жүктеу",
     "emptyActive": "Әзірге құжат жоқ",
     "emptyArchive": "Мұрағат бос",
+    "emptyActiveDesc": "Құжатты жүктеңіз — ол қорғалған түрде сақталады және тек сіз рұқсат бергендерге ашылады.",
+    "emptyArchiveDesc": "Мұнда сіз мұрағатқа жіберген құжаттар түседі.",
+    "nothingFound": "Ештеңе табылмады",
+    "nothingFoundDesc": "Сұрауды өзгертіңіз немесе сүзгілерді тазалаңыз — құжат басқа бөлімде болуы мүмкін.",
     "actions": "Әрекеттер",
     "actionOpen": "Ашу",
     "actionDownload": "Жүктеп алу",
@@ -1529,9 +1554,9 @@
     "deleted": "Құжат жойылды",
     "fieldTitle": "Атауы",
     "fieldNumber": "Нөмірі",
-    "fieldFiles": "Файлдар",
     "fieldIssuedAt": "Берілген күні",
     "fieldExpiresAt": "Жарамдылық мерзімі",
+    "colAccess": "Қолжетімділік",
     "fieldIssuedBy": "Кім берген",
     "fieldComment": "Түсініктеме",
     "sharedWith": "{count, plural, other {қолжетімділік: # алушы}}",
@@ -1632,6 +1657,8 @@
     "grantRevoked": "Қайтарылды",
     "emptyShared": "Қолжетімділік берілген құжаттар жоқ",
     "emptyIssued": "Университет әзірге құжат бермеген",
+    "emptySharedDesc": "Мұнда университетке, факультетке немесе қызметкерге рұқсат берген құжаттарыңыз көрінеді.",
+    "emptyIssuedDesc": "Университет берген дипломдар, анықтамалар мен бұйрықтар осы жерде автоматты түрде пайда болады.",
     "close": "Жабу",
     "req_title": "Құжат сұрауы",
     "req_emptyStudent": "Сізге арналған сұраулар әзірге жоқ",
@@ -1715,9 +1742,21 @@
     "pa_reason": "Қатынау себебі",
     "pa_reasonHint": "Мысалы: №12 шағымды тексеру",
     "pa_reasonRequired": "Файлдарды ашу үшін себеп көрсетіңіз (кемінде 5 таңба)",
+    "pa_request": "Құжатты ашу",
+    "pa_change": "Сұрауды өзгерту",
+    "pa_reasonLogged": "Негіздеме: {reason}",
     "pa_files": "файлдар: {n}",
     "pa_noFiles": "Құжатта файлдар жоқ",
-    "pa_openFile": "Файл {n}"
+    "pa_openFile": "Файл {n}",
+    "pa_logEmpty": "Бөгде құжаттарға әзірге өтініш болған жоқ",
+    "pa_colDate": "Қашан",
+    "pa_colDocument": "Құжат ID",
+    "pa_colAction": "Өтініш",
+    "pa_actionCard": "Карта",
+    "pa_actionFile": "Файл",
+    "pa_repeat": "Қайталау",
+    "req_targetsRequired": "Кемінде бір алушыны таңдаңыз",
+    "fieldFilesCount": "Файлдар: {n}"
   },
   "DatePicker": {
     "placeholder": "Күн мен уақытты таңдаңыз",
@@ -2210,7 +2249,8 @@
       "lowAttendance": "Қатысу {value}%",
       "overdue": "Мерзімі өтті: {value}",
       "lowGrades": "Орташа {value}%"
-    }
+    },
+    "faculty": "Факультет"
   },
   "Command": {
     "title": "Іздеу және командалар",
@@ -2563,6 +2603,7 @@
     "copy": "Көшіру",
     "copied": "Көшірілді",
     "copyFailed": "Көшіру мүмкін болмады",
+    "empty": "бос",
     "perPage": "Бетте"
   }
 }

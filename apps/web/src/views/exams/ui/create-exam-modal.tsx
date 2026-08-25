@@ -8,6 +8,7 @@ import { CreateExamSchema, type CreateExamInput } from '@studenthub/shared-schem
 import {
   Button,
   DateTimePicker,
+  FieldError,
   Input,
   Label,
   Modal,
@@ -30,6 +31,7 @@ interface Props {
 // Назначение экзамена (декан/преподаватель): дисциплина, дата/время, формат, макс. балл.
 export function CreateExamModal({ mine, onClose }: Props) {
   const t = useTranslations('Exams')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const courses = useQuery({
@@ -43,8 +45,24 @@ export function CreateExamModal({ mine, onClose }: Props) {
   const [format, setFormat] = useState<CreateExamInput['format']>('WRITTEN')
   const [maxScore, setMaxScore] = useState('100')
   const [pending, setPending] = useState(false)
+  // Ошибки — после первой попытки отправки, а не на нетронутой форме.
+  const [submitted, setSubmitted] = useState(false)
+
+  const errors = {
+    course: !courseId ? tCommon('fieldRequired') : null,
+    date: !dateLocal ? tCommon('dateRequired') : null,
+    // Серверная схема: целое 1…1000.
+    maxScore: !maxScore.trim()
+      ? tCommon('fieldRequired')
+      : !Number.isInteger(Number(maxScore)) || Number(maxScore) < 1 || Number(maxScore) > 1000
+        ? tCommon('numberRange', { min: 1, max: 1000 })
+        : null,
+  }
+  const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
   async function onSubmit() {
+    setSubmitted(true)
+    if (Object.values(errors).some(Boolean)) return
     const payload = {
       courseId,
       date: dateLocal ? new Date(dateLocal).toISOString() : '',
@@ -75,7 +93,7 @@ export function CreateExamModal({ mine, onClose }: Props) {
         <div className="flex flex-col gap-1.5">
           <Label>{t('course')}</Label>
           <Select value={courseId} onValueChange={setCourseId}>
-            <SelectTrigger>
+            <SelectTrigger aria-invalid={!!show('course')}>
               <SelectValue placeholder={t('selectCourse')} />
             </SelectTrigger>
             <SelectContent>
@@ -86,11 +104,17 @@ export function CreateExamModal({ mine, onClose }: Props) {
               ))}
             </SelectContent>
           </Select>
+          <FieldError>{show('course')}</FieldError>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
             <Label>{t('dateTime')}</Label>
-            <DateTimePicker value={dateLocal} onChange={setDateLocal} />
+            <DateTimePicker
+              value={dateLocal}
+              onChange={setDateLocal}
+              aria-invalid={!!show('date')}
+            />
+            <FieldError>{show('date')}</FieldError>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>{t('format')}</Label>
@@ -115,13 +139,15 @@ export function CreateExamModal({ mine, onClose }: Props) {
             type="number"
             value={maxScore}
             onChange={(e) => setMaxScore(e.target.value)}
+            aria-invalid={!!show('maxScore')}
           />
+          <FieldError>{show('maxScore')}</FieldError>
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button onClick={onSubmit} loading={pending} disabled={!courseId || !dateLocal}>
+          <Button onClick={onSubmit} loading={pending}>
             {t('create')}
           </Button>
         </div>

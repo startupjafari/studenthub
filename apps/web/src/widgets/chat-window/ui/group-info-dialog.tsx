@@ -328,7 +328,7 @@ export function GroupInfoDialog({
   return (
     <>
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/50 duration-150 animate-in fade-in md:p-4"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-overlay/50 duration-150 animate-in fade-in md:p-4"
         role="dialog"
         aria-modal="true"
         onClick={onClose}

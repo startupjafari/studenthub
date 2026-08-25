@@ -227,7 +227,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
           )}
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             {tCommon('cancel')}
           </Button>

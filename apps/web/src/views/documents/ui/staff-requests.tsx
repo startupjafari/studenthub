@@ -25,6 +25,8 @@ import {
   Button,
   Checkbox,
   EmptyState,
+  DatePicker,
+  FieldError,
   Input,
   Label,
   Select,
@@ -62,7 +64,7 @@ export function StaffRequests() {
   const q = useQuery({ queryKey: documentRequestKeys.authored(), queryFn: fetchAuthoredRequests })
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex justify-end">
         <Button onClick={() => setCreating(true)}>
           <Plus className="size-4" aria-hidden /> {t('req_create')}
@@ -127,6 +129,7 @@ interface DraftItem {
 
 function CreateRequestModal({ onClose }: { onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const myFacultyId = useAppSelector((s) => s.auth.facultyId)
@@ -173,7 +176,13 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
   })
 
   const targetsChosen = toUniversity || (toFaculty && !!myFacultyId)
-  const valid = title.trim().length > 0 && items.length > 0 && targetsChosen
+  // Ошибки показываем после первой попытки создать запрос.
+  const [submitted, setSubmitted] = useState(false)
+  const errors = {
+    title: !title.trim() ? tCommon('fieldRequired') : null,
+    targets: !targetsChosen ? t('req_targetsRequired') : null,
+  }
+  const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
   return (
     <DocModal
@@ -185,7 +194,13 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
           <Button variant="ghost" onClick={onClose}>
             {t('close')}
           </Button>
-          <Button onClick={() => mut.mutate()} loading={mut.isPending} disabled={!valid}>
+          <Button
+            onClick={() => {
+              setSubmitted(true)
+              if (!Object.values(errors).some(Boolean)) mut.mutate()
+            }}
+            loading={mut.isPending}
+          >
             {t('req_create')}
           </Button>
         </>
@@ -199,7 +214,9 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={t('req_fieldTitle')}
+            aria-invalid={!!show('title')}
           />
+          <FieldError>{show('title')}</FieldError>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="req-desc">{t('req_fieldDesc')}</Label>
@@ -211,13 +228,12 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="req-due">{t('req_fieldDue')}</Label>
-          <Input
-            id="req-due"
-            type="date"
+          <Label>{t('req_fieldDue')}</Label>
+          <DatePicker
             value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
+            onChange={setDueAt}
             className="w-48"
+            aria-label={t('req_fieldDue')}
           />
         </div>
 
@@ -300,6 +316,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               {t('req_targetFaculty')}
             </label>
           )}
+          <FieldError>{show('targets')}</FieldError>
         </div>
       </div>
     </DocModal>
@@ -459,9 +476,13 @@ function ReviewItem({
   onError: (e: unknown) => void
 }) {
   const t = useTranslations('Documents')
+  const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState(item.rejectionReason ?? '')
+  // Причина отклонения уходит студенту — без неё отклонять нечего объяснить.
+  const [tried, setTried] = useState(false)
+  const reasonError = !reason.trim() ? tCommon('fieldRequired') : null
 
   const reviewMut = useMutation({
     mutationFn: (payload: { status: 'ACCEPTED' | 'REJECTED'; rejectionReason?: string }) =>
@@ -534,16 +555,20 @@ function ReviewItem({
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder={t('req_rejectReasonPlaceholder')}
+                aria-invalid={tried && !!reasonError}
               />
+              <FieldError>{tried ? reasonError : null}</FieldError>
               <div className="flex gap-2">
                 <Button
                   size="sm"
                   variant="destructive"
-                  disabled={!reason.trim()}
                   loading={reviewMut.isPending}
-                  onClick={() =>
-                    reviewMut.mutate({ status: 'REJECTED', rejectionReason: reason.trim() })
-                  }
+                  onClick={() => {
+                    setTried(true)
+                    if (!reasonError) {
+                      reviewMut.mutate({ status: 'REJECTED', rejectionReason: reason.trim() })
+                    }
+                  }}
                 >
                   {t('req_confirmReject')}
                 </Button>

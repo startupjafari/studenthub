@@ -81,7 +81,7 @@ export function BookSlotModal({ slot, onClose }: { slot: ConsultationSlot; onClo
             placeholder={t('topicPlaceholder')}
           />
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
