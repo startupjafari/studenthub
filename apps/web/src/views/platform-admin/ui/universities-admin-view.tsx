@@ -61,7 +61,7 @@ export function UniversitiesAdminView() {
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
-          <Button size="field" onClick={() => setCreateOpen(true)}>
+          <Button size="md" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" aria-hidden />
             {t('add')}
           </Button>

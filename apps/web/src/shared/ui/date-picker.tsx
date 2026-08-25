@@ -5,6 +5,7 @@ import { Popover as PopoverPrimitive } from 'radix-ui'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { FIELD_SIZE, type ControlSize } from './control-size'
 import { dayStart, formatYmd, monthCells, parseYmd, sameDay } from './calendar-grid'
 
 export interface DatePickerProps {
@@ -15,6 +16,8 @@ export interface DatePickerProps {
   max?: string
   disabled?: boolean
   className?: string
+  /** Размер из общей шкалы контролов (control-size.ts). */
+  size?: ControlSize
   placeholder?: string
   'aria-label'?: string
   /** Поле с ошибкой: рамка и кольцо становятся красными (DESIGN_SYSTEM §8). */
@@ -24,6 +27,7 @@ export interface DatePickerProps {
 // Кастомный выбор даты (без времени): поповер с сеткой месяца. Без внешних зависимостей
 // (новая зависимость = стоп-точка); на Radix Popover — корректно работает внутри модалок.
 export function DatePicker({
+  size = 'lg',
   value,
   onChange,
   min,
@@ -85,7 +89,10 @@ export function DatePicker({
             type="button"
             aria-label={ariaLabel}
             aria-invalid={ariaInvalid}
-            className="flex h-10 w-full items-center gap-2 rounded-xl border border-input bg-background pl-3 pr-9 text-left text-sm outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-4 aria-invalid:ring-destructive/15 dark:bg-input/30"
+            className={cn(
+              'flex w-full items-center gap-2 rounded-xl border border-input bg-background pr-9 pl-3 text-left outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-4 aria-invalid:ring-destructive/15 dark:bg-input/30',
+              FIELD_SIZE[size],
+            )}
           >
             <CalendarDays className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className={cn('truncate', !selected && 'text-muted-foreground')}>{label}</span>

@@ -103,7 +103,7 @@ export function ComplaintsQueueView() {
             value={priority}
             onValueChange={(v) => refilter(() => setPriority(v as ComplaintPriorityValue | 'all'))}
           >
-            <SelectTrigger className="h-9 w-40 text-sm" aria-label={t('colPriority')}>
+            <SelectTrigger size="md" className="w-40" aria-label={t('colPriority')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

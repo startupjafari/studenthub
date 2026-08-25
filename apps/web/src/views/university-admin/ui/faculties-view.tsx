@@ -119,7 +119,8 @@ export function FacultiesAdminView() {
               </div>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="sm"
+                icon
                 aria-label={t('delete')}
                 loading={deleteMut.isPending && deleteMut.variables === f.id}
                 onClick={() => {

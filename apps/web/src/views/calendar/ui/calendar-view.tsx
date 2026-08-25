@@ -129,7 +129,8 @@ export function CalendarView() {
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
-            size="icon"
+            size="lg"
+            icon
             onClick={() => shiftMonth(-1)}
             aria-label={t('prev')}
           >
@@ -137,7 +138,8 @@ export function CalendarView() {
           </Button>
           <Button
             variant="outline"
-            size="icon"
+            size="lg"
+            icon
             onClick={() => shiftMonth(1)}
             aria-label={t('next')}
           >

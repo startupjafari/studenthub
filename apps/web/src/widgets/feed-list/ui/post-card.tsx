@@ -354,7 +354,8 @@ function Comments({ postId }: { postId: string }) {
         )}
         <Button
           type="button"
-          size="icon-sm"
+          size="sm"
+          icon
           aria-label={t('send')}
           loading={addMut.isPending}
           disabled={text.trim().length === 0}

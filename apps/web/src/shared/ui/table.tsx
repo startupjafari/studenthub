@@ -487,7 +487,8 @@ export function TablePagination({
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          size="sm"
+          icon
           aria-label={t('prev')}
           disabled={current <= 1}
           onClick={() => onPageChange(current - 1)}
@@ -504,7 +505,8 @@ export function TablePagination({
               key={item}
               type="button"
               variant={item === current ? 'default' : 'ghost'}
-              size="icon-sm"
+              size="sm"
+              icon
               aria-label={t('goToPage', { page: item })}
               aria-current={item === current ? 'page' : undefined}
               className="tabular-nums"
@@ -517,7 +519,8 @@ export function TablePagination({
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          size="sm"
+          icon
           aria-label={t('next')}
           disabled={current >= pages}
           onClick={() => onPageChange(current + 1)}

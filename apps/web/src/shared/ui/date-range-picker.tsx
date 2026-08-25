@@ -5,6 +5,7 @@ import { Popover as PopoverPrimitive } from 'radix-ui'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarRange, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { FIELD_SIZE, type ControlSize } from './control-size'
 import { dayStart, formatYmd, monthCells, parseYmd, sameDay } from './calendar-grid'
 
 // Период: обе границы — "YYYY-MM-DD" ('' если не заданы).
@@ -27,6 +28,7 @@ export interface DateRangePickerProps {
 // Кастомный выбор периода дат: два клика (начало → конец) на сетке месяца, подсветка диапазона
 // и превью при наведении. Без внешних зависимостей; на Radix Popover.
 export function DateRangePicker({
+  size = 'lg',
   value,
   onChange,
   min,
@@ -35,7 +37,7 @@ export function DateRangePicker({
   className,
   placeholder,
   'aria-label': ariaLabel,
-}: DateRangePickerProps) {
+}: DateRangePickerProps & { size?: ControlSize }) {
   const t = useTranslations('DatePicker')
   const locale = useLocale()
   const [open, setOpen] = useState(false)
@@ -111,7 +113,10 @@ export function DateRangePicker({
           <button
             type="button"
             aria-label={ariaLabel}
-            className="flex h-10 w-full items-center gap-2 rounded-xl border border-input bg-background pl-3 pr-9 text-left text-sm outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 dark:bg-input/30"
+            className={cn(
+              'flex w-full items-center gap-2 rounded-xl border border-input bg-background pr-9 pl-3 text-left outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 dark:bg-input/30',
+              FIELD_SIZE[size],
+            )}
           >
             <CalendarRange className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className={cn('truncate', !from && 'text-muted-foreground')}>{label}</span>

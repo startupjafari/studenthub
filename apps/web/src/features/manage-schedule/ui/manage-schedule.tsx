@@ -293,7 +293,8 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
+                    size="lg"
+                    icon
                     aria-label={t('createContainer')}
                     onClick={() => setNewContainerOpen((v) => !v)}
                   >

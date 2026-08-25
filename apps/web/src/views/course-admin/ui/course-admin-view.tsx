@@ -259,7 +259,7 @@ function SectionHeader({
 
 function DeleteButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
-    <Button variant="ghost" size="icon-sm" onClick={onClick} aria-label={label}>
+    <Button variant="ghost" size="sm" icon onClick={onClick} aria-label={label}>
       <Trash2 className="size-4 text-muted-foreground" aria-hidden />
     </Button>
   )

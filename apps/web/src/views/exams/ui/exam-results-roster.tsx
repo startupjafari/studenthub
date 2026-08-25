@@ -126,7 +126,7 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                         value={r.status}
                         onValueChange={(v) => patch(s.studentId, { status: v as ExamResultStatus })}
                       >
-                        <SelectTrigger className="h-9">
+                        <SelectTrigger size="md">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -142,7 +142,8 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                       type="number"
                       value={r.score}
                       onChange={(e) => patch(s.studentId, { score: e.target.value })}
-                      className="h-9 w-20 text-center"
+                      size="md"
+                      className="w-20 text-center"
                       placeholder={t('scoreShort')}
                     />
                   </li>

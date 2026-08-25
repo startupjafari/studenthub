@@ -99,7 +99,7 @@ export function PlatformDocumentsView() {
         title={t('pa_title')}
         subtitle={t('pa_subtitle')}
         actions={
-          <Button size="field" onClick={() => openForm()}>
+          <Button size="md" onClick={() => openForm()}>
             <FileSearch className="size-4" aria-hidden /> {t('pa_request')}
           </Button>
         }

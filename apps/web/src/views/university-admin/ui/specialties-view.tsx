@@ -112,7 +112,8 @@ export function SpecialtiesAdminView() {
               </div>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="sm"
+                icon
                 aria-label={t('delete')}
                 loading={deleteMut.isPending && deleteMut.variables === s.id}
                 onClick={() => {

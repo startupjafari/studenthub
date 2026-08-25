@@ -24,6 +24,12 @@ export interface ModalProps {
   size?: keyof typeof SIZE
   children: ReactNode
   className?: string
+  /**
+   * Классы тела окна. По умолчанию — прокручиваемая колонка с отступом `p-5`.
+   * Нужен, когда содержимое рисует свои отступы и скролл само (панель, таблица во всю ширину):
+   * `bodyClassName="overflow-hidden p-0"`.
+   */
+  bodyClassName?: string
 }
 
 // Единая оболочка модального окна на Radix Dialog: [← (опц.)] Заголовок … [крестик].
@@ -37,6 +43,7 @@ export function Modal({
   size = 'xl',
   children,
   className,
+  bodyClassName,
 }: ModalProps) {
   const t = useTranslations('Common')
 
@@ -82,7 +89,9 @@ export function Modal({
               <X className="size-4" aria-hidden />
             </DialogPrimitive.Close>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">{children}</div>
+          <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>
+            {children}
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

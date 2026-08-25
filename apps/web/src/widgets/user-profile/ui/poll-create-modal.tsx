@@ -199,7 +199,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
             <div className="flex flex-col gap-2">
               <Label>{t('pollResultsLabel')}</Label>
               <Select value={resultsVisibility} onValueChange={setResultsVisibility}>
-                <SelectTrigger className="h-11">
+                <SelectTrigger size="xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -215,7 +215,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
             <div className="flex flex-col gap-2">
               <Label>{t('pollClose')}</Label>
               <Select value={closePreset} onValueChange={(v) => setClosePreset(v as ClosePreset)}>
-                <SelectTrigger className="h-11">
+                <SelectTrigger size="xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -238,7 +238,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
             <div className="flex flex-col gap-2">
               <Label>{t('pollVisibility')}</Label>
               <Select value={visibility} onValueChange={setVisibility}>
-                <SelectTrigger className="h-11">
+                <SelectTrigger size="xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -114,7 +114,8 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
         {group.starostaId && <Badge variant="info">{t('hasStarosta')}</Badge>}
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="sm"
+          icon
           aria-label={t('delete')}
           loading={deleteMut.isPending}
           onClick={() => {

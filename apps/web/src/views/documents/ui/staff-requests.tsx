@@ -282,7 +282,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               {items.length > 1 && (
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="lg"
+                  icon
                   aria-label={t('req_removeItem')}
                   onClick={() => setItems(items.filter((_, j) => j !== i))}
                 >

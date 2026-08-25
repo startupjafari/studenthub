@@ -339,7 +339,8 @@ export function CreateInvite() {
                   {inv.status === 'PENDING' && (
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="sm"
+                      icon
                       aria-label={t('revoke')}
                       loading={revokeMut.isPending && revokeMut.variables === inv.id}
                       onClick={() => {

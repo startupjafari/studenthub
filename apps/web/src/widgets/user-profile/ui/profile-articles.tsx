@@ -331,7 +331,8 @@ function ArticleCard({
           <Button
             type="button"
             variant="secondary"
-            size="icon-sm"
+            size="sm"
+            icon
             aria-label={t('edit')}
             onClick={onEdit}
           >
@@ -340,7 +341,8 @@ function ArticleCard({
           <Button
             type="button"
             variant="secondary"
-            size="icon-sm"
+            size="sm"
+            icon
             aria-label={t('delete')}
             onClick={onDelete}
           >
