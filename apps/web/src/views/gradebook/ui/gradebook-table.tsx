@@ -174,7 +174,7 @@ export function GradebookTable({ courseId }: { courseId: string }) {
   const columnMenu = (col: GradeColumnItem) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-xs" aria-label={t('columnActions')}>
+        <Button variant="ghost" size="sm" icon aria-label={t('columnActions')}>
           <MoreHorizontal className="size-3.5" aria-hidden />
         </Button>
       </DropdownMenuTrigger>

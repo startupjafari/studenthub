@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, Plus, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { FIELD_SIZE, type ControlSize } from './control-size'
 
 interface DictSingleSelectProps {
   value: string
@@ -38,7 +39,13 @@ function computeMenuPos(r: DOMRect): MenuPos {
 
 // Одиночный выбор из справочника + свободный ввод («другой»): для полей вроде «Страна»/«Статус».
 // Меню рендерим в портал (карточки имеют overflow-hidden — иначе список обрезается).
-export function DictSingleSelect({ value, onChange, options, renderItem }: DictSingleSelectProps) {
+export function DictSingleSelect({
+  value,
+  onChange,
+  options,
+  renderItem,
+  size = 'lg',
+}: DictSingleSelectProps & { size?: ControlSize }) {
   const t = useTranslations('Profile')
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -88,7 +95,10 @@ export function DictSingleSelect({ value, onChange, options, renderItem }: DictS
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-input bg-background px-3.5 text-base outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 md:text-sm dark:bg-input/30"
+        className={cn(
+          'flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-input bg-background outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 dark:bg-input/30',
+          FIELD_SIZE[size],
+        )}
       >
         <span
           className={cn('flex items-center gap-1.5 truncate', !value && 'text-muted-foreground/70')}

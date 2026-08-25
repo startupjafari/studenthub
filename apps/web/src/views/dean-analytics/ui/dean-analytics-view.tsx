@@ -96,7 +96,7 @@ export function DeanAnalyticsView() {
         actions={
           picksFaculty ? (
             <Select value={facultyId} onValueChange={setFacultyId}>
-              <SelectTrigger className="h-9 w-56 text-sm" aria-label={t('faculty')}>
+              <SelectTrigger size="md" className="w-56" aria-label={t('faculty')}>
                 <SelectValue placeholder={t('faculty')} />
               </SelectTrigger>
               <SelectContent>

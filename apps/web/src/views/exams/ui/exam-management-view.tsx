@@ -159,7 +159,7 @@ function ExamRow({
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={t('actions')}>
+            <Button variant="ghost" size="sm" icon aria-label={t('actions')}>
               <MoreHorizontal className="size-4" aria-hidden />
             </Button>
           </DropdownMenuTrigger>

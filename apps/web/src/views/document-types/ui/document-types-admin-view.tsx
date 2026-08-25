@@ -159,7 +159,8 @@ function TypeRow({
           onChange={(e) => setRetention(e.target.value)}
           onBlur={saveRetention}
           placeholder={t('dt_retention')}
-          className="h-9 w-28"
+          size="md"
+          className="w-28"
           aria-label={t('dt_retention')}
         />
         <span className="text-xs text-muted-foreground">{t('dt_days')}</span>
@@ -167,7 +168,8 @@ function TypeRow({
 
       <Button
         variant="ghost"
-        size="icon"
+        size="lg"
+        icon
         aria-label={row.custom ? t('dt_delete') : t('dt_reset')}
         loading={removeMut.isPending}
         onClick={() => removeMut.mutate()}

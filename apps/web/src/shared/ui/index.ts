@@ -1,3 +1,11 @@
+export {
+  CONTROL_SIZE,
+  CONTROL_SIZES,
+  CONTROL_SQUARE,
+  FIELD_SIZE,
+  AREA_SIZE,
+  type ControlSize,
+} from './control-size'
 export { Button, buttonVariants } from './button'
 export { Input } from './input'
 export { CodeInput, type CodeAlphabet, type CodeInputProps } from './code-input'

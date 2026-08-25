@@ -206,7 +206,8 @@ function MaterialCard({ material, canManage }: { material: Material; canManage: 
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
+              size="sm"
+              icon
               aria-label={t('delete')}
               loading={deleteMut.isPending}
               onClick={() => {

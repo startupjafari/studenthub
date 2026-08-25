@@ -138,7 +138,7 @@ export function DocumentsList({
 
   const uploadButton =
     preset === 'active' ? (
-      <Button type="button" size="field" onClick={() => setUploading(true)}>
+      <Button type="button" size="md" onClick={() => setUploading(true)}>
         <Plus className="size-4" aria-hidden /> {t('upload')}
       </Button>
     ) : null
@@ -176,7 +176,7 @@ export function DocumentsList({
           />
         </div>
         <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger aria-label={t('category')} className="h-9 w-40 text-sm">
+          <SelectTrigger aria-label={t('category')} size="md" className="w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -189,7 +189,7 @@ export function DocumentsList({
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger aria-label={t('status')} className="h-9 w-40 text-sm">
+          <SelectTrigger aria-label={t('status')} size="md" className="w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -204,7 +204,7 @@ export function DocumentsList({
         {/* Кнопка сброса появляется только когда есть что сбрасывать — иначе она просто
             занимает место в панели. */}
         {filtered && (
-          <Button type="button" variant="ghost" size="field" onClick={resetFilters}>
+          <Button type="button" variant="ghost" size="md" onClick={resetFilters}>
             <FilterX className="size-4" aria-hidden /> {t('filtersReset')}
           </Button>
         )}

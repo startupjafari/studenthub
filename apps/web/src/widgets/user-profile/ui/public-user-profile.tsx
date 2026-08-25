@@ -122,7 +122,8 @@ export function PublicUserProfile({ userId }: { userId: string }) {
         {/* Назад — иконкой поверх обложки слева, чтобы не занимать место сверху. */}
         <Button
           variant="secondary"
-          size="icon"
+          size="lg"
+          icon
           onClick={() => router.back()}
           aria-label={tCommon('goBack')}
           className="absolute top-3 left-3 z-20 rounded-full shadow-md"

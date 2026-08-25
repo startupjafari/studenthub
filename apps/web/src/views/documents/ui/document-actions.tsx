@@ -111,7 +111,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" aria-label={t('actions')}>
+          <Button type="button" variant="ghost" size="sm" icon aria-label={t('actions')}>
             <MoreHorizontal className="size-4" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
