@@ -8,6 +8,7 @@ import { CreateAppointmentSchema, type CreateAppointmentInput } from '@studenthu
 import {
   Button,
   DateTimePicker,
+  FieldError,
   Label,
   Modal,
   Select,
@@ -24,14 +25,20 @@ import { APPOINTMENT_TYPES, typeKey } from '../lib/visuals'
 // Модалка записи в деканат (студент): тип приёма, желаемое время, тема.
 export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
   const t = useTranslations('Appointments')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const [type, setType] = useState<CreateAppointmentInput['type']>('CONSULTATION')
   const [whenLocal, setWhenLocal] = useState('')
   const [topic, setTopic] = useState('')
   const [pending, setPending] = useState(false)
+  // Ошибку показываем после первой попытки отправки, а не на пустой форме.
+  const [submitted, setSubmitted] = useState(false)
+  const whenError = !whenLocal ? tCommon('dateRequired') : null
 
   async function onSubmit() {
+    setSubmitted(true)
+    if (whenError) return
     const payload = {
       type,
       requestedAt: whenLocal ? new Date(whenLocal).toISOString() : '',
@@ -75,7 +82,12 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>{t('preferredTime')}</Label>
-          <DateTimePicker value={whenLocal} onChange={setWhenLocal} />
+          <DateTimePicker
+            value={whenLocal}
+            onChange={setWhenLocal}
+            aria-invalid={submitted && !!whenError}
+          />
+          <FieldError>{submitted ? whenError : null}</FieldError>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="appt-topic">{t('topic')}</Label>
@@ -87,11 +99,11 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
             placeholder={t('topicPlaceholder')}
           />
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button onClick={onSubmit} loading={pending} disabled={!whenLocal}>
+          <Button onClick={onSubmit} loading={pending}>
             {t('submit')}
           </Button>
         </div>

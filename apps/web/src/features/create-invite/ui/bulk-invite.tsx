@@ -230,8 +230,10 @@ function PreviewTable({
               <TableCell>
                 <Badge variant={STATUS_VARIANT[r.status]}>{t(`bulk.status${r.status}`)}</Badge>
               </TableCell>
+              {/* Колонка ошибки: у годной строки её просто нет — это не пустое значение,
+                  а отсутствие проблемы, поэтому здесь без «пусто». */}
               <TableCell className="text-xs text-muted-foreground">
-                <TableText value={r.error ?? ''} />
+                {r.error ? <TableText value={r.error} /> : null}
               </TableCell>
             </TableRow>
           ))}

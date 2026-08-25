@@ -12,6 +12,7 @@ import {
 import {
   Button,
   DatePicker,
+  FieldError,
   Input,
   Label,
   Modal,
@@ -55,6 +56,7 @@ function isoToYmd(iso: string | null | undefined): string {
 // Модалка создания/редактирования записи портфолио (задача 21).
 export function PortfolioItemModal({ item, defaultKind, onClose }: Props) {
   const t = useTranslations('Portfolio')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
 
@@ -69,8 +71,19 @@ export function PortfolioItemModal({ item, defaultKind, onClose }: Props) {
     item?.visibility ?? 'UNIVERSITY',
   )
   const [pending, setPending] = useState(false)
+  // Ошибки — после первой попытки сохранить, а не на только что открытой форме.
+  const [submitted, setSubmitted] = useState(false)
+
+  const errors = {
+    title: !title.trim() ? tCommon('fieldRequired') : null,
+    url: url.trim() && !/^https?:\/\/\S+$/i.test(url.trim()) ? tCommon('urlInvalid') : null,
+    endDate: startDate && endDate && endDate < startDate ? tCommon('endNotBeforeStart') : null,
+  }
+  const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
   async function onSubmit() {
+    setSubmitted(true)
+    if (Object.values(errors).some(Boolean)) return
     setPending(true)
     try {
       if (item) {
@@ -148,7 +161,9 @@ export function PortfolioItemModal({ item, defaultKind, onClose }: Props) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={t('titlePlaceholder')}
+            aria-invalid={!!show('title')}
           />
+          <FieldError>{show('title')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -168,7 +183,13 @@ export function PortfolioItemModal({ item, defaultKind, onClose }: Props) {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>{t('endDate')}</Label>
-            <DatePicker value={endDate} onChange={setEndDate} min={startDate || undefined} />
+            <DatePicker
+              value={endDate}
+              onChange={setEndDate}
+              min={startDate || undefined}
+              aria-invalid={!!show('endDate')}
+            />
+            <FieldError>{show('endDate')}</FieldError>
           </div>
         </div>
 
@@ -190,7 +211,9 @@ export function PortfolioItemModal({ item, defaultKind, onClose }: Props) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://"
+            aria-invalid={!!show('url')}
           />
+          <FieldError>{show('url')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -209,11 +232,11 @@ export function PortfolioItemModal({ item, defaultKind, onClose }: Props) {
           </Select>
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between gap-2">
           <Button variant="outline" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button onClick={onSubmit} loading={pending} disabled={!title.trim()}>
+          <Button onClick={onSubmit} loading={pending}>
             {t('save')}
           </Button>
         </div>

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -23,6 +24,7 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  DateTimePicker,
   FormAlert,
   Input,
   Label,
@@ -75,12 +77,18 @@ export function CreateEventForm() {
     enabled: showFaculty,
   })
 
+  // Пикеры хранят локальное время ("YYYY-MM-DDTHH:mm"), в форму уходит ISO UTC.
+  const [startLocal, setStartLocal] = useState('')
+  const [endLocal, setEndLocal] = useState('')
+
   const mutation = useMutation({
     mutationFn: (input: CreateEventInput) => createEventRequest(input),
     onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: eventKeys.all })
       form.reset({ audience: audiences[0], isOnline: false })
+      setStartLocal('')
+      setEndLocal('')
       toast.success(t('created'))
     },
     onError: (e) => showApiError(e),
@@ -195,13 +203,14 @@ export function CreateEventForm() {
           )}
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="ev-start">{t('startsAt')}</Label>
-            <Input
-              id="ev-start"
-              type="datetime-local"
-              onChange={(e) =>
-                form.setValue('startsAt', toIso(e.target.value), { shouldValidate: true })
-              }
+            <Label>{t('startsAt')}</Label>
+            <DateTimePicker
+              value={startLocal}
+              aria-label={t('startsAt')}
+              onChange={(v) => {
+                setStartLocal(v)
+                form.setValue('startsAt', toIso(v), { shouldValidate: true })
+              }}
             />
             {form.formState.errors.startsAt && (
               <p className="text-xs text-destructive">{t('required')}</p>
@@ -209,15 +218,15 @@ export function CreateEventForm() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="ev-end">{t('endsAt')}</Label>
-            <Input
-              id="ev-end"
-              type="datetime-local"
-              onChange={(e) =>
-                form.setValue('endsAt', e.target.value ? toIso(e.target.value) : undefined, {
-                  shouldValidate: true,
-                })
-              }
+            <Label>{t('endsAt')}</Label>
+            <DateTimePicker
+              value={endLocal}
+              min={startLocal || undefined}
+              aria-label={t('endsAt')}
+              onChange={(v) => {
+                setEndLocal(v)
+                form.setValue('endsAt', v ? toIso(v) : undefined, { shouldValidate: true })
+              }}
             />
             {form.formState.errors.endsAt && (
               <p className="text-xs text-destructive">{form.formState.errors.endsAt.message}</p>

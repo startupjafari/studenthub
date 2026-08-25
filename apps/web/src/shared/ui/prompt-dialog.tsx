@@ -44,7 +44,7 @@ export function PromptDialog({
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-foreground/50 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-overlay/50 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-2xl border border-border bg-card p-6 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
           <div className="flex items-center justify-between gap-3">
             <DialogPrimitive.Title className="text-base font-semibold">
@@ -80,7 +80,7 @@ export function PromptDialog({
                 onChange={(e) => setValue(e.target.value)}
               />
             )}
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-between gap-2">
               <Button type="button" variant="outline" onClick={onClose}>
                 {cancelLabel}
               </Button>
