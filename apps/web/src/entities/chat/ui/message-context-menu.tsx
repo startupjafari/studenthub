@@ -193,7 +193,7 @@ export function MessageContextMenu({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-foreground/40 duration-150 animate-in fade-in md:bg-transparent"
+      className="fixed inset-0 z-50 bg-overlay/40 duration-150 animate-in fade-in md:bg-transparent"
       role="menu"
       aria-label={t('messageActions')}
       onClick={onClose}

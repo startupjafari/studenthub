@@ -284,11 +284,14 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      {/* Колонка, а не просто скролл-контейнер: состояния (скелетон, «нет уведомлений»)
+          занимают всю высоту панели, а не жмутся полоской под фильтрами. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {list.isLoading ? (
-          <div className="flex flex-col gap-2 p-2">
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
+          <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="min-h-14 w-full flex-1" />
+            ))}
           </div>
         ) : items.length === 0 ? (
           <EmptyState

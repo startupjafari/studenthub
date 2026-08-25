@@ -12,11 +12,16 @@ export interface EmptyStateProps {
 
 // Универсальное пустое/«скоро» состояние (docs/FRONTEND_RULES.md §9: у асинхронных
 // экранов обязательно осмысленное empty-состояние).
+//
+// `min-h-0 flex-1` — состояние занимает всю доступную высоту блока: в flex-колонке
+// (панель, карточка, страница с таблицей) оно растягивается и центрируется по вертикали,
+// а не жмётся полоской у верхнего края. В обычном потоке эти классы ничего не меняют,
+// поэтому проп-переключатель не нужен.
 export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border p-10 text-center',
+        'flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border p-10 text-center',
         className,
       )}
     >

@@ -25,6 +25,7 @@ import {
   DialogTitle,
   EmptyState,
   FormAlert,
+  DatePicker,
   Input,
   Label,
   Select,
@@ -464,8 +465,18 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
                         </div>
 
                         <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="cdate">{t('date')}</Label>
-                          <Input id="cdate" type="date" {...changeForm.register('date')} />
+                          <Label>{t('date')}</Label>
+                          <Controller
+                            control={changeForm.control}
+                            name="date"
+                            render={({ field }) => (
+                              <DatePicker
+                                value={field.value ?? ''}
+                                onChange={field.onChange}
+                                aria-label={t('date')}
+                              />
+                            )}
+                          />
                           {changeForm.formState.errors.date && (
                             <p className="text-xs text-destructive">{t('required')}</p>
                           )}

@@ -983,6 +983,242 @@ async function main() {
   }
   counts.materials = await insertMany(prisma.material, matRows)
 
+  // ── Документы (Ф15): личные и выданные вузом, доступы, журнал, запрос вуза ───
+  // Файлы намеренно не создаём: объектов в MinIO нет, и «Открыть/Скачать» вело бы
+  // в ошибку хранилища. Документы живут метаданными — этого хватает всем экранам
+  // раздела, кроме просмотра содержимого.
+  const DOC_TEMPLATES = [
+    // [type, category, статус, срок действия в днях от сегодня (null — бессрочно)]
+    ['ID_CARD', 'PERSONAL', 'ACCEPTED', 900],
+    ['PASSPORT', 'PERSONAL', 'VERIFIED', 1600],
+    ['SCHOOL_CERTIFICATE', 'ACADEMIC', 'ACCEPTED', null],
+    ['MEDICAL', 'CERTIFICATE', 'UPLOADED', 12],
+    ['STUDY_PLACE', 'CERTIFICATE', 'IN_REVIEW', 45],
+    ['MILITARY_DOCS', 'CERTIFICATE', 'DRAFT', null],
+    ['SOCIAL_REFERENCE', 'CERTIFICATE', 'REJECTED', -20],
+    ['BENEFITS_DOCS', 'CERTIFICATE', 'NEEDS_REPLACEMENT', -5],
+  ]
+  const DOC_TITLES = {
+    ID_CARD: 'Удостоверение личности',
+    PASSPORT: 'Паспорт',
+    SCHOOL_CERTIFICATE: 'Аттестат о среднем образовании',
+    MEDICAL: 'Медицинская справка 086-У',
+    STUDY_PLACE: 'Справка с места учёбы',
+    MILITARY_DOCS: 'Приписное свидетельство',
+    SOCIAL_REFERENCE: 'Справка о составе семьи',
+    BENEFITS_DOCS: 'Документ о льготах',
+    STUDENT_ID: 'Студенческий билет',
+    ENROLLMENT_ORDER: 'Приказ о зачислении',
+    STUDY_CONTRACT: 'Договор об оказании образовательных услуг',
+    CAMPUS_PASS: 'Пропуск в кампус',
+  }
+  const ISSUERS = {
+    PERSONAL: 'МВД РК',
+    ACADEMIC: 'МОН РК',
+    CERTIFICATE: 'Городская поликлиника №4',
+    ISSUED_BY_UNIVERSITY: 'Университет «Алатау»',
+  }
+
+  const docRows = []
+  const docAccessRows = []
+  const docEventRows = []
+  // Документы есть у первых четырёх студентов каждой группы — этого хватает для
+  // списков, обзора и запросов вуза, но seed не раздувается на все 348 человек.
+  const docOwners = []
+  for (const g of groupList) {
+    for (const sid of g.studentIds.slice(0, 4)) docOwners.push({ sid, g })
+  }
+
+  for (const [oi, { sid, g }] of docOwners.entries()) {
+    // Набор личных документов: у каждого свои 4–6 позиций из шаблонов.
+    const take = randInt(4, DOC_TEMPLATES.length)
+    for (let i = 0; i < take; i += 1) {
+      const [type, category, status, expiresIn] = DOC_TEMPLATES[i]
+      const id = `seed-doc-${sid}-${type}`
+      const archived = status === 'ACCEPTED' && chance(0.12)
+      const last4 = String(1000 + randInt(0, 8999))
+      docRows.push({
+        id,
+        ownerId: sid,
+        universityId: U,
+        category,
+        type,
+        title: DOC_TITLES[type] ?? type,
+        number: `AA${randInt(100000, 999999)}${last4}`,
+        numberLast4: last4,
+        issuedBy: ISSUERS[category],
+        issuedAt: daysFromNow(-randInt(200, 2000)),
+        expiresAt: expiresIn === null ? null : daysFromNow(expiresIn),
+        status: archived ? 'ARCHIVED' : status,
+        rejectionReason: status === 'REJECTED' ? 'Скан нечитаемый — переснимите документ' : null,
+        archivedAt: archived ? daysFromNow(-randInt(10, 120)) : null,
+        createdAt: daysFromNow(-randInt(5, 400)),
+      })
+      docEventRows.push({
+        id: `seed-docev-${id}-up`,
+        documentId: id,
+        actorId: sid,
+        action: 'UPLOAD',
+        createdAt: daysFromNow(-randInt(5, 400)),
+      })
+      // Часть документов открыта вузу или факультету: активные гранты, отозванные
+      // и просроченные — раздел «Управление доступом» должен показывать все три.
+      if (i < 2 && chance(0.6)) {
+        const expired = chance(0.35)
+        const revoked = !expired && chance(0.25)
+        docAccessRows.push({
+          id: `seed-docacc-${id}`,
+          documentId: id,
+          granteeType: chance(0.6) ? 'UNIVERSITY' : 'DEPARTMENT',
+          granteeId: chance(0.6) ? null : g.facId,
+          reason: pick([
+            'оформление личного дела',
+            'проверка данных при заселении',
+            'подготовка приказа о зачислении',
+          ]),
+          grantedById: sid,
+          grantedAt: daysFromNow(-randInt(30, 300)),
+          expiresAt: expired ? daysFromNow(-randInt(1, 40)) : chance(0.5) ? daysFromNow(180) : null,
+          revokedAt: revoked ? daysFromNow(-randInt(1, 20)) : null,
+        })
+        docEventRows.push({
+          id: `seed-docev-${id}-grant`,
+          documentId: id,
+          actorId: sid,
+          action: 'GRANT',
+          createdAt: daysFromNow(-randInt(30, 300)),
+        })
+      }
+    }
+
+    // Выданные вузом (раздел «Документы от университета»).
+    for (const type of ['STUDENT_ID', 'ENROLLMENT_ORDER', 'CAMPUS_PASS']) {
+      if (type === 'CAMPUS_PASS' && oi % 3 !== 0) continue
+      const id = `seed-doc-${sid}-${type}`
+      const last4 = String(1000 + randInt(0, 8999))
+      docRows.push({
+        id,
+        ownerId: sid,
+        universityId: U,
+        category: 'ISSUED_BY_UNIVERSITY',
+        type,
+        title: DOC_TITLES[type],
+        number: `${g.year}-${last4}`,
+        numberLast4: last4,
+        issuedBy: ISSUERS.ISSUED_BY_UNIVERSITY,
+        issuedAt: new Date(`${g.year}-09-01`),
+        expiresAt: type === 'CAMPUS_PASS' ? daysFromNow(randInt(-10, 25)) : null,
+        status: 'ACCEPTED',
+        issuedByUniversity: true,
+        createdAt: new Date(`${g.year}-09-01`),
+      })
+    }
+  }
+  counts.documents = await insertMany(prisma.document, docRows)
+  counts.documentAccess = await insertMany(prisma.documentAccess, docAccessRows)
+  counts.documentEvents = await insertMany(prisma.documentEvent, docEventRows)
+
+  // Запрос вуза на комплект документов + ответы студентов (Ф15C/D).
+  const reqId = 'seed-docreq-001'
+  await prisma.documentRequest.upsert({
+    where: { id: reqId },
+    update: {},
+    create: {
+      id: reqId,
+      universityId: U,
+      createdById: FACS[0].deanId,
+      title: 'Комплект документов на новый учебный год',
+      description: 'Загрузите действующие документы до начала сессии.',
+      dueAt: daysFromNow(21),
+      status: 'OPEN',
+    },
+  })
+  const reqItems = [
+    ['ID_CARD', 'Удостоверение личности', true],
+    ['MEDICAL', 'Медицинская справка 086-У', true],
+    ['SOCIAL_REFERENCE', 'Справка о составе семьи', false],
+  ]
+  await insertMany(
+    prisma.documentRequestItem,
+    reqItems.map(([type, title, required], i) => ({
+      id: `seed-docreq-item-${i}`,
+      requestId: reqId,
+      documentType: type,
+      title,
+      required,
+      order: i,
+    })),
+  )
+  await insertMany(prisma.documentRequestTarget, [
+    { id: 'seed-docreq-target-0', requestId: reqId, targetType: 'UNIVERSITY', targetId: null },
+  ])
+
+  const subRowsDoc = []
+  const subItemRowsDoc = []
+  // Комплекты собирают первые 12 владельцев документов: часть отправлена и проверена,
+  // часть осталась черновиком — на экране сотрудника видно все стадии.
+  for (const [i, { sid }] of docOwners.slice(0, 12).entries()) {
+    const sent = i % 3 !== 2
+    const subId = `seed-docsub-${sid}`
+    subRowsDoc.push({
+      id: subId,
+      requestId: reqId,
+      studentId: sid,
+      status: sent ? (i % 4 === 0 ? 'ACCEPTED' : 'SUBMITTED') : 'DRAFT',
+      submittedAt: sent ? daysFromNow(-randInt(1, 10)) : null,
+      reviewedById: i % 4 === 0 ? FACS[0].deanId : null,
+      reviewedAt: i % 4 === 0 ? daysFromNow(-randInt(0, 5)) : null,
+    })
+    for (const [j, [type]] of reqItems.entries()) {
+      const docId = `seed-doc-${sid}-${type}`
+      if (!docRows.some((d) => d.id === docId)) continue
+      subItemRowsDoc.push({
+        id: `seed-docsubit-${sid}-${j}`,
+        submissionId: subId,
+        requestItemId: `seed-docreq-item-${j}`,
+        documentId: docId,
+        status: i % 4 === 0 ? 'ACCEPTED' : 'PENDING',
+        reviewedById: i % 4 === 0 ? FACS[0].deanId : null,
+        reviewedAt: i % 4 === 0 ? daysFromNow(-randInt(0, 5)) : null,
+      })
+    }
+  }
+  counts.documentSubmissions = await insertMany(prisma.documentSubmission, subRowsDoc)
+  await insertMany(prisma.documentSubmissionItem, subItemRowsDoc)
+
+  // Журнал спец-доступа платформенного админа (экран «Доступ к документам»):
+  // записи аудита с причиной — ровно то, что пишет documents.service в этом режиме.
+  const paReasons = [
+    'проверка жалобы №12',
+    'обращение в поддержку: не открывается диплом',
+    'сверка данных по запросу деканата',
+    'расследование дубликата удостоверения',
+  ]
+  const auditRows = []
+  for (const [i, doc] of docRows.slice(0, 8).entries()) {
+    const reason = paReasons[i % paReasons.length]
+    auditRows.push({
+      id: `seed-audit-pa-view-${i}`,
+      userId: admin.id,
+      action: 'DOCUMENT_PLATFORM_VIEW',
+      entity: 'Document',
+      entityId: doc.id,
+      createdAt: daysFromNow(-i - 1),
+    })
+    if (i % 2 === 0) {
+      auditRows.push({
+        id: `seed-audit-pa-file-${i}`,
+        userId: admin.id,
+        action: 'DOCUMENT_PLATFORM_DOWNLOAD',
+        entity: 'Document',
+        entityId: doc.id,
+        metadata: { fileId: `seed-file-${i}`, reason },
+        createdAt: daysFromNow(-i - 1),
+      })
+    }
+  }
+  counts.platformDocAudit = await insertMany(prisma.auditLog, auditRows)
+
   console.log('Seed готов:')
   console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
   console.log('  Именованные роли (пароль у всех Admin1234!):')

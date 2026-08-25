@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
+  FieldError,
   FormAlert,
   Input,
   Label,
@@ -33,6 +34,7 @@ import { useFormAlert } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { fetchGroups, groupKeys } from '../../../entities/group'
+import { fetchUniversities, universityKeys } from '../../../entities/university'
 import {
   createInviteRequest,
   fetchInvites,
@@ -41,7 +43,12 @@ import {
   type CreatedInvite,
   type InviteStatus,
 } from '../../../entities/invite'
-import { FACULTY_ROLES, GROUP_ROLES, INVITABLE_ROLES } from '../model/invitable-roles'
+import {
+  FACULTY_ROLES,
+  GROUP_ROLES,
+  INVITABLE_ROLES,
+  UNIVERSITY_ROLES,
+} from '../model/invitable-roles'
 import { BulkInvite } from './bulk-invite'
 
 function errCode(e: unknown): string {
@@ -75,6 +82,14 @@ export function CreateInvite() {
   const role = form.watch('role')
   const needsFaculty = role !== undefined && FACULTY_ROLES.includes(role)
   const needsGroup = role !== undefined && GROUP_ROLES.includes(role)
+  // Приглашение админа вуза выдаёт платформа — целевой вуз она указывает явно
+  // (invite-hierarchy.ts: scope не выводится из выдающего).
+  const needsUniversity = role !== undefined && UNIVERSITY_ROLES.includes(role)
+  const universities = useQuery({
+    queryKey: universityKeys.list(),
+    queryFn: fetchUniversities,
+    enabled: needsUniversity,
+  })
 
   const createMut = useMutation({
     mutationFn: createInviteRequest,
@@ -82,7 +97,13 @@ export function CreateInvite() {
     onSuccess: (invite) => {
       setCreated(invite)
       void qc.invalidateQueries({ queryKey: inviteKeys.list() })
-      form.reset({ role: undefined, email: undefined, facultyId: undefined, groupId: undefined })
+      form.reset({
+        role: undefined,
+        email: undefined,
+        universityId: undefined,
+        facultyId: undefined,
+        groupId: undefined,
+      })
       toast.success(t('created'))
     },
     onError: (e) => showApiError(e),
@@ -106,9 +127,14 @@ export function CreateInvite() {
       form.setError('groupId', { message: t('groupRequired') })
       return
     }
+    if (needsUniversity && !v.universityId) {
+      form.setError('universityId', { message: t('universityRequired') })
+      return
+    }
     createMut.mutate({
       role: v.role,
       email: v.email || undefined,
+      universityId: needsUniversity ? v.universityId || undefined : undefined,
       facultyId: needsFaculty ? v.facultyId || undefined : undefined,
       groupId: needsGroup ? v.groupId || undefined : undefined,
     })
@@ -181,6 +207,31 @@ export function CreateInvite() {
                     {...form.register('email')}
                   />
                 </div>
+
+                {needsUniversity && (
+                  <div className="flex flex-col gap-2">
+                    <Label>{t('university')}</Label>
+                    <Controller
+                      control={form.control}
+                      name="universityId"
+                      render={({ field }) => (
+                        <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                          <SelectTrigger aria-invalid={!!form.formState.errors.universityId}>
+                            <SelectValue placeholder={t('selectUniversity')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {universities.data?.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    <FieldError>{form.formState.errors.universityId?.message}</FieldError>
+                  </div>
+                )}
 
                 {needsFaculty && (
                   <div className="flex flex-col gap-2">

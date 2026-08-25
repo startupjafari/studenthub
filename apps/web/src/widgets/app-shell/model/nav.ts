@@ -99,6 +99,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'deans', href: '/university-admin/deans', icon: UserCog },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine },
   { key: 'applications', href: '/university-admin/applications', icon: FileText },
+  { key: 'analytics', href: '/university-admin/analytics', icon: BarChart3 },
+  { key: 'complaints', href: '/university-admin/complaints', icon: ShieldAlert },
   { key: 'posts', href: '/university-admin/posts', icon: Newspaper },
   { key: 'events', href: '/university-admin/events', icon: CalendarClock },
   { key: 'chats', href: '/university-admin/chats', icon: MessagesSquare },
@@ -118,6 +120,7 @@ export const DEAN_NAV: NavItem[] = [
   { key: 'starostas', href: '/dean/starostas', icon: UserCog },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine },
   { key: 'schedule', href: '/dean/schedule', icon: CalendarDays },
+  { key: 'calendar', href: '/calendar', icon: CalendarRange },
   { key: 'courses', href: '/dean/courses', icon: BookOpen },
   { key: 'exams', href: '/dean/exams', icon: Award },
   { key: 'analytics', href: '/dean/analytics', icon: BarChart3 },
@@ -141,6 +144,8 @@ export const TEACHER_NAV: NavItem[] = [
   { key: 'exams', href: '/teacher/exams', icon: Award },
   { key: 'consultations', href: '/teacher/consultations', icon: Handshake },
   { key: 'materials', href: '/teacher/materials', icon: FolderOpen },
+  { key: 'calendar', href: '/calendar', icon: CalendarRange },
+  { key: 'posts', href: '/teacher/posts', icon: Newspaper },
   { key: 'chats', href: '/teacher/chats', icon: MessagesSquare },
   { key: 'events', href: '/teacher/events', icon: CalendarClock },
 ]
@@ -167,10 +172,12 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'dashboard', href: '/platform-admin', icon: LayoutDashboard, exact: true },
   { key: 'universities', href: '/platform-admin/universities', icon: Building2 },
   { key: 'users', href: '/platform-admin/users', icon: Users },
+  { key: 'invites', href: '/platform-admin/invites', icon: Send },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },
   { key: 'stats', href: '/platform-admin/stats', icon: BarChart3 },
   { key: 'audit', href: '/platform-admin/audit', icon: ScrollText },
   { key: 'documentAccess', href: '/platform-admin/document-access', icon: FolderLock },
+  { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
 ]
 
 export const PLATFORM_MODERATOR_NAV: NavItem[] = [
@@ -178,7 +185,9 @@ export const PLATFORM_MODERATOR_NAV: NavItem[] = [
   { key: 'complaints', href: '/moderator/platform/complaints', icon: ShieldAlert },
   { key: 'posts', href: '/moderator/platform/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/platform/users', icon: Users },
+  { key: 'stats', href: '/moderator/platform/stats', icon: BarChart3 },
   { key: 'audit', href: '/moderator/platform/audit', icon: ScrollText },
+  { key: 'chats', href: '/moderator/platform/chats', icon: MessagesSquare },
 ]
 
 export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
@@ -187,6 +196,7 @@ export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'posts', href: '/moderator/university/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/university/users', icon: Users },
   { key: 'audit', href: '/moderator/university/audit', icon: ScrollText },
+  { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы

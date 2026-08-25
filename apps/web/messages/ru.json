@@ -71,6 +71,9 @@
     "emailLabel": "Email",
     "emailOptional": "необязательно",
     "faculty": "Факультет",
+    "university": "Университет",
+    "selectUniversity": "Выберите университет",
+    "universityRequired": "Выберите университет",
     "selectFaculty": "Выберите факультет",
     "group": "Группа",
     "selectGroup": "Выберите группу",
@@ -210,7 +213,13 @@
     "rotate": "Повернуть",
     "cancel": "Отмена",
     "confirmTitle": "Подтвердите действие",
-    "confirmOk": "Подтвердить"
+    "confirmOk": "Подтвердить",
+    "fieldRequired": "Заполните поле",
+    "dateRequired": "Выберите дату",
+    "endAfterStart": "Конец должен быть позже начала",
+    "numberRange": "Введите число от {min} до {max}",
+    "urlInvalid": "Ссылка должна начинаться с http:// или https://",
+    "endNotBeforeStart": "Дата окончания не может быть раньше начала"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -1227,7 +1236,8 @@
     "foldersNamePlaceholder": "Например, «Учёба»",
     "foldersPickChats": "Чаты в папке: {count}",
     "foldersChatCount": "{count, plural, one {# чат} few {# чата} other {# чатов}}",
-    "foldersLimit": "Больше {max} папок не поддерживается"
+    "foldersLimit": "Больше {max} папок не поддерживается",
+    "pollNeedTwoOptions": "Нужно минимум два варианта"
   },
   "Events": {
     "title": "События",
@@ -1343,7 +1353,15 @@
     "platformTitle": "Статистика платформы",
     "platformSubtitle": "Показатели по каждому вузу платформы",
     "noUniversities": "Университетов нет",
-    "chartTitle": "Сравнение по количеству"
+    "chartTitle": "Сравнение по количеству",
+    "universities": "Университеты",
+    "activeUniversities": "Активные вузы",
+    "status": "Статус",
+    "people": "Всего людей",
+    "searchUniversity": "Поиск вуза",
+    "nothingFound": "Ничего не найдено",
+    "universitiesCount": "Вузов: {n}",
+    "totalPeople": "Людей всего: {n}"
   },
   "People": {
     "myGroup": "Моя группа",
@@ -1503,19 +1521,26 @@
     "statInReview": "На проверке",
     "statExpiring": "Скоро истекает",
     "statNeedsReplacement": "Требует замены",
+    "ovAttention": "Требует внимания",
+    "ovAttentionEmpty": "Всё в порядке: просроченных и отклонённых документов нет",
+    "ovRecent": "Недавние документы",
+    "ovShowAll": "Все ({n})",
+    "ovExpiresOn": "Истекает {date}",
+    "ovExpiredOn": "Истёк {date}",
     "search": "Поиск",
     "category": "Категория",
     "status": "Статус",
-    "sort": "Сортировка",
     "allCategories": "Все категории",
     "allStatuses": "Все статусы",
-    "sortNew": "Сначала новые",
-    "sortOld": "Сначала старые",
-    "sortExpiring": "По сроку действия",
-    "sortTitle": "По названию",
+    "filtersReset": "Сбросить фильтры",
+    "found": "Найдено: {n}",
     "upload": "Загрузить документ",
     "emptyActive": "Документов пока нет",
     "emptyArchive": "В архиве пусто",
+    "emptyActiveDesc": "Загрузите документ — он будет храниться в защищённом виде и откроется только тем, кому вы дали доступ.",
+    "emptyArchiveDesc": "Сюда попадают документы, которые вы отправили в архив.",
+    "nothingFound": "Ничего не найдено",
+    "nothingFoundDesc": "Измените запрос или сбросьте фильтры — возможно, документ лежит в другом разделе.",
     "actions": "Действия",
     "actionOpen": "Открыть",
     "actionDownload": "Скачать",
@@ -1529,9 +1554,9 @@
     "deleted": "Документ удалён",
     "fieldTitle": "Название",
     "fieldNumber": "Номер",
-    "fieldFiles": "Файлов",
     "fieldIssuedAt": "Дата выдачи",
     "fieldExpiresAt": "Срок действия",
+    "colAccess": "Доступ",
     "fieldIssuedBy": "Кем выдан",
     "fieldComment": "Комментарий",
     "sharedWith": "{count, plural, one {доступ: # получатель} few {доступ: # получателя} many {доступ: # получателей} other {доступ: # получателя}}",
@@ -1632,6 +1657,8 @@
     "grantRevoked": "Отозван",
     "emptyShared": "Нет документов с предоставленным доступом",
     "emptyIssued": "Университет пока не выдал документов",
+    "emptySharedDesc": "Здесь появятся документы, к которым вы дали доступ университету, факультету или сотруднику.",
+    "emptyIssuedDesc": "Дипломы, справки и приказы, выданные вузом, появятся здесь автоматически.",
     "close": "Закрыть",
     "req_title": "Запрос документов",
     "req_emptyStudent": "Пока нет адресованных вам запросов",
@@ -1715,9 +1742,21 @@
     "pa_reason": "Причина доступа",
     "pa_reasonHint": "Например: проверка жалобы №12",
     "pa_reasonRequired": "Укажите причину (от 5 символов), чтобы открыть файлы",
+    "pa_request": "Открыть документ",
+    "pa_change": "Изменить запрос",
+    "pa_reasonLogged": "Основание: {reason}",
     "pa_files": "файлов: {n}",
     "pa_noFiles": "У документа нет файлов",
-    "pa_openFile": "Файл {n}"
+    "pa_openFile": "Файл {n}",
+    "pa_logEmpty": "Обращений к чужим документам ещё не было",
+    "pa_colDate": "Когда",
+    "pa_colDocument": "ID документа",
+    "pa_colAction": "Обращение",
+    "pa_actionCard": "Карточка",
+    "pa_actionFile": "Файл",
+    "pa_repeat": "Повторить",
+    "req_targetsRequired": "Выберите хотя бы одного адресата",
+    "fieldFilesCount": "Файлов: {n}"
   },
   "DatePicker": {
     "placeholder": "Выберите дату и время",
@@ -2210,7 +2249,8 @@
       "lowAttendance": "Посещаемость {value}%",
       "overdue": "Просрочено: {value}",
       "lowGrades": "Средний {value}%"
-    }
+    },
+    "faculty": "Факультет"
   },
   "Command": {
     "title": "Поиск и команды",
@@ -2563,6 +2603,7 @@
     "copy": "Копировать",
     "copied": "Скопировано",
     "copyFailed": "Не удалось скопировать",
+    "empty": "пусто",
     "perPage": "На странице"
   }
 }

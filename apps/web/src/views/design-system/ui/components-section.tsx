@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Ellipsis, FileText, Inbox, Plus, Search, Trash2 } from 'lucide-react'
+import { Check, Ellipsis, Inbox, Plus, Search, Trash2 } from 'lucide-react'
 
 import {
   Alert,
@@ -412,7 +412,6 @@ export function ComponentsSection() {
         <Demo label="PageHeader" className="block p-0">
           <PageHeader
             bleed={false}
-            icon={FileText}
             title="Заявки"
             subtitle="Каталог услуг деканата"
             tabs={
@@ -658,7 +657,7 @@ export function ComponentsSection() {
                 <Label htmlFor="ds-modal-input">Комментарий</Label>
                 <Input id="ds-modal-input" placeholder="Необязательно" />
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex items-center justify-between gap-2">
                 <Button variant="ghost" onClick={() => setModal(false)}>
                   Отмена
                 </Button>

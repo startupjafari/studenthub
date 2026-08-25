@@ -4,7 +4,6 @@ import { useMemo, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { LayoutDashboard } from 'lucide-react'
 import {
   fetchActiveUsers,
   fetchActivityHeatmap,
@@ -111,7 +110,6 @@ export function PlatformDashboard() {
           зафиксированы на сервере и подписаны в подсказке. Место — слот `actions`
           (справа), а не `tabs`: это фильтр периода, а не разделы страницы. */}
       <PageHeader
-        icon={LayoutDashboard}
         title={tNav('dashboard')}
         subtitle={t('subtitle')}
         actions={
