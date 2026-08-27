@@ -6,11 +6,14 @@ import { Role } from '@studenthub/shared-types'
 import { TTL } from '@studenthub/shared-config'
 import {
   BULK_INVITE_MAX_ROWS,
-  type CreateInviteInput,
+  type InviteListQueryInput,
+  type InviteSortValue,
+  type SortOrderValue,
   type BulkInviteCommitInput,
   type BulkInvitePreviewResponse,
   type BulkInvitePreviewRow,
   type BulkInviteResult,
+  type CreateInviteInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -34,6 +37,36 @@ const ROLE_LABELS_RU: Record<Role, string> = {
   [Role.TEACHER]: 'Преподаватель',
   [Role.STAROSTA]: 'Староста',
   [Role.STUDENT]: 'Студент',
+}
+
+/**
+ * Порядок выборки приглашений по колонке таблицы.
+ *
+ * Email необязателен (приглашение можно выдать ссылкой), поэтому `nulls: 'last'` —
+ * строки без адреса не всплывают наверх при сортировке по возрастанию. Вторым ключом
+ * всегда дата создания: без него строки с равным статусом шли бы в произвольном
+ * порядке, и постраничная навигация могла показать одну запись дважды.
+ */
+function inviteOrderBy(
+  sort: InviteSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.InviteOrderByWithRelationInput[] {
+  const dir = order ?? 'asc'
+  const byDate: Prisma.InviteOrderByWithRelationInput = { createdAt: 'desc' }
+  switch (sort) {
+    case 'role':
+      return [{ role: dir }, byDate]
+    case 'email':
+      return [{ email: { sort: dir, nulls: 'last' } }, byDate]
+    case 'status':
+      return [{ status: dir }, byDate]
+    case 'expiresAt':
+      return [{ expiresAt: dir }, byDate]
+    case 'createdAt':
+      return [{ createdAt: dir }]
+    default:
+      return [byDate]
+  }
 }
 
 @Injectable()
@@ -385,12 +418,13 @@ export class InviteService {
   }
 
   /** Список инвайтов, созданных пользователем. Offset-пагинация (админская таблица). */
-  async list(issuer: JwtPayload, page: number, limit: number) {
+  async list(issuer: JwtPayload, query: InviteListQueryInput) {
+    const { page, limit } = query
     const where = { createdById: issuer.sub }
     const [items, total] = await this.prisma.$transaction([
       this.prisma.invite.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: inviteOrderBy(query.sort, query.order),
         skip: (page - 1) * limit,
         take: limit,
         select: {
