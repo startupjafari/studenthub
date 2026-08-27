@@ -1,8 +1,10 @@
 export {
   postKeys,
   fetchFeed,
+  fetchPost,
   fetchAuthorPosts,
   createPostRequest,
+  updatePostRequest,
   repostRequest,
   deletePostRequest,
   pinPostRequest,

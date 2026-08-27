@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, CalendarDays, MapPin, Video } from 'lucide-react'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
+import { FriendsPanel } from '../../../widgets/friends-panel'
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../../../shared/ui'
 
 // Чётность текущей ISO-недели (как в schedule-grid) — для выбора пар ODD/EVEN.
@@ -16,7 +17,7 @@ function isoWeek(d: Date): number {
   return 1 + Math.round(((date.getTime() - firstThursday.getTime()) / 86400000 - 3) / 7)
 }
 
-// Виджеты правой колонки главной студента: пары на сегодня + ближайшие события.
+// Виджеты правой колонки главной студента: пары на сегодня, ближайшие события и друзья.
 export function HomeSidebar() {
   const t = useTranslations('Dashboard')
   const locale = useLocale()
@@ -114,6 +115,11 @@ export function HomeSidebar() {
           )}
         </CardContent>
       </Card>
+
+      {/* Друзья и заявки — тот же блок, что и на странице «Посты»: у студента лента живёт
+          здесь, и колонка должна быть одинаковой в обоих местах. Сам себя не показывает,
+          пока друзей и заявок нет. */}
+      <FriendsPanel />
     </>
   )
 }

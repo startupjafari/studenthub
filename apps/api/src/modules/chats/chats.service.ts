@@ -128,6 +128,7 @@ const MESSAGE_SELECT = {
   sharedPost: {
     select: {
       id: true,
+      title: true,
       content: true,
       authorId: true,
       deletedAt: true,

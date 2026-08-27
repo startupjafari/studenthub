@@ -983,7 +983,6 @@
     "contentTooLong": "Мәтін тым ұзын",
     "mediaCount": "{count, plural, one {# тіркеме} other {# тіркеме}}",
     "loadingComments": "Пікірлер жүктелуде…",
-    "noComments": "Әзірге пікір жоқ",
     "reply": "Жауап беру",
     "replyPlaceholder": "Жауабыңыз…",
     "commentPlaceholder": "Пікір…",
@@ -1031,9 +1030,28 @@
     "next": "Келесі",
     "newPost": "Жаңа жарияланым",
     "viewsLabel": "{count, plural, other {# қаралым}}",
-    "showMore": "Тағы көрсету",
+    "showMore": "Әрі қарай оқу",
     "showLess": "Жию",
-    "report": "Шағымдану"
+    "report": "Шағымдану",
+    "sortNewest": "Алдымен жаңалары",
+    "sortOldest": "Алдымен ескілері",
+    "titleLabel": "Тақырып",
+    "titlePlaceholder": "Мысалы: Мерекедегі деканаттар жұмысының кестесі",
+    "contentLabel": "Мәтін",
+    "mentionHint": "Атап өту",
+    "replyingTo": "{name} үшін жауап",
+    "copyLink": "Сілтемені көшіру",
+    "linkCopied": "Сілтеме көшірілді",
+    "copyFailed": "Көшіру мүмкін болмады",
+    "shareMore": "Тағы…",
+    "postUnavailableTitle": "Жарияланым қолжетімсіз",
+    "postUnavailableText": "Ол жойылған немесе басқа аудиторияға арналған",
+    "backToFeed": "Таспаға",
+    "postTitle": "Жарияланым",
+    "editPost": "Жарияланымды өзгерту",
+    "postUpdated": "Жарияланым өзгертілді",
+    "save": "Сақтау",
+    "edited": "өзгертілді"
   },
   "Chats": {
     "title": "Чаттар",
@@ -1881,6 +1899,8 @@
     "add": "Дос қосу",
     "cancelRequest": "Өтінімді болдырмау",
     "acceptRequest": "Өтінімді қабылдау",
+    "requestsTitle": "Достыққа өтінімдер",
+    "showAll": "Барлығын көрсету",
     "friendsLabel": "Достарда"
   },
   "Today": {
@@ -2720,5 +2740,16 @@
     "hint": "Шағымды университет модераторы қарайды. Автор кім шағымданғанын білмейді.",
     "send": "Шағым жіберу",
     "sent": "Шағым жіберілді"
+  },
+  "Editor": {
+    "bold": "Қалың",
+    "italic": "Курсив",
+    "strike": "Сызылған",
+    "code": "Бірқалыпты ені",
+    "link": "Сілтеме",
+    "bullet": "Таңбаланған тізім",
+    "ordered": "Нөмірленген тізім",
+    "quote": "Дәйексөз",
+    "markdownHint": "Белгілеу қолдау табады: **қалың**, *курсив*, ~~сызылған*, `код`, сілтемелер мен тізімдер"
   }
 }

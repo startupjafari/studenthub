@@ -10,6 +10,11 @@ model Post {
   id       String       @id @default(uuid())
   authorId String       @map("author_id")
   audience PostAudience
+  // Заголовок публикации. Необязателен: короткая заметка в ленте заголовка не требует,
+  // а объявление деканата без него не находится глазами в потоке.
+  title    String?
+  // Текст публикации в ограниченном markdown (жирный, курсив, списки, ссылки).
+  // Разметка хранится как есть, разбор — на клиенте (shared/ui/markdown).
   content  String
 
   // Аудитория-скоуп: заполняется по типу audience (UNIVERSITY→universityId и т.д.).

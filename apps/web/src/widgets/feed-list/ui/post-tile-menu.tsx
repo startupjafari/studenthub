@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Flag, MoreHorizontal, Pin, PinOff, Trash2 } from 'lucide-react'
+import { Flag, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { deletePostRequest, pinPostRequest, postKeys, type FeedPost } from '../../../entities/post'
+import { EditPostModal } from '../../../features/edit-post'
 import { ReportModal } from '../../../features/report-content'
 import { useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -30,6 +31,7 @@ export function PostTileMenu({
   const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const [reporting, setReporting] = useState(false)
+  const [editing, setEditing] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -70,7 +72,9 @@ export function PostTileMenu({
   // Меню больше не прячем: «Пожаловаться» доступно любому читателю — до этого
   // подать жалобу из интерфейса было нельзя вовсе, хотя эндпоинт есть с Ф11.
   const canReport = !isMine
-  if (!canModerate && !canDelete && !canReport) return null
+  // Править можно только свою публикацию — модератору правка чужого текста
+  // не положена, в отличие от удаления.
+  if (!canModerate && !canDelete && !canReport && !isMine) return null
   const item =
     'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted'
 
@@ -99,6 +103,20 @@ export function PostTileMenu({
                 <Pin className="size-4 text-muted-foreground" aria-hidden />
               )}
               {post.pinnedAt ? t('unpin') : t('pin')}
+            </button>
+          )}
+          {isMine && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false)
+                setEditing(true)
+              }}
+            >
+              <Pencil className="size-4 text-muted-foreground" aria-hidden />
+              {t('editPost')}
             </button>
           )}
           {canReport && (
@@ -132,6 +150,8 @@ export function PostTileMenu({
           )}
         </div>
       )}
+
+      {editing && <EditPostModal post={post} onClose={() => setEditing(false)} />}
 
       {reporting && (
         <ReportModal

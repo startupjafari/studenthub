@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, Heart, MessageSquare, Pin, Play, Repeat2, Share2 } from 'lucide-react'
+import { Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -15,25 +14,15 @@ import {
   type PostMedia,
   type PostReaction,
 } from '../../../entities/post'
-import {
-  chatKeys,
-  fetchChats,
-  sharePostRequest,
-  ForwardDialog,
-  type ChatListItem,
-} from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
-import { Avatar, AvatarFallback } from '../../../shared/ui'
+import { Avatar, AvatarFallback, Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
+import { SharePostMenu } from '../../../features/share-post'
+import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
-
-// Заголовок чата для пикера пересылки: явный title → предмет → «личный чат».
-function chatLabel(c: ChatListItem, tChats: (k: string) => string): string {
-  return c.title || c.subject || tChats('typePrivate')
-}
 
 const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
@@ -75,25 +64,13 @@ export function PostCard({
   onOpenComments?: () => void
 }) {
   const t = useTranslations('Feed')
-  const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
-  const [sharing, setSharing] = useState(false)
   const [reposting, setReposting] = useState(false)
-
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
-  const shareMut = useMutation({
-    mutationFn: (chatId: string) => sharePostRequest(chatId, post.id),
-    onSuccess: () => {
-      setSharing(false)
-      toast.success(t('sharedToChat'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
@@ -187,7 +164,7 @@ export function PostCard({
         />
       )}
 
-      {post.content && <PostText text={post.content} />}
+      {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
       {post.original && (
         <div className="mx-4 mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3 text-sm">
@@ -200,7 +177,8 @@ export function PostCard({
               {post.original.author.lastName} {post.original.author.firstName}
             </ProfileLink>
           </p>
-          <p className="whitespace-pre-wrap">{post.original.content}</p>
+          {post.original.title && <p className="font-semibold">{post.original.title}</p>}
+          <Markdown source={post.original.content} />
         </div>
       )}
 
@@ -227,9 +205,13 @@ export function PostCard({
             <Repeat2 className="size-5" aria-hidden />
           </ActionButton>
         )}
-        <ActionButton label={t('share')} onClick={() => setSharing(true)}>
-          <Share2 className="size-5" aria-hidden />
-        </ActionButton>
+        {/* «Поделиться» — меню: ссылка, чат, системное меню. Прямое открытие
+            пересылки в чат оставляло единственный способ поделиться, и то внутри
+            платформы. */}
+        <SharePostMenu
+          postId={post.id}
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
+        />
         {/* Справа — счётчик просмотров и возраст поста: во «ВКонтакте» дата стоит
             именно здесь, а не в шапке, где спорит с именем автора. */}
         <span className="ml-auto flex items-center gap-3 px-2 text-xs">
@@ -240,58 +222,52 @@ export function PostCard({
             <Eye className="size-4" aria-hidden />
             {post.views}
           </span>
-          <time dateTime={post.createdAt} title={exactTime}>
+          {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось
+              на три строки и раздвигало всю панель. */}
+          <time dateTime={post.createdAt} title={exactTime} className="whitespace-nowrap">
             {ago}
           </time>
         </span>
       </div>
 
       {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
-
-      {sharing && (
-        <ForwardDialog
-          chats={chats.data ?? []}
-          currentChatId={null}
-          titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(chatId) => shareMut.mutate(chatId)}
-          onClose={() => setSharing(false)}
-        />
-      )}
     </article>
   )
 }
 
 /**
- * Текст поста. Длинный сворачивается до четырёх строк со ссылкой «Показать ещё»:
- * объявление на два экрана раньше отодвигало следующий пост за нижний край, и лента
+ * Заголовок и текст поста в ленте.
+ *
+ * Свёрнутый текст — ОДНА строка и «Читать далее». Раньше показывались четыре, и
+ * объявление на два экрана отодвигало следующий пост за нижний край: лента
  * переставала листаться глазами.
  *
- * Сворачиваем по числу строк (line-clamp), а не по числу символов: перенос зависит
- * от ширины колонки, и обрезка по символам на широком экране рубила бы текст, который
- * и так помещался.
+ * В свёрнутом виде рисуем обычный текст первой строки, а не размеченный: line-clamp
+ * поверх списков и цитат обрезает их непредсказуемо, и «одна строка» превращалась
+ * то в полторы, то в пустоту.
  */
-function PostText({ text }: { text: string }) {
+function PostBody({ title, text }: { title: string | null; text: string }) {
   const t = useTranslations('Feed')
   const [expanded, setExpanded] = useState(false)
-  // Порог с запасом: у поста в три строки кнопка не нужна, а разворачивать «ещё одну
-  // строку» — раздражает сильнее, чем длинный текст.
-  const long = text.length > 240 || text.split('\n').length > 4
+
+  const firstLine = text.split('\n').find((l) => l.trim() !== '') ?? ''
+  // Разворачивать нечего, если весь текст — эта самая строка без разметки.
+  const collapsible = text.trim() !== firstLine.trim() || /[*`~[\]>]/.test(firstLine)
 
   return (
-    <div className="px-4 pt-3">
-      <p
-        className={cn(
-          'text-sm leading-relaxed whitespace-pre-wrap',
-          long && !expanded && 'line-clamp-4',
-        )}
-      >
-        {text}
-      </p>
-      {long && (
+    <div className="flex flex-col gap-1.5 px-4 pt-3">
+      {title && <h3 className="text-base leading-snug font-semibold">{title}</h3>}
+      {text &&
+        (expanded || !collapsible ? (
+          <Markdown source={text} />
+        ) : (
+          <p className="line-clamp-1 text-sm leading-relaxed text-muted-foreground">{firstLine}</p>
+        ))}
+      {collapsible && (
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-0.5 cursor-pointer text-sm text-primary hover:underline"
+          className="cursor-pointer self-start text-sm text-primary hover:underline"
         >
           {expanded ? t('showLess') : t('showMore')}
         </button>
@@ -300,7 +276,13 @@ function PostText({ text }: { text: string }) {
   )
 }
 
-/** Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние. */
+/**
+ * Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние.
+ *
+ * Без текстовой подписи: четыре слова подряд не помещались в колонку ленты и
+ * выдавливали счётчик просмотров с датой на вторую строку. Название действия
+ * остаётся в `aria-label` и в подсказке при наведении.
+ */
 function ActionButton({
   label,
   count,
@@ -328,9 +310,6 @@ function ActionButton({
     >
       {children}
       {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
-      {/* Подпись прячем на телефоне: четыре слова в ряд не помещаются, там остаются
-          иконки со счётчиками. */}
-      <span className="hidden sm:inline">{label}</span>
     </button>
   )
 }
@@ -354,12 +333,10 @@ function MediaCollage({
 }) {
   const tiles = media.slice(0, MEDIA_TILES)
   const rest = media.length - tiles.length
+  // Плитки квадратные, высоту держит число колонок. Три вложения — в один ряд по
+  // трети ширины; от четырёх — сетка 2×2, а остальное уходит в «+N» на последней.
   const layout =
-    media.length === 1
-      ? 'grid-cols-1'
-      : media.length === 3
-        ? 'grid-cols-2 [&>*:first-child]:row-span-2'
-        : 'grid-cols-2'
+    media.length === 1 ? 'grid-cols-1' : media.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
 
   return (
     <div className={cn('mt-3 grid gap-0.5', layout)}>
@@ -372,18 +349,15 @@ function MediaCollage({
           className={cn(
             'relative block overflow-hidden',
             // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
-            // или скан, и обрезка съедала бы половину смысла. Подложки под ним нет —
-            // вертикальное фото уже стояло в серой рамке с полями по бокам, хотя
-            // во «ВКонтакте» оно просто лежит на карточке.
-            media.length === 1 ? 'max-h-[32rem]' : 'aspect-square bg-muted',
+            // или скан, и обрезка съедала бы половину смысла. В сетке — квадрат.
+            media.length !== 1 && 'aspect-square bg-muted',
           )}
         >
-          <PostMediaView
-            postId={postId}
-            media={m}
-            fit={media.length === 1 ? 'contain' : 'cover'}
-            className="size-full"
-          />
+          {media.length === 1 ? (
+            <MediaFrame postId={postId} media={m} imageClassName="max-h-[32rem]" />
+          ) : (
+            <PostMediaView postId={postId} media={m} fit="cover" className="size-full" />
+          )}
           {m.mime.startsWith('video/') && (
             <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md">
               <Play className="size-10 fill-current" aria-hidden />
