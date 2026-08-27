@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
+  CourseListQueryInput,
+  CourseSortValue,
   CreateCourseInput,
   CreateSubjectInput,
   CreateTermInput,
-  CourseListQueryInput,
+  SortOrderValue,
   SubjectListQueryInput,
+  SubjectSortValue,
   TermListQueryInput,
+  TermSortValue,
   UpdateCourseInput,
   UpdateSubjectInput,
   UpdateTermInput,
@@ -53,6 +57,65 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
+/**
+ * Порядок выборки по колонке таблицы. Общее для трёх списков модуля.
+ *
+ * Вторичный ключ обязателен везде: в Postgres сортировка нестабильна, и при равных
+ * значениях постраничная навигация могла бы показать одну запись дважды, а другую
+ * пропустить.
+ */
+function courseOrderBy(
+  sort: CourseSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.CourseOrderByWithRelationInput[] {
+  const dir = order ?? 'asc'
+  const bySubject: Prisma.CourseOrderByWithRelationInput = { subject: { name: 'asc' } }
+  switch (sort) {
+    case 'subject':
+      return [{ subject: { name: dir } }, { group: { name: 'asc' } }]
+    case 'group':
+      return [{ group: { name: dir } }, bySubject]
+    case 'term':
+      // Семестр необязателен — курсы без него уходят в конец при любом направлении.
+      return [{ term: { startsOn: dir } }, bySubject]
+    case 'teacher':
+      return [{ teacher: { lastName: dir } }, bySubject]
+    case 'credits':
+      return [{ credits: { sort: dir, nulls: 'last' } }, bySubject]
+    default:
+      return [bySubject]
+  }
+}
+
+function subjectOrderBy(
+  sort: SubjectSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.SubjectOrderByWithRelationInput[] {
+  const dir = order ?? 'asc'
+  if (sort === 'code') return [{ code: { sort: dir, nulls: 'last' } }, { name: 'asc' }]
+  return [{ name: sort === 'name' ? dir : 'asc' }]
+}
+
+function termOrderBy(
+  sort: TermSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.TermOrderByWithRelationInput[] {
+  const dir = order ?? 'asc'
+  const byStart: Prisma.TermOrderByWithRelationInput = { startsOn: 'desc' }
+  switch (sort) {
+    case 'name':
+      return [{ name: dir }, byStart]
+    case 'startsOn':
+      return [{ startsOn: dir }]
+    case 'endsOn':
+      return [{ endsOn: dir }, byStart]
+    case 'isActive':
+      return [{ isActive: dir }, byStart]
+    default:
+      return [byStart]
+  }
+}
+
 @Injectable()
 export class CoursesService {
   private readonly logger = new Logger(CoursesService.name)
@@ -64,17 +127,23 @@ export class CoursesService {
 
   // ── Subjects ───────────────────────────────────────────────────────────────
 
-  listSubjects(viewer: JwtPayload, query: SubjectListQueryInput) {
+  async listSubjects(viewer: JwtPayload, query: SubjectListQueryInput) {
     const universityId = this.readUniversityScope(viewer, query.universityId)
-    return this.prisma.subject.findMany({
-      where: {
-        universityId,
-        ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
-      },
-      select: SUBJECT_SELECT,
-      orderBy: { name: 'asc' },
-      take: 500,
-    })
+    const where: Prisma.SubjectWhereInput = {
+      universityId,
+      ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.subject.findMany({
+        where,
+        select: SUBJECT_SELECT,
+        orderBy: subjectOrderBy(query.sort, query.order),
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.subject.count({ where }),
+    ])
+    return new Paginated(rows, { total })
   }
 
   async createSubject(actor: JwtPayload, input: CreateSubjectInput, ctx: RequestContext) {
@@ -127,14 +196,20 @@ export class CoursesService {
 
   // ── Terms ─────────────────────────────────────────────────────────────────
 
-  listTerms(viewer: JwtPayload, query: TermListQueryInput) {
+  async listTerms(viewer: JwtPayload, query: TermListQueryInput) {
     const universityId = this.readUniversityScope(viewer, query.universityId)
-    return this.prisma.term.findMany({
-      where: { universityId },
-      select: TERM_SELECT,
-      orderBy: [{ startsOn: 'desc' }],
-      take: 200,
-    })
+    const where: Prisma.TermWhereInput = { universityId }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.term.findMany({
+        where,
+        select: TERM_SELECT,
+        orderBy: termOrderBy(query.sort, query.order),
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.term.count({ where }),
+    ])
+    return new Paginated(rows, { total })
   }
 
   async createTerm(actor: JwtPayload, input: CreateTermInput, ctx: RequestContext) {
@@ -211,7 +286,7 @@ export class CoursesService {
       this.prisma.course.findMany({
         where,
         select: COURSE_SELECT,
-        orderBy: [{ subject: { name: 'asc' } }],
+        orderBy: courseOrderBy(query.sort, query.order),
         skip: (page - 1) * limit,
         take: limit,
       }),

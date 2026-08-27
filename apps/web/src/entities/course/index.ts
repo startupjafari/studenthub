@@ -1,6 +1,9 @@
 export {
   courseKeys,
   fetchCourses,
+  fetchCoursesPaged,
+  fetchTermsPaged,
+  fetchSubjectsPaged,
   fetchCourse,
   fetchSubjects,
   fetchTerms,

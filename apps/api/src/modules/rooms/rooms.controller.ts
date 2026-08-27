@@ -52,7 +52,7 @@ export class RoomsController {
   @ApiOperation({ summary: 'Список аудиторий (по scope смотрящего)' })
   @ApiResponse({ status: 200, description: 'Страница аудиторий' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: RoomListQueryDto) {
-    return this.rooms.list(user, query.page, query.limit, query.universityId, query.kind)
+    return this.rooms.list(user, query)
   }
 
   // ── Ф16: печатный QR помещения ────────────────────────────────────────────

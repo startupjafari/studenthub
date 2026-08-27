@@ -1,11 +1,12 @@
 import type {
   CreateInviteInput,
+  InviteListQueryInput,
   BulkInviteCommitInput,
   BulkInvitePreviewResponse,
   BulkInviteResult,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
-import { api } from '../../../shared/api'
+import { api, getPaged, type Paged } from '../../../shared/api'
 
 export type InviteStatus = 'PENDING' | 'USED' | 'EXPIRED' | 'REVOKED'
 
@@ -36,12 +37,14 @@ export interface CreatedInvite {
 
 export const inviteKeys = {
   all: ['invites'] as const,
-  list: () => ['invites', 'list'] as const,
+  // Страница и порядок входят в ключ: иначе переключение отдавало бы кэш предыдущей выдачи.
+  list: (params: Partial<InviteListQueryInput> = {}) => ['invites', 'list', params] as const,
 }
 
-export async function fetchInvites(): Promise<InviteListItem[]> {
-  const { data } = await api.get<InviteListItem[]>('/invites', { params: { page: 1, limit: 100 } })
-  return data
+export async function fetchInvites(
+  params: Partial<InviteListQueryInput> = {},
+): Promise<Paged<InviteListItem>> {
+  return getPaged<InviteListItem>('/invites', { page: 1, limit: 20, ...params })
 }
 
 export async function createInviteRequest(input: CreateInviteInput): Promise<CreatedInvite> {
