@@ -25,6 +25,9 @@ export interface PostReaction {
 export interface FeedPost {
   id: string
   audience: PostAudienceValue
+  /** Заголовок публикации; null — короткая заметка без заголовка. */
+  title: string | null
+  /** Текст в ограниченном markdown — рисуется компонентом Markdown. */
   content: string
   authorId: string
   universityId: string | null
@@ -43,7 +46,7 @@ export interface FeedPost {
   author: PostAuthor
   media: PostMedia[]
   reactions: PostReaction[]
-  original: { id: string; content: string; author: PostAuthor } | null
+  original: { id: string; title: string | null; content: string; author: PostAuthor } | null
   _count: { comments: number }
 }
 
