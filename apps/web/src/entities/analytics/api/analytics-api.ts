@@ -1,7 +1,13 @@
 import { api } from '../../../shared/api'
 import type {
   ActivityHeatmap,
+  ApplicationsFlow,
   AtRiskStudents,
+  AttendanceBreakdown,
+  AttendanceTrend,
+  ExamResultsBreakdown,
+  RoomLoad,
+  UniversityInvitesFunnel,
   ComplaintsLatency,
   FacultyOverview,
   GroupAttendance,
@@ -36,6 +42,53 @@ export async function fetchAtRiskStudents(facultyId?: string): Promise<AtRiskStu
   const { data } = await api.get<AtRiskStudents>('/analytics/at-risk', {
     params: facultyId ? { facultyId } : undefined,
   })
+  return data
+}
+
+// ── Аналитика вуза (дашборд UNIVERSITY_ADMIN) ────────────────────────────────
+// Вуз берётся из токена — параметра scope нет, поэтому и в ключах его нет.
+
+export const universityAnalyticsKeys = {
+  all: ['analytics', 'university'] as const,
+  attendanceTrend: (weeks: number) => ['analytics', 'university', 'attendance-trend', weeks] as const, // prettier-ignore
+  attendanceBreakdown: () => ['analytics', 'university', 'attendance-breakdown'] as const,
+  roomLoad: () => ['analytics', 'university', 'room-load'] as const,
+  examResults: () => ['analytics', 'university', 'exam-results'] as const,
+  applicationsFlow: (weeks: number) => ['analytics', 'university', 'applications-flow', weeks] as const, // prettier-ignore
+  invitesFunnel: () => ['analytics', 'university', 'invites-funnel'] as const,
+}
+
+export async function fetchAttendanceTrend(weeks: number): Promise<AttendanceTrend> {
+  const { data } = await api.get<AttendanceTrend>('/analytics/university/attendance-trend', {
+    params: { weeks },
+  })
+  return data
+}
+
+export async function fetchAttendanceBreakdown(): Promise<AttendanceBreakdown> {
+  const { data } = await api.get<AttendanceBreakdown>('/analytics/university/attendance-breakdown')
+  return data
+}
+
+export async function fetchRoomLoad(): Promise<RoomLoad> {
+  const { data } = await api.get<RoomLoad>('/analytics/university/room-load')
+  return data
+}
+
+export async function fetchExamResults(): Promise<ExamResultsBreakdown> {
+  const { data } = await api.get<ExamResultsBreakdown>('/analytics/university/exam-results')
+  return data
+}
+
+export async function fetchApplicationsFlow(weeks: number): Promise<ApplicationsFlow> {
+  const { data } = await api.get<ApplicationsFlow>('/analytics/university/applications-flow', {
+    params: { weeks },
+  })
+  return data
+}
+
+export async function fetchUniversityInvitesFunnel(): Promise<UniversityInvitesFunnel> {
+  const { data } = await api.get<UniversityInvitesFunnel>('/analytics/university/invites-funnel')
   return data
 }
 
