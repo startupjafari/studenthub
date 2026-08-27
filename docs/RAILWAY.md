@@ -110,6 +110,7 @@ Runner-образ минимальный и **не содержит Prisma CLI**
 # DATABASE_URL — публичный (proxy) connection string из настроек Postgres в Railway
 DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" pnpm db:deploy
 DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" pnpm db:seed   # первый раз
+DATABASE_URL="postgresql://...@<proxy-host>:<port>/railway" pnpm db:seed:kato   # справочник КАТО
 ```
 
 Повторять `db:deploy` после каждого PR, меняющего схему. (Автоматизация через
