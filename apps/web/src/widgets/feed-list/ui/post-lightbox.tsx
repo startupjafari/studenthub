@@ -468,121 +468,7 @@ function PostView({
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-background">
-        {/* Шапка */}
-        <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <ProfileLink userId={post.author.id} className="shrink-0">
-            <Avatar className="size-9">
-              {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
-              <AvatarFallback>{initials(post.author)}</AvatarFallback>
-            </Avatar>
-          </ProfileLink>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold leading-tight">
-              <ProfileLink userId={post.author.id} className="hover:text-primary hover:underline">
-                {post.author.lastName} {post.author.firstName}
-              </ProfileLink>
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {t(`audience${post.audience}`)} ·{' '}
-              <time dateTime={post.createdAt} title={exactDate}>
-                {relativeTime(post.createdAt, locale)}
-              </time>
-            </p>
-          </div>
-          {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
-          {(canModerate || canDelete) && (
-            <div ref={menuRef} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label={t('postActions')}
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((o) => !o)}
-                className={cn(
-                  'flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-                  menuOpen && 'bg-muted text-foreground',
-                )}
-              >
-                <MoreHorizontal className="size-5" aria-hidden />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-full z-30 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-lg">
-                  {canModerate && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        pinMut.mutate()
-                      }}
-                      className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                    >
-                      <Pin
-                        className={cn(
-                          'size-4 shrink-0',
-                          post.pinnedAt && 'fill-current text-primary',
-                        )}
-                        aria-hidden
-                      />
-                      {post.pinnedAt ? t('unpin') : t('pin')}
-                    </button>
-                  )}
-                  {canDelete && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        void confirm({ title: t('deleteConfirm'), destructive: true }).then(
-                          (ok) => {
-                            if (ok) delPostMut.mutate()
-                          },
-                        )
-                      }}
-                      className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-muted"
-                    >
-                      <Trash2 className="size-4 shrink-0" aria-hidden />
-                      {t('delete')}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </header>
-
-        {/* Всё содержимое поста и комментарии прокручиваются одной лентой — как во
-            «ВКонтакте». Раздельная прокрутка панели и медиа заставляла целиться
-            курсором в нужную половину. */}
         <div className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {/* Текст поста — обычным блоком под шапкой, а не первой строкой ленты
-            комментариев: у поста и у реплики разный вес, и одинаковая вёрстка
-            читалась как «автор первым прокомментировал сам себя». */}
-          {(post.content || post.original) && (
-            <div className="flex shrink-0 flex-col gap-2 px-4 pt-3 pb-2 text-sm">
-              {post.title && <h2 className="text-base leading-snug font-semibold">{post.title}</h2>}
-              {post.content && <Markdown source={post.content} />}
-
-              {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
-              {post.original && (
-                <div className="mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
-                  <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                    <Repeat2 className="size-3.5" aria-hidden />
-                    <ProfileLink
-                      userId={post.original.author.id}
-                      className="hover:text-primary hover:underline"
-                    >
-                      {post.original.author.lastName} {post.original.author.firstName}
-                    </ProfileLink>
-                  </p>
-                  {post.original.title && <p className="font-semibold">{post.original.title}</p>}
-                  <Markdown source={post.original.content} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Вложение — в потоке под текстом, а не отдельной колонкой. Высота
-              ограничена, чтобы вертикальное фото не выдавливало комментарии за экран.
-              Пост без вложения блок не рисует: раньше на его месте была заглушка-
-              градиент, дословно повторявшая текст поста. */}
           {cur && (
             <MediaFrame
               postId={post.id}
@@ -658,6 +544,119 @@ function PostView({
             </MediaFrame>
           )}
 
+          {/* Автор и меню — под вложением: сначала видно, ЧТО опубликовали,
+              и только потом кто. Раньше шапка занимала первый экран, а картинка
+              начиналась ниже неё. */}
+          <header className="flex shrink-0 items-center gap-3 px-4 pt-3 pb-2">
+            <ProfileLink userId={post.author.id} className="shrink-0">
+              <Avatar className="size-9">
+                {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
+                <AvatarFallback>{initials(post.author)}</AvatarFallback>
+              </Avatar>
+            </ProfileLink>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold leading-tight">
+                <ProfileLink userId={post.author.id} className="hover:text-primary hover:underline">
+                  {post.author.lastName} {post.author.firstName}
+                </ProfileLink>
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {t(`audience${post.audience}`)} ·{' '}
+                <time dateTime={post.createdAt} title={exactDate}>
+                  {relativeTime(post.createdAt, locale)}
+                </time>
+              </p>
+            </div>
+            {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
+            {(canModerate || canDelete) && (
+              <div ref={menuRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label={t('postActions')}
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((o) => !o)}
+                  className={cn(
+                    'flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                    menuOpen && 'bg-muted text-foreground',
+                  )}
+                >
+                  <MoreHorizontal className="size-5" aria-hidden />
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full z-30 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-lg">
+                    {canModerate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          pinMut.mutate()
+                        }}
+                        className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                      >
+                        <Pin
+                          className={cn(
+                            'size-4 shrink-0',
+                            post.pinnedAt && 'fill-current text-primary',
+                          )}
+                          aria-hidden
+                        />
+                        {post.pinnedAt ? t('unpin') : t('pin')}
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          void confirm({ title: t('deleteConfirm'), destructive: true }).then(
+                            (ok) => {
+                              if (ok) delPostMut.mutate()
+                            },
+                          )
+                        }}
+                        className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-muted"
+                      >
+                        <Trash2 className="size-4 shrink-0" aria-hidden />
+                        {t('delete')}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </header>
+
+          {/* Текст поста — обычным блоком под шапкой, а не первой строкой ленты
+            комментариев: у поста и у реплики разный вес, и одинаковая вёрстка
+            читалась как «автор первым прокомментировал сам себя». */}
+          {(post.content || post.original) && (
+            <div className="flex shrink-0 flex-col gap-2 px-4 pb-3 text-sm">
+              {post.title && <h2 className="text-base leading-snug font-semibold">{post.title}</h2>}
+              {post.content && <Markdown source={post.content} />}
+
+              {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
+              {post.original && (
+                <div className="mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
+                  <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
+                    <Repeat2 className="size-3.5" aria-hidden />
+                    <ProfileLink
+                      userId={post.original.author.id}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {post.original.author.lastName} {post.original.author.firstName}
+                    </ProfileLink>
+                  </p>
+                  {post.original.title && <p className="font-semibold">{post.original.title}</p>}
+                  <Markdown source={post.original.content} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Вложение — в потоке под текстом, а не отдельной колонкой. Высота
+              ограничена, чтобы вертикальное фото не выдавливало комментарии за экран.
+              Пост без вложения блок не рисует: раньше на его месте была заглушка-
+              градиент, дословно повторявшая текст поста. */}
           <ActionsBar />
 
           {/* Заголовок ленты комментариев: счётчик и порядок */}
