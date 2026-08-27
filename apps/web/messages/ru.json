@@ -983,7 +983,6 @@
     "contentTooLong": "Слишком длинный текст",
     "mediaCount": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}",
     "loadingComments": "Загрузка комментариев…",
-    "noComments": "Комментариев пока нет",
     "reply": "Ответить",
     "replyPlaceholder": "Ваш ответ…",
     "commentPlaceholder": "Комментарий…",

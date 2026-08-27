@@ -983,7 +983,6 @@
     "contentTooLong": "Мәтін тым ұзын",
     "mediaCount": "{count, plural, one {# тіркеме} other {# тіркеме}}",
     "loadingComments": "Пікірлер жүктелуде…",
-    "noComments": "Әзірге пікір жоқ",
     "reply": "Жауап беру",
     "replyPlaceholder": "Жауабыңыз…",
     "commentPlaceholder": "Пікір…",
