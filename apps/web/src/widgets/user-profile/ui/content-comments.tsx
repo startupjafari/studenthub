@@ -9,6 +9,7 @@ import { useAppSelector } from '../../../shared/store'
 import { ProfileLink } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { relativeTime } from '../../../shared/lib'
 
 interface CommentItem {
   id: string
@@ -45,25 +46,6 @@ const EMOJI_SET = [
   '😢',
   '😉',
 ]
-
-// Компактное относительное время («5 нед. назад») — как в лайтбоксе поста.
-const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 31536000],
-  ['month', 2592000],
-  ['week', 604800],
-  ['day', 86400],
-  ['hour', 3600],
-  ['minute', 60],
-]
-function relTime(iso: string, locale: string): string {
-  const diffSec = (new Date(iso).getTime() - Date.now()) / 1000
-  const abs = Math.abs(diffSec)
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'short' })
-  for (const [unit, secs] of REL_UNITS) {
-    if (abs >= secs) return rtf.format(Math.round(diffSec / secs), unit)
-  }
-  return rtf.format(Math.round(diffSec / 60), 'minute')
-}
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
@@ -186,7 +168,7 @@ export function ContentComments({
                   <span className="whitespace-pre-wrap break-words">{c.content}</span>
                 </p>
                 <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>{relTime(c.createdAt, locale)}</span>
+                  <span>{relativeTime(c.createdAt, locale)}</span>
                   {(c.authorId === myId || ownerId === myId) && (
                     <button
                       type="button"

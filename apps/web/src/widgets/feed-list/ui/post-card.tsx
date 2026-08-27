@@ -1,23 +1,18 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { MessageSquare, Paperclip, Pin, Repeat2, Send, Share2, Trash2 } from 'lucide-react'
+import { Eye, Heart, MessageSquare, Pin, Play, Repeat2, Share2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
-  addCommentRequest,
   addReactionRequest,
   canRepost,
-  deleteCommentRequest,
-  deletePostRequest,
-  fetchComments,
-  pinPostRequest,
-  postKeys,
   removeReactionRequest,
   type FeedPost,
+  type PostMedia,
   type PostReaction,
 } from '../../../entities/post'
 import {
@@ -29,15 +24,18 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
-import { Avatar, AvatarFallback, Button, useConfirm } from '../../../shared/ui'
+import { Avatar, AvatarFallback } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { relativeTime } from '../../../shared/lib'
+import { PostMediaView } from './post-media'
+import { PostTileMenu } from './post-tile-menu'
 
 // Заголовок чата для пикера пересылки: явный title → предмет → «личный чат».
 function chatLabel(c: ChatListItem, tChats: (k: string) => string): string {
   return c.title || c.subject || tChats('typePrivate')
 }
 
-const PRESET_EMOJIS = ['👍', '❤️', '🎉', '👏']
+const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
@@ -45,23 +43,45 @@ const MODERATOR_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
 ]
+/** Сколько превью показываем в коллаже; остальное сворачивается в «+N». */
+const MEDIA_TILES = 4
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
 }
 
-export function PostCard({ post }: { post: FeedPost }) {
+/**
+ * Пост в ленте — развёрнутая карточка в одну колонку (как во «ВКонтакте»).
+ *
+ * Комментарии здесь не разворачиваются: читать и писать их — в полном просмотре.
+ * Развёрнутая ветка прямо в ленте растягивала карточку на экран и отодвигала
+ * следующие посты, а обсуждение всё равно требует места под медиа и вложенные ответы.
+ *
+ * Раньше лента была сеткой квадратных плиток: чтобы прочитать текст поста, его
+ * приходилось открывать, а объявление деканата на три строки превращалось в
+ * картинку-заглушку с градиентом. Здесь пост читается целиком не выходя из ленты:
+ * автор, текст, медиа, действия и комментарии на месте.
+ *
+ * Сетка плиток осталась там, где она уместна, — в профиле, как галерея.
+ */
+export function PostCard({
+  post,
+  onOpenMedia,
+  onOpenComments,
+}: {
+  post: FeedPost
+  onOpenMedia?: () => void
+  /** Комментарии живут только в полном просмотре — здесь лишь вход в него. */
+  onOpenComments?: () => void
+}) {
   const t = useTranslations('Feed')
   const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
-  const qc = useQueryClient()
-  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
-  const [commentsOpen, setCommentsOpen] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [reposting, setReposting] = useState(false)
 
@@ -78,56 +98,35 @@ export function PostCard({ post }: { post: FeedPost }) {
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
+  const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
 
-  const groups = useMemo(() => {
-    const map = new Map<string, { count: number; mine: boolean }>()
-    for (const r of reactions) {
-      const g = map.get(r.emoji) ?? { count: 0, mine: false }
-      g.count += 1
-      if (r.userId === myId) g.mine = true
-      map.set(r.emoji, g)
-    }
-    return map
-  }, [reactions, myId])
-
-  // Оптимистичная реакция с откатом (docs/FRONTEND_RULES.md §5.5).
-  function toggleReaction(emoji: string): void {
+  // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5).
+  function toggleLike(): void {
     if (!myId) return
-    const mine = reactions.some((r) => r.emoji === emoji && r.userId === myId)
     const prev = reactions
-    if (mine) {
-      setReactions(prev.filter((r) => !(r.emoji === emoji && r.userId === myId)))
-      removeReactionRequest(post.id, emoji).catch(() => {
+    if (liked) {
+      setReactions(prev.filter((r) => !(r.emoji === LIKE && r.userId === myId)))
+      removeReactionRequest(post.id, LIKE).catch(() => {
         setReactions(prev)
         toast.error(tErr('INTERNAL_ERROR'))
       })
     } else {
-      setReactions([...prev, { emoji, userId: myId }])
-      addReactionRequest(post.id, emoji).catch(() => {
+      setReactions([...prev, { emoji: LIKE, userId: myId }])
+      addReactionRequest(post.id, LIKE).catch(() => {
         setReactions(prev)
         toast.error(tErr('INTERNAL_ERROR'))
       })
     }
   }
 
-  const deleteMut = useMutation({
-    mutationFn: () => deletePostRequest(post.id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: postKeys.all })
-      toast.success(t('deleted'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  const pinMut = useMutation({
-    mutationFn: () => pinPostRequest(post.id, post.pinnedAt === null),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: postKeys.all }),
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  const time = new Date(post.createdAt).toLocaleString(locale, {
+  const created = new Date(post.createdAt)
+  // «4 д назад» вместо «27.08, 11:15»: в ленте важен возраст поста, а не точная дата.
+  // Точная — в подсказке, для тех случаев, когда она всё-таки нужна.
+  const ago = relativeTime(post.createdAt, locale)
+  const exactTime = created.toLocaleString(locale, {
     day: '2-digit',
     month: '2-digit',
+    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -135,13 +134,13 @@ export function PostCard({ post }: { post: FeedPost }) {
   return (
     <article
       className={cn(
-        'flex flex-col gap-3 rounded-2xl border border-border bg-card p-4',
-        post.pinnedAt && 'border-primary/40',
+        'flex flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10',
+        post.pinnedAt && 'ring-primary/40',
       )}
     >
-      <header className="flex items-center gap-3">
+      <header className="flex items-center gap-3 px-4 pt-4">
         <ProfileLink userId={post.author.id} className="shrink-0">
-          <Avatar className="size-9">
+          <Avatar className="size-10">
             <AvatarFallback>{initials(post.author)}</AvatarFallback>
           </Avatar>
         </ProfileLink>
@@ -151,41 +150,47 @@ export function PostCard({ post }: { post: FeedPost }) {
               {post.author.lastName} {post.author.firstName}
             </ProfileLink>
           </p>
-          <p className="text-xs text-muted-foreground">
-            {t(`audience${post.audience}`)} · {time}
+          <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+            {post.pinnedAt && (
+              <Pin className="size-3 shrink-0 fill-current text-primary" aria-hidden />
+            )}
+            {t(`audience${post.audience}`)}
           </p>
         </div>
-        {post.pinnedAt && <Pin className="size-4 text-primary" aria-hidden />}
-        {canModerate && (
-          <button
-            type="button"
-            aria-label={t('pin')}
-            onClick={() => pinMut.mutate()}
-            className="cursor-pointer text-muted-foreground hover:text-primary"
-          >
-            <Pin className={cn('size-4', post.pinnedAt && 'fill-current')} aria-hidden />
-          </button>
+        {post.status === 'DRAFT' && (
+          <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
+            {t('statusDraft')}
+          </span>
         )}
-        {canDelete && (
-          <button
-            type="button"
-            aria-label={t('delete')}
-            onClick={() => {
-              void confirm({ title: t('deleteConfirm'), destructive: true }).then((ok) => {
-                if (ok) deleteMut.mutate()
-              })
-            }}
-            className="cursor-pointer text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="size-4" aria-hidden />
-          </button>
+        {post.status === 'SCHEDULED' && (
+          <span className="rounded-full bg-info/15 px-2 py-0.5 text-[11px] font-medium text-info">
+            {t('statusScheduled')}
+          </span>
         )}
+        <PostTileMenu
+          post={post}
+          canModerate={canModerate}
+          canDelete={canDelete}
+          isMine={post.authorId === myId}
+        />
       </header>
 
-      {post.content && <p className="text-sm whitespace-pre-wrap">{post.content}</p>}
+      {/* Порядок как во «ВКонтакте»: сначала вложение, под ним текст. Картинка —
+          то, за что цепляется глаз при пролистывании, а текст читают уже решив
+          остановиться. */}
+      {post.media.length > 0 && (
+        <MediaCollage
+          postId={post.id}
+          media={post.media}
+          onOpen={onOpenMedia}
+          openLabel={t('openPost')}
+        />
+      )}
+
+      {post.content && <PostText text={post.content} />}
 
       {post.original && (
-        <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
+        <div className="mx-4 mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3 text-sm">
           <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Repeat2 className="size-3.5" aria-hidden />
             <ProfileLink
@@ -199,63 +204,47 @@ export function PostCard({ post }: { post: FeedPost }) {
         </div>
       )}
 
-      {post.media.length > 0 && (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Paperclip className="size-3.5" aria-hidden />
-          {t('mediaCount', { count: post.media.length })}
-        </p>
-      )}
-
-      {/* Реакции */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {PRESET_EMOJIS.map((emoji) => {
-          const g = groups.get(emoji)
-          return (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => toggleReaction(emoji)}
-              className={cn(
-                'flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-sm transition-colors',
-                g?.mine ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted',
-              )}
-            >
-              <span>{emoji}</span>
-              {g && g.count > 0 && <span className="text-xs text-muted-foreground">{g.count}</span>}
-            </button>
-          )
-        })}
-        <button
-          type="button"
-          onClick={() => setCommentsOpen((v) => !v)}
-          className="ml-2 flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+      {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
+          слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
+          только теми, кто уже знает, что они делают. */}
+      <div className="mt-3 flex items-center gap-0.5 px-2 pb-2 text-sm text-muted-foreground">
+        <ActionButton
+          label={t('like')}
+          pressed={liked}
+          onClick={toggleLike}
+          count={reactions.length}
         >
-          <MessageSquare className="size-3.5" aria-hidden />
-          {post._count.comments}
-        </button>
+          <Heart
+            className={cn('size-5', liked && 'fill-destructive text-destructive')}
+            aria-hidden
+          />
+        </ActionButton>
+        <ActionButton label={t('comment')} onClick={onOpenComments} count={post._count.comments}>
+          <MessageSquare className="size-5" aria-hidden />
+        </ActionButton>
         {showRepost && (
-          <button
-            type="button"
-            aria-label={t('repost')}
-            onClick={() => setReposting(true)}
-            className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Repeat2 className="size-3.5" aria-hidden />
-            <span className="hidden sm:inline">{t('repost')}</span>
-          </button>
+          <ActionButton label={t('repost')} onClick={() => setReposting(true)}>
+            <Repeat2 className="size-5" aria-hidden />
+          </ActionButton>
         )}
-        <button
-          type="button"
-          aria-label={t('shareToChat')}
-          onClick={() => setSharing(true)}
-          className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <Share2 className="size-3.5" aria-hidden />
-          <span className="hidden sm:inline">{t('share')}</span>
-        </button>
+        <ActionButton label={t('share')} onClick={() => setSharing(true)}>
+          <Share2 className="size-5" aria-hidden />
+        </ActionButton>
+        {/* Справа — счётчик просмотров и возраст поста: во «ВКонтакте» дата стоит
+            именно здесь, а не в шапке, где спорит с именем автора. */}
+        <span className="ml-auto flex items-center gap-3 px-2 text-xs">
+          <span
+            className="flex items-center gap-1.5"
+            title={t('viewsLabel', { count: post.views })}
+          >
+            <Eye className="size-4" aria-hidden />
+            {post.views}
+          </span>
+          <time dateTime={post.createdAt} title={exactTime}>
+            {ago}
+          </time>
+        </span>
       </div>
-
-      {commentsOpen && <Comments postId={post.id} />}
 
       {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
 
@@ -272,150 +261,141 @@ export function PostCard({ post }: { post: FeedPost }) {
   )
 }
 
-function Comments({ postId }: { postId: string }) {
+/**
+ * Текст поста. Длинный сворачивается до четырёх строк со ссылкой «Показать ещё»:
+ * объявление на два экрана раньше отодвигало следующий пост за нижний край, и лента
+ * переставала листаться глазами.
+ *
+ * Сворачиваем по числу строк (line-clamp), а не по числу символов: перенос зависит
+ * от ширины колонки, и обрезка по символам на широком экране рубила бы текст, который
+ * и так помещался.
+ */
+function PostText({ text }: { text: string }) {
   const t = useTranslations('Feed')
-  const tErr = useTranslations('Errors')
-  const qc = useQueryClient()
-  const myId = useAppSelector((s) => s.auth.user?.id)
-  const [text, setText] = useState('')
-  const [replyTo, setReplyTo] = useState<string | null>(null)
-
-  const comments = useQuery({
-    queryKey: postKeys.comments(postId),
-    queryFn: () => fetchComments(postId),
-  })
-
-  const addMut = useMutation({
-    mutationFn: () =>
-      addCommentRequest(postId, { content: text.trim(), parentId: replyTo ?? undefined }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: postKeys.comments(postId) })
-      void qc.invalidateQueries({ queryKey: postKeys.all })
-      setText('')
-      setReplyTo(null)
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  const delMut = useMutation({
-    mutationFn: (commentId: string) => deleteCommentRequest(postId, commentId),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: postKeys.comments(postId) }),
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  const roots = (comments.data ?? []).filter((c) => c.parentId === null)
-  const repliesOf = (id: string) => (comments.data ?? []).filter((c) => c.parentId === id)
+  const [expanded, setExpanded] = useState(false)
+  // Порог с запасом: у поста в три строки кнопка не нужна, а разворачивать «ещё одну
+  // строку» — раздражает сильнее, чем длинный текст.
+  const long = text.length > 240 || text.split('\n').length > 4
 
   return (
-    <div className="flex flex-col gap-3 border-t border-border pt-3">
-      {comments.isLoading ? (
-        <p className="text-xs text-muted-foreground">{t('loadingComments')}</p>
-      ) : roots.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t('noComments')}</p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {roots.map((c) => (
-            <li key={c.id} className="flex flex-col gap-2">
-              <CommentRow
-                authorId={c.author.id}
-                author={`${c.author.lastName} ${c.author.firstName}`}
-                content={c.content}
-                canDelete={c.author.id === myId}
-                onReply={() => setReplyTo(c.id)}
-                onDelete={() => delMut.mutate(c.id)}
-              />
-              {repliesOf(c.id).map((r) => (
-                <div key={r.id} className="ml-6">
-                  <CommentRow
-                    authorId={r.author.id}
-                    author={`${r.author.lastName} ${r.author.firstName}`}
-                    content={r.content}
-                    canDelete={r.author.id === myId}
-                    onDelete={() => delMut.mutate(r.id)}
-                  />
-                </div>
-              ))}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="flex items-center gap-2">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={replyTo ? t('replyPlaceholder') : t('commentPlaceholder')}
-          className="h-9 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-        />
-        {replyTo && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setReplyTo(null)}>
-            {t('cancelReply')}
-          </Button>
+    <div className="px-4 pt-3">
+      <p
+        className={cn(
+          'text-sm leading-relaxed whitespace-pre-wrap',
+          long && !expanded && 'line-clamp-4',
         )}
-        <Button
+      >
+        {text}
+      </p>
+      {long && (
+        <button
           type="button"
-          size="sm"
-          icon
-          aria-label={t('send')}
-          loading={addMut.isPending}
-          disabled={text.trim().length === 0}
-          onClick={() => addMut.mutate()}
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-0.5 cursor-pointer text-sm text-primary hover:underline"
         >
-          <Send className="size-4" aria-hidden />
-        </Button>
-      </div>
+          {expanded ? t('showLess') : t('showMore')}
+        </button>
+      )}
     </div>
   )
 }
 
-function CommentRow({
-  authorId,
-  author,
-  content,
-  canDelete,
-  onReply,
-  onDelete,
+/** Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние. */
+function ActionButton({
+  label,
+  count,
+  pressed,
+  onClick,
+  children,
 }: {
-  authorId: string
-  author: string
-  content: string
-  canDelete: boolean
-  onReply?: () => void
-  onDelete: () => void
+  label: string
+  count?: number
+  pressed?: boolean
+  onClick?: () => void
+  children: React.ReactNode
 }) {
-  const t = useTranslations('Feed')
   return (
-    <div className="group rounded-xl bg-muted/40 px-3 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <ProfileLink
-          userId={authorId}
-          className="text-xs font-semibold hover:text-primary hover:underline"
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      title={label}
+      className={cn(
+        'flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground',
+        pressed && 'text-foreground',
+      )}
+    >
+      {children}
+      {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
+      {/* Подпись прячем на телефоне: четыре слова в ряд не помещаются, там остаются
+          иконки со счётчиками. */}
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  )
+}
+
+/**
+ * Коллаж вложений. Раскладка зависит от их числа: одно — во всю ширину, два — в ряд,
+ * три — крупное слева и два справа, дальше — сетка 2×2 с «+N» на последней плитке.
+ * Одна и та же сетка на любое количество либо резала одиночную картинку, либо
+ * оставляла дыры.
+ */
+function MediaCollage({
+  postId,
+  media,
+  onOpen,
+  openLabel,
+}: {
+  postId: string
+  media: PostMedia[]
+  onOpen?: () => void
+  openLabel: string
+}) {
+  const tiles = media.slice(0, MEDIA_TILES)
+  const rest = media.length - tiles.length
+  const layout =
+    media.length === 1
+      ? 'grid-cols-1'
+      : media.length === 3
+        ? 'grid-cols-2 [&>*:first-child]:row-span-2'
+        : 'grid-cols-2'
+
+  return (
+    <div className={cn('mt-3 grid gap-0.5', layout)}>
+      {tiles.map((m, i) => (
+        <button
+          key={m.id}
+          type="button"
+          onClick={onOpen}
+          aria-label={openLabel}
+          className={cn(
+            'relative block overflow-hidden',
+            // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
+            // или скан, и обрезка съедала бы половину смысла. Подложки под ним нет —
+            // вертикальное фото уже стояло в серой рамке с полями по бокам, хотя
+            // во «ВКонтакте» оно просто лежит на карточке.
+            media.length === 1 ? 'max-h-[32rem]' : 'aspect-square bg-muted',
+          )}
         >
-          {author}
-        </ProfileLink>
-        <span className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-          {onReply && (
-            <button
-              type="button"
-              onClick={onReply}
-              className="cursor-pointer text-xs text-primary hover:underline"
-            >
-              {t('reply')}
-            </button>
+          <PostMediaView
+            postId={postId}
+            media={m}
+            fit={media.length === 1 ? 'contain' : 'cover'}
+            className="size-full"
+          />
+          {m.mime.startsWith('video/') && (
+            <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md">
+              <Play className="size-10 fill-current" aria-hidden />
+            </span>
           )}
-          {canDelete && (
-            <button
-              type="button"
-              aria-label={t('delete')}
-              onClick={onDelete}
-              className="cursor-pointer text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-            </button>
+          {rest > 0 && i === tiles.length - 1 && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
+              +{rest}
+            </span>
           )}
-        </span>
-      </div>
-      <p className="mt-0.5 text-sm whitespace-pre-wrap">{content}</p>
+        </button>
+      ))}
     </div>
   )
 }

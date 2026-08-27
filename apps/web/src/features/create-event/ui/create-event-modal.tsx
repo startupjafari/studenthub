@@ -19,22 +19,23 @@ import { fetchGroups, groupKeys } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Checkbox,
   DateTimePicker,
+  FieldError,
   FormAlert,
   Input,
   Label,
+  Modal,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Textarea,
 } from '../../../shared/ui'
 
+// Кому роль вправе адресовать событие. Сервер проверяет то же самое — здесь только
+// не показываем заведомо недоступные варианты.
 const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
   [Role.PLATFORM_ADMIN]: ['ALL'],
   [Role.UNIVERSITY_ADMIN]: ['UNIVERSITY', 'FACULTY', 'GROUP', 'TEACHERS'],
@@ -51,8 +52,16 @@ function toIso(local: string): string {
   return local ? new Date(local).toISOString() : ''
 }
 
-export function CreateEventForm() {
+/**
+ * Создание события.
+ *
+ * Раньше форма стояла раскрытой над списком и занимала первый экран целиком —
+ * при том что читают события куда чаще, чем создают. Теперь это модалка за кнопкой
+ * в шапке, собранная как остальные создания в системе.
+ */
+export function CreateEventModal({ onClose }: { onClose: () => void }) {
   const t = useTranslations('Events')
+  const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const role = useAppSelector((s) => s.auth.role)
@@ -63,6 +72,7 @@ export function CreateEventForm() {
     defaultValues: { audience: audiences[0], isOnline: false },
   })
   const audience = form.watch('audience')
+  const isOnline = form.watch('isOnline')
   const showGroup = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFaculty = audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
 
@@ -86,60 +96,38 @@ export function CreateEventForm() {
     onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: eventKeys.all })
-      form.reset({ audience: audiences[0], isOnline: false })
-      setStartLocal('')
-      setEndLocal('')
       toast.success(t('created'))
+      onClose()
     },
     onError: (e) => showApiError(e),
   })
 
-  if (audiences.length === 0) return null
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{t('newEvent')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={form.handleSubmit((v) => mutation.mutate(v))}
-          className="grid gap-3 sm:grid-cols-2"
-        >
-          {apiError && (
-            <div className="sm:col-span-2">
-              <FormAlert error={apiError} />
-            </div>
-          )}
-          <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="ev-title">{t('eventTitle')}</Label>
-            <Input id="ev-title" {...form.register('title')} />
-            {form.formState.errors.title && (
-              <p className="text-xs text-destructive">{t('required')}</p>
-            )}
-          </div>
+    <Modal onClose={onClose} title={t('newEvent')} size="lg">
+      <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-4">
+        <FormAlert error={apiError} />
 
-          <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="ev-desc">{t('description')}</Label>
-            <textarea
-              id="ev-desc"
-              rows={3}
-              {...form.register('description')}
-              className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-            />
-            {form.formState.errors.description && (
-              <p className="text-xs text-destructive">{t('required')}</p>
-            )}
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ev-title">{t('eventTitle')}</Label>
+          <Input id="ev-title" autoFocus {...form.register('title')} />
+          <FieldError>{form.formState.errors.title && t('required')}</FieldError>
+        </div>
 
-          <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ev-desc">{t('description')}</Label>
+          <Textarea id="ev-desc" rows={3} {...form.register('description')} />
+          <FieldError>{form.formState.errors.description && t('required')}</FieldError>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
             <Label>{t('audience')}</Label>
             <Controller
               control={form.control}
               name="audience"
               render={({ field }) => (
                 <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label={t('audience')}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -155,14 +143,14 @@ export function CreateEventForm() {
           </div>
 
           {showGroup && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <Label>{t('group')}</Label>
               <Controller
                 control={form.control}
                 name="groupId"
                 render={({ field }) => (
                   <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={t('group')}>
                       <SelectValue placeholder={t('selectGroup')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -179,14 +167,14 @@ export function CreateEventForm() {
           )}
 
           {showFaculty && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <Label>{t('faculty')}</Label>
               <Controller
                 control={form.control}
                 name="facultyId"
                 render={({ field }) => (
                   <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={t('faculty')}>
                       <SelectValue placeholder={t('selectFaculty')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -201,8 +189,10 @@ export function CreateEventForm() {
               />
             </div>
           )}
+        </div>
 
-          <div className="flex flex-col gap-2">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
             <Label>{t('startsAt')}</Label>
             <DateTimePicker
               value={startLocal}
@@ -212,12 +202,9 @@ export function CreateEventForm() {
                 form.setValue('startsAt', toIso(v), { shouldValidate: true })
               }}
             />
-            {form.formState.errors.startsAt && (
-              <p className="text-xs text-destructive">{t('required')}</p>
-            )}
+            <FieldError>{form.formState.errors.startsAt && t('required')}</FieldError>
           </div>
-
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             <Label>{t('endsAt')}</Label>
             <DateTimePicker
               value={endLocal}
@@ -228,42 +215,45 @@ export function CreateEventForm() {
                 form.setValue('endsAt', v ? toIso(v) : undefined, { shouldValidate: true })
               }}
             />
-            {form.formState.errors.endsAt && (
-              <p className="text-xs text-destructive">{form.formState.errors.endsAt.message}</p>
+            <FieldError>{form.formState.errors.endsAt?.message}</FieldError>
+          </div>
+        </div>
+
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <Controller
+            control={form.control}
+            name="isOnline"
+            render={({ field }) => (
+              <Checkbox
+                checked={field.value === true}
+                onCheckedChange={(v) => field.onChange(v === true)}
+                onBlur={field.onBlur}
+              />
             )}
-          </div>
+          />
+          {t('isOnline')}
+        </label>
 
-          <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="ev-loc">{t('location')}</Label>
-            <Input
-              id="ev-loc"
-              {...form.register('location')}
-              placeholder={t('locationPlaceholder')}
-            />
-          </div>
+        {/* У онлайн-события «место» — это ссылка на встречу, поэтому подпись меняется:
+            поле «Аудитория / адрес» рядом с галочкой «онлайн» сбивало с толку. */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ev-loc">{isOnline ? t('meetingLink') : t('location')}</Label>
+          <Input
+            id="ev-loc"
+            {...form.register('location')}
+            placeholder={isOnline ? t('meetingLinkPlaceholder') : t('locationPlaceholder')}
+          />
+        </div>
 
-          <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
-            <Controller
-              control={form.control}
-              name="isOnline"
-              render={({ field }) => (
-                <Checkbox
-                  checked={field.value === true}
-                  onCheckedChange={(v) => field.onChange(v === true)}
-                  onBlur={field.onBlur}
-                />
-              )}
-            />
-            {t('isOnline')}
-          </label>
-
-          <div className="sm:col-span-2">
-            <Button type="submit" loading={mutation.isPending}>
-              {t('createEvent')}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        <div className="flex items-center justify-between gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            {tCommon('cancel')}
+          </Button>
+          <Button type="submit" loading={mutation.isPending}>
+            {t('createEvent')}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   )
 }

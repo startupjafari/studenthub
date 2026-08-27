@@ -166,8 +166,13 @@ export function PostTile({
           </button>
           <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
             <span className="whitespace-nowrap text-xs text-muted-foreground">{date}</span>
-            {canDelete && (
-              <PostTileMenu post={post} canModerate={canModerate} canDelete={canDelete} />
+            {(canDelete || post.authorId !== myId) && (
+              <PostTileMenu
+                post={post}
+                canModerate={canModerate}
+                canDelete={canDelete}
+                isMine={post.authorId === myId}
+              />
             )}
           </div>
         </div>
