@@ -48,7 +48,6 @@ import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { BRAND_GRADIENT } from '../../../shared/config'
 import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 
@@ -184,9 +183,13 @@ export function PostLightbox({
         </div>
       )}
 
+      {/* Пост — одной вертикальной колонкой, как во «ВКонтакте»: шапка, текст,
+          вложение, действия, комментарии. Двухколоночная раскладка (медиа слева,
+          панель справа) — это просмотрщик фотографий: у поста без картинки левая
+          половина пустовала, а панель справа обрезала подписи кнопок. */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden bg-background shadow-2xl sm:rounded-xl md:flex-row"
+        className="flex max-h-[92vh] w-full max-w-[42rem] flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl"
       >
         <PostView key={post.id} post={post} onClose={onClose} focusComment={focusComment} />
       </div>
@@ -218,7 +221,6 @@ function PostView({
 
   const [mi, setMi] = useState(0)
   const [zoomed, setZoomed] = useState(false)
-  const [sheetOpen, setSheetOpen] = useState(false)
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
 
@@ -392,13 +394,18 @@ function PostView({
   const cur = media[mi]
   const isImage = cur ? !cur.mime.startsWith('video/') : false
   const commentCount = comments.data?.length ?? post._count.comments
-  const roots = (comments.data ?? [])
-    .filter((c) => c.parentId === null)
+  const loaded = comments.data ?? []
+  const loadedIds = new Set(loaded.map((c) => c.id))
+  // Корнем считаем и ответ, чей родитель не пришёл (родителя удалили): иначе такой
+  // комментарий не рисовался нигде, а в счётчике оставался — заголовок обещал
+  // «1 комментарий» над пустым списком.
+  const roots = loaded
+    .filter((c) => c.parentId === null || !loadedIds.has(c.parentId))
     // Ответы внутри ветки порядок не меняют: там важна последовательность разговора.
     .sort((a, b) =>
       newestFirst ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt),
     )
-  const repliesOf = (id: string) => (comments.data ?? []).filter((c) => c.parentId === id)
+  const repliesOf = (id: string) => loaded.filter((c) => c.parentId === id)
 
   /**
    * Панель действий стоит СРАЗУ под текстом поста, а не под лентой комментариев:
@@ -452,112 +459,7 @@ function PostView({
 
   return (
     <>
-      {/* Медиа-колонка — нейтральный тёмно-серый фон вместо чёрного */}
-      <div className="relative flex min-h-[45vh] flex-1 items-center justify-center overflow-hidden bg-neutral-900 md:min-h-0">
-        {cur ? (
-          isImage ? (
-            <button
-              type="button"
-              aria-label={zoomed ? t('zoomOut') : t('zoomIn')}
-              onClick={() => setZoomed((z) => !z)}
-              className={cn(
-                'flex size-full items-center justify-center',
-                zoomed ? 'cursor-zoom-out overflow-auto' : 'cursor-zoom-in',
-              )}
-            >
-              <PostMediaView
-                postId={post.id}
-                media={cur}
-                fit="contain"
-                className={cn(
-                  'max-h-[45vh] w-full transition-transform duration-200 md:max-h-[92vh]',
-                  zoomed && 'max-h-none scale-150 md:scale-[1.75]',
-                )}
-              />
-            </button>
-          ) : (
-            <PostMediaView
-              postId={post.id}
-              media={cur}
-              fit="contain"
-              controls
-              className="max-h-[45vh] w-full md:max-h-[92vh]"
-            />
-          )
-        ) : (
-          <div className={cn('flex size-full items-center justify-center p-8', BRAND_GRADIENT)}>
-            <p className="max-h-full overflow-y-auto whitespace-pre-wrap text-center text-lg font-medium text-white">
-              {post.content}
-            </p>
-          </div>
-        )}
-
-        {media.length > 1 && (
-          <>
-            {mi > 0 && (
-              <button
-                type="button"
-                aria-label={t('prev')}
-                onClick={() => {
-                  setMi(mi - 1)
-                  setZoomed(false)
-                }}
-                className="absolute left-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-              >
-                <ChevronLeft className="size-5" aria-hidden />
-              </button>
-            )}
-            {mi < media.length - 1 && (
-              <button
-                type="button"
-                aria-label={t('next')}
-                onClick={() => {
-                  setMi(mi + 1)
-                  setZoomed(false)
-                }}
-                className="absolute right-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-              >
-                <ChevronRight className="size-5" aria-hidden />
-              </button>
-            )}
-            {/* Номер материала: «2 из 8» */}
-            <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
-              {t('counter', { current: mi + 1, total: media.length })}
-            </div>
-            <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-              {media.map((m, i) => (
-                <span
-                  key={m.id}
-                  className={cn(
-                    'size-1.5 rounded-full transition-colors',
-                    i === mi ? 'bg-white' : 'bg-white/40',
-                  )}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Панель деталей — на мобильном нижний лист (bottom sheet) с «выглядывающей» полосой */}
-      <div
-        className={cn(
-          'flex flex-col bg-background',
-          'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-30 max-md:max-h-[82vh] max-md:rounded-t-2xl max-md:border-t max-md:border-border max-md:shadow-2xl max-md:transition-transform max-md:duration-300',
-          !sheetOpen && 'max-md:translate-y-[calc(100%-2.75rem)]',
-          'md:w-[400px] md:shrink-0 md:border-l md:border-border',
-        )}
-      >
-        {/* Ручка-переключатель (только мобильный) */}
-        <button
-          type="button"
-          onClick={() => setSheetOpen((o) => !o)}
-          className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-border py-2.5 text-sm text-muted-foreground md:hidden"
-        >
-          <MessageCircle className="size-4" aria-hidden />
-          {t('commentsCount', { count: commentCount })}
-        </button>
-
+      <div className="flex min-h-0 flex-1 flex-col bg-background">
         {/* Шапка */}
         <header className="flex items-center gap-3 border-b border-border px-4 py-3">
           <ProfileLink userId={post.author.id} className="shrink-0">
@@ -635,100 +537,188 @@ function PostView({
           )}
         </header>
 
-        {/* Текст поста — обычным блоком под шапкой, как во «ВКонтакте», а не первой
-            строкой ленты комментариев: у поста и у реплики разный вес, и одинаковая
-            вёрстка читалась как «автор первым прокомментировал сам себя». */}
-        {(post.content || post.original) && (
-          <div className="shrink-0 border-b border-border px-4 py-3 text-sm">
-            {post.content && <p className="break-words whitespace-pre-wrap">{post.content}</p>}
+        {/* Всё содержимое поста и комментарии прокручиваются одной лентой — как во
+            «ВКонтакте». Раздельная прокрутка панели и медиа заставляла целиться
+            курсором в нужную половину. */}
+        <div className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {/* Текст поста — обычным блоком под шапкой, а не первой строкой ленты
+            комментариев: у поста и у реплики разный вес, и одинаковая вёрстка
+            читалась как «автор первым прокомментировал сам себя». */}
+          {(post.content || post.original) && (
+            <div className="shrink-0 border-b border-border px-4 py-3 text-sm">
+              {post.content && <p className="break-words whitespace-pre-wrap">{post.content}</p>}
 
-            {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
-            {post.original && (
-              <div className="mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
-                <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Repeat2 className="size-3.5" aria-hidden />
-                  <ProfileLink
-                    userId={post.original.author.id}
-                    className="hover:text-primary hover:underline"
-                  >
-                    {post.original.author.lastName} {post.original.author.firstName}
-                  </ProfileLink>
-                </p>
-                <p className="whitespace-pre-wrap">{post.original.content}</p>
-              </div>
+              {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
+              {post.original && (
+                <div className="mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
+                  <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
+                    <Repeat2 className="size-3.5" aria-hidden />
+                    <ProfileLink
+                      userId={post.original.author.id}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {post.original.author.lastName} {post.original.author.firstName}
+                    </ProfileLink>
+                  </p>
+                  <p className="whitespace-pre-wrap">{post.original.content}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Вложение — в потоке под текстом, а не отдельной колонкой. Высота
+              ограничена, чтобы вертикальное фото не выдавливало комментарии за экран.
+              Пост без вложения блок не рисует: раньше на его месте была заглушка-
+              градиент, дословно повторявшая текст поста. */}
+          {cur && (
+            <div className="relative flex max-h-[60vh] items-center justify-center overflow-hidden bg-neutral-900">
+              {isImage ? (
+                <button
+                  type="button"
+                  aria-label={zoomed ? t('zoomOut') : t('zoomIn')}
+                  onClick={() => setZoomed((z) => !z)}
+                  className={cn(
+                    'flex size-full items-center justify-center',
+                    zoomed ? 'cursor-zoom-out overflow-auto' : 'cursor-zoom-in',
+                  )}
+                >
+                  <PostMediaView
+                    postId={post.id}
+                    media={cur}
+                    fit="contain"
+                    className={cn(
+                      'max-h-[60vh] w-auto max-w-full transition-transform duration-200',
+                      zoomed && 'max-h-none scale-150',
+                    )}
+                  />
+                </button>
+              ) : (
+                <PostMediaView
+                  postId={post.id}
+                  media={cur}
+                  fit="contain"
+                  controls
+                  className="max-h-[60vh] w-auto max-w-full"
+                />
+              )}
+              {media.length > 1 && (
+                <>
+                  {mi > 0 && (
+                    <button
+                      type="button"
+                      aria-label={t('prev')}
+                      onClick={() => {
+                        setMi(mi - 1)
+                        setZoomed(false)
+                      }}
+                      className="absolute left-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                    >
+                      <ChevronLeft className="size-5" aria-hidden />
+                    </button>
+                  )}
+                  {mi < media.length - 1 && (
+                    <button
+                      type="button"
+                      aria-label={t('next')}
+                      onClick={() => {
+                        setMi(mi + 1)
+                        setZoomed(false)
+                      }}
+                      className="absolute right-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                    >
+                      <ChevronRight className="size-5" aria-hidden />
+                    </button>
+                  )}
+                  {/* Номер материала: «2 из 8» */}
+                  <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
+                    {t('counter', { current: mi + 1, total: media.length })}
+                  </div>
+                  <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+                    {media.map((m, i) => (
+                      <span
+                        key={m.id}
+                        className={cn(
+                          'size-1.5 rounded-full transition-colors',
+                          i === mi ? 'bg-white' : 'bg-white/40',
+                        )}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <ActionsBar />
+
+          {/* Заголовок ленты комментариев: счётчик и порядок */}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
+            <span className="text-sm font-semibold">
+              {t('commentsCount', { count: commentCount })}
+            </span>
+            {commentCount > 1 && (
+              <button
+                type="button"
+                onClick={() => setNewestFirst((v) => !v)}
+                className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+              >
+                {newestFirst ? t('sortNewest') : t('sortOldest')}
+              </button>
             )}
           </div>
-        )}
 
-        <ActionsBar />
-
-        {/* Заголовок ленты комментариев: счётчик и порядок */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
-          <span className="text-sm font-semibold">
-            {t('commentsCount', { count: commentCount })}
-          </span>
-          {commentCount > 1 && (
-            <button
-              type="button"
-              onClick={() => setNewestFirst((v) => !v)}
-              className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-            >
-              {newestFirst ? t('sortNewest') : t('sortOldest')}
-            </button>
-          )}
+          <ul className="flex flex-col gap-4 px-4 py-3">
+            {comments.isLoading ? (
+              <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
+            ) : roots.length === 0 ? (
+              <li className="text-xs text-muted-foreground">{t('noComments')}</li>
+            ) : (
+              roots.map((c) => {
+                const replies = repliesOf(c.id)
+                return (
+                  <li key={c.id} className="flex flex-col gap-3">
+                    {/* Одиночный комментарий (корень ветки) */}
+                    <CommentRow
+                      id={c.id}
+                      author={c.author}
+                      content={c.content}
+                      createdAt={c.createdAt}
+                      locale={locale}
+                      canDelete={c.author.id === myId}
+                      canReport={c.author.id !== myId}
+                      onReply={() => startReply(c.id, c.author)}
+                      onDelete={() => delCommentMut.mutate(c.id)}
+                    />
+                    {/* Ответы — с отступом и вертикальной линией-веткой (визуально отделены) */}
+                    {replies.length > 0 && (
+                      <div className="ml-4 flex flex-col gap-3 border-l-2 border-border/70 pl-3.5">
+                        {replies.map((r) => (
+                          <CommentRow
+                            key={r.id}
+                            id={r.id}
+                            author={r.author}
+                            content={r.content}
+                            createdAt={r.createdAt}
+                            locale={locale}
+                            // Ответ всегда адресован автору корня ветки: вложенность
+                            // на сервере одноуровневая, и без подписи «кому» лента
+                            // ответов читается как разговор со стеной.
+                            replyTo={c.author}
+                            small
+                            canDelete={r.author.id === myId}
+                            canReport={r.author.id !== myId}
+                            onReply={() => startReply(c.id, r.author)}
+                            onDelete={() => delCommentMut.mutate(r.id)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                )
+              })
+            )}
+          </ul>
         </div>
-
-        <ul className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
-          {comments.isLoading ? (
-            <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
-          ) : roots.length === 0 ? (
-            <li className="text-xs text-muted-foreground">{t('noComments')}</li>
-          ) : (
-            roots.map((c) => {
-              const replies = repliesOf(c.id)
-              return (
-                <li key={c.id} className="flex flex-col gap-3">
-                  {/* Одиночный комментарий (корень ветки) */}
-                  <CommentRow
-                    id={c.id}
-                    author={c.author}
-                    content={c.content}
-                    createdAt={c.createdAt}
-                    locale={locale}
-                    canDelete={c.author.id === myId}
-                    canReport={c.author.id !== myId}
-                    onReply={() => startReply(c.id, c.author)}
-                    onDelete={() => delCommentMut.mutate(c.id)}
-                  />
-                  {/* Ответы — с отступом и вертикальной линией-веткой (визуально отделены) */}
-                  {replies.length > 0 && (
-                    <div className="ml-4 flex flex-col gap-3 border-l-2 border-border/70 pl-3.5">
-                      {replies.map((r) => (
-                        <CommentRow
-                          key={r.id}
-                          id={r.id}
-                          author={r.author}
-                          content={r.content}
-                          createdAt={r.createdAt}
-                          locale={locale}
-                          // Ответ всегда адресован автору корня ветки: вложенность
-                          // на сервере одноуровневая, и без подписи «кому» лента
-                          // ответов читается как разговор со стеной.
-                          replyTo={c.author}
-                          small
-                          canDelete={r.author.id === myId}
-                          canReport={r.author.id !== myId}
-                          onReply={() => startReply(c.id, r.author)}
-                          onDelete={() => delCommentMut.mutate(r.id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </li>
-              )
-            })
-          )}
-        </ul>
 
         {/* Ввод комментария: аватар · эмодзи · многострочное поле · «Опубликовать».
             Аватар слева, как во «ВКонтакте»: он показывает, от чьего имени уйдёт
