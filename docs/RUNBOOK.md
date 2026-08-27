@@ -53,10 +53,12 @@ pnpm --filter web build && apps/web/node_modules/.bin/next start apps/web -p 300
 for m in <каждая старая миграция>; do prisma migrate resolve --applied "$m"; done
 prisma migrate deploy    # накатит только новые
 node prisma/seed.mjs
+node prisma/seed-kato.mjs   # справочник КАТО: без него город вуза не во что резолвить
 ```
 
 **Пересоздать dev-БД с нуля** (данных не жалко): `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-через `prisma db execute` (не `migrate reset`) → `migrate deploy` → `node prisma/seed.mjs`.
+через `prisma db execute` (не `migrate reset`) → `migrate deploy` → `node prisma/seed.mjs` →
+`node prisma/seed-kato.mjs`.
 
 ## Бэкапы и восстановление
 
