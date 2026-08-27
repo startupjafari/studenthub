@@ -9,7 +9,7 @@ import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Loader2, Play, Upload, X } from 'lucide-react'
 import { CreatePostSchema, type CreatePostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
 import { uploadFileRequest } from '../../../shared/api'
 import {
   AUDIENCES_BY_ROLE,
@@ -34,7 +34,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
+  MarkdownEditor,
 } from '../../../shared/ui'
 
 interface UploadedMedia {
@@ -51,6 +51,7 @@ export function CreatePostForm({
   bare,
 }: { onCreated?: () => void; bare?: boolean } = {}) {
   const t = useTranslations('Feed')
+  const tEditor = useTranslations('Editor')
   const tPeople = useTranslations('People')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -69,7 +70,7 @@ export function CreatePostForm({
 
   const form = useForm<CreatePostInput>({
     resolver: zodResolver(CreatePostSchema),
-    defaultValues: { audience: audiences[0], content: '' },
+    defaultValues: { audience: audiences[0], content: '', title: '' },
   })
   const audience = form.watch('audience')
 
@@ -107,7 +108,7 @@ export function CreatePostForm({
     onMutate: () => resetApiError(),
     onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
-      form.reset({ audience: audiences[0], content: '' })
+      form.reset({ audience: audiences[0], content: '', title: '' })
       media.forEach((m) => URL.revokeObjectURL(m.url))
       setMedia([])
       setTarget(null)
@@ -360,9 +361,37 @@ export function CreatePostForm({
         />
       </div>
 
-      {/* 5. Текст поста — на всю ширину */}
+      {/* 5. Заголовок и текст — на всю ширину */}
       <div className="flex flex-col gap-1.5">
-        <Textarea {...form.register('content')} rows={3} placeholder={t('placeholder')} />
+        <Label htmlFor="post-title" className="text-xs">
+          {t('titleLabel')}
+        </Label>
+        <Input
+          id="post-title"
+          {...form.register('title', OPTIONAL_TEXT)}
+          placeholder={t('titlePlaceholder')}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="post-content" className="text-xs">
+          {t('contentLabel')}
+        </Label>
+        {/* Разметка остаётся видимой в поле: человек видит, что именно уедет на
+            сервер, а не догадывается по кнопкам панели. */}
+        <Controller
+          control={form.control}
+          name="content"
+          render={({ field }) => (
+            <MarkdownEditor
+              id="post-content"
+              value={field.value ?? ''}
+              onChange={field.onChange}
+              placeholder={t('placeholder')}
+              hint={tEditor('markdownHint')}
+            />
+          )}
+        />
         {form.formState.errors.content && (
           <p className="text-xs text-destructive">{t('contentRequired')}</p>
         )}

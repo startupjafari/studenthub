@@ -67,6 +67,7 @@ const AUTHOR_SELECT = {
 const POST_SELECT = {
   id: true,
   audience: true,
+  title: true,
   content: true,
   authorId: true,
   universityId: true,
@@ -86,7 +87,7 @@ const POST_SELECT = {
   media: { select: { id: true, mime: true } },
   reactions: { select: { emoji: true, userId: true } },
   original: {
-    select: { id: true, content: true, author: AUTHOR_SELECT },
+    select: { id: true, title: true, content: true, author: AUTHOR_SELECT },
   },
   _count: { select: { comments: true } },
 } satisfies Prisma.PostSelect
@@ -286,6 +287,7 @@ export class PostsService {
       data: {
         authorId: actor.sub,
         audience: input.audience as PostAudience,
+        title: input.title?.trim() || null,
         content: input.content,
         priority: this.priorityFor(actor, input.audience as PostAudience),
         ...this.resolvePublishState(input),

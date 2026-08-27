@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { Heart, MessageSquare, Paperclip } from 'lucide-react'
+import { Markdown } from '../../../shared/ui'
 import type { SharedPostPreview } from '../model/types'
 
 // Превью-карточка расшаренного в чат поста: автор, сниппет, счётчики. Ведёт на профиль автора
@@ -25,8 +26,10 @@ export function SharedPostCard({ post }: { post: SharedPostPreview }) {
       className="block rounded-xl border border-border bg-card p-3 text-foreground transition-colors hover:border-ring/50"
     >
       <p className="mb-1 truncate text-xs font-semibold">{name}</p>
+      {post.title && <p className="truncate text-sm font-semibold">{post.title}</p>}
       {post.content && (
-        <p className="line-clamp-3 text-sm whitespace-pre-wrap text-foreground">{post.content}</p>
+        // Разметку разбираем и здесь: иначе в чат уезжали звёздочки `**` вместо жирного.
+        <Markdown source={post.content} className="line-clamp-3 text-foreground" />
       )}
       <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1">

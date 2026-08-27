@@ -46,7 +46,7 @@ import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
-import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
@@ -545,8 +545,9 @@ function PostView({
             комментариев: у поста и у реплики разный вес, и одинаковая вёрстка
             читалась как «автор первым прокомментировал сам себя». */}
           {(post.content || post.original) && (
-            <div className="shrink-0 border-b border-border px-4 py-3 text-sm">
-              {post.content && <p className="break-words whitespace-pre-wrap">{post.content}</p>}
+            <div className="flex shrink-0 flex-col gap-2 border-b border-border px-4 py-3 text-sm">
+              {post.title && <h2 className="text-base leading-snug font-semibold">{post.title}</h2>}
+              {post.content && <Markdown source={post.content} />}
 
               {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
               {post.original && (
@@ -560,7 +561,8 @@ function PostView({
                       {post.original.author.lastName} {post.original.author.firstName}
                     </ProfileLink>
                   </p>
-                  <p className="whitespace-pre-wrap">{post.original.content}</p>
+                  {post.original.title && <p className="font-semibold">{post.original.title}</p>}
+                  <Markdown source={post.original.content} />
                 </div>
               )}
             </div>

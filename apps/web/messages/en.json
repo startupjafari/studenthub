@@ -1035,7 +1035,10 @@
     "showLess": "Show less",
     "report": "Report",
     "sortNewest": "Newest first",
-    "sortOldest": "Oldest first"
+    "sortOldest": "Oldest first",
+    "titleLabel": "Title",
+    "titlePlaceholder": "For example: Dean’s office hours during the holidays",
+    "contentLabel": "Text"
   },
   "Chats": {
     "title": "Chats",
@@ -2722,5 +2725,16 @@
     "hint": "A university moderator reviews the report. The author will not learn who filed it.",
     "send": "Send report",
     "sent": "Report sent"
+  },
+  "Editor": {
+    "bold": "Bold",
+    "italic": "Italic",
+    "strike": "Strikethrough",
+    "code": "Monospace",
+    "link": "Link",
+    "bullet": "Bulleted list",
+    "ordered": "Numbered list",
+    "quote": "Quote",
+    "markdownHint": "Formatting supported: **bold**, *italic*, ~~strikethrough~~, `code`, links and lists"
   }
 }

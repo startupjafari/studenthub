@@ -1,0 +1,55 @@
+import { describe, expect, it } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { Markdown } from './markdown'
+
+describe('Markdown', () => {
+  it('разбирает жирный, курсив, зачёркнутый и код', () => {
+    const { container } = render(<Markdown source={'**жирный** *курсив* ~~зачёркнутый~~ `код`'} />)
+    expect(container.querySelector('strong')?.textContent).toBe('жирный')
+    expect(container.querySelector('em')?.textContent).toBe('курсив')
+    expect(container.querySelector('s')?.textContent).toBe('зачёркнутый')
+    expect(container.querySelector('code')?.textContent).toBe('код')
+  })
+
+  it('собирает соседние строки в один список', () => {
+    const { container } = render(<Markdown source={'- раз\n- два\n- три'} />)
+    const lists = container.querySelectorAll('ul')
+    expect(lists).toHaveLength(1)
+    expect(lists[0]?.querySelectorAll('li')).toHaveLength(3)
+  })
+
+  it('нумерованный список и цитата — разные блоки', () => {
+    const { container } = render(<Markdown source={'1. раз\n2. два\n> цитата'} />)
+    expect(container.querySelectorAll('ol li')).toHaveLength(2)
+    expect(container.querySelector('blockquote')?.textContent).toContain('цитата')
+  })
+
+  it('ссылка с http открывается в новой вкладке с noopener и noreferrer', () => {
+    render(<Markdown source={'[сайт](https://example.com)'} />)
+    const link = screen.getByRole('link', { name: 'сайт' })
+    expect(link).toHaveAttribute('href', 'https://example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link.getAttribute('rel')).toContain('noopener')
+    expect(link.getAttribute('rel')).toContain('noreferrer')
+  })
+
+  it('javascript: ссылкой не становится', () => {
+    // Главная защита разбора: небезопасная схема выводится текстом, а не <a href>.
+    const { container } = render(<Markdown source={'[клик](javascript:alert(1))'} />)
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toContain('клик')
+  })
+
+  it('html не исполняется, а показывается как текст', () => {
+    const { container } = render(<Markdown source={'<img src=x onerror=alert(1)>'} />)
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).toContain('<img src=x onerror=alert(1)>')
+  })
+
+  it('код побеждает жирный внутри себя', () => {
+    // Иначе `**` внутри кода съедался бы разбором жирного и ломал пример кода.
+    const { container } = render(<Markdown source={'`a ** b`'} />)
+    expect(container.querySelector('code')?.textContent).toBe('a ** b')
+    expect(container.querySelector('strong')).toBeNull()
+  })
+})
