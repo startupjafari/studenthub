@@ -1899,6 +1899,8 @@
     "add": "Добавить в друзья",
     "cancelRequest": "Отменить заявку",
     "acceptRequest": "Принять заявку",
+    "requestsTitle": "Заявки в друзья",
+    "showAll": "Показать всех",
     "friendsLabel": "В друзьях"
   },
   "Today": {

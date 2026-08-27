@@ -1899,6 +1899,8 @@
     "add": "Add friend",
     "cancelRequest": "Cancel request",
     "acceptRequest": "Accept request",
+    "requestsTitle": "Friend requests",
+    "showAll": "Show all",
     "friendsLabel": "Friends"
   },
   "Today": {
