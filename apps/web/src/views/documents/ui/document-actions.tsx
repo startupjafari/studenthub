@@ -9,6 +9,7 @@ import {
   ArchiveRestore,
   Download,
   FileText,
+  Hash,
   History,
   MoreHorizontal,
   Pencil,
@@ -21,8 +22,11 @@ import {
   documentKeys,
   fetchDocumentAccess,
   fetchDocumentEvents,
+  DocumentFileViewer,
   fetchDocumentFileUrl,
   grantDocumentAccess,
+  isViewableMedia,
+  saveFileByUrl,
   revokeDocumentAccess,
   unarchiveDocument,
   updateDocument,
@@ -64,6 +68,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
   const [editing, setEditing] = useState(false)
   const [history, setHistory] = useState(false)
   const [access, setAccess] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: documentKeys.all })
@@ -89,19 +94,38 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
     onError: err,
   })
 
-  async function openFile(fileId: string, download: boolean): Promise<void> {
+  // Картинки и видео открываем в общем просмотрщике (как в чате и постах), остальное —
+  // PDF, docx — отдаём браузеру вкладкой: показать их просмотрщик не умеет.
+  async function openFile(fileId: string): Promise<void> {
+    const file = doc.files.find((f) => f.id === fileId)
+    if (file && isViewableMedia(file.mime)) {
+      setViewerIndex(doc.files.indexOf(file))
+      return
+    }
     try {
-      const url = await fetchDocumentFileUrl(doc.id, fileId)
-      if (download) {
-        const a = document.createElement('a')
-        a.href = url
-        a.download = ''
-        a.click()
-      } else {
-        window.open(url, '_blank', 'noopener')
-      }
+      window.open(await fetchDocumentFileUrl(doc.id, fileId), '_blank', 'noopener')
     } catch (e) {
       err(e)
+    }
+  }
+
+  async function downloadFile(fileId: string): Promise<void> {
+    try {
+      // Ссылка со схемой attachment: файл уходит в загрузки, вкладка не открывается.
+      saveFileByUrl(await fetchDocumentFileUrl(doc.id, fileId, true))
+    } catch (e) {
+      err(e)
+    }
+  }
+
+  async function copyId(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(doc.id)
+      toast.success(t('idCopied'))
+    } catch {
+      // Буфер обмена недоступен (нет разрешения, http без TLS) — показываем id,
+      // чтобы его можно было переписать вручную, а не оставляем без ответа.
+      toast.info(doc.id, { duration: 15_000 })
     }
   }
 
@@ -118,10 +142,10 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
         <DropdownMenuContent align="end" className="w-52">
           {firstFile && (
             <>
-              <DropdownMenuItem onSelect={() => void openFile(firstFile.id, false)}>
+              <DropdownMenuItem onSelect={() => void openFile(firstFile.id)}>
                 <FileText aria-hidden /> {t('actionOpen')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void openFile(firstFile.id, true)}>
+              <DropdownMenuItem onSelect={() => void downloadFile(firstFile.id)}>
                 <Download aria-hidden /> {t('actionDownload')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -135,6 +159,14 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setHistory(true)}>
             <History aria-hidden /> {t('actionHistory')}
+          </DropdownMenuItem>
+          {/* Идентификатор документа нигде больше не показан, а поддержка и платформенный
+              админ спрашивают именно его: спец-доступ открывается только по точному id
+              (GET /documents/:id/platform), списка чужих документов не существует.
+              Сам по себе id ничего не открывает — доступ по-прежнему у одной роли и
+              под запись в аудит. */}
+          <DropdownMenuItem onSelect={() => void copyId()}>
+            <Hash aria-hidden /> {t('actionCopyId')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {doc.archivedAt ? (
@@ -159,6 +191,15 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {viewerIndex !== null && (
+        <DocumentFileViewer
+          files={doc.files}
+          index={viewerIndex}
+          onIndexChange={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+          resolveUrl={(fileId, download) => fetchDocumentFileUrl(doc.id, fileId, download)}
+        />
+      )}
       {editing && <EditModal doc={doc} onClose={() => setEditing(false)} />}
       {history && <HistoryModal docId={doc.id} onClose={() => setHistory(false)} />}
       {access && <AccessModal docId={doc.id} onClose={() => setAccess(false)} />}

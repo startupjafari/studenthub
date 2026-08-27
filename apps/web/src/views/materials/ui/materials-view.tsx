@@ -10,6 +10,7 @@ import { Download, FileText, FolderOpen, Link2, Trash2 } from 'lucide-react'
 import { CreateMaterialSchema, type CreateMaterialInput } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
+import { OPTIONAL_TEXT } from '../../../shared/lib'
 import {
   createMaterialRequest,
   deleteMaterialRequest,
@@ -115,7 +116,7 @@ export function MaterialsView() {
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="m-subject">{t('subject')}</Label>
-                <Input id="m-subject" {...form.register('subject')} />
+                <Input id="m-subject" {...form.register('subject', OPTIONAL_TEXT)} />
               </div>
               <div className="flex flex-col gap-2 sm:col-span-2">
                 <Label htmlFor="m-title">{t('materialTitle')}</Label>
@@ -130,7 +131,11 @@ export function MaterialsView() {
               </div>
               <div className="flex flex-col gap-2 sm:col-span-2">
                 <Label htmlFor="m-url">{t('url')}</Label>
-                <Input id="m-url" {...form.register('url')} placeholder="https://…" />
+                <Input
+                  id="m-url"
+                  {...form.register('url', OPTIONAL_TEXT)}
+                  placeholder="https://…"
+                />
                 {form.formState.errors.url && (
                   <p className="text-xs text-destructive">{t('urlInvalid')}</p>
                 )}
