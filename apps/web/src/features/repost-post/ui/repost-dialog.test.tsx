@@ -32,6 +32,7 @@ const author = {
 const post = {
   id: 'p1',
   audience: 'GROUP',
+  title: null,
   content: 'Итоги олимпиады',
   authorId: 'u2',
   universityId: 'un1',

@@ -44,6 +44,7 @@ export interface MessageReaction {
 // Превью расшаренного поста в сообщении (share-to-chat): автор, текст, первая медиа-миниатюра.
 export interface SharedPostPreview {
   id: string
+  title: string | null
   content: string
   authorId: string
   deletedAt: string | null

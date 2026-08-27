@@ -24,7 +24,7 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
-import { Avatar, AvatarFallback } from '../../../shared/ui'
+import { Avatar, AvatarFallback, Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
@@ -187,7 +187,7 @@ export function PostCard({
         />
       )}
 
-      {post.content && <PostText text={post.content} />}
+      {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
       {post.original && (
         <div className="mx-4 mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3 text-sm">
@@ -200,7 +200,8 @@ export function PostCard({
               {post.original.author.lastName} {post.original.author.firstName}
             </ProfileLink>
           </p>
-          <p className="whitespace-pre-wrap">{post.original.content}</p>
+          {post.original.title && <p className="font-semibold">{post.original.title}</p>}
+          <Markdown source={post.original.content} />
         </div>
       )}
 
@@ -262,36 +263,35 @@ export function PostCard({
 }
 
 /**
- * Текст поста. Длинный сворачивается до четырёх строк со ссылкой «Показать ещё»:
- * объявление на два экрана раньше отодвигало следующий пост за нижний край, и лента
- * переставала листаться глазами.
+ * Заголовок и текст поста. Длинный текст сворачивается до четырёх строк со ссылкой
+ * «Показать ещё»: объявление на два экрана отодвигало следующий пост за нижний край,
+ * и лента переставала листаться глазами.
  *
  * Сворачиваем по числу строк (line-clamp), а не по числу символов: перенос зависит
  * от ширины колонки, и обрезка по символам на широком экране рубила бы текст, который
- * и так помещался.
+ * и так помещался. Заголовок в сворачивание не попадает — он и есть то, по чему пост
+ * узнают в потоке.
  */
-function PostText({ text }: { text: string }) {
+function PostBody({ title, text }: { title: string | null; text: string }) {
   const t = useTranslations('Feed')
   const [expanded, setExpanded] = useState(false)
   // Порог с запасом: у поста в три строки кнопка не нужна, а разворачивать «ещё одну
-  // строку» — раздражает сильнее, чем длинный текст.
+  // строку» раздражает сильнее, чем длинный текст.
   const long = text.length > 240 || text.split('\n').length > 4
 
   return (
-    <div className="px-4 pt-3">
-      <p
-        className={cn(
-          'text-sm leading-relaxed whitespace-pre-wrap',
-          long && !expanded && 'line-clamp-4',
-        )}
-      >
-        {text}
-      </p>
+    <div className="flex flex-col gap-1.5 px-4 pt-3">
+      {title && <h3 className="text-base leading-snug font-semibold">{title}</h3>}
+      {text && (
+        <div className={cn(long && !expanded && 'line-clamp-4')}>
+          <Markdown source={text} />
+        </div>
+      )}
       {long && (
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-0.5 cursor-pointer text-sm text-primary hover:underline"
+          className="cursor-pointer self-start text-sm text-primary hover:underline"
         >
           {expanded ? t('showLess') : t('showMore')}
         </button>

@@ -19,6 +19,11 @@ export type PostAudienceValue = z.infer<typeof PostAudienceSchema>
 export const CreatePostSchema = z
   .object({
     audience: PostAudienceSchema,
+    // Заголовок необязателен: короткой заметке он не нужен, а объявление без него
+    // не находится глазами в потоке ленты.
+    title: z.string().min(1).max(200).optional(),
+    // Текст в ограниченном markdown (жирный, курсив, зачёркнутый, код, ссылки,
+    // списки, цитата). Разметка хранится как есть и разбирается на клиенте.
     content: z.string().min(1).max(5000),
     facultyId: z.string().min(1).optional(),
     groupId: z.string().min(1).optional(),

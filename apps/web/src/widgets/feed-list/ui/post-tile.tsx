@@ -120,7 +120,7 @@ export function PostTile({
         ) : (
           <div className={cn('flex size-full items-center justify-center p-4', BRAND_GRADIENT)}>
             <span className="line-clamp-4 text-center text-sm font-medium text-white">
-              {post.content}
+              {post.title || post.content}
             </span>
           </div>
         )}
@@ -162,7 +162,7 @@ export function PostTile({
             onClick={onOpen}
             className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold leading-snug text-foreground hover:text-primary"
           >
-            {post.content || t('mediaPost')}
+            {post.title || post.content || t('mediaPost')}
           </button>
           <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
             <span className="whitespace-nowrap text-xs text-muted-foreground">{date}</span>
