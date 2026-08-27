@@ -32,8 +32,12 @@ const MODERATOR_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
 ]
-/** Сколько превью показываем в коллаже; остальное сворачивается в «+N». */
-const MEDIA_TILES = 4
+/**
+ * Сколько превью показываем в коллаже; остальное сворачивается в «+N».
+ * Шесть — это ровно два ряда по три: сетка не обрывается на середине ряда чаще,
+ * чем нужно.
+ */
+const MEDIA_TILES = 6
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
@@ -329,20 +333,14 @@ function MediaCollage({
 }) {
   const tiles = media.slice(0, MEDIA_TILES)
   const rest = media.length - tiles.length
+  // Плитки квадратные, а компактность даёт число колонок: от трёх вложений — три
+  // в ряд. Двухколоночная сетка квадратов растягивала коллаж из четырёх фото на две
+  // ширины карточки, то есть почти на два экрана.
   const layout =
-    media.length === 1
-      ? 'grid-cols-1'
-      : media.length === 3
-        ? 'grid-cols-2 [&>*:first-child]:row-span-2'
-        : 'grid-cols-2'
+    media.length === 1 ? 'grid-cols-1' : media.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
 
   return (
-    // Высота ряда задана явно, а не квадратом плитки: при квадрате коллаж из четырёх
-    // фото занимал две ширины карточки — почти два экрана, и до текста поста нужно
-    // было прокручивать. Фиксированный ряд делает коллаж примерно вдвое ниже.
-    <div
-      className={cn('mt-3 grid gap-0.5', layout, media.length > 1 && 'auto-rows-[8rem] sm:auto-rows-[9.5rem]')} // prettier-ignore
-    >
+    <div className={cn('mt-3 grid gap-0.5', layout)}>
       {tiles.map((m, i) => (
         <button
           key={m.id}
@@ -352,9 +350,8 @@ function MediaCollage({
           className={cn(
             'relative block overflow-hidden',
             // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
-            // или скан, и обрезка съедала бы половину смысла.
-            // Высоту задаёт ряд сетки — плитке остаётся заполнить её целиком.
-            media.length !== 1 && 'size-full bg-muted',
+            // или скан, и обрезка съедала бы половину смысла. В сетке — квадрат.
+            media.length !== 1 && 'aspect-square bg-muted',
           )}
         >
           {media.length === 1 ? (
