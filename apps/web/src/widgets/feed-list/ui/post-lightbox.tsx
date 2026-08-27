@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import {
   ChevronLeft,
   ChevronRight,
+  CornerDownRight,
   Eye,
   Heart,
   MessageCircle,
@@ -271,16 +272,20 @@ function PostView({
   }, [menuOpen, emojiOpen])
 
   // Ответить: подставляем «@Имя » и ставим курсор после упоминания (текст печатается следом).
+  // Кому отвечаем — показываем подписью над полем ввода. Раньше имя адресата
+  // впечатывалось в текст реплики («@Иванов Иван …»), и оно уезжало на сервер
+  // частью комментария: в ленте каждый ответ начинался с чужой фамилии.
+  const [replyTarget, setReplyTarget] = useState<PostAuthor | null>(null)
+
   function startReply(commentId: string, author: PostAuthor): void {
     setReplyTo(commentId)
-    const mention = `@${author.lastName} ${author.firstName} `
-    setText(mention)
-    requestAnimationFrame(() => {
-      const el = inputRef.current
-      if (!el) return
-      el.focus()
-      el.setSelectionRange(mention.length, mention.length)
-    })
+    setReplyTarget(author)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  function cancelReply(): void {
+    setReplyTo(null)
+    setReplyTarget(null)
   }
 
   // Вставка эмодзи в позицию курсора (или в конец).
@@ -341,7 +346,7 @@ function PostView({
       void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) })
       void qc.invalidateQueries({ queryKey: postKeys.all })
       setText('')
-      setReplyTo(null)
+      cancelReply()
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
@@ -446,14 +451,14 @@ function PostView({
             <Share2 className="size-5" aria-hidden />
           </BarButton>
           {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
-          <span className="ml-auto flex items-center gap-3 px-2 text-xs">
-            <span className="flex items-center gap-1.5" title={t('viewsCount', { count: views })}>
-              <Eye className="size-4" aria-hidden />
-              {views}
-            </span>
-            <time dateTime={post.createdAt} title={exactDate}>
-              {relativeTime(post.createdAt, locale)}
-            </time>
+          {/* Справа только просмотры: дата переехала в шапку, под имя автора —
+              в записи «ВКонтакте» она стоит там, а не в строке действий. */}
+          <span
+            className="ml-auto flex items-center gap-1.5 px-2 text-xs"
+            title={t('viewsCount', { count: views })}
+          >
+            <Eye className="size-4" aria-hidden />
+            {views}
           </span>
         </div>
       </div>
@@ -478,7 +483,10 @@ function PostView({
               </ProfileLink>
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {t(`audience${post.audience}`)}
+              {t(`audience${post.audience}`)} ·{' '}
+              <time dateTime={post.createdAt} title={exactDate}>
+                {relativeTime(post.createdAt, locale)}
+              </time>
             </p>
           </div>
           {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
@@ -548,7 +556,7 @@ function PostView({
             комментариев: у поста и у реплики разный вес, и одинаковая вёрстка
             читалась как «автор первым прокомментировал сам себя». */}
           {(post.content || post.original) && (
-            <div className="flex shrink-0 flex-col gap-2 border-b border-border px-4 py-3 text-sm">
+            <div className="flex shrink-0 flex-col gap-2 px-4 pt-3 pb-2 text-sm">
               {post.title && <h2 className="text-base leading-snug font-semibold">{post.title}</h2>}
               {post.content && <Markdown source={post.content} />}
 
@@ -728,10 +736,32 @@ function PostView({
           </ul>
         </div>
 
+        {/* Кому отвечаем — отдельной строкой над полем, с отменой. */}
+        {replyTarget && (
+          <div className="flex items-center gap-2 border-t border-border px-4 pt-2 text-xs text-muted-foreground">
+            <CornerDownRight className="size-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              {t('replyingTo', { name: `${replyTarget.lastName} ${replyTarget.firstName}` })}
+            </span>
+            <button
+              type="button"
+              onClick={cancelReply}
+              className="cursor-pointer font-medium hover:text-foreground"
+            >
+              {t('cancelReply')}
+            </button>
+          </div>
+        )}
+
         {/* Ввод комментария: аватар · эмодзи · многострочное поле · «Опубликовать».
             Аватар слева, как во «ВКонтакте»: он показывает, от чьего имени уйдёт
             реплика — в общих аккаунтах это не всегда очевидно. */}
-        <div className="relative flex items-end gap-2 border-t border-border px-4 py-2.5">
+        <div
+          className={cn(
+            'relative flex items-end gap-2 px-4 py-2.5',
+            !replyTarget && 'border-t border-border',
+          )}
+        >
           {me && (
             <Avatar className="size-8 shrink-0 self-center max-sm:hidden">
               {me.avatarUrl && <AvatarImage src={me.avatarUrl} alt="" />}
@@ -791,8 +821,7 @@ function PostView({
               const v = e.target.value
               setText(v)
               setMention(mentionQuery(v, e.target.selectionStart ?? v.length))
-              // Очистка поля отменяет режим ответа (кнопки «Отмена» нет).
-              if (v.trim() === '') setReplyTo(null)
+              // Очистка поля режим ответа не сбрасывает: у него есть своя кнопка отмены.
             }}
             onKeyUp={(e) =>
               setMention(mentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0))

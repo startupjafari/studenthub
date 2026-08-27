@@ -1039,7 +1039,8 @@
     "titleLabel": "Заголовок",
     "titlePlaceholder": "Например: График работы деканатов на праздники",
     "contentLabel": "Текст",
-    "mentionHint": "Упоминание"
+    "mentionHint": "Упоминание",
+    "replyingTo": "Ответ для {name}"
   },
   "Chats": {
     "title": "Чаты",
