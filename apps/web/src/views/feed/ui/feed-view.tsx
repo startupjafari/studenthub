@@ -65,7 +65,14 @@ export function FeedView() {
       </div>
 
       {createOpen && (
-        <Modal onClose={() => setCreateOpen(false)} title={tFeed('newPost')} size="2xl">
+        <Modal
+          onClose={() => setCreateOpen(false)}
+          title={tFeed('newPost')}
+          size="2xl"
+          // На телефоне окно во весь экран: форма длинная, а плавающая карточка
+          // с полями по краям отдавала под содержимое меньше половины высоты.
+          className="max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-full max-sm:rounded-none"
+        >
           <CreatePostForm bare onCreated={() => setCreateOpen(false)} />
         </Modal>
       )}

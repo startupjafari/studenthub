@@ -127,6 +127,9 @@ export function MarkdownEditor({
       <div className="relative">
         <div
           ref={mirrorRef}
+          // Метка для правила «на тач-устройствах шрифт полей 16px» (globals.css):
+          // копия обязана менять кегль вместе с полем, иначе слои разъедутся.
+          data-md-mirror
           aria-hidden
           className={cn(SHARED, 'pointer-events-none absolute inset-0 overflow-hidden border-transparent')} // prettier-ignore
         >
