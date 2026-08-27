@@ -1033,7 +1033,9 @@
     "viewsLabel": "{count, plural, other {# қаралым}}",
     "showMore": "Тағы көрсету",
     "showLess": "Жию",
-    "report": "Шағымдану"
+    "report": "Шағымдану",
+    "sortNewest": "Алдымен жаңалары",
+    "sortOldest": "Алдымен ескілері"
   },
   "Chats": {
     "title": "Чаттар",

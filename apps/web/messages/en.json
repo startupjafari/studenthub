@@ -1033,7 +1033,9 @@
     "viewsLabel": "{count, plural, one {# view} other {# views}}",
     "showMore": "Show more",
     "showLess": "Show less",
-    "report": "Report"
+    "report": "Report",
+    "sortNewest": "Newest first",
+    "sortOldest": "Oldest first"
   },
   "Chats": {
     "title": "Chats",

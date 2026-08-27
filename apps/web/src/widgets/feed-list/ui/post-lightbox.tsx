@@ -212,7 +212,8 @@ function PostView({
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const myId = useAppSelector((s) => s.auth.user?.id)
+  const me = useAppSelector((s) => s.auth.user)
+  const myId = me?.id
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [mi, setMi] = useState(0)
@@ -230,6 +231,9 @@ function PostView({
   const [sharing, setSharing] = useState(false)
   const [reposting, setReposting] = useState(false)
   const [text, setText] = useState('')
+  // Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
+  // «сначала новые / сначала старые», а не «сначала интересные».
+  const [newestFirst, setNewestFirst] = useState(false)
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
@@ -378,7 +382,8 @@ function PostView({
     }
   }
 
-  const time = new Date(post.createdAt).toLocaleDateString(locale, {
+  // Точная дата — в подсказке к относительному времени в панели действий.
+  const exactDate = new Date(post.createdAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
@@ -387,8 +392,63 @@ function PostView({
   const cur = media[mi]
   const isImage = cur ? !cur.mime.startsWith('video/') : false
   const commentCount = comments.data?.length ?? post._count.comments
-  const roots = (comments.data ?? []).filter((c) => c.parentId === null)
+  const roots = (comments.data ?? [])
+    .filter((c) => c.parentId === null)
+    // Ответы внутри ветки порядок не меняют: там важна последовательность разговора.
+    .sort((a, b) =>
+      newestFirst ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt),
+    )
   const repliesOf = (id: string) => (comments.data ?? []).filter((c) => c.parentId === id)
+
+  /**
+   * Панель действий стоит СРАЗУ под текстом поста, а не под лентой комментариев:
+   * во «ВКонтакте» лайк и репост относятся к посту, и искать их в конце длинного
+   * обсуждения приходилось прокруткой до дна.
+   */
+  function ActionsBar() {
+    return (
+      <div className="shrink-0 border-b border-border px-2 py-2">
+        <div className="flex items-center gap-0.5 text-muted-foreground">
+          <BarButton
+            label={t('like')}
+            pressed={liked}
+            count={reactions.length}
+            onClick={toggleLike}
+          >
+            <Heart
+              className={cn('size-5', liked && 'fill-destructive text-destructive')}
+              aria-hidden
+            />
+          </BarButton>
+          <BarButton
+            label={t('comment')}
+            count={commentCount}
+            onClick={() => inputRef.current?.focus()}
+          >
+            <MessageCircle className="size-5" aria-hidden />
+          </BarButton>
+          {showRepost && (
+            <BarButton label={t('repost')} onClick={() => setReposting(true)}>
+              <Repeat2 className="size-5" aria-hidden />
+            </BarButton>
+          )}
+          <BarButton label={t('share')} onClick={() => setSharing(true)}>
+            <Share2 className="size-5" aria-hidden />
+          </BarButton>
+          {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
+          <span className="ml-auto flex items-center gap-3 px-2 text-xs">
+            <span className="flex items-center gap-1.5" title={t('viewsCount', { count: views })}>
+              <Eye className="size-4" aria-hidden />
+              {views}
+            </span>
+            <time dateTime={post.createdAt} title={exactDate}>
+              {relativeTime(post.createdAt, locale)}
+            </time>
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -575,26 +635,16 @@ function PostView({
           )}
         </header>
 
-        {/* Подпись автора (первой строкой, как в Instagram) + комментарии (скролл) */}
-        <ul className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
-          {post.content && (
-            <li>
-              {/* Текст самого поста — первой строкой ветки. Жаловаться и отвечать
-                  здесь нечему: у поста для этого своё меню и своя кнопка. */}
-              <CommentRow
-                id={post.id}
-                author={post.author}
-                content={post.content}
-                createdAt={post.createdAt}
-                locale={locale}
-              />
-            </li>
-          )}
+        {/* Текст поста — обычным блоком под шапкой, как во «ВКонтакте», а не первой
+            строкой ленты комментариев: у поста и у реплики разный вес, и одинаковая
+            вёрстка читалась как «автор первым прокомментировал сам себя». */}
+        {(post.content || post.original) && (
+          <div className="shrink-0 border-b border-border px-4 py-3 text-sm">
+            {post.content && <p className="break-words whitespace-pre-wrap">{post.content}</p>}
 
-          {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
-          {post.original && (
-            <li>
-              <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
+            {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
+            {post.original && (
+              <div className="mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
                 <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
                   <Repeat2 className="size-3.5" aria-hidden />
                   <ProfileLink
@@ -606,9 +656,29 @@ function PostView({
                 </p>
                 <p className="whitespace-pre-wrap">{post.original.content}</p>
               </div>
-            </li>
-          )}
+            )}
+          </div>
+        )}
 
+        <ActionsBar />
+
+        {/* Заголовок ленты комментариев: счётчик и порядок */}
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
+          <span className="text-sm font-semibold">
+            {t('commentsCount', { count: commentCount })}
+          </span>
+          {commentCount > 1 && (
+            <button
+              type="button"
+              onClick={() => setNewestFirst((v) => !v)}
+              className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              {newestFirst ? t('sortNewest') : t('sortOldest')}
+            </button>
+          )}
+        </div>
+
+        <ul className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
           {comments.isLoading ? (
             <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
           ) : roots.length === 0 ? (
@@ -660,65 +730,16 @@ function PostView({
           )}
         </ul>
 
-        {/* Действия + лайки + дата */}
-        <div className="border-t border-border px-4 pb-2 pt-3">
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              aria-label={t('like')}
-              aria-pressed={liked}
-              onClick={toggleLike}
-              className="cursor-pointer transition-transform hover:scale-110"
-            >
-              <Heart
-                className={cn(
-                  'size-6',
-                  liked ? 'fill-destructive text-destructive' : 'text-foreground',
-                )}
-                aria-hidden
-              />
-            </button>
-            <button
-              type="button"
-              aria-label={t('comment')}
-              onClick={() => inputRef.current?.focus()}
-              className="cursor-pointer transition-transform hover:scale-110"
-            >
-              <MessageCircle className="size-6" aria-hidden />
-            </button>
-            {showRepost && (
-              <button
-                type="button"
-                aria-label={t('repost')}
-                onClick={() => setReposting(true)}
-                className="cursor-pointer transition-transform hover:scale-110"
-              >
-                <Repeat2 className="size-6" aria-hidden />
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label={t('shareToChat')}
-              onClick={() => setSharing(true)}
-              className="cursor-pointer transition-transform hover:scale-110"
-            >
-              <Share2 className="size-6" aria-hidden />
-            </button>
-          </div>
-          <p className="mt-2 text-sm font-semibold">
-            {t('likesCount', { count: reactions.length })}
-          </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
-            <span className="uppercase tracking-wide">{time}</span>
-            <span className="inline-flex items-center gap-1">
-              <Eye className="size-3.5" aria-hidden />
-              {t('viewsCount', { count: views })}
-            </span>
-          </p>
-        </div>
-
-        {/* Ввод комментария (плоский, как в Instagram): эмодзи · многострочное поле · «Опубликовать» */}
+        {/* Ввод комментария: аватар · эмодзи · многострочное поле · «Опубликовать».
+            Аватар слева, как во «ВКонтакте»: он показывает, от чьего имени уйдёт
+            реплика — в общих аккаунтах это не всегда очевидно. */}
         <div className="relative flex items-end gap-2 border-t border-border px-4 py-2.5">
+          {me && (
+            <Avatar className="size-8 shrink-0 self-center max-sm:hidden">
+              {me.avatarUrl && <AvatarImage src={me.avatarUrl} alt="" />}
+              <AvatarFallback className="text-[10px]">{initials(me)}</AvatarFallback>
+            </Avatar>
+          )}
           {/* Пикер эмодзи */}
           <div ref={emojiRef} className="relative shrink-0">
             <button
@@ -805,6 +826,39 @@ function PostView({
  * `replyTo` — кому адресован ответ. Во вложенной ветке без этого непонятно, кому
  * отвечают: у корня может быть десяток ответов подряд.
  */
+/** Кнопка панели действий: иконка, счётчик и подпись (подпись — от sm и шире). */
+function BarButton({
+  label,
+  count,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string
+  count?: number
+  pressed?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground',
+        pressed && 'text-foreground',
+      )}
+    >
+      {children}
+      {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  )
+}
+
 function CommentRow({
   id,
   author,

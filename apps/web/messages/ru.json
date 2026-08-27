@@ -1033,7 +1033,9 @@
     "viewsLabel": "{count, plural, one {# просмотр} few {# просмотра} other {# просмотров}}",
     "showMore": "Показать ещё",
     "showLess": "Свернуть",
-    "report": "Пожаловаться"
+    "report": "Пожаловаться",
+    "sortNewest": "Сначала новые",
+    "sortOldest": "Сначала старые"
   },
   "Chats": {
     "title": "Чаты",

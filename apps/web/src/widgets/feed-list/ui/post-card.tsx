@@ -373,16 +373,18 @@ function MediaCollage({
             'relative block overflow-hidden',
             // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
             // или скан, и обрезка съедала бы половину смысла. Подложки под ним нет —
-            // вертикальное фото уже стояло в серой рамке с полями по бокам, хотя
-            // во «ВКонтакте» оно просто лежит на карточке.
-            media.length === 1 ? 'max-h-[32rem]' : 'aspect-square bg-muted',
+            // во «ВКонтакте» вертикальное фото просто лежит на карточке.
+            media.length === 1 ? 'flex justify-center' : 'aspect-square bg-muted',
           )}
         >
           <PostMediaView
             postId={postId}
             media={m}
             fit={media.length === 1 ? 'contain' : 'cover'}
-            className="size-full"
+            // Потолок высоты — на самой картинке, а не на контейнере: у контейнера
+            // высота автоматическая, и `max-h` на нём не масштабировал вертикальное
+            // фото, а обрезал его по нижнему краю.
+            className={media.length === 1 ? 'max-h-[32rem] w-auto max-w-full' : 'size-full'}
           />
           {m.mime.startsWith('video/') && (
             <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md">
