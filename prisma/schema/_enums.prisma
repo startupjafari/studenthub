@@ -124,3 +124,19 @@ enum FriendshipStatus {
   PENDING
   ACCEPTED
 }
+
+// Вид объекта КАТО. Официальные поля выгрузки (`Level`, `AreaType`) для этого непригодны:
+// районы встречаются сразу в двух типах, а зимовки лежат на уровне областей. Вид выводится
+// из названия генератором `scripts/gen-kato.mjs`.
+// REGION/DISTRICT/ADMIN — административные уровни (нужны для подписи «город, область»
+// и фильтров), остальные — населённые пункты.
+enum KatoKind {
+  REGION
+  DISTRICT
+  ADMIN
+  CITY
+  SETTLEMENT
+  VILLAGE
+  STATION
+  OTHER
+}
