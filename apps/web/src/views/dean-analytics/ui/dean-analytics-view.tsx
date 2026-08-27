@@ -10,20 +10,18 @@ import {
   FileClock,
   GraduationCap,
   Inbox,
+  Percent,
   Users,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   EmptyState,
+  MetricTile,
   PageHeader,
   Progress,
+  SectionPanel,
   Select,
   SelectContent,
   SelectItem,
@@ -40,6 +38,10 @@ import {
   type RiskReason,
 } from '../../../entities/analytics'
 import { GroupDrilldown } from './group-drilldown'
+
+// Порог «требует внимания» — тот же, что у сервера (analytics.service: AT_RISK_THRESHOLD).
+// Здесь он нужен только для подписи и для тона числа, решение принимает сервер.
+const LOW_ATTENDANCE = 60
 
 function rateTone(rate: number): string {
   return rate >= 75 ? 'bg-success' : rate >= 60 ? 'bg-warning' : 'bg-destructive'
@@ -96,7 +98,7 @@ export function DeanAnalyticsView() {
         actions={
           picksFaculty ? (
             <Select value={facultyId} onValueChange={setFacultyId}>
-              <SelectTrigger className="h-9 w-56 text-sm" aria-label={t('faculty')}>
+              <SelectTrigger size="md" className="w-56" aria-label={t('faculty')}>
                 <SelectValue placeholder={t('faculty')} />
               </SelectTrigger>
               <SelectContent>
@@ -125,142 +127,149 @@ export function DeanAnalyticsView() {
       ) : (
         q.data && (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Kpi icon={Users} label={t('kpi.students')} value={q.data.totals.students} />
-              <Kpi icon={BookOpen} label={t('kpi.groups')} value={q.data.totals.groups} />
-              <Kpi
-                icon={GraduationCap}
+            {/* Показатели факультета — та же шкала плиток, что на дашборде вуза
+                и в обзоре документов: иконка в чипе, число, подпись. */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <MetricTile icon={Users} label={t('kpi.students')} value={q.data.totals.students} />
+              <MetricTile icon={BookOpen} label={t('kpi.groups')} value={q.data.totals.groups} />
+              <MetricTile
+                icon={Percent}
+                tone="text-info"
                 label={t('kpi.attendance')}
                 value={`${q.data.totals.attendanceRate}%`}
-                tone={q.data.totals.attendanceRate < 60 ? 'text-destructive' : 'text-foreground'}
+                valueTone={
+                  q.data.totals.attendanceRate < LOW_ATTENDANCE ? 'text-destructive' : undefined
+                }
               />
-              <Kpi
+              <MetricTile
                 icon={FileClock}
+                tone="text-warning"
                 label={t('kpi.submissionsPending')}
                 value={q.data.totals.submissionsPending}
               />
-              <Kpi
+              <MetricTile
                 icon={GraduationCap}
                 label={t('kpi.examsUpcoming')}
                 value={q.data.totals.examsUpcoming}
               />
             </div>
 
+            {/* Группы ниже порога: адресат — куратор и староста, действие — разбор
+                по конкретной группе, поэтому строки кликабельны. */}
             {q.data.atRisk.length > 0 && (
-              <Card className="ring-1 ring-warning/30">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+              <SectionPanel
+                className="ring-warning/30"
+                title={
+                  <span className="flex items-center gap-2">
                     <AlertTriangle
                       className="size-4 text-warning-foreground dark:text-warning"
                       aria-hidden
                     />
                     {t('attention')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="flex flex-col gap-1.5">
-                    {q.data.atRisk.map((g) => (
-                      <li key={g.groupId}>
-                        <button
-                          type="button"
-                          onClick={() => setDrillGroup({ id: g.groupId, name: g.name })}
-                          className="flex w-full items-center gap-3 rounded-lg border border-border p-2.5 text-left transition-colors hover:bg-muted/50"
-                        >
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {g.name}
-                          </span>
-                          <Badge variant="destructive">
-                            {t('lowAttendance', { rate: g.attendanceRate })}
-                          </Badge>
-                          <ChevronRight
-                            className="size-4 shrink-0 text-muted-foreground"
-                            aria-hidden
-                          />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-
-            {risk.data && risk.data.students.length > 0 && (
-              <Card className="ring-1 ring-destructive/20">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <AlertTriangle className="size-4 text-destructive" aria-hidden />
-                    {t('riskStudents')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="flex flex-col gap-1.5">
-                    {risk.data.students.map((s) => (
-                      <li
-                        key={s.studentId}
-                        className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2.5"
+                  </span>
+                }
+                subtitle={t('attentionHint', { threshold: LOW_ATTENDANCE })}
+              >
+                <ul className="flex flex-col gap-1.5">
+                  {q.data.atRisk.map((g) => (
+                    <li key={g.groupId}>
+                      <button
+                        type="button"
+                        onClick={() => setDrillGroup({ id: g.groupId, name: g.name })}
+                        className="flex w-full items-center gap-3 rounded-lg border border-border p-2.5 text-left transition-colors hover:bg-muted/50"
                       >
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {s.lastName} {s.firstName}
-                          {s.groupName && (
-                            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                              {s.groupName}
-                            </span>
-                          )}
+                          {g.name}
                         </span>
-                        <span className="flex flex-wrap gap-1">
-                          {s.reasons.map((r) => (
-                            <ReasonChip key={r.kind} reason={r} t={t} />
-                          ))}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
+                        <Badge variant="destructive">
+                          {t('lowAttendance', { rate: g.attendanceRate })}
+                        </Badge>
+                        <ChevronRight
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden
+                        />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </SectionPanel>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t('groups')}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {q.data.groups.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('noGroups')}</p>
-                ) : (
-                  <ul className="flex flex-col gap-1">
-                    {q.data.groups.map((g) => (
-                      <li key={g.groupId}>
-                        <button
-                          type="button"
-                          onClick={() => setDrillGroup({ id: g.groupId, name: g.name })}
-                          className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-muted/50"
-                        >
-                          <span className="w-32 shrink-0 truncate text-sm font-medium">
-                            {g.name}
+            {/* Именной список: у каждой причины числовое значение, скрытого скоринга нет —
+                решение по студенту принимает человек, а не система. */}
+            {risk.data && risk.data.students.length > 0 && (
+              <SectionPanel
+                className="ring-destructive/20"
+                title={
+                  <span className="flex items-center gap-2">
+                    <AlertTriangle className="size-4 text-destructive" aria-hidden />
+                    {t('riskStudents')}
+                  </span>
+                }
+                subtitle={t('riskStudentsHint')}
+              >
+                <ul className="flex flex-col gap-1.5">
+                  {risk.data.students.map((s) => (
+                    <li
+                      key={s.studentId}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2.5"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {s.lastName} {s.firstName}
+                        {s.groupName && (
+                          <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                            {s.groupName}
                           </span>
-                          <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                            {t('studentsN', { n: g.students })}
-                          </span>
-                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                            <Progress
-                              value={g.attendanceRate}
-                              indicatorClassName={rateTone(g.attendanceRate)}
-                            />
-                            <span className="w-10 shrink-0 text-right text-xs tabular-nums">
-                              {g.attendanceTracked > 0 ? `${g.attendanceRate}%` : '—'}
-                            </span>
-                          </span>
-                          <ChevronRight
-                            className="size-4 shrink-0 text-muted-foreground"
-                            aria-hidden
+                        )}
+                      </span>
+                      <span className="flex flex-wrap gap-1">
+                        {s.reasons.map((r) => (
+                          <ReasonChip key={r.kind} reason={r} t={t} />
+                        ))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </SectionPanel>
+            )}
+
+            {/* Все группы факультета по возрастанию посещаемости — общая картина и вход
+                в разбор по студентам. */}
+            <SectionPanel title={t('groups')} subtitle={t('groupsHint')}>
+              {q.data.groups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('noGroups')}</p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {q.data.groups.map((g) => (
+                    <li key={g.groupId}>
+                      <button
+                        type="button"
+                        onClick={() => setDrillGroup({ id: g.groupId, name: g.name })}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-muted/50"
+                      >
+                        <span className="w-32 shrink-0 truncate text-sm font-medium">{g.name}</span>
+                        <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                          {t('studentsN', { n: g.students })}
+                        </span>
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                          <Progress
+                            value={g.attendanceRate}
+                            indicatorClassName={rateTone(g.attendanceRate)}
                           />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
+                          <span className="w-10 shrink-0 text-right text-xs tabular-nums">
+                            {g.attendanceTracked > 0 ? `${g.attendanceRate}%` : '—'}
+                          </span>
+                        </span>
+                        <ChevronRight
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden
+                        />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionPanel>
           </>
         )
       )}
@@ -275,26 +284,4 @@ function ReasonChip({ reason, t }: { reason: RiskReason; t: ReturnType<typeof us
   }
   const key = reason.kind === 'LOW_ATTENDANCE' ? 'reason.lowAttendance' : 'reason.lowGrades'
   return <Badge variant="destructive">{t(key, { value: reason.value })}</Badge>
-}
-
-function Kpi({
-  icon: Icon,
-  label,
-  value,
-  tone = 'text-foreground',
-}: {
-  icon: LucideIcon
-  label: string
-  value: number | string
-  tone?: string
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-1 p-4">
-        <Icon className="size-4 text-muted-foreground" aria-hidden />
-        <span className={`font-heading text-2xl font-semibold tabular-nums ${tone}`}>{value}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </CardContent>
-    </Card>
-  )
 }

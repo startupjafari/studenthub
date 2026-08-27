@@ -108,7 +108,7 @@ export function NextPairCard({
           {quickLinks.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label={t('moreActions')}>
+                <Button variant="outline" size="lg" icon aria-label={t('moreActions')}>
                   <MoreHorizontal className="size-4" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>

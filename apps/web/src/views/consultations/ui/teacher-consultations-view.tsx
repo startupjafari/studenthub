@@ -143,7 +143,8 @@ export function TeacherConsultationsView() {
                   ) : (
                     <Button
                       variant="ghost"
-                      size="icon-sm"
+                      size="sm"
+                      icon
                       aria-label={t('delete')}
                       onClick={() => onRemove(s)}
                     >

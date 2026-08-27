@@ -10,24 +10,18 @@ import {
   ClipboardList,
   Clock,
   FileStack,
-  FileText,
   RefreshCw,
   type LucideIcon,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
-import {
-  documentKeys,
-  fetchDocumentOverview,
-  fetchDocuments,
-  type DocumentDto,
-} from '../../../entities/document'
+import { documentKeys, fetchDocumentOverview } from '../../../entities/document'
 import {
   documentRequestKeys,
   fetchAuthoredRequests,
   fetchMyRequests,
 } from '../../../entities/document-request'
 import { useAppSelector } from '../../../shared/store'
-import { Badge, Button, Card, CardContent, Skeleton } from '../../../shared/ui'
+import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Роли из §15.2: кто отвечает на запросы вуза и кто их создаёт (та же матрица, что в
@@ -35,44 +29,19 @@ import { cn } from '../../../shared/lib/utils'
 const RESPONDER_ROLES: ReadonlySet<Role> = new Set([Role.STUDENT, Role.STAROSTA])
 const STAFF_ROLES: ReadonlySet<Role> = new Set([Role.DEAN, Role.UNIVERSITY_MODERATOR, Role.TEACHER])
 
-// Порог «скоро истекает» — тот же, что у серверного счётчика (EXPIRING_WINDOW_MS).
-const EXPIRING_DAYS = 30
-// Статусы, при которых с документом надо что-то сделать.
-const ATTENTION_STATUSES = ['REJECTED', 'NEEDS_REPLACEMENT', 'EXPIRED', 'EXPIRING']
 const MAX_ROWS = 4
 
 export type OverviewTarget = 'my' | 'requests'
 /** Клик по плитке/строке ведёт в нужный раздел, при необходимости с фильтром статуса. */
 export type OverviewOpen = (target: OverviewTarget, status?: string) => void
 
-function daysLeft(iso: string | null): number | null {
-  if (!iso) return null
-  return Math.floor((new Date(iso).getTime() - Date.now()) / 86_400_000)
-}
-
-// Обзор (ТЗ §3): счётчики-ссылки, разбор «что требует внимания», активные запросы вуза
-// и последние документы. Всё кликабельное — обзор не отчёт, а точка входа в разделы.
+// Обзор (ТЗ §3): счётчики-ссылки и активные запросы вуза. Всё кликабельное — обзор не
+// отчёт, а точка входа в разделы.
 export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
   const t = useTranslations('Documents')
-  const locale = useLocale()
   const role = useAppSelector((s) => s.auth.role)
 
   const overview = useQuery({ queryKey: documentKeys.overview(), queryFn: fetchDocumentOverview })
-  // Тот же ключ, что у списка без фильтров, — обзор и «Мои документы» делят кэш.
-  const docsQuery = useQuery({
-    queryKey: documentKeys.list({ view: 'active' }),
-    queryFn: () => fetchDocuments({ view: 'active' }),
-  })
-  const docs = docsQuery.data ?? []
-
-  const attention = docs
-    .filter((d) => {
-      const left = daysLeft(d.expiresAt)
-      return ATTENTION_STATUSES.includes(d.status) || (left !== null && left <= EXPIRING_DAYS)
-    })
-    // Сначала самое срочное: просроченное, потом ближайшее по сроку, потом без срока.
-    .sort((a, b) => (daysLeft(a.expiresAt) ?? Infinity) - (daysLeft(b.expiresAt) ?? Infinity))
-  const recent = [...docs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, MAX_ROWS)
 
   const o = overview.data
   const tiles: {
@@ -125,17 +94,6 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
   ]
 
   const isStaff = role !== null && STAFF_ROLES.has(role)
-  // Причина попадания в список: срок важнее статуса — его видно по дате.
-  function attentionReason(doc: DocumentDto): string {
-    const left = daysLeft(doc.expiresAt)
-    if (doc.expiresAt && left !== null) {
-      const date = new Date(doc.expiresAt).toLocaleDateString(locale)
-      return left < 0 ? t('ovExpiredOn', { date }) : t('ovExpiresOn', { date })
-    }
-    if (doc.rejectionReason) return doc.rejectionReason
-    return t(`docType_${doc.type}`)
-  }
-
   const showRequests = isStaff || (role !== null && RESPONDER_ROLES.has(role))
 
   return (
@@ -143,7 +101,8 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
       {overview.isLoading ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
+            // 64px = высота плитки: py-3 карточки (size="sm") + строка из чипа и двух подписей.
+            <Skeleton key={i} className="h-16 w-full rounded-xl" />
           ))}
         </div>
       ) : (
@@ -153,6 +112,7 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
             return (
               <Card
                 key={tile.key}
+                size="sm"
                 // Плитка ведёт в «Мои документы» с этим фильтром: счётчик без перехода
                 // к самим документам — тупик.
                 className="cursor-pointer transition-colors hover:ring-ring/50 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
@@ -166,10 +126,28 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
                   }
                 }}
               >
-                <CardContent className="flex flex-col gap-1.5 p-4">
-                  <Icon className={cn('size-5', tile.tone)} aria-hidden />
-                  <span className="text-2xl font-bold tabular-nums">{tile.value}</span>
-                  <span className="text-xs text-muted-foreground">{tile.label}</span>
+                {/* Горизонтальная раскладка: стопкой плитка занимала ~135px, из которых
+                    32px были вторыми отступами — `p-4` на CardContent добавлял свои сверху
+                    и снизу поверх собственного `py` карточки. */}
+                <CardContent className="flex items-center gap-3">
+                  {/* Подложка чипа берётся от цвета иконки (`bg-current/10`): тон у плиток
+                      разный и означает срочность, дублировать его вторым классом незачем. */}
+                  <span
+                    className={cn(
+                      'flex size-9 shrink-0 items-center justify-center rounded-lg bg-current/10',
+                      tile.tone,
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-xl leading-tight font-semibold tabular-nums">
+                      {tile.value}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {tile.label}
+                    </span>
+                  </span>
                 </CardContent>
               </Card>
             )
@@ -177,74 +155,7 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
         </div>
       )}
 
-      <div className={cn('grid gap-4', showRequests && 'lg:grid-cols-2')}>
-        {/* Что требует внимания: просрочка, отклонение, замена, близкий срок. */}
-        <Panel
-          title={t('ovAttention')}
-          icon={AlertTriangle}
-          action={
-            attention.length > MAX_ROWS ? (
-              <Button variant="ghost" size="sm" onClick={() => onOpen('my')}>
-                {t('ovShowAll', { n: attention.length })}
-                <ArrowRight className="size-4" aria-hidden />
-              </Button>
-            ) : null
-          }
-          loading={docsQuery.isLoading}
-          empty={attention.length === 0 ? t('ovAttentionEmpty') : null}
-        >
-          {attention.slice(0, MAX_ROWS).map((doc) => (
-            <Row
-              key={doc.id}
-              title={doc.title}
-              subtitle={attentionReason(doc)}
-              badge={
-                <Badge variant={doc.status === 'EXPIRED' ? 'destructive' : 'warning'}>
-                  {t(`docStatus_${doc.status}`)}
-                </Badge>
-              }
-              onClick={() => onOpen('my', doc.status)}
-            />
-          ))}
-        </Panel>
-
-        {showRequests && <RequestsCard staff={isStaff} onOpen={onOpen} />}
-      </div>
-
-      {/* Последние загруженные — быстрый доступ к тому, с чем работали. */}
-      <Panel
-        title={t('ovRecent')}
-        icon={FileText}
-        action={
-          docs.length > 0 ? (
-            <Button variant="ghost" size="sm" onClick={() => onOpen('my')}>
-              {t('ovShowAll', { n: docs.length })}
-              <ArrowRight className="size-4" aria-hidden />
-            </Button>
-          ) : null
-        }
-        loading={docsQuery.isLoading}
-        empty={
-          recent.length === 0 ? (
-            <span className="flex flex-wrap items-center gap-2">
-              {t('emptyActive')}
-              <Button size="sm" onClick={() => onOpen('my')}>
-                {t('upload')}
-              </Button>
-            </span>
-          ) : null
-        }
-      >
-        {recent.map((doc) => (
-          <Row
-            key={doc.id}
-            title={doc.title}
-            subtitle={`${t(`docCat_${doc.category}`)} · ${new Date(doc.createdAt).toLocaleDateString(locale)}`}
-            badge={<Badge variant="secondary">{t(`docStatus_${doc.status}`)}</Badge>}
-            onClick={() => onOpen('my')}
-          />
-        ))}
-      </Panel>
+      {showRequests && <RequestsCard staff={isStaff} onOpen={onOpen} />}
     </div>
   )
 }

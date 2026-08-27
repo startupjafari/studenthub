@@ -210,7 +210,8 @@ export function FileUpload<T>({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="lg"
+              icon
               aria-label={t('remove')}
               onClick={reset}
             >

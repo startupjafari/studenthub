@@ -199,7 +199,8 @@ export function ChatComposer({
             <>
               <Button
                 type="button"
-                size="icon"
+                size="lg"
+                icon
                 variant="ghost"
                 aria-label={t('cancelRecording')}
                 onClick={voice.cancel}
@@ -222,7 +223,8 @@ export function ChatComposer({
               </div>
               <Button
                 type="button"
-                size="icon"
+                size="lg"
+                icon
                 variant="ghost"
                 aria-label={voice.paused ? t('resumeRecording') : t('pauseRecording')}
                 onClick={voice.paused ? voice.resume : voice.pause}
@@ -233,7 +235,7 @@ export function ChatComposer({
                   <Pause className="size-5" aria-hidden />
                 )}
               </Button>
-              <Button type="button" size="icon" aria-label={t('send')} onClick={voice.finish}>
+              <Button type="button" size="lg" icon aria-label={t('send')} onClick={voice.finish}>
                 <Send className="size-4" aria-hidden />
               </Button>
             </>
@@ -332,7 +334,8 @@ export function ChatComposer({
               {showSend ? (
                 <Button
                   type="button"
-                  size="icon"
+                  size="lg"
+                  icon
                   aria-label={t('send')}
                   disabled={!connected}
                   onClick={onSend}
@@ -342,7 +345,8 @@ export function ChatComposer({
               ) : (
                 <Button
                   type="button"
-                  size="icon"
+                  size="lg"
+                  icon
                   variant="ghost"
                   aria-label={t('recordVoice')}
                   disabled={!connected}

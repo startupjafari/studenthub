@@ -7,8 +7,8 @@ import { toast } from 'sonner'
 import { X } from 'lucide-react'
 import { chatKeys, createChatRequest } from '../../../entities/chat'
 import { UserPicker, type PickedUser } from '../../../entities/user'
-import { Button, FormAlert } from '../../../shared/ui'
-import { useFormAlert, useBodyScrollLock } from '../../../shared/lib'
+import { Button, FormAlert, Input, Modal } from '../../../shared/ui'
+import { useFormAlert } from '../../../shared/lib'
 
 // Диалог создания собственной группы (Ф9+): название + мультивыбор участников (приглашение сразу).
 export function CreateGroupDialog({
@@ -20,7 +20,6 @@ export function CreateGroupDialog({
 }) {
   const t = useTranslations('Chats')
   const qc = useQueryClient()
-  useBodyScrollLock()
   const [title, setTitle] = useState('')
   const [members, setMembers] = useState<PickedUser[]>([])
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
@@ -44,37 +43,17 @@ export function CreateGroupDialog({
   const canCreate = title.trim().length > 0 && members.length > 0 && !create.isPending
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className="flex w-full max-w-sm flex-col gap-3 rounded-2xl border border-border bg-background p-4 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold">{t('newGroup')}</span>
-          <button
-            type="button"
-            aria-label={t('cancel')}
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
-        </div>
-
+    <Modal onClose={onClose} title={t('newGroup')} size="lg">
+      <div className="flex flex-col gap-3">
         <FormAlert error={apiError} />
 
-        <input
+        <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={t('groupNamePlaceholder')}
+          aria-label={t('groupNamePlaceholder')}
           maxLength={150}
           autoFocus
-          className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
         />
 
         {members.length > 0 && (
@@ -106,13 +85,12 @@ export function CreateGroupDialog({
           }}
         />
 
-        <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>
             {t('cancel')}
           </Button>
           <Button
             type="button"
-            size="sm"
             loading={create.isPending}
             disabled={!canCreate}
             onClick={() => create.mutate()}
@@ -121,6 +99,6 @@ export function CreateGroupDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

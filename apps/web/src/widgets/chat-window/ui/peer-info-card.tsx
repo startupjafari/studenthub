@@ -20,13 +20,11 @@ import {
   Send,
   UserCheck,
   UserRound,
-  X,
   type LucideIcon,
 } from 'lucide-react'
 import { userKeys, fetchUserById } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Modal } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useBodyScrollLock } from '../../../shared/lib'
 
 function initials(a: string, b: string): string {
   return `${a[0] ?? ''}${b[0] ?? ''}`.toUpperCase() || '#'
@@ -94,7 +92,6 @@ export function PeerInfoCard({
   onToggleMute: () => void
   onClose: () => void
 }) {
-  useBodyScrollLock()
   const t = useTranslations('Profile')
   const tc = useTranslations('Chats')
   const tRoles = useTranslations('Roles')
@@ -134,26 +131,16 @@ export function PeerInfoCard({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 duration-150 animate-in fade-in"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      title={tc('openProfile')}
+      size="lg"
+      className="max-h-[min(90vh,44rem)]"
+      bodyClassName="p-0"
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg duration-150 animate-in zoom-in-95"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
         {/* Шапка */}
-        <div className="relative flex flex-col items-center gap-2 p-5 pb-4">
-          <button
-            type="button"
-            aria-label={tc('cancel')}
-            onClick={onClose}
-            className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
+        <div className="flex flex-col items-center gap-2 p-5 pb-4">
           <span className="relative">
             <Avatar className="size-20">
               {u?.avatarUrl && (
@@ -346,6 +333,6 @@ export function PeerInfoCard({
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }

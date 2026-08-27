@@ -11,6 +11,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { DocumentsService } from '../documents/documents.service'
 import { ApplicationPolicy } from './application.policy'
 
 // Обработка заявки сотрудником (§15–§17, §27): business-actions вместо generic PATCH /status.
@@ -32,6 +33,10 @@ const PROC_SELECT = {
 interface AddResultInput {
   type: string
   documentId?: string
+  // Загруженный сотрудником файл готовой справки: документ по нему заводится здесь,
+  // на имя студента (см. addResult).
+  fileId?: string
+  documentType?: string
   documentNumber?: string
   note?: string
 }
@@ -43,6 +48,7 @@ export class ApplicationProcessService {
     private readonly policy: ApplicationPolicy,
     private readonly queue: QueueService,
     private readonly realtime: RealtimeGateway,
+    private readonly documents: DocumentsService,
   ) {}
 
   /** Взять в работу: SUBMITTED/RESUBMITTED → IN_REVIEW, назначить на себя. */
@@ -116,12 +122,27 @@ export class ApplicationProcessService {
     if (app.status !== 'IN_PREPARATION') {
       throw new AppException('BAD_REQUEST', 'Результат добавляется на этапе подготовки')
     }
+    // Файл готовой справки превращаем в документ студента ДО транзакции результата:
+    // выдача трогает хранилище файлов, и держать на этом открытую транзакцию нельзя.
+    let documentId = dto.documentId ?? null
+    if (dto.fileId && dto.documentType) {
+      const issued = await this.documents.issueToOwner(viewer, {
+        ownerId: app.studentId,
+        universityId: app.universityId,
+        type: dto.documentType,
+        // Название услуги — заголовок выданного документа: студент ищет его именно так.
+        title: app.service.nameRu,
+        number: dto.documentNumber,
+        fileId: dto.fileId,
+      })
+      documentId = issued.id
+    }
     await this.prisma.$transaction([
       this.prisma.applicationResult.create({
         data: {
           applicationId: id,
           type: dto.type,
-          documentId: dto.documentId,
+          documentId,
           documentNumber: dto.documentNumber,
           note: dto.note,
           issuedById: viewer.sub,

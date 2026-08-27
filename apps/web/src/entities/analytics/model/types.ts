@@ -128,3 +128,64 @@ export interface TopActions {
   to: string
   items: { action: string; value: number }[]
 }
+
+// ── Аналитика вуза (дашборд UNIVERSITY_ADMIN) ────────────────────────────────
+// Всё считает сервер: клиент не досчитывает и не усредняет, иначе цифра в плитке
+// и цифра на графике начинают расходиться.
+
+export interface WeeklyPoint {
+  /** Понедельник недели, ISO. */
+  at: string
+  value: number
+}
+
+export interface AttendanceTrend {
+  weeks: number
+  from: string
+  series: { facultyId: string; name: string; points: WeeklyPoint[] }[]
+}
+
+export interface AttendanceBreakdown {
+  items: {
+    facultyId: string
+    name: string
+    present: number
+    late: number
+    absent: number
+    excused: number
+  }[]
+}
+
+export interface RoomLoad {
+  /** grid[dow][hour], dow: 0 = понедельник. */
+  grid: number[][]
+  peak: number
+  /** Сколько учебных аудиторий в вузе — с чем сравнивать пик. */
+  rooms: number
+}
+
+export interface ExamResultsBreakdown {
+  items: {
+    facultyId: string
+    name: string
+    passed: number
+    failed: number
+    absent: number
+    retake: number
+  }[]
+}
+
+export interface ApplicationsFlow {
+  weeks: number
+  points: { at: string; submitted: number; closed: number; overdue: number }[]
+}
+
+export interface UniversityInvitesFunnel {
+  total: number
+  pending: number
+  used: number
+  expired: number
+  revoked: number
+  /** Доля принятых от всех выданных, проценты. */
+  conversion: number
+}

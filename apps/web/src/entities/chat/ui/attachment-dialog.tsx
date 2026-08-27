@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { File as FileIcon, X } from 'lucide-react'
-import { Button } from '../../../shared/ui'
-import { useBodyScrollLock } from '../../../shared/lib'
+import { Button, Modal } from '../../../shared/ui'
 
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -49,7 +48,6 @@ export function AttachmentDialog({
   onRemove: (index: number) => void
   onClose: () => void
 }) {
-  useBodyScrollLock()
   const t = useTranslations('Chats')
   const [caption, setCaption] = useState('')
   const [spoiler, setSpoiler] = useState(false)
@@ -57,29 +55,9 @@ export function AttachmentDialog({
   const hasMedia = files.some((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className="flex w-full max-w-sm flex-col gap-3 rounded-2xl border border-border bg-background p-4 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold">{t('sendAsFile')}</span>
-          <button
-            type="button"
-            aria-label={t('cancel')}
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
-        </div>
-
-        <div className="flex max-h-52 flex-col gap-1.5 overflow-y-auto">
+    <Modal onClose={onClose} title={t('sendAsFile')} size="lg">
+      <div className="flex flex-col gap-3">
+        <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
           {files.map((f, i) => (
             <div
               key={`${f.name}-${i}`}
@@ -147,6 +125,6 @@ export function AttachmentDialog({
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

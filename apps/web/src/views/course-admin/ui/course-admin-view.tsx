@@ -2,31 +2,42 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { BookOpen, CalendarRange, GraduationCap, Plus, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
   Card,
-  CardContent,
   EmptyState,
   PageHeader,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
   useConfirm,
+  usePagedSort,
 } from '../../../shared/ui'
+import type { CourseSortValue, SubjectSortValue, TermSortValue } from '@studenthub/shared-schemas'
 import { toApiError } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
 import { groupKeys, fetchGroups } from '../../../entities/group'
 import {
   courseKeys,
-  fetchCourses,
-  fetchSubjects,
-  fetchTerms,
+  fetchCoursesPaged,
+  fetchSubjectsPaged,
+  fetchTermsPaged,
   deleteCourseRequest,
   deleteSubjectRequest,
   deleteTermRequest,
@@ -36,30 +47,71 @@ import { CreateTermModal } from './create-term-modal'
 import { CreateCourseModal } from './create-course-modal'
 
 type ModalKind = 'subject' | 'term' | 'course' | null
+type TabKind = 'courses' | 'subjects' | 'terms'
+
+// Потолок 100 — столько разрешает OffsetPaginationSchema, на которой построен GET /courses.
+const PAGE_SIZES = [20, 50, 100] as const
+// Ширины колонок: дисциплина · группа · семестр · преподаватель · кредиты · «удалить».
+const COURSE_COLS = ['26%', '14%', '16%', '24%', '10%', '3.5rem'] as const
+// Справочник: дисциплина · код · удаление.
+const SUBJECT_COLS = ['60%', '30%', '3.5rem'] as const
+// Семестры: название · начало · конец · статус · удаление.
+const TERM_COLS = ['32%', '18%', '18%', '18%', '3.5rem'] as const
+// На узком экране остаются дисциплина, группа и удаление — остальное дополняющее.
+const HIDE = {
+  term: 'hidden lg:table-cell',
+  teacher: 'hidden md:table-cell',
+  credits: 'hidden xl:table-cell',
+} as const
+// Порядок классов = порядок колонок курсов: скелетон прячет те же, что и шапка.
+const SKELETON_COLS = [undefined, undefined, HIDE.term, HIDE.teacher, HIDE.credits, undefined]
+
+// Кнопка справа в шапке — своя у каждой вкладки.
+const ADD_ACTION: Record<TabKind, { modal: Exclude<ModalKind, null>; label: string }> = {
+  courses: { modal: 'course', label: 'assignCourse' },
+  subjects: { modal: 'subject', label: 'addSubject' },
+  terms: { modal: 'term', label: 'addTerm' },
+}
 
 // Управление дисциплинами (декан/админ вуза): назначение курсов группам, справочник, семестры.
 export function CourseAdminView() {
   const t = useTranslations('CourseAdmin')
+  const locale = useLocale()
+  // Дата приходит ISO-строкой; раньше её резали как `.slice(0, 10)` — на экране
+  // оказывался машинный формат 2025-09-01 вместо привычного пользователю.
+  const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString(locale)
   const tErr = useTranslations('Errors')
   const confirm = useConfirm()
   const qc = useQueryClient()
   const universityId = useAppSelector((s) => s.auth.universityId)
   const [modal, setModal] = useState<ModalKind>(null)
+  // Вкладка стала управляемой: её переключатель уехал в шапку страницы, а кнопка
+  // действия справа зависит от того, какая вкладка открыта.
+  const [tab, setTab] = useState<TabKind>('courses')
+  // Страница и порядок — свои у каждой вкладки: наборы колонок разные, и общее
+  // состояние сбрасывало бы сортировку при переключении.
+  const coursesPage = usePagedSort<CourseSortValue>()
+  const subjectsPage = usePagedSort<SubjectSortValue>()
+  const termsPage = usePagedSort<TermSortValue>()
 
-  const subjects = useQuery({
-    queryKey: courseKeys.subjects(),
-    queryFn: () => fetchSubjects(),
+  const courses = useQuery({
+    queryKey: courseKeys.list(coursesPage.query),
+    queryFn: () => fetchCoursesPaged(coursesPage.query),
     retry: false,
+    // Прежние строки держатся на экране, пока грузится следующая страница.
+    placeholderData: (prev) => prev,
+  })
+  const subjects = useQuery({
+    queryKey: courseKeys.subjects(subjectsPage.query),
+    queryFn: () => fetchSubjectsPaged(subjectsPage.query),
+    retry: false,
+    placeholderData: (prev) => prev,
   })
   const terms = useQuery({
-    queryKey: courseKeys.terms(),
-    queryFn: () => fetchTerms(),
+    queryKey: courseKeys.terms(termsPage.query),
+    queryFn: () => fetchTermsPaged(termsPage.query),
     retry: false,
-  })
-  const courses = useQuery({
-    queryKey: courseKeys.list(),
-    queryFn: () => fetchCourses(),
-    retry: false,
+    placeholderData: (prev) => prev,
   })
   const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
 
@@ -69,18 +121,21 @@ export function CourseAdminView() {
       if (task.kind === 'term') return deleteTermRequest(task.id)
       return deleteCourseRequest(task.id)
     },
-    onSuccess: (_d, task) => {
-      const key =
-        task.kind === 'subject'
-          ? courseKeys.subjects()
-          : task.kind === 'term'
-            ? courseKeys.terms()
-            : courseKeys.list()
-      qc.invalidateQueries({ queryKey: key })
+    onSuccess: () => {
+      // Префикс ['courses'] — ключи списков содержат объект параметров (страница,
+      // сортировка), и точечная инвалидация мимо него не попадёт.
+      qc.invalidateQueries({ queryKey: courseKeys.all })
       toast.success(t('deleted'))
     },
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
+
+  const courseRows = courses.data?.items ?? []
+  const coursesTotal = courses.data?.total ?? 0
+  const subjectRows = subjects.data?.items ?? []
+  const subjectsTotal = subjects.data?.total ?? 0
+  const termRows = terms.data?.items ?? []
+  const termsTotal = terms.data?.total ?? 0
 
   async function onDelete(kind: Exclude<ModalKind, null>, id: string, name: string) {
     const ok = await confirm({ title: t('confirmDelete'), description: name, destructive: true })
@@ -88,132 +143,257 @@ export function CourseAdminView() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
-
-      <Tabs defaultValue="courses">
-        <TabsList>
-          <TabsTrigger value="courses">{t('tab.courses')}</TabsTrigger>
-          <TabsTrigger value="subjects">{t('tab.subjects')}</TabsTrigger>
-          <TabsTrigger value="terms">{t('tab.terms')}</TabsTrigger>
-        </TabsList>
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-6">
+      {/* PageHeader внутри Tabs: TabsList обязан жить внутри корня Radix, иначе
+          переключатель не связан с содержимым. */}
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as TabKind)}
+        // Цепочка flex до таблицы: `fill` у Table требует, чтобы каждый предок отдавал
+        // ей высоту, иначе прокручивается страница целиком, а не тело таблицы.
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <PageHeader
+          title={t('title')}
+          subtitle={t('subtitle')}
+          tabs={
+            <TabsList>
+              <TabsTrigger value="courses">{t('tab.courses')}</TabsTrigger>
+              <TabsTrigger value="subjects">{t('tab.subjects')}</TabsTrigger>
+              <TabsTrigger value="terms">{t('tab.terms')}</TabsTrigger>
+            </TabsList>
+          }
+          actions={
+            // Действие своё у каждой вкладки: назначить курс, добавить дисциплину, семестр.
+            <Button size="md" onClick={() => setModal(ADD_ACTION[tab].modal)}>
+              <Plus className="size-4" aria-hidden />
+              {t(ADD_ACTION[tab].label)}
+            </Button>
+          }
+        />
 
         {/* Курсы */}
-        <TabsContent value="courses">
-          <SectionHeader
-            label={t('coursesHeader')}
-            onAdd={() => setModal('course')}
-            addLabel={t('assignCourse')}
-          />
-          {courses.isLoading ? (
-            <ListSkeleton />
-          ) : (courses.data ?? []).length === 0 ? (
+        <TabsContent value="courses" className="flex min-h-0 flex-1 flex-col">
+          {!courses.isLoading && coursesTotal === 0 ? (
             <EmptyState
               icon={<BookOpen />}
               title={t('noCourses')}
               description={t('noCoursesHint')}
             />
           ) : (
-            <Card>
-              <CardContent className="p-2">
-                <ul className="divide-y divide-border">
-                  {(courses.data ?? []).map((c) => (
-                    <li key={c.id} className="flex items-center gap-3 p-2.5">
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <BookOpen className="size-4" aria-hidden />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{c.subject.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {c.group.name}
-                          {c.term ? ` · ${c.term.name}` : ''}
-                          {c.teacher ? ` · ${c.teacher.firstName} ${c.teacher.lastName}` : ''}
-                        </p>
-                      </div>
-                      {c.credits != null && <Badge variant="outline">{c.credits}</Badge>}
-                      <DeleteButton
-                        onClick={() => onDelete('course', c.id, c.subject.name)}
-                        label={t('delete')}
-                      />
-                    </li>
+            <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+              <Table fixed scrollBody fill cols={COURSE_COLS}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead
+                      sortKey="subject"
+                      sort={coursesPage.sort}
+                      onSort={coursesPage.toggle}
+                    >
+                      {t('colSubject')}
+                    </TableHead>
+                    <TableHead sortKey="group" sort={coursesPage.sort} onSort={coursesPage.toggle}>
+                      {t('colGroup')}
+                    </TableHead>
+                    <TableHead
+                      sortKey="term"
+                      sort={coursesPage.sort}
+                      onSort={coursesPage.toggle}
+                      className={HIDE.term}
+                    >
+                      {t('colTerm')}
+                    </TableHead>
+                    <TableHead
+                      sortKey="teacher"
+                      sort={coursesPage.sort}
+                      onSort={coursesPage.toggle}
+                      className={HIDE.teacher}
+                    >
+                      {t('colTeacher')}
+                    </TableHead>
+                    <TableHead
+                      numeric
+                      sortKey="credits"
+                      sort={coursesPage.sort}
+                      onSort={coursesPage.toggle}
+                      className={HIDE.credits}
+                    >
+                      {t('colCredits')}
+                    </TableHead>
+                    <TableHead>
+                      <span className="sr-only">{t('delete')}</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {courses.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
+                  {courseRows.map((c) => (
+                    <TableRow key={c.id} className="hover:bg-muted/40">
+                      <TableCell className="font-medium">
+                        <TableText value={c.subject.name} />
+                      </TableCell>
+                      <TableCell>
+                        <TableText value={c.group.name} />
+                      </TableCell>
+                      <TableCell className={cn(HIDE.term, 'text-muted-foreground')}>
+                        {c.term ? <TableText value={c.term.name} /> : <TableEmpty />}
+                      </TableCell>
+                      <TableCell className={cn(HIDE.teacher, 'text-muted-foreground')}>
+                        {c.teacher ? (
+                          <TableText value={`${c.teacher.firstName} ${c.teacher.lastName}`} />
+                        ) : (
+                          <TableEmpty />
+                        )}
+                      </TableCell>
+                      <TableCell className={cn(HIDE.credits, 'text-right tabular-nums')}>
+                        {c.credits != null ? c.credits : <TableEmpty />}
+                      </TableCell>
+                      <TableCell>
+                        <DeleteButton
+                          onClick={() => onDelete('course', c.id, c.subject.name)}
+                          label={t('delete')}
+                        />
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </ul>
-              </CardContent>
+                </TableBody>
+              </Table>
+              <TablePagination
+                page={coursesPage.page}
+                total={coursesTotal}
+                limit={coursesPage.limit}
+                onPageChange={coursesPage.setPage}
+                limitOptions={PAGE_SIZES}
+                onLimitChange={coursesPage.setLimit}
+              />
             </Card>
           )}
         </TabsContent>
 
         {/* Справочник дисциплин */}
-        <TabsContent value="subjects">
-          <SectionHeader
-            label={t('subjectsHeader')}
-            onAdd={() => setModal('subject')}
-            addLabel={t('addSubject')}
-          />
-          {subjects.isLoading ? (
-            <ListSkeleton />
-          ) : (subjects.data ?? []).length === 0 ? (
+        <TabsContent value="subjects" className="flex min-h-0 flex-1 flex-col">
+          {!subjects.isLoading && subjectsTotal === 0 ? (
             <EmptyState
               icon={<GraduationCap />}
               title={t('noSubjects')}
               description={t('noSubjectsHint')}
             />
           ) : (
-            <Card>
-              <CardContent className="p-2">
-                <ul className="divide-y divide-border">
-                  {(subjects.data ?? []).map((s) => (
-                    <li key={s.id} className="flex items-center gap-3 p-2.5">
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.name}</span>
-                      {s.code && <Badge variant="secondary">{s.code}</Badge>}
-                      <DeleteButton
-                        onClick={() => onDelete('subject', s.id, s.name)}
-                        label={t('delete')}
-                      />
-                    </li>
+            <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+              <Table fixed scrollBody fill cols={SUBJECT_COLS}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead sortKey="name" sort={subjectsPage.sort} onSort={subjectsPage.toggle}>
+                      {t('colSubject')}
+                    </TableHead>
+                    <TableHead sortKey="code" sort={subjectsPage.sort} onSort={subjectsPage.toggle}>
+                      {t('colCode')}
+                    </TableHead>
+                    <TableHead>
+                      <span className="sr-only">{t('delete')}</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {subjects.isLoading && <TableSkeletonRows columns={3} />}
+                  {subjectRows.map((sub) => (
+                    <TableRow key={sub.id} className="hover:bg-muted/40">
+                      <TableCell className="font-medium">
+                        <TableText value={sub.name} />
+                      </TableCell>
+                      <TableCell>
+                        {sub.code ? <Badge variant="secondary">{sub.code}</Badge> : <TableEmpty />}
+                      </TableCell>
+                      <TableCell>
+                        <DeleteButton
+                          onClick={() => onDelete('subject', sub.id, sub.name)}
+                          label={t('delete')}
+                        />
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </ul>
-              </CardContent>
+                </TableBody>
+              </Table>
+              <TablePagination
+                page={subjectsPage.page}
+                total={subjectsTotal}
+                limit={subjectsPage.limit}
+                onPageChange={subjectsPage.setPage}
+                limitOptions={PAGE_SIZES}
+                onLimitChange={subjectsPage.setLimit}
+              />
             </Card>
           )}
         </TabsContent>
 
         {/* Семестры */}
-        <TabsContent value="terms">
-          <SectionHeader
-            label={t('termsHeader')}
-            onAdd={() => setModal('term')}
-            addLabel={t('addTerm')}
-          />
-          {terms.isLoading ? (
-            <ListSkeleton />
-          ) : (terms.data ?? []).length === 0 ? (
+        <TabsContent value="terms" className="flex min-h-0 flex-1 flex-col">
+          {!terms.isLoading && termsTotal === 0 ? (
             <EmptyState
               icon={<CalendarRange />}
               title={t('noTerms')}
               description={t('noTermsHint')}
             />
           ) : (
-            <Card>
-              <CardContent className="p-2">
-                <ul className="divide-y divide-border">
-                  {(terms.data ?? []).map((tm) => (
-                    <li key={tm.id} className="flex items-center gap-3 p-2.5">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{tm.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {tm.startsOn.slice(0, 10)} — {tm.endsOn.slice(0, 10)}
-                        </p>
-                      </div>
-                      {tm.isActive && <Badge variant="success">{t('active')}</Badge>}
-                      <DeleteButton
-                        onClick={() => onDelete('term', tm.id, tm.name)}
-                        label={t('delete')}
-                      />
-                    </li>
+            <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+              <Table fixed scrollBody fill cols={TERM_COLS}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead sortKey="name" sort={termsPage.sort} onSort={termsPage.toggle}>
+                      {t('colTerm')}
+                    </TableHead>
+                    <TableHead sortKey="startsOn" sort={termsPage.sort} onSort={termsPage.toggle}>
+                      {t('colStartsOn')}
+                    </TableHead>
+                    <TableHead sortKey="endsOn" sort={termsPage.sort} onSort={termsPage.toggle}>
+                      {t('colEndsOn')}
+                    </TableHead>
+                    <TableHead sortKey="isActive" sort={termsPage.sort} onSort={termsPage.toggle}>
+                      {t('colStatus')}
+                    </TableHead>
+                    <TableHead>
+                      <span className="sr-only">{t('delete')}</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {terms.isLoading && <TableSkeletonRows columns={5} />}
+                  {termRows.map((tm) => (
+                    <TableRow key={tm.id} className="hover:bg-muted/40">
+                      <TableCell className="font-medium">
+                        <TableText value={tm.name} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">
+                        <TableText value={fmtDate(tm.startsOn)} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">
+                        <TableText value={fmtDate(tm.endsOn)} />
+                      </TableCell>
+                      <TableCell>
+                        {tm.isActive ? (
+                          <Badge variant="success">{t('active')}</Badge>
+                        ) : (
+                          <TableEmpty />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <DeleteButton
+                          onClick={() => onDelete('term', tm.id, tm.name)}
+                          label={t('delete')}
+                        />
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </ul>
-              </CardContent>
+                </TableBody>
+              </Table>
+              <TablePagination
+                page={termsPage.page}
+                total={termsTotal}
+                limit={termsPage.limit}
+                onPageChange={termsPage.setPage}
+                limitOptions={PAGE_SIZES}
+                onLimitChange={termsPage.setLimit}
+              />
             </Card>
           )}
         </TabsContent>
@@ -227,9 +407,9 @@ export function CourseAdminView() {
       )}
       {modal === 'course' && (
         <CreateCourseModal
-          subjects={subjects.data ?? []}
+          subjects={subjectRows}
           groups={groups.data ?? []}
-          terms={terms.data ?? []}
+          terms={termRows}
           onClose={() => setModal(null)}
         />
       )}
@@ -237,39 +417,10 @@ export function CourseAdminView() {
   )
 }
 
-function SectionHeader({
-  label,
-  onAdd,
-  addLabel,
-}: {
-  label: string
-  onAdd: () => void
-  addLabel: string
-}) {
-  return (
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="font-heading text-sm font-semibold text-muted-foreground">{label}</h2>
-      <Button size="sm" onClick={onAdd} className="gap-1.5">
-        <Plus className="size-4" aria-hidden />
-        {addLabel}
-      </Button>
-    </div>
-  )
-}
-
 function DeleteButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
-    <Button variant="ghost" size="icon-sm" onClick={onClick} aria-label={label}>
+    <Button variant="ghost" size="sm" icon onClick={onClick} aria-label={label}>
       <Trash2 className="size-4 text-muted-foreground" aria-hidden />
     </Button>
-  )
-}
-
-function ListSkeleton() {
-  return (
-    <div className="flex flex-col gap-2">
-      <Skeleton className="h-14 w-full rounded-xl" />
-      <Skeleton className="h-14 w-full rounded-xl" />
-    </div>
   )
 }

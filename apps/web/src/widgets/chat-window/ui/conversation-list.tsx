@@ -11,6 +11,7 @@ import {
   CheckCheck,
   FolderCog,
   Loader2,
+  MessagesSquare,
   Pin,
   PinOff,
   Plus,
@@ -21,7 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
-import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, EmptyState, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
@@ -276,15 +277,20 @@ export function ConversationList({
       <div
         key={embedded ? 'list' : activeId ? 'list-hidden' : 'list-visible'}
         className={cn(
-          'flex-1 overflow-y-auto',
+          'flex min-h-0 flex-1 flex-col overflow-y-auto',
           'duration-300 animate-in fade-in slide-in-from-left-4',
           !embedded && 'pb-[calc(6rem+env(safe-area-inset-bottom))]',
         )}
       >
         {searchTerm.length >= 2 ? (
-          <div className="flex flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
             {chatMatches.length === 0 && msgMatches.length === 0 && !msgResultsLoading ? (
-              <p className="p-4 text-center text-sm text-muted-foreground">{t('noResults')}</p>
+              <div className="flex min-h-0 flex-1 flex-col p-3">
+                <EmptyState
+                  icon={<Search className="size-6" aria-hidden />}
+                  title={t('noResults')}
+                />
+              </div>
             ) : (
               <>
                 {chatMatches.length > 0 && (
@@ -392,12 +398,18 @@ export function ConversationList({
             )}
           </div>
         ) : chatsLoading ? (
-          <div className="flex flex-col gap-2 p-2">
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full shrink-0 rounded-xl" />
+            ))}
           </div>
         ) : visibleChats.length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">{t('noChats')}</p>
+          <div className="flex min-h-0 flex-1 flex-col p-3">
+            <EmptyState
+              icon={<MessagesSquare className="size-6" aria-hidden />}
+              title={t('noChats')}
+            />
+          </div>
         ) : (
           visibleChats.map((c) => {
             const title = chatTitle(c, t)

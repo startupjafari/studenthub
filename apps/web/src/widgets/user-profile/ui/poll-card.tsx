@@ -115,7 +115,8 @@ export function PollCard({ poll, isOwner }: Props) {
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
+              size="sm"
+              icon
               aria-label={t('delete')}
               className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => {

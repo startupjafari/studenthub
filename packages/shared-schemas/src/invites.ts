@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 import { Role } from '@studenthub/shared-types'
 
 // Роль как Zod-схема (Role — const-объект, не TS-enum).
@@ -6,6 +7,19 @@ export const RoleSchema = z.enum(Object.values(Role) as [Role, ...Role[]])
 
 // Создание инвайта (docs/BACKEND_RULES.md §3, §7). Роль и scope в теле — это ЗАПРОС;
 // фактический scope инвайта сервер выводит из иерархии и токена создателя, не доверяя телу слепо.
+// Колонки таблицы приглашений, по которым разрешена сортировка.
+export const INVITE_SORT_FIELDS = ['role', 'email', 'status', 'expiresAt', 'createdAt'] as const
+export const InviteSortSchema = z.enum(INVITE_SORT_FIELDS)
+export type InviteSortValue = z.infer<typeof InviteSortSchema>
+
+// Список выданных приглашений: offset-пагинация + сортировка по всей выборке.
+// Раньше эндпоинт принимал только page/limit, и таблица сортировала открытую страницу.
+export const InviteListQuerySchema = OffsetPaginationSchema.extend({
+  sort: InviteSortSchema.optional(),
+  order: SortOrderSchema.optional(),
+})
+export type InviteListQueryInput = z.infer<typeof InviteListQuerySchema>
+
 export const CreateInviteSchema = z
   .object({
     role: RoleSchema,

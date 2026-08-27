@@ -4,6 +4,7 @@ import { Slot } from 'radix-ui'
 import { Loader2 } from 'lucide-react'
 
 import { cn } from 'shared/lib/utils'
+import { CONTROL_SIZE, CONTROL_SQUARE, type ControlSize } from './control-size'
 
 // Кастомная современная кнопка (не дефолт shadcn): крупнее скругление (rounded-xl),
 // мягкий «дышащий» фокус (ring-4 ring/20), тень+подъём у заливных, лёгкое нажатие.
@@ -21,24 +22,14 @@ const buttonVariants = cva(
           'bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:ring-destructive/20',
         link: 'text-primary underline-offset-4 transition-colors hover:text-primary/70 hover:underline',
       },
-      size: {
-        default: 'h-10 px-4',
-        // Плотная строка контролов в шапке страницы: кнопка, поле и селект там идут
-        // одной высотой h-9 (в формах у поля своя, крупная — h-11). Разная высота в
-        // одной строке читается как поломка вёрстки.
-        field: 'h-9 px-3.5',
-        xs: "h-7 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1.5 px-3 text-[0.8rem] [&_svg:not([class*='size-'])]:size-3.5",
-        lg: 'h-11 px-6 text-base',
-        icon: 'size-10',
-        'icon-xs': "size-7 [&_svg:not([class*='size-'])]:size-3",
-        'icon-sm': 'size-8',
-        'icon-lg': 'size-11',
-      },
+      // Высота — из общей шкалы контролов (control-size.ts): ровно четыре размера,
+      // те же высоты у поля, селекта и датапикера. Иконочная кнопка — тот же размер,
+      // но квадратом: prop `icon`.
+      size: CONTROL_SIZE,
     },
     defaultVariants: {
       variant: 'default',
-      size: 'default',
+      size: 'lg',
     },
   },
 )
@@ -46,14 +37,18 @@ const buttonVariants = cva(
 function Button({
   className,
   variant = 'default',
-  size = 'default',
+  size = 'lg',
+  icon = false,
   asChild = false,
   loading = false,
   disabled,
   children,
   ...props
 }: React.ComponentProps<'button'> &
-  VariantProps<typeof buttonVariants> & {
+  Omit<VariantProps<typeof buttonVariants>, 'size'> & {
+    size?: ControlSize
+    // Кнопка-иконка: квадрат по высоте выбранного размера, без горизонтальных отступов.
+    icon?: boolean
     asChild?: boolean
     // Состояние обработки запроса: кнопка приглушённо-серая + Loader по центру (без текста).
     loading?: boolean
@@ -67,6 +62,7 @@ function Button({
       data-slot="button"
       className={cn(
         buttonVariants({ variant, size }),
+        icon && CONTROL_SQUARE[size],
         isLoading &&
           'pointer-events-none bg-muted text-muted-foreground hover:bg-muted disabled:opacity-70',
         className,

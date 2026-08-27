@@ -46,6 +46,20 @@ const FILE_SELECT = {
 } as const
 
 /**
+ * Значение `Content-Disposition` для скачивания.
+ *
+ * Две формы имени обязательны: `filename` понимают все браузеры, но только ASCII —
+ * кириллица в нём превратилась бы в мусор; `filename*` (RFC 5987) несёт настоящее имя
+ * в UTF-8. Кавычки и обратный слэш в ASCII-варианте экранируются, иначе имя файла
+ * могло бы закрыть строку и подставить свои параметры в заголовок.
+ */
+function attachmentHeader(name: string | null): string {
+  const safe = name?.trim() || 'file'
+  const ascii = safe.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safe)}`
+}
+
+/**
  * Работа с файлами в MinIO + метаданными в таблице File (docs/BACKEND_RULES.md §8).
  * Проверка владения/scope — на уровне контроллера (задача 2.3); здесь только примитивы,
  * переиспользуемые другими модулями (аватар 4.3, вложения заявок, медиа постов).
@@ -289,14 +303,26 @@ export class FileService {
    * Presigned GET к приватному объекту, TTL 15 мин (docs/BACKEND_RULES.md §8).
    * requesterId задан — проверяется владение (generic-эндпоинт /files); undefined —
    * вызывающий модуль отвечает за scope сам (напр. декан читает вложение заявки, Ф7).
+   *
+   * `asAttachment` — ссылка на СКАЧИВАНИЕ: в неё подписывается заголовок
+   * `Content-Disposition: attachment`. Без него скачать файл из браузера нельзя:
+   * объект лежит в MinIO, то есть на другом origin, а атрибут `download` у ссылки
+   * кросс-origin игнорируется — браузер просто уходит на файл новой вкладкой.
+   * На `<img>`/`<video>` заголовок не влияет (он действует только на навигацию),
+   * поэтому просмотрщику по-прежнему нужна обычная ссылка.
    */
-  async getPresignedUrl(fileId: string, requesterId?: string): Promise<string> {
+  async getPresignedUrl(
+    fileId: string,
+    requesterId?: string,
+    asAttachment = false,
+  ): Promise<string> {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
     return this.minioPublic.presignedGetObject(
       file.bucket,
       file.key,
       TTL.PRESIGNED_URL_MINUTES * 60,
+      asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : undefined,
     )
   }
 

@@ -44,3 +44,11 @@ apps/web/.next-e2e/
 
 # e2e-сборка api (отдельный outDir)
 apps/api/dist-e2e/
+
+# Прод-сборка веба в отдельный каталог (NEXT_DIST_DIR=.next-build), чтобы не затирать
+# .next у работающего dev-сервера.
+apps/web/.next-build/
+
+# Исходная выгрузка КАТО (~4.7 МБ). В git едет только сгенерированный prisma/data/kato.json;
+# пересборка — node scripts/gen-kato.mjs <выгрузка>
+kato_*.json

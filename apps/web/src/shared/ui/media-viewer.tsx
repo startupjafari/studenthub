@@ -65,7 +65,11 @@ export function MediaViewer({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex select-none flex-col bg-black/80"
+      // `pointer-events-auto` обязателен: просмотрщик рендерится порталом в body, а Radix
+      // Dialog на время своей работы ставит body `pointer-events: none`, оставляя «живым»
+      // только своё содержимое. Без этого поверх модалки картинка видна, но ни поворот,
+      // ни скачивание, ни крестик не нажимаются.
+      className="pointer-events-auto fixed inset-0 z-[100] flex select-none flex-col bg-black/80"
       onClick={(e) => {
         e.stopPropagation()
         onClose()

@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client'
 import type {
   CreateDocumentInput,
   DocumentListQueryInput,
+  DocumentSortValue,
+  SortOrderValue,
   GrantDocumentAccessInput,
   ReorderDocumentFilesInput,
   UpdateDocumentInput,
@@ -48,6 +50,39 @@ const DOCUMENT_SELECT = {
 } satisfies Prisma.DocumentSelect
 
 type DocumentRow = Prisma.DocumentGetPayload<{ select: typeof DOCUMENT_SELECT }>
+
+/**
+ * Порядок выборки документов по колонке таблицы.
+ *
+ * Даты и срок действия бывают пустыми: `nulls: 'last'` держит такие строки в конце
+ * при любом направлении — иначе при сортировке по возрастанию сверху оказывалась бы
+ * пачка документов без даты, а не самые ранние.
+ */
+function documentOrderBy(
+  sort: DocumentSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.DocumentOrderByWithRelationInput {
+  const dir = order ?? 'asc'
+  switch (sort) {
+    case 'title':
+      return { title: dir }
+    case 'category':
+      return { category: dir }
+    case 'status':
+      return { status: dir }
+    case 'issuedAt':
+      return { issuedAt: { sort: dir, nulls: 'last' } }
+    case 'expiresAt':
+      return { expiresAt: { sort: dir, nulls: 'last' } }
+    case 'access':
+      return { access: { _count: dir } }
+    case 'createdAt':
+      return { createdAt: dir }
+    default:
+      // Порядок по умолчанию — свежие сверху, как было до появления сортировки по колонкам.
+      return { createdAt: 'desc' }
+  }
+}
 
 export interface DocumentFileDto {
   id: string
@@ -280,7 +315,12 @@ export class DocumentsService {
   }
 
   /** Presigned-URL к файлу документа (открыть/скачать). Владелец или активный грант доступа. */
-  async getFileUrl(actor: JwtPayload, id: string, fileId: string): Promise<string> {
+  async getFileUrl(
+    actor: JwtPayload,
+    id: string,
+    fileId: string,
+    asAttachment = false,
+  ): Promise<string> {
     const doc = await this.prisma.document.findFirst({
       where: { id, deletedAt: null },
       select: { id: true, ownerId: true, universityId: true },
@@ -296,7 +336,7 @@ export class DocumentsService {
     })
     if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
     await this.logEvent(actor.sub, id, isOwner ? 'DOWNLOAD' : 'VIEW', { fileId })
-    return this.files.getPresignedUrl(fileId)
+    return this.files.getPresignedUrl(fileId, undefined, asAttachment)
   }
 
   // Есть ли у смотрящего активный (не отозван, не истёк) грант на документ:
@@ -408,6 +448,66 @@ export class DocumentsService {
     return this.getOwnedDto(actor, doc.id)
   }
 
+  /**
+   * Выдать документ его будущему владельцу: вуз изготовил справку и кладёт её в кабинет
+   * СТУДЕНТА, а не автора. Единственный путь, создающий Document с чужим `ownerId`, поэтому
+   * публичного эндпоинта у него нет — вызывают только домены, которые сами проверили право
+   * выдачи (заявки-услуги, §17). Иначе выданная справка оседала бы в личных документах
+   * сотрудника, а студент не находил бы её у себя.
+   */
+  async issueToOwner(
+    actor: JwtPayload,
+    input: {
+      ownerId: string
+      universityId: string | null
+      type: string
+      title: string
+      number?: string
+      fileId: string
+    },
+  ): Promise<{ id: string }> {
+    // Категорию не принимаем снаружи, а выводим из типа: выдать можно только то, что
+    // каталог вуза относит к «Выданным университетом».
+    const category = await this.types.resolveUsable(input.universityId, input.type)
+    if (category !== 'ISSUED_BY_UNIVERSITY') {
+      throw new AppException(
+        'BAD_REQUEST',
+        'Результат выдаётся типом из раздела «Выданные университетом»',
+      )
+    }
+    // Файл обязан принадлежать выдающему и ещё не быть привязан к документу — те же
+    // условия, что у attachFiles: иначе чужой файл переехал бы в чужой документ.
+    const file = await this.prisma.file.findFirst({
+      where: { id: input.fileId, ownerId: actor.sub, bucket: this.bucket, documentId: null },
+      select: { id: true },
+    })
+    if (!file) {
+      throw new AppException('BAD_REQUEST', 'Файл недоступен для прикрепления')
+    }
+    const doc = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.document.create({
+        data: {
+          ownerId: input.ownerId,
+          universityId: input.universityId,
+          category,
+          type: input.type,
+          title: input.title,
+          number: input.number || null,
+          numberLast4: this.last4(input.number),
+          issuedAt: new Date(),
+          issuedByUniversity: true,
+          status: 'UPLOADED',
+        },
+        select: { id: true },
+      })
+      await tx.file.update({ where: { id: file.id }, data: { documentId: created.id, order: 0 } })
+      return created
+    })
+    // Актор события — выдавший сотрудник: в истории документа видно, кто его завёл.
+    await this.logEvent(actor.sub, doc.id, 'UPLOAD', { issuedTo: input.ownerId })
+    return doc
+  }
+
   async update(actor: JwtPayload, id: string, input: UpdateDocumentInput): Promise<DocumentDto> {
     await this.findOwnedOrThrow(actor, id)
     const data: Prisma.DocumentUpdateInput = {}
@@ -441,15 +541,12 @@ export class DocumentsService {
             ],
           }
         : {}),
+      // Пресеты раздела. `shared` — документы, к которым выдан хотя бы один доступ;
+      // `issued` — выданные вузом. Раньше это отбиралось на клиенте уже после выборки.
+      ...(query.preset === 'shared' ? { access: { some: {} } } : {}),
+      ...(query.preset === 'issued' ? { issuedByUniversity: true } : {}),
     }
-    const orderBy: Prisma.DocumentOrderByWithRelationInput =
-      query.sort === 'old'
-        ? { createdAt: 'asc' }
-        : query.sort === 'title'
-          ? { title: 'asc' }
-          : query.sort === 'expiring'
-            ? { expiresAt: { sort: 'asc', nulls: 'last' } }
-            : { createdAt: 'desc' }
+    const orderBy = documentOrderBy(query.sort, query.order)
     const rows = await this.prisma.document.findMany({
       where,
       select: DOCUMENT_SELECT,

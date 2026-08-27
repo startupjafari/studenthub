@@ -12,6 +12,7 @@ import {
   universityKeys,
   type University,
 } from '../../../entities/university'
+import { useKatoNames } from '../../../entities/kato'
 import {
   Button,
   Card,
@@ -43,6 +44,9 @@ export function UniversitiesAdminView() {
 
   const universities = useQuery({ queryKey: universityKeys.list(), queryFn: fetchUniversities })
 
+  // `city` хранит код КАТО. Резолвим весь список одним запросом — запрос на строку дал бы N+1.
+  const { nameOf: cityName } = useKatoNames((universities.data ?? []).map((u) => u.city))
+
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: UniversityStatusValue }) =>
       setUniversityStatusRequest(id, status),
@@ -61,7 +65,7 @@ export function UniversitiesAdminView() {
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
-          <Button size="field" onClick={() => setCreateOpen(true)}>
+          <Button size="md" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" aria-hidden />
             {t('add')}
           </Button>
@@ -88,7 +92,9 @@ export function UniversitiesAdminView() {
                   <p className="font-medium">{u.name}</p>
                   <p className={cn('text-xs font-medium', STATUS_STYLE[u.status])}>
                     {t(`status${u.status}`)}
-                    {u.city && <span className="text-muted-foreground"> · {u.city}</span>}
+                    {cityName(u.city) && (
+                      <span className="text-muted-foreground"> · {cityName(u.city)}</span>
+                    )}
                   </p>
                 </div>
               </div>

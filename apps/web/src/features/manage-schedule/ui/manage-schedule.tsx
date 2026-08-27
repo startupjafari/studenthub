@@ -1,40 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { CalendarPlus, Check, Layers, MousePointerClick, Plus, Trash2, X } from 'lucide-react'
-import {
-  CreatePairSchema,
-  CreateScheduleChangeSchema,
-  type CreatePairInput,
-  type CreateScheduleChangeInput,
-} from '@studenthub/shared-schemas'
+import { CalendarPlus, Check, Layers, MousePointerClick, Plus } from 'lucide-react'
+import type { UpdatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
-import { Role } from '@studenthub/shared-types'
-import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  Card,
   EmptyState,
   FormAlert,
-  DatePicker,
-  Input,
-  Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
   Skeleton,
-  useConfirm,
   PageHeader,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
@@ -42,25 +25,22 @@ import { fetchGroups, groupKeys } from '../../../entities/group'
 import { fetchRooms, roomKeys } from '../../../entities/room'
 import { fetchMe, userKeys } from '../../../entities/user'
 import {
-  createPairRequest,
-  createScheduleChangeRequest,
-  createScheduleRequest,
-  deletePairRequest,
   fetchScheduleContainer,
   fetchScheduleContainers,
   scheduleKeys,
+  updatePairRequest,
   updateScheduleRequest,
   type Pair,
 } from '../../../entities/schedule'
 import { ScheduleEditor } from './schedule-editor'
+import { AddPairModal } from './add-pair-modal'
+import { CreateVersionModal } from './create-version-modal'
+import { ScheduleDayList } from './schedule-day-list'
+import { PairDetailsModal } from './pair-details-modal'
 
 function apiErr(e: unknown): ApiErrorBody {
   return e as ApiErrorBody
 }
-
-const DAYS = [1, 2, 3, 4, 5, 6, 7]
-const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
-const CHANGE_TYPES = ['MOVED', 'ROOM_CHANGED', 'CANCELLED', 'SUBSTITUTED'] as const
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -75,24 +55,30 @@ function addMinutes(hhmm: string, delta: number): string {
 export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' }) {
   const isTeacher = mode === 'teacher'
   const t = useTranslations('Schedule')
-  const tPeople = useTranslations('People')
   const qc = useQueryClient()
-  const confirm = useConfirm()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
   const rooms = useQuery({
-    queryKey: roomKeys.list(me.data?.universityId ?? undefined),
+    queryKey: roomKeys.list({ universityId: me.data?.universityId ?? undefined }),
     queryFn: () => fetchRooms(me.data?.universityId ?? undefined),
     enabled: !!me.data,
   })
 
   const [groupId, setGroupId] = useState<string>('')
   const [containerId, setContainerId] = useState<string>('')
-  const [newContainerOpen, setNewContainerOpen] = useState(false)
+  const [versionOpen, setVersionOpen] = useState(false)
   const [selectedPair, setSelectedPair] = useState<Pair | null>(null)
-  const [addOpen, setAddOpen] = useState(false)
+  // Заготовка новой пары: null — модалка закрыта.
+  const [addDraft, setAddDraft] = useState<{
+    dayOfWeek: number
+    startTime: string
+    endTime: string
+  } | null>(null)
+  const [showWeekend, setShowWeekend] = useState(false)
+  // День, открытый в мобильном списке. По умолчанию — сегодняшний.
+  const [mobileDay, setMobileDay] = useState(() => ((new Date().getDay() + 6) % 7) + 1)
 
   const containers = useQuery({
     queryKey: scheduleKeys.containers(groupId),
@@ -117,24 +103,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
     void qc.invalidateQueries({ queryKey: scheduleKeys.all })
   }
 
-  // ── контейнеры ─────────────────────────────────────────────────────────
-  // Отдельный alert для диалога создания контейнера: он рендерится выше боковой панели,
-  // где живёт основной FormAlert, и может быть открыт ещё до появления контейнера.
-  const containerAlert = useFormAlert()
-  const [newContainerName, setNewContainerName] = useState('')
-  const createContainer = useMutation({
-    mutationFn: () => createScheduleRequest({ groupId, name: newContainerName.trim() }),
-    onMutate: () => containerAlert.reset(),
-    onSuccess: (created) => {
-      void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
-      setContainerId(created.id)
-      setNewContainerName('')
-      setNewContainerOpen(false)
-      toast.success(t('containerCreated'))
-    },
-    onError: (e) => containerAlert.show(e),
-  })
-
   const activateContainer = useMutation({
     mutationFn: (id: string) => updateScheduleRequest(id, { isActive: true }),
     onMutate: () => resetApiError(),
@@ -145,87 +113,35 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
     onError: (e) => showApiError(e),
   })
 
-  // ── добавление пары ──────────────────────────────────────────────────────
-  const [pairTeacher, setPairTeacher] = useState<PickedUser | null>(null)
-  const pairForm = useForm<CreatePairInput>({
-    resolver: zodResolver(CreatePairSchema),
-    defaultValues: { weekType: 'BOTH', dayOfWeek: 1 },
-  })
-  useEffect(() => {
-    pairForm.setValue('scheduleId', containerId)
-  }, [containerId, pairForm])
-
-  const createPair = useMutation({
-    mutationFn: (input: CreatePairInput) => createPairRequest(input),
+  const movePair = useMutation({
+    mutationFn: (v: { id: string; input: UpdatePairInput }) => updatePairRequest(v.id, v.input),
     onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidateContainer()
-      pairForm.reset({ scheduleId: containerId, weekType: 'BOTH', dayOfWeek: 1 })
-      setPairTeacher(null)
-      setAddOpen(false)
-      toast.success(t('pairCreated'))
+      toast.success(t('pairMoved'))
     },
     onError: (e) => {
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
-        const msgs = err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric')
-        toast.error(t('conflictTitle'), { description: msgs })
-      } else {
-        showApiError(e)
-      }
+        toast.error(t('conflictTitle'), {
+          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+        })
+      } else showApiError(e)
     },
-  })
-
-  const deletePair = useMutation({
-    mutationFn: (id: string) => deletePairRequest(id),
-    onMutate: () => resetApiError(),
-    onSuccess: () => {
-      invalidateContainer()
-      setSelectedPair(null)
-      toast.success(t('pairDeleted'))
-    },
-    onError: (e) => showApiError(e),
-  })
-
-  // ── создание замены ──────────────────────────────────────────────────────
-  const [changeTeacher, setChangeTeacher] = useState<PickedUser | null>(null)
-  const changeForm = useForm<CreateScheduleChangeInput>({
-    resolver: zodResolver(CreateScheduleChangeSchema),
-    defaultValues: { type: 'CANCELLED' },
-  })
-  const changeType = changeForm.watch('type')
-
-  const createChange = useMutation({
-    mutationFn: (input: CreateScheduleChangeInput) => createScheduleChangeRequest(input),
-    onMutate: () => resetApiError(),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: scheduleKeys.all })
-      changeForm.reset({ type: 'CANCELLED', pairId: selectedPair?.id })
-      setChangeTeacher(null)
-      toast.success(t('changeCreated'))
-    },
-    onError: (e) => showApiError(e),
   })
 
   const roomItems = rooms.data ?? []
   const pairs = container.data?.pairs ?? []
-  // Преподаватель редактирует только свои пары (бэк enforce'ит; тут — прячем действия).
-  const canEditSelected = !isTeacher || (!!selectedPair && selectedPair.teacher?.id === me.data?.id)
+  // Преподаватель правит только свои пары (бэк это enforce'ит; здесь — прячем действия
+  // и запрещаем перетаскивание, чтобы не предлагать заведомо отказной запрос).
+  const canEditPair = (p: Pair): boolean => !isTeacher || p.teacher?.id === me.data?.id
 
-  // Открыть модалку добавления с предзаполненными днём/временем.
+  // Клик по пустому месту календаря — заготовка для модалки: день и время уже выбраны,
+  // остаётся ввести предмет.
   function openAddPair(dayOfWeek: number, startTime: string): void {
     resetApiError()
     setSelectedPair(null)
-    pairForm.reset({
-      scheduleId: containerId,
-      weekType: 'BOTH',
-      dayOfWeek,
-      startTime,
-      endTime: addMinutes(startTime, 90),
-      subject: '',
-    })
-    setPairTeacher(null)
-    setAddOpen(true)
+    setAddDraft({ dayOfWeek, startTime, endTime: addMinutes(startTime, 90) })
   }
 
   // Клик по пустому слоту календаря → модалка добавления (время выбрано на календаре).
@@ -233,23 +149,38 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
     openAddPair(dayOfWeek, startTime)
   }
 
-  // Клик по паре → панель деталей + замена.
+  // Клик по паре → карточка пары в модалке.
   function onPairClick(p: Pair): void {
     setSelectedPair(p)
-    changeForm.reset({ type: 'CANCELLED', pairId: p.id })
-    setChangeTeacher(null)
   }
 
+  // Перетаскивание пары по сетке — та же правка, что и форма в карточке.
+  // Оптимистично не обновляем: сервер может отклонить перенос по конфликту, и откат
+  // выглядел бы как «пара сама прыгнула назад» без объяснения.
+  function onPairMove(
+    pair: Pair,
+    next: { dayOfWeek: number; startTime: string; endTime: string },
+  ): void {
+    movePair.mutate({ id: pair.id, input: next })
+  }
+
+  const weekendPairs = pairs.some((p) => p.dayOfWeek > 5)
+  // Выходные показываем, только если в них что-то есть или их включили руками: пустые
+  // Сб и Вс забирали четверть ширины сетки у рабочих дней.
+  const days = showWeekend || weekendPairs ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5]
+  // ISO: 1 = понедельник, у getDay() 0 = воскресенье.
+  const todayDow = ((new Date().getDay() + 6) % 7) + 1
+
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title={isTeacher ? t('myScheduleTitle') : t('manageTitle')} />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-        {/* Тулбар: группа + контейнер */}
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-card p-3">
-          <div className="flex min-w-52 flex-1 flex-col gap-1.5">
-            <Label>{t('selectGroup')}</Label>
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <PageHeader
+        title={isTeacher ? t('myScheduleTitle') : t('manageTitle')}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Группа и версия — в шапке: это выбор области, а не настройка внутри
+                экрана, и отдельный тулбар под заголовком дублировал полосу. */}
             {groups.isLoading ? (
-              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-9 w-40" />
             ) : (
               <Select
                 value={groupId}
@@ -258,7 +189,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
                   setSelectedPair(null)
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger size="md" className="w-40" aria-label={t('selectGroup')}>
                   <SelectValue placeholder={t('selectGroupPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -270,443 +201,160 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
                 </SelectContent>
               </Select>
             )}
-          </div>
 
-          {groupId && (
-            <div className="flex min-w-52 flex-1 flex-col gap-1.5">
-              <Label>{t('containers')}</Label>
-              <div className="flex items-center gap-2">
-                <Select value={containerId} onValueChange={setContainerId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('noContainers')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(containers.data ?? []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                        {c.isActive ? ` · ${t('active')}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!isTeacher && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label={t('createContainer')}
-                    onClick={() => setNewContainerOpen((v) => !v)}
-                  >
-                    <Plus className="size-4" aria-hidden />
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
+            {groupId && (
+              <Select value={containerId} onValueChange={setContainerId}>
+                <SelectTrigger size="md" className="w-52" aria-label={t('containers')}>
+                  <SelectValue placeholder={t('noContainers')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(containers.data ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.isActive ? ` · ${t('active')}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
-          {groupId &&
-            containerId &&
-            !isTeacher &&
-            !containers.data?.find((c) => c.id === containerId)?.isActive && (
+            {groupId && !isTeacher && (
               <Button
                 type="button"
                 variant="outline"
-                loading={activateContainer.isPending}
-                onClick={() => activateContainer.mutate(containerId)}
+                size="md"
+                icon
+                aria-label={t('createContainer')}
+                title={t('createContainer')}
+                onClick={() => setVersionOpen(true)}
               >
-                <Check className="size-4" aria-hidden />
-                {t('activate')}
+                <Plus className="size-4" aria-hidden />
               </Button>
             )}
-        </div>
 
-        {/* Создание контейнера */}
-        {groupId && !isTeacher && newContainerOpen && (
-          <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 duration-150 animate-in fade-in slide-in-from-top-1">
-            <FormAlert error={containerAlert.error} />
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="cname">{t('newContainerName')}</Label>
-                <Input
-                  id="cname"
-                  value={newContainerName}
-                  onChange={(e) => setNewContainerName(e.target.value)}
-                  placeholder={t('newContainerPlaceholder')}
-                />
-              </div>
-              <Button
-                type="button"
-                loading={createContainer.isPending}
-                disabled={newContainerName.trim().length === 0}
-                onClick={() => createContainer.mutate()}
-              >
-                {t('createContainer')}
+            {groupId &&
+              containerId &&
+              !isTeacher &&
+              !containers.data?.find((c) => c.id === containerId)?.isActive && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  loading={activateContainer.isPending}
+                  onClick={() => activateContainer.mutate(containerId)}
+                >
+                  <Check className="size-4" aria-hidden />
+                  {t('activate')}
+                </Button>
+              )}
+
+            {containerId && (
+              <Button type="button" size="md" onClick={() => openAddPair(todayDow, '08:00')}>
+                <Plus className="size-4" aria-hidden />
+                {t('addPair')}
               </Button>
-            </div>
+            )}
           </div>
-        )}
+        }
+      />
 
-        {!groupId ? (
-          <EmptyState
-            icon={<Layers className="size-6" aria-hidden />}
-            title={t('pickGroupTitle')}
-            description={t('pickGroupHint')}
-          />
-        ) : !containerId ? (
-          <EmptyState
-            icon={<CalendarPlus className="size-6" aria-hidden />}
-            title={t('noContainers')}
-            description={isTeacher ? t('noScheduleTeacherHint') : t('createContainerHint')}
-          />
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-            {/* Календарь-редактор */}
-            <div className="flex flex-col gap-2">
+      <FormAlert error={apiError} />
+
+      {!groupId ? (
+        <EmptyState
+          icon={<Layers className="size-6" aria-hidden />}
+          title={t('pickGroupTitle')}
+          description={t('pickGroupHint')}
+        />
+      ) : !containerId ? (
+        <EmptyState
+          icon={<CalendarPlus className="size-6" aria-hidden />}
+          title={t('noContainers')}
+          description={isTeacher ? t('noScheduleTeacherHint') : t('createContainerHint')}
+        />
+      ) : container.isLoading ? (
+        <Skeleton className="min-h-0 w-full flex-1" />
+      ) : (
+        <>
+          {/* Телефон: один день списком. Недельная сетка на 360 px нечитаема. */}
+          <div className="flex min-h-0 flex-1 flex-col md:hidden">
+            <ScheduleDayList
+              pairs={pairs}
+              day={mobileDay}
+              onDayChange={setMobileDay}
+              selectedPairId={selectedPair?.id ?? null}
+              todayDow={todayDow}
+              onPairClick={onPairClick}
+              onAdd={(d) => openAddPair(d, '08:00')}
+            />
+          </div>
+
+          {/* Компьютер и планшет: неделя целиком, во всю ширину области контента. */}
+          <div className="hidden min-h-0 flex-1 flex-col gap-2 md:flex">
+            <div className="flex items-center justify-between gap-3">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <MousePointerClick className="size-3.5" aria-hidden />
-                {t('editorHint')}
+                {t('editorDragHint')}
               </p>
-              {container.isLoading ? (
-                <Skeleton className="h-[28rem] w-full" />
-              ) : (
-                <ScheduleEditor
-                  pairs={pairs}
-                  selectedPairId={selectedPair?.id ?? null}
-                  onSlotClick={onSlotClick}
-                  onPairClick={onPairClick}
-                />
+              {!weekendPairs && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowWeekend((v) => !v)}
+                >
+                  {showWeekend ? t('hideWeekend') : t('showWeekend')}
+                </Button>
               )}
             </div>
-
-            {/* Боковая панель: пара (детали + замена) ИЛИ добавление */}
-            <aside className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4">
-              <FormAlert error={apiError} />
-              {selectedPair ? (
-                <>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h2 className="truncate text-base font-semibold">{selectedPair.subject}</h2>
-                      <p className="text-sm text-muted-foreground">
-                        {t(`day${selectedPair.dayOfWeek}`)} · {selectedPair.startTime}–
-                        {selectedPair.endTime}
-                        {selectedPair.weekType !== 'BOTH' &&
-                          ` · ${t(`parity${selectedPair.weekType}`)}`}
-                      </p>
-                      {selectedPair.room && (
-                        <p className="text-sm text-muted-foreground">{selectedPair.room.name}</p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={t('close')}
-                      onClick={() => setSelectedPair(null)}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <X className="size-4" aria-hidden />
-                    </button>
-                  </div>
-
-                  {isTeacher && !canEditSelected && (
-                    <p className="text-sm text-muted-foreground">{t('notYourPair')}</p>
-                  )}
-
-                  {canEditSelected && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="text-destructive hover:bg-destructive/10"
-                      loading={deletePair.isPending}
-                      onClick={() => {
-                        void confirm({ title: t('deletePairConfirm'), destructive: true }).then(
-                          (ok) => {
-                            if (ok) deletePair.mutate(selectedPair.id)
-                          },
-                        )
-                      }}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                      {t('deletePair')}
-                    </Button>
-                  )}
-
-                  {/* Замены/переносы — только админ/декан (бэк: schedules @Roles без TEACHER) */}
-                  {!isTeacher && (
-                    <>
-                      <div className="my-1 border-t border-border" />
-
-                      <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-                        <CalendarPlus className="size-4" aria-hidden />
-                        {t('createChange')}
-                      </h3>
-                      <form
-                        onSubmit={changeForm.handleSubmit((v) => createChange.mutate(v))}
-                        className="flex flex-col gap-3"
-                      >
-                        <div className="flex flex-col gap-1.5">
-                          <Label>{t('changeType')}</Label>
-                          <Controller
-                            control={changeForm.control}
-                            name="type"
-                            render={({ field }) => (
-                              <Select value={field.value} onValueChange={field.onChange}>
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {CHANGE_TYPES.map((c) => (
-                                    <SelectItem key={c} value={c}>
-                                      {t(`changeTypeLabel${c}`)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          />
-                        </div>
-
-                        <div className="flex flex-col gap-1.5">
-                          <Label>{t('date')}</Label>
-                          <Controller
-                            control={changeForm.control}
-                            name="date"
-                            render={({ field }) => (
-                              <DatePicker
-                                value={field.value ?? ''}
-                                onChange={field.onChange}
-                                aria-label={t('date')}
-                              />
-                            )}
-                          />
-                          {changeForm.formState.errors.date && (
-                            <p className="text-xs text-destructive">{t('required')}</p>
-                          )}
-                        </div>
-
-                        {changeType === 'ROOM_CHANGED' && (
-                          <div className="flex flex-col gap-1.5">
-                            <Label>{t('newRoom')}</Label>
-                            <Controller
-                              control={changeForm.control}
-                              name="newRoomId"
-                              render={({ field }) => (
-                                <Select
-                                  value={field.value ?? ''}
-                                  onValueChange={(v) => field.onChange(v || null)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder={t('selectRoom')} />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {roomItems.map((r) => (
-                                      <SelectItem key={r.id} value={r.id}>
-                                        {r.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              )}
-                            />
-                          </div>
-                        )}
-
-                        {changeType === 'MOVED' && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="flex flex-col gap-1.5">
-                              <Label htmlFor="nstart">{t('newStartTime')}</Label>
-                              <Input
-                                id="nstart"
-                                type="time"
-                                {...changeForm.register('newStartTime')}
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                              <Label htmlFor="nend">{t('newEndTime')}</Label>
-                              <Input id="nend" type="time" {...changeForm.register('newEndTime')} />
-                            </div>
-                          </div>
-                        )}
-
-                        {changeType === 'SUBSTITUTED' && (
-                          <div className="flex flex-col gap-1.5">
-                            <Label>{tPeople('teacher')}</Label>
-                            <UserPicker
-                              value={changeTeacher}
-                              roleFilter={Role.TEACHER}
-                              placeholder={tPeople('pickUser')}
-                              onSelect={(u) => {
-                                setChangeTeacher(u)
-                                changeForm.setValue('newTeacherId', u?.id ?? null)
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="note">{t('note')}</Label>
-                          <Input
-                            id="note"
-                            {...changeForm.register('note')}
-                            placeholder={t('notePlaceholder')}
-                          />
-                        </div>
-
-                        <Button type="submit" loading={createChange.isPending}>
-                          {t('createChange')}
-                        </Button>
-                      </form>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-3 py-8 text-center">
-                  <p className="text-sm text-muted-foreground">{t('addPairHint')}</p>
-                  <Button type="button" onClick={() => openAddPair(1, '08:00')}>
-                    <Plus className="size-4" aria-hidden />
-                    {t('addPair')}
-                  </Button>
-                </div>
-              )}
-            </aside>
-
-            {/* Модалка добавления пары — день/время предзаполняются кликом по календарю. */}
-            <Dialog open={addOpen} onOpenChange={setAddOpen}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>{t('addPair')}</DialogTitle>
-                  <DialogDescription>{t('addPairModalHint')}</DialogDescription>
-                </DialogHeader>
-                <FormAlert error={apiError} />
-                <form
-                  onSubmit={pairForm.handleSubmit((v) =>
-                    createPair.mutate(isTeacher && me.data ? { ...v, teacherId: me.data.id } : v),
-                  )}
-                  className="flex flex-col gap-3"
-                >
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="subject">{t('subject')}</Label>
-                    <Input id="subject" {...pairForm.register('subject')} autoFocus />
-                    {pairForm.formState.errors.subject && (
-                      <p className="text-xs text-destructive">{t('required')}</p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t('day')}</Label>
-                      <Controller
-                        control={pairForm.control}
-                        name="dayOfWeek"
-                        render={({ field }) => (
-                          <Select
-                            value={String(field.value)}
-                            onValueChange={(v) => field.onChange(Number(v))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DAYS.map((d) => (
-                                <SelectItem key={d} value={String(d)}>
-                                  {t(`day${d}`)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{t('weekType')}</Label>
-                      <Controller
-                        control={pairForm.control}
-                        name="weekType"
-                        render={({ field }) => (
-                          <Select value={field.value ?? 'BOTH'} onValueChange={field.onChange}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {WEEK_TYPES.map((w) => (
-                                <SelectItem key={w} value={w}>
-                                  {t(`parity${w}`)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="start">{t('startTime')}</Label>
-                      <Input id="start" type="time" {...pairForm.register('startTime')} />
-                      {pairForm.formState.errors.startTime && (
-                        <p className="text-xs text-destructive">{t('timeInvalid')}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="end">{t('endTime')}</Label>
-                      <Input id="end" type="time" {...pairForm.register('endTime')} />
-                      {pairForm.formState.errors.endTime && (
-                        <p className="text-xs text-destructive">
-                          {pairForm.formState.errors.endTime.message ?? t('timeInvalid')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label>{t('room')}</Label>
-                    <Controller
-                      control={pairForm.control}
-                      name="roomId"
-                      render={({ field }) => (
-                        <Select
-                          value={field.value ?? ''}
-                          onValueChange={(v) => field.onChange(v || null)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder={t('roomOptional')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roomItems.map((r) => (
-                              <SelectItem key={r.id} value={r.id}>
-                                {r.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-
-                  {!isTeacher && (
-                    <div className="flex flex-col gap-1.5">
-                      <Label>{tPeople('teacherOptional')}</Label>
-                      <UserPicker
-                        value={pairTeacher}
-                        roleFilter={Role.TEACHER}
-                        placeholder={tPeople('pickUser')}
-                        onSelect={(u) => {
-                          setPairTeacher(u)
-                          pairForm.setValue('teacherId', u?.id ?? null)
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  <Button type="submit" loading={createPair.isPending} className="mt-1">
-                    <Plus className="size-4" aria-hidden />
-                    {t('addPair')}
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+            {/* Прокрутка внутри карточки: страница целиком не едет, шапка дней липкая.
+                `sh-scroll` держит полосу прокрутки видимой и резервирует под неё место,
+                иначе сетка сдвигалась бы на её ширину в момент появления. */}
+            <Card className="sh-scroll min-h-0 flex-1 gap-0 overflow-auto py-0">
+              <ScheduleEditor
+                pairs={pairs}
+                days={days}
+                selectedPairId={selectedPair?.id ?? null}
+                todayDow={todayDow}
+                canEditPair={canEditPair}
+                onSlotClick={onSlotClick}
+                onPairClick={onPairClick}
+                onPairMove={onPairMove}
+              />
+            </Card>
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {selectedPair && (
+        <PairDetailsModal
+          pair={selectedPair}
+          rooms={roomItems}
+          canEdit={canEditPair(selectedPair)}
+          isTeacher={isTeacher}
+          containerId={containerId}
+          onClose={() => setSelectedPair(null)}
+        />
+      )}
+
+      {addDraft && containerId && (
+        <AddPairModal
+          scheduleId={containerId}
+          rooms={roomItems}
+          isTeacher={isTeacher}
+          meId={me.data?.id}
+          initial={addDraft}
+          onClose={() => setAddDraft(null)}
+        />
+      )}
+
+      {versionOpen && groupId && (
+        <CreateVersionModal
+          groupId={groupId}
+          onCreated={setContainerId}
+          onClose={() => setVersionOpen(false)}
+        />
+      )}
     </div>
   )
 }

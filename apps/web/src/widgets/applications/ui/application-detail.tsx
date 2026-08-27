@@ -3,16 +3,18 @@
 import { useLocale, useTranslations } from 'next-intl'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Download } from 'lucide-react'
 import {
   ApplicationStatusBadge,
   applicationKeys,
   fetchApplication,
   cancelApplicationRequest,
   resubmitApplicationRequest,
+  fetchApplicationResultUrl,
   pickLocale,
   type TimelineEvent,
   type ApplicationDocumentItem,
+  type ApplicationResultItem,
 } from '../../../entities/application-service'
 import {
   STUDENT_CANCELLABLE_STATUSES,
@@ -143,6 +145,17 @@ export function ApplicationDetail({
             </Card>
           )}
 
+          {/* Результат: то, ради чего подавалась заявка. Без этого блока выданный
+              документ был виден только сотруднику, а студенту скачивать было нечего. */}
+          {app.results.length > 0 && (
+            <Card className="flex flex-col gap-3 p-4">
+              <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
+              {app.results.map((r) => (
+                <ResultRow key={r.id} appId={app.id} result={r} />
+              ))}
+            </Card>
+          )}
+
           {(app.status === 'READY_FOR_PICKUP' || app.status === 'ISSUED') &&
             (app.pickupLocation || app.pickupInstructions) && (
               <Card className="flex flex-col gap-1.5 p-4">
@@ -223,6 +236,40 @@ export function ApplicationDetail({
 }
 
 // Человеческий timeline (§19): понятные события, не «NEW → PROCESSING».
+// Выданный документ: ссылку берём у заявки — она гейтится scope заявки. Скачиваем
+// вложением (`download`), а не открываем вкладкой: студенту нужен файл, а не просмотр.
+function ResultRow({ appId, result }: { appId: string; result: ApplicationResultItem }) {
+  const t = useTranslations('Applications')
+  const downloadMut = useMutation({
+    mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
+    onSuccess: (url) => window.open(url, '_blank', 'noopener'),
+    onError: () => toast.error(t('loadError')),
+  })
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {result.documentNumber && (
+          <span className="font-medium">
+            {t('resultDocNumber')}: {result.documentNumber}
+          </span>
+        )}
+        {result.note && <p className="text-muted-foreground">{result.note}</p>}
+      </div>
+      {result.documentId && (
+        <Button
+          variant="outline"
+          size="sm"
+          loading={downloadMut.isPending}
+          onClick={() => downloadMut.mutate()}
+        >
+          <Download className="size-4" aria-hidden />
+          {t('downloadResult')}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function Timeline({ events }: { events: TimelineEvent[] }) {
   const t = useTranslations('Applications')
   const locale = useLocale()

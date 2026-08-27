@@ -3,17 +3,20 @@ import type {
   CreateCourseInput,
   CreateSubjectInput,
   CreateTermInput,
+  SubjectListQueryInput,
+  TermListQueryInput,
   UpdateCourseInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, getPaged, type Paged } from '../../../shared/api'
 import type { CourseItem, SubjectItem, TermItem } from '../model/types'
 
 export const courseKeys = {
   all: ['courses'] as const,
   list: (filters: Partial<CourseListQueryInput> = {}) => ['courses', 'list', filters] as const,
   detail: (id: string) => ['courses', 'detail', id] as const,
-  subjects: (universityId?: string) => ['courses', 'subjects', universityId ?? 'all'] as const,
-  terms: (universityId?: string) => ['courses', 'terms', universityId ?? 'all'] as const,
+  subjects: (params: Partial<SubjectListQueryInput> = {}) =>
+    ['courses', 'subjects', params] as const,
+  terms: (params: Partial<TermListQueryInput> = {}) => ['courses', 'terms', params] as const,
 }
 
 export async function fetchCourses(
@@ -25,9 +28,32 @@ export async function fetchCourses(
   return data
 }
 
+/**
+ * То же, но со счётчиком: нужен таблице администратора, где есть постраничная навигация.
+ * Отдельной функцией, а не заменой `fetchCourses` — тот отдаёт массив шести другим
+ * экранам (селекты в модалках, журнал, учебный план), и менять им форму ответа незачем.
+ */
+export async function fetchCoursesPaged(
+  filters: Partial<CourseListQueryInput> = {},
+): Promise<Paged<CourseItem>> {
+  return getPaged<CourseItem>('/courses', { page: 1, limit: 20, ...filters })
+}
+
 export async function fetchCourse(id: string): Promise<CourseItem> {
   const { data } = await api.get<CourseItem>(`/courses/${id}`)
   return data
+}
+
+export async function fetchSubjectsPaged(
+  filters: Partial<SubjectListQueryInput> = {},
+): Promise<Paged<SubjectItem>> {
+  return getPaged<SubjectItem>('/subjects', { page: 1, limit: 20, ...filters })
+}
+
+export async function fetchTermsPaged(
+  filters: Partial<TermListQueryInput> = {},
+): Promise<Paged<TermItem>> {
+  return getPaged<TermItem>('/terms', { page: 1, limit: 20, ...filters })
 }
 
 export async function fetchSubjects(universityId?: string): Promise<SubjectItem[]> {

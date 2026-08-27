@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { SortOrderSchema, OffsetPaginationSchema } from './pagination.js'
 
 // Аудитории и помещения (docs/PROJECT.md §3.1, §3.9, §6). Принадлежат вузу; учебные
 // используются в расписании (Ф6), у всех может быть печатный QR (Ф16).
@@ -96,7 +96,16 @@ export const UpdateRoomSchema = z
 export type UpdateRoomInput = z.infer<typeof UpdateRoomSchema>
 
 // Список помещений: пагинация + опциональные фильтры (вуз — для платформы, kind — для админки).
+// Колонки таблицы помещений, по которым разрешена сортировка. `qr` — по наличию
+// выданного кода: первыми показываются те, кому наклейку ещё не печатали.
+export const ROOM_SORT_FIELDS = ['name', 'kind', 'building', 'floor', 'capacity', 'qr'] as const
+export const RoomSortSchema = z.enum(ROOM_SORT_FIELDS)
+export type RoomSortValue = z.infer<typeof RoomSortSchema>
+
+// sort/order — по всей выборке, а не по открытой странице.
 export const RoomListQuerySchema = OffsetPaginationSchema.extend({
+  sort: RoomSortSchema.optional(),
+  order: SortOrderSchema.optional(),
   universityId: z.string().min(1).optional(),
   kind: RoomKindSchema.optional(),
 })

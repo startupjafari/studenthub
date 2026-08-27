@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -203,6 +203,23 @@ export class ApplicationsController {
     @Body() dto: AddResultDto,
   ) {
     return this.process.addResult(user, id, dto)
+  }
+
+  @Get(':id/results/:resultId/url')
+  @ApiOperation({ summary: 'Presigned-ссылка на выданный документ (студент/обработчик)' })
+  @ApiQuery({
+    name: 'download',
+    required: false,
+    description:
+      'При `1` ссылка отдаёт файл вложением (Content-Disposition), а не открывает его в браузере',
+  })
+  resultUrl(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('resultId') resultId: string,
+    @Query('download') download?: string,
+  ) {
+    return this.documents.resultUrl(user, id, resultId, download === '1')
   }
 
   @Post(':id/mark-ready')

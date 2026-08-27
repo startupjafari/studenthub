@@ -251,6 +251,50 @@ describe('ChatsService.getMessages — cursor + членство', () => {
     expect(err.code).toBe('NOT_FOUND')
   })
 
+  // Регрессия: очищенная «у себя» история всплывала при переходе по дате. Спред
+  // `{ ...baseWhere, createdAt: {...} }` перетирал границу clearedAt (ключ тот же), якорем
+  // становилось скрытое сообщение, а целевое дочитывалось по id в обход всех фильтров.
+  it('aroundDate: граница clearedAt не теряется при поиске якоря', async () => {
+    const { service, prisma } = setup()
+    const clearedAt = new Date('2026-08-20T00:00:00.000Z')
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', clearedAt })
+    prisma.message.findFirst.mockResolvedValue({ id: 'mT', createdAt: new Date() })
+
+    await service.getMessages(user('u1'), 'c1', {
+      limit: 20,
+      aroundDate: '2026-08-12T00:00:00.000Z',
+    })
+
+    const where = prisma.message.findFirst.mock.calls[0][0].where
+    // Оба условия обязаны дожить до запроса: и граница очистки, и искомая дата.
+    expect(where.AND).toEqual([
+      expect.objectContaining({ createdAt: { gt: clearedAt } }),
+      { createdAt: { gte: new Date('2026-08-12T00:00:00.000Z') } },
+    ])
+  })
+
+  it('aroundDate: целевое сообщение читается под теми же фильтрами, а не по одному id', async () => {
+    const { service, prisma } = setup()
+    const clearedAt = new Date('2026-08-20T00:00:00.000Z')
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', clearedAt })
+    prisma.message.findFirst.mockResolvedValue({ id: 'mT', createdAt: new Date() })
+
+    await service.getMessages(user('u1'), 'c1', {
+      limit: 20,
+      aroundDate: '2026-08-12T00:00:00.000Z',
+    })
+
+    // Второй findFirst — целевое сообщение окна.
+    const where = prisma.message.findFirst.mock.calls[1][0].where
+    expect(where).toMatchObject({
+      id: 'mT',
+      deletedAt: null,
+      createdAt: { gt: clearedAt },
+    })
+    // Выборка по одному id мимо фильтров вернула бы очищенное сообщение.
+    expect(prisma.message.findUnique).not.toHaveBeenCalled()
+  })
+
   it('direction=newer → отдаёт новые в desc, meta.hasPrev/prevCursor', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })

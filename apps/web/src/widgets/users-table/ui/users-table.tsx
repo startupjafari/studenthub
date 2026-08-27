@@ -156,14 +156,15 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
               value={search}
               onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
               placeholder={t('searchPlaceholder')}
-              className="h-9 w-40 text-sm sm:w-56"
+              size="md"
+              className="w-40 sm:w-56"
             />
             {showRoleFilter && (
               <Select
                 value={roleFilter}
                 onValueChange={(v) => refilter(() => setRoleFilter(v as Role | 'all'))}
               >
-                <SelectTrigger className="h-9 w-36 text-sm sm:w-44">
+                <SelectTrigger size="md" className="w-36 sm:w-44">
                   <SelectValue placeholder={t('allRoles')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -176,12 +177,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 </SelectContent>
               </Select>
             )}
-            <Button
-              type="button"
-              size="field"
-              onClick={() => void exportCsv()}
-              disabled={total === 0}
-            >
+            <Button type="button" size="md" onClick={() => void exportCsv()} disabled={total === 0}>
               <Download className="size-4" aria-hidden />
               {t('exportCsv')}
             </Button>

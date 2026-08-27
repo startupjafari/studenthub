@@ -25,3 +25,5 @@ export {
   type UploadedDocFile,
   type DocumentAccessGrant,
 } from './api/document-api'
+export { isViewableMedia, saveFileByUrl } from './lib/file-open'
+export { DocumentFileViewer, type ViewableFile } from './ui/document-file-viewer'

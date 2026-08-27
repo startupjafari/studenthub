@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { FilterX, FolderLock, Lock, Paperclip, Plus, Search, SearchX, Users } from 'lucide-react'
 import { DOCUMENT_CATEGORIES, DOCUMENT_STATUSES } from '@studenthub/shared-config'
-import { documentKeys, fetchDocuments, type DocumentDto } from '../../../entities/document'
+import type { DocumentSortValue } from '@studenthub/shared-schemas'
+import { documentKeys, fetchDocuments } from '../../../entities/document'
 import {
   Badge,
   Button,
@@ -26,7 +27,7 @@ import {
   TableHeader,
   TableRow,
   TableText,
-  useTableSort,
+  useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocumentActions } from './document-actions'
@@ -78,47 +79,21 @@ export function DocumentsList({
   const [status, setStatus] = useState<string>(initialStatus ?? 'all')
   const [uploading, setUploading] = useState(false)
 
-  // Порядок задаёт таблица (клик по заголовку) — весь список приходит одним ответом,
-  // поэтому сортируем на клиенте и отдельный селект «Сортировка» не нужен.
+  // Сортировка серверная: упорядочена вся выборка, а не открытая страница. Пресет
+  // раздела тоже уходит на сервер — иначе счётчик строк и содержимое расходились.
+  const { sort, toggle } = useSortState()
   const query = {
     view: preset === 'archived' ? ('archived' as const) : ('active' as const),
+    ...(preset === 'shared' || preset === 'issued' ? { preset } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(category !== 'all' ? { category: category as 'PERSONAL' } : {}),
     ...(status !== 'all' ? { status: status as 'DRAFT' } : {}),
+    ...(sort ? { sort: sort.key as DocumentSortValue, order: sort.dir } : {}),
   }
   const q = useQuery({ queryKey: documentKeys.list(query), queryFn: () => fetchDocuments(query) })
-  const docs = (q.data ?? []).filter((d) => {
-    if (preset === 'shared') return d.accessCount > 0
-    if (preset === 'issued') return d.issuedByUniversity || d.category === 'ISSUED_BY_UNIVERSITY'
-    return true
-  })
+  const docs = q.data ?? []
 
-  // Категория и статус сортируются по переводу, а не по коду: в таблице пользователь
-  // видит названия, и порядок должен совпадать с ними.
-  const cellValue = useCallback(
-    (doc: DocumentDto, key: string): unknown => {
-      switch (key) {
-        case 'title':
-          return doc.title
-        case 'category':
-          return t(`docCat_${doc.category}`)
-        case 'status':
-          return t(`docStatus_${doc.status}`)
-        case 'number':
-          return doc.numberMasked
-        case 'issuedAt':
-          return doc.issuedAt
-        case 'expiresAt':
-          return doc.expiresAt
-        case 'access':
-          return doc.accessCount
-        default:
-          return null
-      }
-    },
-    [t],
-  )
-  const { rows, sort, toggle } = useTableSort(docs, cellValue)
+  const rows = docs
 
   const filtered = search.trim() !== '' || category !== 'all' || status !== 'all'
   function resetFilters(): void {
@@ -138,7 +113,7 @@ export function DocumentsList({
 
   const uploadButton =
     preset === 'active' ? (
-      <Button type="button" size="field" onClick={() => setUploading(true)}>
+      <Button type="button" size="md" onClick={() => setUploading(true)}>
         <Plus className="size-4" aria-hidden /> {t('upload')}
       </Button>
     ) : null
@@ -176,7 +151,7 @@ export function DocumentsList({
           />
         </div>
         <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger aria-label={t('category')} className="h-9 w-40 text-sm">
+          <SelectTrigger aria-label={t('category')} size="md" className="w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -189,7 +164,7 @@ export function DocumentsList({
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger aria-label={t('status')} className="h-9 w-40 text-sm">
+          <SelectTrigger aria-label={t('status')} size="md" className="w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -204,7 +179,7 @@ export function DocumentsList({
         {/* Кнопка сброса появляется только когда есть что сбрасывать — иначе она просто
             занимает место в панели. */}
         {filtered && (
-          <Button type="button" variant="ghost" size="field" onClick={resetFilters}>
+          <Button type="button" variant="ghost" size="md" onClick={resetFilters}>
             <FilterX className="size-4" aria-hidden /> {t('filtersReset')}
           </Button>
         )}
@@ -266,9 +241,9 @@ export function DocumentsList({
                 <TableHead sortKey="status" sort={sort} onSort={toggle}>
                   {t('status')}
                 </TableHead>
-                <TableHead sortKey="number" sort={sort} onSort={toggle} className={HIDE.number}>
-                  {t('fieldNumber')}
-                </TableHead>
+                {/* Номер не сортируется: наружу уходит только маска ******4821,
+                    порядок по ней ничего не значит. */}
+                <TableHead className={HIDE.number}>{t('fieldNumber')}</TableHead>
                 <TableHead sortKey="issuedAt" sort={sort} onSort={toggle} className={HIDE.issuedAt}>
                   {t('fieldIssuedAt')}
                 </TableHead>

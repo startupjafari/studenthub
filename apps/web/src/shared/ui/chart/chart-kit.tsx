@@ -80,7 +80,10 @@ export function ChartTooltip({
             <span className="font-semibold tabular-nums text-foreground">
               {nf.format(numeric(item.value))}
             </span>
-            {item.name !== undefined && (
+            {/* Recharts подставляет в `name` имя поля данных, если серии его не задали —
+                тогда в подсказке появлялось техническое «value». Такую подпись не
+                показываем: у одиночной серии её роль уже играет заголовок подсказки. */}
+            {item.name !== undefined && item.name !== item.dataKey && (
               <span className="text-muted-foreground">{String(item.name)}</span>
             )}
           </li>
