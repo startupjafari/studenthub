@@ -587,7 +587,10 @@ function PostView({
             <MediaFrame
               postId={post.id}
               media={cur}
-              className="max-h-[60vh] bg-neutral-900"
+              // shrink-0 обязателен: это элемент прокручиваемой flex-колонки, и без
+              // него длинная ветка комментариев сжимала кадр до нулевой высоты —
+              // картинка исчезала, и доскроллить до неё было нельзя.
+              className="max-h-[60vh] shrink-0 bg-neutral-900"
               controls={!isImage}
               imageClassName={cn(
                 'max-h-[60vh] transition-transform duration-200',
@@ -673,7 +676,7 @@ function PostView({
             )}
           </div>
 
-          <ul className="flex flex-col gap-4 px-4 py-3">
+          <ul className="flex shrink-0 flex-col gap-4 px-4 py-3">
             {comments.isLoading ? (
               <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
             ) : roots.length === 0 ? (
