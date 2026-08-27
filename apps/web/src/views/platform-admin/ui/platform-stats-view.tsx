@@ -19,6 +19,7 @@ import {
   type University,
   type UniversityStats,
 } from '../../../entities/university'
+import { useKatoNames } from '../../../entities/kato'
 import {
   Card,
   CardContent,
@@ -45,6 +46,18 @@ const HIDE = {
   groups: 'hidden md:table-cell',
   rooms: 'hidden xl:table-cell',
 } as const
+// Порядок классов = порядок колонок: скелетон обязан прятать те же колонки, что и шапка,
+// иначе во время загрузки в строке ячеек больше, чем в шапке, и колонки разъезжаются.
+const SKELETON_COLS = [
+  undefined,
+  undefined,
+  HIDE.faculties,
+  HIDE.groups,
+  HIDE.rooms,
+  undefined,
+  undefined,
+  undefined,
+]
 
 const STATUS_STYLE: Record<string, string> = {
   PENDING: 'text-warning',
@@ -96,9 +109,15 @@ export function PlatformStatsView() {
     { faculties: 0, groups: 0, rooms: 0, students: 0, teachers: 0, active: 0 },
   )
 
+  // `city` хранит код КАТО, поэтому и поиск, и подпись под названием идут по
+  // резолвнутому имени: иначе фильтр «Алматы» не нашёл бы вуз с городом «750000000».
+  const { nameOf: cityName } = useKatoNames(rows.map((r) => r.city))
+
   const q = search.trim().toLowerCase()
   const filtered = q
-    ? rows.filter((r) => [r.name, r.shortName, r.city].some((v) => v?.toLowerCase().includes(q)))
+    ? rows.filter((r) =>
+        [r.name, r.shortName, cityName(r.city)].some((v) => v?.toLowerCase().includes(q)),
+      )
     : rows
 
   const cellValue = useCallback(
@@ -126,6 +145,9 @@ export function PlatformStatsView() {
     },
     [tUni],
   )
+  // Сортировка клиентская намеренно: строки собираются на клиенте из GET /universities
+  // и отдельного запроса статистики по каждому вузу. Серверного списка с этими числами
+  // не существует — сортировать по «студентам» было бы нечему.
   const { rows: sorted, sort, toggle } = useTableSort(filtered, cellValue)
 
   const tiles = [
@@ -159,18 +181,32 @@ export function PlatformStatsView() {
         }
       />
 
-      {/* Итоги по платформе: сумма того, что ниже разложено по вузам. */}
+      {/* Итоги по платформе: сумма того, что ниже разложено по вузам.
+          Плитка горизонтальная (иконка слева, число и подпись справа), а не стопкой:
+          при вертикальной раскладке карточка выходила ~135px и итоги вытесняли таблицу
+          с экрана. Отступы задаёт только Card — `p-4` на CardContent добавлял вторые
+          сверху и снизу поверх собственного `py` карточки. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((tile) => {
           const Icon = tile.icon
           return (
-            <Card key={tile.key}>
-              <CardContent className="flex flex-col gap-1.5 p-4">
-                <Icon className="size-5 text-primary" aria-hidden />
-                <span className="text-2xl font-bold tabular-nums">
-                  {unis.isLoading || statsLoading ? <Skeleton className="h-7 w-12" /> : tile.value}
+            <Card key={tile.key} size="sm">
+              <CardContent className="flex items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-current/10 text-primary">
+                  <Icon className="size-4" aria-hidden />
                 </span>
-                <span className="text-xs text-muted-foreground">{tile.label}</span>
+                <span className="min-w-0">
+                  {/* Числа — главное на плитке, поэтому крупнее подписи и с tabular-nums:
+                      колонка цифр не «дышит» при обновлении данных. */}
+                  <span className="block text-xl leading-tight font-semibold tabular-nums">
+                    {unis.isLoading || statsLoading ? (
+                      <Skeleton className="h-5 w-10" />
+                    ) : (
+                      tile.value
+                    )}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">{tile.label}</span>
+                </span>
               </CardContent>
             </Card>
           )
@@ -196,49 +232,52 @@ export function PlatformStatsView() {
                   {t('status')}
                 </TableHead>
                 <TableHead
+                  numeric
                   sortKey="faculties"
                   sort={sort}
                   onSort={toggle}
-                  className={cn(HIDE.faculties, 'text-right')}
+                  className={HIDE.faculties}
                 >
                   {t('faculties')}
                 </TableHead>
                 <TableHead
+                  numeric
                   sortKey="groups"
                   sort={sort}
                   onSort={toggle}
-                  className={cn(HIDE.groups, 'text-right')}
+                  className={HIDE.groups}
                 >
                   {t('groups')}
                 </TableHead>
                 <TableHead
+                  numeric
                   sortKey="rooms"
                   sort={sort}
                   onSort={toggle}
-                  className={cn(HIDE.rooms, 'text-right')}
+                  className={HIDE.rooms}
                 >
                   {t('rooms')}
                 </TableHead>
-                <TableHead sortKey="students" sort={sort} onSort={toggle} className="text-right">
+                <TableHead numeric sortKey="students" sort={sort} onSort={toggle}>
                   {t('students')}
                 </TableHead>
-                <TableHead sortKey="teachers" sort={sort} onSort={toggle} className="text-right">
+                <TableHead numeric sortKey="teachers" sort={sort} onSort={toggle}>
                   {t('teachers')}
                 </TableHead>
-                <TableHead sortKey="people" sort={sort} onSort={toggle} className="text-right">
+                <TableHead numeric sortKey="people" sort={sort} onSort={toggle}>
                   {t('people')}
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {unis.isLoading && <TableSkeletonRows columns={8} />}
+              {unis.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {sorted.map((row) => (
                 <TableRow key={row.id} className="hover:bg-muted/40">
                   <TableCell className="font-medium">
                     <TableText value={row.name} />
                     {(row.city || row.shortName) && (
                       <span className="block truncate text-xs font-normal text-muted-foreground">
-                        {row.city ?? row.shortName}
+                        {cityName(row.city) ?? row.shortName}
                       </span>
                     )}
                   </TableCell>
