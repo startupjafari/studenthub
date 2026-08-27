@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback, Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
+import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
 
 // Заголовок чата для пикера пересылки: явный title → предмет → «личный чат».
@@ -372,20 +373,15 @@ function MediaCollage({
           className={cn(
             'relative block overflow-hidden',
             // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
-            // или скан, и обрезка съедала бы половину смысла. Подложки под ним нет —
-            // во «ВКонтакте» вертикальное фото просто лежит на карточке.
-            media.length === 1 ? 'flex justify-center' : 'aspect-square bg-muted',
+            // или скан, и обрезка съедала бы половину смысла.
+            media.length !== 1 && 'aspect-square bg-muted',
           )}
         >
-          <PostMediaView
-            postId={postId}
-            media={m}
-            fit={media.length === 1 ? 'contain' : 'cover'}
-            // Потолок высоты — на самой картинке, а не на контейнере: у контейнера
-            // высота автоматическая, и `max-h` на нём не масштабировал вертикальное
-            // фото, а обрезал его по нижнему краю.
-            className={media.length === 1 ? 'max-h-[32rem] w-auto max-w-full' : 'size-full'}
-          />
+          {media.length === 1 ? (
+            <MediaFrame postId={postId} media={m} imageClassName="max-h-[32rem]" />
+          ) : (
+            <PostMediaView postId={postId} media={m} fit="cover" className="size-full" />
+          )}
           {m.mime.startsWith('video/') && (
             <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md">
               <Play className="size-10 fill-current" aria-hidden />

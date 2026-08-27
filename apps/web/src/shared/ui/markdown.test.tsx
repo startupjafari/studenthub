@@ -53,3 +53,23 @@ describe('Markdown', () => {
     expect(container.querySelector('strong')).toBeNull()
   })
 })
+
+describe('Markdown — упоминания', () => {
+  it('выделяет @username', () => {
+    const { container } = render(<Markdown source={'привет @ivanov, смотри'} />)
+    const mention = Array.from(container.querySelectorAll('span')).find(
+      (el) => el.textContent === '@ivanov',
+    )
+    expect(mention).toBeDefined()
+    expect(mention?.className).toContain('text-primary')
+  })
+
+  it('почту за упоминание не принимает', () => {
+    // «a@b.c» — адрес, а не упоминание: перед @ стоит буква.
+    const { container } = render(<Markdown source={'пишите на mail@example.com'} />)
+    const mention = Array.from(container.querySelectorAll('span')).find((el) =>
+      el.className.includes('text-primary'),
+    )
+    expect(mention).toBeUndefined()
+  })
+})

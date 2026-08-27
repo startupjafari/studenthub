@@ -30,9 +30,18 @@ export class SearchService {
           ...(isPlatform(viewer.role) ? {} : { universityId: uni }),
           deletedAt: null,
           isBlocked: false,
-          OR: [{ firstName: contains }, { lastName: contains }],
+          // По username тоже: упоминание в комментарии пишут как @username, и без
+          // этого автодополнение не находило человека по тому, что уже набрано.
+          OR: [{ firstName: contains }, { lastName: contains }, { username: contains }],
         },
-        select: { id: true, firstName: true, lastName: true, avatarUrl: true, role: true },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          username: true,
+          avatarUrl: true,
+          role: true,
+        },
         take: LIMIT,
       }),
       this.prisma.course.findMany({

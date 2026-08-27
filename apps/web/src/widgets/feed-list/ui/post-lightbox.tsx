@@ -49,7 +49,8 @@ import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
-import { PostMediaView } from './post-media'
+import { MediaFrame } from './media-frame'
+import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
 const LIKE = '❤️'
 
@@ -239,6 +240,8 @@ function PostView({
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  // Что набрано после «@» перед курсором. null — упоминание сейчас не пишут.
+  const [mention, setMention] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
@@ -573,34 +576,27 @@ function PostView({
               Пост без вложения блок не рисует: раньше на его месте была заглушка-
               градиент, дословно повторявшая текст поста. */}
           {cur && (
-            <div className="relative flex max-h-[60vh] items-center justify-center overflow-hidden bg-neutral-900">
-              {isImage ? (
+            <MediaFrame
+              postId={post.id}
+              media={cur}
+              className="max-h-[60vh] bg-neutral-900"
+              controls={!isImage}
+              imageClassName={cn(
+                'max-h-[60vh] transition-transform duration-200',
+                zoomed && 'max-h-none scale-150',
+              )}
+            >
+              {/* Кадр кликабелен целиком: приближение — по картинке, а не по кнопке
+                  поверх неё, иначе клик по размытым полям ничего не делал. */}
+              {isImage && (
                 <button
                   type="button"
                   aria-label={zoomed ? t('zoomOut') : t('zoomIn')}
                   onClick={() => setZoomed((z) => !z)}
                   className={cn(
-                    'flex size-full items-center justify-center',
-                    zoomed ? 'cursor-zoom-out overflow-auto' : 'cursor-zoom-in',
+                    'absolute inset-0 z-[1]',
+                    zoomed ? 'cursor-zoom-out' : 'cursor-zoom-in',
                   )}
-                >
-                  <PostMediaView
-                    postId={post.id}
-                    media={cur}
-                    fit="contain"
-                    className={cn(
-                      'max-h-[60vh] w-auto max-w-full transition-transform duration-200',
-                      zoomed && 'max-h-none scale-150',
-                    )}
-                  />
-                </button>
-              ) : (
-                <PostMediaView
-                  postId={post.id}
-                  media={cur}
-                  fit="contain"
-                  controls
-                  className="max-h-[60vh] w-auto max-w-full"
                 />
               )}
               {media.length > 1 && (
@@ -648,7 +644,7 @@ function PostView({
                   </div>
                 </>
               )}
-            </div>
+            </MediaFrame>
           )}
 
           <ActionsBar />
@@ -691,27 +687,37 @@ function PostView({
                       onReply={() => startReply(c.id, c.author)}
                       onDelete={() => delCommentMut.mutate(c.id)}
                     />
-                    {/* Ответы — с отступом и вертикальной линией-веткой (визуально отделены) */}
+                    {/* Ветка ответов: сплошная линия слева и короткий «ус» к каждому
+                      ответу — видно, что реплики принадлежат одному разговору и кому
+                      именно отвечают. Одной полосы для этого мало: она показывает
+                      группу, но не связывает с ней конкретный ответ. */}
                     {replies.length > 0 && (
-                      <div className="ml-4 flex flex-col gap-3 border-l-2 border-border/70 pl-3.5">
+                      <div className="relative ml-4 flex flex-col gap-3 pl-6">
+                        <span aria-hidden className="absolute top-0 left-0 h-full w-px bg-border" />
                         {replies.map((r) => (
-                          <CommentRow
-                            key={r.id}
-                            id={r.id}
-                            author={r.author}
-                            content={r.content}
-                            createdAt={r.createdAt}
-                            locale={locale}
-                            // Ответ всегда адресован автору корня ветки: вложенность
-                            // на сервере одноуровневая, и без подписи «кому» лента
-                            // ответов читается как разговор со стеной.
-                            replyTo={c.author}
-                            small
-                            canDelete={r.author.id === myId}
-                            canReport={r.author.id !== myId}
-                            onReply={() => startReply(c.id, r.author)}
-                            onDelete={() => delCommentMut.mutate(r.id)}
-                          />
+                          <div key={r.id} className="relative">
+                            <span
+                              aria-hidden
+                              // «Ус» упирается в аватар ответа: 1rem — половина его высоты.
+                              className="absolute top-4 -left-6 h-px w-6 bg-border"
+                            />
+                            <CommentRow
+                              id={r.id}
+                              author={r.author}
+                              content={r.content}
+                              createdAt={r.createdAt}
+                              locale={locale}
+                              // Ответ всегда адресован автору корня ветки: вложенность
+                              // на сервере одноуровневая, и без подписи «кому» лента
+                              // ответов читается как разговор со стеной.
+                              replyTo={c.author}
+                              small
+                              canDelete={r.author.id === myId}
+                              canReport={r.author.id !== myId}
+                              onReply={() => startReply(c.id, r.author)}
+                              onDelete={() => delCommentMut.mutate(r.id)}
+                            />
+                          </div>
                         ))}
                       </div>
                     )}
@@ -762,6 +768,21 @@ function PostView({
             )}
           </div>
 
+          <MentionSuggest
+            query={mention}
+            onPick={(login) => {
+              const el = inputRef.current
+              const caret = el?.selectionStart ?? text.length
+              const next = applyMention(text, caret, login)
+              setText(next.text)
+              setMention(null)
+              requestAnimationFrame(() => {
+                el?.focus()
+                el?.setSelectionRange(next.caret, next.caret)
+              })
+            }}
+          />
+
           <textarea
             ref={inputRef}
             value={text}
@@ -769,9 +790,14 @@ function PostView({
             onChange={(e) => {
               const v = e.target.value
               setText(v)
+              setMention(mentionQuery(v, e.target.selectionStart ?? v.length))
               // Очистка поля отменяет режим ответа (кнопки «Отмена» нет).
               if (v.trim() === '') setReplyTo(null)
             }}
+            onKeyUp={(e) =>
+              setMention(mentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0))
+            }
+            onBlur={() => setMention(null)}
             onKeyDown={(e) => {
               // Enter — отправить; Shift+Enter — перенос строки.
               if (e.key === 'Enter' && !e.shiftKey) {

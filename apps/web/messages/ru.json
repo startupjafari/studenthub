@@ -1038,7 +1038,8 @@
     "sortOldest": "Сначала старые",
     "titleLabel": "Заголовок",
     "titlePlaceholder": "Например: График работы деканатов на праздники",
-    "contentLabel": "Текст"
+    "contentLabel": "Текст",
+    "mentionHint": "Упоминание"
   },
   "Chats": {
     "title": "Чаты",
