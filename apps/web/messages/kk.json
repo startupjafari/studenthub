@@ -1039,7 +1039,15 @@
     "titlePlaceholder": "Мысалы: Мерекедегі деканаттар жұмысының кестесі",
     "contentLabel": "Мәтін",
     "mentionHint": "Атап өту",
-    "replyingTo": "{name} үшін жауап"
+    "replyingTo": "{name} үшін жауап",
+    "copyLink": "Сілтемені көшіру",
+    "linkCopied": "Сілтеме көшірілді",
+    "copyFailed": "Көшіру мүмкін болмады",
+    "shareMore": "Тағы…",
+    "postUnavailableTitle": "Жарияланым қолжетімсіз",
+    "postUnavailableText": "Ол жойылған немесе басқа аудиторияға арналған",
+    "backToFeed": "Таспаға",
+    "postTitle": "Жарияланым"
   },
   "Chats": {
     "title": "Чаттар",

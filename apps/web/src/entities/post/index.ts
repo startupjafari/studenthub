@@ -1,6 +1,7 @@
 export {
   postKeys,
   fetchFeed,
+  fetchPost,
   fetchAuthorPosts,
   createPostRequest,
   repostRequest,

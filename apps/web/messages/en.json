@@ -1039,7 +1039,15 @@
     "titlePlaceholder": "For example: Dean’s office hours during the holidays",
     "contentLabel": "Text",
     "mentionHint": "Mention",
-    "replyingTo": "Replying to {name}"
+    "replyingTo": "Replying to {name}",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied",
+    "copyFailed": "Could not copy",
+    "shareMore": "More…",
+    "postUnavailableTitle": "Post unavailable",
+    "postUnavailableText": "It was deleted or is addressed to a different audience",
+    "backToFeed": "Back to feed",
+    "postTitle": "Post"
   },
   "Chats": {
     "title": "Chats",

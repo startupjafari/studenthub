@@ -15,7 +15,6 @@ import {
   MoreHorizontal,
   Pin,
   Repeat2,
-  Share2,
   Smile,
   Trash2,
   X,
@@ -36,13 +35,6 @@ import {
   type FeedPost,
   type PostReaction,
 } from '../../../entities/post'
-import {
-  chatKeys,
-  fetchChats,
-  sharePostRequest,
-  ForwardDialog,
-  type ChatListItem,
-} from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
@@ -50,6 +42,7 @@ import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
+import { SharePostMenu } from '../../../features/share-post'
 import { MediaFrame } from './media-frame'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
@@ -93,10 +86,6 @@ const MODERATOR_ROLES: Role[] = [
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
-}
-
-function chatLabel(c: ChatListItem, tChats: (k: string) => string): string {
-  return c.title || c.subject || tChats('typePrivate')
 }
 
 interface LightboxProps {
@@ -212,7 +201,6 @@ function PostView({
   focusComment?: boolean
 }) {
   const t = useTranslations('Feed')
-  const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
@@ -232,7 +220,6 @@ function PostView({
       .then(setViews)
       .catch(() => {})
   }, [post.id])
-  const [sharing, setSharing] = useState(false)
   const [reposting, setReposting] = useState(false)
   const [text, setText] = useState('')
   // Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
@@ -324,19 +311,9 @@ function PostView({
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
 
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
   const comments = useQuery({
     queryKey: postKeys.comments(post.id),
     queryFn: () => fetchComments(post.id),
-  })
-
-  const shareMut = useMutation({
-    mutationFn: (chatId: string) => sharePostRequest(chatId, post.id),
-    onSuccess: () => {
-      setSharing(false)
-      toast.success(t('sharedToChat'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
   const addMut = useMutation({
@@ -447,9 +424,11 @@ function PostView({
               <Repeat2 className="size-5" aria-hidden />
             </BarButton>
           )}
-          <BarButton label={t('share')} onClick={() => setSharing(true)}>
-            <Share2 className="size-5" aria-hidden />
-          </BarButton>
+          <SharePostMenu
+            postId={post.id}
+            label={t('share')}
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
+          />
           {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
           {/* Справа только просмотры: дата переехала в шапку, под имя автора —
               в записи «ВКонтакте» она стоит там, а не в строке действий. */}
@@ -861,16 +840,6 @@ function PostView({
       </div>
 
       {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
-
-      {sharing && (
-        <ForwardDialog
-          chats={chats.data ?? []}
-          currentChatId={null}
-          titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(chatId) => shareMut.mutate(chatId)}
-          onClose={() => setSharing(false)}
-        />
-      )}
     </>
   )
 }

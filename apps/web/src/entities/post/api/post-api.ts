@@ -41,6 +41,13 @@ export async function fetchAuthorPosts(
   return fetchFeed({ ...query, authorId })
 }
 
+// Один пост по постоянной ссылке. Сервер сам решает, видим ли он зрителю:
+// невидимый отвечает NOT_FOUND, а не «пустым» постом.
+export async function fetchPost(id: string): Promise<FeedPost> {
+  const { data } = await api.get<FeedPost>(`/posts/${id}`)
+  return data
+}
+
 export async function createPostRequest(input: CreatePostInput): Promise<FeedPost> {
   const { data } = await api.post<FeedPost>('/posts', input)
   return data
