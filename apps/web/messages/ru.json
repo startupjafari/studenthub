@@ -1047,7 +1047,11 @@
     "postUnavailableTitle": "Публикация недоступна",
     "postUnavailableText": "Её удалили или она адресована другой аудитории",
     "backToFeed": "К ленте",
-    "postTitle": "Публикация"
+    "postTitle": "Публикация",
+    "editPost": "Изменить публикацию",
+    "postUpdated": "Публикация изменена",
+    "save": "Сохранить",
+    "edited": "изменено"
   },
   "Chats": {
     "title": "Чаты",

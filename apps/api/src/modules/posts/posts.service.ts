@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
+  UpdatePostInput,
   CreateCommentInput,
   CreatePostInput,
   FeedFilterValue,
@@ -384,6 +385,42 @@ export class PostsService {
   }
 
   // ── Удаление (задача 8.5) — автор или модератор scope ──────────────────────
+
+  /**
+   * Правка своей публикации: только заголовок и текст.
+   *
+   * Модератору правка НЕ разрешена — в отличие от удаления: удалить нарушающий пост
+   * он вправе, а переписать чужой текст от чужого имени — нет.
+   */
+  async update(
+    actor: JwtPayload,
+    id: string,
+    input: UpdatePostInput,
+    ctx: RequestContext,
+  ): Promise<PostRow> {
+    const post = await this.prisma.post.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, authorId: true },
+    })
+    if (!post) {
+      throw new AppException('NOT_FOUND', 'Пост не найден')
+    }
+    if (post.authorId !== actor.sub) {
+      throw new AppException('FORBIDDEN', 'Редактировать можно только свою публикацию')
+    }
+    const data: Prisma.PostUpdateInput = {}
+    if (input.title !== undefined) data.title = input.title?.trim() || null
+    if (input.content !== undefined) data.content = input.content
+    await this.prisma.post.update({ where: { id }, data })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'post_updated',
+      entity: 'Post',
+      entityId: id,
+      ...ctx,
+    })
+    return this.getById(actor, id)
+  }
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const post = await this.prisma.post.findFirst({

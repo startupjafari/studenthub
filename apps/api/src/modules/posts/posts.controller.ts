@@ -24,6 +24,7 @@ import { RepostDto } from './dto/repost.dto'
 import { CreateCommentDto } from './dto/create-comment.dto'
 import { ReactionDto } from './dto/reaction.dto'
 import { PinPostDto } from './dto/pin-post.dto'
+import { UpdatePostDto } from './dto/update-post.dto'
 import { FeedQueryDto } from './dto/feed-query.dto'
 
 // Роли, которым разрешено публиковать (docs/PROJECT.md §2.2 — модераторы посты не создают).
@@ -88,6 +89,18 @@ export class PostsController {
   ) {
     const url = await this.posts.getMediaUrl(user, id, fileId)
     return { url }
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Изменить свою публикацию (заголовок и текст)' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / не автор' })
+  update(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: UpdatePostDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.posts.update(user, id, dto, this.ctx(req))
   }
 
   @Delete(':id')

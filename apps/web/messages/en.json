@@ -1047,7 +1047,11 @@
     "postUnavailableTitle": "Post unavailable",
     "postUnavailableText": "It was deleted or is addressed to a different audience",
     "backToFeed": "Back to feed",
-    "postTitle": "Post"
+    "postTitle": "Post",
+    "editPost": "Edit post",
+    "postUpdated": "Post updated",
+    "save": "Save",
+    "edited": "edited"
   },
   "Chats": {
     "title": "Chats",
