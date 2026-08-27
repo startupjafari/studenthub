@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight, Loader2, Play, Upload, X } from 'lucide-reac
 import { CreatePostSchema, type CreatePostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import { uploadFileRequest } from '../../../shared/api'
 import {
   AUDIENCES_BY_ROLE,
@@ -171,7 +172,44 @@ export function CreatePostForm({
       className="flex flex-col gap-6 py-2 sm:px-2"
     >
       <FormAlert error={apiError} />
-      {/* 1. Одна область загрузки (фото и видео) */}
+      {/* 1. Заголовок и текст. Первыми: за этим в форму и приходят, а раньше до поля
+          ввода нужно было проскроллить дропзону и три настройки. */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="post-title" className="text-xs">
+          {t('titleLabel')}
+        </Label>
+        <Input
+          id="post-title"
+          {...form.register('title', OPTIONAL_TEXT)}
+          placeholder={t('titlePlaceholder')}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="post-content" className="text-xs">
+          {t('contentLabel')}
+        </Label>
+        {/* Разметка остаётся видимой в поле: человек видит, что именно уедет на
+            сервер, а не догадывается по кнопкам панели. */}
+        <Controller
+          control={form.control}
+          name="content"
+          render={({ field }) => (
+            <MarkdownEditor
+              id="post-content"
+              value={field.value ?? ''}
+              onChange={field.onChange}
+              placeholder={t('placeholder')}
+              hint={tEditor('markdownHint')}
+            />
+          )}
+        />
+        {form.formState.errors.content && (
+          <p className="text-xs text-destructive">{t('contentRequired')}</p>
+        )}
+      </div>
+
+      {/* 2. Вложения: фото и видео */}
       <input
         ref={fileRef}
         type="file"
@@ -192,23 +230,26 @@ export function CreatePostForm({
             e.preventDefault()
             void handleFiles(e.dataTransfer.files)
           }}
-          className="flex min-h-28 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/40"
+          // Пока вложений нет — компактная полоса, а не блок в треть экрана: на
+          // телефоне высокая дропзона отодвигала кнопки публикации за нижний край,
+          // а перетаскивать файлы там всё равно нечем.
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2.5 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/40"
         >
           {uploading ? (
-            <Loader2 className="size-6 animate-spin" aria-hidden />
+            <Loader2 className="size-5 animate-spin" aria-hidden />
           ) : (
             <>
-              <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Upload className="size-6" aria-hidden />
-              </span>
+              <Upload className="size-4 shrink-0 text-primary" aria-hidden />
               <span className="text-sm font-medium">{t('dropHint')}</span>
-              <span className="text-xs text-muted-foreground/80">{t('mediaLimit')}</span>
+              <span className="hidden text-xs text-muted-foreground/80 sm:inline">
+                · {t('mediaLimit')}
+              </span>
             </>
           )}
         </button>
       )}
 
-      {/* 2. Превью загруженного — горизонтальный слайдер в одну строку */}
+      {/* Превью загруженного — горизонтальный слайдер в одну строку */}
       {media.length > 0 && (
         <div className="group/strip relative">
           <div
@@ -264,141 +305,116 @@ export function CreatePostForm({
         </div>
       )}
 
-      {/* 3. Аудитория (Select) + связанные пикеры */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-1 flex-col gap-1.5">
-          <Label className="text-xs">{t('audience')}</Label>
-          <Controller
-            control={form.control}
-            name="audience"
-            render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {audiences.map((a) => (
-                    <SelectItem key={a} value={a}>
-                      {t(`audience${a}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
+      {/* 3. Кому и когда. На широком экране — в две колонки: поля короткие, и
+          растягивать их на всю ширину незачем. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div
+          className={cn(
+            'flex flex-wrap items-end gap-3',
+            // Когда рядом с аудиторией появляется выбор группы, факультета, предмета
+            // или адресата, половины ширины на всё это мало — занимаем обе колонки.
+            (showGroupPicker || showFacultyPicker || showSubject || showPersonal) &&
+              'sm:col-span-2',
+          )}
+        >
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Label className="text-xs">{t('audience')}</Label>
+            <Controller
+              control={form.control}
+              name="audience"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {audiences.map((a) => (
+                      <SelectItem key={a} value={a}>
+                        {t(`audience${a}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          {showGroupPicker && (
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label className="text-xs">{t('group')}</Label>
+              <Controller
+                control={form.control}
+                name="groupId"
+                render={({ field }) => (
+                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={t('selectGroup')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(groups.data ?? []).map((g) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          )}
+
+          {showFacultyPicker && (
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label className="text-xs">{t('faculty')}</Label>
+              <Controller
+                control={form.control}
+                name="facultyId"
+                render={({ field }) => (
+                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={t('selectFaculty')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(faculties.data ?? []).map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          )}
+
+          {showSubject && (
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label className="text-xs">{t('subject')}</Label>
+              <Input {...form.register('subject')} />
+            </div>
+          )}
+
+          {showPersonal && (
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label className="text-xs">{tPeople('pickUser')}</Label>
+              <UserPicker value={target} onSelect={setTarget} />
+            </div>
+          )}
         </div>
 
-        {showGroupPicker && (
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Label className="text-xs">{t('group')}</Label>
-            <Controller
-              control={form.control}
-              name="groupId"
-              render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t('selectGroup')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(groups.data ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-        )}
-
-        {showFacultyPicker && (
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Label className="text-xs">{t('faculty')}</Label>
-            <Controller
-              control={form.control}
-              name="facultyId"
-              render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t('selectFaculty')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(faculties.data ?? []).map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-        )}
-
-        {showSubject && (
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Label className="text-xs">{t('subject')}</Label>
-            <Input {...form.register('subject')} />
-          </div>
-        )}
-
-        {showPersonal && (
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Label className="text-xs">{tPeople('pickUser')}</Label>
-            <UserPicker value={target} onSelect={setTarget} />
-          </div>
-        )}
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs">{t('scheduleLabel')}</Label>
+          <DateTimePicker
+            value={scheduleAt}
+            onChange={setScheduleAt}
+            aria-label={t('scheduleLabel')}
+          />
+        </div>
       </div>
 
-      {/* 4. Дата отложенной публикации (компонент Date) */}
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">{t('scheduleLabel')}</Label>
-        <DateTimePicker
-          value={scheduleAt}
-          onChange={setScheduleAt}
-          aria-label={t('scheduleLabel')}
-        />
-      </div>
-
-      {/* 5. Заголовок и текст — на всю ширину */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="post-title" className="text-xs">
-          {t('titleLabel')}
-        </Label>
-        <Input
-          id="post-title"
-          {...form.register('title', OPTIONAL_TEXT)}
-          placeholder={t('titlePlaceholder')}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="post-content" className="text-xs">
-          {t('contentLabel')}
-        </Label>
-        {/* Разметка остаётся видимой в поле: человек видит, что именно уедет на
-            сервер, а не догадывается по кнопкам панели. */}
-        <Controller
-          control={form.control}
-          name="content"
-          render={({ field }) => (
-            <MarkdownEditor
-              id="post-content"
-              value={field.value ?? ''}
-              onChange={field.onChange}
-              placeholder={t('placeholder')}
-              hint={tEditor('markdownHint')}
-            />
-          )}
-        />
-        {form.formState.errors.content && (
-          <p className="text-xs text-destructive">{t('contentRequired')}</p>
-        )}
-      </div>
-
-      {/* 6. Кнопки */}
-      <div className="flex justify-end gap-2">
+      {/* 4. Действия — липкой полосой у нижнего края: в длинной форме кнопка
+          «Опубликовать» уезжала за экран, и до неё приходилось скроллить. */}
+      <div className="sticky bottom-0 -mx-1 flex justify-end gap-2 border-t border-border bg-card px-1 py-3">
         <Button
           type="button"
           variant="outline"
