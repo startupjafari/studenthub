@@ -39,7 +39,7 @@ export function PostPageView({ postId }: { postId: string }) {
     <div className="flex w-full flex-col gap-6">
       <PageHeader title={t('postTitle')} />
 
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-xl">
         {post.isPending ? (
           <Skeleton className="h-96 w-full rounded-2xl" />
         ) : post.isError || !post.data ? (

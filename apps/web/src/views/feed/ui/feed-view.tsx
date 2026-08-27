@@ -60,7 +60,9 @@ export function FeedView() {
         }
       />
 
-      <div className="mx-auto w-full max-w-2xl">
+      {/* Колонка ленты — 36rem: на 42rem строка получалась длиннее удобной для чтения,
+          а квадратные плитки коллажа раздувались вместе с ней. */}
+      <div className="mx-auto w-full max-w-xl">
         <FeedList filter={filter} />
       </div>
 
