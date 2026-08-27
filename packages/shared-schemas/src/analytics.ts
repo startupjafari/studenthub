@@ -33,3 +33,13 @@ export const PlatformTopActionsQuerySchema = PlatformRangeQuerySchema.extend({
   limit: z.coerce.number().int().min(1).max(20).optional(),
 }).strict()
 export type PlatformTopActionsQueryInput = z.infer<typeof PlatformTopActionsQuerySchema>
+
+// ── Аналитика вуза (роль UNIVERSITY_ADMIN) ───────────────────────────────────
+// Scope — вуз из токена, параметром не принимается. Ряды по неделям: 12 ≈ семестр,
+// дальше линия становится нечитаемой.
+export const UniversityWeeksQuerySchema = z
+  .object({
+    weeks: z.coerce.number().int().min(1).max(52).optional(),
+  })
+  .strict()
+export type UniversityWeeksQueryInput = z.infer<typeof UniversityWeeksQuerySchema>
