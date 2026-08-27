@@ -8,6 +8,7 @@ const prisma = new PrismaClient()
 // Dev-инвайт: фиксированный токен, срок 30 дней (dev-only, резолюция §19.2). В проде отзывается после первого использования.
 const DEV_INVITE_TOKEN = 'seed-invite-university-admin-token'
 const SEED_UNIVERSITY_ID = 'seed-university-001'
+const ALMATY_KATO_CODE = '750000000'
 
 // ── Утилиты для большого реалистичного seed'а ────────────────────────────────
 // Детерминированный PRNG (mulberry32) — данные воспроизводимы между прогонами,
@@ -27,6 +28,10 @@ const pick = (arr) => arr[Math.floor(rng() * arr.length)]
 const randInt = (min, max) => min + Math.floor(rng() * (max - min + 1))
 const chance = (p) => rng() < p
 const daysFromNow = (n) => new Date(Date.now() + n * 86_400_000)
+
+// Глубина истории посещаемости: столько же, сколько окно тренда на дашборде вуза
+// (12 недель ≈ семестр). Меньше — и график динамики нечем наполнить.
+const ATT_WEEKS = 12
 
 // Пулы имён (казахские/русские). Женские фамилии образуем добавлением «а» к мужским (‑ов/‑ев).
 const MALE_NAMES = ['Нурлан','Алихан','Дамир','Ерасыл','Санжар','Арман','Тимур','Азамат','Ислам','Бекзат','Данияр','Ержан','Мирас','Диас','Аскар','Ринат','Куаныш','Олжас','Темирлан','Нурсултан','Абылай','Даулет','Мадияр','Асылбек'] // prettier-ignore
@@ -65,16 +70,18 @@ async function main() {
   })
 
   // Демо-структура (Фаза 5): вуз ACTIVE, факультет, группа, 3 аудитории.
+  // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed-kato.mjs).
+  // Поле есть и в update, чтобы прогон сида перевёл на код вузы, заведённые до справочника.
   const university = await prisma.university.upsert({
     where: { id: SEED_UNIVERSITY_ID },
-    update: { name: 'Университет «Алатау»', shortName: 'АУ' },
+    update: { name: 'Университет «Алатау»', shortName: 'АУ', city: ALMATY_KATO_CODE },
     create: {
       id: SEED_UNIVERSITY_ID,
       name: 'Университет «Алатау»',
       shortName: 'АУ',
       status: 'ACTIVE',
       country: 'Казахстан',
-      city: 'Алматы',
+      city: ALMATY_KATO_CODE,
     },
   })
 
@@ -747,18 +754,31 @@ async function main() {
   counts.assignments = await insertMany(prisma.assignment, asgRows)
   counts.submissions = await insertMany(prisma.submission, subRows)
 
-  // ── Посещаемость (первые 3 пары каждой группы × 3 недели) ────────────────────
+  // ── Посещаемость (первые 3 пары каждой группы × ATT_WEEKS недель) ────────────
+  // Даты — относительно сегодняшнего дня, как и всё остальное в сидере. Раньше здесь
+  // стоял жёсткий ноябрь 2025: данные уезжали в прошлое вместе с календарём, и любое
+  // окно «за последние N недель» на дашборде оказывалось пустым.
+  //
+  // Опорная точка — понедельник текущей недели, недели отсчитываем назад.
+  const attMonday = (() => {
+    const d = daysFromNow(0)
+    const iso = (d.getUTCDay() + 6) % 7
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - iso))
+  })()
   const attRows = []
   for (const g of groupList) {
     for (const p of g.pairs.slice(0, 3)) {
-      for (let w = 0; w < 3; w += 1) {
-        const d = new Date(2025, 10, 3 + (p.day - 1) + 7 * w)
+      for (let w = 0; w < ATT_WEEKS; w += 1) {
+        const d = new Date(attMonday)
+        d.setUTCDate(d.getUTCDate() + (p.day - 1) - 7 * (ATT_WEEKS - 1 - w))
         for (const sid of g.studentIds) {
           const roll = rng()
           const status =
             roll < 0.8 ? 'PRESENT' : roll < 0.9 ? 'LATE' : roll < 0.97 ? 'ABSENT' : 'EXCUSED'
           attRows.push({
-            id: `seed-att-${p.pid}-${w}-${sid}`,
+            // Идентификатор по дате, а не по номеру недели: номер «плывёт» вместе с
+            // окном, и повторный прогон подсунул бы старой строке новую дату.
+            id: `seed-att-${p.pid}-${d.toISOString().slice(0, 10)}-${sid}`,
             pairId: p.pid,
             studentId: sid,
             date: d,
@@ -769,6 +789,9 @@ async function main() {
       }
     }
   }
+  // Чистим ТОЛЬКО строки, созданные этим же сидером (префикс seed-att-): без этого
+  // прогоны разных дат накапливались бы слоями и завышали статистику.
+  await prisma.attendance.deleteMany({ where: { id: { startsWith: 'seed-att-' } } })
   counts.attendance = await insertMany(prisma.attendance, attRows)
 
   // ── Экзамены + результаты ───────────────────────────────────────────────────

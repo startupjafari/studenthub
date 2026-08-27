@@ -25,7 +25,9 @@
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
     "db:seed": "node prisma/seed.mjs",
-    "db:seed:analytics": "node prisma/seed-analytics.mjs"
+    "db:seed:analytics": "node prisma/seed-analytics.mjs",
+    "db:seed:kato": "node prisma/seed-kato.mjs",
+    "db:seed:apps": "node prisma/seed-applications.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
