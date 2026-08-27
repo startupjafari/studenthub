@@ -210,7 +210,6 @@ export function PostCard({
             платформы. */}
         <SharePostMenu
           postId={post.id}
-          label={t('share')}
           className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
         />
         {/* Справа — счётчик просмотров и возраст поста: во «ВКонтакте» дата стоит
@@ -223,7 +222,9 @@ export function PostCard({
             <Eye className="size-4" aria-hidden />
             {post.views}
           </span>
-          <time dateTime={post.createdAt} title={exactTime}>
+          {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось
+              на три строки и раздвигало всю панель. */}
+          <time dateTime={post.createdAt} title={exactTime} className="whitespace-nowrap">
             {ago}
           </time>
         </span>
@@ -275,7 +276,13 @@ function PostBody({ title, text }: { title: string | null; text: string }) {
   )
 }
 
-/** Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние. */
+/**
+ * Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние.
+ *
+ * Без текстовой подписи: четыре слова подряд не помещались в колонку ленты и
+ * выдавливали счётчик просмотров с датой на вторую строку. Название действия
+ * остаётся в `aria-label` и в подсказке при наведении.
+ */
 function ActionButton({
   label,
   count,
@@ -303,9 +310,6 @@ function ActionButton({
     >
       {children}
       {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
-      {/* Подпись прячем на телефоне: четыре слова в ряд не помещаются, там остаются
-          иконки со счётчиками. */}
-      <span className="hidden sm:inline">{label}</span>
     </button>
   )
 }

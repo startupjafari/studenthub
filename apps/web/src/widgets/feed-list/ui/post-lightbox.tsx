@@ -426,7 +426,6 @@ function PostView({
           )}
           <SharePostMenu
             postId={post.id}
-            label={t('share')}
             className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
           />
           {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
@@ -853,7 +852,7 @@ function PostView({
  * `replyTo` — кому адресован ответ. Во вложенной ветке без этого непонятно, кому
  * отвечают: у корня может быть десяток ответов подряд.
  */
-/** Кнопка панели действий: иконка, счётчик и подпись (подпись — от sm и шире). */
+/** Кнопка панели действий: иконка и счётчик. Название — в aria-label и подсказке. */
 function BarButton({
   label,
   count,
@@ -881,7 +880,6 @@ function BarButton({
     >
       {children}
       {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
-      <span className="hidden sm:inline">{label}</span>
     </button>
   )
 }
