@@ -983,7 +983,6 @@
     "contentTooLong": "Text is too long",
     "mediaCount": "{count, plural, one {# attachment} other {# attachments}}",
     "loadingComments": "Loading comments…",
-    "noComments": "No comments yet",
     "reply": "Reply",
     "replyPlaceholder": "Your reply…",
     "commentPlaceholder": "Comment…",
