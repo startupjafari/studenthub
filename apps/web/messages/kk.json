@@ -1038,7 +1038,8 @@
     "sortOldest": "Алдымен ескілері",
     "titleLabel": "Тақырып",
     "titlePlaceholder": "Мысалы: Мерекедегі деканаттар жұмысының кестесі",
-    "contentLabel": "Мәтін"
+    "contentLabel": "Мәтін",
+    "mentionHint": "Атап өту"
   },
   "Chats": {
     "title": "Чаттар",

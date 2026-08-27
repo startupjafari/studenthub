@@ -1038,7 +1038,8 @@
     "sortOldest": "Oldest first",
     "titleLabel": "Title",
     "titlePlaceholder": "For example: Dean’s office hours during the holidays",
-    "contentLabel": "Text"
+    "contentLabel": "Text",
+    "mentionHint": "Mention"
   },
   "Chats": {
     "title": "Chats",
