@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CreateSubjectSchema, type CreateSubjectInput } from '@studenthub/shared-schemas'
 import { Button, Input, Label, Modal } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { OPTIONAL_TEXT, toApiError } from '../../../shared/lib'
 import { courseKeys, createSubjectRequest } from '../../../entities/course'
 
 interface Props {
@@ -28,7 +28,7 @@ export function CreateSubjectModal({ universityId, onClose }: Props) {
   async function onSubmit(values: CreateSubjectInput) {
     try {
       await createSubjectRequest(values)
-      await qc.invalidateQueries({ queryKey: courseKeys.subjects() })
+      await qc.invalidateQueries({ queryKey: courseKeys.all })
       toast.success(t('subjectCreated'))
       onClose()
     } catch (e) {
@@ -48,7 +48,7 @@ export function CreateSubjectModal({ universityId, onClose }: Props) {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="subject-code">{t('subjectCode')}</Label>
-          <Input id="subject-code" placeholder="CS101" {...form.register('code')} />
+          <Input id="subject-code" placeholder="CS101" {...form.register('code', OPTIONAL_TEXT)} />
         </div>
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

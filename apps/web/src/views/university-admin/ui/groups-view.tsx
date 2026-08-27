@@ -1,13 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, Trash2, Users } from 'lucide-react'
-import { CreateGroupSchema, type CreateGroupInput } from '@studenthub/shared-schemas'
+import { ChevronDown, Plus, Trash2, Users } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
@@ -15,11 +12,7 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   EmptyState,
-  Input,
   Label,
   PageHeader,
   Select,
@@ -31,9 +24,9 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
+import { CreateGroupModal } from './create-group-modal'
 import {
   assignStarostaRequest,
-  createGroupRequest,
   deleteGroupRequest,
   fetchGroupMembers,
   fetchGroups,
@@ -53,11 +46,11 @@ function initials(f: string, l: string): string {
 
 // Строка группы: имя/факультет/курс + разворот участников с назначением старосты + удаление.
 function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }) {
+  const qc = useQueryClient()
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
   const confirm = useConfirm()
-  const qc = useQueryClient()
   const [open, setOpen] = useState(false)
 
   const members = useQuery({
@@ -203,7 +196,6 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
 export function GroupsAdminView() {
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
-  const qc = useQueryClient()
 
   const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
   const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
@@ -211,83 +203,29 @@ export function GroupsAdminView() {
   const facultyName = (id: string): string | undefined =>
     faculties.data?.find((f: Faculty) => f.id === id)?.name
 
-  const form = useForm<CreateGroupInput>({ resolver: zodResolver(CreateGroupSchema) })
-
-  const createMut = useMutation({
-    mutationFn: createGroupRequest,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: groupKeys.list() })
-      form.reset({ name: '', facultyId: '', year: undefined })
-      toast.success(t('groupCreated'))
-    },
-    onError: (e) => toast.error(tErr(errCode(e))),
-  })
+  const [createOpen, setCreateOpen] = useState(false)
 
   const noFaculties = faculties.data && faculties.data.length === 0
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('groupsTitle')} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('addGroup')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {noFaculties ? (
-            <p className="text-sm text-muted-foreground">{t('needFacultyFirst')}</p>
-          ) : (
-            <form
-              onSubmit={form.handleSubmit((v) => createMut.mutate(v))}
-              className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_120px_1fr_auto] sm:items-end"
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="gname">{t('groupName')}</Label>
-                <Input
-                  id="gname"
-                  placeholder={t('groupNamePlaceholder')}
-                  {...form.register('name')}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="gyear">{t('year')}</Label>
-                <Input
-                  id="gyear"
-                  type="number"
-                  placeholder="2024"
-                  {...form.register('year', {
-                    setValueAs: (v: string) => (v === '' ? undefined : Number(v)),
-                  })}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>{t('faculty')}</Label>
-                <Controller
-                  control={form.control}
-                  name="facultyId"
-                  render={({ field }) => (
-                    <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('selectFaculty')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {faculties.data?.map((f) => (
-                          <SelectItem key={f.id} value={f.id}>
-                            {f.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-              <Button type="submit" loading={createMut.isPending}>
-                {t('add')}
-              </Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+      <PageHeader
+        title={t('groupsTitle')}
+        actions={
+          // Без факультетов группу создать нельзя — у неё обязательный facultyId.
+          // Кнопка заблокирована, а причина написана в пустом состоянии ниже.
+          <Button
+            type="button"
+            size="md"
+            disabled={noFaculties}
+            title={noFaculties ? t('needFacultyFirst') : undefined}
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="size-4" aria-hidden />
+            {t('addGroup')}
+          </Button>
+        }
+      />
 
       {groups.isLoading ? (
         <div className="flex flex-col gap-2">
@@ -306,9 +244,19 @@ export function GroupsAdminView() {
         <EmptyState
           icon={<Users className="size-6" aria-hidden />}
           title={t('noGroups')}
-          description={t('noGroupsHint')}
+          description={noFaculties ? t('needFacultyFirst') : t('noGroupsHint')}
+          action={
+            noFaculties ? null : (
+              <Button type="button" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" aria-hidden />
+                {t('addGroup')}
+              </Button>
+            )
+          }
         />
       )}
+
+      {createOpen && <CreateGroupModal onClose={() => setCreateOpen(false)} />}
     </div>
   )
 }

@@ -1,33 +1,13 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { Building2, Trash2 } from 'lucide-react'
-import { CreateFacultySchema, type CreateFacultyInput } from '@studenthub/shared-schemas'
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  Input,
-  Label,
-  PageHeader,
-  Skeleton,
-  useConfirm,
-} from '../../../shared/ui'
-import {
-  createFacultyRequest,
-  deleteFacultyRequest,
-  facultyKeys,
-  fetchFaculties,
-} from '../../../entities/faculty'
-import { fetchMe, userKeys } from '../../../entities/user'
+import { Building2, Plus, Trash2 } from 'lucide-react'
+import { Button, Card, EmptyState, PageHeader, Skeleton, useConfirm } from '../../../shared/ui'
+import { deleteFacultyRequest, facultyKeys, fetchFaculties } from '../../../entities/faculty'
+import { CreateFacultyModal } from './create-faculty-modal'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -39,23 +19,9 @@ export function FacultiesAdminView() {
   const confirm = useConfirm()
   const qc = useQueryClient()
 
-  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const [createOpen, setCreateOpen] = useState(false)
+
   const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
-
-  const form = useForm<CreateFacultyInput>({ resolver: zodResolver(CreateFacultySchema) })
-  useEffect(() => {
-    if (me.data) form.setValue('universityId', me.data.universityId ?? '')
-  }, [me.data, form])
-
-  const createMut = useMutation({
-    mutationFn: createFacultyRequest,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: facultyKeys.list() })
-      form.reset({ name: '', universityId: me.data?.universityId ?? '' })
-      toast.success(t('facultyCreated'))
-    },
-    onError: (e) => toast.error(tErr(errCode(e))),
-  })
 
   const deleteMut = useMutation({
     mutationFn: deleteFacultyRequest,
@@ -71,34 +37,15 @@ export function FacultiesAdminView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('facultiesTitle')} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('addFaculty')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={form.handleSubmit((v) => createMut.mutate(v))}
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
-          >
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="fname">{t('facultyName')}</Label>
-              <Input
-                id="fname"
-                placeholder={t('facultyNamePlaceholder')}
-                {...form.register('name')}
-              />
-              {form.formState.errors.name && (
-                <p className="text-xs text-destructive">{t('nameRequired')}</p>
-              )}
-            </div>
-            <Button type="submit" loading={createMut.isPending}>
-              {t('add')}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <PageHeader
+        title={t('facultiesTitle')}
+        actions={
+          <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            {t('addFaculty')}
+          </Button>
+        }
+      />
 
       {faculties.isLoading ? (
         <div className="flex flex-col gap-2">
@@ -143,8 +90,16 @@ export function FacultiesAdminView() {
           icon={<Building2 className="size-6" aria-hidden />}
           title={t('noFaculties')}
           description={t('noFacultiesHint')}
+          action={
+            <Button type="button" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('addFaculty')}
+            </Button>
+          }
         />
       )}
+
+      {createOpen && <CreateFacultyModal onClose={() => setCreateOpen(false)} />}
     </div>
   )
 }

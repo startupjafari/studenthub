@@ -1,55 +1,69 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { DoorClosed, Printer, QrCode, RefreshCw, Trash2 } from 'lucide-react'
-import {
-  CreateRoomSchema,
-  ROOM_KINDS,
-  isAcademicRoomKind,
-  type CreateRoomInput,
-  type RoomKind,
-} from '@studenthub/shared-schemas'
+import { DoorClosed, Plus, Printer, RefreshCw, Trash2 } from 'lucide-react'
+import type { RoomSortValue } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
   Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Checkbox,
   EmptyState,
-  Input,
-  Label,
   PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
   useConfirm,
+  useSortState,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
+import { CreateRoomModal } from './create-room-modal'
 import {
-  createRoomRequest,
   deleteRoomRequest,
-  fetchRooms,
+  fetchRoomsSorted,
   issueRoomQrRequest,
   roomKeys,
   rotateRoomQrRequest,
   type Room,
   type RoomQr,
 } from '../../../entities/room'
-import { RoomQrSheet, type QrSheetLayout } from './room-qr-sheet'
+import { RoomQrSheet } from './room-qr-sheet'
 import { formatRoomCode } from '../lib/format-code'
 
 // Ф16: экран администратора вуза — помещения и печатные QR над дверью.
 // До этой задачи помещения создавались только через API: экрана не было вовсе,
 // хотя POST /rooms существовал с Ф5.
+
+// Ширины колонок: название · назначение · корпус · этаж · вместимость · QR · действия.
+// Потолок 100 — столько разрешает OffsetPaginationSchema, на которой построен GET /rooms.
+const PAGE_SIZES = [20, 50, 100] as const
+const ROOM_COLS = ['24%', '16%', '14%', '8%', '10%', '15%', '13rem'] as const
+// На узком экране остаются название, QR и действия — то, ради чего сюда приходят.
+const HIDE = {
+  kind: 'hidden md:table-cell',
+  building: 'hidden lg:table-cell',
+  floor: 'hidden xl:table-cell',
+  capacity: 'hidden xl:table-cell',
+} as const
+// Порядок классов = порядок колонок: скелетон прячет те же, что и шапка.
+const SKELETON_COLS = [
+  undefined,
+  HIDE.kind,
+  HIDE.building,
+  HIDE.floor,
+  HIDE.capacity,
+  undefined,
+  undefined,
+]
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -63,29 +77,23 @@ export function RoomsAdminView() {
 
   // Что уходит в печать. Пусто — печатать нечего, лист не рендерим.
   const [sheet, setSheet] = useState<RoomQr[]>([])
-  // Раскладка печати: по наклейке на лист или четыре под разрезание (Ф16).
-  const [layout, setLayout] = useState<QrSheetLayout>('full')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
 
-  const rooms = useQuery({ queryKey: roomKeys.list(), queryFn: () => fetchRooms() })
-
-  const form = useForm<CreateRoomInput>({
-    resolver: zodResolver(CreateRoomSchema),
-    // universityId не отправляем: для администратора вуза сервер берёт его из JWT (§6.1).
-    defaultValues: { kind: 'AUDITORIUM' },
+  // Сортировка серверная: упорядочена вся выборка, а не открытая страница.
+  const { sort, toggle: toggleSort } = useSortState()
+  const roomQuery = {
+    page,
+    limit,
+    ...(sort ? { sort: sort.key as RoomSortValue, order: sort.dir } : {}),
+  }
+  const rooms = useQuery({
+    queryKey: roomKeys.list(roomQuery),
+    queryFn: () => fetchRoomsSorted(roomQuery),
+    placeholderData: (prev) => prev,
   })
-  const kind = form.watch('kind') ?? 'AUDITORIUM'
-  const academic = isAcademicRoomKind(kind)
 
-  const createMut = useMutation({
-    mutationFn: createRoomRequest,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: roomKeys.all })
-      form.reset({ kind })
-      toast.success(t('created'))
-    },
-    onError: (e) => toast.error(tErr(errCode(e))),
-  })
+  const [createOpen, setCreateOpen] = useState(false)
 
   const deleteMut = useMutation({
     mutationFn: deleteRoomRequest,
@@ -121,41 +129,10 @@ export function RoomsAdminView() {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const items = rooms.data ?? []
-  const allSelected = items.length > 0 && selected.size === items.length
+  const items = rooms.data?.items ?? []
+  const total = rooms.data?.total ?? 0
 
-  const grouped = useMemo(() => {
-    // Группируем по корпусу: наклейки печатают и расклеивают корпусом/этажом.
-    const map = new Map<string, Room[]>()
-    for (const room of items) {
-      const key = room.building ?? ''
-      map.set(key, [...(map.get(key) ?? []), room])
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [items])
-
-  const toggle = (id: string): void =>
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-
-  /**
-   * Смена назначения меняет набор полей формы. react-hook-form сохраняет значения
-   * размонтированных инпутов, поэтому без явной очистки вместимость от аудитории уезжала
-   * в библиотеку (в UI поля уже не видно, а значение отправляется).
-   */
-  const changeKind = (value: RoomKind): void => {
-    form.setValue('kind', value)
-    if (isAcademicRoomKind(value)) {
-      form.setValue('openHours', undefined)
-      form.setValue('phone', undefined)
-    } else {
-      form.setValue('capacity', undefined)
-    }
-  }
+  const sorted = items
 
   const rotate = async (room: Room): Promise<void> => {
     // Перевыпуск обесценивает уже расклеенные наклейки — спрашиваем явно.
@@ -169,262 +146,183 @@ export function RoomsAdminView() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="sh-no-print flex flex-col gap-6">
-        <PageHeader title={t('adminTitle')} subtitle={t('adminDescription')} />
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      {/* Цепочка flex до таблицы: `fill` у Table требует, чтобы каждый предок отдавал ей
+          высоту, иначе прокручивается страница целиком, а не тело таблицы. */}
+      <div className="sh-no-print flex min-h-0 flex-1 flex-col gap-6">
+        <PageHeader
+          title={t('adminTitle')}
+          subtitle={t('adminDescription')}
+          actions={
+            <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('addRoom')}
+            </Button>
+          }
+        />
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('addRoom')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              onSubmit={form.handleSubmit(
-                (v) => createMut.mutate(v),
-                // Без этого отказ валидации был бы молчаливым: кнопка «Добавить» ничего
-                // не делает, а под полем ошибки нет (все поля, кроме названия, опциональны).
-                () => toast.error(t('checkFields')),
-              )}
-              className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="room-name">{t('name')}</Label>
-                <Input
-                  id="room-name"
-                  placeholder={t('namePlaceholder')}
-                  {...form.register('name')}
-                />
-                {form.formState.errors.name && (
-                  <p className="text-xs text-destructive">{t('nameRequired')}</p>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="room-kind">{t('kindLabel')}</Label>
-                <Select value={kind} onValueChange={(v) => changeKind(v as RoomKind)}>
-                  <SelectTrigger id="room-kind">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROOM_KINDS.map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {t(`kind.${k}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="room-building">{t('building')}</Label>
-                  <Input id="room-building" {...form.register('building')} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="room-floor">{t('floor')}</Label>
-                  <Input
-                    id="room-floor"
-                    type="number"
-                    {...form.register('floor', {
-                      setValueAs: (v) => (v === '' ? undefined : Number(v)),
-                    })}
-                  />
-                </div>
-              </div>
-
-              {/* Учебным помещениям нужна вместимость, остальным — часы работы и контакт. */}
-              {academic ? (
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="room-capacity">{t('capacity')}</Label>
-                  <Input
-                    id="room-capacity"
-                    type="number"
-                    {...form.register('capacity', {
-                      setValueAs: (v) => (v === '' ? undefined : Number(v)),
-                    })}
-                  />
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="room-hours">{t('openHours')}</Label>
-                    <Input
-                      id="room-hours"
-                      placeholder={t('openHoursPlaceholder')}
-                      {...form.register('openHours')}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="room-phone">{t('phone')}</Label>
-                    <Input id="room-phone" {...form.register('phone')} />
-                  </div>
-                </>
-              )}
-
-              <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-3">
-                <Label htmlFor="room-info">{t('info')}</Label>
-                <Input
-                  id="room-info"
-                  placeholder={t('infoPlaceholder')}
-                  {...form.register('info')}
-                />
-              </div>
-
-              <div className="sm:col-span-2 lg:col-span-3">
-                <Button type="submit" loading={createMut.isPending}>
-                  {t('add')}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-            <CardTitle className="text-base">{t('listTitle')}</CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Раскладка выбирается до печати: браузер печатает то, что отрисовано. */}
-              <div
-                role="group"
-                aria-label={t('layoutLabel')}
-                className="flex items-center rounded-md border border-border p-0.5"
-              >
-                <Button
-                  variant={layout === 'full' ? 'default' : 'ghost'}
-                  size="sm"
-                  aria-pressed={layout === 'full'}
-                  onClick={() => setLayout('full')}
-                >
-                  {t('layoutFull')}
-                </Button>
-                <Button
-                  variant={layout === 'compact' ? 'default' : 'ghost'}
-                  size="sm"
-                  aria-pressed={layout === 'compact'}
-                  onClick={() => setLayout('compact')}
-                >
-                  {t('layoutCompact')}
-                </Button>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={selected.size === 0}
-                loading={printMut.isPending}
-                onClick={() => printMut.mutate([...selected])}
-              >
-                <Printer className="size-4" aria-hidden />
-                {t('printSelected', { count: selected.size })}
+        {!rooms.isPending && total === 0 ? (
+          <EmptyState
+            icon={<DoorClosed className="size-8" aria-hidden />}
+            title={t('emptyTitle')}
+            description={t('emptyDesc')}
+            action={
+              <Button type="button" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" aria-hidden />
+                {t('addRoom')}
               </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {rooms.isPending && <Skeleton className="h-40 w-full" />}
-
-            {!rooms.isPending && items.length === 0 && (
-              <EmptyState
-                icon={<DoorClosed className="size-8" aria-hidden />}
-                title={t('emptyTitle')}
-                description={t('emptyDesc')}
-              />
-            )}
-
-            {items.length > 0 && (
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={(v) =>
-                    setSelected(v ? new Set(items.map((r) => r.id)) : new Set())
-                  }
-                />
-                {t('selectAll')}
-              </label>
-            )}
-
-            {grouped.map(([building, list]) => (
-              <div key={building} className="flex flex-col gap-2">
-                {building && (
-                  <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                    {t('buildingValue', { value: building })}
-                  </p>
-                )}
-                {list.map((room) => (
-                  <div
-                    key={room.id}
-                    className="flex flex-wrap items-center gap-3 rounded-2xl border border-border px-4 py-3"
+            }
+          />
+        ) : (
+          // `gap-0 py-0`: собственные отступы карточки дали бы полосу над шапкой таблицы
+          // и просвет под последней строкой — таблица занимает карточку целиком.
+          <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+            <Table fixed scrollBody fill cols={ROOM_COLS}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead sortKey="name" sort={sort} onSort={toggleSort}>
+                    {t('name')}
+                  </TableHead>
+                  <TableHead sortKey="kind" sort={sort} onSort={toggleSort} className={HIDE.kind}>
+                    {t('kindLabel')}
+                  </TableHead>
+                  <TableHead
+                    sortKey="building"
+                    sort={sort}
+                    onSort={toggleSort}
+                    className={HIDE.building}
                   >
-                    <Checkbox
-                      checked={selected.has(room.id)}
-                      onCheckedChange={() => toggle(room.id)}
-                      aria-label={t('selectRoom', { room: room.name })}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{room.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {[
-                          t(`kind.${room.kind}`),
-                          room.floor !== null ? t('floorValue', { value: room.floor }) : null,
-                          room.capacity !== null
-                            ? t('capacityValue', { value: room.capacity })
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </p>
-                    </div>
-
-                    {room.qrCode ? (
-                      <Badge variant="secondary" className="font-mono">
-                        {formatRoomCode(room.qrCode)}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">{t('noQr')}</Badge>
-                    )}
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      loading={printMut.isPending && printMut.variables?.[0] === room.id}
-                      onClick={() => printMut.mutate([room.id])}
+                    {t('building')}
+                  </TableHead>
+                  <TableHead
+                    numeric
+                    sortKey="floor"
+                    sort={sort}
+                    onSort={toggleSort}
+                    className={HIDE.floor}
+                  >
+                    {t('floor')}
+                  </TableHead>
+                  <TableHead
+                    numeric
+                    sortKey="capacity"
+                    sort={sort}
+                    onSort={toggleSort}
+                    className={HIDE.capacity}
+                  >
+                    {t('capacity')}
+                  </TableHead>
+                  <TableHead sortKey="qr" sort={sort} onSort={toggleSort}>
+                    {t('qrColumn')}
+                  </TableHead>
+                  <TableHead>
+                    <span className="sr-only">{t('actionsColumn')}</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rooms.isPending && <TableSkeletonRows columns={SKELETON_COLS} />}
+                {sorted.map((room) => (
+                  <TableRow key={room.id} className="hover:bg-muted/40">
+                    <TableCell className="font-medium">
+                      <TableText value={room.name} />
+                    </TableCell>
+                    <TableCell className={cn(HIDE.kind, 'text-muted-foreground')}>
+                      <TableText value={t(`kind.${room.kind}`)} />
+                    </TableCell>
+                    <TableCell className={cn(HIDE.building, 'text-muted-foreground')}>
+                      {room.building ? <TableText value={room.building} /> : <TableEmpty />}
+                    </TableCell>
+                    <TableCell
+                      className={cn(HIDE.floor, 'text-right text-muted-foreground tabular-nums')}
                     >
-                      <QrCode className="size-4" aria-hidden />
-                      {t('print')}
-                    </Button>
-                    {room.qrCode && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={t('rotate')}
-                        onClick={() => void rotate(room)}
-                      >
-                        <RefreshCw className="size-4" aria-hidden />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={t('delete')}
-                      onClick={async () => {
-                        const ok = await confirm({
-                          title: t('deleteConfirmTitle'),
-                          description: t('deleteConfirmDesc', { room: room.name }),
-                          destructive: true,
-                        })
-                        if (ok) deleteMut.mutate(room.id)
-                      }}
+                      {room.floor !== null ? room.floor : <TableEmpty />}
+                    </TableCell>
+                    <TableCell
+                      className={cn(HIDE.capacity, 'text-right text-muted-foreground tabular-nums')}
                     >
-                      <Trash2 className="size-4 text-destructive" aria-hidden />
-                    </Button>
-                  </div>
+                      {room.capacity !== null ? room.capacity : <TableEmpty />}
+                    </TableCell>
+                    <TableCell>
+                      {room.qrCode ? (
+                        <Badge variant="secondary" className="font-mono">
+                          {formatRoomCode(room.qrCode)}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">{t('noQr')}</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Печать одного помещения: выделять его чекбоксом не нужно. */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          loading={
+                            printMut.isPending &&
+                            printMut.variables?.length === 1 &&
+                            printMut.variables[0] === room.id
+                          }
+                          onClick={() => printMut.mutate([room.id])}
+                        >
+                          <Printer className="size-4" aria-hidden />
+                          {t('print')}
+                        </Button>
+                        {room.qrCode && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon
+                            aria-label={t('rotate')}
+                            title={t('rotate')}
+                            onClick={() => void rotate(room)}
+                          >
+                            <RefreshCw className="size-4" aria-hidden />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon
+                          aria-label={t('delete')}
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: t('deleteConfirmTitle'),
+                              description: t('deleteConfirmDesc', { room: room.name }),
+                              destructive: true,
+                            })
+                            if (ok) deleteMut.mutate(room.id)
+                          }}
+                        >
+                          <Trash2 className="size-4 text-destructive" aria-hidden />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+              </TableBody>
+            </Table>
+            <TablePagination
+              page={page}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={(n) => {
+                setLimit(n)
+                setPage(1)
+              }}
+            />
+          </Card>
+        )}
       </div>
 
+      {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} />}
+
       {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу. */}
-      {sheet.length > 0 && <RoomQrSheet items={sheet} layout={layout} />}
+      {/* Раскладка всегда «по одной на лист»: печать теперь только для одного помещения,
+          режим «4 на лист» имел смысл только при массовом выборе. */}
+      {sheet.length > 0 && <RoomQrSheet items={sheet} layout="full" />}
     </div>
   )
 }
