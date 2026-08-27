@@ -183,6 +183,9 @@ export function ChatWindow() {
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
+  // Дата перехода по истории: хранится, чтобы поле показывало выбранное значение, а не
+  // возвращалось к плейсхолдеру — иначе непонятно, к какому дню прокручен чат.
+  const [jumpDate, setJumpDate] = useState('')
   const [chatSearchRaw, setChatSearchRaw] = useState('')
   const [chatSearchTerm, setChatSearchTerm] = useState('')
   const [searchIdx, setSearchIdx] = useState(0)
@@ -2212,16 +2215,20 @@ export function ChatWindow() {
                 >
                   <Search className="size-4" aria-hidden />
                 </button>
-                {/* Переход по дате (#5): value='' — контрол работает как кнопка-jump, выбор → jumpToDate. */}
+                {/* Переход по дате (#5): выбор прокручивает историю к этому дню и остаётся
+                    в поле; крестик в поле сбрасывает его, никуда не переходя. */}
                 <DatePicker
-                  value=""
+                  value={jumpDate}
                   onChange={(ymd) => {
+                    setJumpDate(ymd)
                     if (ymd) void jumpToDate(ymd)
                   }}
                   placeholder={t('jumpToDate')}
                   aria-label={t('jumpToDate')}
                   size="md"
-                  className="w-9 shrink-0 sm:w-36"
+                  // Без даты — компактная кнопка под одну иконку; с датой полю нужно место
+                  // под саму дату и крестик очистки, иначе они наезжают друг на друга.
+                  className={cn('shrink-0', jumpDate ? 'w-32 sm:w-44' : 'w-9 sm:w-36')}
                 />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">

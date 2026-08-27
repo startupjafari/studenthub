@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
@@ -75,6 +76,13 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+
+// Кадрирование нужно только владельцу группы в момент смены аватара — в бандл панели
+// чата оно не тянется (§11 FRONTEND_RULES).
+const ImageCropModal = dynamic(
+  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
+  { ssr: false },
+)
 import { identityColor, identityInitials } from '../../../shared/lib'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 
@@ -834,6 +842,9 @@ export function ChatDetailsPanel({
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(title)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Выбранный файл ждёт кадрирования: аватар группы круглый, и без кропа в него
+  // попадала бы середина произвольного снимка.
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null)
 
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
   const invalidateChat = () => {
@@ -854,6 +865,7 @@ export function ChatDetailsPanel({
     mutationFn: (file: File) => setChatAvatarRequest(chat.id, file),
     onSuccess: () => {
       invalidateChat()
+      setAvatarCropFile(null)
       toast.success(t('avatarUpdated'))
     },
     onError: err,
@@ -880,7 +892,7 @@ export function ChatDetailsPanel({
 
   function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0]
-    if (file) avatarMut.mutate(file)
+    if (file) setAvatarCropFile(file)
     e.target.value = ''
   }
 
@@ -1125,6 +1137,16 @@ export function ChatDetailsPanel({
           </TabsContent>
         </div>
       </Tabs>
+
+      {avatarCropFile && (
+        <ImageCropModal
+          file={avatarCropFile}
+          title={t('changeAvatar')}
+          saving={avatarMut.isPending}
+          onCancel={() => setAvatarCropFile(null)}
+          onSave={(f) => avatarMut.mutate(f)}
+        />
+      )}
     </div>
   )
 }

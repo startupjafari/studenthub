@@ -84,28 +84,55 @@ export const STUDENT_NAV: NavItem[] = [
 ]
 
 // Навигация администратора университета (Фаза 5.6).
+// Двадцать пунктов подряд не читались — сгруппированы по смыслу. Порядок секций задаётся
+// первым появлением группы в массиве (см. toSections в AppSidebar), поэтому пункты внутри
+// группы должны идти подряд.
 export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
-  { key: 'dashboard', href: '/university-admin', icon: LayoutDashboard, exact: true },
-  { key: 'faculties', href: '/university-admin/faculties', icon: Building2 },
-  { key: 'specialties', href: '/university-admin/specialties', icon: ScrollText },
-  { key: 'groups', href: '/university-admin/groups', icon: Users },
-  { key: 'schedule', href: '/university-admin/schedule', icon: CalendarDays },
+  // Обзор: куда админ смотрит первым делом.
+  {
+    key: 'dashboard',
+    href: '/university-admin',
+    icon: LayoutDashboard,
+    exact: true,
+    group: 'main',
+  },
+  { key: 'analytics', href: '/university-admin/analytics', icon: BarChart3, group: 'main' },
+
+  // Структура вуза: то, что заводят один раз и меняют редко.
+  { key: 'faculties', href: '/university-admin/faculties', icon: Building2, group: 'structure' },
+  { key: 'specialties', href: '/university-admin/specialties', icon: ScrollText, group: 'structure' }, // prettier-ignore
+  { key: 'groups', href: '/university-admin/groups', icon: Users, group: 'structure' },
   // Ф16: помещения и печатные QR над дверью.
-  { key: 'rooms', href: '/university-admin/rooms', icon: DoorClosed },
-  { key: 'courses', href: '/university-admin/courses', icon: BookOpen },
-  { key: 'invites', href: '/university-admin/invites', icon: Send },
-  { key: 'students', href: '/university-admin/students', icon: GraduationCap },
-  { key: 'teachers', href: '/university-admin/teachers', icon: BookOpen },
-  { key: 'deans', href: '/university-admin/deans', icon: UserCog },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { key: 'applications', href: '/university-admin/applications', icon: FileText },
-  { key: 'analytics', href: '/university-admin/analytics', icon: BarChart3 },
-  { key: 'complaints', href: '/university-admin/complaints', icon: ShieldAlert },
-  { key: 'posts', href: '/university-admin/posts', icon: Newspaper },
-  { key: 'events', href: '/university-admin/events', icon: CalendarClock },
-  { key: 'chats', href: '/university-admin/chats', icon: MessagesSquare },
-  { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog },
-  { key: 'audit', href: '/university-admin/audit', icon: ScrollText },
+  { key: 'rooms', href: '/university-admin/rooms', icon: DoorClosed, group: 'structure' },
+
+  // Учебный процесс.
+  { key: 'schedule', href: '/university-admin/schedule', icon: CalendarDays, group: 'study' },
+  { key: 'courses', href: '/university-admin/courses', icon: BookOpen, group: 'study' },
+
+  // Люди: выдача доступа и списки по ролям.
+  { key: 'invites', href: '/university-admin/invites', icon: Send, group: 'people' },
+  { key: 'students', href: '/university-admin/students', icon: GraduationCap, group: 'people' },
+  { key: 'teachers', href: '/university-admin/teachers', icon: BookOpen, group: 'people' },
+  { key: 'deans', href: '/university-admin/deans', icon: UserCog, group: 'people' },
+
+  // Обслуживание студентов.
+  {
+    key: 'applications',
+    href: '/university-admin/applications',
+    icon: FileText,
+    group: 'services',
+  },
+  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
+  { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
+
+  // Коммуникации вуза.
+  { key: 'posts', href: '/university-admin/posts', icon: Newspaper, group: 'communication' },
+  { key: 'events', href: '/university-admin/events', icon: CalendarClock, group: 'communication' },
+  { key: 'chats', href: '/university-admin/chats', icon: MessagesSquare, group: 'communication' },
+
+  // Контроль: разбор жалоб и журнал действий.
+  { key: 'complaints', href: '/university-admin/complaints', icon: ShieldAlert, group: 'control' },
+  { key: 'audit', href: '/university-admin/audit', icon: ScrollText, group: 'control' },
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;

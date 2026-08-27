@@ -19,6 +19,7 @@ import {
   type StaffRequestSummary,
   type StaffSubmissionItem,
 } from '../../../entities/document-request'
+import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -480,6 +481,7 @@ function ReviewItem({
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const [rejecting, setRejecting] = useState(false)
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const [reason, setReason] = useState(item.rejectionReason ?? '')
   // Причина отклонения уходит студенту — без неё отклонять нечего объяснить.
   const [tried, setTried] = useState(false)
@@ -495,7 +497,16 @@ function ReviewItem({
     onError,
   })
 
+  // Сканы и фото — в общий просмотрщик (как в чате и постах); PDF и офисные файлы
+  // он показать не умеет, им остаётся вкладка браузера.
+  const media = item.document?.files.filter((f) => isViewableMedia(f.mime)) ?? []
+
   const openFile = async (fileId: string) => {
+    const idx = media.findIndex((f) => f.id === fileId)
+    if (idx >= 0) {
+      setViewerIndex(idx)
+      return
+    }
     try {
       const url = await fetchSubmissionFileUrl(item.id, fileId)
       window.open(url, '_blank', 'noopener,noreferrer')
@@ -530,6 +541,15 @@ function ReviewItem({
               </Button>
             ))}
           </div>
+          {viewerIndex !== null && (
+            <DocumentFileViewer
+              files={media}
+              index={viewerIndex}
+              onIndexChange={setViewerIndex}
+              onClose={() => setViewerIndex(null)}
+              resolveUrl={(fileId) => fetchSubmissionFileUrl(item.id, fileId)}
+            />
+          )}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">{t('req_notSelected')}</p>

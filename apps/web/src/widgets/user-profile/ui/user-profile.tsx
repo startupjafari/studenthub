@@ -54,8 +54,8 @@ import { ShareProfileButton } from './share-profile-button'
 // Тяжёлые модалки (кроппер аватара на canvas, редактор статей с markdown, создание
 // поста/фото/видео/опроса) грузятся динамически — только при открытии, а не на каждом
 // просмотре профиля. Раньше все они тянулись в First Load JS профиля (~0.5 МБ).
-const AvatarCropModal = dynamic(
-  () => import('./avatar-crop-modal').then((m) => m.AvatarCropModal),
+const ImageCropModal = dynamic(
+  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
   { ssr: false },
 )
 const PhotoCreateModal = dynamic(
@@ -178,6 +178,12 @@ export function UserProfile() {
   )
 }
 
+// Кадр обложки: широкая полоса 3:1. Точную высоту шапки задаёт CSS (h-20/h-28/h-52 при
+// разной ширине экрана), поэтому кроп даёт запас по вертикали, а не подгоняется под один
+// брейкпоинт — остальное дорезает `object-cover`.
+const COVER_ASPECT = 3
+const COVER_WIDTH = 1500
+
 // ── Шапка своего профиля: обложка + аватар (со сменой фото) + действия ──────
 function ProfileHeader({
   me,
@@ -199,6 +205,7 @@ function ProfileHeader({
   const fileRef = useRef<HTMLInputElement>(null)
   const coverRef = useRef<HTMLInputElement>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
+  const [coverCropFile, setCoverCropFile] = useState<File | null>(null)
 
   const uploadMut = useMutation({
     mutationFn: (f: File) => uploadAvatarRequest(f),
@@ -214,6 +221,7 @@ function ProfileHeader({
     mutationFn: (f: File) => uploadCoverRequest(f),
     onSuccess: (data) => {
       qc.setQueryData(userKeys.me(), data)
+      setCoverCropFile(null)
       toast.success(t('coverUpdated'))
     },
     onError: (e) => toast.error(tErr(errCode(e))),
@@ -243,7 +251,8 @@ function ProfileHeader({
     e.target.value = ''
   }
 
-  // Обложка загружается напрямую (без кропа): клиентская проверка типа/размера до отправки (§7).
+  // Обложка кадрируется перед отправкой. Клиентская проверка типа/размера — до открытия
+  // кропа (§7): нет смысла разбирать в canvas файл, который сервер всё равно отвергнет.
   function onPickCover(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     e.target.value = ''
@@ -256,7 +265,7 @@ function ProfileHeader({
       toast.error(tErr('FILE_TOO_LARGE'))
       return
     }
-    uploadCoverMut.mutate(f)
+    setCoverCropFile(f)
   }
 
   return (
@@ -397,11 +406,26 @@ function ProfileHeader({
       </div>
 
       {cropFile && (
-        <AvatarCropModal
+        <ImageCropModal
           file={cropFile}
           saving={uploadMut.isPending}
           onCancel={() => setCropFile(null)}
           onSave={(f) => uploadMut.mutate(f)}
+        />
+      )}
+
+      {coverCropFile && (
+        <ImageCropModal
+          file={coverCropFile}
+          // Обложка — широкая полоса, а не квадрат: кадрируем в 3:1 (COVER_ASPECT)
+          // и отдаём 1500px по ширине, чтобы хватило на десктопную шапку профиля.
+          aspect={COVER_ASPECT}
+          outputWidth={COVER_WIDTH}
+          shape="square"
+          title={me.coverUrl ? t('coverChange') : t('coverAdd')}
+          saving={uploadCoverMut.isPending}
+          onCancel={() => setCoverCropFile(null)}
+          onSave={(f) => uploadCoverMut.mutate(f)}
         />
       )}
     </Card>
