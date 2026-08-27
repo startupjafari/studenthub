@@ -32,12 +32,8 @@ const MODERATOR_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
 ]
-/**
- * Сколько превью показываем в коллаже; остальное сворачивается в «+N».
- * Шесть — это ровно два ряда по три: сетка не обрывается на середине ряда чаще,
- * чем нужно.
- */
-const MEDIA_TILES = 6
+/** Сколько превью показываем в коллаже; остальное сворачивается в «+N». */
+const MEDIA_TILES = 4
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
@@ -333,11 +329,10 @@ function MediaCollage({
 }) {
   const tiles = media.slice(0, MEDIA_TILES)
   const rest = media.length - tiles.length
-  // Плитки квадратные, а компактность даёт число колонок: от трёх вложений — три
-  // в ряд. Двухколоночная сетка квадратов растягивала коллаж из четырёх фото на две
-  // ширины карточки, то есть почти на два экрана.
+  // Плитки квадратные, высоту держит число колонок. Три вложения — в один ряд по
+  // трети ширины; от четырёх — сетка 2×2, а остальное уходит в «+N» на последней.
   const layout =
-    media.length === 1 ? 'grid-cols-1' : media.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+    media.length === 1 ? 'grid-cols-1' : media.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
 
   return (
     <div className={cn('mt-3 grid gap-0.5', layout)}>
