@@ -4,6 +4,7 @@ export {
   fetchPost,
   fetchAuthorPosts,
   createPostRequest,
+  updatePostRequest,
   repostRequest,
   deletePostRequest,
   pinPostRequest,

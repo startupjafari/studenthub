@@ -39,6 +39,17 @@ export const CreatePostSchema = z
   .strict()
 export type CreatePostInput = z.infer<typeof CreatePostSchema>
 
+// Правка своей публикации. Аудиторию и вложения не трогаем: смена аудитории меняет
+// круг тех, кто пост уже видел, а подмена вложений после публикации — совсем другой
+// пост. Меняются только заголовок и текст.
+export const UpdatePostSchema = z
+  .object({
+    title: z.string().max(200).optional().nullable(),
+    content: z.string().min(1).max(5000).optional(),
+  })
+  .strict()
+export type UpdatePostInput = z.infer<typeof UpdatePostSchema>
+
 // Репост: контент-комментарий необязателен; audience/цель — как у обычного поста.
 export const RepostSchema = z
   .object({

@@ -1047,7 +1047,11 @@
     "postUnavailableTitle": "Жарияланым қолжетімсіз",
     "postUnavailableText": "Ол жойылған немесе басқа аудиторияға арналған",
     "backToFeed": "Таспаға",
-    "postTitle": "Жарияланым"
+    "postTitle": "Жарияланым",
+    "editPost": "Жарияланымды өзгерту",
+    "postUpdated": "Жарияланым өзгертілді",
+    "save": "Сақтау",
+    "edited": "өзгертілді"
   },
   "Chats": {
     "title": "Чаттар",
