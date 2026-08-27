@@ -1,4 +1,5 @@
 import type {
+  AddApplicationResultInput,
   ApplicationServiceStatus,
   DeliveryType,
   DeliveryMode,
@@ -299,11 +300,22 @@ export async function startPreparationRequest(id: string): Promise<void> {
 export async function rejectApplicationRequest(id: string, reason: string): Promise<void> {
   await api.post(`/applications/${id}/reject`, { reason })
 }
-export async function addResultRequest(
-  id: string,
-  body: { type: string; documentNumber?: string; note?: string },
-): Promise<void> {
+export async function addResultRequest(id: string, body: AddApplicationResultInput): Promise<void> {
   await api.post(`/applications/${id}/results`, body)
+}
+
+// Ссылка на выданный документ: гейт по scope заявки, а не по владению документом —
+// поэтому и студент, и обработчик берут её здесь, а не в домене «Документы».
+export async function fetchApplicationResultUrl(
+  appId: string,
+  resultId: string,
+  download = false,
+): Promise<string> {
+  const { data } = await api.get<{ url: string }>(
+    `/applications/${appId}/results/${resultId}/url`,
+    { params: download ? { download: '1' } : undefined },
+  )
+  return data.url
 }
 export async function markReadyRequest(
   id: string,
