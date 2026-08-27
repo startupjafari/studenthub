@@ -1,16 +1,74 @@
-import { getTranslations } from 'next-intl/server'
+'use client'
+
+import { useState } from 'react'
+import { useTranslations } from 'next-intl'
+import { Plus } from 'lucide-react'
+import type { FeedFilterValue } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
+import { useAppSelector } from '../../../shared/store'
 import { CreatePostForm } from '../../../features/create-post'
 import { FeedList } from '../../../widgets/feed-list'
-import { PageHeader } from '../../../shared/ui'
+import { Button, Modal, PageHeader, SegmentedTabs } from '../../../shared/ui'
 
-// Экран ленты (создание поста + список) — для ролей вне студенческой главной (админ вуза и т.п.).
-export async function FeedView() {
-  const t = await getTranslations('Nav')
+// Разделы ленты: фильтр уходит на сервер и всегда пересекается с видимостью зрителя.
+const FILTERS: readonly FeedFilterValue[] = ['ALL', 'GROUP', 'UNIVERSITY', 'TEACHERS', 'IMPORTANT']
+const FILTER_LABEL: Record<FeedFilterValue, string> = {
+  ALL: 'filterAll',
+  GROUP: 'filterGroup',
+  UNIVERSITY: 'filterUniversity',
+  TEACHERS: 'filterTeachers',
+  IMPORTANT: 'filterImportant',
+}
+// Модераторы посты не пишут — только читают и модерируют.
+const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
+
+/**
+ * Экран ленты для ролей вне студенческой главной.
+ *
+ * Форма публикации раньше стояла раскрытой над лентой и занимала первый экран целиком
+ * — при том что читают ленту несравнимо чаще, чем пишут. Теперь она за кнопкой в шапке,
+ * туда же переехали разделы, а сама лента — узкая колонка по центру: строка текста во
+ * всю ширину монитора нечитаема, поэтому ленты и делают колонкой.
+ */
+export function FeedView() {
+  const t = useTranslations('Nav')
+  const tFeed = useTranslations('Feed')
+  const [filter, setFilter] = useState<FeedFilterValue>('ALL')
+  const [createOpen, setCreateOpen] = useState(false)
+  const role = useAppSelector((s) => s.auth.role)
+  const canPost = role !== null && !READONLY_ROLES.includes(role)
+
   return (
-    <div className="flex w-full flex-col gap-4">
-      <PageHeader title={t('posts')} />
-      <CreatePostForm />
-      <FeedList />
+    <div className="flex w-full flex-col gap-6">
+      <PageHeader
+        title={t('posts')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('posts')}
+            value={filter}
+            onChange={setFilter}
+            items={FILTERS.map((f) => ({ value: f, label: tFeed(FILTER_LABEL[f]) }))}
+          />
+        }
+        actions={
+          canPost ? (
+            <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" aria-hidden />
+              {tFeed('publish')}
+            </Button>
+          ) : null
+        }
+      />
+
+      <div className="mx-auto w-full max-w-2xl">
+        <FeedList filter={filter} />
+      </div>
+
+      {createOpen && (
+        <Modal onClose={() => setCreateOpen(false)} title={tFeed('newPost')} size="2xl">
+          <CreatePostForm bare onCreated={() => setCreateOpen(false)} />
+        </Modal>
+      )}
     </div>
   )
 }

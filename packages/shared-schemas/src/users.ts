@@ -135,8 +135,15 @@ const PLATFORM_STAFF: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODE
 const MODERATOR_ROLES: readonly Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
 /** Все не-студенты. */
 const STAFF_ROLES: readonly Role[] = [...PLATFORM_STAFF, ...UNIVERSITY_STAFF, Role.TEACHER]
-/** Роли, у которых профиль «человеческий», а не служебный: студенты и преподаватели. */
-const PERSONAL_ROLES: readonly Role[] = [...STUDENT_ROLES, ...ACADEMIC_ROLES]
+/**
+ * Роли, у которых профиль «человеческий», а не служебный: студенты, преподаватели и
+ * платформенная команда. Последнюю включили осознанно (решение владельца): платформенный
+ * админ и модератор — публичные лица продукта, и профиль-заглушка из должности и телефона
+ * этой роли не соответствует.
+ */
+const PERSONAL_ROLES: readonly Role[] = [...STUDENT_ROLES, ...ACADEMIC_ROLES, ...PLATFORM_STAFF]
+/** Витринные поля — навыки, интересы, соцсети: студенты и платформенная команда. */
+const SHOWCASE_ROLES: readonly Role[] = [...STUDENT_ROLES, ...PLATFORM_STAFF]
 const EMPLOYEE_ROLES: readonly Role[] = [...ACADEMIC_ROLES, ...UNIVERSITY_STAFF]
 
 export type ProfileFieldKey = keyof UpdateProfileInput
@@ -157,13 +164,14 @@ export const PROFILE_FIELD_ROLES: Readonly<Record<ProfileFieldKey, readonly Role
   // Часовой пояс нужен и служебным ролям: дежурства, окна обслуживания, чтение аудита.
   timezone: EVERY_ROLE,
 
-  // Личное и соцсети: студентам и преподавателям. Служебным роли не собираем —
-  // меньше персональных данных в базе, меньше утечки.
+  // Личное и соцсети: у всех, кроме служебных ролей ВУЗА (админ/модератор вуза) — им
+  // персональные поля не нужны, а лишние данные в базе это лишний риск утечки.
+  // Платформенная команда исключение, см. PERSONAL_ROLES.
   birthDate: PERSONAL_ROLES,
   gender: PERSONAL_ROLES,
   country: PERSONAL_ROLES,
   website: PERSONAL_ROLES,
-  instagram: STUDENT_ROLES,
+  instagram: SHOWCASE_ROLES,
 
   // Учёба — студент и староста.
   course: STUDENT_ROLES,
@@ -178,8 +186,8 @@ export const PROFILE_FIELD_ROLES: Readonly<Record<ProfileFieldKey, readonly Role
   gpa: STUDENT_ROLES,
   dormitory: STUDENT_ROLES,
   address: STUDENT_ROLES,
-  interests: STUDENT_ROLES,
-  skills: STUDENT_ROLES,
+  interests: SHOWCASE_ROLES,
+  skills: SHOWCASE_ROLES,
   duties: [Role.STAROSTA],
 
   // Академические — только преподаватель и декан.

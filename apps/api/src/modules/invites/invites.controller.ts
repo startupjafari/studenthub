@@ -12,7 +12,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { InviteService } from './invites.service'
 import { CreateInviteDto } from './dto/create-invite.dto'
 import { BulkInviteCommitDto } from './dto/bulk-invite-commit.dto'
-import { OffsetPaginationDto } from './dto/offset-pagination.dto'
+import { InviteListDto } from './dto/invite-list.dto'
 import { parseBulkInviteFile } from './bulk-parse'
 
 @ApiTags('Инвайты')
@@ -34,8 +34,8 @@ export class InvitesController {
   @Get()
   @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.STAROSTA)
   @ApiOperation({ summary: 'Мои выданные инвайты' })
-  list(@CurrentUser() user: CurrentUserData, @Query() query: OffsetPaginationDto) {
-    return this.invites.list(user, query.page, query.limit)
+  list(@CurrentUser() user: CurrentUserData, @Query() query: InviteListDto) {
+    return this.invites.list(user, query)
   }
 
   @Post('bulk/preview')

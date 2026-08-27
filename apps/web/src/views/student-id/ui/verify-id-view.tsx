@@ -17,7 +17,7 @@ import { StudentIdCardFace } from './student-id-card'
 // пока сотрудник не откроет проверку без токена.
 const QrScanner = dynamic(() => import('../../../features/verify-scan').then((m) => m.QrScanner), {
   ssr: false,
-  loading: () => <Skeleton className="min-h-[70vh] w-full rounded-3xl" />,
+  loading: () => <Skeleton className="min-h-0 w-full flex-1 rounded-3xl" />,
 })
 
 // Роли, которым доступна проверка студенческого (сканер внутри приложения).
@@ -54,8 +54,10 @@ export function VerifyIdView() {
   if (!token) {
     if (isStaff) {
       // Иммерсивный сканер сам показывает заголовок/подсказку — PageHeader не дублируем.
+      // Ширину и высоту не ограничиваем: чем крупнее кадр камеры, тем легче навести
+      // на QR — на телефоне это вся область контента, на десктопе тоже.
       return (
-        <div className="mx-auto w-full max-w-md">
+        <div className="flex min-h-0 w-full flex-1 flex-col">
           <QrScanner onToken={setScanned} />
         </div>
       )

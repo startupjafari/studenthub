@@ -258,7 +258,7 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         <div className="flex flex-col gap-2">
           <Label>{t('category')}</Label>
           <Select value={category || undefined} onValueChange={setCategory}>
-            <SelectTrigger className="h-11">
+            <SelectTrigger size="xl">
               <SelectValue placeholder={t('categoryPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
@@ -312,7 +312,7 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
             <div className="flex flex-col gap-2">
               <Label>{t('visibility')}</Label>
               <Select value={visibility} onValueChange={setVisibility}>
-                <SelectTrigger className="h-11">
+                <SelectTrigger size="xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

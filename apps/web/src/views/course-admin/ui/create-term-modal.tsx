@@ -28,7 +28,7 @@ export function CreateTermModal({ universityId, onClose }: Props) {
   async function onSubmit(values: CreateTermInput) {
     try {
       await createTermRequest(values)
-      await qc.invalidateQueries({ queryKey: courseKeys.terms() })
+      await qc.invalidateQueries({ queryKey: courseKeys.all })
       toast.success(t('termCreated'))
       onClose()
     } catch (e) {

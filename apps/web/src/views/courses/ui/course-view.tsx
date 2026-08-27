@@ -589,7 +589,7 @@ function MaterialRow({
       {(material.media.length > 0 || material.url) && (
         <div className="flex flex-wrap gap-1.5 pl-6">
           {material.url && (
-            <Button asChild variant="outline" size="xs" className="gap-1">
+            <Button asChild variant="outline" size="sm" className="gap-1">
               <a href={material.url} target="_blank" rel="noopener noreferrer">
                 <Paperclip className="size-3" aria-hidden />
                 {t('link')}
@@ -600,7 +600,7 @@ function MaterialRow({
             <Button
               key={f.id}
               variant="outline"
-              size="xs"
+              size="sm"
               className="gap-1"
               loading={busy === f.id}
               onClick={() => openFile(f.id)}

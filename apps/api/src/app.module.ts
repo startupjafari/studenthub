@@ -29,6 +29,7 @@ import { GradebookModule } from './modules/gradebook/gradebook.module'
 import { ExamsModule } from './modules/exams/exams.module'
 import { AnalyticsModule } from './modules/analytics/analytics.module'
 import { SearchModule } from './modules/search/search.module'
+import { KatoModule } from './modules/kato/kato.module'
 import { ConsultationsModule } from './modules/consultations/consultations.module'
 import { AppointmentsModule } from './modules/appointments/appointments.module'
 import { PortfolioModule } from './modules/portfolio/portfolio.module'
@@ -89,6 +90,7 @@ import { AppController } from './app.controller'
     ExamsModule,
     AnalyticsModule,
     SearchModule,
+    KatoModule,
     ConsultationsModule,
     AppointmentsModule,
     PortfolioModule,

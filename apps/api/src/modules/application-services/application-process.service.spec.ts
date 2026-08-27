@@ -38,13 +38,17 @@ function setup(appRow: Record<string, unknown>) {
   const prisma = makePrisma(appRow)
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const realtime = { emitEventToUser: jest.fn() }
+  // Выдача документа студенту (issueToOwner) — единственное, что процесс просит у домена
+  // «Документы»; в юнитах подменяем заглушкой.
+  const documents = { issueToOwner: jest.fn().mockResolvedValue({ id: 'doc-issued' }) }
   const service = new ApplicationProcessService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     queue as unknown as QueueService,
     realtime as never,
+    documents as never,
   )
-  return { service, prisma, queue, realtime }
+  return { service, prisma, queue, realtime, documents }
 }
 
 const base = {
@@ -126,6 +130,39 @@ describe('ApplicationProcessService — state-machine + guards', () => {
     )
     const bad = setup({ ...base, status: 'READY' })
     await expect(bad.service.issue(dean, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('addResult с файлом заводит документ на СТУДЕНТА и кладёт его id в результат', async () => {
+    const { service, prisma, documents } = setup({ ...base, status: 'IN_PREPARATION' })
+    await service.addResult(dean, 'a1', {
+      type: 'ELECTRONIC_DOCUMENT',
+      fileId: 'f1',
+      documentType: 'STUDY_PLACE_REF',
+      documentNumber: 'N-1',
+    })
+    expect(documents.issueToOwner).toHaveBeenCalledWith(
+      dean,
+      expect.objectContaining({ ownerId: 'stud', fileId: 'f1', title: 'Справка' }),
+    )
+    expect(prisma.applicationResult.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ documentId: 'doc-issued' }) }),
+    )
+  })
+
+  it('addResult без файла документ не выдаёт', async () => {
+    const { service, prisma, documents } = setup({ ...base, status: 'IN_PREPARATION' })
+    await service.addResult(dean, 'a1', { type: 'INFORMATION', note: 'выдано устно' })
+    expect(documents.issueToOwner).not.toHaveBeenCalled()
+    expect(prisma.applicationResult.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ documentId: null }) }),
+    )
+  })
+
+  it('addResult вне IN_PREPARATION → BAD_REQUEST', async () => {
+    const { service } = setup({ ...base, status: 'IN_REVIEW' })
+    await expect(service.addResult(dean, 'a1', { type: 'INFORMATION' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
   })
 })
 

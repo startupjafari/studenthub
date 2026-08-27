@@ -533,7 +533,9 @@ function HeatmapPanel({ range }: { range: PlatformRange }) {
       busy={q.isFetching}
       ready={inView && !!q.data}
       className="lg:col-span-2"
-      skeletonHeight={200}
+      // Сетка теперь во всю ширину, а клетки квадратные — высота выросла примерно вдвое.
+      // Прежние 200px давали заметный скачок вёрстки в момент загрузки.
+      skeletonHeight={400}
     >
       {q.data && (
         <ActivityGrid

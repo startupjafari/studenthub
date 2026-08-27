@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Eye, Check, RefreshCw } from 'lucide-react'
+import { Eye, Check, Download, RefreshCw } from 'lucide-react'
 import {
   ApplicationStatusBadge,
   applicationKeys,
@@ -13,13 +13,13 @@ import {
   startPreparationRequest,
   requestCorrectionRequest,
   rejectApplicationRequest,
-  addResultRequest,
   markReadyRequest,
   issueApplicationRequest,
   deliverApplicationRequest,
   acceptDocumentRequest,
   requestDocReplacementRequest,
   fetchApplicationDocumentUrl,
+  fetchApplicationResultUrl,
   pickLocale,
   type ApplicationDetail,
   type ApplicationDocumentItem,
@@ -27,12 +27,13 @@ import {
 import {
   Button,
   Card,
-  PageHeader,
+  Modal,
   Skeleton,
   Stepper,
   EmptyState,
   PromptDialog,
 } from '../../../shared/ui'
+import { ResultModal } from './result-modal'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -50,7 +51,9 @@ function deanActiveStep(status: string): number {
 }
 
 // Рабочее место сотрудника по одной заявке (§17): студент, документы-review, действия, timeline.
-export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void }) {
+// Живёт в модальном окне поверх очереди: раньше оно подменяло собой весь экран, и после
+// закрытия очередь возвращалась к первой странице с исходным фильтром.
+export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const q = useQuery({ queryKey: applicationKeys.detail(id), queryFn: () => fetchApplication(id) })
@@ -70,8 +73,7 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
   ]
 
   return (
-    <div className="flex w-full flex-col gap-4">
-      <PageHeader title={serviceName ?? t('title')} onBack={onBack} backLabel={t('backBtn')} />
+    <Modal onClose={onClose} title={serviceName ?? t('title')} size="2xl">
       {q.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
       ) : q.isError || !app ? (
@@ -131,14 +133,7 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
             <Card className="flex flex-col gap-2 p-4">
               <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
               {app.results.map((r) => (
-                <div key={r.id} className="text-sm">
-                  {r.documentNumber && (
-                    <span className="font-medium">
-                      {t('resultDocNumber')}: {r.documentNumber}
-                    </span>
-                  )}
-                  {r.note && <p className="text-muted-foreground">{r.note}</p>}
-                </div>
+                <ResultRow key={r.id} appId={app.id} result={r} />
               ))}
             </Card>
           )}
@@ -175,7 +170,7 @@ export function StaffWorkspace({ id, onBack }: { id: string; onBack: () => void 
           </Card>
         </div>
       )}
-    </div>
+    </Modal>
   )
 }
 
@@ -209,15 +204,6 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     onSuccess: done,
     onError: err,
   })
-  const resultMut = useMutation({
-    mutationFn: (n: string) =>
-      addResultRequest(app.id, { type: 'ELECTRONIC_DOCUMENT', documentNumber: n || undefined }),
-    onSuccess: () => {
-      toast.success(t('actionNeeded'))
-      done()
-    },
-    onError: err,
-  })
   const readyMut = useMutation({
     mutationFn: (loc: string) => markReadyRequest(app.id, { pickupLocation: loc || undefined }),
     onSuccess: done,
@@ -235,6 +221,9 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   })
 
   const [prompt, setPrompt] = useState<Prompt | null>(null)
+  // Результат — не одно текстовое поле: тип, файл готовой справки, вид документа,
+  // номер и примечание. Для этого отдельная форма, а не PromptDialog.
+  const [resultOpen, setResultOpen] = useState(false)
 
   const buttons: React.ReactNode[] = []
   const s = app.status
@@ -281,12 +270,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   }
   if (s === 'IN_PREPARATION') {
     buttons.push(
-      <Button
-        key="result"
-        variant="outline"
-        className="w-full"
-        onClick={() => setPrompt({ title: t('resultDocNumber'), run: (n) => resultMut.mutate(n) })}
-      >
+      <Button key="result" variant="outline" className="w-full" onClick={() => setResultOpen(true)}>
         {t('addResult')}
       </Button>,
     )
@@ -346,10 +330,13 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       </Button>,
     )
   }
-  if (buttons.length === 0 && !prompt) return null
+  if (buttons.length === 0 && !prompt && !resultOpen) return null
   return (
     <>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">{buttons}</div>
+      {resultOpen && (
+        <ResultModal appId={app.id} onClose={() => setResultOpen(false)} onDone={done} />
+      )}
       <PromptDialog
         open={!!prompt}
         title={prompt?.title ?? ''}
@@ -458,6 +445,52 @@ function StaffDocumentReview({
         }}
         onClose={() => setReplaceFor(null)}
       />
+    </div>
+  )
+}
+
+// Строка результата: номер/примечание + скачивание выданного документа. Ссылку берём
+// у заявки — она гейтится scope заявки, а сам документ принадлежит студенту.
+function ResultRow({
+  appId,
+  result,
+}: {
+  appId: string
+  result: {
+    id: string
+    documentId: string | null
+    documentNumber: string | null
+    note: string | null
+  }
+}) {
+  const t = useTranslations('Applications')
+  const downloadMut = useMutation({
+    mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
+    // Ссылка presigned и одноразовая по сути — открываем её сразу, файл уходит вложением.
+    onSuccess: (url) => window.open(url, '_blank', 'noopener'),
+    onError: () => toast.error(t('loadError')),
+  })
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {result.documentNumber && (
+          <span className="font-medium">
+            {t('resultDocNumber')}: {result.documentNumber}
+          </span>
+        )}
+        {result.note && <p className="text-muted-foreground">{result.note}</p>}
+      </div>
+      {result.documentId && (
+        <Button
+          variant="outline"
+          size="sm"
+          loading={downloadMut.isPending}
+          onClick={() => downloadMut.mutate()}
+        >
+          <Download className="size-4" aria-hidden />
+          {t('downloadResult')}
+        </Button>
+      )}
     </div>
   )
 }

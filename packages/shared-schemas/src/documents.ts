@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SortOrderSchema } from './pagination.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -78,14 +79,36 @@ export const ReorderDocumentFilesSchema = z
   .strict()
 export type ReorderDocumentFilesInput = z.infer<typeof ReorderDocumentFilesSchema>
 
+// Колонки таблицы документов, по которым разрешена сортировка. Именно колонки, а не
+// пресеты «новые/старые»: таблица сортируется кликом по заголовку, и набор значений
+// должен совпадать с тем, что видит пользователь. Номер сюда не входит — наружу уходит
+// только маска ******4821, сортировать по ней бессмысленно.
+export const DOCUMENT_SORT_FIELDS = [
+  'title',
+  'category',
+  'status',
+  'issuedAt',
+  'expiresAt',
+  'access',
+  'createdAt',
+] as const
+export const DocumentSortSchema = z.enum(DOCUMENT_SORT_FIELDS)
+export type DocumentSortValue = z.infer<typeof DocumentSortSchema>
+
 // Список моих документов: фильтры/поиск/сортировка + вид (активные/архив).
+// sort/order — по всей выборке, а не по открытой странице.
 export const DocumentListQuerySchema = z
   .object({
     category: DocumentCategorySchema.optional(),
     type: z.string().min(1).max(64).optional(),
     status: DocumentStatusSchema.optional(),
     search: z.string().min(1).max(100).optional(),
-    sort: z.enum(['new', 'old', 'expiring', 'title']).default('new'),
+    sort: DocumentSortSchema.optional(),
+    order: SortOrderSchema.optional(),
+    // Пресет раздела: доступные мне по гранту и выданные вузом. Раньше отбирался
+    // на клиенте — из-за этого счётчик строк врал: сервер отдавал одно число, таблица
+    // показывала другое.
+    preset: z.enum(['active', 'shared', 'issued']).optional(),
     view: z.enum(['active', 'archived']).default('active'),
   })
   .strict()

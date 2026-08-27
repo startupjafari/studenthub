@@ -3,9 +3,11 @@
 import { useMemo, useState } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { useLocale, useTranslations } from 'next-intl'
-import { CalendarRange, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { CalendarRange, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { FIELD_SIZE, type ControlSize } from './control-size'
 import { dayStart, formatYmd, monthCells, parseYmd, sameDay } from './calendar-grid'
+import { CalendarNav } from './calendar-nav'
 
 // Период: обе границы — "YYYY-MM-DD" ('' если не заданы).
 export interface DateRange {
@@ -27,6 +29,7 @@ export interface DateRangePickerProps {
 // Кастомный выбор периода дат: два клика (начало → конец) на сетке месяца, подсветка диапазона
 // и превью при наведении. Без внешних зависимостей; на Radix Popover.
 export function DateRangePicker({
+  size = 'lg',
   value,
   onChange,
   min,
@@ -35,7 +38,7 @@ export function DateRangePicker({
   className,
   placeholder,
   'aria-label': ariaLabel,
-}: DateRangePickerProps) {
+}: DateRangePickerProps & { size?: ControlSize }) {
   const t = useTranslations('DatePicker')
   const locale = useLocale()
   const [open, setOpen] = useState(false)
@@ -54,9 +57,6 @@ export function DateRangePicker({
     const fmt = new Intl.DateTimeFormat(locale, { weekday: 'short' })
     return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2021, 7, 2 + i)))
   }, [locale])
-  const monthLabel = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(
-    new Date(year, month, 1),
-  )
   const fmtShort = useMemo(
     () => new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }),
     [locale],
@@ -111,7 +111,10 @@ export function DateRangePicker({
           <button
             type="button"
             aria-label={ariaLabel}
-            className="flex h-10 w-full items-center gap-2 rounded-xl border border-input bg-background pl-3 pr-9 text-left text-sm outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 dark:bg-input/30"
+            className={cn(
+              'flex w-full items-center gap-2 rounded-xl border border-input bg-background pr-9 pl-3 text-left outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 dark:bg-input/30',
+              FIELD_SIZE[size],
+            )}
           >
             <CalendarRange className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className={cn('truncate', !from && 'text-muted-foreground')}>{label}</span>
@@ -137,81 +140,63 @@ export function DateRangePicker({
             sideOffset={6}
             className="z-[110] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
           >
-            <div className="flex items-center justify-between px-1 pb-2">
-              <button
-                type="button"
-                aria-label={t('prevMonth')}
-                onClick={() => setView(new Date(year, month - 1, 1))}
-                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <ChevronLeft className="size-4" aria-hidden />
-              </button>
-              <span className="text-sm font-medium capitalize">{monthLabel}</span>
-              <button
-                type="button"
-                aria-label={t('nextMonth')}
-                onClick={() => setView(new Date(year, month + 1, 1))}
-                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <ChevronRight className="size-4" aria-hidden />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-7">
-              {weekdays.map((w, i) => (
-                <span
-                  key={i}
-                  className="flex h-7 items-center justify-center text-xs font-medium text-muted-foreground capitalize"
-                >
-                  {w}
-                </span>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-y-0.5">
-              {cells.map((d, i) => {
-                const inMonth = d.getMonth() === month
-                const isDisabled = isOutOfRange(d)
-                const isStart = lo != null && sameDay(d, lo)
-                const isEnd = hi != null && sameDay(d, hi)
-                const isEndpoint = isStart || isEnd
-                const inBand =
-                  lo != null &&
-                  hi != null &&
-                  dayStart(d) >= dayStart(lo) &&
-                  dayStart(d) <= dayStart(hi)
-                const isToday = sameDay(d, today)
-                return (
-                  <div
+            <CalendarNav view={view} onViewChange={setView} minDate={minDate} maxDate={maxDate}>
+              <div className="grid grid-cols-7">
+                {weekdays.map((w, i) => (
+                  <span
                     key={i}
-                    className={cn(
-                      // Заливка-«лента» диапазона живёт на обёртке, чтобы соединять ячейки без зазоров.
-                      inBand && 'bg-primary/15',
-                      inBand && isStart && 'rounded-l-lg',
-                      inBand && isEnd && 'rounded-r-lg',
-                    )}
+                    className="flex h-7 items-center justify-center text-xs font-medium text-muted-foreground capitalize"
                   >
-                    <button
-                      type="button"
-                      disabled={isDisabled}
-                      onClick={() => pick(d)}
-                      onMouseEnter={() => setHover(d)}
+                    {w}
+                  </span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-y-0.5">
+                {cells.map((d, i) => {
+                  const inMonth = d.getMonth() === month
+                  const isDisabled = isOutOfRange(d)
+                  const isStart = lo != null && sameDay(d, lo)
+                  const isEnd = hi != null && sameDay(d, hi)
+                  const isEndpoint = isStart || isEnd
+                  const inBand =
+                    lo != null &&
+                    hi != null &&
+                    dayStart(d) >= dayStart(lo) &&
+                    dayStart(d) <= dayStart(hi)
+                  const isToday = sameDay(d, today)
+                  return (
+                    <div
+                      key={i}
                       className={cn(
-                        'flex size-9 items-center justify-center rounded-lg text-sm transition-colors',
-                        !inMonth && 'text-muted-foreground/40',
-                        isEndpoint
-                          ? 'bg-primary font-medium text-primary-foreground'
-                          : 'hover:bg-muted',
-                        isToday && !isEndpoint && 'ring-1 ring-primary/40 ring-inset',
-                        isDisabled && 'cursor-not-allowed opacity-30 hover:bg-transparent',
+                        // Заливка-«лента» диапазона живёт на обёртке, чтобы соединять ячейки без зазоров.
+                        inBand && 'bg-primary/15',
+                        inBand && isStart && 'rounded-l-lg',
+                        inBand && isEnd && 'rounded-r-lg',
                       )}
                     >
-                      {d.getDate()}
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
+                      <button
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => pick(d)}
+                        onMouseEnter={() => setHover(d)}
+                        className={cn(
+                          'flex size-9 items-center justify-center rounded-lg text-sm transition-colors',
+                          !inMonth && 'text-muted-foreground/40',
+                          isEndpoint
+                            ? 'bg-primary font-medium text-primary-foreground'
+                            : 'hover:bg-muted',
+                          isToday && !isEndpoint && 'ring-1 ring-primary/40 ring-inset',
+                          isDisabled && 'cursor-not-allowed opacity-30 hover:bg-transparent',
+                        )}
+                      >
+                        {d.getDate()}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </CalendarNav>
 
             <div className="mt-3 flex items-center border-t border-border pt-3">
               <button

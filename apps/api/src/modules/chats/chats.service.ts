@@ -449,7 +449,10 @@ export class ChatsService {
     // Нет сообщений на/после даты (дата в будущем) — проваливаемся к дефолту (новейшие).
     if (query.aroundDate) {
       const anchor = await this.prisma.message.findFirst({
-        where: { ...baseWhere, createdAt: { gte: new Date(query.aroundDate) } },
+        // Через AND, а не спредом: `createdAt` в baseWhere уже занят границей clearedAt,
+        // и второй ключ `createdAt` затёр бы её — якорем становилось сообщение из
+        // очищенной истории, и оно всплывало в чате после «Очистить историю».
+        where: { AND: [baseWhere, { createdAt: { gte: new Date(query.aroundDate) } }] },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true, createdAt: true },
       })
@@ -598,8 +601,11 @@ export class ChatsService {
         take: limit + 1,
       }),
     ])
-    const targetRow = await this.prisma.message.findUnique({
-      where: { id: target.id },
+    // Целевое сообщение читаем под тем же baseWhere, что и окно вокруг него: выборка по
+    // одному id в обход фильтров отдала бы удалённое или скрытое очисткой сообщение,
+    // даже если весь остальной ответ его исключает.
+    const targetRow = await this.prisma.message.findFirst({
+      where: { ...baseWhere, id: target.id },
       select: MESSAGE_SELECT,
     })
     const hasNext = olderRows.length > limit

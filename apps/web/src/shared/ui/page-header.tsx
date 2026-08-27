@@ -56,7 +56,8 @@ export function PageHeader({
       {onBack && (
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="sm"
+          icon
           className="-ml-1.5 shrink-0"
           onClick={onBack}
           aria-label={backLabel}

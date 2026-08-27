@@ -134,7 +134,7 @@ export function LoginForm() {
           {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
         </div>
 
-        <Button type="submit" size="lg" loading={isSubmitting} className="mt-2 w-full">
+        <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">
           {t('signIn')}
         </Button>
 
@@ -146,7 +146,7 @@ export function LoginForm() {
         <Button
           type="button"
           variant="outline"
-          size="lg"
+          size="xl"
           className="w-full"
           onClick={() => setMode('qr')}
         >
@@ -257,7 +257,7 @@ function TwoFactorStep({
 
         <Button
           type="submit"
-          size="lg"
+          size="xl"
           loading={verifying}
           disabled={!canSubmit}
           className="mt-2 w-full"

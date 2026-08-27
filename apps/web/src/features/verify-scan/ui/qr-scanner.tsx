@@ -87,7 +87,7 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
   if (state === 'denied' || state === 'error') {
     const key = state === 'denied' ? 'scanDenied' : 'scanError'
     return (
-      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-3 rounded-3xl bg-neutral-950 p-8 text-center">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-3xl bg-neutral-950 p-8 text-center">
         <CameraOff className="size-10 text-white/60" aria-hidden />
         <p className="text-sm font-medium text-white">{t(key)}</p>
         <p className="max-w-xs text-xs text-white/50">{t(`${key}Hint`)}</p>
@@ -95,8 +95,10 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
     )
   }
 
+  // Занимает всю доступную область: `flex-1` вместо фиксированных 70vh — на телефоне
+  // это экран целиком, на десктопе вся высота контента под шапкой.
   return (
-    <div className="relative flex min-h-[70vh] w-full flex-col items-center overflow-hidden rounded-3xl bg-black">
+    <div className="relative flex min-h-0 w-full flex-1 flex-col items-center overflow-hidden rounded-3xl bg-black">
       {/* Полноэкранное видео камеры под затемнением. */}
       <video
         ref={videoRef}
@@ -114,7 +116,9 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
       {/* Центральное окно сканирования: затемняем всё вокруг через box-shadow spread. */}
       <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
         <div
-          className="relative aspect-square w-[68%] max-w-[280px] overflow-hidden rounded-2xl"
+          // Рамка растёт вместе с областью, но не выше её: потолок задан в vh, иначе
+          // на широком экране квадрат вылезал бы за нижний край.
+          className="relative aspect-square w-[68%] max-w-[min(60vh,560px)] overflow-hidden rounded-2xl"
           style={
             {
               boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.6)',
