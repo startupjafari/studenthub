@@ -235,31 +235,34 @@ export function PostCard({
 }
 
 /**
- * Заголовок и текст поста. Длинный текст сворачивается до четырёх строк со ссылкой
- * «Показать ещё»: объявление на два экрана отодвигало следующий пост за нижний край,
- * и лента переставала листаться глазами.
+ * Заголовок и текст поста в ленте.
  *
- * Сворачиваем по числу строк (line-clamp), а не по числу символов: перенос зависит
- * от ширины колонки, и обрезка по символам на широком экране рубила бы текст, который
- * и так помещался. Заголовок в сворачивание не попадает — он и есть то, по чему пост
- * узнают в потоке.
+ * Свёрнутый текст — ОДНА строка и «Читать далее». Раньше показывались четыре, и
+ * объявление на два экрана отодвигало следующий пост за нижний край: лента
+ * переставала листаться глазами.
+ *
+ * В свёрнутом виде рисуем обычный текст первой строки, а не размеченный: line-clamp
+ * поверх списков и цитат обрезает их непредсказуемо, и «одна строка» превращалась
+ * то в полторы, то в пустоту.
  */
 function PostBody({ title, text }: { title: string | null; text: string }) {
   const t = useTranslations('Feed')
   const [expanded, setExpanded] = useState(false)
-  // Порог с запасом: у поста в три строки кнопка не нужна, а разворачивать «ещё одну
-  // строку» раздражает сильнее, чем длинный текст.
-  const long = text.length > 240 || text.split('\n').length > 4
+
+  const firstLine = text.split('\n').find((l) => l.trim() !== '') ?? ''
+  // Разворачивать нечего, если весь текст — эта самая строка без разметки.
+  const collapsible = text.trim() !== firstLine.trim() || /[*`~[\]>]/.test(firstLine)
 
   return (
     <div className="flex flex-col gap-1.5 px-4 pt-3">
       {title && <h3 className="text-base leading-snug font-semibold">{title}</h3>}
-      {text && (
-        <div className={cn(long && !expanded && 'line-clamp-4')}>
+      {text &&
+        (expanded || !collapsible ? (
           <Markdown source={text} />
-        </div>
-      )}
-      {long && (
+        ) : (
+          <p className="line-clamp-1 text-sm leading-relaxed text-muted-foreground">{firstLine}</p>
+        ))}
+      {collapsible && (
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
@@ -334,7 +337,12 @@ function MediaCollage({
         : 'grid-cols-2'
 
   return (
-    <div className={cn('mt-3 grid gap-0.5', layout)}>
+    // Высота ряда задана явно, а не квадратом плитки: при квадрате коллаж из четырёх
+    // фото занимал две ширины карточки — почти два экрана, и до текста поста нужно
+    // было прокручивать. Фиксированный ряд делает коллаж примерно вдвое ниже.
+    <div
+      className={cn('mt-3 grid gap-0.5', layout, media.length > 1 && 'auto-rows-[8rem] sm:auto-rows-[9.5rem]')} // prettier-ignore
+    >
       {tiles.map((m, i) => (
         <button
           key={m.id}
@@ -345,7 +353,8 @@ function MediaCollage({
             'relative block overflow-hidden',
             // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
             // или скан, и обрезка съедала бы половину смысла.
-            media.length !== 1 && 'aspect-square bg-muted',
+            // Высоту задаёт ряд сетки — плитке остаётся заполнить её целиком.
+            media.length !== 1 && 'size-full bg-muted',
           )}
         >
           {media.length === 1 ? (
