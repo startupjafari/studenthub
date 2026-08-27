@@ -387,9 +387,11 @@
 Осознанно отсутствуют, собираются на месте: **Switch**, **Divider**, **RadioGroup**,
 **Accordion**, **Popover**, поле поиска, чип-фильтр. Приватные реализации живут в
 `widgets/account-settings/ui/account-settings-panels.tsx` (`ToggleSwitch`, `SettingRow`) и
-`widgets/platform-dashboard/ui/primitives.tsx` (`StatTile`, `Meter`, `ChartLegend`,
-`ActivityGrid`). Нужен такой элемент на новом экране — **не копировать**: поднимать в
-`shared/ui` отдельной задачей (§17).
+`widgets/platform-dashboard/ui/primitives.tsx` (`StatTile`, `Meter`, `ChartLegend`).
+Нужен такой элемент на новом экране — **не копировать**: поднимать в `shared/ui`
+отдельной задачей (§17). Так уже подняты `MetricTile` (плитка показателя: иконка в чипе,
+число, подпись), `SectionPanel` (панель раздела с обязательным пояснением в шапке) и
+`ActivityGrid` (теплокарта 7×24, живёт в `shared/ui/chart`).
 
 ---
 

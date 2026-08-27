@@ -3,10 +3,11 @@
 import { useMemo, useState } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { useLocale, useTranslations } from 'next-intl'
-import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { CalendarDays, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { FIELD_SIZE, type ControlSize } from './control-size'
 import { dayStart, formatYmd, monthCells, parseYmd, sameDay } from './calendar-grid'
+import { CalendarNav } from './calendar-nav'
 
 export interface DatePickerProps {
   // Значение — "YYYY-MM-DD" ('' если не выбрано).
@@ -53,9 +54,6 @@ export function DatePicker({
     const fmt = new Intl.DateTimeFormat(locale, { weekday: 'short' })
     return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2021, 7, 2 + i)))
   }, [locale])
-  const monthLabel = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(
-    new Date(year, month, 1),
-  )
   const label = selected
     ? new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short', year: 'numeric' }).format(
         selected,
@@ -118,62 +116,44 @@ export function DatePicker({
             sideOffset={6}
             className="z-[110] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
           >
-            <div className="flex items-center justify-between px-1 pb-2">
-              <button
-                type="button"
-                aria-label={t('prevMonth')}
-                onClick={() => setView(new Date(year, month - 1, 1))}
-                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <ChevronLeft className="size-4" aria-hidden />
-              </button>
-              <span className="text-sm font-medium capitalize">{monthLabel}</span>
-              <button
-                type="button"
-                aria-label={t('nextMonth')}
-                onClick={() => setView(new Date(year, month + 1, 1))}
-                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <ChevronRight className="size-4" aria-hidden />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-7">
-              {weekdays.map((w, i) => (
-                <span
-                  key={i}
-                  className="flex h-7 items-center justify-center text-xs font-medium text-muted-foreground capitalize"
-                >
-                  {w}
-                </span>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-0.5">
-              {cells.map((d, i) => {
-                const inMonth = d.getMonth() === month
-                const isSel = selected !== null && sameDay(d, selected)
-                const isToday = sameDay(d, today)
-                const isDisabled = isOutOfRange(d)
-                return (
-                  <button
+            <CalendarNav view={view} onViewChange={setView} minDate={minDate} maxDate={maxDate}>
+              <div className="grid grid-cols-7">
+                {weekdays.map((w, i) => (
+                  <span
                     key={i}
-                    type="button"
-                    disabled={isDisabled}
-                    onClick={() => pick(d)}
-                    className={cn(
-                      'flex size-9 items-center justify-center rounded-lg text-sm transition-colors',
-                      !inMonth && 'text-muted-foreground/40',
-                      isSel ? 'bg-primary font-medium text-primary-foreground' : 'hover:bg-muted',
-                      isToday && !isSel && 'ring-1 ring-primary/40 ring-inset',
-                      isDisabled && 'cursor-not-allowed opacity-30 hover:bg-transparent',
-                    )}
+                    className="flex h-7 items-center justify-center text-xs font-medium text-muted-foreground capitalize"
                   >
-                    {d.getDate()}
-                  </button>
-                )
-              })}
-            </div>
+                    {w}
+                  </span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-0.5">
+                {cells.map((d, i) => {
+                  const inMonth = d.getMonth() === month
+                  const isSel = selected !== null && sameDay(d, selected)
+                  const isToday = sameDay(d, today)
+                  const isDisabled = isOutOfRange(d)
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => pick(d)}
+                      className={cn(
+                        'flex size-9 items-center justify-center rounded-lg text-sm transition-colors',
+                        !inMonth && 'text-muted-foreground/40',
+                        isSel ? 'bg-primary font-medium text-primary-foreground' : 'hover:bg-muted',
+                        isToday && !isSel && 'ring-1 ring-primary/40 ring-inset',
+                        isDisabled && 'cursor-not-allowed opacity-30 hover:bg-transparent',
+                      )}
+                    >
+                      {d.getDate()}
+                    </button>
+                  )
+                })}
+              </div>
+            </CalendarNav>
 
             <div className="mt-3 flex items-center border-t border-border pt-3">
               <button

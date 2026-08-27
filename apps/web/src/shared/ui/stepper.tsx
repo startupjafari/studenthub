@@ -11,6 +11,10 @@ export interface StepperStep {
 // Горизонтальный индикатор шагов: пройденные — с галочкой, текущий — подсвечен.
 // current — подсвеченный шаг; done — сколько шагов пройдено (по умолчанию = current).
 // onStepClick делает пройденные/текущий шаги кликабельными (возврат к ним).
+//
+// Занимает всю ширину контейнера: тянутся соединительные линии, а сами шаги остаются
+// по размеру подписи. Раньше линия была фиксированной (`w-5`), и на широкой панели
+// вся лесенка жалась к левому краю.
 export function Stepper({
   steps,
   current,
@@ -33,14 +37,18 @@ export function Stepper({
         const isActive = i === current
         const clickable = !!onStepClick && i <= doneCount
         return (
-          <li key={s.id} className="flex shrink-0 items-center gap-1">
+          <li
+            key={s.id}
+            // Растягивается всё, кроме последнего шага: тянуть нечего — за ним нет линии.
+            className={cn('flex items-center gap-1', i < steps.length - 1 && 'flex-1')}
+          >
             <button
               type="button"
               disabled={!clickable}
               aria-current={isActive ? 'step' : undefined}
               onClick={() => clickable && onStepClick?.(i)}
               className={cn(
-                'flex items-center gap-2 rounded-full py-1 pr-3 pl-1 transition-colors',
+                'flex shrink-0 items-center gap-2 rounded-full py-1 pr-3 pl-1 transition-colors',
                 clickable ? 'cursor-pointer hover:bg-muted' : 'cursor-default',
               )}
             >
@@ -65,7 +73,11 @@ export function Stepper({
                 {s.label}
               </span>
             </button>
-            {i < steps.length - 1 && <span className="h-px w-5 shrink-0 bg-border" aria-hidden />}
+            {i < steps.length - 1 && (
+              // `min-w-4` — на узком экране линия не схлопывается в ноль, а включает
+              // горизонтальную прокрутку контейнера.
+              <span className="h-px min-w-4 flex-1 bg-border" aria-hidden />
+            )}
           </li>
         )
       })}
