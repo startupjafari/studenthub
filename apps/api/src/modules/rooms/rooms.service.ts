@@ -1,13 +1,51 @@
 import { Injectable } from '@nestjs/common'
-import { Prisma, type RoomKind } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type { CreateRoomInput, UpdateRoomInput } from '@studenthub/shared-schemas'
+import type {
+  CreateRoomInput,
+  RoomListQueryInput,
+  RoomSortValue,
+  SortOrderValue,
+  UpdateRoomInput,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+
+/**
+ * Порядок выборки помещений по колонке таблицы.
+ *
+ * Корпус, этаж и вместимость необязательны, поэтому `nulls: 'last'` — помещения без
+ * этих данных всегда в конце, а не всплывают наверх при сортировке по возрастанию.
+ * Внутри одинаковых значений — по названию: иначе строки с равным этажом на каждой
+ * перезагрузке шли бы в произвольном порядке (у Postgres нет стабильной сортировки).
+ */
+function roomOrderBy(
+  sort: RoomSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.RoomOrderByWithRelationInput[] {
+  const dir = order ?? 'asc'
+  const byName: Prisma.RoomOrderByWithRelationInput = { name: 'asc' }
+  switch (sort) {
+    case 'kind':
+      return [{ kind: dir }, byName]
+    case 'building':
+      return [{ building: { sort: dir, nulls: 'last' } }, byName]
+    case 'floor':
+      return [{ floor: { sort: dir, nulls: 'last' } }, byName]
+    case 'capacity':
+      return [{ capacity: { sort: dir, nulls: 'last' } }, byName]
+    case 'qr':
+      return [{ qrCode: { sort: dir, nulls: 'first' } }, byName]
+    case 'name':
+      return [{ name: dir }]
+    default:
+      return [byName]
+  }
+}
 
 const ROOM_SELECT = {
   id: true,
@@ -82,18 +120,13 @@ export class RoomService {
   }
 
   /** Список аудиторий по scope смотрящего. */
-  async list(
-    viewer: JwtPayload,
-    page: number,
-    limit: number,
-    universityId?: string,
-    kind?: RoomKind,
-  ): Promise<Paginated<RoomDto>> {
+  async list(viewer: JwtPayload, query: RoomListQueryInput): Promise<Paginated<RoomDto>> {
+    const { page, limit, universityId, kind } = query
     const where = { ...this.listWhere(viewer, universityId), ...(kind ? { kind } : {}) }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.room.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: roomOrderBy(query.sort, query.order),
         skip: (page - 1) * limit,
         take: limit,
         select: ROOM_SELECT,

@@ -298,7 +298,9 @@ export function AppShell({
               `flex flex-col` — чтобы страница могла занять всю свободную высоту (`flex-1` у
               обёртки): так работают экраны с таблицей во всю высоту. Обычные страницы от этого
               не меняются — блок с авто-высотой в колонке ведёт себя как раньше. */}
-          <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-24 md:p-6 md:pt-6 lg:pb-6">
+          {/* `sh-scroll` резервирует место под полосу прокрутки: без этого переход с короткой
+              страницы на длинную сдвигал всю раскладку на ширину полосы. */}
+          <main className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-24 md:p-6 md:pt-6 lg:pb-6">
             {children}
           </main>
         </div>

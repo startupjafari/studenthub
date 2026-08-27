@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Дисциплины (docs/ACADEMIC_CORE.md, задача 2): Subject (справочник вуза), Term
 // (семестр как сущность), Course (преподавание дисциплины группе в семестре).
@@ -38,11 +38,17 @@ export const UpdateTermSchema = z
   .strict()
 export type UpdateTermInput = z.infer<typeof UpdateTermSchema>
 
-export const TermListQuerySchema = z
-  .object({
-    universityId: z.string().min(1).optional(),
-  })
-  .strict()
+// Колонки таблицы семестров.
+export const TERM_SORT_FIELDS = ['name', 'startsOn', 'endsOn', 'isActive'] as const
+export const TermSortSchema = z.enum(TERM_SORT_FIELDS)
+export type TermSortValue = z.infer<typeof TermSortSchema>
+
+// Семестры: постраничность и сортировка по всей выборке.
+export const TermListQuerySchema = OffsetPaginationSchema.extend({
+  universityId: z.string().min(1).optional(),
+  sort: TermSortSchema.optional(),
+  order: SortOrderSchema.optional(),
+})
 export type TermListQueryInput = z.infer<typeof TermListQuerySchema>
 
 // ── Subject (справочник дисциплин) ───────────────────────────────────────────
@@ -63,12 +69,20 @@ export const UpdateSubjectSchema = z
   .strict()
 export type UpdateSubjectInput = z.infer<typeof UpdateSubjectSchema>
 
-export const SubjectListQuerySchema = z
-  .object({
-    universityId: z.string().min(1).optional(),
-    search: z.string().min(1).max(200).optional(),
-  })
-  .strict()
+// Колонки таблицы справочника дисциплин.
+export const SUBJECT_SORT_FIELDS = ['name', 'code'] as const
+export const SubjectSortSchema = z.enum(SUBJECT_SORT_FIELDS)
+export type SubjectSortValue = z.infer<typeof SubjectSortSchema>
+
+// Справочник дисциплин: постраничность и сортировка по всей выборке. Раньше эндпоинт
+// отдавал до 500 записей одним куском без счётчика — таблице неоткуда было взять
+// число страниц.
+export const SubjectListQuerySchema = OffsetPaginationSchema.extend({
+  universityId: z.string().min(1).optional(),
+  search: z.string().min(1).max(200).optional(),
+  sort: SubjectSortSchema.optional(),
+  order: SortOrderSchema.optional(),
+})
 export type SubjectListQueryInput = z.infer<typeof SubjectListQuerySchema>
 
 // ── Course (дисциплина группы в семестре) ────────────────────────────────────
@@ -93,7 +107,15 @@ export const UpdateCourseSchema = z
 export type UpdateCourseInput = z.infer<typeof UpdateCourseSchema>
 
 // Список дисциплин: пагинация + фильтры. `mine` — только свои (для преподавателя).
+// Колонки таблицы курсов. Дисциплина, группа и преподаватель — поля связанных таблиц;
+// Prisma умеет упорядочивать по ним через orderBy на отношении.
+export const COURSE_SORT_FIELDS = ['subject', 'group', 'term', 'teacher', 'credits'] as const
+export const CourseSortSchema = z.enum(COURSE_SORT_FIELDS)
+export type CourseSortValue = z.infer<typeof CourseSortSchema>
+
 export const CourseListQuerySchema = OffsetPaginationSchema.extend({
+  sort: CourseSortSchema.optional(),
+  order: SortOrderSchema.optional(),
   groupId: z.string().min(1).optional(),
   termId: z.string().min(1).optional(),
   teacherId: z.string().min(1).optional(),

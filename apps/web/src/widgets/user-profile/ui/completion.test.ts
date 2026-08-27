@@ -6,6 +6,10 @@ import { visibleSections } from './sections'
 // Заполненность считается только по полям, доступным роли. Раньше в знаменатель
 // попадал весь блок «Работа» (кафедра, учёная степень, предметы), и платформенный
 // админ не мог дойти до 100% — плашка висела вечно.
+//
+// Набор полей платформенной команды расширен личными (дата рождения, страна, сайт,
+// соцсети, навыки, интересы) — поэтому знаменатель у неё вырос, и заполненный ранее
+// профиль показывает меньший процент. Это ожидаемо, а не регрессия.
 
 /** Профиль, где заполнены все доступные роли поля (+ аватар и подпись из шапки). */
 function fullProfileFor(role: Role): Record<string, unknown> {
@@ -59,9 +63,10 @@ describe('visibleSections', () => {
     const titles = visibleSections(Role.PLATFORM_ADMIN).map((s) => s.title)
     expect(titles).not.toContain('sectionAcademic')
     expect(titles).not.toContain('sectionStudy')
-    expect(titles).not.toContain('sectionInterests')
     expect(titles).toContain('sectionWork')
     expect(titles).toContain('sectionContacts')
+    // Интересы и навыки платформенной команде открыты (см. SHOWCASE_ROLES).
+    expect(titles).toContain('sectionInterests')
   })
 
   it('секция «Академическое» есть у преподавателя и декана', () => {
@@ -70,8 +75,17 @@ describe('visibleSections', () => {
     }
   })
 
-  it('«Интересы и навыки» — только у студенческих ролей', () => {
-    expect(visibleSections(Role.STUDENT).map((s) => s.title)).toContain('sectionInterests')
-    expect(visibleSections(Role.TEACHER).map((s) => s.title)).not.toContain('sectionInterests')
+  it('«Интересы и навыки» — у студенческих ролей и платформенной команды, но не у вуза', () => {
+    for (const role of [
+      Role.STUDENT,
+      Role.STAROSTA,
+      Role.PLATFORM_ADMIN,
+      Role.PLATFORM_MODERATOR,
+    ]) {
+      expect(visibleSections(role).map((s) => s.title)).toContain('sectionInterests')
+    }
+    for (const role of [Role.TEACHER, Role.UNIVERSITY_ADMIN]) {
+      expect(visibleSections(role).map((s) => s.title)).not.toContain('sectionInterests')
+    }
   })
 })

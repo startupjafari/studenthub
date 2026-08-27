@@ -154,14 +154,30 @@ export const ApplicationResultTypeSchema = z.enum([
 ])
 export type ApplicationResultType = z.infer<typeof ApplicationResultTypeSchema>
 
+// Результат заявки. Файл готового документа передаётся как `fileId` — сервер сам заводит
+// Document на имя СТУДЕНТА в разделе «Выданные университетом». Если бы документ создавал
+// фронт обычным `POST /documents`, владельцем стал бы сотрудник: справка оседала бы в личном
+// кабинете декана и не появлялась бы у того, кому её выдали.
+// `documentId` остаётся для случая, когда документ уже существует в хранилище.
 export const AddApplicationResultSchema = z
   .object({
     type: ApplicationResultTypeSchema,
     documentId: z.string().min(1).optional(),
+    fileId: z.string().min(1).optional(),
+    // Тип из каталога DOCUMENT_TYPES для создаваемого документа (обязателен с `fileId`).
+    documentType: z.string().min(1).max(64).optional(),
     documentNumber: z.string().max(100).optional(),
     note: z.string().max(2000).optional(),
   })
   .strict()
+  .refine((v) => !(v.fileId && v.documentId), {
+    message: 'Укажите либо файл, либо существующий документ',
+    path: ['fileId'],
+  })
+  .refine((v) => !v.fileId || !!v.documentType, {
+    message: 'Укажите вид документа',
+    path: ['documentType'],
+  })
 export type AddApplicationResultInput = z.infer<typeof AddApplicationResultSchema>
 
 export const MarkReadySchema = z

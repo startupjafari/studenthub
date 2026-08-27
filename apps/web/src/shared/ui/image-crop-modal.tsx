@@ -4,14 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { Check, RotateCw, X, ZoomIn } from 'lucide-react'
-import { useBodyScrollLock } from '../../../shared/lib'
-import { Button } from '../../../shared/ui'
+import { useBodyScrollLock } from '../lib'
+import { Button } from './button'
 
-const OUTPUT = 512 // размер итогового квадрата аватара, px
-const MIN_VIEW = 220 // минимальный размер области кадрирования, px
-const MAX_VIEW = 560 // максимальный размер области кадрирования, px
+const MIN_VIEW = 220 // минимальная ширина области кадрирования, px
+const MAX_VIEW = 720 // максимальная ширина области кадрирования, px
 
-interface AvatarCropModalProps {
+interface ImageCropModalProps {
   file: File
   saving: boolean
   onCancel: () => void
@@ -20,11 +19,23 @@ interface AvatarCropModalProps {
   title?: string
   confirmLabel?: string
   shape?: 'circle' | 'square'
+  /**
+   * Соотношение сторон кадра, ширина/высота. 1 — квадрат (аватар, фото профиля),
+   * 3 — широкая полоса (обложка). Круглая рамка имеет смысл только при 1.
+   */
+  aspect?: number
+  /** Ширина итогового изображения, px. Высота считается из `aspect`. */
+  outputWidth?: number
 }
 
-// Модалка кадрирования изображения: перетаскивание + масштаб, предпросмотр (круг/квадрат),
-// экспорт через canvas. Без внешних зависимостей (новая зависимость = стоп-точка).
-export function AvatarCropModal({
+/**
+ * Кадрирование изображения перед загрузкой: перетаскивание, масштаб, поворот на 90°,
+ * экспорт через canvas. Без внешних зависимостей (новая зависимость = стоп-точка).
+ *
+ * Живёт в `shared/ui`, потому что нужен и профилю (аватар, фото, обложка), и панели
+ * чата (аватар группы) — а виджет не может импортировать из другого виджета.
+ */
+export function ImageCropModal({
   file,
   saving,
   onCancel,
@@ -32,11 +43,14 @@ export function AvatarCropModal({
   title,
   confirmLabel,
   shape = 'circle',
-}: AvatarCropModalProps) {
+  aspect = 1,
+  outputWidth = 512,
+}: ImageCropModalProps) {
   const t = useTranslations('Profile')
   const heading = title ?? t('cropTitle')
   const confirm = confirmLabel ?? t('save')
-  const round = shape === 'circle'
+  // Круглая рамка осмысленна только у квадратного кадра: у полосы она врала бы о результате.
+  const round = shape === 'circle' && aspect === 1
   const imgRef = useRef<HTMLImageElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(null)
@@ -44,7 +58,7 @@ export function AvatarCropModal({
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   // Размер области кадрирования подстраивается под доступное место в укрупнённом окне.
-  const [view, setView] = useState(288)
+  const [view, setView] = useState({ w: 288, h: 288 / aspect })
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null)
 
   useBodyScrollLock()
@@ -64,35 +78,43 @@ export function AvatarCropModal({
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
 
-  // Подгоняем область кадрирования под доступное место (квадрат по меньшей стороне).
+  // Вписываем кадр в доступное место с сохранением пропорции: сначала по ширине,
+  // и если по высоте не влезает — пересчитываем от высоты.
   useEffect(() => {
     const el = stageRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect
       if (!r) return
-      const size = Math.max(MIN_VIEW, Math.min(MAX_VIEW, Math.floor(Math.min(r.width, r.height))))
-      setView(size)
+      let w = Math.max(MIN_VIEW, Math.min(MAX_VIEW, Math.floor(r.width)))
+      let h = w / aspect
+      if (h > r.height) {
+        h = Math.max(MIN_VIEW / aspect, Math.floor(r.height))
+        w = h * aspect
+      }
+      setView({ w: Math.floor(w), h: Math.floor(h) })
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [aspect])
 
-  const baseScale = nat ? view / Math.min(nat.w, nat.h) : 1
+  // «Cover»-вписывание: кадр всегда заполнен изображением, пустых полей по краям не бывает.
+  const baseScale = nat ? Math.max(view.w / nat.w, view.h / nat.h) : 1
   const displayScale = baseScale * zoom
   const dispW = nat ? nat.w * displayScale : 0
   const dispH = nat ? nat.h * displayScale : 0
 
-  const clamp = (x: number, y: number) => ({
-    x: Math.min(0, Math.max(view - dispW, x)),
-    y: Math.min(0, Math.max(view - dispH, y)),
+  const clampWith = (x: number, y: number, w: number, h: number) => ({
+    x: Math.min(0, Math.max(view.w - w, x)),
+    y: Math.min(0, Math.max(view.h - h, y)),
   })
+  const clamp = (x: number, y: number) => clampWith(x, y, dispW, dispH)
 
   // При изменении размера области — пере-центрируем изображение (сохраняя зум).
   useEffect(() => {
     if (!nat) return
-    const ds = (view / Math.min(nat.w, nat.h)) * zoom
-    setOffset({ x: (view - nat.w * ds) / 2, y: (view - nat.h * ds) / 2 })
+    const ds = Math.max(view.w / nat.w, view.h / nat.h) * zoom
+    setOffset({ x: (view.w - nat.w * ds) / 2, y: (view.h - nat.h * ds) / 2 })
   }, [view])
 
   function onLoad() {
@@ -101,8 +123,8 @@ export function AvatarCropModal({
     const w = el.naturalWidth
     const h = el.naturalHeight
     setNat({ w, h })
-    const bs = view / Math.min(w, h)
-    setOffset({ x: (view - w * bs) / 2, y: (view - h * bs) / 2 })
+    const bs = Math.max(view.w / w, view.h / h)
+    setOffset({ x: (view.w - w * bs) / 2, y: (view.h - h * bs) / 2 })
     setZoom(1)
   }
 
@@ -110,15 +132,13 @@ export function AvatarCropModal({
     if (!nat) return
     const oldDS = baseScale * zoom
     const newDS = baseScale * next
-    const ix = (view / 2 - offset.x) / oldDS
-    const iy = (view / 2 - offset.y) / oldDS
+    // Приближаем к центру кадра: точка под центром остаётся под центром.
+    const ix = (view.w / 2 - offset.x) / oldDS
+    const iy = (view.h / 2 - offset.y) / oldDS
     setZoom(next)
-    setOffset(clampWith(view / 2 - ix * newDS, view / 2 - iy * newDS, nat.w * newDS, nat.h * newDS))
-  }
-
-  // clamp с явными размерами (для зума, где dispW/dispH ещё старые в замыкании).
-  function clampWith(x: number, y: number, w: number, h: number) {
-    return { x: Math.min(0, Math.max(view - w, x)), y: Math.min(0, Math.max(view - h, y)) }
+    setOffset(
+      clampWith(view.w / 2 - ix * newDS, view.h / 2 - iy * newDS, nat.w * newDS, nat.h * newDS),
+    )
   }
 
   function onPointerDown(e: React.PointerEvent) {
@@ -155,18 +175,27 @@ export function AvatarCropModal({
     const el = imgRef.current
     if (!el || !nat) return
     const canvas = document.createElement('canvas')
-    canvas.width = OUTPUT
-    canvas.height = OUTPUT
+    canvas.width = outputWidth
+    canvas.height = Math.round(outputWidth / aspect)
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const sx = -offset.x / displayScale
     const sy = -offset.y / displayScale
-    const sSize = view / displayScale
-    ctx.drawImage(el, sx, sy, sSize, sSize, 0, 0, OUTPUT, OUTPUT)
+    ctx.drawImage(
+      el,
+      sx,
+      sy,
+      view.w / displayScale,
+      view.h / displayScale,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    )
     canvas.toBlob(
       (blob) => {
         if (!blob) return
-        onSave(new File([blob], `${round ? 'avatar' : 'photo'}.jpg`, { type: 'image/jpeg' }))
+        onSave(new File([blob], `${round ? 'avatar' : 'image'}.jpg`, { type: 'image/jpeg' }))
       },
       'image/jpeg',
       0.9,
@@ -197,7 +226,7 @@ export function AvatarCropModal({
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            style={{ width: view, height: view }}
+            style={{ width: view.w, height: view.h }}
             className={`relative touch-none overflow-hidden border border-border bg-muted ${round ? 'rounded-full' : 'rounded-xl'}`}
           >
             {url && (

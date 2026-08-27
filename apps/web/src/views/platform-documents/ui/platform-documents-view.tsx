@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueries } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { AlertTriangle, FileSearch, FileText, History } from 'lucide-react'
+import { AlertTriangle, FileSearch, FileText, History, Loader2 } from 'lucide-react'
 import { auditKeys, fetchAudit, type AuditLogItem } from '../../../entities/audit'
+import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
 import {
   fetchDocumentPlatform,
   platformDocumentFileUrl,
@@ -33,6 +34,7 @@ import {
   TableText,
   Textarea,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -43,8 +45,28 @@ const REASON_MIN = 5
 // Действия аудита, которые пишет спец-режим (documents.service: platformGet / platformFileUrl).
 const LOG_ACTIONS = ['DOCUMENT_PLATFORM_DOWNLOAD', 'DOCUMENT_PLATFORM_VIEW'] as const
 const LOG_LIMIT = 20
+/**
+ * Сетка превью: одно фото — во всю ширину карточки, дальше 2×2, 3×3, 4×4.
+ * Классы статические — Tailwind не генерирует их из вычисленной строки.
+ */
+const PREVIEW_GRID = ['grid-cols-1', 'grid-cols-2', 'grid-cols-3', 'grid-cols-4'] as const
+function previewGrid(count: number): string {
+  if (count <= 1) return PREVIEW_GRID[0]
+  if (count <= 4) return PREVIEW_GRID[1]
+  if (count <= 9) return PREVIEW_GRID[2]
+  return PREVIEW_GRID[3]
+}
+
 // Ширины: дата · документ · действие · основание · кнопка.
 const LOG_COLS = ['16%', '26%', '14%', '32%', '12%'] as const
+// Классы видимости вынесены из разметки: шапка, строки и скелетон обязаны прятать одни
+// и те же колонки, а разложенные по трём местам литералы для этого расходятся.
+const LOG_HIDE = {
+  action: 'hidden md:table-cell',
+  reason: 'hidden lg:table-cell',
+} as const
+// Порядок классов = порядок колонок (см. LOG_COLS).
+const LOG_SKELETON_COLS = [undefined, undefined, LOG_HIDE.action, LOG_HIDE.reason, undefined]
 
 interface AccessRequest {
   docId: string
@@ -99,7 +121,7 @@ export function PlatformDocumentsView() {
         title={t('pa_title')}
         subtitle={t('pa_subtitle')}
         actions={
-          <Button size="field" onClick={() => openForm()}>
+          <Button size="md" onClick={() => openForm()}>
             <FileSearch className="size-4" aria-hidden /> {t('pa_request')}
           </Button>
         }
@@ -125,6 +147,7 @@ export function PlatformDocumentsView() {
           request={request}
           openingFileId={openMut.isPending ? (openMut.variables ?? null) : null}
           onOpenFile={(fileId) => openMut.mutate(fileId)}
+          resolveUrl={(fileId) => platformDocumentFileUrl(request.docId, fileId, request.reason)}
           onBack={() => openForm(request)}
           onClose={() => setStage('none')}
         />
@@ -140,6 +163,7 @@ function DocumentModal({
   request,
   openingFileId,
   onOpenFile,
+  resolveUrl,
   onBack,
   onClose,
 }: {
@@ -147,11 +171,38 @@ function DocumentModal({
   request: AccessRequest
   openingFileId: string | null
   onOpenFile: (fileId: string) => void
+  resolveUrl: (fileId: string) => Promise<string>
   onBack: () => void
   onClose: () => void
 }) {
   const t = useTranslations('Documents')
   const locale = useLocale()
+  const media = doc.files.filter((f) => isViewableMedia(f.mime))
+  const others = doc.files.filter((f) => !isViewableMedia(f.mime))
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null)
+
+  // Ссылки на превью тянем сразу при открытии карточки. Каждая выдача пишется в аудит —
+  // это ровно то, о чём предупреждает баннер в форме запроса: доступ к содержимому
+  // фиксируется вместе с причиной.
+  useEffect(() => {
+    let alive = true
+    void Promise.all(
+      media.map((f) =>
+        resolveUrl(f.id).then(
+          (url) => [f.id, url] as const,
+          () => null,
+        ),
+      ),
+    ).then((pairs) => {
+      if (alive) setUrls(Object.fromEntries(pairs.filter((p): p is [string, string] => p !== null)))
+    })
+    return () => {
+      alive = false
+    }
+    // Только на смену документа: media/resolveUrl пересоздаются каждый рендер, и в
+    // зависимостях они дали бы бесконечный цикл запросов — а каждый пишет в аудит.
+  }, [doc.id])
 
   return (
     <Modal onClose={onClose} onBack={onBack} backLabel={t('pa_change')} title={doc.title} size="lg">
@@ -185,23 +236,75 @@ function DocumentModal({
           {doc.files.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('pa_noFiles')}</p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {doc.files.map((f, i) => (
-                <Button
-                  key={f.id}
-                  size="sm"
-                  variant="outline"
-                  loading={openingFileId === f.id}
-                  onClick={() => onOpenFile(f.id)}
-                >
-                  <FileText className="size-4" aria-hidden />
-                  {t('pa_openFile', { n: i + 1 })}
-                </Button>
-              ))}
-            </div>
+            <>
+              {/* Картинки и сканы показываем сразу: ради содержимого документ и открывают,
+                  а кнопка «Файл 1» не говорила о нём ничего. Клик — полноэкранный
+                  просмотрщик, тот же, что в чате и постах. */}
+              {media.length > 0 && (
+                <div className={cn('grid gap-2', previewGrid(media.length))}>
+                  {media.map((f, i) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setViewerIndex(i)}
+                      className={cn(
+                        'relative flex items-center justify-center overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-ring/50',
+                        // Одиночное превью крупнее и шире: скан документа читается целиком,
+                        // а не сжимается до размера плитки в сетке.
+                        media.length === 1 ? 'aspect-[3/2]' : 'aspect-[4/3]',
+                      )}
+                    >
+                      {urls[f.id] ? (
+                        f.mime.startsWith('video/') ? (
+                          // `object-contain`, а не `cover`: у документа обрезанный край —
+                          // это потерянные печать, подпись или номер.
+                          <video src={urls[f.id]} className="size-full object-contain" muted />
+                        ) : (
+                          <img src={urls[f.id]} alt="" className="size-full object-contain" />
+                        )
+                      ) : (
+                        <Loader2
+                          className="size-5 animate-spin text-muted-foreground"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* PDF и офисные файлы просмотрщик показать не умеет — им остаётся кнопка. */}
+              {others.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {others.map((f) => (
+                    <Button
+                      key={f.id}
+                      size="sm"
+                      variant="outline"
+                      loading={openingFileId === f.id}
+                      onClick={() => onOpenFile(f.id)}
+                    >
+                      <FileText className="size-4" aria-hidden />
+                      {t('pa_openFile', { n: doc.files.indexOf(f) + 1 })}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {viewerIndex !== null && (
+        <DocumentFileViewer
+          files={media}
+          index={viewerIndex}
+          onIndexChange={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+          // Ссылка уже получена для превью — повторно в аудит не пишем.
+          resolveUrl={(fileId) => Promise.resolve(urls[fileId] ?? '')}
+        />
+      )}
     </Modal>
   )
 }
@@ -344,15 +447,15 @@ function AccessLog({ onRepeat }: { onRepeat: (req: AccessRequest) => void }) {
             <TableRow>
               <TableHead>{t('pa_colDate')}</TableHead>
               <TableHead>{t('pa_colDocument')}</TableHead>
-              <TableHead className="hidden md:table-cell">{t('pa_colAction')}</TableHead>
-              <TableHead className="hidden lg:table-cell">{t('pa_reason')}</TableHead>
+              <TableHead className={LOG_HIDE.action}>{t('pa_colAction')}</TableHead>
+              <TableHead className={LOG_HIDE.reason}>{t('pa_reason')}</TableHead>
               <TableHead>
                 <span className="sr-only">{t('actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableSkeletonRows columns={5} />}
+            {loading && <TableSkeletonRows columns={LOG_SKELETON_COLS} />}
             {rows.map((entry) => (
               <TableRow key={entry.id} className="hover:bg-muted/40">
                 <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
@@ -366,12 +469,12 @@ function AccessLog({ onRepeat }: { onRepeat: (req: AccessRequest) => void }) {
                 <TableCell className="font-mono text-xs">
                   <TableText value={entry.entityId} />
                 </TableCell>
-                <TableCell className="hidden md:table-cell">
+                <TableCell className={LOG_HIDE.action}>
                   <Badge variant={entry.action === LOG_ACTIONS[0] ? 'warning' : 'secondary'}>
                     {t(entry.action === LOG_ACTIONS[0] ? 'pa_actionFile' : 'pa_actionCard')}
                   </Badge>
                 </TableCell>
-                <TableCell className="hidden text-muted-foreground lg:table-cell">
+                <TableCell className={cn(LOG_HIDE.reason, 'text-muted-foreground')}>
                   <TableText value={reasonOf(entry)} />
                 </TableCell>
                 <TableCell className="text-right">

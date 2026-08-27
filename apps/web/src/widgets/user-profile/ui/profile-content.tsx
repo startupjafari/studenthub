@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Role } from '@studenthub/shared-types'
+import type { ProfileFieldKey } from '@studenthub/shared-schemas'
 import {
   Badge,
   Card,
@@ -273,7 +274,10 @@ export function ProfileBody({ data }: { data: ProfileData }) {
 // ── Контакты ────────────────────────────────────────────────────────────────
 function ContactsCard({ data }: { data: ProfileData }) {
   const t = useTranslations('Profile')
-  // Все контакты выводятся всегда; пустые — «Нет данных» (value: null).
+  // Незаполненный контакт показываем как «Нет данных» — но только тот, который роль
+  // вообще вправе заполнить. Instagram и сайт закрыты для служебных ролей
+  // (PROFILE_FIELD_ROLES), и без этой проверки у админа платформы висели две строки,
+  // которые не наполнятся никогда.
   const tg = data.telegram?.replace(/^@+/, '')
   const ig = data.instagram?.replace(/^@+/, '')
   const items: {
@@ -282,6 +286,8 @@ function ContactsCard({ data }: { data: ProfileData }) {
     value: string | null
     href?: string
     copy?: string
+    // Ключ поля профиля; email и телефон есть у всех ролей, поэтому у них его нет.
+    field?: ProfileFieldKey
   }[] = [
     {
       icon: Mail,
@@ -300,6 +306,7 @@ function ContactsCard({ data }: { data: ProfileData }) {
     },
     {
       icon: Instagram,
+      field: 'instagram',
       label: t('instagram'),
       value: ig ? `@${ig}` : null,
       href: ig ? `https://instagram.com/${ig}` : undefined,
@@ -307,6 +314,7 @@ function ContactsCard({ data }: { data: ProfileData }) {
     },
     {
       icon: Globe,
+      field: 'website',
       label: t('website'),
       value: data.website ?? null,
       href: data.website ?? undefined,
@@ -323,54 +331,56 @@ function ContactsCard({ data }: { data: ProfileData }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-1">
-        {items.map((it) => {
-          const Icon = it.icon
-          return (
-            <div
-              key={it.label}
-              className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60"
-            >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Icon className="size-4" aria-hidden />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-xs text-muted-foreground">{it.label}</span>
-                {it.value === null ? (
-                  <span className="block truncate text-sm font-medium text-muted-foreground/60">
-                    {t('noData')}
-                  </span>
-                ) : it.href ? (
-                  <a
-                    href={it.href}
-                    target={it.href.startsWith('http') ? '_blank' : undefined}
-                    rel="noopener noreferrer"
-                    className="block truncate text-sm font-medium hover:text-primary hover:underline"
+        {items
+          .filter((it) => !it.field || fieldVisible(it.field, data.role))
+          .map((it) => {
+            const Icon = it.icon
+            return (
+              <div
+                key={it.label}
+                className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/60"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <Icon className="size-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs text-muted-foreground">{it.label}</span>
+                  {it.value === null ? (
+                    <span className="block truncate text-sm font-medium text-muted-foreground/60">
+                      {t('noData')}
+                    </span>
+                  ) : it.href ? (
+                    <a
+                      href={it.href}
+                      target={it.href.startsWith('http') ? '_blank' : undefined}
+                      rel="noopener noreferrer"
+                      className="block truncate text-sm font-medium hover:text-primary hover:underline"
+                    >
+                      {it.value}
+                    </a>
+                  ) : (
+                    <span className="block truncate text-sm font-medium">{it.value}</span>
+                  )}
+                </span>
+                {it.copy && (
+                  <button
+                    type="button"
+                    aria-label={t('copy')}
+                    title={t('copy')}
+                    onClick={() => {
+                      navigator.clipboard.writeText(it.copy!).then(
+                        () => toast.success(t('copied')),
+                        () => toast.error(t('copyFailed')),
+                      )
+                    }}
+                    className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
                   >
-                    {it.value}
-                  </a>
-                ) : (
-                  <span className="block truncate text-sm font-medium">{it.value}</span>
+                    <Copy className="size-3.5" aria-hidden />
+                  </button>
                 )}
-              </span>
-              {it.copy && (
-                <button
-                  type="button"
-                  aria-label={t('copy')}
-                  title={t('copy')}
-                  onClick={() => {
-                    navigator.clipboard.writeText(it.copy!).then(
-                      () => toast.success(t('copied')),
-                      () => toast.error(t('copyFailed')),
-                    )
-                  }}
-                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                >
-                  <Copy className="size-3.5" aria-hidden />
-                </button>
-              )}
-            </div>
-          )
-        })}
+              </div>
+            )
+          })}
       </CardContent>
     </Card>
   )

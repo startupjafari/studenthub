@@ -277,7 +277,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
           {avatarError && <p className="text-xs text-destructive">{avatarError}</p>}
         </div>
 
-        <Button type="submit" size="lg" loading={isSubmitting} className="mt-1 w-full">
+        <Button type="submit" size="xl" loading={isSubmitting} className="mt-1 w-full">
           {t('createAccount')}
         </Button>
 

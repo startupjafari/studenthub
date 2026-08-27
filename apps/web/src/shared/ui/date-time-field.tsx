@@ -2,6 +2,7 @@
 
 import { CalendarClock } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { FIELD_SIZE, type ControlSize } from './control-size'
 
 // Поле выбора даты и времени: нативный datetime-local в едином оформлении (иконка + рамка как у Input).
 export function DateTimeField({
@@ -10,6 +11,7 @@ export function DateTimeField({
   className,
   min,
   disabled,
+  size = 'lg',
   'aria-label': ariaLabel,
 }: {
   value: string
@@ -17,6 +19,8 @@ export function DateTimeField({
   className?: string
   min?: string
   disabled?: boolean
+  /** Размер из общей шкалы контролов (control-size.ts). */
+  size?: ControlSize
   'aria-label'?: string
 }) {
   return (
@@ -32,7 +36,10 @@ export function DateTimeField({
         disabled={disabled}
         aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 dark:bg-input/30"
+        className={cn(
+          'w-full rounded-xl border border-input bg-background pr-3 pl-9 outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:opacity-50 dark:bg-input/30',
+          FIELD_SIZE[size],
+        )}
       />
     </div>
   )

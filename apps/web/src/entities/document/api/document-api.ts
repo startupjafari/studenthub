@@ -148,8 +148,21 @@ export async function reorderDocumentFiles(id: string, fileIds: string[]): Promi
   return data
 }
 
-export async function fetchDocumentFileUrl(id: string, fileId: string): Promise<string> {
-  const { data } = await api.get<{ url: string }>(`/documents/${id}/files/${fileId}/url`)
+/**
+ * Presigned-ссылка на файл документа.
+ *
+ * `download` — ссылка на скачивание: сервер подписывает в неё `Content-Disposition:
+ * attachment`. Без этого скачать файл нельзя: объект лежит в MinIO, на другом origin,
+ * а атрибут `download` у ссылки кросс-origin браузер игнорирует и просто открывает файл.
+ */
+export async function fetchDocumentFileUrl(
+  id: string,
+  fileId: string,
+  download = false,
+): Promise<string> {
+  const { data } = await api.get<{ url: string }>(`/documents/${id}/files/${fileId}/url`, {
+    params: download ? { download: '1' } : undefined,
+  })
   return data.url
 }
 

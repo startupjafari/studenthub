@@ -5,6 +5,7 @@
 // намеренно — их подключают напрямую через `next/dynamic` (FRONTEND_RULES §4, §11),
 // иначе recharts приехал бы в основной бандл всем, кто импортирует `shared/ui`.
 export { chartPalette, sequentialStep, type ChartPalette } from './palette'
+export { ActivityGrid } from './activity-grid'
 export { useChartTheme } from './use-chart-theme'
 export { useReducedMotion } from './use-reduced-motion'
 export {
