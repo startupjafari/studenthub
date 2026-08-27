@@ -1039,7 +1039,8 @@
     "titleLabel": "Title",
     "titlePlaceholder": "For example: Dean’s office hours during the holidays",
     "contentLabel": "Text",
-    "mentionHint": "Mention"
+    "mentionHint": "Mention",
+    "replyingTo": "Replying to {name}"
   },
   "Chats": {
     "title": "Chats",

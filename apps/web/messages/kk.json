@@ -1039,7 +1039,8 @@
     "titleLabel": "Тақырып",
     "titlePlaceholder": "Мысалы: Мерекедегі деканаттар жұмысының кестесі",
     "contentLabel": "Мәтін",
-    "mentionHint": "Атап өту"
+    "mentionHint": "Атап өту",
+    "replyingTo": "{name} үшін жауап"
   },
   "Chats": {
     "title": "Чаттар",
