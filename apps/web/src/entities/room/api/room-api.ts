@@ -1,11 +1,16 @@
-import type { CreateRoomInput, RoomKind, UpdateRoomInput } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import type {
+  CreateRoomInput,
+  RoomKind,
+  RoomListQueryInput,
+  UpdateRoomInput,
+} from '@studenthub/shared-schemas'
+import { api, getPaged, type Paged } from '../../../shared/api'
 import type { Room, RoomQr, RoomStatusResponse } from '../model/types'
 
 export const roomKeys = {
   all: ['rooms'] as const,
-  list: (universityId?: string, kind?: RoomKind) =>
-    ['rooms', 'list', universityId ?? 'all', kind ?? 'all'] as const,
+  // Параметры целиком в ключе: выборка зависит и от scope, и от порядка сортировки.
+  list: (params: Partial<RoomListQueryInput> = {}) => ['rooms', 'list', params] as const,
   status: (code: string) => ['rooms', 'status', code] as const,
 }
 
@@ -14,6 +19,17 @@ export async function fetchRooms(universityId?: string, kind?: RoomKind): Promis
     params: { page: 1, limit: 100, universityId, kind },
   })
   return data
+}
+
+/**
+ * То же, но с сортировкой и счётчиком — для таблицы администратора. Отдельной функцией,
+ * а не заменой `fetchRooms`: тот отдаёт массив селектам в расписании и модалках, и форма
+ * ответа им не нужна.
+ */
+export async function fetchRoomsSorted(
+  params: Partial<RoomListQueryInput> = {},
+): Promise<Paged<Room>> {
+  return getPaged<Room>('/rooms', { page: 1, limit: 100, ...params })
 }
 
 export async function createRoomRequest(input: CreateRoomInput): Promise<Room> {

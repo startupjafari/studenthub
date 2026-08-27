@@ -73,7 +73,8 @@ export function AuditView() {
               setPage(1)
             }}
             placeholder={t('filterAction')}
-            className="h-9 w-full text-sm sm:w-64"
+            size="md"
+            className="w-full sm:w-64"
           />
         }
       />

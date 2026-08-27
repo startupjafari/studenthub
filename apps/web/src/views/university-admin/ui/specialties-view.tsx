@@ -1,31 +1,17 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { GraduationCap, Trash2 } from 'lucide-react'
-import { CreateSpecialtySchema, type CreateSpecialtyInput } from '@studenthub/shared-schemas'
+import { GraduationCap, Plus, Trash2 } from 'lucide-react'
+import { Button, Card, EmptyState, PageHeader, Skeleton, useConfirm } from '../../../shared/ui'
 import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  Input,
-  Label,
-  PageHeader,
-  Skeleton,
-  useConfirm,
-} from '../../../shared/ui'
-import {
-  createSpecialtyRequest,
   deleteSpecialtyRequest,
   fetchSpecialties,
   specialtyKeys,
 } from '../../../entities/specialty'
+import { CreateSpecialtyModal } from './create-specialty-modal'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -37,21 +23,9 @@ export function SpecialtiesAdminView() {
   const confirm = useConfirm()
   const qc = useQueryClient()
 
-  const specialties = useQuery({ queryKey: specialtyKeys.list(), queryFn: fetchSpecialties })
-  const form = useForm<CreateSpecialtyInput>({ resolver: zodResolver(CreateSpecialtySchema) })
+  const [createOpen, setCreateOpen] = useState(false)
 
-  const createMut = useMutation({
-    mutationFn: createSpecialtyRequest,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: specialtyKeys.list() })
-      form.reset({ name: '' })
-      toast.success(t('specialtyCreated'))
-    },
-    onError: (e) => {
-      const code = errCode(e)
-      toast.error(code === 'CONFLICT' ? t('specialtyExists') : tErr(code))
-    },
-  })
+  const specialties = useQuery({ queryKey: specialtyKeys.list(), queryFn: fetchSpecialties })
 
   const deleteMut = useMutation({
     mutationFn: deleteSpecialtyRequest,
@@ -64,34 +38,15 @@ export function SpecialtiesAdminView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('specialtiesTitle')} />
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('addSpecialty')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={form.handleSubmit((v) => createMut.mutate(v))}
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
-          >
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="sname">{t('specialtyName')}</Label>
-              <Input
-                id="sname"
-                placeholder={t('specialtyNamePlaceholder')}
-                {...form.register('name')}
-              />
-              {form.formState.errors.name && (
-                <p className="text-xs text-destructive">{t('nameRequired')}</p>
-              )}
-            </div>
-            <Button type="submit" loading={createMut.isPending}>
-              {t('add')}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <PageHeader
+        title={t('specialtiesTitle')}
+        actions={
+          <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            {t('addSpecialty')}
+          </Button>
+        }
+      />
 
       {specialties.isLoading ? (
         <div className="flex flex-col gap-2">
@@ -112,7 +67,8 @@ export function SpecialtiesAdminView() {
               </div>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="sm"
+                icon
                 aria-label={t('delete')}
                 loading={deleteMut.isPending && deleteMut.variables === s.id}
                 onClick={() => {
@@ -135,8 +91,16 @@ export function SpecialtiesAdminView() {
           icon={<GraduationCap className="size-6" aria-hidden />}
           title={t('noSpecialties')}
           description={t('noSpecialtiesHint')}
+          action={
+            <Button type="button" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('addSpecialty')}
+            </Button>
+          }
         />
       )}
+
+      {createOpen && <CreateSpecialtyModal onClose={() => setCreateOpen(false)} />}
     </div>
   )
 }

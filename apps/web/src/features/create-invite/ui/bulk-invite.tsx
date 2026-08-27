@@ -80,7 +80,7 @@ export function BulkInvite() {
       toast.success(
         t('bulk.done', { created: res.created, skipped: res.skipped, failed: res.failed }),
       )
-      void queryClient.invalidateQueries({ queryKey: inviteKeys.list() })
+      void queryClient.invalidateQueries({ queryKey: inviteKeys.all })
       close()
     },
     onError: (e) => toast.error(t('bulk.parseError'), { description: String(errCode(e)) }),
@@ -103,7 +103,7 @@ export function BulkInvite() {
 
   return (
     <>
-      <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+      <Button type="button" size="md" variant="outline" onClick={() => setOpen(true)}>
         <Upload className="size-4" aria-hidden />
         {t('bulk.open')}
       </Button>
@@ -178,6 +178,8 @@ function PreviewTable({
 }) {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PREVIEW_PAGE_SIZES[0])
+  // Сортировка клиентская намеренно: строки — результат разбора загруженного файла,
+  // они ещё не сохранены и как списка на сервере не существуют.
   const { rows: ordered, sort, toggle } = useTableSort(rows, sortValue)
 
   if (rows.length === 0) {

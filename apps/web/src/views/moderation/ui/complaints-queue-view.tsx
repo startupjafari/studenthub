@@ -42,6 +42,16 @@ const STATUS_TABS: (ComplaintStatusValue | 'all')[] = ['PENDING', 'RESOLVED', 'D
 const PAGE_SIZES = ADMIN_PAGE_SIZES
 // Ширины колонок: приоритет · категория · причина · автор · дата · статус.
 const COLS = ['12%', '14%', '30%', '18%', '14%', '12%'] as const
+// На узком экране остаётся то, без чего очередь не разобрать: приоритет, причина и статус.
+// Категория и автор видны в модалке разбора, дата — наименее важное при триаже.
+// Классы общие для шапки, строк и скелетона — иначе во время загрузки колонки разъедутся.
+const HIDE = {
+  category: 'hidden lg:table-cell',
+  reporter: 'hidden xl:table-cell',
+  date: 'hidden md:table-cell',
+} as const
+// Порядок классов = порядок колонок (см. COLS).
+const SKELETON_COLS = [undefined, HIDE.category, undefined, HIDE.reporter, HIDE.date, undefined]
 
 // Очередь модерации: таблица с приоритетом, разбор одной жалобы — в модалке по клику
 // на строку. Приоритет считает сервер из категории цели (complaintPriorityFor), поэтому
@@ -103,7 +113,7 @@ export function ComplaintsQueueView() {
             value={priority}
             onValueChange={(v) => refilter(() => setPriority(v as ComplaintPriorityValue | 'all'))}
           >
-            <SelectTrigger className="h-9 w-40 text-sm" aria-label={t('colPriority')}>
+            <SelectTrigger size="md" className="w-40" aria-label={t('colPriority')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -132,12 +142,17 @@ export function ComplaintsQueueView() {
                 <TableHead sortKey="priority" sort={sort} onSort={sortBy}>
                   {t('colPriority')}
                 </TableHead>
-                <TableHead sortKey="targetType" sort={sort} onSort={sortBy}>
+                <TableHead
+                  sortKey="targetType"
+                  sort={sort}
+                  onSort={sortBy}
+                  className={HIDE.category}
+                >
                   {t('colCategory')}
                 </TableHead>
                 <TableHead>{t('colReason')}</TableHead>
-                <TableHead>{t('reporter')}</TableHead>
-                <TableHead sortKey="createdAt" sort={sort} onSort={sortBy}>
+                <TableHead className={HIDE.reporter}>{t('reporter')}</TableHead>
+                <TableHead sortKey="createdAt" sort={sort} onSort={sortBy} className={HIDE.date}>
                   {t('colDate')}
                 </TableHead>
                 <TableHead sortKey="status" sort={sort} onSort={sortBy}>
@@ -146,7 +161,7 @@ export function ComplaintsQueueView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {complaints.isLoading && <TableSkeletonRows columns={6} />}
+              {complaints.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {rows.map((c) => {
                 const priorityValue = complaintPriority(c)
                 return (
@@ -173,16 +188,16 @@ export function ComplaintsQueueView() {
                         {t(`priority${priorityValue}`)}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className={HIDE.category}>
                       <TableText value={t(`target${c.targetType}`)} />
                     </TableCell>
                     <TableCell>
                       <TableText value={c.reason} />
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className={cn(HIDE.reporter, 'text-muted-foreground')}>
                       <TableText value={`${c.reporter.lastName} ${c.reporter.firstName}`} />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                    <TableCell className={cn(HIDE.date, 'whitespace-nowrap text-muted-foreground')}>
                       {new Date(c.createdAt).toLocaleString(locale, {
                         day: '2-digit',
                         month: '2-digit',

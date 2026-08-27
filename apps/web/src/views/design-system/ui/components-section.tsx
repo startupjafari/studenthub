@@ -148,29 +148,44 @@ export function ComponentsSection() {
 
         <Demo
           label="Размеры"
-          rule="sm — в шапках и строках, default — в формах, field — в линию с полем (h-11)"
+          rule="общая шкала контролов: sm 32 · md 36 · lg 40 (по умолчанию) · xl 44 — та же высота у поля, селекта и датапикера"
         >
-          <Button size="xs">xs</Button>
           <Button size="sm">sm</Button>
-          <Button>default</Button>
-          <Button size="field">field</Button>
-          <Button size="lg">lg</Button>
+          <Button size="md">md</Button>
+          <Button>lg</Button>
+          <Button size="xl">xl</Button>
+          <Caption>ширину задаёт содержимое — фиксированной ширины у контролов нет</Caption>
         </Demo>
 
-        <Demo label="Иконочные" rule="обязателен aria-label — подписи нет">
-          <Button size="icon-xs" variant="ghost" aria-label="Найти">
+        <Demo label="Иконочные" rule="prop icon — квадрат по высоте размера; обязателен aria-label">
+          <Button size="sm" icon variant="ghost" aria-label="Найти">
             <Search />
           </Button>
-          <Button size="icon-sm" variant="ghost" aria-label="Найти">
+          <Button size="md" icon variant="ghost" aria-label="Найти">
             <Search />
           </Button>
-          <Button size="icon" variant="outline" aria-label="Добавить">
+          <Button icon variant="outline" aria-label="Добавить">
             <Plus />
           </Button>
-          <Button size="icon-lg" aria-label="Добавить">
+          <Button size="xl" icon aria-label="Добавить">
             <Plus />
           </Button>
           <Caption>размер иконки задаёт кнопка — свой size писать не нужно</Caption>
+        </Demo>
+
+        <Demo
+          label="Одна строка"
+          rule="кнопка, поле, селект и датапикер одного размера совпадают по высоте"
+        >
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Input size="md" placeholder="Поле (md)" className="w-40" />
+            <Button size="md" variant="outline">
+              Кнопка
+            </Button>
+            <Button size="md" icon variant="ghost" aria-label="Найти">
+              <Search />
+            </Button>
+          </div>
         </Demo>
 
         <Demo label="Состояния">
@@ -581,7 +596,7 @@ export function ComponentsSection() {
           </Avatar>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Скачать">
+              <Button variant="ghost" size="sm" icon aria-label="Скачать">
                 <Search />
               </Button>
             </TooltipTrigger>
@@ -637,7 +652,7 @@ export function ComponentsSection() {
         <Demo label="DropdownMenu" rule="меню действий над элементом; выбор значения — это Select">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" aria-label="Действия">
+              <Button variant="ghost" size="sm" icon aria-label="Действия">
                 <Ellipsis />
               </Button>
             </DropdownMenuTrigger>

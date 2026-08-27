@@ -5,6 +5,7 @@ import { Select as SelectPrimitive } from 'radix-ui'
 import { Check, ChevronDown } from 'lucide-react'
 
 import { cn } from 'shared/lib/utils'
+import { FIELD_SIZE, type ControlSize } from './control-size'
 
 // Современный Select (radix-ui): триггер в стиле кастомного Input, мягкий фокус,
 // скруглённый поповер с анимацией и синим индикатором выбора.
@@ -15,13 +16,17 @@ const SelectValue = SelectPrimitive.Value
 function SelectTrigger({
   className,
   children,
+  size = 'lg',
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Trigger>) {
+}: React.ComponentProps<typeof SelectPrimitive.Trigger> & { size?: ControlSize }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        'flex h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-input bg-background px-3.5 py-2 text-base transition-[color,box-shadow,border-color] outline-none hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-4 aria-invalid:ring-destructive/15 data-[placeholder]:text-muted-foreground/70 md:text-sm dark:bg-input/30 [&>span]:truncate',
+        // Высота — из общей шкалы контролов (control-size.ts): селект встаёт в одну
+        // строку с кнопкой и полем того же размера.
+        'flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-input bg-background py-2 transition-[color,box-shadow,border-color] outline-none hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-4 aria-invalid:ring-destructive/15 data-[placeholder]:text-muted-foreground/70 dark:bg-input/30 [&>span]:truncate',
+        FIELD_SIZE[size],
         className,
       )}
       {...props}

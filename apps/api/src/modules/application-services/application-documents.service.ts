@@ -218,6 +218,45 @@ export class ApplicationDocumentsService {
     return { url: await this.files.getPresignedUrl(file.id) }
   }
 
+  /**
+   * Presigned-ссылка на файл документа-результата. Гейт тот же, что у входящих документов
+   * заявки: владелец или обработчик. Владение самим Document здесь не проверяется — документ
+   * выдан студенту, а сотруднику доступ к нему даёт scope заявки.
+   */
+  async resultUrl(
+    viewer: JwtPayload,
+    appId: string,
+    resultId: string,
+    download = false,
+  ): Promise<{ url: string }> {
+    const scope = await this.prisma.application.findFirst({
+      where: { id: appId, deletedAt: null },
+      select: { studentId: true, facultyId: true, universityId: true },
+    })
+    if (!scope) {
+      throw new AppException('NOT_FOUND', 'Заявка не найдена')
+    }
+    if (scope.studentId !== viewer.sub && !this.policy.canProcess(viewer, scope)) {
+      throw new AppException('FORBIDDEN', 'Нет доступа к результату заявки')
+    }
+    const result = await this.prisma.applicationResult.findFirst({
+      where: { id: resultId, applicationId: appId },
+      select: { documentId: true },
+    })
+    if (!result?.documentId) {
+      throw new AppException('NOT_FOUND', 'К результату не приложен документ')
+    }
+    const file = await this.prisma.file.findFirst({
+      where: { documentId: result.documentId },
+      orderBy: { order: 'asc' },
+      select: { id: true },
+    })
+    if (!file) {
+      throw new AppException('NOT_FOUND', 'Файл документа не найден')
+    }
+    return { url: await this.files.getPresignedUrl(file.id, undefined, download) }
+  }
+
   // ── helpers ────────────────────────────────────────────────────────────────
 
   private async loadOwnedEditable(viewer: JwtPayload, appId: string) {

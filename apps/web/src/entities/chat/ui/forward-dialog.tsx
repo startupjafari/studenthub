@@ -2,10 +2,18 @@
 
 import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Check, Search, X } from 'lucide-react'
-import { Avatar, AvatarFallback, AvatarImage, Button, Input } from '../../../shared/ui'
+import { Check, MessagesSquare, Search } from 'lucide-react'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  EmptyState,
+  Input,
+  Modal,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { identityColor, identityInitials, useBodyScrollLock } from '../../../shared/lib'
+import { identityColor, identityInitials } from '../../../shared/lib'
 import type { ChatListItem } from '../model/types'
 
 // ── Визуал строки (Telegram-стиль) ───────────────────────────────────────────
@@ -28,7 +36,6 @@ export function ForwardDialog({
   onClose: () => void
 }) {
   const t = useTranslations('Chats')
-  useBodyScrollLock()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -59,29 +66,15 @@ export function ForwardDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      title={`${t('forward')}…`}
+      size="lg"
+      className="h-[min(85vh,40rem)]"
+      bodyClassName="p-0"
     >
-      <div
-        className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-center justify-between px-4 pb-2 pt-4">
-          <span className="text-lg font-semibold">{t('forward')}…</span>
-          <button
-            type="button"
-            aria-label={t('cancel')}
-            onClick={onClose}
-            className="text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X className="size-5" aria-hidden />
-          </button>
-        </header>
-
-        <div className="px-4 pb-2">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pb-2 pt-4">
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -99,11 +92,14 @@ export function ForwardDialog({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 py-1">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1">
           {targets.length === 0 ? (
-            <p className="p-4 text-center text-sm text-muted-foreground">{t('noChats')}</p>
+            <EmptyState
+              icon={<MessagesSquare className="size-6" aria-hidden />}
+              title={t('noChats')}
+            />
           ) : filtered.length === 0 ? (
-            <p className="p-4 text-center text-sm text-muted-foreground">{t('noResults')}</p>
+            <EmptyState icon={<Search className="size-6" aria-hidden />} title={t('noResults')} />
           ) : (
             filtered.map((c) => {
               const isChecked = selected.has(c.id)
@@ -159,6 +155,6 @@ export function ForwardDialog({
           )}
         </footer>
       </div>
-    </div>
+    </Modal>
   )
 }

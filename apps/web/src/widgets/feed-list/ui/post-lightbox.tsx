@@ -44,11 +44,12 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
+import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { BRAND_GRADIENT } from '../../../shared/config'
-import { useBodyScrollLock } from '../../../shared/lib'
+import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 
 const LIKE = '❤️'
@@ -81,24 +82,6 @@ const EMOJI_SET = [
   '😉',
 ]
 
-// Компактное относительное время в стиле Instagram («5 нед. назад», «2 ч. назад»).
-const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 31536000],
-  ['month', 2592000],
-  ['week', 604800],
-  ['day', 86400],
-  ['hour', 3600],
-  ['minute', 60],
-]
-function relTime(iso: string, locale: string): string {
-  const diffSec = (new Date(iso).getTime() - Date.now()) / 1000
-  const abs = Math.abs(diffSec)
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'short' })
-  for (const [unit, secs] of REL_UNITS) {
-    if (abs >= secs) return rtf.format(Math.round(diffSec / secs), unit)
-  }
-  return rtf.format(Math.round(diffSec / 60), 'minute')
-}
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
@@ -596,7 +579,10 @@ function PostView({
         <ul className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
           {post.content && (
             <li>
+              {/* Текст самого поста — первой строкой ветки. Жаловаться и отвечать
+                  здесь нечему: у поста для этого своё меню и своя кнопка. */}
               <CommentRow
+                id={post.id}
                 author={post.author}
                 content={post.content}
                 createdAt={post.createdAt}
@@ -634,11 +620,13 @@ function PostView({
                 <li key={c.id} className="flex flex-col gap-3">
                   {/* Одиночный комментарий (корень ветки) */}
                   <CommentRow
+                    id={c.id}
                     author={c.author}
                     content={c.content}
                     createdAt={c.createdAt}
                     locale={locale}
                     canDelete={c.author.id === myId}
+                    canReport={c.author.id !== myId}
                     onReply={() => startReply(c.id, c.author)}
                     onDelete={() => delCommentMut.mutate(c.id)}
                   />
@@ -648,12 +636,18 @@ function PostView({
                       {replies.map((r) => (
                         <CommentRow
                           key={r.id}
+                          id={r.id}
                           author={r.author}
                           content={r.content}
                           createdAt={r.createdAt}
                           locale={locale}
+                          // Ответ всегда адресован автору корня ветки: вложенность
+                          // на сервере одноуровневая, и без подписи «кому» лента
+                          // ответов читается как разговор со стеной.
+                          replyTo={c.author}
                           small
                           canDelete={r.author.id === myId}
+                          canReport={r.author.id !== myId}
                           onReply={() => startReply(c.id, r.author)}
                           onDelete={() => delCommentMut.mutate(r.id)}
                         />
@@ -803,62 +797,105 @@ function PostView({
 }
 
 // Строка контента (подпись автора или комментарий), симметрично: аватар · имя+текст · мета.
+/**
+ * Комментарий в раскладке «ВКонтакте»: имя отдельной строкой, под ним текст, ещё ниже
+ * — время и действия. Раньше имя и текст шли одной строкой, и в длинной ветке было не
+ * видно, где кончается реплика одного и начинается реплика другого.
+ *
+ * `replyTo` — кому адресован ответ. Во вложенной ветке без этого непонятно, кому
+ * отвечают: у корня может быть десяток ответов подряд.
+ */
 function CommentRow({
+  id,
   author,
   content,
   createdAt,
   locale,
+  replyTo,
   canDelete = false,
+  canReport = false,
   onReply,
   onDelete,
   small = false,
 }: {
+  id: string
   author: PostAuthor
   content: string
   createdAt: string
   locale: string
+  replyTo?: PostAuthor | null
   canDelete?: boolean
+  canReport?: boolean
   onReply?: () => void
   onDelete?: () => void
   small?: boolean
 }) {
   const t = useTranslations('Feed')
+  const [reporting, setReporting] = useState(false)
+
   return (
     <div className="group flex gap-2">
       <ProfileLink userId={author.id} className="shrink-0">
-        <Avatar className={small ? 'size-6' : 'size-8'}>
+        <Avatar className={small ? 'size-7' : 'size-8'}>
           {author.avatarUrl && <AvatarImage src={author.avatarUrl} alt="" />}
           <AvatarFallback className="text-[10px]">{initials(author)}</AvatarFallback>
         </Avatar>
       </ProfileLink>
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-snug">
+        <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm leading-snug">
           <ProfileLink
             userId={author.id}
-            className="mr-1.5 font-semibold hover:text-primary hover:underline"
+            className="font-semibold hover:text-primary hover:underline"
           >
             {author.lastName} {author.firstName}
           </ProfileLink>
-          <span className="whitespace-pre-wrap break-words">{content}</span>
+          {replyTo && (
+            <span className="text-xs text-muted-foreground">
+              · {replyTo.firstName} {replyTo.lastName}
+            </span>
+          )}
         </p>
+        <p className="mt-0.5 text-sm leading-snug break-words whitespace-pre-wrap">{content}</p>
         <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-          <span>{relTime(createdAt, locale)}</span>
+          <span>{relativeTime(createdAt, locale)}</span>
           {onReply && (
-            <button type="button" onClick={onReply} className="font-medium hover:text-foreground">
+            <button
+              type="button"
+              onClick={onReply}
+              className="cursor-pointer font-medium hover:text-foreground"
+            >
               {t('reply')}
+            </button>
+          )}
+          {canReport && (
+            <button
+              type="button"
+              onClick={() => setReporting(true)}
+              className="cursor-pointer hover:text-foreground"
+            >
+              {t('report')}
             </button>
           )}
           {canDelete && onDelete && (
             <button
               type="button"
               onClick={onDelete}
-              className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+              className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
             >
               {t('delete')}
             </button>
           )}
         </div>
       </div>
+
+      {reporting && (
+        <ReportModal
+          targetType="COMMENT"
+          targetId={id}
+          preview={content}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </div>
   )
 }

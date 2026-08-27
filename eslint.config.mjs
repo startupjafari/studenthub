@@ -67,7 +67,7 @@ export default tseslint.config(
   },
   {
     // Node-скрипты (seed и пр.): console/process разрешены.
-    files: ['prisma/**/*.mjs', 'apps/web/e2e/**/*.mjs'],
+    files: ['prisma/**/*.mjs', 'scripts/**/*.mjs', 'apps/web/e2e/**/*.mjs'],
     languageOptions: {
       globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
     },

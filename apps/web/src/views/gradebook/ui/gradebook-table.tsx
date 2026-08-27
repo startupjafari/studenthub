@@ -146,6 +146,9 @@ export function GradebookTable({ courseId }: { courseId: string }) {
   }, [q.data?.columns, values])
 
   // Хук до ранних выходов: порядок хуков не должен зависеть от состояния запроса.
+  // Сортировка здесь клиентская намеренно: это не список, а матрица «студенты × колонки»
+  // одного курса — сервер отдаёт её целиком одним ответом, страниц нет. Серверный порядок
+  // означал бы сортировку по значению произвольной колонки оценок, чего в контракте нет.
   const { rows: sortedStudents, sort, toggle } = useTableSort(q.data?.students ?? [], sortValue)
 
   if (q.isLoading) return <Skeleton className="h-80 w-full rounded-xl" />
@@ -174,7 +177,7 @@ export function GradebookTable({ courseId }: { courseId: string }) {
   const columnMenu = (col: GradeColumnItem) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-xs" aria-label={t('columnActions')}>
+        <Button variant="ghost" size="sm" icon aria-label={t('columnActions')}>
           <MoreHorizontal className="size-3.5" aria-hidden />
         </Button>
       </DropdownMenuTrigger>

@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { cn } from '../../../shared/lib/utils'
 import { sequentialStep, type ChartPalette } from '../../../shared/ui/chart'
+// ActivityGrid переехал в систему (shared/ui/chart) — здесь только реэкспорт,
+// чтобы не переписывать импорты дашборда платформы.
+export { ActivityGrid } from '../../../shared/ui/chart'
 
-// Части дашборда, которым полотно графика не нужно: сетка теплокарты, метр, легенда,
-// плитка-показатель. Всё это обычная разметка — полотно тут только мешало бы
-// (нет ни осей, ни интерполяции, зато нужен доступ с клавиатуры).
+// Части дашборда, которым полотно графика не нужно: метр, легенда, плитка-показатель.
+// Всё это обычная разметка — полотно тут только мешало бы (нет ни осей, ни интерполяции,
+// зато нужен доступ с клавиатуры). Теплокарта отсюда переехала в shared/ui/chart.
 
 /**
  * Легенда: цветной ключ + подпись + значение. Если передан onToggle — элементы
@@ -167,98 +170,6 @@ export function Meter({
             backgroundColor: sequentialStep(palette, Math.max(0.35, clamped / 100)),
           }}
         />
-      </div>
-    </div>
-  )
-}
-
-const HOUR_TICKS = [0, 6, 12, 18]
-
-/**
- * Теплокарта 7×24: сравнение величины в сетке. У сетки нет визира по X, поэтому
- * цель наведения — сама ячейка, и подсказка своя, а не нативный title: title
- * появляется через секунду и не показывается по фокусу с клавиатуры.
- */
-export function ActivityGrid({
-  cells,
-  max,
-  palette,
-  dayLabels,
-  cellTitle,
-  ariaLabel,
-}: {
-  cells: number[][]
-  max: number
-  palette: ChartPalette
-  dayLabels: string[]
-  cellTitle: (day: string, hour: number, value: number) => string
-  ariaLabel: string
-}) {
-  const [active, setActive] = useState<{ day: number; hour: number } | null>(null)
-  const activeText =
-    active && cells[active.day]
-      ? cellTitle(dayLabels[active.day] ?? '', active.hour, cells[active.day]?.[active.hour] ?? 0)
-      : null
-
-  return (
-    // Ширина ограничена: растянутая на всю карточку клетка получается 48×16 и
-    // читается как пилюля, а не как клетка сетки. ~34px даёт почти квадрат.
-    <div className="flex max-w-[52rem] flex-col gap-1" role="img" aria-label={ariaLabel}>
-      {/* Читаемое значение держим в одной строке над сеткой: 168 ячеек своих
-          всплывающих подсказок дали бы дрожание и перерисовку на каждый пиксель. */}
-      <p className="min-h-5 text-xs font-medium text-foreground" aria-live="polite">
-        {activeText ?? ''}
-      </p>
-      {cells.map((row, day) => (
-        <div key={day} className="flex items-center gap-2">
-          <span className="w-7 shrink-0 text-right text-[0.6875rem] text-muted-foreground">
-            {dayLabels[day]}
-          </span>
-          {/* 2px зазора между ячейками даёт сама сетка (gap), а не обводка. */}
-          <div className="grid min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-1">
-            {row.map((value, hour) => {
-              const on = active?.day === day && active?.hour === hour
-              return (
-                <span
-                  key={hour}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={cellTitle(dayLabels[day] ?? '', hour, value)}
-                  onPointerEnter={() => setActive({ day, hour })}
-                  onFocus={() => setActive({ day, hour })}
-                  onPointerLeave={() => setActive(null)}
-                  onBlur={() => setActive(null)}
-                  className={cn(
-                    'aspect-square rounded-[3px] outline-none transition-[box-shadow]',
-                    // Наведённая ячейка «поднимается» кольцом цветом поверхности,
-                    // чтобы читатель видел отклик и не терял её из вида.
-                    on && 'ring-2 ring-foreground/40',
-                  )}
-                  style={{
-                    backgroundColor:
-                      value === 0 ? palette.grid : sequentialStep(palette, max ? value / max : 0),
-                  }}
-                />
-              )
-            })}
-          </div>
-        </div>
-      ))}
-      {/* Ось часов повторяет структуру строки (спейсер + тот же 24-колоночный grid),
-          иначе подписи уезжают от своих колонок. */}
-      <div className="flex items-center gap-2">
-        <span className="w-7 shrink-0" aria-hidden />
-        <div className="grid min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-1">
-          {Array.from({ length: 24 }, (_, hour) => (
-            <span
-              key={hour}
-              className="text-center text-[0.625rem] tabular-nums text-muted-foreground"
-              aria-hidden
-            >
-              {HOUR_TICKS.includes(hour) ? hour : ''}
-            </span>
-          ))}
-        </div>
       </div>
     </div>
   )

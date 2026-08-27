@@ -1,5 +1,6 @@
 export {
   complaintKeys,
+  createComplaintRequest,
   fetchComplaints,
   resolveComplaintRequest,
   fetchComplaintMessages,

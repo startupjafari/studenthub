@@ -4,11 +4,9 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { FileCog, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { DOCUMENT_CATEGORIES } from '@studenthub/shared-config'
-import { DOCUMENT_FIELD_VALUES } from '@studenthub/shared-schemas'
 import {
-  createCustomDocumentType,
   deleteDocumentType,
   documentTypeKeys,
   fetchDocumentTypes,
@@ -18,17 +16,30 @@ import {
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
   Input,
-  Label,
   PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
+import { CreateDocumentTypeModal } from './create-document-type-modal'
+
+// Ширины колонок: включён · тип · категория · поля · срок хранения · сброс.
+const COLS = ['3rem', '30%', '16%', '28%', '14%', '3.5rem'] as const
+// На узком экране остаются включение, название и срок — то, чем реально управляют.
+const HIDE = {
+  category: 'hidden md:table-cell',
+  fields: 'hidden xl:table-cell',
+} as const
+const SKELETON_COLS = [undefined, undefined, HIDE.category, HIDE.fields, undefined, undefined]
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -49,50 +60,73 @@ export function DocumentTypesAdminView() {
   const typeName = (t2: EffectiveDocumentType) =>
     t2.custom ? (t2.label ?? t2.typeId) : t(`docType_${t2.typeId}`)
 
+  // Порядок фиксированный: категории идут в порядке справочника, внутри — по названию.
+  // Так строки одной категории стоят рядом (их видно колонкой), а сортировки по клику
+  // здесь нет намеренно — каталог приходит целиком одним ответом, страниц у него нет.
+  // Категория в DTO — строка (каталог гибридный, свои типы вуз заводит сам), поэтому
+  // позицию ищем по списку значений, а не через indexOf константного кортежа.
+  const catOrder = (category: string): number => {
+    const i = (DOCUMENT_CATEGORIES as readonly string[]).indexOf(category)
+    // Неизвестная категория (тип добавлен после обновления справочника) — в конец.
+    return i === -1 ? DOCUMENT_CATEGORIES.length : i
+  }
+  const rows = [...(q.data ?? [])].sort((a, b) => {
+    const byCat = catOrder(a.category) - catOrder(b.category)
+    return byCat !== 0 ? byCat : typeName(a).localeCompare(typeName(b))
+  })
+
+  // Цепочка flex до таблицы: `fill` требует, чтобы высоту отдавал каждый предок,
+  // иначе прокручивается страница целиком, а не тело таблицы.
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('dt_title')}
         subtitle={t('dt_subtitle')}
         actions={
-          <Button onClick={() => setAdding((v) => !v)}>
+          <Button size="md" onClick={() => setAdding(true)}>
             <Plus className="size-4" aria-hidden /> {t('dt_addCustom')}
           </Button>
         }
       />
 
-      {adding && <AddCustomForm onDone={() => setAdding(false)} onErr={onErr} />}
-
-      {q.isLoading ? (
-        <div className="flex flex-col gap-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : q.isError ? (
+      {q.isError ? (
         <p className="text-sm text-destructive">{tErr('INTERNAL_ERROR')}</p>
       ) : (
-        DOCUMENT_CATEGORIES.map((cat) => {
-          const rows = (q.data ?? []).filter((x) => x.category === cat)
-          if (rows.length === 0) return null
-          return (
-            <section key={cat} className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold text-muted-foreground">{t(`docCat_${cat}`)}</h2>
-              <div className="divide-y divide-border rounded-xl border border-border">
-                {rows.map((row) => (
-                  <TypeRow
-                    key={row.typeId}
-                    row={row}
-                    name={typeName(row)}
-                    onChanged={invalidate}
-                    onErr={onErr}
-                  />
-                ))}
-              </div>
-            </section>
-          )
-        })
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS}>
+            <TableHeader>
+              <TableRow>
+                {/* Чекбокс включения — первой колонкой: это главное действие экрана,
+                    и глаз идёт по одному вертикальному ряду, а не ищет его в конце строки. */}
+                <TableHead>
+                  <span className="sr-only">{t('dt_enabled')}</span>
+                </TableHead>
+                <TableHead>{t('dt_colType')}</TableHead>
+                <TableHead className={HIDE.category}>{t('dt_category')}</TableHead>
+                <TableHead className={HIDE.fields}>{t('dt_colFields')}</TableHead>
+                <TableHead numeric>{t('dt_retention')}</TableHead>
+                <TableHead>
+                  <span className="sr-only">{t('dt_reset')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
+              {rows.map((row) => (
+                <TypeRow
+                  key={row.typeId}
+                  row={row}
+                  name={typeName(row)}
+                  onChanged={invalidate}
+                  onErr={onErr}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
+
+      {adding && <CreateDocumentTypeModal onClose={() => setAdding(false)} onErr={onErr} />}
     </div>
   )
 }
@@ -135,147 +169,70 @@ function TypeRow({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-      <label className="flex min-w-0 flex-1 items-center gap-2">
+    <TableRow className="hover:bg-muted/40">
+      <TableCell>
         <Checkbox
           checked={row.enabled}
           onCheckedChange={(v) => updateMut.mutate({ enabled: v === true })}
           aria-label={t('dt_enabled')}
         />
+      </TableCell>
+      <TableCell>
         <span
-          className={`truncate font-medium ${!row.enabled ? 'text-muted-foreground line-through' : ''}`}
+          className={cn(
+            'flex min-w-0 items-center gap-2 font-medium',
+            // Выключенный тип виден, но явно погашен: он остаётся в списке, чтобы его
+            // можно было включить обратно.
+            !row.enabled && 'text-muted-foreground line-through',
+          )}
         >
-          {name}
+          <TableText value={name} />
+          {row.custom && <Badge variant="info">{t('dt_custom')}</Badge>}
         </span>
-        {row.custom && <Badge variant="info">{t('dt_custom')}</Badge>}
-        {!row.enabled && <Badge variant="outline">{t('dt_disabled')}</Badge>}
-      </label>
-
-      <div className="flex items-center gap-1.5">
-        <Input
-          type="number"
-          min={0}
-          value={retention}
-          onChange={(e) => setRetention(e.target.value)}
-          onBlur={saveRetention}
-          placeholder={t('dt_retention')}
-          className="h-9 w-28"
-          aria-label={t('dt_retention')}
-        />
-        <span className="text-xs text-muted-foreground">{t('dt_days')}</span>
-      </div>
-
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={row.custom ? t('dt_delete') : t('dt_reset')}
-        loading={removeMut.isPending}
-        onClick={() => removeMut.mutate()}
-      >
-        {row.custom ? (
-          <Trash2 className="size-4" aria-hidden />
+      </TableCell>
+      <TableCell className={cn(HIDE.category, 'text-muted-foreground')}>
+        <TableText value={t(`docCat_${row.category}`)} />
+      </TableCell>
+      <TableCell className={cn(HIDE.fields, 'text-muted-foreground')}>
+        {row.fields.length > 0 ? (
+          <TableText value={row.fields.map((f) => t(`dt_field_${f}`)).join(', ')} />
         ) : (
-          <RotateCcw className="size-4" aria-hidden />
+          <span className="text-xs">{t('dt_noFields')}</span>
         )}
-      </Button>
-    </div>
-  )
-}
-
-function AddCustomForm({ onDone, onErr }: { onDone: () => void; onErr: (e: unknown) => void }) {
-  const t = useTranslations('Documents')
-  const qc = useQueryClient()
-  const [code, setCode] = useState('')
-  const [category, setCategory] = useState<string>(DOCUMENT_CATEGORIES[0])
-  const [label, setLabel] = useState('')
-  const [fields, setFields] = useState<string[]>([])
-  const [retention, setRetention] = useState('')
-
-  const mut = useMutation({
-    mutationFn: () =>
-      createCustomDocumentType({
-        code: code.trim().toUpperCase(),
-        category: category as 'PERSONAL',
-        label: label.trim(),
-        fields: fields as 'number'[],
-        retentionDays: retention.trim() ? Number(retention.trim()) : undefined,
-      }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: documentTypeKeys.all })
-      toast.success(t('dt_created'))
-      onDone()
-    },
-    onError: onErr,
-  })
-
-  const valid = code.trim().length >= 2 && label.trim().length > 0
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="dt-code">{t('dt_code')}</Label>
+      </TableCell>
+      <TableCell>
+        <span className="flex items-center justify-end gap-1.5">
           <Input
-            id="dt-code"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="CLUB_CARD"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="dt-label">{t('dt_label')}</Label>
-          <Input id="dt-label" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label>{t('dt_category')}</Label>
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DOCUMENT_CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {t(`docCat_${c}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="dt-ret">{t('dt_retention')}</Label>
-          <Input
-            id="dt-ret"
             type="number"
             min={0}
             value={retention}
             onChange={(e) => setRetention(e.target.value)}
+            onBlur={saveRetention}
+            placeholder={t('dt_retention')}
+            size="sm"
+            className="w-20 text-right"
+            aria-label={t('dt_retention')}
           />
-        </div>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>{t('dt_fields')}</Label>
-        <div className="flex flex-wrap gap-3">
-          {DOCUMENT_FIELD_VALUES.map((f) => (
-            <label key={f} className="flex items-center gap-1.5 text-sm">
-              <Checkbox
-                checked={fields.includes(f)}
-                onCheckedChange={(v) =>
-                  setFields((prev) => (v === true ? [...prev, f] : prev.filter((x) => x !== f)))
-                }
-              />
-              {t(`dt_field_${f}`)}
-            </label>
-          ))}
-        </div>
-      </div>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onDone}>
-          {t('dt_cancel')}
+          <span className="text-xs text-muted-foreground">{t('dt_days')}</span>
+        </span>
+      </TableCell>
+      <TableCell>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
+          aria-label={row.custom ? t('dt_delete') : t('dt_reset')}
+          title={row.custom ? t('dt_delete') : t('dt_reset')}
+          loading={removeMut.isPending}
+          onClick={() => removeMut.mutate()}
+        >
+          {row.custom ? (
+            <Trash2 className="size-4" aria-hidden />
+          ) : (
+            <RotateCcw className="size-4" aria-hidden />
+          )}
         </Button>
-        <Button onClick={() => mut.mutate()} loading={mut.isPending} disabled={!valid}>
-          <FileCog className="size-4" aria-hidden /> {t('dt_add')}
-        </Button>
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   )
 }

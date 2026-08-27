@@ -652,7 +652,7 @@ describe('UserService.updateProfile — набор полей по роли (PRO
     expect(prisma.user.update).not.toHaveBeenCalled()
   }
 
-  it('платформенному админу пишет только служебный минимум', async () => {
+  it('платформенному админу пишет служебные поля', async () => {
     const { service, prisma } = setup()
     prisma.user.update.mockResolvedValue({ id: 'u1' })
 
@@ -669,6 +669,36 @@ describe('UserService.updateProfile — набор полей по роли (PRO
       workPhone: '+7 700 000 00 00',
       timezone: 'Asia/Almaty',
     })
+  })
+
+  // Платформенная команда — публичные лица продукта, поэтому личные поля ей открыты
+  // (PERSONAL_ROLES/SHOWCASE_ROLES в shared-schemas). Служебным ролям ВУЗА — по-прежнему нет.
+  it('платформенному админу пишет личные поля', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 'u1' })
+
+    await service.updateProfile('u1', Role.PLATFORM_ADMIN, {
+      // Схема объявляет birthDate как z.coerce.date(), поэтому на входе сервиса — Date.
+      birthDate: new Date('1990-05-01'),
+      country: 'Казахстан',
+      website: 'https://example.kz',
+      skills: ['TypeScript'],
+    })
+
+    expect(dataOf(prisma)).toEqual({
+      birthDate: new Date('1990-05-01'),
+      country: 'Казахстан',
+      website: 'https://example.kz',
+      skills: ['TypeScript'],
+    })
+  })
+
+  it('админу вуза личные поля по-прежнему недоступны', async () => {
+    await expectRejected(
+      Role.UNIVERSITY_ADMIN,
+      { birthDate: new Date('1990-05-01'), country: 'Казахстан' },
+      ['birthDate', 'country'],
+    )
   })
 
   it('платформенному админу отказывает в академических и вузовских полях', async () => {

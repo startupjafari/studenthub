@@ -28,12 +28,19 @@ export default function BarChart({
   palette,
   height = 260,
   ariaLabel,
+  seriesName,
 }: {
   labels: string[]
   values: number[]
   palette: ChartPalette
   height?: number
   ariaLabel: string
+  /**
+   * Подпись ряда в подсказке. Без неё Recharts берёт имя поля данных, и в тултипе
+   * появлялось техническое «value». Ряд здесь один, поэтому по умолчанию подпись
+   * не выводится вовсе — категория уже стоит заголовком подсказки.
+   */
+  seriesName?: string
 }) {
   const reduced = useReducedMotion()
   const max = Math.max(...values, 1)
@@ -72,6 +79,7 @@ export default function BarChart({
           />
           <Bar
             dataKey="value"
+            name={seriesName}
             // Скругление только на конце данных, у базовой линии — прямой угол.
             radius={[0, 4, 4, 0]}
             // Полосу не даём распухать на весь слот: остаток дорожки — воздух.

@@ -16,6 +16,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger'
@@ -136,12 +137,19 @@ export class DocumentsController {
 
   @Get(':id/files/:fileId/url')
   @ApiOperation({ summary: 'Presigned-URL к файлу документа (открыть/скачать)' })
+  @ApiQuery({
+    name: 'download',
+    required: false,
+    description:
+      'При `1` ссылка отдаёт файл вложением (Content-Disposition), а не открывает его в браузере',
+  })
   fileUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('fileId') fileId: string,
+    @Query('download') download?: string,
   ) {
-    return this.documents.getFileUrl(user, id, fileId).then((url) => ({ url }))
+    return this.documents.getFileUrl(user, id, fileId, download === '1').then((url) => ({ url }))
   }
 
   @Get(':id/events')

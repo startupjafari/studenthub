@@ -10,11 +10,10 @@ import {
   profileContentKeys,
   uploadProfileMediaAuto,
 } from '../../../entities/profile-content'
-import { Button, FormAlert } from '../../../shared/ui'
+import { Button, FormAlert, ImageCropModal } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
-import { AvatarCropModal } from './avatar-crop-modal'
 import { VideoCoverPicker, type VideoCover } from './video-cover-picker'
 
 function errCode(e: unknown): string {
@@ -102,7 +101,7 @@ export function PhotoCreateModal({ userId, onClose }: CreateModalProps) {
 
   if (file) {
     return (
-      <AvatarCropModal
+      <ImageCropModal
         file={file}
         shape="square"
         title={t('uploadPhoto')}

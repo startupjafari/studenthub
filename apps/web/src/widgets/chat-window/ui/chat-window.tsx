@@ -70,16 +70,22 @@ import {
   type MessageAttachment,
 } from '../../../entities/chat'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
-import { GroupInfoDialog } from './group-info-dialog'
 import { PeerInfoCard } from './peer-info-card'
-import { ChatDetailsSidebar } from './chat-details-sidebar'
-import { ChatFoldersSheet } from './chat-folders-sheet'
+import { ChatDetailsPanel } from './chat-details-panel'
+import { ChatFoldersDialog } from './chat-folders-dialog'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
 import { BlockedUsersDialog } from './blocked-users-dialog'
 import { CreateGroupDialog } from './create-group-dialog'
-import { Avatar, AvatarFallback, AvatarImage, DatePicker, useConfirm } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  DatePicker,
+  Modal,
+  useConfirm,
+} from '../../../shared/ui'
 import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
 import { useChatListSlot, useMediaQuery, useSetChatOpen } from '../../../shared/lib'
@@ -177,6 +183,9 @@ export function ChatWindow() {
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
+  // Дата перехода по истории: хранится, чтобы поле показывало выбранное значение, а не
+  // возвращалось к плейсхолдеру — иначе непонятно, к какому дню прокручен чат.
+  const [jumpDate, setJumpDate] = useState('')
   const [chatSearchRaw, setChatSearchRaw] = useState('')
   const [chatSearchTerm, setChatSearchTerm] = useState('')
   const [searchIdx, setSearchIdx] = useState(0)
@@ -184,7 +193,6 @@ export function ChatWindow() {
   // Фильтр «От кого» (§4): id+имя выбранного автора (или null — все).
   const [searchFrom, setSearchFrom] = useState<{ id: string; name: string } | null>(null)
   const [searchFromOpen, setSearchFromOpen] = useState(false)
-  const [groupInfoOpen, setGroupInfoOpen] = useState(false)
   // Мини-карточка собеседника (личный чат, Telegram-стиль) — по клику на шапку.
   const [peerCardOpen, setPeerCardOpen] = useState(false)
   // Докнутая правая панель деталей (десктоп ≥xl): профиль/участники/медиа без ухода из чата.
@@ -1780,6 +1788,37 @@ export function ChatWindow() {
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
 
+  // Пропсы панели деталей чата — одни и те же для колонки (ПК) и модалки (планшет/мобильный),
+  // чтобы презентация решалась одним `isWide`, а не двумя разными экранами.
+  const detailsProps = activeChat
+    ? {
+        chat: activeChat,
+        title: chatTitle(activeChat, t),
+        isPrivate,
+        peerOnline: otherOnline,
+        myId,
+        onClose: () => setDetailsOpen(false),
+        onMute: (mode: number | 'forever', importantOnly?: boolean) =>
+          mute.mutate({
+            chatId: activeChat.id,
+            muted: true,
+            minutes: mode === 'forever' ? undefined : mode,
+            importantOnly,
+          }),
+        onUnmute: () => mute.mutate({ chatId: activeChat.id, muted: false }),
+        onOpenPeerProfile: otherId ? () => setPeerCardOpen(true) : undefined,
+        onJump: focusMessage,
+        onLeft: () => {
+          setDetailsOpen(false)
+          setActiveId(null)
+        },
+        onOpenChat: (id: string) => {
+          setDetailsOpen(false)
+          setActiveId(id)
+        },
+      }
+    : null
+
   // Стабильный диспетчер действий над сообщением (см. MessageItem). Всегда зовёт свежие
   // обработчики через ref — идентичность объекта не меняется между рендерами, поэтому memo
   // реально пропускает перерисовку невизуально-изменившихся пузырей (#57).
@@ -2003,7 +2042,7 @@ export function ChatWindow() {
                           aria-label={t('searchFrom')}
                           onClick={() => setSearchFromOpen((v) => !v)}
                           className={cn(
-                            'flex h-8 max-w-28 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
+                            'flex h-9 max-w-28 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
                             searchFrom
                               ? 'bg-primary/10 text-primary'
                               : 'text-muted-foreground hover:bg-muted',
@@ -2075,7 +2114,7 @@ export function ChatWindow() {
                       aria-label={t('searchPrev')}
                       onClick={() => stepSearch(-1)}
                       disabled={total === 0 || searchIdx <= 0}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
                     >
                       <ChevronUp className="size-5" aria-hidden />
                     </button>
@@ -2084,7 +2123,7 @@ export function ChatWindow() {
                       aria-label={t('searchNext')}
                       onClick={() => stepSearch(1)}
                       disabled={total === 0 || searchIdx >= total - 1}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
                     >
                       <ChevronDown className="size-5" aria-hidden />
                     </button>
@@ -2108,11 +2147,7 @@ export function ChatWindow() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (isWide) setDetailsOpen((v) => !v)
-                  else if (isPrivate) setPeerCardOpen(true)
-                  else setGroupInfoOpen(true)
-                }}
+                onClick={() => setDetailsOpen((v) => !v)}
                 className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left transition-colors hover:bg-muted"
               >
                 <span className="relative shrink-0">
@@ -2176,19 +2211,24 @@ export function ChatWindow() {
                   type="button"
                   aria-label={t('searchInChat')}
                   onClick={() => setChatSearchOpen(true)}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <Search className="size-4" aria-hidden />
                 </button>
-                {/* Переход по дате (#5): value='' — контрол работает как кнопка-jump, выбор → jumpToDate. */}
+                {/* Переход по дате (#5): выбор прокручивает историю к этому дню и остаётся
+                    в поле; крестик в поле сбрасывает его, никуда не переходя. */}
                 <DatePicker
-                  value=""
+                  value={jumpDate}
                   onChange={(ymd) => {
+                    setJumpDate(ymd)
                     if (ymd) void jumpToDate(ymd)
                   }}
                   placeholder={t('jumpToDate')}
                   aria-label={t('jumpToDate')}
-                  className="w-9 shrink-0 sm:w-36"
+                  size="md"
+                  // Без даты — компактная кнопка под одну иконку; с датой полю нужно место
+                  // под саму дату и крестик очистки, иначе они наезжают друг на друга.
+                  className={cn('shrink-0', jumpDate ? 'w-32 sm:w-44' : 'w-9 sm:w-36')}
                 />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
@@ -2197,7 +2237,7 @@ export function ChatWindow() {
                     onClick={() => setHeaderMenuOpen((v) => !v)}
                     aria-label={t('messageActions')}
                     className={cn(
-                      'relative flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                      'relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
                       headerMenuOpen && 'bg-muted text-foreground',
                     )}
                   >
@@ -2511,40 +2551,38 @@ export function ChatWindow() {
         )}
       </section>
 
-      {/* Правая панель деталей — докнутая третья колонка (десктоп ≥xl). Ширина анимируется,
-          центральная переписка адаптивно сужается и остаётся активной (Telegram-стиль §1, §55). */}
-      <aside
-        className={cn(
-          'hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out xl:block',
-          detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
-        )}
-        aria-hidden={!(detailsOpen && activeChat)}
-      >
-        {activeChat && (
-          <div className="h-full w-[22rem]">
-            <ChatDetailsSidebar
-              key={activeChat.id}
-              chat={activeChat}
-              title={chatTitle(activeChat, t)}
-              isPrivate={isPrivate}
-              peerOnline={otherOnline}
-              onClose={() => setDetailsOpen(false)}
-              onMute={(mode, importantOnly) =>
-                mute.mutate({
-                  chatId: activeChat.id,
-                  muted: true,
-                  minutes: mode === 'forever' ? undefined : mode,
-                  importantOnly,
-                })
-              }
-              onUnmute={() => mute.mutate({ chatId: activeChat.id, muted: false })}
-              onManageGroup={() => setGroupInfoOpen(true)}
-              onOpenPeerProfile={otherId ? () => setPeerCardOpen(true) : undefined}
-              onJump={focusMessage}
-            />
-          </div>
-        )}
-      </aside>
+      {/* Детали чата — одна панель на все размеры экрана, второго экрана с тем же
+          содержимым нет (§55). На ПК (≥xl) — докнутая третья колонка: ширина анимируется,
+          центральная переписка адаптивно сужается и остаётся активной. На планшете и
+          мобильном та же панель открывается в системном модальном окне. */}
+      {isWide ? (
+        <aside
+          className={cn(
+            'hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out xl:block',
+            detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
+          )}
+          aria-hidden={!(detailsOpen && activeChat)}
+        >
+          {detailsProps && (
+            <div className="h-full w-[22rem]">
+              <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="column" />
+            </div>
+          )}
+        </aside>
+      ) : (
+        detailsOpen &&
+        detailsProps && (
+          <Modal
+            onClose={() => setDetailsOpen(false)}
+            title={t('details')}
+            size="lg"
+            className="h-[min(90vh,44rem)]"
+            bodyClassName="overflow-hidden p-0"
+          >
+            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="modal" />
+          </Modal>
+        )
+      )}
 
       {menu && (
         <MessageContextMenu
@@ -2603,7 +2641,7 @@ export function ChatWindow() {
         />
       )}
 
-      <ChatFoldersSheet
+      <ChatFoldersDialog
         open={foldersOpen}
         onOpenChange={setFoldersOpen}
         folders={folderList}
@@ -2619,28 +2657,6 @@ export function ChatWindow() {
           onClose={() => setPollCreatorOpen(false)}
           onCreate={(input) => createPoll.mutate(input)}
           pending={createPoll.isPending}
-        />
-      )}
-
-      {groupInfoOpen && activeChat && (
-        <GroupInfoDialog
-          chatId={activeChat.id}
-          title={chatTitle(activeChat, t)}
-          avatarUrl={activeChat.avatarUrl}
-          isOwner={activeChat.isOwner}
-          isAdmin={activeChat.isAdmin}
-          muted={activeChat.muted}
-          myId={myId}
-          onClose={() => setGroupInfoOpen(false)}
-          onToggleMute={() => mute.mutate({ chatId: activeChat.id, muted: !activeChat.muted })}
-          onLeft={() => {
-            setGroupInfoOpen(false)
-            setActiveId(null)
-          }}
-          onOpenChat={(id) => {
-            setGroupInfoOpen(false)
-            setActiveId(id)
-          }}
         />
       )}
 

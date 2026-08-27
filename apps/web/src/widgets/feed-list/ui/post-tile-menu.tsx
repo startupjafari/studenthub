@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { MoreHorizontal, Pin, PinOff, Trash2 } from 'lucide-react'
+import { Flag, MoreHorizontal, Pin, PinOff, Trash2 } from 'lucide-react'
 import { deletePostRequest, pinPostRequest, postKeys, type FeedPost } from '../../../entities/post'
+import { ReportModal } from '../../../features/report-content'
 import { useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -15,16 +16,20 @@ export function PostTileMenu({
   post,
   canModerate,
   canDelete,
+  isMine,
 }: {
   post: FeedPost
   canModerate: boolean
   canDelete: boolean
+  /** Свой пост: на себя не жалуются. */
+  isMine: boolean
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [open, setOpen] = useState(false)
+  const [reporting, setReporting] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -62,7 +67,10 @@ export function PostTileMenu({
     onError: err,
   })
 
-  if (!canModerate && !canDelete) return null
+  // Меню больше не прячем: «Пожаловаться» доступно любому читателю — до этого
+  // подать жалобу из интерфейса было нельзя вовсе, хотя эндпоинт есть с Ф11.
+  const canReport = !isMine
+  if (!canModerate && !canDelete && !canReport) return null
   const item =
     'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted'
 
@@ -93,6 +101,20 @@ export function PostTileMenu({
               {post.pinnedAt ? t('unpin') : t('pin')}
             </button>
           )}
+          {canReport && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false)
+                setReporting(true)
+              }}
+            >
+              <Flag className="size-4 text-muted-foreground" aria-hidden />
+              {t('report')}
+            </button>
+          )}
           {canDelete && (
             <button
               type="button"
@@ -109,6 +131,15 @@ export function PostTileMenu({
             </button>
           )}
         </div>
+      )}
+
+      {reporting && (
+        <ReportModal
+          targetType="POST"
+          targetId={post.id}
+          preview={post.content}
+          onClose={() => setReporting(false)}
+        />
       )}
     </div>
   )
