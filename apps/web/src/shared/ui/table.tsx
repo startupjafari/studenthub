@@ -175,6 +175,13 @@ export function TableRow({ className, ...props }: ComponentProps<'tr'>) {
 }
 
 export interface TableHeadProps extends Omit<ComponentProps<'th'>, 'onClick'> {
+  /**
+   * Числовая колонка: заголовок прижимается вправо, к самим числам.
+   * Одним `text-right` этого не добиться — у сортируемого заголовка внутри `th` лежит
+   * кнопка `flex w-full`, и выравнивание текста ячейки на неё не действует: подпись
+   * оставалась у левого края колонки, а числа стояли у правого.
+   */
+  numeric?: boolean
   /** Ключ сортировки. Задан — заголовок становится кнопкой сортировки. */
   sortKey?: string
   /** Текущая сортировка таблицы (из `useTableSort`). */
@@ -191,6 +198,7 @@ export function TableHead({
   sortKey,
   sort,
   onSort,
+  numeric = false,
   children,
   ...props
 }: TableHeadProps) {
@@ -204,6 +212,7 @@ export function TableHead({
       aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : undefined}
       className={cn(
         'sticky top-0 z-10 bg-muted px-4 py-2 font-semibold shadow-[inset_0_-1px_0_var(--border)]',
+        numeric && 'text-right',
         className,
       )}
       {...props}
@@ -213,7 +222,9 @@ export function TableHead({
           type="button"
           onClick={() => onSort(sortKey)}
           className={cn(
-            'flex w-full cursor-pointer items-center gap-1 text-left transition-colors hover:text-foreground',
+            // Кнопка во всю ширину ячейки — кликабелен весь заголовок, а не только текст.
+            'flex w-full cursor-pointer items-center gap-1 transition-colors hover:text-foreground',
+            numeric ? 'justify-end text-right' : 'text-left',
             active && 'text-foreground',
           )}
         >
@@ -312,13 +323,28 @@ export function TableText({
  * колонок и подвал на месте, меняется только содержимое строк — экран не «прыгает», когда
  * данные приходят (FRONTEND_RULES: скелетон повторяет геометрию контента).
  */
-export function TableSkeletonRows({ columns, rows = 8 }: { columns: number; rows?: number }) {
+/**
+ * Скелетон строк на время загрузки.
+ *
+ * `columns` — либо число колонок, либо их классы видимости по порядку. Второе нужно
+ * таблицам, которые прячут часть колонок на узком экране: скелетон обязан скрывать те
+ * же самые, иначе во время загрузки строк оказывается больше ячеек, чем в шапке, и
+ * колонки разъезжаются.
+ */
+export function TableSkeletonRows({
+  columns,
+  rows = 8,
+}: {
+  columns: number | readonly (string | undefined)[]
+  rows?: number
+}) {
+  const cells = typeof columns === 'number' ? Array.from<undefined>({ length: columns }) : columns
   return (
     <>
       {Array.from({ length: rows }).map((_, r) => (
         <TableRow key={r}>
-          {Array.from({ length: columns }).map((_, c) => (
-            <TableCell key={c}>
+          {cells.map((cls, c) => (
+            <TableCell key={c} className={cls}>
               <Skeleton className="h-4 w-full" />
             </TableCell>
           ))}
@@ -389,6 +415,47 @@ export function useSortState(initial: SortState | null = null): {
  * на клиенте (предпросмотр импорта, матрица журнала). `value` обязан быть стабильным
  * (объявлен вне компонента), иначе пересортировка на каждый рендер.
  */
+/**
+ * Состояние серверной таблицы: страница, размер и порядок в одном месте.
+ *
+ * `query` отдаётся готовым к отправке — его же кладут в ключ кэша. Смена сортировки
+ * и размера страницы сбрасывает на первую: иначе пользователь остаётся на пятой
+ * странице заново упорядоченного списка, а при большом размере её может уже не быть.
+ */
+export function usePagedSort<S extends string = string>(
+  initialLimit = 20,
+): {
+  page: number
+  limit: number
+  sort: SortState | null
+  toggle: (key: string) => void
+  setPage: (page: number) => void
+  setLimit: (limit: number) => void
+  query: { page: number; limit: number; sort?: S; order?: SortDirection }
+} {
+  const [page, setPage] = useState(1)
+  const [limit, setLimitRaw] = useState(initialLimit)
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  return {
+    page,
+    limit,
+    sort,
+    toggle: (key) => {
+      setSort((s) => nextSort(s, key))
+      setPage(1)
+    },
+    setPage,
+    setLimit: (next) => {
+      setLimitRaw(next)
+      setPage(1)
+    },
+    // Ключ колонки приходит из sortKey заголовка — он же значение серверного enum.
+    // Параметр S сужает тип до допустимых колонок конкретного списка.
+    query: { page, limit, ...(sort ? { sort: sort.key as S, order: sort.dir } : {}) },
+  }
+}
+
 export function useTableSort<T>(
   rows: T[],
   value: (row: T, key: string) => unknown,
