@@ -32,16 +32,7 @@ export function postUrl(postId: string): string {
  * Репост в меню НЕ входит: это публикация от своего имени со своей аудиторией,
  * а не отправка ссылки. У него отдельная кнопка.
  */
-export function SharePostMenu({
-  postId,
-  className,
-  label,
-}: {
-  postId: string
-  className?: string
-  /** Подпись рядом с иконкой; без неё кнопка — только иконка. */
-  label?: string
-}) {
+export function SharePostMenu({ postId, className }: { postId: string; className?: string }) {
   const t = useTranslations('Feed')
   const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
@@ -122,7 +113,6 @@ export function SharePostMenu({
         className={className}
       >
         <Share2 className="size-5" aria-hidden />
-        {label && <span className="hidden sm:inline">{label}</span>}
       </button>
 
       {open && (
