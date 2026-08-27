@@ -4,19 +4,35 @@ import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 import { Inbox } from 'lucide-react'
-import type { ApplicationServiceStatus } from '@studenthub/shared-schemas'
+import type { ApplicationServiceStatus, ApplicationSort } from '@studenthub/shared-schemas'
 import {
   ApplicationStatusBadge,
   applicationKeys,
   fetchApplications,
-  fetchQueueStats,
   pickLocale,
   type ApplicationFilters,
   type ApplicationListItem,
 } from '../../../entities/application-service'
-import { Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  PageHeader,
+  SegmentedTabs,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  usePagedSort,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { StaffWorkspace } from './staff-workspace'
+import { StaffWorkspaceModal } from './staff-workspace'
 
 type Filter = 'all' | 'overdue' | ApplicationServiceStatus
 const FILTERS: Filter[] = [
@@ -28,80 +44,84 @@ const FILTERS: Filter[] = [
   'READY_FOR_PICKUP',
   'overdue',
 ]
-const PAGE = 20
+const PAGE_SIZES = [20, 50, 100] as const
+// Номер · услуга · студент · статус · подано · срок.
+const QUEUE_COLS = ['9rem', '26%', '20%', '11rem', '8rem', '8rem'] as const
+// На узком экране остаётся номер, услуга и статус — по ним заявку и ищут.
+const HIDE = {
+  student: 'hidden lg:table-cell',
+  submitted: 'hidden xl:table-cell',
+  due: 'hidden md:table-cell',
+} as const
+// Порядок классов = порядок колонок: скелетон прячет те же, что и шапка.
+const SKELETON_COLS = [undefined, undefined, HIDE.student, undefined, HIDE.submitted, HIDE.due]
 
-// Рабочая очередь деканата (§16): счётчики + фильтры + серверная пагинация. Клик → рабочее место.
+// Статусы, после которых срок уже не «горит»: заявка закрыта или лежит на выдаче.
+const SETTLED = ['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED', 'READY', 'READY_FOR_PICKUP']
+
+function isOverdue(app: ApplicationListItem): boolean {
+  return !!app.dueAt && new Date(app.dueAt).getTime() < Date.now() && !SETTLED.includes(app.status)
+}
+
+// Рабочая очередь деканата (§16): фильтр в шапке, таблица с серверной сортировкой
+// и пагинацией, обработка заявки — в модальном окне поверх очереди. Счётчики-плитки
+// убраны: те же числа есть на «Сегодня», а здесь они отнимали высоту у самой очереди.
 export function DeanApplicationsView() {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const [openId, setOpenId] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
-  const [page, setPage] = useState(1)
 
-  const statsQ = useQuery({ queryKey: [...applicationKeys.all, 'stats'], queryFn: fetchQueueStats })
+  // Сортировка серверная: упорядочена вся выборка, а не открытая страница.
+  const { page, limit, sort, toggle, setPage, setLimit } = usePagedSort<ApplicationSort>(
+    PAGE_SIZES[0],
+  )
 
   const filters: ApplicationFilters = {
     page,
-    limit: PAGE,
-    sortBy: 'submittedAt',
-    sortOrder: 'desc',
+    limit,
+    // Без явного выбора — свежие сверху: очередь разбирают с новых заявок.
+    sortBy: sort ? (sort.key as ApplicationSort) : 'submittedAt',
+    sortOrder: sort ? sort.dir : 'desc',
     ...(filter === 'overdue' ? { overdue: true } : filter !== 'all' ? { status: filter } : {}),
   }
   const listQ = useQuery({
     queryKey: applicationKeys.list(filters),
     queryFn: () => fetchApplications(filters),
+    placeholderData: (prev) => prev,
   })
-
-  if (openId) {
-    return <StaffWorkspace id={openId} onBack={() => setOpenId(null)} />
-  }
 
   const items = listQ.data?.items ?? []
   const total = listQ.data?.total ?? 0
-  const stats = statsQ.data
 
   return (
-    <div className="flex w-full flex-col gap-4">
-      <PageHeader title={t('queueTitle')} />
-
-      {/* Счётчики */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <Stat label={t('statNew')} value={stats?.new} />
-        <Stat label={t('statInWork')} value={stats?.inWork} />
-        <Stat label={t('statActionNeeded')} value={stats?.actionNeeded} />
-        <Stat label={t('statReady')} value={stats?.ready} />
-        <Stat label={t('statOverdue')} value={stats?.overdue} tone="danger" />
-      </div>
-
-      {/* Фильтры */}
-      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-        {FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => {
-              setFilter(f)
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      <PageHeader
+        title={t('queueTitle')}
+        // Фильтр статусов — в шапке, как разделы на экране документов: единый
+        // SegmentedTabs вместо самодельных чипов под заголовком (DESIGN_SYSTEM §10.1).
+        tabs={
+          <SegmentedTabs
+            aria-label={t('queueTitle')}
+            value={filter}
+            onChange={(next) => {
+              setFilter(next)
               setPage(1)
             }}
-            className={cn(
-              'shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
-              filter === f
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {f === 'all' ? t('allFilter') : f === 'overdue' ? t('overdueLabel') : t(`status2_${f}`)}
-          </button>
-        ))}
-      </div>
+            items={FILTERS.map((f) => ({
+              value: f,
+              label:
+                f === 'all'
+                  ? t('allFilter')
+                  : f === 'overdue'
+                    ? t('overdueLabel')
+                    : t(`status2_${f}`),
+            }))}
+          />
+        }
+      />
 
-      {listQ.isLoading ? (
-        <div className="flex flex-col gap-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : listQ.isError ? (
+      {listQ.isError ? (
         <EmptyState
           icon={<Inbox className="size-6" aria-hidden />}
           title={t('loadError')}
@@ -111,107 +131,109 @@ export function DeanApplicationsView() {
             </Button>
           }
         />
-      ) : items.length === 0 ? (
+      ) : !listQ.isPending && total === 0 ? (
         <EmptyState icon={<Inbox className="size-6" aria-hidden />} title={t('queueEmpty')} />
       ) : (
-        <>
-          <div className="flex flex-col gap-2">
-            {items.map((app) => (
-              <QueueRow key={app.id} app={app} locale={locale} onOpen={() => setOpenId(app.id)} />
-            ))}
-          </div>
-          {/* Серверная пагинация */}
-          {total > PAGE && (
-            <div className="flex items-center justify-between gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                {t('backBtn')}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {page} / {Math.ceil(total / PAGE)}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= Math.ceil(total / PAGE)}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                {t('nextBtn')}
-              </Button>
-            </div>
-          )}
-        </>
+        // `gap-0 py-0`: собственные отступы карточки дали бы полосу над шапкой таблицы
+        // и просвет под последней строкой — таблица занимает карточку целиком.
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={QUEUE_COLS}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('numberLabel')}</TableHead>
+                <TableHead>{t('serviceColumn')}</TableHead>
+                <TableHead className={HIDE.student}>{t('studentLabel')}</TableHead>
+                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                  {t('statusColumn')}
+                </TableHead>
+                <TableHead
+                  sortKey="submittedAt"
+                  sort={sort}
+                  onSort={toggle}
+                  className={HIDE.submitted}
+                >
+                  {t('submittedAtLabel')}
+                </TableHead>
+                <TableHead sortKey="dueAt" sort={sort} onSort={toggle} className={HIDE.due}>
+                  {t('dueColumn')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {listQ.isPending && <TableSkeletonRows columns={SKELETON_COLS} />}
+              {items.map((app) => {
+                const overdue = isOverdue(app)
+                return (
+                  <TableRow
+                    key={app.id}
+                    tabIndex={0}
+                    aria-haspopup="dialog"
+                    onClick={() => setOpenId(app.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setOpenId(app.id)
+                      }
+                    }}
+                    className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                  >
+                    <TableCell className="font-medium">
+                      <TableText value={app.number} />
+                    </TableCell>
+                    <TableCell>
+                      <TableText
+                        value={pickLocale(
+                          app.service as unknown as Record<string, unknown>,
+                          'name',
+                          locale,
+                        )}
+                      />
+                    </TableCell>
+                    <TableCell className={cn(HIDE.student, 'text-muted-foreground')}>
+                      {app.student ? (
+                        <TableText value={`${app.student.lastName} ${app.student.firstName}`} />
+                      ) : (
+                        <TableEmpty />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <ApplicationStatusBadge status={app.status} />
+                    </TableCell>
+                    <TableCell className={cn(HIDE.submitted, 'text-muted-foreground tabular-nums')}>
+                      {app.submittedAt ? (
+                        new Date(app.submittedAt).toLocaleDateString(locale)
+                      ) : (
+                        <TableEmpty />
+                      )}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        HIDE.due,
+                        'tabular-nums',
+                        // Просрочку показываем цветом самой даты: отдельная колонка-флаг
+                        // дублировала бы то, что и так видно по сроку.
+                        overdue ? 'font-medium text-destructive' : 'text-muted-foreground',
+                      )}
+                    >
+                      {app.dueAt ? new Date(app.dueAt).toLocaleDateString(locale) : <TableEmpty />}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+          <TablePagination
+            page={page}
+            total={total}
+            limit={limit}
+            onPageChange={setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={setLimit}
+          />
+        </Card>
       )}
+
+      {openId && <StaffWorkspaceModal id={openId} onClose={() => setOpenId(null)} />}
     </div>
-  )
-}
-
-function Stat({ label, value, tone }: { label: string; value?: number; tone?: 'danger' }) {
-  return (
-    <Card className="flex flex-col gap-0.5 p-3">
-      <span
-        className={cn(
-          'text-xl font-bold',
-          tone === 'danger' && value ? 'text-destructive' : undefined,
-        )}
-      >
-        {value ?? '—'}
-      </span>
-      <span className="text-xs text-muted-foreground">{label}</span>
-    </Card>
-  )
-}
-
-function QueueRow({
-  app,
-  locale,
-  onOpen,
-}: {
-  app: ApplicationListItem
-  locale: string
-  onOpen: () => void
-}) {
-  const t = useTranslations('Applications')
-  const overdue =
-    app.dueAt &&
-    new Date(app.dueAt).getTime() < Date.now() &&
-    !['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED', 'READY', 'READY_FOR_PICKUP'].includes(
-      app.status,
-    )
-  return (
-    <Card
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
-      className="flex cursor-pointer items-center gap-3 p-3 transition-colors outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/30"
-    >
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-xs font-medium text-muted-foreground">{app.number}</span>
-          <ApplicationStatusBadge status={app.status} />
-          {overdue && (
-            <span className="text-xs font-medium text-destructive">{t('overdueLabel')}</span>
-          )}
-        </div>
-        <span className="truncate text-sm font-medium">
-          {pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)}
-        </span>
-        {app.student && (
-          <span className="truncate text-xs text-muted-foreground">
-            {app.student.lastName} {app.student.firstName}
-          </span>
-        )}
-      </div>
-      {app.dueAt && (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {new Date(app.dueAt).toLocaleDateString(locale)}
-        </span>
-      )}
-    </Card>
   )
 }
