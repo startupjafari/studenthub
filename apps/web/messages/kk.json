@@ -1899,6 +1899,8 @@
     "add": "Дос қосу",
     "cancelRequest": "Өтінімді болдырмау",
     "acceptRequest": "Өтінімді қабылдау",
+    "requestsTitle": "Достыққа өтінімдер",
+    "showAll": "Барлығын көрсету",
     "friendsLabel": "Достарда"
   },
   "Today": {
