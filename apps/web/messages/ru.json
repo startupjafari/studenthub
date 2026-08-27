@@ -1039,7 +1039,15 @@
     "titlePlaceholder": "Например: График работы деканатов на праздники",
     "contentLabel": "Текст",
     "mentionHint": "Упоминание",
-    "replyingTo": "Ответ для {name}"
+    "replyingTo": "Ответ для {name}",
+    "copyLink": "Скопировать ссылку",
+    "linkCopied": "Ссылка скопирована",
+    "copyFailed": "Не удалось скопировать",
+    "shareMore": "Ещё…",
+    "postUnavailableTitle": "Публикация недоступна",
+    "postUnavailableText": "Её удалили или она адресована другой аудитории",
+    "backToFeed": "К ленте",
+    "postTitle": "Публикация"
   },
   "Chats": {
     "title": "Чаты",

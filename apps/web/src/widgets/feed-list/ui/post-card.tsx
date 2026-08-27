@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, Heart, MessageSquare, Pin, Play, Repeat2, Share2 } from 'lucide-react'
+import { Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -15,26 +14,15 @@ import {
   type PostMedia,
   type PostReaction,
 } from '../../../entities/post'
-import {
-  chatKeys,
-  fetchChats,
-  sharePostRequest,
-  ForwardDialog,
-  type ChatListItem,
-} from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog } from '../../../features/repost-post'
 import { Avatar, AvatarFallback, Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
+import { SharePostMenu } from '../../../features/share-post'
 import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
-
-// Заголовок чата для пикера пересылки: явный title → предмет → «личный чат».
-function chatLabel(c: ChatListItem, tChats: (k: string) => string): string {
-  return c.title || c.subject || tChats('typePrivate')
-}
 
 const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
@@ -76,25 +64,13 @@ export function PostCard({
   onOpenComments?: () => void
 }) {
   const t = useTranslations('Feed')
-  const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
-  const [sharing, setSharing] = useState(false)
   const [reposting, setReposting] = useState(false)
-
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
-  const shareMut = useMutation({
-    mutationFn: (chatId: string) => sharePostRequest(chatId, post.id),
-    onSuccess: () => {
-      setSharing(false)
-      toast.success(t('sharedToChat'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
@@ -229,9 +205,14 @@ export function PostCard({
             <Repeat2 className="size-5" aria-hidden />
           </ActionButton>
         )}
-        <ActionButton label={t('share')} onClick={() => setSharing(true)}>
-          <Share2 className="size-5" aria-hidden />
-        </ActionButton>
+        {/* «Поделиться» — меню: ссылка, чат, системное меню. Прямое открытие
+            пересылки в чат оставляло единственный способ поделиться, и то внутри
+            платформы. */}
+        <SharePostMenu
+          postId={post.id}
+          label={t('share')}
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
+        />
         {/* Справа — счётчик просмотров и возраст поста: во «ВКонтакте» дата стоит
             именно здесь, а не в шапке, где спорит с именем автора. */}
         <span className="ml-auto flex items-center gap-3 px-2 text-xs">
@@ -249,16 +230,6 @@ export function PostCard({
       </div>
 
       {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
-
-      {sharing && (
-        <ForwardDialog
-          chats={chats.data ?? []}
-          currentChatId={null}
-          titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(chatId) => shareMut.mutate(chatId)}
-          onClose={() => setSharing(false)}
-        />
-      )}
     </article>
   )
 }
