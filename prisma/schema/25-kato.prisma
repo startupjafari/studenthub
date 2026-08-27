@@ -1,0 +1,30 @@
+// Справочник КАТО — классификатор административно-территориальных объектов РК
+// (16 205 записей). Данные: `prisma/data/kato.json`, генерируется из выгрузки stat.gov.kz
+// скриптом `scripts/gen-kato.mjs`, заливается сидером `prisma/seed-kato.mjs`.
+//
+// Справочник общий для всей платформы и от вуза не зависит, поэтому `universityId` здесь нет
+// и scope-гейта на чтение тоже: названия городов — не персональные данные.
+//
+// `University.city` хранит `code` этой таблицы (внешним ключом не связан: у зарубежного вуза
+// города в КАТО нет, и там остаётся свободный текст).
+model KatoUnit {
+  // Код КАТО, 9 цифр — стабильный официальный ключ. Структура RR|DD|OO|NNN даёт иерархию.
+  code       String   @id @db.Char(9)
+  kind       KatoKind
+  nameRu     String   @map("name_ru")
+  nameKk     String   @map("name_kk")
+  // Родитель вычисляется из структуры кода, а не из поля `Parent` выгрузки — оно битое
+  // у 40 записей. У 38 объектов родителя нет в справочнике вовсе, там NULL.
+  parentCode String?  @map("parent_code") @db.Char(9)
+  // Область (или город республиканского значения). Всегда заполнен, в отличие от parentCode,
+  // поэтому подпись «Кокшетау, Акмолинская область» строится по нему.
+  regionCode String   @map("region_code") @db.Char(9)
+
+  parent   KatoUnit?  @relation("KatoTree", fields: [parentCode], references: [code], onDelete: SetNull, onUpdate: Cascade)
+  children KatoUnit[] @relation("KatoTree")
+
+  @@index([kind])
+  @@index([parentCode])
+  @@index([regionCode])
+  @@map("kato_units")
+}
