@@ -10,6 +10,9 @@ export const QUEUES = {
   CLEANUP: 'cleanup',
   // Асинхронная выборка OG-превью первой ссылки в сообщении (инлайн-превью, Ф9+).
   LINK_PREVIEW: 'link-preview',
+  // Служебные сообщения в Telegram (docs/TELEGRAM_BOT.md §4.3). Очередь регистрируется
+  // всегда (это только продюсер), а воркер — лишь когда задан TELEGRAM_BOT_TOKEN.
+  OPS_NOTIFY: 'ops-notify',
 } as const
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
@@ -57,6 +60,27 @@ export const FILE_JOBS = {
 
 export const LINK_PREVIEW_JOBS = {
   FETCH: 'fetch-link-preview',
+} as const
+
+// Служебный канал (docs/TELEGRAM_BOT.md). SEND — доставка готового сообщения;
+// QUIET_ENDED — отложенный job, который по истечении тишины шлёт сводку (§3.5).
+export const OPS_JOBS = {
+  SEND: 'ops-send',
+  // Событие, приехавшее из вебхука: контроллер отвечает сразу, обработка — здесь (§5).
+  EMIT: 'ops-emit',
+  // Команда из чата (§6): контроллер отвечает Telegram сразу, ответ собирается здесь.
+  COMMAND: 'ops-command',
+  QUIET_ENDED: 'ops-quiet-ended',
+  // Проверки по расписанию (docs/TELEGRAM_BOT.md §7.3.4): repeatable job'ы вместо @Cron —
+  // расписание лежит в общем Redis, поэтому проверка идёт на одной реплике, а не на каждой.
+  CHECK_CRON_SILENCE: 'ops-check-cron-silence',
+  CHECK_QUEUES: 'ops-check-queues',
+  CHECK_DEPENDENCIES: 'ops-check-dependencies',
+  CHECK_PUBLIC_PING: 'ops-check-public-ping',
+  CHECK_PINNED_STATUS: 'ops-check-pinned-status',
+  CHECK_SECURITY: 'ops-check-security',
+  CHECK_DIGEST: 'ops-check-digest',
+  CHECK_BRANCH_DRIFT: 'ops-check-branch-drift',
 } as const
 
 // Базовая конфигурация job'а (docs/BACKEND_RULES.md §9.2, docs/PROJECT.md §10.1):
