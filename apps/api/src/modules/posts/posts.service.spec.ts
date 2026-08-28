@@ -572,3 +572,45 @@ describe('PostsService — черновики и отложенная публи
     expect(arg.data.status).toBe('PUBLISHED')
   })
 })
+
+describe('PostsService.update — правка только своей публикации', () => {
+  it('чужой пост → FORBIDDEN, даже у модератора', async () => {
+    const { service, prisma } = setup()
+    // Удалять нарушающий пост модератор вправе, а переписывать чужой текст от чужого
+    // имени — нет: это подмена авторства.
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'someone-else' })
+    const err = await service
+      .update(viewer(Role.UNIVERSITY_ADMIN, { sub: 'admin' }), 'p1', { content: 'правка' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('FORBIDDEN')
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
+  it('свой пост: меняются заголовок и текст, пишется аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'u-1' })
+    await service.update(viewer(Role.STUDENT), 'p1', { title: '  Итоги  ', content: 'текст' }, ctx)
+    expect(prisma.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { title: 'Итоги', content: 'текст' } }),
+    )
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'post_updated' }))
+  })
+
+  it('пустой заголовок сохраняется как null, а не пустой строкой', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'u-1' })
+    await service.update(viewer(Role.STUDENT), 'p1', { title: '   ' }, ctx)
+    expect(prisma.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { title: null } }),
+    )
+  })
+
+  it('удалённый пост → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(null)
+    const err = await service
+      .update(viewer(Role.STUDENT), 'p1', { content: 'текст' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('NOT_FOUND')
+  })
+})

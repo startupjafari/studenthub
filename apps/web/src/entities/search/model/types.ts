@@ -4,6 +4,8 @@ export interface SearchPerson {
   id: string
   firstName: string
   lastName: string
+  /** Логин для упоминаний (@username). null — человек его ещё не задал. */
+  username: string | null
   avatarUrl: string | null
   role: Role
 }

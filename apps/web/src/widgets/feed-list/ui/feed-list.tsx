@@ -56,7 +56,6 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
             {tc('retry')}
           </Button>
         }
-        className="min-h-[240px]"
       />
     )
   }
@@ -67,7 +66,6 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
         icon={<Newspaper className="size-6" aria-hidden />}
         title={t('emptyTitle')}
         description={t('emptyText')}
-        className="min-h-[240px]"
       />
     )
   }

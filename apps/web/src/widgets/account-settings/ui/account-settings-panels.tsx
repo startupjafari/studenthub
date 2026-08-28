@@ -50,6 +50,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  CodeInput,
   DictSingleSelect,
   Flag,
   FormAlert,
@@ -86,6 +87,9 @@ import { subscribeToPush, unsubscribeFromPush, pushSupported } from '../../../sh
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
+
+// Длина TOTP задана сервером (two-factor.service.ts: /^\d{6}$/).
+const TOTP_LENGTH = 6
 
 const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'personal', labelKey: 'navPersonal', icon: UserRound },
@@ -392,6 +396,10 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
   const [code, setCode] = useState('')
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null)
   const [disableCode, setDisableCode] = useState('')
+  // Ошибка показывается тостом, поэтому реакцию поля держим отдельно: счётчик попыток
+  // входит в key ячеек — после неверного кода они пересоздаются и фокус встаёт в первую.
+  const [attempt, setAttempt] = useState(0)
+  const [failed, setFailed] = useState(false)
 
   const refreshMe = () => qc.invalidateQueries({ queryKey: userKeys.me() })
   const errCode = (e: unknown) => (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -403,15 +411,23 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
   })
 
   const enableMut = useMutation({
-    mutationFn: () => enable2faRequest(code.trim()),
+    // Код передаём аргументом, а не через замыкание на состояние: при автоотправке
+    // по последней цифре `code` в этом рендере ещё хранит предыдущее значение.
+    mutationFn: (value: string) => enable2faRequest(value),
     onSuccess: (data) => {
       setBackupCodes(data.backupCodes)
       setSetup(null)
       setCode('')
+      setFailed(false)
       void refreshMe()
       toast.success(tS('twoFactorEnabledToast'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => {
+      setCode('')
+      setFailed(true)
+      setAttempt((n) => n + 1)
+      toast.error(tErr(errCode(e)))
+    },
   })
 
   const disableMut = useMutation({
@@ -519,21 +535,29 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="enable2fa">{tS('twoFactorEnterCode')}</Label>
-          <Input
+          <CodeInput
+            // key — чтобы после неверного кода ячейки пересоздались с пустым значением.
+            key={`totp-${attempt}`}
             id="enable2fa"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="123456"
+            aria-label={tS('twoFactorEnterCode')}
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={setCode}
+            length={TOTP_LENGTH}
+            groupSize={3}
+            // Полный код отправляем сразу, как на входе; «Подтвердить» — запасной путь.
+            onComplete={(value) => enableMut.mutate(value)}
+            disabled={enableMut.isPending}
+            // Красная рамка только пока поле пусто после ошибки: начал вводить — снялась.
+            invalid={failed && code.length === 0}
+            autoFocus
           />
         </div>
         <div className="flex gap-2">
           <Button
             type="button"
             loading={enableMut.isPending}
-            disabled={!code.trim()}
-            onClick={() => enableMut.mutate()}
+            disabled={code.length !== TOTP_LENGTH}
+            onClick={() => enableMut.mutate(code)}
           >
             {tS('twoFactorConfirm')}
           </Button>
@@ -543,6 +567,7 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
             onClick={() => {
               setSetup(null)
               setCode('')
+              setFailed(false)
             }}
           >
             {tS('twoFactorCancel')}

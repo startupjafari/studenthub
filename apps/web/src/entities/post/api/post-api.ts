@@ -1,4 +1,9 @@
-import type { CreatePostInput, FeedQueryInput, RepostInput } from '@studenthub/shared-schemas'
+import type {
+  CreatePostInput,
+  UpdatePostInput,
+  FeedQueryInput,
+  RepostInput,
+} from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type { FeedPost, PostComment } from '../model/types'
@@ -39,6 +44,19 @@ export async function fetchAuthorPosts(
   query: Omit<FeedQueryInput, 'authorId'> = { limit: 20 },
 ): Promise<FeedPage> {
   return fetchFeed({ ...query, authorId })
+}
+
+// Один пост по постоянной ссылке. Сервер сам решает, видим ли он зрителю:
+// невидимый отвечает NOT_FOUND, а не «пустым» постом.
+export async function fetchPost(id: string): Promise<FeedPost> {
+  const { data } = await api.get<FeedPost>(`/posts/${id}`)
+  return data
+}
+
+// Правка своей публикации: заголовок и текст. Аудитория и вложения не меняются.
+export async function updatePostRequest(id: string, input: UpdatePostInput): Promise<FeedPost> {
+  const { data } = await api.patch<FeedPost>(`/posts/${id}`, input)
+  return data
 }
 
 export async function createPostRequest(input: CreatePostInput): Promise<FeedPost> {
