@@ -336,6 +336,12 @@ summary {
    < 16px (в UI поля — text-sm/14px). Задаём ≥16px только на тач-устройствах (pointer: coarse) —
    десктоп сохраняет компактный размер. Правило вне @layer, поэтому перекрывает утилиту text-sm.
    Не трогаем чекбоксы/радио (у shadcn это отдельные компоненты). Масштабирование жестом не отключаем. */
+/* Высота экранной клавиатуры (shared/lib/use-keyboard-inset.ts). По умолчанию ноль:
+   на десктопе и на Android, где браузер ужимает viewport сам, вычитать нечего. */
+:root {
+  --kb-inset: 0px;
+}
+
 @media (pointer: coarse) {
   input:not([type='checkbox']):not([type='radio']),
   textarea,

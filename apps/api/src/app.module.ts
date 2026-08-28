@@ -7,6 +7,8 @@ import { validateEnv } from './config/env.schema'
 import { CommonModule } from './common/common.module'
 import { PrismaModule } from './common/prisma/prisma.module'
 import { RedisModule } from './common/redis/redis.module'
+// Счётчик ответов по статусам — им пользуются глобальные фильтр/интерцептор и ops-notify.
+import { MonitoringModule } from './common/monitoring/monitoring.module'
 import { QueueModule } from './common/queue/queue.module'
 import { RealtimeModule } from './common/realtime/realtime.module'
 import { MinioModule } from './common/minio/minio.module'
@@ -50,6 +52,9 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PushModule } from './modules/push/push.module'
 import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
+// Служебный Telegram-канал (docs/TELEGRAM_BOT.md). Без TELEGRAM_BOT_TOKEN регистрирует
+// только заглушку порта — ни воркера, ни фоновых запросов.
+import { OpsNotifyModule } from './modules/ops-notify/ops-notify.module'
 import { MeModule } from './modules/me/me.module'
 import { AppController } from './app.controller'
 
@@ -68,6 +73,7 @@ import { AppController } from './app.controller'
     CommonModule,
     PrismaModule,
     RedisModule,
+    MonitoringModule,
     QueueModule,
     RealtimeModule,
     MinioModule,
@@ -111,6 +117,7 @@ import { AppController } from './app.controller'
     CleanupModule,
     HealthModule,
     MeModule,
+    OpsNotifyModule.register(),
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

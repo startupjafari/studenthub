@@ -41,7 +41,7 @@ import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
+import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { MediaFrame } from './media-frame'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
@@ -108,6 +108,7 @@ export function PostLightbox({
 }: LightboxProps) {
   const t = useTranslations('Feed')
   useBodyScrollLock()
+  useBackClose(onClose)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

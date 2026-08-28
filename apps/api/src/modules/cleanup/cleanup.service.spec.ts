@@ -22,6 +22,15 @@ function makeService() {
   const locks = {
     run: jest.fn((_name: string, _ttl: number, task: () => Promise<unknown>) => task()) as Mock,
   }
+  // Итог уборки сирот запоминается в Redis для суточной сводки — в тесте это Map.
+  const store = new Map<string, string>()
+  const redis = {
+    set: jest.fn(async (key: string, value: string) => {
+      store.set(key, value)
+      return 'OK'
+    }) as Mock,
+    get: jest.fn(async (key: string) => store.get(key) ?? null) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -30,8 +39,9 @@ function makeService() {
     posts as never,
     documents as never,
     locks as never,
+    redis as never,
   )
-  return { service, prisma, minio, config, events, posts, documents, locks }
+  return { service, prisma, minio, config, events, posts, documents, locks, redis, store }
 }
 
 // Поток MinIO listObjectsV2 → синхронно эмитим data+end при подписке на 'end'

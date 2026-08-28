@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useTranslations } from 'next-intl'
 import { ArrowLeft, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { useBackClose } from '../lib/use-back-close'
 
 const SIZE = {
   md: 'max-w-md',
@@ -46,6 +47,8 @@ export function Modal({
   bodyClassName,
 }: ModalProps) {
   const t = useTranslations('Common')
+  // Системная «назад» на Android закрывает окно, а не приложение.
+  useBackClose(onClose)
 
   return (
     <DialogPrimitive.Root
