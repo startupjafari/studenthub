@@ -15,7 +15,7 @@ import {
   type PostReaction,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
-import { RepostDialog } from '../../../features/repost-post'
+import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { Avatar, AvatarFallback, Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
@@ -70,7 +70,10 @@ export function PostCard({
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
-  const [reposting, setReposting] = useState(false)
+  // Репост уходит в собственную ленту сразу по нажатию; окно остаётся только тем ролям,
+  // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
+  const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
+  const [repostDialog, setRepostDialog] = useState(false)
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   const canDelete = post.authorId === myId || canModerate
@@ -201,7 +204,11 @@ export function PostCard({
           <MessageSquare className="size-5" aria-hidden />
         </ActionButton>
         {showRepost && (
-          <ActionButton label={t('repost')} onClick={() => setReposting(true)}>
+          <ActionButton
+            label={t('repost')}
+            disabled={repostPending}
+            onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
+          >
             <Repeat2 className="size-5" aria-hidden />
           </ActionButton>
         )}
@@ -230,7 +237,7 @@ export function PostCard({
         </span>
       </div>
 
-      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
+      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
     </article>
   )
 }
@@ -287,12 +294,14 @@ function ActionButton({
   label,
   count,
   pressed,
+  disabled,
   onClick,
   children,
 }: {
   label: string
   count?: number
   pressed?: boolean
+  disabled?: boolean
   onClick?: () => void
   children: React.ReactNode
 }) {
@@ -301,10 +310,12 @@ function ActionButton({
       type="button"
       aria-label={label}
       aria-pressed={pressed}
+      disabled={disabled}
       onClick={onClick}
       title={label}
       className={cn(
         'flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground',
+        'disabled:pointer-events-none disabled:opacity-50',
         pressed && 'text-foreground',
       )}
     >

@@ -5,15 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { postKeys, updatePostRequest, type FeedPost } from '../../../entities/post'
-import {
-  Button,
-  FieldError,
-  FormAlert,
-  Input,
-  Label,
-  MarkdownEditor,
-  Modal,
-} from '../../../shared/ui'
+import { Button, FieldError, FormAlert, Input, MarkdownEditor, Modal } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 
 /**
@@ -22,11 +14,14 @@ import { useFormAlert } from '../../../shared/lib'
  * Аудитория и вложения не меняются намеренно. Смена аудитории после публикации
  * перекроила бы круг тех, кто пост уже видел и обсудил, а подмена вложений — это
  * уже другой пост, а не правка опечатки.
+ *
+ * Раскладка повторяет окно создания (`CreatePostForm`): заголовок и текст — один
+ * блок без внутренних рамок, панель форматирования всплывает над выделением.
+ * Разные формы для одного и того же текста читались бы как разные инструменты.
  */
 export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () => void }) {
   const t = useTranslations('Feed')
   const tCommon = useTranslations('Common')
-  const tEditor = useTranslations('Editor')
   const qc = useQueryClient()
   const { error, show, reset } = useFormAlert()
 
@@ -59,37 +54,50 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
           e.preventDefault()
           if (!empty) save.mutate()
         }}
-        className="flex flex-col gap-4"
+        className="flex flex-col gap-3 sm:px-2"
       >
         <FormAlert error={error} />
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="edit-title">{t('titleLabel')}</Label>
+        {/* Заголовок и текст — один блок с общей рамкой, как в окне создания. */}
+        <div className="flex flex-col rounded-xl border border-input bg-background transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15 dark:bg-input/30">
           <Input
             id="edit-title"
+            aria-label={t('titleLabel')}
+            placeholder={t('titlePlaceholder')}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={t('titlePlaceholder')}
+            // Рамку и фокус держит блок целиком — у заголовка своих границ нет.
+            className="h-auto rounded-none border-transparent bg-transparent px-3 pt-3 pb-1 text-lg font-semibold hover:border-transparent focus-visible:border-transparent focus-visible:ring-0 md:text-lg dark:bg-transparent"
           />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="edit-content">{t('contentLabel')}</Label>
           <MarkdownEditor
             id="edit-content"
+            aria-label={t('contentLabel')}
             value={content}
             onChange={setContent}
             placeholder={t('placeholder')}
-            hint={tEditor('markdownHint')}
+            autoGrow
+            bare
+            rows={3}
+            className="max-h-[45vh] min-h-28"
           />
-          <FieldError>{empty && t('contentRequired')}</FieldError>
         </div>
+        <FieldError>{empty && t('contentRequired')}</FieldError>
 
-        <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>
+        <div className="sticky bottom-0 -mx-1 flex gap-2 border-t border-border bg-card px-1 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-between sm:pb-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="h-11 flex-1 sm:h-10 sm:flex-none"
+          >
             {tCommon('cancel')}
           </Button>
-          <Button type="submit" loading={save.isPending} disabled={empty}>
+          <Button
+            type="submit"
+            loading={save.isPending}
+            disabled={empty}
+            className="h-11 flex-1 sm:h-10 sm:flex-none"
+          >
             {t('save')}
           </Button>
         </div>

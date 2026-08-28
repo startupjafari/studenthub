@@ -30,6 +30,39 @@ export const REPOST_AUDIENCES_BY_ROLE: Partial<Record<Role, PostAudienceValue[]>
 export const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
 export const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
 
+// Куда уходит репост «к себе»: своя группа → свой факультет → свой университет → «все».
+// От узкого к широкому — репост попадает в ту же ленту, где человек и так пишет.
+//
+// В аудиториях, которым нужна явная цель, сервер подставляет её из профиля автора
+// (posts.service.ts, resolveTarget: GROUP → actor.groupId, FACULTY → actor.facultyId,
+// UNIVERSITY → actor.universityId). Поэтому годится только та аудитория, чья цель в
+// профиле есть: у ролей-пикеров «своей» группы/факультета нет — они каждый раз выбирают
+// чужие, и подставлять серверу нечего. PERSONAL не годится никогда: получателя из профиля
+// не возьмёшь.
+//
+// null означает «мгновенный репост невозможен» — у преподавателя, например, разрешены
+// только GROUP (группу он выбирает, своей нет) и PERSONAL.
+export interface SelfRepostScope {
+  groupId?: string | null
+  facultyId?: string | null
+  universityId?: string | null
+}
+
+export function selfRepostAudience(
+  role: Role | null,
+  scope: SelfRepostScope,
+): PostAudienceValue | null {
+  if (role === null) return null
+  const allowed = REPOST_AUDIENCES_BY_ROLE[role] ?? []
+  const order: [PostAudienceValue, boolean][] = [
+    ['GROUP', !!scope.groupId && !GROUP_PICKER_ROLES.includes(role)],
+    ['FACULTY', !!scope.facultyId && !FACULTY_PICKER_ROLES.includes(role)],
+    ['UNIVERSITY', !!scope.universityId],
+    ['ALL', true],
+  ]
+  return order.find(([a, ready]) => ready && allowed.includes(a))?.[0] ?? null
+}
+
 // Можно ли репостить этот пост: роль должна уметь публиковать, сам пост — быть опубликованным
 // (черновик и отложенный ещё не видны никому) и не личным (личный адресован одному человеку).
 export function canRepost(role: Role | null, post: Pick<FeedPost, 'audience' | 'status'>): boolean {

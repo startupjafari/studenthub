@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { ChevronLeft, ChevronRight, Loader2, Play, Upload, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock, ImagePlus, Loader2, Play, X } from 'lucide-react'
 import { CreatePostSchema, type CreatePostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
@@ -47,12 +47,18 @@ const MAX_MEDIA = 10
 
 // onCreated — необязательный колбэк после успешной публикации (например, закрыть модалку в профиле).
 // bare — без обёртки Card (когда форма уже внутри модалки/карточки).
+//
+// Раскладка компактная, как в мессенджерах: заголовок и текст — один блок без
+// внутренних рамок, панель форматирования всплывает над выделением, вложения
+// добавляются иконкой и ложатся лентой под текстом.
+// Постоянно видимая дропзона и панель кнопок отъедали высоту у того, ради чего
+// окно открывают, — у самого текста.
 export function CreatePostForm({
   onCreated,
   bare,
 }: { onCreated?: () => void; bare?: boolean } = {}) {
   const t = useTranslations('Feed')
-  const tEditor = useTranslations('Editor')
+  const tCommon = useTranslations('Common')
   const tPeople = useTranslations('People')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -62,10 +68,10 @@ export function CreatePostForm({
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
-
-  function scrollStrip(dir: 1 | -1): void {
-    stripRef.current?.scrollBy({ left: dir * 220, behavior: 'smooth' })
-  }
+  // Стрелки показываем по факту: лента короче ширины блока — листать нечего.
+  const [strip, setStrip] = useState({ left: false, right: false })
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [dragging, setDragging] = useState(false)
 
   const audiences = role ? (AUDIENCES_BY_ROLE[role] ?? []) : []
 
@@ -85,11 +91,22 @@ export function CreatePostForm({
     }
   }, [audiences, form])
 
+  // Лента изменилась (добавили или убрали превью) — пересчитываем доступность стрелок.
+  // Логика продублирована с syncStrip намеренно: вынесенная функция попала бы в
+  // зависимости эффекта и пересоздавалась бы на каждый рендер.
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    setStrip({ left: el.scrollLeft > 2, right: el.scrollLeft < max - 2 })
+  }, [media.length, uploading])
+
   const showGroupPicker = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFacultyPicker =
     audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
   const showSubject = audience === 'SUBJECT'
   const showPersonal = audience === 'PERSONAL'
+  const showScope = showGroupPicker || showFacultyPicker || showSubject || showPersonal
   const [target, setTarget] = useState<PickedUser | null>(null)
 
   const groups = useQuery({
@@ -114,6 +131,7 @@ export function CreatePostForm({
       setMedia([])
       setTarget(null)
       setScheduleAt('')
+      setScheduleOpen(false)
       toast.success(
         variables.status === 'DRAFT'
           ? t('draftSaved')
@@ -137,7 +155,7 @@ export function CreatePostForm({
       }),
     )
 
-  // Загрузка фото/видео одной областью: object-URL для превью + upload в бакет постов.
+  // Загрузка фото/видео: object-URL для превью + upload в бакет постов.
   async function handleFiles(files: FileList | null): Promise<void> {
     if (!files || files.length === 0) return
     const list = Array.from(files).slice(0, MAX_MEDIA - media.length)
@@ -161,7 +179,22 @@ export function CreatePostForm({
     })
   }
 
+  function syncStrip(): void {
+    const el = stripRef.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    // Допуск в пару пикселей: дробные ширины дают остаток и на краю ленты.
+    setStrip({ left: el.scrollLeft > 2, right: el.scrollLeft < max - 2 })
+  }
+  function scrollStrip(dir: 1 | -1): void {
+    const el = stripRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.8), behavior: 'smooth' })
+  }
+
   if (audiences.length === 0) return null
+
+  const mediaFull = media.length >= MAX_MEDIA
 
   const body = (
     <form
@@ -169,26 +202,41 @@ export function CreatePostForm({
         e.preventDefault()
         void submit('PUBLISHED')()
       }}
-      className="flex flex-col gap-6 py-2 sm:px-2"
+      className="flex flex-col gap-3 sm:px-2"
     >
       <FormAlert error={apiError} />
-      {/* 1. Заголовок и текст. Первыми: за этим в форму и приходят, а раньше до поля
-          ввода нужно было проскроллить дропзону и три настройки. */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="post-title" className="text-xs">
-          {t('titleLabel')}
-        </Label>
+
+      {/* 1. Заголовок и текст — один блок с общей рамкой: заголовок читается как
+          крупная первая строка документа, а не как ещё одно поле формы.
+          Перетаскивание работает на весь блок, поэтому отдельная дропзона не нужна. */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!mediaFull) setDragging(true)
+        }}
+        onDragLeave={(e) => {
+          // dragleave всплывает и при переходе между вложенными узлами —
+          // гасим подсветку только когда курсор действительно ушёл из блока.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          if (!mediaFull) void handleFiles(e.dataTransfer.files)
+        }}
+        className={cn(
+          'relative flex flex-col rounded-xl border border-input bg-background transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15 dark:bg-input/30',
+          dragging && 'border-primary ring-4 ring-primary/15',
+        )}
+      >
         <Input
           id="post-title"
-          {...form.register('title', OPTIONAL_TEXT)}
+          aria-label={t('titleLabel')}
           placeholder={t('titlePlaceholder')}
+          // Рамку и фокус держит блок целиком — у заголовка своих границ нет.
+          className="h-auto rounded-none border-transparent bg-transparent px-3 pt-3 pb-1 text-lg font-semibold hover:border-transparent focus-visible:border-transparent focus-visible:ring-0 md:text-lg dark:bg-transparent"
+          {...form.register('title', OPTIONAL_TEXT)}
         />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="post-content" className="text-xs">
-          {t('contentLabel')}
-        </Label>
         {/* Разметка остаётся видимой в поле: человек видит, что именно уедет на
             сервер, а не догадывается по кнопкам панели. */}
         <Controller
@@ -197,19 +245,29 @@ export function CreatePostForm({
           render={({ field }) => (
             <MarkdownEditor
               id="post-content"
+              aria-label={t('contentLabel')}
               value={field.value ?? ''}
               onChange={field.onChange}
               placeholder={t('placeholder')}
-              hint={tEditor('markdownHint')}
+              autoGrow
+              bare
+              rows={3}
+              // Поле растёт под текст: снизу — минимум в несколько строк, сверху —
+              // половина экрана, иначе подвал с «Опубликовать» уезжает за нижний край.
+              className="max-h-[45vh] min-h-28"
             />
           )}
         />
-        {form.formState.errors.content && (
-          <p className="text-xs text-destructive">{t('contentRequired')}</p>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-primary/10 text-sm font-medium text-primary">
+            {t('dropHint')}
+          </div>
         )}
       </div>
+      {form.formState.errors.content && (
+        <p className="text-xs text-destructive">{t('contentRequired')}</p>
+      )}
 
-      {/* 2. Вложения: фото и видео */}
       <input
         ref={fileRef}
         type="file"
@@ -221,45 +279,20 @@ export function CreatePostForm({
           e.target.value = ''
         }}
       />
-      {media.length < MAX_MEDIA && (
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault()
-            void handleFiles(e.dataTransfer.files)
-          }}
-          // Пока вложений нет — компактная полоса, а не блок в треть экрана: на
-          // телефоне высокая дропзона отодвигала кнопки публикации за нижний край,
-          // а перетаскивать файлы там всё равно нечем.
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2.5 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/40"
-        >
-          {uploading ? (
-            <Loader2 className="size-5 animate-spin" aria-hidden />
-          ) : (
-            <>
-              <Upload className="size-4 shrink-0 text-primary" aria-hidden />
-              <span className="text-sm font-medium">{t('dropHint')}</span>
-              <span className="hidden text-xs text-muted-foreground/80 sm:inline">
-                · {t('mediaLimit')}
-              </span>
-            </>
-          )}
-        </button>
-      )}
 
-      {/* Превью загруженного — горизонтальный слайдер в одну строку */}
-      {media.length > 0 && (
+      {/* 2. Вложения — горизонтальной лентой под текстом: десять превью сеткой
+          заняли бы три ряда и вытолкнули подвал за нижний край окна. */}
+      {(media.length > 0 || uploading) && (
         <div className="group/strip relative">
           <div
             ref={stripRef}
-            className="flex gap-2 overflow-x-auto scroll-smooth pb-1 [scrollbar-width:thin]"
+            onScroll={syncStrip}
+            className="flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {media.map((m) => (
               <div
                 key={m.id}
-                className="group relative size-24 shrink-0 overflow-hidden rounded-xl border border-border bg-muted"
+                className="group relative size-24 shrink-0 snap-start overflow-hidden rounded-xl border border-border bg-muted sm:size-28"
               >
                 {m.isVideo ? (
                   <video src={m.url} muted className="size-full object-cover" />
@@ -275,72 +308,51 @@ export function CreatePostForm({
                   type="button"
                   aria-label={t('removeMedia')}
                   onClick={() => removeMedia(m.id)}
-                  className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100"
+                  // На тач-экране кнопка видна всегда: `hover` в Tailwind v4 работает
+                  // только там, где есть курсор, — иначе вложение не убрать вовсе.
+                  className="absolute top-1 right-1 flex size-7 items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75 focus-visible:opacity-100 sm:size-6 sm:opacity-0 sm:group-hover:opacity-100"
                 >
-                  <X className="size-3" aria-hidden />
+                  <X className="size-3.5" aria-hidden />
                 </button>
               </div>
             ))}
+            {uploading && (
+              <div className="flex size-24 shrink-0 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground sm:size-28">
+                <Loader2 className="size-5 animate-spin" aria-hidden />
+              </div>
+            )}
           </div>
-          {media.length > 4 && (
-            <>
-              <button
-                type="button"
-                aria-label={t('prevMedia')}
-                onClick={() => scrollStrip(-1)}
-                className="absolute left-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-foreground shadow-sm backdrop-blur transition-opacity hover:bg-card"
-              >
-                <ChevronLeft className="size-4" aria-hidden />
-              </button>
-              <button
-                type="button"
-                aria-label={t('nextMedia')}
-                onClick={() => scrollStrip(1)}
-                className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-foreground shadow-sm backdrop-blur transition-opacity hover:bg-card"
-              >
-                <ChevronRight className="size-4" aria-hidden />
-              </button>
-            </>
+
+          {/* Стрелки-слайдер поверх ленты. Появляются только с той стороны,
+              куда есть куда листать, — иначе кнопка обманывает. */}
+          {strip.left && (
+            <button
+              type="button"
+              aria-label={t('prevMedia')}
+              onClick={() => scrollStrip(-1)}
+              className="absolute top-1/2 left-1 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-card"
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+            </button>
+          )}
+          {strip.right && (
+            <button
+              type="button"
+              aria-label={t('nextMedia')}
+              onClick={() => scrollStrip(1)}
+              className="absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-card"
+            >
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
           )}
         </div>
       )}
 
-      {/* 3. Кому и когда. На широком экране — в две колонки: поля короткие, и
-          растягивать их на всю ширину незачем. */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div
-          className={cn(
-            'flex flex-wrap items-end gap-3',
-            // Когда рядом с аудиторией появляется выбор группы, факультета, предмета
-            // или адресата, половины ширины на всё это мало — занимаем обе колонки.
-            (showGroupPicker || showFacultyPicker || showSubject || showPersonal) &&
-              'sm:col-span-2',
-          )}
-        >
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Label className="text-xs">{t('audience')}</Label>
-            <Controller
-              control={form.control}
-              name="audience"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {audiences.map((a) => (
-                      <SelectItem key={a} value={a}>
-                        {t(`audience${a}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-
+      {/* 3. Уточнение адресата — только для тех аудиторий, где оно нужно. */}
+      {showScope && (
+        <div className="grid gap-3 sm:grid-cols-2">
           {showGroupPicker && (
-            <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label className="text-xs">{t('group')}</Label>
               <Controller
                 control={form.control}
@@ -364,7 +376,7 @@ export function CreatePostForm({
           )}
 
           {showFacultyPicker && (
-            <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label className="text-xs">{t('faculty')}</Label>
               <Controller
                 control={form.control}
@@ -388,44 +400,105 @@ export function CreatePostForm({
           )}
 
           {showSubject && (
-            <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label className="text-xs">{t('subject')}</Label>
               <Input {...form.register('subject')} />
             </div>
           )}
 
           {showPersonal && (
-            <div className="flex flex-1 flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <Label className="text-xs">{tPeople('pickUser')}</Label>
               <UserPicker value={target} onSelect={setTarget} />
             </div>
           )}
         </div>
+      )}
 
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">{t('scheduleLabel')}</Label>
+      {/* 4. Отложенная публикация — строка появляется по кнопке с часами. */}
+      {(scheduleOpen || scheduleAt) && (
+        <div className="flex items-center gap-2">
           <DateTimePicker
             value={scheduleAt}
             onChange={setScheduleAt}
             aria-label={t('scheduleLabel')}
+            className="flex-1"
+          />
+          <Button
+            type="button"
+            icon
+            variant="ghost"
+            aria-label={tCommon('clear')}
+            onClick={() => {
+              setScheduleAt('')
+              setScheduleOpen(false)
+            }}
+          >
+            <X className="size-4" aria-hidden />
+          </Button>
+        </div>
+      )}
+
+      {/* 5. Подвал: инструменты слева, аудитория и действия справа. Липкий, чтобы
+          «Опубликовать» не уезжало за нижний край длинной формы. */}
+      <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-2 border-t border-border bg-card px-1 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">
+        <div className="flex items-center gap-0.5">
+          <ToolButton
+            label={t('addMedia')}
+            disabled={mediaFull}
+            onClick={() => fileRef.current?.click()}
+          >
+            <ImagePlus className="size-4" aria-hidden />
+          </ToolButton>
+          <ToolButton
+            label={t('scheduleLabel')}
+            active={scheduleOpen || !!scheduleAt}
+            onClick={() => setScheduleOpen((v) => !v)}
+          >
+            <Clock className="size-4" aria-hidden />
+          </ToolButton>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <Controller
+            control={form.control}
+            name="audience"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger size="md" aria-label={t('audience')} className="w-full sm:w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {audiences.map((a) => (
+                    <SelectItem key={a} value={a}>
+                      {t(`audience${a}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           />
         </div>
-      </div>
 
-      {/* 4. Действия — липкой полосой у нижнего края: в длинной форме кнопка
-          «Опубликовать» уезжала за экран, и до неё приходилось скроллить. */}
-      <div className="sticky bottom-0 -mx-1 flex justify-end gap-2 border-t border-border bg-card px-1 py-3">
-        <Button
-          type="button"
-          variant="outline"
-          loading={mutation.isPending}
-          onClick={() => void submit('DRAFT')()}
-        >
-          {t('saveDraft')}
-        </Button>
-        <Button type="submit" loading={mutation.isPending}>
-          {scheduleAt ? t('schedule') : t('publish')}
-        </Button>
+        {/* На телефоне действия переносятся на свою строку во всю ширину. */}
+        <div className="flex w-full gap-2 sm:w-auto">
+          <Button
+            type="button"
+            variant="outline"
+            loading={mutation.isPending}
+            onClick={() => void submit('DRAFT')()}
+            className="h-11 flex-1 sm:h-10 sm:flex-none"
+          >
+            {t('saveDraft')}
+          </Button>
+          <Button
+            type="submit"
+            loading={mutation.isPending}
+            className="h-11 flex-1 sm:h-10 sm:flex-none"
+          >
+            {scheduleAt ? t('schedule') : t('publish')}
+          </Button>
+        </div>
       </div>
     </form>
   )
@@ -435,5 +508,37 @@ export function CreatePostForm({
     <Card>
       <CardContent className="pt-6">{body}</CardContent>
     </Card>
+  )
+}
+
+// Иконка-инструмент в подвале: форматирование, вложения, отложенная публикация.
+// Включённое состояние подсвечено и объявляется скринридеру через aria-pressed.
+function ToolButton({
+  label,
+  active,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  active?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <Button
+      type="button"
+      icon
+      variant="ghost"
+      aria-label={label}
+      title={label}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(active && 'bg-muted text-foreground')}
+    >
+      {children}
+    </Button>
   )
 }

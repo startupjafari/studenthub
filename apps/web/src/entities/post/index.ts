@@ -23,6 +23,8 @@ export {
   GROUP_PICKER_ROLES,
   FACULTY_PICKER_ROLES,
   canRepost,
+  selfRepostAudience,
+  type SelfRepostScope,
 } from './model/audiences'
 export {
   POST_AUDIENCES,
