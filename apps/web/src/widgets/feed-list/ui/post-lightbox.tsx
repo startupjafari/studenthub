@@ -36,7 +36,7 @@ import {
   type PostReaction,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
-import { RepostDialog } from '../../../features/repost-post'
+import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
 import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
@@ -220,7 +220,10 @@ function PostView({
       .then(setViews)
       .catch(() => {})
   }, [post.id])
-  const [reposting, setReposting] = useState(false)
+  // Репост уходит в собственную ленту сразу по нажатию; окно остаётся только тем ролям,
+  // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
+  const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
+  const [repostDialog, setRepostDialog] = useState(false)
   const [text, setText] = useState('')
   // Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
   // «сначала новые / сначала старые», а не «сначала интересные».
@@ -420,7 +423,11 @@ function PostView({
             <MessageCircle className="size-5" aria-hidden />
           </BarButton>
           {showRepost && (
-            <BarButton label={t('repost')} onClick={() => setReposting(true)}>
+            <BarButton
+              label={t('repost')}
+              disabled={repostPending}
+              onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
+            >
               <Repeat2 className="size-5" aria-hidden />
             </BarButton>
           )}
@@ -838,7 +845,7 @@ function PostView({
         </div>
       </div>
 
-      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
+      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
     </>
   )
 }
@@ -857,12 +864,14 @@ function BarButton({
   label,
   count,
   pressed,
+  disabled,
   onClick,
   children,
 }: {
   label: string
   count?: number
   pressed?: boolean
+  disabled?: boolean
   onClick: () => void
   children: React.ReactNode
 }) {
@@ -872,9 +881,11 @@ function BarButton({
       aria-label={label}
       aria-pressed={pressed}
       title={label}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         'flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground',
+        'disabled:pointer-events-none disabled:opacity-50',
         pressed && 'text-foreground',
       )}
     >

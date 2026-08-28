@@ -10,11 +10,11 @@ export async function HomeView() {
   return (
     // Шапка — над сеткой, а не внутри колонки: полоса идёт во всю ширину контента,
     // как на остальных страницах.
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeader title={t('feedTitle')} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="flex flex-col gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="flex min-h-0 flex-col gap-4">
           <FeedList />
         </section>
 
