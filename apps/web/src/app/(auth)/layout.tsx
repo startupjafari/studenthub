@@ -9,7 +9,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
   const t = useTranslations('Auth')
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-dvh">
       <MeshBrandPanel
         title={t('brandSlogan')}
         subtitle={t('brandSubtitle')}

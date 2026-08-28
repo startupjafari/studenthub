@@ -46,7 +46,7 @@ export default function JoinChatPage({ params }: { params: Promise<{ id: string 
   }, [id, router])
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6 text-center">
+    <div className="flex min-h-dvh items-center justify-center p-6 text-center">
       {error ? (
         <div className="flex flex-col items-center gap-3">
           <p className="text-sm text-muted-foreground">{t('joinFailed')}</p>
