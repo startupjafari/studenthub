@@ -43,7 +43,7 @@ export function FeedView() {
   const { hasAny: hasFriendsPanel } = useFriendsSummary()
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-6">
       <PageHeader
         title={t('posts')}
         tabs={
@@ -75,11 +75,11 @@ export function FeedView() {
           `justify-center` возвращает ленту ровно в центр страницы. */}
       <div
         className={cn(
-          'mx-auto flex w-full max-w-xl justify-center gap-6',
+          'mx-auto flex min-h-0 w-full max-w-xl flex-1 justify-center gap-6',
           hasFriendsPanel && 'xl:max-w-[57.5rem]',
         )}
       >
-        <div className="w-full max-w-xl min-w-0">
+        <div className="flex min-h-0 w-full max-w-xl min-w-0 flex-1 flex-col">
           <FeedList filter={filter} />
         </div>
 
