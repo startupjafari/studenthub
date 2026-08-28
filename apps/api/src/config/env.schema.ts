@@ -105,6 +105,61 @@ export const envSchema = z.object({
    */
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 
+  // Служебный Telegram-бот (docs/TELEGRAM_BOT.md §1). Все переменные необязательны, и это
+  // не «на всякий случай»: без TELEGRAM_BOT_TOKEN модуль ops-notify не поднимается вовсе —
+  // ни воркера очереди, ни фоновых запросов (§7.3.5). Локальная разработка и CI бота не требуют.
+  // На проде значения задаются в Railway, не в .env образа.
+  TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
+  /**
+   * ID закрытой супергруппы (отрицательное число). Держим строкой: Telegram принимает
+   * chat_id и строкой, а число тут ничего не даёт — арифметики над ним нет.
+   */
+  TELEGRAM_OPS_CHAT_ID: optionalEnv(z.string().min(1)),
+  // ID тем супергруппы (message_thread_id, §3.1). Не заданы — сообщения идут в общий
+  // поток группы: допустимая деградация, а не отказ.
+  TELEGRAM_TOPIC_DEPLOY: optionalEnv(z.coerce.number().int().positive()),
+  TELEGRAM_TOPIC_ALERTS: optionalEnv(z.coerce.number().int().positive()),
+  TELEGRAM_TOPIC_DIGEST: optionalEnv(z.coerce.number().int().positive()),
+  /** Метка окружения в начале сообщения (§3.6). `prod` не печатается — это норма. */
+  OPS_ENV_LABEL: optionalEnv(z.string().min(1)),
+  /**
+   * Внешний адрес приложения для синтетического пинга (§2.2). Именно внешний: `/health`
+   * изнутри отвечает и тогда, когда снаружи приложение недоступно — упал прокси, протух
+   * сертификат, не резолвится домен. Не задан — проверка не заводится.
+   */
+  OPS_PUBLIC_URL: optionalEnv(z.string().url()),
+  // Пороги проверок — в конфигурации, а не в коде (§7.4.6): их придётся крутить по факту,
+  // и каждый раз это не должно быть релизом.
+  OPS_QUEUE_WAITING_THRESHOLD: z.coerce.number().int().positive().default(1000),
+  OPS_QUEUE_FAILED_THRESHOLD: z.coerce.number().int().positive().default(20),
+  /** Сколько отказов 401/403/429 за пять минут считать всплеском (§2.4). */
+  OPS_AUTH_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(50),
+  /**
+   * `secret_token` входящих апдейтов Telegram (заголовок `X-Telegram-Bot-Api-Secret-Token`).
+   * Не задан — команды бота выключены, исходящие сообщения работают как прежде (§6).
+   */
+  TELEGRAM_WEBHOOK_SECRET: optionalEnv(
+    z.string().min(16, 'TELEGRAM_WEBHOOK_SECRET: минимум 16 символов'),
+  ),
+  /**
+   * Общий секрет вебхуков Railway и Sentry (заголовок `X-Ops-Secret`) и он же — ключ HMAC
+   * для штатной подписи GitHub. Не задан — публичные эндпоинты приёма отвечают 401 всем:
+   * открытый вход «пока не настроили» хуже отсутствующего (§5).
+   */
+  OPS_HOOK_SECRET: optionalEnv(z.string().min(16, 'OPS_HOOK_SECRET: минимум 16 символов')),
+  /** Репозиторий в виде `owner/repo` — для шага упавшего CI и дрейфа веток (§2.1). */
+  OPS_GITHUB_REPO: optionalEnv(
+    z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'OPS_GITHUB_REPO: owner/repo'),
+  ),
+  /** Токен только на чтение репозитория. Не задан — changelog и дрейф не считаются. */
+  OPS_GITHUB_TOKEN: optionalEnv(z.string().min(1)),
+  OPS_GITHUB_BASE_BRANCH: z.string().default('main'),
+  OPS_GITHUB_HEAD_BRANCH: z.string().default('develop'),
+  /** Когда уходит вечерняя сводка (§2.3). Cron-выражение, по умолчанию 21:00. */
+  OPS_DIGEST_CRON: z.string().default('0 21 * * *'),
+  /** Таймзона университета: «21:00» без неё значит 21:00 UTC, то есть 03:00 в Казахстане. */
+  OPS_DIGEST_TZ: z.string().default('Asia/Almaty'),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),

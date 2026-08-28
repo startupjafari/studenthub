@@ -13,5 +13,8 @@ import { DocumentsModule } from '../documents/documents.module'
 @Module({
   imports: [ScheduleModule.forRoot(), EventsModule, PostsModule, DocumentsModule],
   providers: [CleanupService, CronMonitorService],
+  // Экспортируется ради `lastOrphanSweep()` в суточной сводке: числа отдаёт владелец
+  // задачи, а не тот, кто их показывает (docs/TELEGRAM_BOT.md §7.3.6).
+  exports: [CleanupService],
 })
 export class CleanupModule {}

@@ -99,7 +99,7 @@ function Message({
 
 export default function QrApprovePage() {
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
         <Suspense
           fallback={<Loader2 className="mx-auto size-8 animate-spin text-muted-foreground" />}

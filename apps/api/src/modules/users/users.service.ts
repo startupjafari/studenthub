@@ -1032,6 +1032,14 @@ export class UserService {
     if (blocked) {
       await this.authService.revokeAllUserSessions(userId)
     }
+    // BACKEND_RULES §13 требует аудита блокировки — записи не было, а это одно из немногих
+    // действий, необратимо отключающих человека от платформы. Только id, без ФИО и email.
+    await this.audit.record({
+      userId: viewer.sub,
+      action: blocked ? 'user_blocked' : 'user_unblocked',
+      entity: 'User',
+      entityId: userId,
+    })
   }
 
   /** Создание пользователя при регистрации по инвайту (в транзакции AuthService). */
@@ -1096,5 +1104,19 @@ export class UserService {
       default:
         return 'UNIVERSITY'
     }
+  }
+  /**
+   * Активность за период — строка суточной сводки (docs/TELEGRAM_BOT.md §2.3).
+   *
+   * «Активные» — те, у кого `lastSeenAt` обновлялся в окне; «новые» — созданные в окне.
+   * Оба числа считаются `count`, без выгрузки пользователей (§7.4.4), и наружу уходят
+   * именно числами: служебный канал не должен знать, кто именно заходил (§0.1.1).
+   */
+  async activityStats(since: Date): Promise<{ active: number; registered: number }> {
+    const [active, registered] = await Promise.all([
+      this.prisma.user.count({ where: { deletedAt: null, lastSeenAt: { gte: since } } }),
+      this.prisma.user.count({ where: { deletedAt: null, createdAt: { gte: since } } }),
+    ])
+    return { active, registered }
   }
 }

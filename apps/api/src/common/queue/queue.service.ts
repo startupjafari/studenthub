@@ -14,6 +14,14 @@ export interface JobMeta {
 // Payload job'а = данные + служебные _meta. Процессоры читают _meta для логирования.
 export type JobPayload<T extends object = Record<string, unknown>> = T & { _meta: JobMeta }
 
+/** Агрегаты по очереди для служебных проверок. */
+export interface QueueCounts {
+  waiting: number
+  active: number
+  delayed: number
+  failed: number
+}
+
 export interface EnqueueOptions extends JobsOptions {
   // Сквозной идентификатор запроса; если не передан — генерируем, чтобы job всегда был трассируем.
   requestId?: string
@@ -33,6 +41,7 @@ export class QueueService {
     @InjectQueue(QUEUES.FILE_PROCESSING) fileProcessing: Queue,
     @InjectQueue(QUEUES.CLEANUP) cleanup: Queue,
     @InjectQueue(QUEUES.LINK_PREVIEW) linkPreview: Queue,
+    @InjectQueue(QUEUES.OPS_NOTIFY) opsNotify: Queue,
   ) {
     this.queues = {
       [QUEUES.EMAIL]: email,
@@ -40,6 +49,7 @@ export class QueueService {
       [QUEUES.FILE_PROCESSING]: fileProcessing,
       [QUEUES.CLEANUP]: cleanup,
       [QUEUES.LINK_PREVIEW]: linkPreview,
+      [QUEUES.OPS_NOTIFY]: opsNotify,
     }
   }
 
@@ -85,6 +95,33 @@ export class QueueService {
         `Не удалось поставить job ${queue}/${jobName} (Redis недоступен?) — сайд-эффект пропущен`,
       )
     }
+  }
+
+  /**
+   * Глубина очереди — для служебных проверок (docs/TELEGRAM_BOT.md §2.2, T-5).
+   *
+   * Живёт здесь, а не в модуле наблюдения: очереди — зона ответственности этого сервиса,
+   * и второй источник тех же чисел разошёлся бы с первым. Только чтение агрегатов, без
+   * выгрузки job'ов в приложение (§7.4.4).
+   */
+  async counts(queue: QueueName): Promise<QueueCounts> {
+    const counts = await this.queues[queue].getJobCounts('waiting', 'active', 'delayed', 'failed')
+    return {
+      waiting: counts.waiting ?? 0,
+      active: counts.active ?? 0,
+      delayed: counts.delayed ?? 0,
+      failed: counts.failed ?? 0,
+    }
+  }
+
+  /**
+   * Причина последнего падения в очереди — она отвечает на «что чинить», тогда как счётчик
+   * failed отвечает только на «что-то сломалось». Берём ровно один job (`0..0`, новые
+   * первыми) — читать всю пачку упавших ради текста ошибки незачем.
+   */
+  async lastFailedReason(queue: QueueName): Promise<string | null> {
+    const [job] = await this.queues[queue].getJobs(['failed'], 0, 0, false)
+    return job?.failedReason ?? null
   }
 
   // Ограничивает ожидание постановки: если Redis висит, отклоняемся через ENQUEUE_TIMEOUT_MS.
