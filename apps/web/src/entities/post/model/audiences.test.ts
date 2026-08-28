@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Role } from '@studenthub/shared-types'
-import { REPOST_AUDIENCES_BY_ROLE, canRepost } from './audiences'
+import { REPOST_AUDIENCES_BY_ROLE, canRepost, selfRepostAudience } from './audiences'
 import type { FeedPost } from './types'
 
 const post = (o: Partial<Pick<FeedPost, 'audience' | 'status'>> = {}) => ({
@@ -41,5 +41,43 @@ describe('canRepost', () => {
   it('черновик и отложенный не репостятся — они ещё не опубликованы', () => {
     expect(canRepost(Role.STUDENT, post({ status: 'DRAFT' }))).toBe(false)
     expect(canRepost(Role.STUDENT, post({ status: 'SCHEDULED' }))).toBe(false)
+  })
+})
+
+describe('selfRepostAudience', () => {
+  // Скоупы как в БД: у студента и старосты есть группа, у декана и преподавателя —
+  // только факультет, у админа университета — только университет.
+  const student = { groupId: 'g1', facultyId: 'f1', universityId: 'un1' }
+  const staff = { groupId: null, facultyId: 'f1', universityId: 'un1' }
+  const admin = { groupId: null, facultyId: null, universityId: 'un1' }
+
+  it('студент и староста репостят в свою группу', () => {
+    expect(selfRepostAudience(Role.STUDENT, student)).toBe('GROUP')
+    expect(selfRepostAudience(Role.STAROSTA, student)).toBe('GROUP')
+  })
+
+  it('декан — на свой факультет: группу он не выбирает, а своей у него нет', () => {
+    expect(selfRepostAudience(Role.DEAN, staff)).toBe('FACULTY')
+  })
+
+  it('админ университета — на весь университет', () => {
+    expect(selfRepostAudience(Role.UNIVERSITY_ADMIN, admin)).toBe('UNIVERSITY')
+  })
+
+  it('админ платформы — «все»', () => {
+    expect(selfRepostAudience(Role.PLATFORM_ADMIN, { universityId: null })).toBe('ALL')
+  })
+
+  it('преподаватель — null: группу он выбирает руками, своей в профиле нет', () => {
+    expect(selfRepostAudience(Role.TEACHER, staff)).toBeNull()
+  })
+
+  it('роль не восстановлена или не публикует — null', () => {
+    expect(selfRepostAudience(null, student)).toBeNull()
+    expect(selfRepostAudience(Role.UNIVERSITY_MODERATOR, student)).toBeNull()
+  })
+
+  it('группы в профиле нет — аудитория не выбирается вслепую', () => {
+    expect(selfRepostAudience(Role.STUDENT, { groupId: null })).toBeNull()
   })
 })

@@ -1023,6 +1023,7 @@
     "postActions": "Post actions",
     "emoji": "Emoji",
     "dropHint": "Drag files or click to select",
+    "addMedia": "Add photo or video",
     "mediaLimit": "photos and videos · up to 10 MB",
     "prevMedia": "Previous",
     "nextMedia": "Next",
@@ -2749,7 +2750,6 @@
     "link": "Link",
     "bullet": "Bulleted list",
     "ordered": "Numbered list",
-    "quote": "Quote",
-    "markdownHint": "Formatting supported: **bold**, *italic*, ~~strikethrough~~, `code`, links and lists"
+    "quote": "Quote"
   }
 }
