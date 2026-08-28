@@ -403,4 +403,27 @@ export class FileService {
       throw new AppException('WRONG_SCOPE', 'Файл принадлежит другому пользователю')
     }
   }
+  /**
+   * Объём хранилища по бакетам — строка суточной сводки (docs/TELEGRAM_BOT.md §2.3).
+   *
+   * Считается по таблице `File`, а не листингом MinIO: перебрать все объекты бакета ради
+   * одного числа — это минуты работы и тысячи запросов к хранилищу. Расхождение с реальным
+   * объёмом закрывает ночная `cleanOrphanFiles`, которая как раз ищет объекты без записи.
+   *
+   * Только агрегат: `groupBy` без выгрузки строк (§7.4.4).
+   */
+  async storageStats(): Promise<{ bucket: string; files: number; bytes: number }[]> {
+    const rows = await this.prisma.file.groupBy({
+      by: ['bucket'],
+      _count: { _all: true },
+      _sum: { size: true },
+    })
+    return rows
+      .map((row) => ({
+        bucket: row.bucket,
+        files: row._count._all,
+        bytes: row._sum.size ?? 0,
+      }))
+      .sort((a, b) => b.bytes - a.bytes)
+  }
 }

@@ -37,6 +37,11 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
     bufferLogs: true,
+    // Сырое тело нужно ровно одному месту — проверке подписи GitHub в приёме вебхуков
+    // (docs/TELEGRAM_BOT.md §5): HMAC покрывает точные байты, а `JSON.stringify` разобранного
+    // объекта отличается порядком ключей и экранированием. Флаг глобальный, потому что
+    // Fastify задаёт парсер тела на инстанс, а не на маршрут; стоит это буфера на JSON-запрос.
+    rawBody: true,
   })
 
   // pino как логгер приложения (docs/BACKEND_RULES.md §13).
