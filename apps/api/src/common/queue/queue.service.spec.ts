@@ -13,6 +13,7 @@ function makeService() {
     queue as never,
     queue as never,
     queue as never,
+    queue as never,
   )
   return { service, add }
 }

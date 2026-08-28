@@ -487,4 +487,16 @@ export class InviteService {
       throw new AppException('INVITE_EXPIRED', 'Срок инвайта истёк')
     }
   }
+  /**
+   * Невостребованные инвайты старше `olderThan` — строка суточной сводки
+   * (docs/TELEGRAM_BOT.md §2.3). Растущее число значит, что людей позвали, а они не дошли:
+   * письма не доходят, ссылку не передали, роль выдали не тому.
+   *
+   * Только счётчик: ни адресатов, ни токенов наружу (§0.1.1).
+   */
+  async staleCount(olderThan: Date): Promise<number> {
+    return this.prisma.invite.count({
+      where: { status: InviteStatus.PENDING, createdAt: { lt: olderThan } },
+    })
+  }
 }
