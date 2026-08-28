@@ -90,7 +90,7 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
         <EmptyState
           icon={<BarChart3 className="size-6" aria-hidden />}
           title={t('pollsEmpty')}
-          className="min-h-[calc(100vh_-_20rem)]"
+          className="min-h-[calc(100dvh_-_20rem)]"
         />
       </>
     )

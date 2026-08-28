@@ -1,10 +1,27 @@
 import { api } from '../api'
+import { isIosDevice, isStandalonePwa } from './platform'
 
 // Клиентская часть Web Push (Ф13.3): подписка/отписка через service worker + VAPID.
 // Публичный ключ — из NEXT_PUBLIC_VAPID_PUBLIC_KEY (совпадает с VAPID_PUBLIC_KEY api).
 
 function vapidPublicKey(): string | null {
   return process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || null
+}
+
+/**
+ * Почему push недоступен — или `ok`, если доступен.
+ *
+ * `ios-needs-install` — отдельный случай, а не «не поддерживается»: с iOS 16.4 Web Push
+ * работает ТОЛЬКО в приложении с главного экрана. Во вкладке Safari подписаться нельзя,
+ * причём часть API при этом присутствует, и проверка по наличию `PushManager` показала бы
+ * рабочий тумблер, который молча не сработает. Человеку нужно сказать не «не поддерживается»,
+ * а «сначала добавьте приложение на главный экран».
+ */
+export type PushAvailability = 'ok' | 'unsupported' | 'ios-needs-install'
+
+export function pushAvailability(): PushAvailability {
+  if (isIosDevice() && !isStandalonePwa()) return 'ios-needs-install'
+  return pushSupported() ? 'ok' : 'unsupported'
 }
 
 /** Поддерживается ли Web Push в этом окружении. */

@@ -255,7 +255,7 @@ export function ProfileMediaGrid({
             )
           }
           title={isPhoto ? t('noPhotos') : t('noVideos')}
-          className="min-h-[calc(100vh_-_20rem)]"
+          className="min-h-[calc(100dvh_-_20rem)]"
         />
       ) : (
         <ContentLayout

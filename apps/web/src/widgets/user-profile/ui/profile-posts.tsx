@@ -92,7 +92,7 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
         <EmptyState
           icon={<Newspaper className="size-6" aria-hidden />}
           title={t('postsEmpty')}
-          className="min-h-[calc(100vh_-_20rem)]"
+          className="min-h-[calc(100dvh_-_20rem)]"
         />
       </>
     )
