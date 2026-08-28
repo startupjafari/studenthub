@@ -11,6 +11,11 @@ import { SessionInitializer } from '../shared/session'
 import { RealtimeProvider } from '../shared/realtime'
 import { ConfirmProvider, Toaster, TooltipProvider } from '../shared/ui'
 import { CommandPalette } from '../widgets/command-palette'
+// Ради побочного эффекта: модуль вешает слушатель `beforeinstallprompt` на уровне
+// импорта. Событие прилетает сразу после загрузки — подписка из компонента настроек
+// его бы уже не застала (shared/lib/pwa-install.ts).
+import '../shared/lib/pwa-install'
+import { useChunkErrorRecovery, useKeyboardInset, useServiceWorkerUpdate } from '../shared/lib'
 
 interface AppProvidersProps {
   locale: string
@@ -35,6 +40,7 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
         >
           <NextIntlClientProvider locale={locale} messages={messages} timeZone={timeZone}>
             <SessionInitializer />
+            <AppRuntime />
             <RealtimeProvider>
               <TooltipProvider delayDuration={200}>
                 <ConfirmProvider>
@@ -50,4 +56,14 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
       </QueryClientProvider>
     </ReduxProvider>
   )
+}
+
+// Общие эффекты приложения: обновление версии и высота клавиатуры. Отдельным
+// компонентом, а не хуками в AppProviders: тост об обновлении берёт переводы, а
+// `NextIntlClientProvider` стоит ниже по дереву.
+function AppRuntime() {
+  useServiceWorkerUpdate()
+  useChunkErrorRecovery()
+  useKeyboardInset()
+  return null
 }

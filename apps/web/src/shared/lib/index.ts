@@ -10,3 +10,14 @@ export { nowInTz, isoWeekParity, type NowInTz } from './tz-date'
 export { safeNextPath } from './safe-next'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
 export { relativeTime } from './relative-time'
+export {
+  usePwaInstall,
+  promptPwaInstall,
+  type PwaInstallState,
+  type PwaInstallStatus,
+  type PwaPlatform,
+} from './pwa-install'
+export { useServiceWorkerUpdate, useChunkErrorRecovery } from './use-sw-update'
+export { useBackClose } from './use-back-close'
+export { useKeyboardInset } from './use-keyboard-inset'
+export { isIosDevice, isStandalonePwa } from './platform'

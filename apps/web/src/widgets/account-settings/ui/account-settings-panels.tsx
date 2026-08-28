@@ -13,6 +13,7 @@ import Link from 'next/link'
 import {
   Bell,
   Check,
+  Download,
   FolderLock,
   Lock,
   Monitor,
@@ -21,6 +22,7 @@ import {
   ShieldAlert,
   Sun,
   ShieldCheck,
+  Smartphone,
   Trash2,
   UserRound,
   type LucideIcon,
@@ -56,6 +58,7 @@ import {
   FormAlert,
   Input,
   Label,
+  Modal,
   Select,
   SelectContent,
   SelectItem,
@@ -81,8 +84,13 @@ import {
 } from '../../../entities/notification'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
-import { toApiError, useFormAlert } from '../../../shared/lib'
-import { subscribeToPush, unsubscribeFromPush, pushSupported } from '../../../shared/lib/push'
+import { promptPwaInstall, toApiError, useFormAlert, usePwaInstall } from '../../../shared/lib'
+import {
+  subscribeToPush,
+  unsubscribeFromPush,
+  pushAvailability,
+  type PushAvailability,
+} from '../../../shared/lib/push'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -96,6 +104,7 @@ const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'security', labelKey: 'navSecurity', icon: ShieldCheck },
   { id: 'notifications', labelKey: 'navNotifications', icon: Bell },
   { id: 'appearance', labelKey: 'navAppearance', icon: Palette },
+  { id: 'app', labelKey: 'navApp', icon: Smartphone },
   { id: 'privacy', labelKey: 'navPrivacy', icon: Lock },
   { id: 'danger', labelKey: 'navDanger', icon: ShieldAlert },
 ]
@@ -160,6 +169,7 @@ export function AccountSettingsPanels() {
             {tab === 'security' && <SecuritySection me={me.data} />}
             {tab === 'notifications' && <NotificationsSection />}
             {tab === 'appearance' && <AppearanceSection />}
+            {tab === 'app' && <AppSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
             {tab === 'danger' && <DangerSection />}
           </>
@@ -622,10 +632,19 @@ function NotificationsSection() {
   const set = (key: keyof NotificationSettingsData, value: boolean) =>
     mut.mutate({ [key]: value } as Partial<NotificationSettingsData>)
 
+  // Доступность push зависит от окружения (iOS требует установки на главный экран), а оно
+  // известно только в браузере: считаем после монтирования, иначе разойдётся гидрация.
+  const [pushState, setPushState] = useState<PushAvailability>('ok')
+  useEffect(() => setPushState(pushAvailability()), [])
+
   // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки.
   const setPush = (value: boolean): void => {
     if (value) {
-      if (!pushSupported()) {
+      if (pushState === 'ios-needs-install') {
+        toast.error(tS('pushIosInstallHint'))
+        return
+      }
+      if (pushState === 'unsupported') {
         toast.error(tS('pushUnsupported'))
         return
       }
@@ -669,8 +688,20 @@ function NotificationsSection() {
                 label={tS('channelEmail')}
               />
             </SettingRow>
-            <SettingRow title={tS('channelPush')} desc={tS('channelPushDesc')}>
-              <ToggleSwitch checked={s.pushEnabled} onChange={setPush} label={tS('channelPush')} />
+            <SettingRow
+              title={tS('channelPush')}
+              // На iPhone во вкладке Safari подписаться нельзя — вместо обычного описания
+              // объясняем, что делать, и гасим тумблер: иначе он обещает то, чего не будет.
+              desc={
+                pushState === 'ios-needs-install' ? tS('pushIosInstallHint') : tS('channelPushDesc')
+              }
+            >
+              <ToggleSwitch
+                checked={s.pushEnabled}
+                onChange={setPush}
+                disabled={pushState !== 'ok'}
+                label={tS('channelPush')}
+              />
             </SettingRow>
           </div>
 
@@ -763,6 +794,64 @@ function ThemeSelect() {
         ))}
       </SelectContent>
     </Select>
+  )
+}
+
+// ── Приложение: установка на главный экран ──────────────────────────────────
+/**
+ * Chromium отдаёт событие установки — кнопка открывает системное окно. Safari (iOS и
+ * macOS) программной установки не даёт вовсе, Firefox на десктопе не устанавливает
+ * приложения: там кнопка показывает инструкцию, как добавить руками. Логика перехвата
+ * события — в `shared/lib/pwa-install.ts`.
+ */
+function AppSection() {
+  const tS = useTranslations('Settings')
+  const { status, platform } = usePwaInstall()
+  const [how, setHow] = useState(false)
+
+  // Шаги ручной установки различаются платформой: на iOS это меню «Поделиться»,
+  // в Safari на маке — «Файл → Добавить в Dock», в остальных браузерах — меню браузера.
+  const steps =
+    platform === 'ios'
+      ? [tS('installIosStep1'), tS('installIosStep2'), tS('installIosStep3')]
+      : platform === 'macos-safari'
+        ? [tS('installMacStep')]
+        : [tS('installOtherStep')]
+
+  async function install(): Promise<void> {
+    const outcome = await promptPwaInstall()
+    // Событие не пришло (Safari, Firefox или ярлык уже создан) — показываем инструкцию.
+    if (outcome === 'unavailable') setHow(true)
+    if (outcome === 'accepted') toast.success(tS('installDoneToast'))
+  }
+
+  return (
+    <SectionCard icon={Smartphone} title={tS('appTitle')} desc={tS('appDesc')}>
+      <SettingRow title={tS('installTitle')} desc={tS('installDesc')}>
+        {status === 'installed' ? (
+          <Badge variant="secondary">{tS('installedBadge')}</Badge>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => (status === 'ready' ? void install() : setHow(true))}
+          >
+            <Download className="size-4" aria-hidden />
+            {tS('installAction')}
+          </Button>
+        )}
+      </SettingRow>
+
+      {how && (
+        <Modal onClose={() => setHow(false)} title={tS('installHowTitle')} size="md">
+          <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm">
+            {steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </Modal>
+      )}
+    </SectionCard>
   )
 }
 

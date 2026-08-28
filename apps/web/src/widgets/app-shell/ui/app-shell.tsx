@@ -284,7 +284,7 @@ export function AppShell({
 
   return (
     <ChatLayoutProvider value={{ listSlot, setChatOpen }}>
-      <div className="fixed inset-0 flex h-dvh w-full overflow-hidden bg-muted/30">
+      <div className="fixed inset-0 flex h-[calc(100dvh-var(--kb-inset,0px))] w-full overflow-hidden bg-muted/30">
         <AppSidebar
           nav={nav}
           locale={locale}

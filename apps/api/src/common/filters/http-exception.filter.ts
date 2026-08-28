@@ -12,13 +12,17 @@ import {
 import { AppException } from '../exceptions/app.exception'
 import type { CurrentUserData } from '../auth/jwt-payload.type'
 import { captureException } from '../monitoring/sentry'
+import { HttpStatusCounter } from '../monitoring/http-status.counter'
 
 // Глобальный фильтр: любую ошибку приводит к контракту
 // { success:false, error:{ code, message, details? }, statusCode, timestamp, path }.
 // Stack trace наружу не отдаётся никогда (docs/BACKEND_RULES.md §4.2/§4.4).
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  constructor(@InjectPinoLogger(HttpExceptionFilter.name) private readonly logger: PinoLogger) {}
+  constructor(
+    @InjectPinoLogger(HttpExceptionFilter.name) private readonly logger: PinoLogger,
+    private readonly statusCounter: HttpStatusCounter,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp()
@@ -58,6 +62,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
         message = mapped.message
       }
     }
+
+    // Считаем здесь все отказы: guard'ы отрабатывают ДО интерцепторов, поэтому 401 от
+    // JwtAuthGuard и 403 от ScopeGuard до `LoggingInterceptor` не доходят — фильтр
+    // единственный, кто видит их все (docs/TELEGRAM_BOT.md §2.3, §2.4).
+    this.statusCounter.record(status, request.ip)
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       // Необработанное/серверное — логируем с полным контекстом (но не в ответ)

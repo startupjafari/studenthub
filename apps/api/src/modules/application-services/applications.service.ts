@@ -75,6 +75,10 @@ function allowedDeliveryTypes(modes: string[]): DeliveryType[] {
   return out
 }
 
+// Статусы, в которых заявка ещё ждёт человека. Терминальные (ISSUED/REJECTED/CANCELLED)
+// и DRAFT сюда не входят: первые решены, второй ещё не подан.
+const OPEN_STATUSES = ['SUBMITTED', 'IN_REVIEW', 'READY']
+
 @Injectable()
 export class ApplicationsService {
   constructor(
@@ -492,6 +496,24 @@ export class ApplicationsService {
       }
     }
     throw new AppException('CONFLICT', 'Не удалось присвоить номер заявки, повторите')
+  }
+  /**
+   * Поданные и не решённые заявки старше `olderThan` — строка суточной сводки
+   * (docs/TELEGRAM_BOT.md §2.3). Это деградация сервиса, и админ платформы должен узнать
+   * о ней раньше ректората.
+   *
+   * `DRAFT` не считаем: черновик студента никого не ждёт. Терминальные `ISSUED`/`REJECTED`/
+   * `CANCELLED` — тоже. Отсчёт от `submittedAt`, а не `createdAt`: срок идёт с подачи.
+   *
+   * Наружу только число (§7.3.6).
+   */
+  async staleCount(olderThan: Date): Promise<number> {
+    return this.prisma.application.count({
+      where: {
+        status: { in: OPEN_STATUSES },
+        submittedAt: { not: null, lt: olderThan },
+      },
+    })
   }
 }
 

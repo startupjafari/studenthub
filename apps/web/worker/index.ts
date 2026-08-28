@@ -9,6 +9,15 @@ interface PushPayload {
   url?: string
 }
 
+// Команда от страницы «активируйся сейчас»: новый SW по умолчанию ждёт, пока закроются
+// все вкладки со старым, а установленное приложение не закрывают неделями. Страница
+// показывает тост «Доступна новая версия» и присылает это сообщение по нажатию.
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  if ((event.data as { type?: string } | undefined)?.type === 'SKIP_WAITING') {
+    void self.skipWaiting()
+  }
+})
+
 self.addEventListener('push', (event: PushEvent) => {
   let payload: PushPayload = {}
   try {

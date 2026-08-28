@@ -63,6 +63,27 @@ export class AuditService {
     }
   }
 
+  /**
+   * Сводка чувствительных действий за окно — для служебного канала (docs/TELEGRAM_BOT.md §2.4).
+   *
+   * Наружу отдаёт ТОЛЬКО тип действия, id сущности и момент: ни ФИО, ни email, ни
+   * содержимого. Смысл — заметить чужие руки в админке, а не следить за коллегами (§2.4).
+   * Метод живёт здесь, потому что `audit_logs` — таблица этого модуля: читать её напрямую
+   * из чужого модуля запрещено (BACKEND_RULES §2.1).
+   */
+  async recentSensitive(
+    actions: readonly string[],
+    since: Date,
+    take: number,
+  ): Promise<{ action: string; entityId: string | null; createdAt: Date }[]> {
+    return this.prisma.auditLog.findMany({
+      where: { action: { in: [...actions] }, createdAt: { gte: since } },
+      select: { action: true, entityId: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take,
+    })
+  }
+
   // Журнал действий по scope (docs/PROJECT.md §11, задача 11.6). Роли гейтит контроллер.
   async list(viewer: JwtPayload, query: AuditListQueryInput): Promise<Paginated<unknown>> {
     // scope и клиентские фильтры комбинируем через AND: клиентский ?userId= обязан
