@@ -1,8 +1,10 @@
 export {
   postKeys,
   fetchFeed,
+  fetchPost,
   fetchAuthorPosts,
   createPostRequest,
+  updatePostRequest,
   repostRequest,
   deletePostRequest,
   pinPostRequest,
@@ -21,6 +23,8 @@ export {
   GROUP_PICKER_ROLES,
   FACULTY_PICKER_ROLES,
   canRepost,
+  selfRepostAudience,
+  type SelfRepostScope,
 } from './model/audiences'
 export {
   POST_AUDIENCES,

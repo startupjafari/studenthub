@@ -983,7 +983,6 @@
     "contentTooLong": "Text is too long",
     "mediaCount": "{count, plural, one {# attachment} other {# attachments}}",
     "loadingComments": "Loading comments…",
-    "noComments": "No comments yet",
     "reply": "Reply",
     "replyPlaceholder": "Your reply…",
     "commentPlaceholder": "Comment…",
@@ -1024,6 +1023,7 @@
     "postActions": "Post actions",
     "emoji": "Emoji",
     "dropHint": "Drag files or click to select",
+    "addMedia": "Add photo or video",
     "mediaLimit": "photos and videos · up to 10 MB",
     "prevMedia": "Previous",
     "nextMedia": "Next",
@@ -1031,9 +1031,28 @@
     "next": "Next",
     "newPost": "New post",
     "viewsLabel": "{count, plural, one {# view} other {# views}}",
-    "showMore": "Show more",
+    "showMore": "Read more",
     "showLess": "Show less",
-    "report": "Report"
+    "report": "Report",
+    "sortNewest": "Newest first",
+    "sortOldest": "Oldest first",
+    "titleLabel": "Title",
+    "titlePlaceholder": "For example: Dean’s office hours during the holidays",
+    "contentLabel": "Text",
+    "mentionHint": "Mention",
+    "replyingTo": "Replying to {name}",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied",
+    "copyFailed": "Could not copy",
+    "shareMore": "More…",
+    "postUnavailableTitle": "Post unavailable",
+    "postUnavailableText": "It was deleted or is addressed to a different audience",
+    "backToFeed": "Back to feed",
+    "postTitle": "Post",
+    "editPost": "Edit post",
+    "postUpdated": "Post updated",
+    "save": "Save",
+    "edited": "edited"
   },
   "Chats": {
     "title": "Chats",
@@ -1881,6 +1900,8 @@
     "add": "Add friend",
     "cancelRequest": "Cancel request",
     "acceptRequest": "Accept request",
+    "requestsTitle": "Friend requests",
+    "showAll": "Show all",
     "friendsLabel": "Friends"
   },
   "Today": {
@@ -2720,5 +2741,15 @@
     "hint": "A university moderator reviews the report. The author will not learn who filed it.",
     "send": "Send report",
     "sent": "Report sent"
+  },
+  "Editor": {
+    "bold": "Bold",
+    "italic": "Italic",
+    "strike": "Strikethrough",
+    "code": "Monospace",
+    "link": "Link",
+    "bullet": "Bulleted list",
+    "ordered": "Numbered list",
+    "quote": "Quote"
   }
 }

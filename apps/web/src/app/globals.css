@@ -226,7 +226,9 @@
   );
 }
 
-/* Появление системных экранов статуса (403/404/ошибка). */
+/* Появление системных экранов статуса (403/404/ошибка). Классом, а не инлайн-стилем:
+   инлайн не выключишь медиазапросом, а декоративная анимация обязана уважать
+   prefers-reduced-motion. */
 @keyframes status-in {
   from {
     opacity: 0;
@@ -235,6 +237,16 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+.status-in {
+  animation: status-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-in {
+    animation: none;
   }
 }
 
@@ -327,7 +339,10 @@ summary {
 @media (pointer: coarse) {
   input:not([type='checkbox']):not([type='radio']),
   textarea,
-  select {
+  select,
+  /* Копия текста под полем markdown-редактора: она не textarea, но обязана менять
+     кегль вместе с ним — иначе подсветка съедет относительно набранного текста. */
+  [data-md-mirror] {
     font-size: 16px;
   }
 }

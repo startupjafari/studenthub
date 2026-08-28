@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2, Share2 } from 'lucide-react'
+import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -14,17 +13,11 @@ import {
   type FeedPost,
   type PostReaction,
 } from '../../../entities/post'
-import {
-  chatKeys,
-  fetchChats,
-  sharePostRequest,
-  ForwardDialog,
-  type ChatListItem,
-} from '../../../entities/chat'
 import { RepostDialog } from '../../../features/repost-post'
 import { cn } from '../../../shared/lib/utils'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { PostMediaView } from './post-media'
+import { SharePostMenu } from '../../../features/share-post'
 import { PostTileMenu } from './post-tile-menu'
 
 const LIKE = '❤️'
@@ -35,10 +28,6 @@ const MODERATOR_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
 ]
-
-function chatLabel(c: ChatListItem, tChats: (k: string) => string): string {
-  return c.title || c.subject || tChats('typePrivate')
-}
 
 // Карточка публикации в сетке (Instagram/VK-стиль): превью 4:3, контекст, и активные
 // действия — лайк, комментарий (открывает подробную модалку с фокусом в поле), поделиться.
@@ -52,14 +41,12 @@ export function PostTile({
   onOpenComment: () => void
 }) {
   const t = useTranslations('Feed')
-  const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
-  const [sharing, setSharing] = useState(false)
   const [reposting, setReposting] = useState(false)
 
   const first = post.media[0]
@@ -72,16 +59,6 @@ export function PostTile({
     month: 'long',
   })
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
-
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
-  const shareMut = useMutation({
-    mutationFn: (chatId: string) => sharePostRequest(chatId, post.id),
-    onSuccess: () => {
-      setSharing(false)
-      toast.success(t('sharedToChat'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
 
   // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5).
   function toggleLike(): void {
@@ -120,7 +97,7 @@ export function PostTile({
         ) : (
           <div className={cn('flex size-full items-center justify-center p-4', BRAND_GRADIENT)}>
             <span className="line-clamp-4 text-center text-sm font-medium text-white">
-              {post.content}
+              {post.title || post.content}
             </span>
           </div>
         )}
@@ -162,7 +139,7 @@ export function PostTile({
             onClick={onOpen}
             className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold leading-snug text-foreground hover:text-primary"
           >
-            {post.content || t('mediaPost')}
+            {post.title || post.content || t('mediaPost')}
           </button>
           <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
             <span className="whitespace-nowrap text-xs text-muted-foreground">{date}</span>
@@ -211,14 +188,10 @@ export function PostTile({
               <Repeat2 className="size-5" aria-hidden />
             </button>
           )}
-          <button
-            type="button"
-            aria-label={t('shareToChat')}
-            onClick={() => setSharing(true)}
-            className="transition-transform hover:scale-105 hover:text-foreground"
-          >
-            <Share2 className="size-5" aria-hidden />
-          </button>
+          <SharePostMenu
+            postId={post.id}
+            className="cursor-pointer transition-transform hover:scale-105 hover:text-foreground"
+          />
           <span className="ml-auto flex items-center gap-1.5">
             <Eye className="size-5" aria-hidden />
             {post.views}
@@ -227,16 +200,6 @@ export function PostTile({
       </div>
 
       {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
-
-      {sharing && (
-        <ForwardDialog
-          chats={chats.data ?? []}
-          currentChatId={null}
-          titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(chatId) => shareMut.mutate(chatId)}
-          onClose={() => setSharing(false)}
-        />
-      )}
     </article>
   )
 }

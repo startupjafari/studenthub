@@ -8,13 +8,13 @@ import { toast } from 'sonner'
 import {
   ChevronLeft,
   ChevronRight,
+  CornerDownRight,
   Eye,
   Heart,
   MessageCircle,
   MoreHorizontal,
   Pin,
   Repeat2,
-  Share2,
   Smile,
   Trash2,
   X,
@@ -35,22 +35,16 @@ import {
   type FeedPost,
   type PostReaction,
 } from '../../../entities/post'
-import {
-  chatKeys,
-  fetchChats,
-  sharePostRequest,
-  ForwardDialog,
-  type ChatListItem,
-} from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import { RepostDialog } from '../../../features/repost-post'
+import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
-import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { BRAND_GRADIENT } from '../../../shared/config'
 import { relativeTime, useBodyScrollLock } from '../../../shared/lib'
-import { PostMediaView } from './post-media'
+import { SharePostMenu } from '../../../features/share-post'
+import { MediaFrame } from './media-frame'
+import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
 const LIKE = '❤️'
 
@@ -92,10 +86,6 @@ const MODERATOR_ROLES: Role[] = [
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
-}
-
-function chatLabel(c: ChatListItem, tChats: (k: string) => string): string {
-  return c.title || c.subject || tChats('typePrivate')
 }
 
 interface LightboxProps {
@@ -184,9 +174,13 @@ export function PostLightbox({
         </div>
       )}
 
+      {/* Пост — одной вертикальной колонкой, как во «ВКонтакте»: шапка, текст,
+          вложение, действия, комментарии. Двухколоночная раскладка (медиа слева,
+          панель справа) — это просмотрщик фотографий: у поста без картинки левая
+          половина пустовала, а панель справа обрезала подписи кнопок. */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden bg-background shadow-2xl sm:rounded-xl md:flex-row"
+        className="flex max-h-[92vh] w-full max-w-[42rem] flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl"
       >
         <PostView key={post.id} post={post} onClose={onClose} focusComment={focusComment} />
       </div>
@@ -207,17 +201,16 @@ function PostView({
   focusComment?: boolean
 }) {
   const t = useTranslations('Feed')
-  const tChats = useTranslations('Chats')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const myId = useAppSelector((s) => s.auth.user?.id)
+  const me = useAppSelector((s) => s.auth.user)
+  const myId = me?.id
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [mi, setMi] = useState(0)
   const [zoomed, setZoomed] = useState(false)
-  const [sheetOpen, setSheetOpen] = useState(false)
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
 
@@ -227,12 +220,19 @@ function PostView({
       .then(setViews)
       .catch(() => {})
   }, [post.id])
-  const [sharing, setSharing] = useState(false)
-  const [reposting, setReposting] = useState(false)
+  // Репост уходит в собственную ленту сразу по нажатию; окно остаётся только тем ролям,
+  // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
+  const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
+  const [repostDialog, setRepostDialog] = useState(false)
   const [text, setText] = useState('')
+  // Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
+  // «сначала новые / сначала старые», а не «сначала интересные».
+  const [newestFirst, setNewestFirst] = useState(false)
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  // Что набрано после «@» перед курсором. null — упоминание сейчас не пишут.
+  const [mention, setMention] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
@@ -262,16 +262,20 @@ function PostView({
   }, [menuOpen, emojiOpen])
 
   // Ответить: подставляем «@Имя » и ставим курсор после упоминания (текст печатается следом).
+  // Кому отвечаем — показываем подписью над полем ввода. Раньше имя адресата
+  // впечатывалось в текст реплики («@Иванов Иван …»), и оно уезжало на сервер
+  // частью комментария: в ленте каждый ответ начинался с чужой фамилии.
+  const [replyTarget, setReplyTarget] = useState<PostAuthor | null>(null)
+
   function startReply(commentId: string, author: PostAuthor): void {
     setReplyTo(commentId)
-    const mention = `@${author.lastName} ${author.firstName} `
-    setText(mention)
-    requestAnimationFrame(() => {
-      const el = inputRef.current
-      if (!el) return
-      el.focus()
-      el.setSelectionRange(mention.length, mention.length)
-    })
+    setReplyTarget(author)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  function cancelReply(): void {
+    setReplyTo(null)
+    setReplyTarget(null)
   }
 
   // Вставка эмодзи в позицию курсора (или в конец).
@@ -310,19 +314,9 @@ function PostView({
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
 
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: sharing })
   const comments = useQuery({
     queryKey: postKeys.comments(post.id),
     queryFn: () => fetchComments(post.id),
-  })
-
-  const shareMut = useMutation({
-    mutationFn: (chatId: string) => sharePostRequest(chatId, post.id),
-    onSuccess: () => {
-      setSharing(false)
-      toast.success(t('sharedToChat'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
   const addMut = useMutation({
@@ -332,7 +326,7 @@ function PostView({
       void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) })
       void qc.invalidateQueries({ queryKey: postKeys.all })
       setText('')
-      setReplyTo(null)
+      cancelReply()
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
@@ -378,7 +372,8 @@ function PostView({
     }
   }
 
-  const time = new Date(post.createdAt).toLocaleDateString(locale, {
+  // Точная дата — в подсказке к относительному времени в панели действий.
+  const exactDate = new Date(post.createdAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
@@ -387,338 +382,388 @@ function PostView({
   const cur = media[mi]
   const isImage = cur ? !cur.mime.startsWith('video/') : false
   const commentCount = comments.data?.length ?? post._count.comments
-  const roots = (comments.data ?? []).filter((c) => c.parentId === null)
-  const repliesOf = (id: string) => (comments.data ?? []).filter((c) => c.parentId === id)
+  const loaded = comments.data ?? []
+  const loadedIds = new Set(loaded.map((c) => c.id))
+  // Корнем считаем и ответ, чей родитель не пришёл (родителя удалили): иначе такой
+  // комментарий не рисовался нигде, а в счётчике оставался — заголовок обещал
+  // «1 комментарий» над пустым списком.
+  const roots = loaded
+    .filter((c) => c.parentId === null || !loadedIds.has(c.parentId))
+    // Ответы внутри ветки порядок не меняют: там важна последовательность разговора.
+    .sort((a, b) =>
+      newestFirst ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt),
+    )
+  const repliesOf = (id: string) => loaded.filter((c) => c.parentId === id)
+
+  /**
+   * Панель действий стоит СРАЗУ под текстом поста, а не под лентой комментариев:
+   * во «ВКонтакте» лайк и репост относятся к посту, и искать их в конце длинного
+   * обсуждения приходилось прокруткой до дна.
+   */
+  function ActionsBar() {
+    return (
+      <div className="shrink-0 border-b border-border px-2 py-2">
+        <div className="flex items-center gap-0.5 text-muted-foreground">
+          <BarButton
+            label={t('like')}
+            pressed={liked}
+            count={reactions.length}
+            onClick={toggleLike}
+          >
+            <Heart
+              className={cn('size-5', liked && 'fill-destructive text-destructive')}
+              aria-hidden
+            />
+          </BarButton>
+          <BarButton
+            label={t('comment')}
+            count={commentCount}
+            onClick={() => inputRef.current?.focus()}
+          >
+            <MessageCircle className="size-5" aria-hidden />
+          </BarButton>
+          {showRepost && (
+            <BarButton
+              label={t('repost')}
+              disabled={repostPending}
+              onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
+            >
+              <Repeat2 className="size-5" aria-hidden />
+            </BarButton>
+          )}
+          <SharePostMenu
+            postId={post.id}
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
+          />
+          {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
+          {/* Справа только просмотры: дата переехала в шапку, под имя автора —
+              в записи «ВКонтакте» она стоит там, а не в строке действий. */}
+          <span
+            className="ml-auto flex items-center gap-1.5 px-2 text-xs"
+            title={t('viewsCount', { count: views })}
+          >
+            <Eye className="size-4" aria-hidden />
+            {views}
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
-      {/* Медиа-колонка — нейтральный тёмно-серый фон вместо чёрного */}
-      <div className="relative flex min-h-[45vh] flex-1 items-center justify-center overflow-hidden bg-neutral-900 md:min-h-0">
-        {cur ? (
-          isImage ? (
-            <button
-              type="button"
-              aria-label={zoomed ? t('zoomOut') : t('zoomIn')}
-              onClick={() => setZoomed((z) => !z)}
-              className={cn(
-                'flex size-full items-center justify-center',
-                zoomed ? 'cursor-zoom-out overflow-auto' : 'cursor-zoom-in',
-              )}
-            >
-              <PostMediaView
-                postId={post.id}
-                media={cur}
-                fit="contain"
-                className={cn(
-                  'max-h-[45vh] w-full transition-transform duration-200 md:max-h-[92vh]',
-                  zoomed && 'max-h-none scale-150 md:scale-[1.75]',
-                )}
-              />
-            </button>
-          ) : (
-            <PostMediaView
+      <div className="flex min-h-0 flex-1 flex-col bg-background">
+        <div className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {cur && (
+            <MediaFrame
               postId={post.id}
               media={cur}
-              fit="contain"
-              controls
-              className="max-h-[45vh] w-full md:max-h-[92vh]"
-            />
-          )
-        ) : (
-          <div className={cn('flex size-full items-center justify-center p-8', BRAND_GRADIENT)}>
-            <p className="max-h-full overflow-y-auto whitespace-pre-wrap text-center text-lg font-medium text-white">
-              {post.content}
-            </p>
-          </div>
-        )}
-
-        {media.length > 1 && (
-          <>
-            {mi > 0 && (
-              <button
-                type="button"
-                aria-label={t('prev')}
-                onClick={() => {
-                  setMi(mi - 1)
-                  setZoomed(false)
-                }}
-                className="absolute left-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-              >
-                <ChevronLeft className="size-5" aria-hidden />
-              </button>
-            )}
-            {mi < media.length - 1 && (
-              <button
-                type="button"
-                aria-label={t('next')}
-                onClick={() => {
-                  setMi(mi + 1)
-                  setZoomed(false)
-                }}
-                className="absolute right-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-              >
-                <ChevronRight className="size-5" aria-hidden />
-              </button>
-            )}
-            {/* Номер материала: «2 из 8» */}
-            <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
-              {t('counter', { current: mi + 1, total: media.length })}
-            </div>
-            <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-              {media.map((m, i) => (
-                <span
-                  key={m.id}
+              // Высота кадра ФИКСИРОВАННАЯ, а не «по картинке»: в карусели соседние
+              // снимки бывают то горизонтальными, то вертикальными, и при height:auto
+              // окно прыгало на каждом переключении — вместе с ним уезжали и кнопки
+              // под ним. Размытая подложка заполняет поля, поэтому пустоты не видно.
+              //
+              // shrink-0 обязателен: это элемент прокручиваемой flex-колонки, и без
+              // него длинная ветка комментариев сжимала кадр до нулевой высоты.
+              className="h-[45vh] shrink-0 bg-neutral-900 sm:h-[60vh]"
+              controls={!isImage}
+              imageClassName={cn(
+                'max-h-full transition-transform duration-200',
+                zoomed && 'max-h-none scale-150',
+              )}
+            >
+              {/* Кадр кликабелен целиком: приближение — по картинке, а не по кнопке
+                  поверх неё, иначе клик по размытым полям ничего не делал. */}
+              {isImage && (
+                <button
+                  type="button"
+                  aria-label={zoomed ? t('zoomOut') : t('zoomIn')}
+                  onClick={() => setZoomed((z) => !z)}
                   className={cn(
-                    'size-1.5 rounded-full transition-colors',
-                    i === mi ? 'bg-white' : 'bg-white/40',
+                    'absolute inset-0 z-[1]',
+                    zoomed ? 'cursor-zoom-out' : 'cursor-zoom-in',
                   )}
                 />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Панель деталей — на мобильном нижний лист (bottom sheet) с «выглядывающей» полосой */}
-      <div
-        className={cn(
-          'flex flex-col bg-background',
-          'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-30 max-md:max-h-[82vh] max-md:rounded-t-2xl max-md:border-t max-md:border-border max-md:shadow-2xl max-md:transition-transform max-md:duration-300',
-          !sheetOpen && 'max-md:translate-y-[calc(100%-2.75rem)]',
-          'md:w-[400px] md:shrink-0 md:border-l md:border-border',
-        )}
-      >
-        {/* Ручка-переключатель (только мобильный) */}
-        <button
-          type="button"
-          onClick={() => setSheetOpen((o) => !o)}
-          className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-border py-2.5 text-sm text-muted-foreground md:hidden"
-        >
-          <MessageCircle className="size-4" aria-hidden />
-          {t('commentsCount', { count: commentCount })}
-        </button>
-
-        {/* Шапка */}
-        <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-          <ProfileLink userId={post.author.id} className="shrink-0">
-            <Avatar className="size-9">
-              {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
-              <AvatarFallback>{initials(post.author)}</AvatarFallback>
-            </Avatar>
-          </ProfileLink>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold leading-tight">
-              <ProfileLink userId={post.author.id} className="hover:text-primary hover:underline">
-                {post.author.lastName} {post.author.firstName}
-              </ProfileLink>
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {t(`audience${post.audience}`)}
-            </p>
-          </div>
-          {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
-          {(canModerate || canDelete) && (
-            <div ref={menuRef} className="relative shrink-0">
-              <button
-                type="button"
-                aria-label={t('postActions')}
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((o) => !o)}
-                className={cn(
-                  'flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-                  menuOpen && 'bg-muted text-foreground',
-                )}
-              >
-                <MoreHorizontal className="size-5" aria-hidden />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-full z-30 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-lg">
-                  {canModerate && (
+              )}
+              {media.length > 1 && (
+                <>
+                  {mi > 0 && (
                     <button
                       type="button"
+                      aria-label={t('prev')}
                       onClick={() => {
-                        setMenuOpen(false)
-                        pinMut.mutate()
+                        setMi(mi - 1)
+                        setZoomed(false)
                       }}
-                      className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                      className="absolute left-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
                     >
-                      <Pin
+                      <ChevronLeft className="size-5" aria-hidden />
+                    </button>
+                  )}
+                  {mi < media.length - 1 && (
+                    <button
+                      type="button"
+                      aria-label={t('next')}
+                      onClick={() => {
+                        setMi(mi + 1)
+                        setZoomed(false)
+                      }}
+                      className="absolute right-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                    >
+                      <ChevronRight className="size-5" aria-hidden />
+                    </button>
+                  )}
+                  {/* Номер материала: «2 из 8» */}
+                  <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
+                    {t('counter', { current: mi + 1, total: media.length })}
+                  </div>
+                  <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+                    {media.map((m, i) => (
+                      <span
+                        key={m.id}
                         className={cn(
-                          'size-4 shrink-0',
-                          post.pinnedAt && 'fill-current text-primary',
+                          'size-1.5 rounded-full transition-colors',
+                          i === mi ? 'bg-white' : 'bg-white/40',
                         )}
-                        aria-hidden
                       />
-                      {post.pinnedAt ? t('unpin') : t('pin')}
-                    </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </MediaFrame>
+          )}
+
+          {/* Автор и меню — под вложением: сначала видно, ЧТО опубликовали,
+              и только потом кто. Раньше шапка занимала первый экран, а картинка
+              начиналась ниже неё. */}
+          <header className="flex shrink-0 items-center gap-3 px-4 pt-3 pb-2">
+            <ProfileLink userId={post.author.id} className="shrink-0">
+              <Avatar className="size-9">
+                {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
+                <AvatarFallback>{initials(post.author)}</AvatarFallback>
+              </Avatar>
+            </ProfileLink>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold leading-tight">
+                <ProfileLink userId={post.author.id} className="hover:text-primary hover:underline">
+                  {post.author.lastName} {post.author.firstName}
+                </ProfileLink>
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {t(`audience${post.audience}`)} ·{' '}
+                <time dateTime={post.createdAt} title={exactDate}>
+                  {relativeTime(post.createdAt, locale)}
+                </time>
+              </p>
+            </div>
+            {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
+            {(canModerate || canDelete) && (
+              <div ref={menuRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label={t('postActions')}
+                  aria-expanded={menuOpen}
+                  onClick={() => setMenuOpen((o) => !o)}
+                  className={cn(
+                    'flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                    menuOpen && 'bg-muted text-foreground',
                   )}
-                  {canDelete && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false)
-                        void confirm({ title: t('deleteConfirm'), destructive: true }).then(
-                          (ok) => {
-                            if (ok) delPostMut.mutate()
-                          },
-                        )
-                      }}
-                      className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-muted"
+                >
+                  <MoreHorizontal className="size-5" aria-hidden />
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full z-30 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-lg">
+                    {canModerate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          pinMut.mutate()
+                        }}
+                        className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                      >
+                        <Pin
+                          className={cn(
+                            'size-4 shrink-0',
+                            post.pinnedAt && 'fill-current text-primary',
+                          )}
+                          aria-hidden
+                        />
+                        {post.pinnedAt ? t('unpin') : t('pin')}
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          void confirm({ title: t('deleteConfirm'), destructive: true }).then(
+                            (ok) => {
+                              if (ok) delPostMut.mutate()
+                            },
+                          )
+                        }}
+                        className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-muted"
+                      >
+                        <Trash2 className="size-4 shrink-0" aria-hidden />
+                        {t('delete')}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </header>
+
+          {/* Текст поста — обычным блоком под шапкой, а не первой строкой ленты
+            комментариев: у поста и у реплики разный вес, и одинаковая вёрстка
+            читалась как «автор первым прокомментировал сам себя». */}
+          {(post.content || post.original) && (
+            <div className="flex shrink-0 flex-col gap-2 px-4 pb-3 text-sm">
+              {post.title && <h2 className="text-base leading-snug font-semibold">{post.title}</h2>}
+              {post.content && <Markdown source={post.content} />}
+
+              {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
+              {post.original && (
+                <div className="mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
+                  <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
+                    <Repeat2 className="size-3.5" aria-hidden />
+                    <ProfileLink
+                      userId={post.original.author.id}
+                      className="hover:text-primary hover:underline"
                     >
-                      <Trash2 className="size-4 shrink-0" aria-hidden />
-                      {t('delete')}
-                    </button>
-                  )}
+                      {post.original.author.lastName} {post.original.author.firstName}
+                    </ProfileLink>
+                  </p>
+                  {post.original.title && <p className="font-semibold">{post.original.title}</p>}
+                  <Markdown source={post.original.content} />
                 </div>
               )}
             </div>
           )}
-        </header>
 
-        {/* Подпись автора (первой строкой, как в Instagram) + комментарии (скролл) */}
-        <ul className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
-          {post.content && (
-            <li>
-              {/* Текст самого поста — первой строкой ветки. Жаловаться и отвечать
-                  здесь нечему: у поста для этого своё меню и своя кнопка. */}
-              <CommentRow
-                id={post.id}
-                author={post.author}
-                content={post.content}
-                createdAt={post.createdAt}
-                locale={locale}
-              />
-            </li>
-          )}
+          {/* Вложение — в потоке под текстом, а не отдельной колонкой. Высота
+              ограничена, чтобы вертикальное фото не выдавливало комментарии за экран.
+              Пост без вложения блок не рисует: раньше на его месте была заглушка-
+              градиент, дословно повторявшая текст поста. */}
+          <ActionsBar />
 
-          {/* Репост: цитата первоисточника — иначе в полном просмотре не видно, что это репост */}
-          {post.original && (
-            <li>
-              <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
-                <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Repeat2 className="size-3.5" aria-hidden />
-                  <ProfileLink
-                    userId={post.original.author.id}
-                    className="hover:text-primary hover:underline"
-                  >
-                    {post.original.author.lastName} {post.original.author.firstName}
-                  </ProfileLink>
-                </p>
-                <p className="whitespace-pre-wrap">{post.original.content}</p>
-              </div>
-            </li>
-          )}
-
-          {comments.isLoading ? (
-            <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
-          ) : roots.length === 0 ? (
-            <li className="text-xs text-muted-foreground">{t('noComments')}</li>
-          ) : (
-            roots.map((c) => {
-              const replies = repliesOf(c.id)
-              return (
-                <li key={c.id} className="flex flex-col gap-3">
-                  {/* Одиночный комментарий (корень ветки) */}
-                  <CommentRow
-                    id={c.id}
-                    author={c.author}
-                    content={c.content}
-                    createdAt={c.createdAt}
-                    locale={locale}
-                    canDelete={c.author.id === myId}
-                    canReport={c.author.id !== myId}
-                    onReply={() => startReply(c.id, c.author)}
-                    onDelete={() => delCommentMut.mutate(c.id)}
-                  />
-                  {/* Ответы — с отступом и вертикальной линией-веткой (визуально отделены) */}
-                  {replies.length > 0 && (
-                    <div className="ml-4 flex flex-col gap-3 border-l-2 border-border/70 pl-3.5">
-                      {replies.map((r) => (
-                        <CommentRow
-                          key={r.id}
-                          id={r.id}
-                          author={r.author}
-                          content={r.content}
-                          createdAt={r.createdAt}
-                          locale={locale}
-                          // Ответ всегда адресован автору корня ветки: вложенность
-                          // на сервере одноуровневая, и без подписи «кому» лента
-                          // ответов читается как разговор со стеной.
-                          replyTo={c.author}
-                          small
-                          canDelete={r.author.id === myId}
-                          canReport={r.author.id !== myId}
-                          onReply={() => startReply(c.id, r.author)}
-                          onDelete={() => delCommentMut.mutate(r.id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </li>
-              )
-            })
-          )}
-        </ul>
-
-        {/* Действия + лайки + дата */}
-        <div className="border-t border-border px-4 pb-2 pt-3">
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              aria-label={t('like')}
-              aria-pressed={liked}
-              onClick={toggleLike}
-              className="cursor-pointer transition-transform hover:scale-110"
-            >
-              <Heart
-                className={cn(
-                  'size-6',
-                  liked ? 'fill-destructive text-destructive' : 'text-foreground',
-                )}
-                aria-hidden
-              />
-            </button>
-            <button
-              type="button"
-              aria-label={t('comment')}
-              onClick={() => inputRef.current?.focus()}
-              className="cursor-pointer transition-transform hover:scale-110"
-            >
-              <MessageCircle className="size-6" aria-hidden />
-            </button>
-            {showRepost && (
+          {/* Заголовок ленты комментариев: счётчик и порядок */}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
+            <span className="text-sm font-semibold">
+              {t('commentsCount', { count: commentCount })}
+            </span>
+            {commentCount > 1 && (
               <button
                 type="button"
-                aria-label={t('repost')}
-                onClick={() => setReposting(true)}
-                className="cursor-pointer transition-transform hover:scale-110"
+                onClick={() => setNewestFirst((v) => !v)}
+                className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
               >
-                <Repeat2 className="size-6" aria-hidden />
+                {newestFirst ? t('sortNewest') : t('sortOldest')}
               </button>
             )}
-            <button
-              type="button"
-              aria-label={t('shareToChat')}
-              onClick={() => setSharing(true)}
-              className="cursor-pointer transition-transform hover:scale-110"
-            >
-              <Share2 className="size-6" aria-hidden />
-            </button>
           </div>
-          <p className="mt-2 text-sm font-semibold">
-            {t('likesCount', { count: reactions.length })}
-          </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
-            <span className="uppercase tracking-wide">{time}</span>
-            <span className="inline-flex items-center gap-1">
-              <Eye className="size-3.5" aria-hidden />
-              {t('viewsCount', { count: views })}
-            </span>
-          </p>
+
+          {/* Пустой список ничего не подписывает: про отсутствие комментариев уже
+              сказано в заголовке выше, и вторая такая же строка была дублем. */}
+          <ul
+            className={cn(
+              'flex shrink-0 flex-col gap-4 px-4',
+              (comments.isLoading || roots.length > 0) && 'py-3',
+            )}
+          >
+            {comments.isLoading ? (
+              <li className="text-xs text-muted-foreground">{t('loadingComments')}</li>
+            ) : (
+              roots.map((c) => {
+                const replies = repliesOf(c.id)
+                return (
+                  <li key={c.id} className="flex flex-col gap-3">
+                    {/* Одиночный комментарий (корень ветки) */}
+                    <CommentRow
+                      id={c.id}
+                      author={c.author}
+                      content={c.content}
+                      createdAt={c.createdAt}
+                      locale={locale}
+                      canDelete={c.author.id === myId}
+                      canReport={c.author.id !== myId}
+                      onReply={() => startReply(c.id, c.author)}
+                      onDelete={() => delCommentMut.mutate(c.id)}
+                    />
+                    {/* Ветка ответов: сплошная линия слева и короткий «ус» к каждому
+                      ответу — видно, что реплики принадлежат одному разговору и кому
+                      именно отвечают. Одной полосы для этого мало: она показывает
+                      группу, но не связывает с ней конкретный ответ. */}
+                    {replies.length > 0 && (
+                      <div className="relative ml-4 flex flex-col gap-3 pl-6">
+                        <span aria-hidden className="absolute top-0 left-0 h-full w-px bg-border" />
+                        {replies.map((r) => (
+                          <div key={r.id} className="relative">
+                            <span
+                              aria-hidden
+                              // «Ус» упирается в аватар ответа: 1rem — половина его высоты.
+                              className="absolute top-4 -left-6 h-px w-6 bg-border"
+                            />
+                            <CommentRow
+                              id={r.id}
+                              author={r.author}
+                              content={r.content}
+                              createdAt={r.createdAt}
+                              locale={locale}
+                              // Ответ всегда адресован автору корня ветки: вложенность
+                              // на сервере одноуровневая, и без подписи «кому» лента
+                              // ответов читается как разговор со стеной.
+                              replyTo={c.author}
+                              small
+                              canDelete={r.author.id === myId}
+                              canReport={r.author.id !== myId}
+                              onReply={() => startReply(c.id, r.author)}
+                              onDelete={() => delCommentMut.mutate(r.id)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                )
+              })
+            )}
+          </ul>
         </div>
 
-        {/* Ввод комментария (плоский, как в Instagram): эмодзи · многострочное поле · «Опубликовать» */}
-        <div className="relative flex items-end gap-2 border-t border-border px-4 py-2.5">
+        {/* Кому отвечаем — отдельной строкой над полем, с отменой. */}
+        {replyTarget && (
+          <div className="flex items-center gap-2 border-t border-border px-4 pt-2 text-xs text-muted-foreground">
+            <CornerDownRight className="size-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              {t('replyingTo', { name: `${replyTarget.lastName} ${replyTarget.firstName}` })}
+            </span>
+            <button
+              type="button"
+              onClick={cancelReply}
+              className="cursor-pointer font-medium hover:text-foreground"
+            >
+              {t('cancelReply')}
+            </button>
+          </div>
+        )}
+
+        {/* Ввод комментария: аватар · эмодзи · многострочное поле · «Опубликовать».
+            Аватар слева, как во «ВКонтакте»: он показывает, от чьего имени уйдёт
+            реплика — в общих аккаунтах это не всегда очевидно. */}
+        <div
+          className={cn(
+            'relative flex items-end gap-2 px-4 py-2.5',
+            !replyTarget && 'border-t border-border',
+          )}
+        >
+          {me && (
+            <Avatar className="size-8 shrink-0 self-center max-sm:hidden">
+              {me.avatarUrl && <AvatarImage src={me.avatarUrl} alt="" />}
+              <AvatarFallback className="text-[10px]">{initials(me)}</AvatarFallback>
+            </Avatar>
+          )}
           {/* Пикер эмодзи */}
           <div ref={emojiRef} className="relative shrink-0">
             <button
@@ -749,6 +794,21 @@ function PostView({
             )}
           </div>
 
+          <MentionSuggest
+            query={mention}
+            onPick={(login) => {
+              const el = inputRef.current
+              const caret = el?.selectionStart ?? text.length
+              const next = applyMention(text, caret, login)
+              setText(next.text)
+              setMention(null)
+              requestAnimationFrame(() => {
+                el?.focus()
+                el?.setSelectionRange(next.caret, next.caret)
+              })
+            }}
+          />
+
           <textarea
             ref={inputRef}
             value={text}
@@ -756,9 +816,13 @@ function PostView({
             onChange={(e) => {
               const v = e.target.value
               setText(v)
-              // Очистка поля отменяет режим ответа (кнопки «Отмена» нет).
-              if (v.trim() === '') setReplyTo(null)
+              setMention(mentionQuery(v, e.target.selectionStart ?? v.length))
+              // Очистка поля режим ответа не сбрасывает: у него есть своя кнопка отмены.
             }}
+            onKeyUp={(e) =>
+              setMention(mentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0))
+            }
+            onBlur={() => setMention(null)}
             onKeyDown={(e) => {
               // Enter — отправить; Shift+Enter — перенос строки.
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -781,17 +845,7 @@ function PostView({
         </div>
       </div>
 
-      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
-
-      {sharing && (
-        <ForwardDialog
-          chats={chats.data ?? []}
-          currentChatId={null}
-          titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(chatId) => shareMut.mutate(chatId)}
-          onClose={() => setSharing(false)}
-        />
-      )}
+      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
     </>
   )
 }
@@ -805,6 +859,42 @@ function PostView({
  * `replyTo` — кому адресован ответ. Во вложенной ветке без этого непонятно, кому
  * отвечают: у корня может быть десяток ответов подряд.
  */
+/** Кнопка панели действий: иконка и счётчик. Название — в aria-label и подсказке. */
+function BarButton({
+  label,
+  count,
+  pressed,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  count?: number
+  pressed?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground',
+        'disabled:pointer-events-none disabled:opacity-50',
+        pressed && 'text-foreground',
+      )}
+    >
+      {children}
+      {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
+    </button>
+  )
+}
+
 function CommentRow({
   id,
   author,
