@@ -108,6 +108,7 @@ export {
   type TablePaginationProps,
 } from './table'
 export { Modal, type ModalProps } from './modal'
+export { LegalLinks, type LegalLinksProps } from './legal-links'
 export { Stepper, type StepperStep } from './stepper'
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs'
 export { Progress, type ProgressProps } from './progress'
