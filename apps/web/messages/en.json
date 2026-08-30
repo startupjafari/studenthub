@@ -2487,7 +2487,12 @@
     "assignments": "Assignments",
     "materials": "Materials",
     "events": "Events",
-    "chats": "Chats"
+    "chats": "Chats",
+    "cancel": "Cancel",
+    "clear": "Clear",
+    "keyNavigate": "navigate",
+    "keyOpen": "open",
+    "keyClose": "close"
   },
   "Consultations": {
     "title": "Consultations",

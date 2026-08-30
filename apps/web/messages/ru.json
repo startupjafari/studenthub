@@ -2487,7 +2487,12 @@
     "assignments": "Задания",
     "materials": "Материалы",
     "events": "События",
-    "chats": "Чаты"
+    "chats": "Чаты",
+    "cancel": "Отмена",
+    "clear": "Очистить",
+    "keyNavigate": "навигация",
+    "keyOpen": "открыть",
+    "keyClose": "закрыть"
   },
   "Consultations": {
     "title": "Консультации",

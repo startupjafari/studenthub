@@ -2487,7 +2487,12 @@
     "assignments": "Тапсырмалар",
     "materials": "Материалдар",
     "events": "Оқиғалар",
-    "chats": "Чаттар"
+    "chats": "Чаттар",
+    "cancel": "Болдырмау",
+    "clear": "Тазалау",
+    "keyNavigate": "жылжу",
+    "keyOpen": "ашу",
+    "keyClose": "жабу"
   },
   "Consultations": {
     "title": "Кеңестер",
