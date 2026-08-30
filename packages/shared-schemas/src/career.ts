@@ -168,3 +168,132 @@ export const CompanyListQuerySchema = OffsetPaginationSchema.extend({
   order: SortOrderSchema.default('desc'),
 })
 export type CompanyListQueryInput = z.infer<typeof CompanyListQuerySchema>
+
+// ── Карьерный профиль студента (18.B) ────────────────────────────────────────
+
+/**
+ * Видимость карьерного профиля для работодателей.
+ * По умолчанию HIDDEN: студент не должен становиться видимым компаниям молча.
+ */
+export const CAREER_VISIBILITIES = ['HIDDEN', 'EMPLOYERS'] as const
+export const CareerVisibilitySchema = z.enum(CAREER_VISIBILITIES)
+export type CareerVisibility = z.infer<typeof CareerVisibilitySchema>
+
+export const EMPLOYMENT_STATUSES = ['LOOKING', 'OPEN', 'NOT_LOOKING'] as const
+export const EmploymentStatusSchema = z.enum(EMPLOYMENT_STATUSES)
+export type EmploymentStatus = z.infer<typeof EmploymentStatusSchema>
+
+export const EMPLOYMENT_TYPES = [
+  'INTERNSHIP',
+  'PART_TIME',
+  'FULL_TIME',
+  'CONTRACT',
+  'FREELANCE',
+] as const
+export const EmploymentTypeSchema = z.enum(EMPLOYMENT_TYPES)
+export type EmploymentType = z.infer<typeof EmploymentTypeSchema>
+
+export const WORK_FORMATS = ['ONSITE', 'HYBRID', 'REMOTE'] as const
+export const WorkFormatSchema = z.enum(WORK_FORMATS)
+export type WorkFormat = z.infer<typeof WorkFormatSchema>
+
+/**
+ * Поля, которые работодателю не показываются НИКОГДА без явного согласия студента.
+ * Список закрытый: добавление сюда нового поля — сознательное решение, а не побочный
+ * эффект расширения выборки.
+ */
+export const CONSENT_FIELDS = ['GPA', 'PHONE', 'EMAIL'] as const
+export const ConsentFieldSchema = z.enum(CONSENT_FIELDS)
+export type ConsentField = z.infer<typeof ConsentFieldSchema>
+
+export const UpdateCareerProfileSchema = z.object({
+  visibility: CareerVisibilitySchema.optional(),
+  employmentStatus: EmploymentStatusSchema.optional(),
+  desiredPositions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+  employmentTypes: z.array(EmploymentTypeSchema).max(EMPLOYMENT_TYPES.length).optional(),
+  workFormats: z.array(WorkFormatSchema).max(WORK_FORMATS.length).optional(),
+  relocationReady: z.boolean().optional(),
+  desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
+  desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
+  salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
+  about: optionalText(2000),
+})
+export type UpdateCareerProfileInput = z.infer<typeof UpdateCareerProfileSchema>
+
+/** Выдать или отозвать согласие. companyId не задан — согласие для всех работодателей. */
+export const SetCareerConsentSchema = z.object({
+  field: ConsentFieldSchema,
+  granted: z.boolean(),
+  companyId: z.string().uuid().optional(),
+})
+export type SetCareerConsentInput = z.infer<typeof SetCareerConsentSchema>
+
+// ── Готовность профиля ───────────────────────────────────────────────────────
+
+/**
+ * Вклад разделов в готовность профиля (0–100).
+ *
+ * Это НЕ академический показатель и не оценка человека: только измеримая полнота
+ * заполнения, чтобы студент видел, чего не хватает работодателю. Веса держим в контракте,
+ * потому что тот же расчёт объясняется в интерфейсе — считать в двух местах по-разному
+ * нельзя.
+ */
+export const READINESS_WEIGHTS = {
+  /** Курс, специальность, год выпуска — приходят из профиля вуза. */
+  education: 20,
+  /** Навыки: полный вес от пяти и больше. */
+  skills: 25,
+  /** Портфолио: проекты, опыт, сертификаты, достижения. */
+  portfolio: 20,
+  /** Заполненный карьерный блок: чего ищет, формат, позиции. */
+  preferences: 15,
+  /** Рассказ о себе. */
+  about: 20,
+} as const
+
+export interface ReadinessInput {
+  hasEducation: boolean
+  skillsCount: number
+  portfolioCount: number
+  hasPreferences: boolean
+  aboutLength: number
+}
+
+export interface ReadinessBreakdown {
+  score: number
+  parts: Array<{ key: keyof typeof READINESS_WEIGHTS; earned: number; max: number }>
+}
+
+/** Детерминированный расчёт готовности — одинаковый на бэке и на фронте. */
+export function careerReadiness(input: ReadinessInput): ReadinessBreakdown {
+  const parts: ReadinessBreakdown['parts'] = [
+    {
+      key: 'education',
+      max: READINESS_WEIGHTS.education,
+      earned: input.hasEducation ? READINESS_WEIGHTS.education : 0,
+    },
+    {
+      key: 'skills',
+      max: READINESS_WEIGHTS.skills,
+      // Пять навыков — полный вес; меньше — пропорционально, чтобы первый навык уже
+      // что-то давал и человек видел движение.
+      earned: Math.round(READINESS_WEIGHTS.skills * Math.min(input.skillsCount, 5) * 0.2),
+    },
+    {
+      key: 'portfolio',
+      max: READINESS_WEIGHTS.portfolio,
+      earned: Math.round(READINESS_WEIGHTS.portfolio * Math.min(input.portfolioCount, 3) * (1 / 3)),
+    },
+    {
+      key: 'preferences',
+      max: READINESS_WEIGHTS.preferences,
+      earned: input.hasPreferences ? READINESS_WEIGHTS.preferences : 0,
+    },
+    {
+      key: 'about',
+      max: READINESS_WEIGHTS.about,
+      earned: input.aboutLength >= 120 ? READINESS_WEIGHTS.about : 0,
+    },
+  ]
+  return { score: parts.reduce((sum, p) => sum + p.earned, 0), parts }
+}

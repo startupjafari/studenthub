@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { BriefcaseBusiness, CalendarDays, FileUser, Search, Send } from 'lucide-react'
+import { CalendarDays, FileUser, Search, Send } from 'lucide-react'
 import { CareerSection } from './career-section'
 
 // По одному компоненту на раздел: ключи i18n статические, сборка вида t(`nav.${x}`)
@@ -16,16 +16,6 @@ export function CareerApplicationsView() {
   const t = useTranslations('Nav')
   return (
     <CareerSection title={t('careerApplications')} icon={<Send className="size-6" aria-hidden />} />
-  )
-}
-
-export function CareerProfileView() {
-  const t = useTranslations('Nav')
-  return (
-    <CareerSection
-      title={t('careerProfile')}
-      icon={<BriefcaseBusiness className="size-6" aria-hidden />}
-    />
   )
 }
 
