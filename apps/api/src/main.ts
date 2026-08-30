@@ -4,6 +4,7 @@ import { sentryEnabled } from './instrument'
 import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
+import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 import { Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory } from '@nestjs/core'
@@ -17,6 +18,14 @@ import { Logger as PinoLogger } from 'nestjs-pino'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { AppModule } from './app.module'
 import type { EnvVars } from './config/env.schema'
+
+// Node пробует адреса хоста по очереди и бросает соединение через 250 мс (значение по
+// умолчанию у autoSelectFamily). Для исходящих запросов этого мало: если TCP-рукопожатие с
+// внешним хостом занимает больше — а из dev-окружений это обычное дело, — `fetch` падает с
+// ETIMEDOUT, хотя хост доступен. Ловили на превью ссылок: youtu.be отвечал за ~470 мс, и
+// карточка не появлялась молча. 2 с — с запасом, на скорость обычных запросов не влияет
+// (таймаут ограничивает только ожидание перед попыткой следующего адреса).
+setDefaultAutoSelectFamilyAttemptTimeout(2000)
 
 async function bootstrap(): Promise<void> {
   // requestId: берём входящий x-request-id или генерируем uuid (docs/BACKEND_RULES.md §13).
