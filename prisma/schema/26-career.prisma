@@ -334,3 +334,35 @@ model CareerApplicationEvent {
   @@index([applicationId, createdAt])
   @@map("career_application_events")
 }
+
+// ── Резюме (18.E) ────────────────────────────────────────────────────────────
+
+/**
+ * Резюме студента.
+ * Содержимого здесь НЕТ: резюме собирается из карьерного профиля и портфолио в момент
+ * выдачи. Снимок данных означал бы, что резюме тихо устаревает, а студент об этом не
+ * знает; при сборке на лету «обновить резюме» — это просто обновить профиль.
+ * Одно резюме на человека: несколько версий под разные профессии отложены сознательно
+ * (см. план Фазы 18) — добавляются снятием @unique и полем title.
+ */
+model Resume {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  title String @default("Резюме")
+
+  /// Публичная ссылка: /r/resume/<slug>. null — ссылки нет, резюме только своё.
+  publicSlug  String?   @unique @map("public_slug")
+  publishedAt DateTime? @map("published_at")
+
+  /// Показывать ли контакты на публичной странице. По умолчанию нет: ссылку могут
+  /// переслать куда угодно, и email студента не должен уезжать вместе с ней молча.
+  includeContacts Boolean @default(false) @map("include_contacts")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation("UserResume", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("resumes")
+}

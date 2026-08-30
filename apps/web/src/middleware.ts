@@ -7,7 +7,15 @@ import { safeNextPath } from './shared/lib/safe-next'
 // sh_role (решение §16.2). Реальная авторизация — на сервере (guard'ы), это только UX.
 // Ф18: регистрация работодателя и подтверждение его почты — единственные публичные
 // страницы вне входа. Сессии на них нет по определению: аккаунта ещё не существует.
-const PUBLIC_PATHS = ['/login', '/register', '/offline', '/employer/signup', '/employer/verify']
+const PUBLIC_PATHS = [
+  '/login',
+  '/register',
+  '/offline',
+  '/employer/signup',
+  '/employer/verify',
+  // Публичное резюме по ссылке: её открывает работодатель, у которого аккаунта нет.
+  '/r/resume',
+]
 
 /**
  * Публичные пути, с которых авторизованного НЕ уводим на его домашнюю страницу.
@@ -16,7 +24,7 @@ const PUBLIC_PATHS = ['/login', '/register', '/offline', '/employer/signup', '/e
  * в другом аккаунте или в этом же. Редирект на home в этот момент означал бы, что письмо
  * «не работает», а адрес так и остался неподтверждённым.
  */
-const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = ['/employer/verify']
+const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = ['/employer/verify', '/r/resume']
 
 interface RoleCookie {
   role: Role

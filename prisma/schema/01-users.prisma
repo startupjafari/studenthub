@@ -170,6 +170,7 @@ model User {
   careerProfile      CareerProfile?      @relation("UserCareerProfile")
   careerConsents     CareerConsent[]     @relation("UserCareerConsents")
   careerApplications CareerApplication[] @relation("StudentCareerApplications")
+  resume             Resume?             @relation("UserResume")
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).

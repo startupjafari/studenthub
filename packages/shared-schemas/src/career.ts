@@ -526,3 +526,13 @@ export const ApplicationListQuerySchema = OffsetPaginationSchema.extend({
   vacancyId: z.string().uuid().optional(),
 })
 export type ApplicationListQueryInput = z.infer<typeof ApplicationListQuerySchema>
+
+// ── Резюме (18.E) ────────────────────────────────────────────────────────────
+
+export const UpdateResumeSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  /** Включить публичную ссылку. Выключение стирает slug — старая ссылка перестаёт работать. */
+  published: z.boolean().optional(),
+  includeContacts: z.boolean().optional(),
+})
+export type UpdateResumeInput = z.infer<typeof UpdateResumeSchema>
