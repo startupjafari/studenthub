@@ -10,6 +10,14 @@ model Event {
   title       String
   description String
 
+  // Тип карьерного мероприятия (Ф18): CAREER_FAIR | WORKSHOP | INTERVIEW_DAY |
+  // COMPANY_PRESENTATION | HACKATHON. null — обычное событие вуза.
+  //
+  // Поле на самом Event, а не отдельная таблица: карьерное мероприятие — это то же
+  // событие с той же регистрацией и напоминаниями, отличается только тем, что оно
+  // показывается в карьерном продукте. Дублировать домен ради одного признака незачем.
+  careerKind String? @map("career_kind")
+
   universityId String? @map("university_id")
   facultyId    String? @map("faculty_id")
   groupId      String? @map("group_id")
@@ -41,6 +49,7 @@ model Event {
   @@index([groupId])
   @@index([startsAt])
   @@index([reminderSentAt])
+  @@index([careerKind, startsAt])
   @@map("events")
 }
 

@@ -75,7 +75,8 @@
     "companyProfile": "Компания",
     "universityAccess": "Университеттер",
     "vacancyReview": "Вакансиялар модерациясы",
-    "candidates": "Үміткерлер"
+    "candidates": "Үміткерлер",
+    "careerAnalytics": "Метрикалар"
   },
   "Products": {
     "switch": "Өнімді ауыстыру",
@@ -308,6 +309,37 @@
     "generated": "Түйіндеме StudentHub Карьерада жасалды",
     "notFound": "Түйіндеме қолжетімсіз",
     "notFoundHint": "Сілтеме өшірілген немесе мүлдем болмаған."
+  },
+  "CareerEvents": {
+    "title": "Карьера іс-шаралары",
+    "subtitle": "Жәрмеңкелер, воркшоптар, сұхбат күндері",
+    "upcoming": "Алдағы",
+    "past": "Өткен",
+    "registered": "Сіз жазылдыңыз",
+    "online": "Онлайн",
+    "empty": "Іс-шаралар жоқ",
+    "emptyHint": "Жоғары оқу орнының карьера орталығы оларды әдеттегі оқиғалармен бірге жариялайды.",
+    "kindFair": "Вакансиялар жәрмеңкесі",
+    "kindWorkshop": "Воркшоп",
+    "kindInterviewDay": "Сұхбат күні",
+    "kindPresentation": "Компания презентациясы",
+    "kindHackathon": "Хакатон"
+  },
+  "CareerAnalytics": {
+    "title": "Карьера метрикалары",
+    "subtitle": "Тек жиынтық — жеке деректер жоқ",
+    "companiesApproved": "Рұқсат етілген компаниялар",
+    "vacanciesApproved": "Көрсетілетін вакансиялар",
+    "applications": "Өтінімдер",
+    "hired": "Жұмысқа орналасты",
+    "profilesTitle": "Ашық профильдер",
+    "profilesText": "{total} студенттің {visible} профилін жұмыс берушілерге ашты",
+    "ratesTitle": "Воронка конверсиясы",
+    "ratesHint": "Үлестер өтінімдердің жалпы санынан есептеледі. Сызықша — санауға әлі ештеңе жоқ.",
+    "rateInterview": "Сұхбатқа дейін",
+    "rateOffer": "Ұсынысқа дейін",
+    "rateHired": "Жалдауға дейін",
+    "noData": "—"
   },
   "Invites": {
     "emailInvalid": "Мекенжайды тексеріңіз — қате бар сияқты",
