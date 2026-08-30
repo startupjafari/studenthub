@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 import { Building2, CheckCircle2, Clock, GraduationCap, ShieldAlert } from 'lucide-react'
 import { isAccessActive } from '@studenthub/shared-schemas'
 import { companyKeys, fetchMyCompany, fetchMyCompanyAccess } from '../../../entities/company'
-import { Button, PageHeader, PageLoader } from '../../../shared/ui'
+import { Button, MetricTile, PageHeader, PageLoader } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 /**
@@ -31,7 +31,7 @@ export function EmployerHomeView() {
   const unverified = company.data?.status === 'PENDING_EMAIL'
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={company.data?.name ?? t('title')} subtitle={t('subtitle')} />
 
       {blocked && (
@@ -53,15 +53,19 @@ export function EmployerHomeView() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Stat
-          icon={<CheckCircle2 className="size-5 text-primary" aria-hidden />}
+        <MetricTile
+          icon={CheckCircle2}
+          tone="text-success"
           value={approved.length}
           label={t('approvedUniversities')}
+          loading={access.isLoading}
         />
-        <Stat
-          icon={<Clock className="size-5 text-muted-foreground" aria-hidden />}
+        <MetricTile
+          icon={Clock}
+          tone="text-warning"
           value={pending.length}
           label={t('pendingRequests')}
+          loading={access.isLoading}
         />
       </div>
 
@@ -90,20 +94,6 @@ export function EmployerHomeView() {
           </Button>
         }
       />
-    </div>
-  )
-}
-
-function Stat({ icon, value, label }: { icon: ReactNode; value: number; label: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-        {icon}
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="text-2xl font-semibold tabular-nums">{value}</span>
-        <span className="truncate text-sm text-muted-foreground">{label}</span>
-      </span>
     </div>
   )
 }

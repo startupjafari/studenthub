@@ -46,7 +46,7 @@ export function CareerEventsView() {
   const rows = query.data?.items ?? []
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}

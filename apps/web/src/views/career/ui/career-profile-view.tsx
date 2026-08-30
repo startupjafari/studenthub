@@ -30,6 +30,7 @@ import {
   PageHeader,
   PageLoader,
   Progress,
+  SectionPanel,
   Textarea,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
@@ -118,7 +119,7 @@ export function CareerProfileView() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {/* Видимость — первое решение на экране: без него всё остальное не имеет эффекта. */}
@@ -156,33 +157,37 @@ export function CareerProfileView() {
       </section>
 
       {/* Готовность: не оценка человека, а перечень незаполненного. */}
-      <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold">{t('readiness')}</p>
-          <span className="text-2xl font-semibold tabular-nums">{data.readiness.score}%</span>
+      <SectionPanel
+        title={t('readiness')}
+        subtitle={t('readinessHint')}
+        actions={
+          <span className="text-xl font-semibold tabular-nums">{data.readiness.score}%</span>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Progress value={data.readiness.score} />
+          <ul className="flex flex-wrap gap-2">
+            {data.readiness.parts.map((part) => (
+              <li key={part.key}>
+                <Badge variant={part.earned === part.max ? 'secondary' : 'outline'}>
+                  {partLabel[part.key]} {part.earned}/{part.max}
+                </Badge>
+              </li>
+            ))}
+          </ul>
         </div>
-        <Progress value={data.readiness.score} />
-        <ul className="flex flex-wrap gap-2">
-          {data.readiness.parts.map((part) => (
-            <li key={part.key}>
-              <Badge variant={part.earned === part.max ? 'secondary' : 'outline'}>
-                {partLabel[part.key]} {part.earned}/{part.max}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs text-muted-foreground">{t('readinessHint')}</p>
-      </section>
+      </SectionPanel>
 
       {/* Согласия: по умолчанию всё закрыто, и это должно быть видно. */}
-      <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="flex flex-col gap-0.5">
-            <p className="text-sm font-semibold">{t('consentsTitle')}</p>
-            <p className="text-sm text-muted-foreground">{t('consentsText')}</p>
-          </div>
-        </div>
+      <SectionPanel
+        title={
+          <span className="flex items-center gap-2">
+            <ShieldCheck className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            {t('consentsTitle')}
+          </span>
+        }
+        subtitle={t('consentsText')}
+      >
         <ul className="flex flex-col gap-2">
           {CONSENT_FIELDS.map((field) => (
             <li key={field} className="flex items-center gap-3">
@@ -198,100 +203,106 @@ export function CareerProfileView() {
             </li>
           ))}
         </ul>
-      </section>
+      </SectionPanel>
 
       {/* Что ищет. */}
-      <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
-        <p className="text-sm font-semibold">{t('lookingTitle')}</p>
-
-        <div className="flex flex-wrap gap-2">
-          {(['LOOKING', 'OPEN', 'NOT_LOOKING'] as EmploymentStatus[]).map((status) => (
-            <Button
-              key={status}
-              type="button"
-              size="sm"
-              variant={draft.employmentStatus === status ? 'default' : 'outline'}
-              onClick={() => setDraft((d) => ({ ...d, employmentStatus: status }))}
-            >
-              {statusLabel[status]}
-            </Button>
-          ))}
-        </div>
-
-        <MultiToggle
-          label={t('employmentTypes')}
-          options={EMPLOYMENT_TYPES}
-          selected={draft.employmentTypes ?? []}
-          onToggle={(value) =>
-            setDraft((d) => ({ ...d, employmentTypes: toggle(d.employmentTypes, value) }))
-          }
-          render={(v) => employmentLabel[v]}
-        />
-
-        <MultiToggle
-          label={t('workFormats')}
-          options={WORK_FORMATS}
-          selected={draft.workFormats ?? []}
-          onToggle={(value) =>
-            setDraft((d) => ({ ...d, workFormats: toggle(d.workFormats, value) }))
-          }
-          render={(v) => formatLabel[v]}
-        />
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="salaryMin">{t('salaryFrom')}</Label>
-            <Input
-              id="salaryMin"
-              type="number"
-              inputMode="numeric"
-              value={draft.desiredSalaryMin ?? ''}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  desiredSalaryMin: e.target.value === '' ? null : Number(e.target.value),
-                }))
-              }
-            />
+      <SectionPanel title={t('lookingTitle')} subtitle={t('lookingHint')}>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            {(['LOOKING', 'OPEN', 'NOT_LOOKING'] as EmploymentStatus[]).map((status) => (
+              <Button
+                key={status}
+                type="button"
+                size="sm"
+                variant={draft.employmentStatus === status ? 'default' : 'outline'}
+                onClick={() => setDraft((d) => ({ ...d, employmentStatus: status }))}
+              >
+                {statusLabel[status]}
+              </Button>
+            ))}
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="salaryMax">{t('salaryTo')}</Label>
-            <Input
-              id="salaryMax"
-              type="number"
-              inputMode="numeric"
-              value={draft.desiredSalaryMax ?? ''}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  desiredSalaryMax: e.target.value === '' ? null : Number(e.target.value),
-                }))
-              }
-            />
-          </div>
-        </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="about">{t('about')}</Label>
-          <Textarea
-            id="about"
-            rows={5}
-            value={draft.about ?? ''}
-            onChange={(e) => setDraft((d) => ({ ...d, about: e.target.value }))}
-            placeholder={t('aboutPlaceholder')}
+          <MultiToggle
+            label={t('employmentTypes')}
+            options={EMPLOYMENT_TYPES}
+            selected={draft.employmentTypes ?? []}
+            onToggle={(value) =>
+              setDraft((d) => ({ ...d, employmentTypes: toggle(d.employmentTypes, value) }))
+            }
+            render={(v) => employmentLabel[v]}
           />
-        </div>
 
-        <Button className="self-start" loading={save.isPending} onClick={() => save.mutate(draft)}>
-          {t('save')}
-        </Button>
-      </section>
+          <MultiToggle
+            label={t('workFormats')}
+            options={WORK_FORMATS}
+            selected={draft.workFormats ?? []}
+            onToggle={(value) =>
+              setDraft((d) => ({ ...d, workFormats: toggle(d.workFormats, value) }))
+            }
+            render={(v) => formatLabel[v]}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="salaryMin">{t('salaryFrom')}</Label>
+              <Input
+                id="salaryMin"
+                type="number"
+                inputMode="numeric"
+                value={draft.desiredSalaryMin ?? ''}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    desiredSalaryMin: e.target.value === '' ? null : Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="salaryMax">{t('salaryTo')}</Label>
+              <Input
+                id="salaryMax"
+                type="number"
+                inputMode="numeric"
+                value={draft.desiredSalaryMax ?? ''}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    desiredSalaryMax: e.target.value === '' ? null : Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="about">{t('about')}</Label>
+            <Textarea
+              id="about"
+              rows={5}
+              value={draft.about ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, about: e.target.value }))}
+              placeholder={t('aboutPlaceholder')}
+            />
+          </div>
+
+          <Button
+            className="self-start"
+            loading={save.isPending}
+            onClick={() => save.mutate(draft)}
+          >
+            {t('save')}
+          </Button>
+        </div>
+      </SectionPanel>
 
       {/* Данные из профиля вуза: показываем, но не редактируем — иначе будет два источника. */}
-      <section className="flex flex-col gap-2 rounded-xl border border-dashed border-border p-4">
-        <p className="text-sm font-semibold">{t('inheritedTitle')}</p>
-        <p className="text-sm text-muted-foreground">{t('inheritedText')}</p>
-        <dl className="mt-1 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+      <SectionPanel
+        title={t('inheritedTitle')}
+        subtitle={t('inheritedText')}
+        className="border-dashed"
+      >
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
           <Row label={t('university')} value={data.inherited.universityName} />
           <Row label={t('specialty')} value={data.inherited.specialty} />
           <Row
@@ -304,7 +315,7 @@ export function CareerProfileView() {
           />
           <Row label={t('portfolioCount')} value={String(data.inherited.portfolioCount)} />
         </dl>
-      </section>
+      </SectionPanel>
     </div>
   )
 }

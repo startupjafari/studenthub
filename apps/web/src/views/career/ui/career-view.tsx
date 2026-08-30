@@ -10,7 +10,7 @@ export function CareerView() {
   const t = useTranslations('Products')
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('career.title')} subtitle={t('career.hint')} />
       <EmptyState
         icon={<Briefcase className="size-6" aria-hidden />}

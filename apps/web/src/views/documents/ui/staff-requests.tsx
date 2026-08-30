@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
-import { CalendarClock, ClipboardList, Plus, Trash2, Users } from 'lucide-react'
+import { useLocale, useTranslations } from 'next-intl'
+import { ClipboardList, Plus, Trash2 } from 'lucide-react'
 import { DOCUMENT_TYPES } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import {
@@ -24,6 +24,7 @@ import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
   Button,
+  Card,
   Checkbox,
   EmptyState,
   DatePicker,
@@ -36,8 +37,18 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableText,
   Textarea,
+  useTableSort,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
 
 function errCode(e: unknown): string {
@@ -57,6 +68,14 @@ const ITEM_TONE: Record<string, string> = {
   PENDING: 'secondary',
 }
 
+// Ширины колонок таблицы запросов: название тянет на себя остаток, числовые — узкие.
+const REQ_COLS = ['34%', '10%', '16%', '16%', '14%', '6rem'] as const
+// Узкий экран оставляет только то, без чего строка не читается: название, отправлено, срок.
+const REQ_HIDE = {
+  items: 'hidden lg:table-cell',
+  status: 'hidden md:table-cell',
+} as const
+
 // Запросы вуза глазами сотрудника (Ф15C, 15.17): список + создание + проверка комплектов.
 export function StaffRequests() {
   const t = useTranslations('Documents')
@@ -71,23 +90,19 @@ export function StaffRequests() {
           <Plus className="size-4" aria-hidden /> {t('req_create')}
         </Button>
       </div>
-      {q.isLoading ? (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-32 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : (q.data ?? []).length === 0 ? (
+      {!q.isLoading && (q.data ?? []).length === 0 ? (
         <EmptyState
           icon={<ClipboardList className="size-6" aria-hidden />}
           title={t('req_emptyStaff')}
+          description={t('req_emptyStaffDesc')}
+          action={
+            <Button type="button" onClick={() => setCreating(true)}>
+              <Plus className="size-4" aria-hidden /> {t('req_create')}
+            </Button>
+          }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {(q.data ?? []).map((r) => (
-            <StaffRequestCard key={r.id} req={r} onOpen={() => setManageId(r.id)} />
-          ))}
-        </div>
+        <RequestsTable rows={q.data ?? []} loading={q.isLoading} onOpen={setManageId} />
       )}
       {creating && <CreateRequestModal onClose={() => setCreating(false)} />}
       {manageId && <ManageRequestModal id={manageId} onClose={() => setManageId(null)} />}
@@ -95,30 +110,133 @@ export function StaffRequests() {
   )
 }
 
-function StaffRequestCard({ req, onOpen }: { req: StaffRequestSummary; onOpen: () => void }) {
+/**
+ * Список запросов таблицей.
+ *
+ * Плитками сотрудник не мог сравнить запросы между собой: «отправлено 3 из 40» и срок
+ * лежали в разных местах каждой карточки. В колонках эти же числа стоят друг под другом
+ * и сортируются — по сроку видно, что горит, по отправленным — где студенты молчат.
+ */
+function RequestsTable({
+  rows,
+  loading,
+  onOpen,
+}: {
+  rows: StaffRequestSummary[]
+  loading: boolean
+  onOpen: (id: string) => void
+}) {
   const t = useTranslations('Documents')
-  const due = req.dueAt ? new Date(req.dueAt).toLocaleDateString(t('req_dueLocale')) : null
+  const locale = useLocale()
+  // Сортировка по доле отправленных, а не по абсолютному числу: «3 из 5» важнее «3 из 400».
+  const {
+    rows: sorted,
+    sort,
+    toggle,
+  } = useTableSort<StaffRequestSummary>(rows, (r, key) => {
+    if (key === 'title') return r.title
+    if (key === 'items') return r.itemCount
+    if (key === 'submitted')
+      return r.submissionCount === 0 ? 0 : r.submittedCount / r.submissionCount
+    if (key === 'due') return r.dueAt
+    if (key === 'status') return r.status
+    return null
+  })
+
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40"
-    >
-      <h3 className="font-semibold">{req.title}</h3>
-      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          <Users className="size-4" aria-hidden />
-          {t('req_submittedOf', { done: req.submittedCount, total: req.submissionCount })}
-        </span>
-        <span>{t('req_itemsN', { n: req.itemCount })}</span>
-        {due && (
-          <span className="inline-flex items-center gap-1">
-            <CalendarClock className="size-4" aria-hidden />
-            {t('req_due', { date: due })}
-          </span>
-        )}
-      </div>
-    </button>
+    <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+      <Table fixed scrollBody fill cols={REQ_COLS}>
+        <TableHeader>
+          <TableRow>
+            <TableHead sortKey="title" sort={sort} onSort={toggle}>
+              {t('req_fieldTitle')}
+            </TableHead>
+            <TableHead
+              numeric
+              sortKey="items"
+              sort={sort}
+              onSort={toggle}
+              className={REQ_HIDE.items}
+            >
+              {t('req_colItems')}
+            </TableHead>
+            <TableHead numeric sortKey="submitted" sort={sort} onSort={toggle}>
+              {t('req_colSubmitted')}
+            </TableHead>
+            <TableHead sortKey="due" sort={sort} onSort={toggle}>
+              {t('req_fieldDue')}
+            </TableHead>
+            <TableHead sortKey="status" sort={sort} onSort={toggle} className={REQ_HIDE.status}>
+              {t('status')}
+            </TableHead>
+            <TableHead>
+              <span className="sr-only">{t('actions')}</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {loading && <RequestSkeletonRows />}
+          {sorted.map((r) => (
+            <TableRow
+              key={r.id}
+              onClick={() => onOpen(r.id)}
+              className="cursor-pointer hover:bg-muted/40"
+            >
+              <TableCell className="font-medium">
+                <TableText value={r.title} />
+              </TableCell>
+              <TableCell className={cn(REQ_HIDE.items, 'text-right tabular-nums')}>
+                {r.itemCount}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {/* Ноль адресатов и ноль ответов выглядят одинаково («0 из 0»), поэтому
+                    подписи «отправлено» тут нет — она в заголовке колонки. */}
+                {r.submittedCount} / {r.submissionCount}
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                {r.dueAt ? new Date(r.dueAt).toLocaleDateString(locale) : <TableEmpty />}
+              </TableCell>
+              <TableCell className={REQ_HIDE.status}>
+                <Badge variant={r.status === 'CLOSED' ? 'secondary' : 'info'}>
+                  {r.status === 'CLOSED' ? t('req_status_CLOSED') : t('req_status_OPEN')}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                {/* Строка кликабельна целиком, но с клавиатуры нужна настоящая кнопка. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpen(r.id)
+                  }}
+                >
+                  {t('req_open')}
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  )
+}
+
+// Скелетон с теми же классами скрытия, что и у данных: геометрия таблицы не меняется.
+function RequestSkeletonRows({ rows = 6 }: { rows?: number }) {
+  const cells = [undefined, REQ_HIDE.items, undefined, undefined, REQ_HIDE.status, undefined]
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, r) => (
+        <TableRow key={r}>
+          {cells.map((cls, c) => (
+            <TableCell key={c} className={cls}>
+              <Skeleton className="h-4 w-full" />
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
   )
 }
 

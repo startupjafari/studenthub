@@ -13,7 +13,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
-import { Card, CardContent, PageHeader, Progress, Skeleton } from '../../../shared/ui'
+import { MetricTile, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
@@ -73,7 +73,7 @@ export function AcademicView() {
   const loading = meQ.isLoading || gradesQ.isLoading || attQ.isLoading
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {loading ? (
@@ -85,31 +85,37 @@ export function AcademicView() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <StatCard
+            <MetricTile
               icon={TrendingUp}
               label={t('gpa')}
-              value={gpa === null ? '—' : `${gpa}%`}
+              value={gpa === null ? null : `${gpa}%`}
               progress={gpa}
+              progressTone={gpa === null ? undefined : toneClass(gpa)}
             />
-            <StatCard
+            <MetricTile
               icon={ClipboardCheck}
+              tone="text-info"
               label={t('attendance')}
-              value={rate === null ? '—' : `${rate}%`}
+              value={rate === null ? null : `${rate}%`}
               progress={rate}
+              progressTone={rate === null ? undefined : toneClass(rate)}
             />
-            <StatCard
+            <MetricTile
               icon={Milestone}
+              tone="text-warning"
               label={t('credits')}
               value={`${credits}${totalCredits ? ` / ${totalCredits}` : ''}`}
               progress={totalCredits ? Math.round((credits / totalCredits) * 100) : null}
             />
-            <StatCard
+            <MetricTile
               icon={GraduationCap}
-              label={t('status')}
-              value={meQ.data?.academicStatus ?? t('statusActive')}
-              hint={
-                meQ.data?.enrollmentYear ? `${t('since')} ${meQ.data.enrollmentYear}` : undefined
+              tone="text-success"
+              label={
+                meQ.data?.enrollmentYear
+                  ? `${t('status')} · ${t('since')} ${meQ.data.enrollmentYear}`
+                  : t('status')
               }
+              value={meQ.data?.academicStatus ?? t('statusActive')}
             />
           </div>
 
@@ -126,42 +132,6 @@ export function AcademicView() {
         </>
       )}
     </div>
-  )
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  progress,
-  hint,
-}: {
-  icon: LucideIcon
-  label: string
-  value: string
-  progress?: number | null
-  hint?: string
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-2 p-4">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Icon className="size-4" aria-hidden />
-          {label}
-        </span>
-        <span className="text-2xl font-semibold tabular-nums">{value}</span>
-        {typeof progress === 'number' ? (
-          <Progress
-            value={progress}
-            aria-label={`${label}: ${value}`}
-            className="h-1.5"
-            indicatorClassName={toneClass(progress)}
-          />
-        ) : (
-          hint && <span className="text-xs text-muted-foreground">{hint}</span>
-        )}
-      </CardContent>
-    </Card>
   )
 }
 

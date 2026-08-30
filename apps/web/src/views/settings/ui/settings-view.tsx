@@ -11,7 +11,7 @@ export function SettingsView() {
   const router = useRouter()
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       {/* Возврат к профилю — кнопкой в самой шапке (как на других вложенных страницах):
           отдельная ссылка над шапкой мешала полосе встать вплотную к верху. */}
       <PageHeader

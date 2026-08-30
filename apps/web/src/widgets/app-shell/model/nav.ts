@@ -141,43 +141,61 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
 // catch-all [...section] в ролевых сегментах остался предохранителем для неизвестных URL
 // (например ссылки на раздел, которого больше нет), а не «разделом в разработке».
+// Восемнадцать пунктов подряд не читались — сгруппированы по смыслу, как у админа вуза.
+// Порядок секций задаётся первым появлением группы в массиве (см. toSections в
+// AppSidebar), поэтому пункты внутри группы должны идти подряд.
 export const DEAN_NAV: NavItem[] = [
-  { key: 'today', href: '/dean/today', icon: CalendarCheck },
-  { key: 'dashboard', href: '/dean', icon: LayoutDashboard, exact: true },
-  { key: 'groups', href: '/dean/groups', icon: Users },
-  { key: 'students', href: '/dean/students', icon: GraduationCap },
-  { key: 'teachers', href: '/dean/teachers', icon: BookOpen },
-  { key: 'starostas', href: '/dean/starostas', icon: UserCog },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { key: 'schedule', href: '/dean/schedule', icon: CalendarDays },
-  { key: 'calendar', href: '/calendar', icon: CalendarRange },
-  { key: 'courses', href: '/dean/courses', icon: BookOpen },
-  { key: 'exams', href: '/dean/exams', icon: Award },
-  { key: 'analytics', href: '/dean/analytics', icon: BarChart3 },
-  { key: 'appointments', href: '/dean/appointments', icon: CalendarClock },
-  { key: 'applications', href: '/dean/applications', icon: FileText },
-  { key: 'posts', href: '/dean/posts', icon: Newspaper },
-  { key: 'invites', href: '/dean/invites', icon: Send },
-  { key: 'chats', href: '/dean/chats', icon: MessagesSquare },
-  { key: 'events', href: '/dean/events', icon: CalendarClock },
+  // Обзор дня: с чего декан начинает.
+  { key: 'today', href: '/dean/today', icon: CalendarCheck, group: 'main' },
+  { key: 'dashboard', href: '/dean', icon: LayoutDashboard, exact: true, group: 'main' },
+  { key: 'schedule', href: '/dean/schedule', icon: CalendarDays, group: 'main' },
+  { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
+
+  // Люди факультета и выдача доступа.
+  { key: 'groups', href: '/dean/groups', icon: Users, group: 'people' },
+  { key: 'students', href: '/dean/students', icon: GraduationCap, group: 'people' },
+  { key: 'teachers', href: '/dean/teachers', icon: BookOpen, group: 'people' },
+  { key: 'starostas', href: '/dean/starostas', icon: UserCog, group: 'people' },
+  { key: 'invites', href: '/dean/invites', icon: Send, group: 'people' },
+  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'people' },
+
+  // Учебный процесс и его показатели.
+  { key: 'courses', href: '/dean/courses', icon: BookOpen, group: 'study' },
+  { key: 'exams', href: '/dean/exams', icon: Award, group: 'study' },
+  { key: 'analytics', href: '/dean/analytics', icon: BarChart3, group: 'study' },
+
+  // Приём и заявки — сюда приходят с запросами. «Документы» подставляет withCommon,
+  // и попадают они в эту же группу.
+  { key: 'appointments', href: '/dean/appointments', icon: CalendarClock, group: 'services' },
+  { key: 'applications', href: '/dean/applications', icon: FileText, group: 'services' },
+
+  { key: 'posts', href: '/dean/posts', icon: Newspaper, group: 'communication' },
+  { key: 'chats', href: '/dean/chats', icon: MessagesSquare, group: 'communication' },
+  { key: 'events', href: '/dean/events', icon: CalendarClock, group: 'communication' },
 ]
 
+// Сгруппирована по тем же правилам, что навигация декана и админа вуза.
 export const TEACHER_NAV: NavItem[] = [
-  { key: 'today', href: '/teacher/today', icon: CalendarCheck },
-  { key: 'dashboard', href: '/teacher', icon: LayoutDashboard, exact: true },
-  { key: 'schedule', href: '/teacher/schedule', icon: CalendarDays },
-  { key: 'groups', href: '/teacher/groups', icon: Users },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { key: 'assignments', href: '/teacher/assignments', icon: ClipboardList },
-  { key: 'attendance', href: '/teacher/attendance', icon: ClipboardCheck },
-  { key: 'gradebook', href: '/teacher/gradebook', icon: Table2 },
-  { key: 'exams', href: '/teacher/exams', icon: Award },
-  { key: 'consultations', href: '/teacher/consultations', icon: Handshake },
-  { key: 'materials', href: '/teacher/materials', icon: FolderOpen },
-  { key: 'calendar', href: '/calendar', icon: CalendarRange },
-  { key: 'posts', href: '/teacher/posts', icon: Newspaper },
-  { key: 'chats', href: '/teacher/chats', icon: MessagesSquare },
-  { key: 'events', href: '/teacher/events', icon: CalendarClock },
+  { key: 'today', href: '/teacher/today', icon: CalendarCheck, group: 'main' },
+  { key: 'dashboard', href: '/teacher', icon: LayoutDashboard, exact: true, group: 'main' },
+  { key: 'schedule', href: '/teacher/schedule', icon: CalendarDays, group: 'main' },
+  { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
+
+  // Занятия: всё, что преподаватель ведёт и проверяет.
+  { key: 'groups', href: '/teacher/groups', icon: Users, group: 'study' },
+  { key: 'assignments', href: '/teacher/assignments', icon: ClipboardList, group: 'study' },
+  { key: 'attendance', href: '/teacher/attendance', icon: ClipboardCheck, group: 'study' },
+  { key: 'gradebook', href: '/teacher/gradebook', icon: Table2, group: 'study' },
+  { key: 'exams', href: '/teacher/exams', icon: Award, group: 'study' },
+  { key: 'materials', href: '/teacher/materials', icon: FolderOpen, group: 'study' },
+
+  // Приём студентов. «Документы» подставляет withCommon — в эту же группу.
+  { key: 'consultations', href: '/teacher/consultations', icon: Handshake, group: 'services' },
+  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
+
+  { key: 'posts', href: '/teacher/posts', icon: Newspaper, group: 'communication' },
+  { key: 'chats', href: '/teacher/chats', icon: MessagesSquare, group: 'communication' },
+  { key: 'events', href: '/teacher/events', icon: CalendarClock, group: 'communication' },
 ]
 
 // Староста — это студент с «преимуществом над группой»: у него ВСЕ студенческие

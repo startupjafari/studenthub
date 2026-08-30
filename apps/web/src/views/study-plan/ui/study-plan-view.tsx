@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { GraduationCap, Inbox } from 'lucide-react'
+import { GraduationCap, Inbox, Milestone, TrendingUp } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -12,8 +12,8 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
+  MetricTile,
   PageHeader,
-  Progress,
   Skeleton,
 } from '../../../shared/ui'
 import { courseKeys, fetchCourses, type CourseItem } from '../../../entities/course'
@@ -95,7 +95,7 @@ export function StudyPlanView() {
   }, [courses.data, grades.data, t])
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       {courses.isLoading ? (
@@ -113,25 +113,22 @@ export function StudyPlanView() {
         <EmptyState icon={<GraduationCap />} title={t('empty')} description={t('emptyHint')} />
       ) : (
         <>
-          <Card>
-            <CardContent className="flex flex-col gap-3 p-5">
-              <div className="flex items-end justify-between gap-3">
-                <div>
-                  <div className="font-heading text-2xl font-semibold tabular-nums">
-                    {model.doneCredits} / {model.totalCredits}
-                  </div>
-                  <div className="text-sm text-muted-foreground">{t('credits')}</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-heading text-2xl font-semibold tabular-nums">
-                    {model.progress}%
-                  </div>
-                  <div className="text-xs text-muted-foreground">{t('progress')}</div>
-                </div>
-              </div>
-              <Progress value={model.progress} indicatorClassName="bg-success" />
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <MetricTile
+              icon={Milestone}
+              tone="text-warning"
+              label={t('credits')}
+              value={`${model.doneCredits} / ${model.totalCredits}`}
+            />
+            <MetricTile
+              icon={TrendingUp}
+              tone="text-success"
+              label={t('progress')}
+              value={`${model.progress}%`}
+              progress={model.progress}
+              progressTone="bg-success"
+            />
+          </div>
 
           {model.groups.map((g) => (
             <Card key={g.label}>
