@@ -266,6 +266,7 @@ function withCommon(items: NavItem[]): NavItem[] {
 // свою компанию, статус допусков и (со следующих под-фаз) вакансии и кандидатов.
 export const EMPLOYER_NAV: NavItem[] = [
   { key: 'careerHome', href: '/employer', icon: LayoutDashboard, exact: true },
+  { key: 'vacancies', href: '/employer/vacancies', icon: Search },
   { key: 'companyProfile', href: '/employer/company', icon: Building2 },
   { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
 ]
@@ -309,6 +310,9 @@ export const CAREER_STUDENT_NAV: NavItem[] = [
 export const CAREER_STAFF_NAV: NavItem[] = [
   { key: 'careerHome', href: '/career', icon: LayoutDashboard, exact: true },
   { key: 'companies', href: '/career/companies', icon: Building2 },
+  // Модерация вакансий — отдельный пункт: витрина /career/vacancies показывает то, что
+  // уже одобрено, а здесь лежит очередь на решение.
+  { key: 'vacancyReview', href: '/career/vacancy-review', icon: ClipboardCheck },
   { key: 'vacancies', href: '/career/vacancies', icon: Search },
   { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
 ]

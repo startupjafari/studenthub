@@ -73,7 +73,8 @@
     "careerEvents": "Карьерные события",
     "companies": "Компании",
     "companyProfile": "Компания",
-    "universityAccess": "Университеты"
+    "universityAccess": "Университеты",
+    "vacancyReview": "Модерация вакансий"
   },
   "Products": {
     "switch": "Переключить продукт",
@@ -162,7 +163,12 @@
     "statusApproved": "Доступ открыт",
     "statusRequested": "На рассмотрении",
     "statusRejected": "Отказано",
-    "statusRevoked": "Отозван"
+    "statusRevoked": "Отозван",
+    "vacanciesTitle": "Модерация вакансий",
+    "vacanciesSubtitle": "Решение действует только на студентов вашего университета",
+    "noVacancies": "Вакансий на модерации нет",
+    "noVacanciesHint": "Здесь появятся вакансии компаний, которым вы открыли доступ.",
+    "statusPending": "На модерации"
   },
   "CareerProfile": {
     "title": "Карьерный профиль",
@@ -213,6 +219,42 @@
     "course": "Курс",
     "skillsCount": "Навыки",
     "portfolioCount": "Записей в портфолио"
+  },
+  "Vacancies": {
+    "title": "Вакансии",
+    "subtitle": "Одобренные вашим университетом",
+    "searchPlaceholder": "Должность, компания, технология",
+    "empty": "Вакансий пока нет",
+    "emptyHint": "Компании появятся здесь после того, как университет откроет им доступ и одобрит их вакансии.",
+    "match": "совпадение",
+    "salaryFrom": "от",
+    "salaryTo": "до",
+    "employmentInternship": "Стажировка",
+    "employmentPartTime": "Частичная",
+    "employmentFullTime": "Полная",
+    "employmentContract": "Проект",
+    "employmentFreelance": "Фриланс",
+    "formatOnsite": "В офисе",
+    "formatHybrid": "Гибрид",
+    "formatRemote": "Удалённо"
+  },
+  "EmployerVacancies": {
+    "title": "Вакансии",
+    "subtitle": "Публикация не равна показу: каждый вуз решает отдельно",
+    "empty": "Вакансий нет",
+    "emptyHint": "Создайте вакансию и отправьте её на модерацию в допустившие вас университеты.",
+    "saved": "Готово",
+    "publish": "Опубликовать",
+    "pause": "Снять с публикации",
+    "close": "Закрыть",
+    "byUniversity": "Решения университетов",
+    "statusDraft": "Черновик",
+    "statusPublished": "Опубликована",
+    "statusPaused": "Снята",
+    "statusClosed": "Закрыта",
+    "reviewPending": "на модерации",
+    "reviewApproved": "показывается",
+    "reviewRejected": "отклонена"
   },
   "Invites": {
     "emailInvalid": "Проверьте адрес — похоже, в нём опечатка",

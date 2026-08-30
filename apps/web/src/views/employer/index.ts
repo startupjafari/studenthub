@@ -1,5 +1,6 @@
 export { EmployerHomeView } from './ui/employer-home-view'
 export { EmployerCompanyView } from './ui/employer-company-view'
 export { EmployerAccessView } from './ui/employer-access-view'
+export { EmployerVacanciesView } from './ui/employer-vacancies-view'
 export { EmployerSignupView } from './ui/employer-signup-view'
 export { EmployerVerifyView } from './ui/employer-verify-view'

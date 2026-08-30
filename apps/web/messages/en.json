@@ -73,7 +73,8 @@
     "careerEvents": "Career events",
     "companies": "Companies",
     "companyProfile": "Company",
-    "universityAccess": "Universities"
+    "universityAccess": "Universities",
+    "vacancyReview": "Job moderation"
   },
   "Products": {
     "switch": "Switch product",
@@ -162,7 +163,12 @@
     "statusApproved": "Access granted",
     "statusRequested": "Pending",
     "statusRejected": "Rejected",
-    "statusRevoked": "Revoked"
+    "statusRevoked": "Revoked",
+    "vacanciesTitle": "Job moderation",
+    "vacanciesSubtitle": "Your decision applies only to your university's students",
+    "noVacancies": "Nothing in review",
+    "noVacanciesHint": "Jobs from companies you granted access to appear here.",
+    "statusPending": "In review"
   },
   "CareerProfile": {
     "title": "Career profile",
@@ -213,6 +219,42 @@
     "course": "Year",
     "skillsCount": "Skills",
     "portfolioCount": "Portfolio entries"
+  },
+  "Vacancies": {
+    "title": "Jobs",
+    "subtitle": "Approved by your university",
+    "searchPlaceholder": "Role, company, technology",
+    "empty": "No jobs yet",
+    "emptyHint": "Companies appear here once your university grants them access and approves their jobs.",
+    "match": "match",
+    "salaryFrom": "from",
+    "salaryTo": "up to",
+    "employmentInternship": "Internship",
+    "employmentPartTime": "Part-time",
+    "employmentFullTime": "Full-time",
+    "employmentContract": "Contract",
+    "employmentFreelance": "Freelance",
+    "formatOnsite": "On site",
+    "formatHybrid": "Hybrid",
+    "formatRemote": "Remote"
+  },
+  "EmployerVacancies": {
+    "title": "Jobs",
+    "subtitle": "Publishing is not showing: each university decides separately",
+    "empty": "No jobs",
+    "emptyHint": "Create a job and send it for review to the universities that granted you access.",
+    "saved": "Done",
+    "publish": "Publish",
+    "pause": "Unpublish",
+    "close": "Close",
+    "byUniversity": "University decisions",
+    "statusDraft": "Draft",
+    "statusPublished": "Published",
+    "statusPaused": "Unpublished",
+    "statusClosed": "Closed",
+    "reviewPending": "in review",
+    "reviewApproved": "shown",
+    "reviewRejected": "rejected"
   },
   "Invites": {
     "emailInvalid": "Check the address — it looks malformed",

@@ -52,6 +52,7 @@ model Company {
 
   members          CompanyMember[]
   universityAccess CompanyUniversityAccess[]
+  vacancies        Vacancy[]
 
   @@index([status])
   @@index([deletedAt])
@@ -189,4 +190,87 @@ model CareerConsent {
   @@index([userId, field, revokedAt])
   @@index([companyId])
   @@map("career_consents")
+}
+
+// ── Вакансии (18.C) ──────────────────────────────────────────────────────────
+
+/**
+ * Вакансия компании.
+ * Навыки — массивом строк, а не отдельной таблицей VacancySkill: они берутся из общего
+ * справочника (shared/config/skills.ts), там же хранятся навыки студента (User.skills),
+ * и пересечение двух массивов считается напрямую. Нормализованная таблица понадобится,
+ * когда появится фасетный поиск с подсчётами по каждому навыку, — не раньше.
+ */
+model Vacancy {
+  id        String @id @default(uuid())
+  companyId String @map("company_id")
+
+  title       String
+  description String
+
+  employmentType  String  @map("employment_type") // INTERNSHIP | PART_TIME | FULL_TIME | CONTRACT | FREELANCE
+  workFormat      String  @map("work_format") // ONSITE | HYBRID | REMOTE
+  experienceLevel String  @map("experience_level") // NO_EXPERIENCE | INTERN | JUNIOR | MIDDLE
+  // Код КАТО либо свободный текст (как у компании и вуза).
+  city            String?
+
+  salaryMin      Int?    @map("salary_min")
+  salaryMax      Int?    @map("salary_max")
+  salaryCurrency String? @map("salary_currency")
+
+  skills    String[] @default([])
+  languages String[] @default([])
+
+  deadline DateTime?
+
+  // Жизненный цикл со стороны компании: DRAFT | PUBLISHED | PAUSED | CLOSED.
+  // Видимость студентам определяется НЕ только этим статусом — см. VacancyUniversityReview.
+  status      String    @default("DRAFT")
+  publishedAt DateTime? @map("published_at")
+
+  createdById String @map("created_by_id")
+  views       Int    @default(0)
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  company Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  reviews VacancyUniversityReview[]
+
+  @@index([companyId, status])
+  @@index([status, publishedAt])
+  @@index([deletedAt])
+  @@map("vacancies")
+}
+
+/**
+ * Решение конкретного вуза по конкретной вакансии.
+ * Почему на пару «вакансия ↔ вуз», а не один статус у вакансии: компания допущена в
+ * несколько вузов, и «одобрено» одним из них не должно открывать вакансию студентам
+ * другого. Строки создаются при публикации — по одной на каждый вуз с активным допуском;
+ * их немного, потому что допусков у компании единицы.
+ * status: PENDING | APPROVED | REJECTED. Студент видит вакансию, только если у ЕГО вуза
+ * стоит APPROVED.
+ */
+model VacancyUniversityReview {
+  id           String @id @default(uuid())
+  vacancyId    String @map("vacancy_id")
+  universityId String @map("university_id")
+
+  status String  @default("PENDING")
+  reason String?
+
+  decidedById String?   @map("decided_by_id")
+  decidedAt   DateTime? @map("decided_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vacancy    Vacancy    @relation(fields: [vacancyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university University @relation("UniversityVacancyReviews", fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([vacancyId, universityId])
+  @@index([universityId, status])
+  @@map("vacancy_university_reviews")
 }
