@@ -311,6 +311,87 @@
     "backToHome": "Back to sign in",
     "identifierPlaceholder": "you@example.com or username"
   },
+  "Legal": {
+    "privacyLink": "Privacy Policy",
+    "termsLink": "Terms of Service",
+    "updated": "Version of 29 August 2026",
+    "privacy": {
+      "title": "Privacy Policy",
+      "intro": "StudentHub is a closed platform your university grants access to by invitation. This page explains what data is processed, why, and who can see it.",
+      "sections": [
+        {
+          "heading": "1. Who processes your data",
+          "body": "The controller of your personal data is the university that issued your invitation. StudentHub processes data on its instructions and only to the extent the platform needs to work."
+        },
+        {
+          "heading": "2. What data is processed",
+          "body": "Account data: first and last name, email, username, role, faculty and group. Profile: photo, contacts and any details you fill in yourself. Academic data: schedule, applications, grades, attendance, submitted work and documents. Content you publish: posts, comments, messages and files. Technical data: connection address, device and browser type, sign-in times."
+        },
+        {
+          "heading": "3. Why it is needed",
+          "body": "Your data is used to give you access to academic services, show your schedule and grades, process applications, enable communication inside the university, protect your account from unauthorised sign-ins, and handle reports of misconduct."
+        },
+        {
+          "heading": "4. Who can see your data",
+          "body": "You control profile visibility in your settings. Teachers, the group leader and the dean's office see academic data within their groups and courses. University administrators see the accounts of their own institution. Platform staff access data only for technical support and incident handling."
+        },
+        {
+          "heading": "5. Storage and protection",
+          "body": "Your password is stored only as an irreversible hash — it cannot be recovered, which is why we never ask for it. Connections are protected by HTTPS and two-factor authentication is available for your account. Data is kept while your university account is active and is deleted or anonymised under the university's rules once it is closed."
+        },
+        {
+          "heading": "6. Your rights",
+          "body": "You can view and correct your profile data, limit its visibility, hide your email and delete your own publications. Requests to export, correct or erase data are submitted to your university administrator or the dean's office."
+        },
+        {
+          "heading": "7. Cookies and browser storage",
+          "body": "We use technical cookies for the sign-in session and browser local storage for interface settings and drafts. There are no advertising or third-party trackers on the platform, and no data is shared with ad networks."
+        },
+        {
+          "heading": "8. Changes to this policy",
+          "body": "We announce changes inside the platform. By continuing to use StudentHub after an update, you accept the new version."
+        }
+      ]
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "intro": "These terms describe the rules for using StudentHub. By starting to work in the platform, you accept them.",
+      "sections": [
+        {
+          "heading": "1. General provisions",
+          "body": "Access to the platform is granted by your university. Registration is only possible with a personal invitation; the invitation link must not be passed on to anyone else."
+        },
+        {
+          "heading": "2. Your account",
+          "body": "An account belongs to one person. Do not share your login, password or confirmation codes with third parties: everything done under your account is considered done by you. If you suspect someone else has gained access, change your password immediately and notify your university administrator."
+        },
+        {
+          "heading": "3. Rules of conduct",
+          "body": "Insults, harassment and threats, incitement of hatred, spam and bulk messaging, adult material, publishing someone else's personal data without consent, impersonating another person or staff member, and attempts to bypass access restrictions are all prohibited."
+        },
+        {
+          "heading": "4. Your content",
+          "body": "You keep the rights to the material you publish. By publishing content you allow the platform to store it and show it to the participants it is addressed to. You are responsible for the legality of what you publish and for holding the rights to the material you use."
+        },
+        {
+          "heading": "5. Academic integrity",
+          "body": "Learning materials, submitted work and grades in the platform belong to your university's academic process. Cheating, passing off someone else's work as your own and distributing closed assessment materials are judged under the university's rules."
+        },
+        {
+          "heading": "6. Moderation",
+          "body": "Violations can be reported through the built-in form. Moderators and the university administration may hide material, restrict access to individual features or block an account. Decisions can be appealed through the dean's office."
+        },
+        {
+          "heading": "7. Service availability",
+          "body": "The platform may be temporarily unavailable due to maintenance or failures. We work to keep such interruptions short, but we do not guarantee uninterrupted operation and are not liable for consequences caused by circumstances beyond our control."
+        },
+        {
+          "heading": "8. Changes and termination of access",
+          "body": "These terms may be updated; we announce changes inside the platform. Access ends on expulsion, termination of employment, or by decision of the university. Data is processed afterwards under the university's rules."
+        }
+      ]
+    }
+  },
   "Profile": {
     "title": "Profile",
     "personalInfo": "Personal info",

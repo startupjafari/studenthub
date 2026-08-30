@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Eye, EyeOff, QrCode } from 'lucide-react'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
-import { Button, CodeInput, FormAlert, Input, Label } from '../../../shared/ui'
+import { Button, CodeInput, FormAlert, Input, Label, LegalLinks } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
 import { useFormAlert, safeNextPath } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
@@ -53,12 +53,14 @@ export function LoginForm() {
     }
   }
 
-  if (mode === 'qr') {
-    return <QrLoginPanel onAuthenticated={completeLogin} onCancel={() => setMode('password')} />
-  }
+  // Шаг рисуем в переменную, а не ранним return: юридические ссылки ниже должны
+  // оставаться на экране и на QR-панели, и на вводе кода 2FA.
+  let step: ReactNode
 
-  if (challengeToken) {
-    return (
+  if (mode === 'qr') {
+    step = <QrLoginPanel onAuthenticated={completeLogin} onCancel={() => setMode('password')} />
+  } else if (challengeToken) {
+    step = (
       <TwoFactorStep
         onBack={() => {
           resetApiError()
@@ -76,84 +78,93 @@ export function LoginForm() {
         apiError={apiError}
       />
     )
+  } else {
+    step = (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-2xl font-semibold">{t('welcome')}</h2>
+          <p className="text-sm text-muted-foreground">{t('welcomeSubtitle')}</p>
+        </div>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <FormAlert error={apiError} />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="identifier">{t('emailOrUsername')}</Label>
+            <Input
+              id="identifier"
+              type="text"
+              autoComplete="username"
+              placeholder={t('identifierPlaceholder')}
+              aria-invalid={!!errors.identifier}
+              {...register('identifier')}
+            />
+            {errors.identifier && (
+              <p className="text-xs text-destructive">{errors.identifier.message}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">{t('password')}</Label>
+              <button
+                type="button"
+                onClick={() => toast.info(t('forgotSoon'))}
+                className="cursor-pointer rounded text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+              >
+                {t('forgotPassword')}
+              </button>
+            </div>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                className="pr-10"
+                aria-invalid={!!errors.password}
+                {...register('password')}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? t('hidePassword') : t('showPassword')}
+                className="absolute inset-y-0 right-0 flex cursor-pointer items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+            {errors.password && (
+              <p className="text-xs text-destructive">{errors.password.message}</p>
+            )}
+          </div>
+
+          <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">
+            {t('signIn')}
+          </Button>
+
+          <div className="relative my-1 flex items-center">
+            <span className="h-px flex-1 bg-border" />
+            <span className="px-3 text-xs text-muted-foreground">{t('or')}</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="xl"
+            className="w-full"
+            onClick={() => setMode('qr')}
+          >
+            <QrCode className="size-4" aria-hidden />
+            {t('qrTab')}
+          </Button>
+        </form>
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-semibold">{t('welcome')}</h2>
-        <p className="text-sm text-muted-foreground">{t('welcomeSubtitle')}</p>
-      </div>
-
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-        <FormAlert error={apiError} />
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="identifier">{t('emailOrUsername')}</Label>
-          <Input
-            id="identifier"
-            type="text"
-            autoComplete="username"
-            placeholder={t('identifierPlaceholder')}
-            aria-invalid={!!errors.identifier}
-            {...register('identifier')}
-          />
-          {errors.identifier && (
-            <p className="text-xs text-destructive">{errors.identifier.message}</p>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">{t('password')}</Label>
-            <button
-              type="button"
-              onClick={() => toast.info(t('forgotSoon'))}
-              className="cursor-pointer rounded text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
-            >
-              {t('forgotPassword')}
-            </button>
-          </div>
-          <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              autoComplete="current-password"
-              className="pr-10"
-              aria-invalid={!!errors.password}
-              {...register('password')}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              aria-label={showPassword ? t('hidePassword') : t('showPassword')}
-              className="absolute inset-y-0 right-0 flex cursor-pointer items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
-          {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
-        </div>
-
-        <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">
-          {t('signIn')}
-        </Button>
-
-        <div className="relative my-1 flex items-center">
-          <span className="h-px flex-1 bg-border" />
-          <span className="px-3 text-xs text-muted-foreground">{t('or')}</span>
-          <span className="h-px flex-1 bg-border" />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="xl"
-          className="w-full"
-          onClick={() => setMode('qr')}
-        >
-          <QrCode className="size-4" aria-hidden />
-          {t('qrTab')}
-        </Button>
-      </form>
+      {step}
+      <LegalLinks />
     </div>
   )
 }
