@@ -11,6 +11,8 @@ import {
   EmployerVacanciesController,
   UniversityVacanciesController,
 } from './vacancies.controller'
+import { ApplicationsService } from './applications.service'
+import { ApplicationsController, EmployerApplicationsController } from './applications.controller'
 
 // Карьера (Фаза 18). Пока — контур работодателя: компания, её допуск к вузам и очередь
 // модерации у карьерного центра. Вакансии, отклики и резюме добавляются следующими
@@ -23,8 +25,16 @@ import {
     VacanciesController,
     EmployerVacanciesController,
     UniversityVacanciesController,
+    ApplicationsController,
+    EmployerApplicationsController,
   ],
-  providers: [CompaniesService, CareerAccessService, CareerProfileService, VacanciesService],
+  providers: [
+    CompaniesService,
+    CareerAccessService,
+    CareerProfileService,
+    VacanciesService,
+    ApplicationsService,
+  ],
   // CareerAccessService понадобится всем будущим карьерным сервисам, которые читают
   // данные студентов, — экспортируем сразу.
   exports: [CareerAccessService, CareerProfileService],
