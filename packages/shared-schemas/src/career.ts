@@ -297,3 +297,146 @@ export function careerReadiness(input: ReadinessInput): ReadinessBreakdown {
   ]
   return { score: parts.reduce((sum, p) => sum + p.earned, 0), parts }
 }
+
+// ── Вакансии (18.C) ──────────────────────────────────────────────────────────
+
+/** Жизненный цикл вакансии со стороны компании. Видимость студентам — отдельно, см. ревью. */
+export const VACANCY_STATUSES = ['DRAFT', 'PUBLISHED', 'PAUSED', 'CLOSED'] as const
+export const VacancyStatusSchema = z.enum(VACANCY_STATUSES)
+export type VacancyStatus = z.infer<typeof VacancyStatusSchema>
+
+/** Решение вуза по вакансии. Студент видит вакансию, только если у его вуза стоит APPROVED. */
+export const VACANCY_REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const
+export const VacancyReviewStatusSchema = z.enum(VACANCY_REVIEW_STATUSES)
+export type VacancyReviewStatus = z.infer<typeof VacancyReviewStatusSchema>
+
+export const EXPERIENCE_LEVELS = ['NO_EXPERIENCE', 'INTERN', 'JUNIOR', 'MIDDLE'] as const
+export const ExperienceLevelSchema = z.enum(EXPERIENCE_LEVELS)
+export type ExperienceLevel = z.infer<typeof ExperienceLevelSchema>
+
+const salaryField = z.number().int().nonnegative().max(100_000_000).nullable().optional()
+
+export const VacancyInputSchema = z.object({
+  title: z.string().trim().min(3).max(160),
+  description: z.string().trim().min(30).max(20_000),
+  employmentType: EmploymentTypeSchema,
+  workFormat: WorkFormatSchema,
+  experienceLevel: ExperienceLevelSchema,
+  city: optionalText(24),
+  salaryMin: salaryField,
+  salaryMax: salaryField,
+  salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
+  skills: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
+  languages: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+  deadline: z.string().datetime().nullable().optional(),
+})
+export type VacancyInput = z.infer<typeof VacancyInputSchema>
+
+export const UpdateVacancySchema = VacancyInputSchema.partial()
+export type UpdateVacancyInput = z.infer<typeof UpdateVacancySchema>
+
+/** Решение вуза по вакансии: отказ требует причины — её видит компания. */
+export const DecideVacancySchema = z
+  .object({
+    status: z.enum(['APPROVED', 'REJECTED']),
+    reason: optionalText(1000),
+  })
+  .refine((v) => v.status === 'APPROVED' || !!v.reason, {
+    message: 'Укажите причину',
+    path: ['reason'],
+  })
+export type DecideVacancyInput = z.infer<typeof DecideVacancySchema>
+
+/** Очередь модерации вакансий у вуза. Статусы свои — не путать с допуском компании. */
+export const VacancyReviewQueueSchema = OffsetPaginationSchema.extend({
+  status: VacancyReviewStatusSchema.optional(),
+})
+export type VacancyReviewQueueInput = z.infer<typeof VacancyReviewQueueSchema>
+
+export const VACANCY_SORTS = ['publishedAt', 'salary', 'deadline'] as const
+export const VacancySortSchema = z.enum(VACANCY_SORTS)
+export type VacancySort = z.infer<typeof VacancySortSchema>
+
+/** Фильтры витрины вакансий для студента. */
+export const VacancySearchSchema = OffsetPaginationSchema.extend({
+  search: optionalText(120),
+  employmentType: EmploymentTypeSchema.optional(),
+  workFormat: WorkFormatSchema.optional(),
+  experienceLevel: ExperienceLevelSchema.optional(),
+  city: optionalText(24),
+  salaryFrom: z.coerce.number().int().nonnegative().optional(),
+  skills: z.array(z.string().trim().min(1).max(60)).max(10).optional(),
+  sort: VacancySortSchema.default('publishedAt'),
+  order: SortOrderSchema.default('desc'),
+})
+export type VacancySearchInput = z.infer<typeof VacancySearchSchema>
+
+// ── Совпадение вакансии и профиля ────────────────────────────────────────────
+
+/**
+ * Веса совпадения. Расчёт детерминированный и объяснимый: студенту показывается процент
+ * и список совпавших навыков, поэтому формула лежит в контракте и считается одинаково
+ * на бэке и на фронте. AI здесь не участвует.
+ *
+ * Низкий процент НИКОГДА не скрывает вакансию — это сортировка, а не фильтр.
+ */
+export const MATCH_WEIGHTS = {
+  skills: 55,
+  employmentType: 15,
+  workFormat: 15,
+  city: 15,
+} as const
+
+export interface MatchInput {
+  vacancy: {
+    skills: string[]
+    employmentType: EmploymentType
+    workFormat: WorkFormat
+    city: string | null
+  }
+  profile: {
+    skills: string[]
+    employmentTypes: EmploymentType[]
+    workFormats: WorkFormat[]
+    city: string | null
+    relocationReady: boolean
+  }
+}
+
+export interface MatchResult {
+  score: number
+  matchedSkills: string[]
+  missingSkills: string[]
+}
+
+/** Совпадение вакансии и карьерного профиля: 0–100 плюс разбор по навыкам. */
+export function matchVacancy({ vacancy, profile }: MatchInput): MatchResult {
+  const norm = (v: string) => v.trim().toLowerCase()
+  const profileSkills = new Set(profile.skills.map(norm))
+  const matchedSkills = vacancy.skills.filter((s) => profileSkills.has(norm(s)))
+  const missingSkills = vacancy.skills.filter((s) => !profileSkills.has(norm(s)))
+
+  // Вакансия без требований по навыкам не должна давать 0 по этому измерению: нечему
+  // не совпасть, значит ограничения нет.
+  const skillsRatio = vacancy.skills.length === 0 ? 1 : matchedSkills.length / vacancy.skills.length
+
+  const typeOk =
+    profile.employmentTypes.length === 0 || profile.employmentTypes.includes(vacancy.employmentType)
+  const formatOk =
+    profile.workFormats.length === 0 || profile.workFormats.includes(vacancy.workFormat)
+  // Удалённая работа снимает вопрос города; переезд — тоже.
+  const cityOk =
+    vacancy.workFormat === 'REMOTE' ||
+    profile.relocationReady ||
+    !vacancy.city ||
+    !profile.city ||
+    vacancy.city === profile.city
+
+  const score =
+    Math.round(MATCH_WEIGHTS.skills * skillsRatio) +
+    (typeOk ? MATCH_WEIGHTS.employmentType : 0) +
+    (formatOk ? MATCH_WEIGHTS.workFormat : 0) +
+    (cityOk ? MATCH_WEIGHTS.city : 0)
+
+  return { score, matchedSkills, missingSkills }
+}

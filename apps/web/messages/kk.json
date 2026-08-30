@@ -73,7 +73,8 @@
     "careerEvents": "Карьера іс-шаралары",
     "companies": "Компаниялар",
     "companyProfile": "Компания",
-    "universityAccess": "Университеттер"
+    "universityAccess": "Университеттер",
+    "vacancyReview": "Вакансиялар модерациясы"
   },
   "Products": {
     "switch": "Өнімді ауыстыру",
@@ -162,7 +163,12 @@
     "statusApproved": "Қолжетімділік ашық",
     "statusRequested": "Қаралуда",
     "statusRejected": "Бас тартылды",
-    "statusRevoked": "Қайтарып алынды"
+    "statusRevoked": "Қайтарып алынды",
+    "vacanciesTitle": "Вакансиялар модерациясы",
+    "vacanciesSubtitle": "Шешім тек сіздің университет студенттеріне қолданылады",
+    "noVacancies": "Модерациядағы вакансиялар жоқ",
+    "noVacanciesHint": "Мұнда сіз қолжетімділік ашқан компаниялардың вакансиялары пайда болады.",
+    "statusPending": "Модерацияда"
   },
   "CareerProfile": {
     "title": "Карьералық профиль",
@@ -213,6 +219,42 @@
     "course": "Курс",
     "skillsCount": "Дағдылар",
     "portfolioCount": "Портфолиодағы жазбалар"
+  },
+  "Vacancies": {
+    "title": "Вакансиялар",
+    "subtitle": "Университетіңіз мақұлдағандар",
+    "searchPlaceholder": "Лауазым, компания, технология",
+    "empty": "Вакансиялар әзірге жоқ",
+    "emptyHint": "Компаниялар университет оларға қолжетімділік ашып, вакансияларын мақұлдағаннан кейін осында пайда болады.",
+    "match": "сәйкестік",
+    "salaryFrom": "бастап",
+    "salaryTo": "дейін",
+    "employmentInternship": "Тәжірибе",
+    "employmentPartTime": "Ішінара",
+    "employmentFullTime": "Толық",
+    "employmentContract": "Жоба",
+    "employmentFreelance": "Фриланс",
+    "formatOnsite": "Кеңседе",
+    "formatHybrid": "Гибрид",
+    "formatRemote": "Қашықтан"
+  },
+  "EmployerVacancies": {
+    "title": "Вакансиялар",
+    "subtitle": "Жариялау көрсетуге тең емес: әр жоғары оқу орны бөлек шешеді",
+    "empty": "Вакансиялар жоқ",
+    "emptyHint": "Вакансия жасап, рұқсат берген университеттерге модерацияға жіберіңіз.",
+    "saved": "Дайын",
+    "publish": "Жариялау",
+    "pause": "Жарияламау",
+    "close": "Жабу",
+    "byUniversity": "Университеттер шешімі",
+    "statusDraft": "Жоба",
+    "statusPublished": "Жарияланған",
+    "statusPaused": "Алынған",
+    "statusClosed": "Жабылған",
+    "reviewPending": "модерацияда",
+    "reviewApproved": "көрсетіледі",
+    "reviewRejected": "қабылданбады"
   },
   "Invites": {
     "emailInvalid": "Мекенжайды тексеріңіз — қате бар сияқты",
