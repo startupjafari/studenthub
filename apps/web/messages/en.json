@@ -75,7 +75,8 @@
     "companyProfile": "Company",
     "universityAccess": "Universities",
     "vacancyReview": "Job moderation",
-    "candidates": "Candidates"
+    "candidates": "Candidates",
+    "careerAnalytics": "Metrics"
   },
   "Products": {
     "switch": "Switch product",
@@ -308,6 +309,37 @@
     "generated": "Resume created in StudentHub Career",
     "notFound": "Resume unavailable",
     "notFoundHint": "The link is disabled or never existed."
+  },
+  "CareerEvents": {
+    "title": "Career events",
+    "subtitle": "Fairs, workshops, interview days",
+    "upcoming": "Upcoming",
+    "past": "Past",
+    "registered": "You are registered",
+    "online": "Online",
+    "empty": "No events",
+    "emptyHint": "The university career centre publishes them alongside regular events.",
+    "kindFair": "Career fair",
+    "kindWorkshop": "Workshop",
+    "kindInterviewDay": "Interview day",
+    "kindPresentation": "Company presentation",
+    "kindHackathon": "Hackathon"
+  },
+  "CareerAnalytics": {
+    "title": "Career metrics",
+    "subtitle": "Aggregates only — no personal data here",
+    "companiesApproved": "Companies approved",
+    "vacanciesApproved": "Jobs shown",
+    "applications": "Applications",
+    "hired": "Hired",
+    "profilesTitle": "Open profiles",
+    "profilesText": "{visible} of {total} students opened their profile to employers",
+    "ratesTitle": "Funnel conversion",
+    "ratesHint": "Rates are calculated from the total number of applications. A dash means there is nothing to calculate from yet.",
+    "rateInterview": "To interview",
+    "rateOffer": "To offer",
+    "rateHired": "To hire",
+    "noData": "—"
   },
   "Invites": {
     "emailInvalid": "Check the address — it looks malformed",

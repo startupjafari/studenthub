@@ -536,3 +536,27 @@ export const UpdateResumeSchema = z.object({
   includeContacts: z.boolean().optional(),
 })
 export type UpdateResumeInput = z.infer<typeof UpdateResumeSchema>
+
+// ── Карьерные мероприятия (18.F) ─────────────────────────────────────────────
+
+/**
+ * Тип карьерного мероприятия. Живёт признаком на обычном событии вуза, а не отдельной
+ * сущностью: регистрация, аудитория и напоминания у них общие, отличается только раздел,
+ * в котором мероприятие показывается.
+ */
+export const CAREER_EVENT_KINDS = [
+  'CAREER_FAIR',
+  'WORKSHOP',
+  'INTERVIEW_DAY',
+  'COMPANY_PRESENTATION',
+  'HACKATHON',
+] as const
+export const CareerEventKindSchema = z.enum(CAREER_EVENT_KINDS)
+export type CareerEventKind = z.infer<typeof CareerEventKindSchema>
+
+export const CareerEventListQuerySchema = OffsetPaginationSchema.extend({
+  kind: CareerEventKindSchema.optional(),
+  /** Прошедшие мероприятия по умолчанию не показываем. */
+  past: z.coerce.boolean().default(false),
+})
+export type CareerEventListQueryInput = z.infer<typeof CareerEventListQuerySchema>

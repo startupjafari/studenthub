@@ -316,6 +316,7 @@ export const CAREER_STAFF_NAV: NavItem[] = [
   { key: 'vacancyReview', href: '/career/vacancy-review', icon: ClipboardCheck },
   { key: 'vacancies', href: '/career/vacancies', icon: Search },
   { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
+  { key: 'careerAnalytics', href: '/career/analytics', icon: BarChart3 },
 ]
 
 const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {

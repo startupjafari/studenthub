@@ -75,7 +75,8 @@
     "companyProfile": "Компания",
     "universityAccess": "Университеты",
     "vacancyReview": "Модерация вакансий",
-    "candidates": "Кандидаты"
+    "candidates": "Кандидаты",
+    "careerAnalytics": "Метрики"
   },
   "Products": {
     "switch": "Переключить продукт",
@@ -308,6 +309,37 @@
     "generated": "Резюме создано в StudentHub Карьера",
     "notFound": "Резюме недоступно",
     "notFoundHint": "Ссылка отключена или никогда не существовала."
+  },
+  "CareerEvents": {
+    "title": "Карьерные мероприятия",
+    "subtitle": "Ярмарки, воркшопы, дни собеседований",
+    "upcoming": "Предстоящие",
+    "past": "Прошедшие",
+    "registered": "Вы записаны",
+    "online": "Онлайн",
+    "empty": "Мероприятий нет",
+    "emptyHint": "Карьерный центр вуза публикует их вместе с обычными событиями.",
+    "kindFair": "Ярмарка вакансий",
+    "kindWorkshop": "Воркшоп",
+    "kindInterviewDay": "День собеседований",
+    "kindPresentation": "Презентация компании",
+    "kindHackathon": "Хакатон"
+  },
+  "CareerAnalytics": {
+    "title": "Метрики карьеры",
+    "subtitle": "Только агрегаты — персональных данных здесь нет",
+    "companiesApproved": "Допущено компаний",
+    "vacanciesApproved": "Показывается вакансий",
+    "applications": "Откликов",
+    "hired": "Трудоустроено",
+    "profilesTitle": "Открытые профили",
+    "profilesText": "{visible} из {total} студентов открыли профиль работодателям",
+    "ratesTitle": "Конверсия воронки",
+    "ratesHint": "Доли считаются от общего числа откликов. Прочерк означает, что считать пока не от чего.",
+    "rateInterview": "До интервью",
+    "rateOffer": "До оффера",
+    "rateHired": "До найма",
+    "noData": "—"
   },
   "Invites": {
     "emailInvalid": "Проверьте адрес — похоже, в нём опечатка",
