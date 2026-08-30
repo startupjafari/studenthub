@@ -5,7 +5,18 @@ import { safeNextPath } from './shared/lib/safe-next'
 
 // Ролевой редирект ДО рендера (docs/FRONTEND_RULES.md §3), по нечувствительной role-cookie
 // sh_role (решение §16.2). Реальная авторизация — на сервере (guard'ы), это только UX.
-const PUBLIC_PATHS = ['/login', '/register', '/offline']
+// Ф18: регистрация работодателя и подтверждение его почты — единственные публичные
+// страницы вне входа. Сессии на них нет по определению: аккаунта ещё не существует.
+const PUBLIC_PATHS = ['/login', '/register', '/offline', '/employer/signup', '/employer/verify']
+
+/**
+ * Публичные пути, с которых авторизованного НЕ уводим на его домашнюю страницу.
+ *
+ * Подтверждение почты приходит ссылкой в письме, и открыть её может человек, уже вошедший
+ * в другом аккаунте или в этом же. Редирект на home в этот момент означал бы, что письмо
+ * «не работает», а адрес так и остался неподтверждённым.
+ */
+const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = ['/employer/verify']
 
 interface RoleCookie {
   role: Role
@@ -52,6 +63,11 @@ export function middleware(request: NextRequest): NextResponse {
   // Авторизованного не пускаем на /login|/register — сразу на его home. Но если в ссылке
   // остался ?next= (вернулся кнопкой «назад» после входа по QR помещения), ведём туда.
   if (isPublic) {
+    if (
+      PUBLIC_PATHS_ALLOWED_WHEN_AUTHED.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+    ) {
+      return NextResponse.next()
+    }
     const url = request.nextUrl.clone()
     const next = safeNextPath(request.nextUrl.searchParams.get('next'))
     url.search = ''

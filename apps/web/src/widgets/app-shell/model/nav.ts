@@ -27,9 +27,11 @@ import {
   Newspaper,
   ScanLine,
   ScrollText,
+  Search,
   Send,
   Table2,
   ShieldAlert,
+  FileUser,
   TrendingUp,
   UserCog,
   Users,
@@ -58,6 +60,7 @@ export type NavVariant =
   | 'platform-admin'
   | 'platform-moderator'
   | 'university-moderator'
+  | 'employer'
 
 // Навигация студенческого дашборда (docs/PROJECT.md §12).
 // Профиль — плашка пользователя внизу сайдбара (см. AppSidebar), не пункт навигации.
@@ -237,6 +240,7 @@ export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
   [Role.TEACHER]: 'teacher',
   [Role.STAROSTA]: 'starosta',
   [Role.STUDENT]: 'student',
+  [Role.EMPLOYER]: 'employer',
 }
 
 // Документы — общий пункт для всех ролей: защищённое хранилище (Ф15, отдельный раздел /documents).
@@ -258,6 +262,14 @@ function withCommon(items: NavItem[]): NavItem[] {
 
 // Резолв конфига по варианту. Массив содержит иконки-функции — резолвится в клиенте
 // (нельзя передавать пропом server→client, RSC-ограничение).
+// Навигация работодателя. Разделы платформы ему не показываются вообще: он видит
+// свою компанию, статус допусков и (со следующих под-фаз) вакансии и кандидатов.
+export const EMPLOYER_NAV: NavItem[] = [
+  { key: 'careerHome', href: '/employer', icon: LayoutDashboard, exact: true },
+  { key: 'companyProfile', href: '/employer/company', icon: Building2 },
+  { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
+]
+
 export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   student: withCommon(STUDENT_NAV),
   'university-admin': withCommon(UNIVERSITY_ADMIN_NAV),
@@ -267,4 +279,62 @@ export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   'platform-admin': withCommon(PLATFORM_ADMIN_NAV),
   'platform-moderator': withCommon(PLATFORM_MODERATOR_NAV),
   'university-moderator': withCommon(UNIVERSITY_MODERATOR_NAV),
+  // Без withCommon: общий раздел «Документы» — хранилище участника вуза, работодателя
+  // оно не касается.
+  employer: EMPLOYER_NAV,
+}
+
+// ── StudentHub Карьера ──────────────────────────────────────────────────────
+// Отдельный продукт со своей навигацией: пока пользователь под /career, сайдбар
+// показывает эти пункты вместо разделов платформы. Переключение — через логотип
+// (ProductSwitcher), отдельного пункта «Карьера» в основной навигации нет.
+//
+// Стажировок отдельным разделом нет намеренно: на MVP это вакансия с типом
+// «стажировка» и обычный отклик (см. план Фазы 18).
+
+/** Корень карьерного продукта. Всё, что под ним, показывает карьерную навигацию. */
+export const CAREER_ROOT = '/career'
+
+// Студент и староста: ищут работу.
+export const CAREER_STUDENT_NAV: NavItem[] = [
+  { key: 'careerHome', href: '/career', icon: LayoutDashboard, exact: true },
+  { key: 'vacancies', href: '/career/vacancies', icon: Search },
+  { key: 'careerApplications', href: '/career/applications', icon: Send },
+  { key: 'careerProfile', href: '/career/profile', icon: BriefcaseBusiness },
+  { key: 'resume', href: '/career/resume', icon: FileUser },
+  { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
+]
+
+// Сотрудники вуза: карьерный центр — допуск компаний и модерация вакансий.
+export const CAREER_STAFF_NAV: NavItem[] = [
+  { key: 'careerHome', href: '/career', icon: LayoutDashboard, exact: true },
+  { key: 'companies', href: '/career/companies', icon: Building2 },
+  { key: 'vacancies', href: '/career/vacancies', icon: Search },
+  { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
+]
+
+const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
+  [Role.STUDENT]: CAREER_STUDENT_NAV,
+  [Role.STAROSTA]: CAREER_STUDENT_NAV,
+  // Преподаватель в карьерном модуле — наблюдатель: своих действий у него пока нет,
+  // но события и вакансии видеть логично.
+  [Role.TEACHER]: CAREER_STAFF_NAV,
+  [Role.DEAN]: CAREER_STAFF_NAV,
+  [Role.UNIVERSITY_ADMIN]: CAREER_STAFF_NAV,
+  [Role.UNIVERSITY_MODERATOR]: CAREER_STAFF_NAV,
+  [Role.PLATFORM_ADMIN]: CAREER_STAFF_NAV,
+  [Role.PLATFORM_MODERATOR]: CAREER_STAFF_NAV,
+  // Работодатель в /career не заходит — его продукт целиком в зоне /employer.
+  // Значение задано, чтобы карта была исчерпывающей и не пришлось падать на undefined.
+  [Role.EMPLOYER]: EMPLOYER_NAV,
+}
+
+/** Навигация карьерного продукта для роли. */
+export function careerNavFor(role: Role | undefined): NavItem[] {
+  return role ? CAREER_NAV_BY_ROLE[role] : CAREER_STUDENT_NAV
+}
+
+/** Путь относится к карьерному продукту. */
+export function isCareerPath(pathname: string): boolean {
+  return pathname === CAREER_ROOT || pathname.startsWith(`${CAREER_ROOT}/`)
 }

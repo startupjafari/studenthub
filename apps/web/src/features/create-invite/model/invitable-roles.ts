@@ -12,6 +12,8 @@ export const INVITABLE_ROLES: Record<Role, Role[]> = {
   [Role.TEACHER]: [],
   [Role.STAROSTA]: [Role.STUDENT],
   [Role.STUDENT]: [],
+  // Работодателя не приглашают: компания регистрируется сама, а вуз выдаёт ей допуск.
+  [Role.EMPLOYER]: [],
 }
 
 // Роль, для которой платформенный админ обязан выбрать целевой вуз (invite-hierarchy.ts:

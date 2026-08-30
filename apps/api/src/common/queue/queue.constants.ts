@@ -29,6 +29,9 @@ export const EMAIL_JOBS = {
   SEND_EVENT_REMINDER: 'send-event-reminder',
   // Обобщённое письмо-зеркало in-app уведомления для офлайн-пользователей (docs/PROJECT.md §10.1).
   SEND_NOTIFICATION: 'send-notification',
+  // Карьера (Ф18): подтверждение email при самостоятельной регистрации работодателя.
+  // Единственный сценарий на платформе, где адрес не проверен инвайтом заранее.
+  SEND_COMPANY_VERIFICATION: 'send-company-verification',
 } as const
 
 export const NOTIFICATION_JOBS = {

@@ -26,10 +26,11 @@ model University {
   documents        Document[]
   documentRequests DocumentRequest[]
   documentTypes    DocumentType[]
-  appServices      ApplicationService[] @relation("UniversityApplicationServices")
-  applicationsV2   Application[]        @relation("UniversityApplicationsV2")
+  appServices      ApplicationService[]      @relation("UniversityApplicationServices")
+  applicationsV2   Application[]             @relation("UniversityApplicationsV2")
   subjects         Subject[]
   terms            Term[]
+  companyAccess    CompanyUniversityAccess[] @relation("UniversityCompanyAccess")
 
   @@index([status])
   @@map("universities")

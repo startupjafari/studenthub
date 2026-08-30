@@ -7,12 +7,14 @@ import type { JobPayload } from '../../common/queue'
 import { MailerService } from './mailer.service'
 import {
   renderApplicationStatus,
+  renderCompanyVerification,
   renderEventReminder,
   renderInvite,
   renderNotification,
   renderScheduleChange,
   renderWelcome,
   type ApplicationStatusPayload,
+  type CompanyVerificationPayload,
   type EventReminderPayload,
   type InvitePayload,
   type NotificationPayload,
@@ -74,6 +76,8 @@ export class EmailProcessor extends WorkerHost {
         return renderEventReminder(data as unknown as EventReminderPayload)
       case EMAIL_JOBS.SEND_NOTIFICATION:
         return renderNotification(data as unknown as NotificationPayload)
+      case EMAIL_JOBS.SEND_COMPANY_VERIFICATION:
+        return renderCompanyVerification(data as unknown as CompanyVerificationPayload)
       default:
         return null
     }

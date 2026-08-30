@@ -4,7 +4,8 @@ import { renderQrDataUrl } from './qr-image'
 function svgOf(dataUrl: string): string {
   const [prefix, payload] = dataUrl.split(',')
   expect(prefix).toBe('data:image/svg+xml;base64')
-  return Buffer.from(payload, 'base64').toString('utf8')
+  expect(payload).toBeDefined()
+  return Buffer.from(payload ?? '', 'base64').toString('utf8')
 }
 
 describe('renderQrDataUrl', () => {

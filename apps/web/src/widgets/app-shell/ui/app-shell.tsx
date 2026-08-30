@@ -12,6 +12,8 @@ import {
   NAV_BY_VARIANT,
   ROLE_TO_VARIANT,
   STUDENT_NAV,
+  careerNavFor,
+  isCareerPath,
   type NavItem,
   type NavVariant,
 } from '../model/nav'
@@ -263,10 +265,15 @@ export function AppShell({
   // сайдбар текущей роли). Проп variant — SSR-фолбэк до загрузки профиля.
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const effectiveVariant: NavVariant = me.data ? ROLE_TO_VARIANT[me.data.role] : variant
-  const nav = NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV
 
   // На экране чатов сайдбар превращается в панель списка чатов (список порталится в слот).
   const pathname = usePathname()
+
+  // Карьера — отдельный продукт: под /career сайдбар показывает её разделы, а не разделы
+  // платформы. Обратно — через переключатель под логотипом.
+  const nav = isCareerPath(pathname)
+    ? careerNavFor(me.data?.role)
+    : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
   const chatsMode = pathname.endsWith('/chats')
   const [listSlot, setListSlot] = useState<HTMLElement | null>(null)
 
