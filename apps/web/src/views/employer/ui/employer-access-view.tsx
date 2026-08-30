@@ -29,6 +29,7 @@ import { toApiError } from '../../../shared/lib'
  */
 export function EmployerAccessView() {
   const t = useTranslations('Employer')
+  const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [openFor, setOpenFor] = useState<string | null>(null)
@@ -77,6 +78,10 @@ export function EmployerAccessView() {
             </li>
           ))}
         </ul>
+      ) : options.isError ? (
+        // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
+        // «пусто», выглядят как «данных нет» и прячут настоящую причину.
+        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
       ) : (options.data?.length ?? 0) === 0 ? (
         <EmptyState title={t('noUniversities')} description={t('noUniversitiesHint')} />
       ) : (

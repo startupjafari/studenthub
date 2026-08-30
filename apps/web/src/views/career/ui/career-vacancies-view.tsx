@@ -31,6 +31,7 @@ import { cn } from '../../../shared/lib/utils'
  */
 export function CareerVacanciesView() {
   const t = useTranslations('Vacancies')
+  const tErr = useTranslations('Errors')
   const [search, setSearch] = useState('')
   const [employmentType, setEmploymentType] = useState<EmploymentType | null>(null)
   const [workFormat, setWorkFormat] = useState<WorkFormat | null>(null)
@@ -126,6 +127,10 @@ export function CareerVacanciesView() {
             </li>
           ))}
         </ul>
+      ) : query.isError ? (
+        // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
+        // «пусто», выглядят как «данных нет» и прячут настоящую причину.
+        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Briefcase className="size-6" aria-hidden />}
