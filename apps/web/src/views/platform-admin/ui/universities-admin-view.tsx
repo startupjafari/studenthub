@@ -58,7 +58,7 @@ export function UniversitiesAdminView() {
   })
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       {/* Создание — кнопка в шапке и модалка: постоянная форма наверху страницы
           отодвигала сам список вниз, хотя вуз добавляют редко. */}
       <PageHeader

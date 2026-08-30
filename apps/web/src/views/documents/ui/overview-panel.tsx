@@ -21,8 +21,7 @@ import {
   fetchMyRequests,
 } from '../../../entities/document-request'
 import { useAppSelector } from '../../../shared/store'
-import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
+import { Button, EmptyState, MetricTile, SectionPanel, Skeleton } from '../../../shared/ui'
 
 // Роли из §15.2: кто отвечает на запросы вуза и кто их создаёт (та же матрица, что в
 // requests-panel). Остальным ролям карточка запросов не показывается.
@@ -107,51 +106,25 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {tiles.map((tile) => {
-            const Icon = tile.icon
-            return (
-              <Card
-                key={tile.key}
-                size="sm"
-                // Плитка ведёт в «Мои документы» с этим фильтром: счётчик без перехода
-                // к самим документам — тупик.
-                className="cursor-pointer transition-colors hover:ring-ring/50 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-                onClick={() => onOpen('my', tile.status)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onOpen('my', tile.status)
-                  }
-                }}
-              >
-                {/* Горизонтальная раскладка: стопкой плитка занимала ~135px, из которых
-                    32px были вторыми отступами — `p-4` на CardContent добавлял свои сверху
-                    и снизу поверх собственного `py` карточки. */}
-                <CardContent className="flex items-center gap-3">
-                  {/* Подложка чипа берётся от цвета иконки (`bg-current/10`): тон у плиток
-                      разный и означает срочность, дублировать его вторым классом незачем. */}
-                  <span
-                    className={cn(
-                      'flex size-9 shrink-0 items-center justify-center rounded-lg bg-current/10',
-                      tile.tone,
-                    )}
-                  >
-                    <Icon className="size-4" aria-hidden />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-xl leading-tight font-semibold tabular-nums">
-                      {tile.value}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {tile.label}
-                    </span>
-                  </span>
-                </CardContent>
-              </Card>
-            )
-          })}
+          {tiles.map((tile) => (
+            // Плитка ведёт в «Мои документы» с этим фильтром: счётчик без перехода
+            // к самим документам — тупик. Кнопка, а не ссылка: раздел переключается
+            // состоянием внутри страницы, отдельного URL у него нет.
+            <button
+              key={tile.key}
+              type="button"
+              onClick={() => onOpen('my', tile.status)}
+              className="rounded-xl text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none [&>*]:h-full [&>*]:transition-colors [&>*]:hover:bg-muted/40"
+            >
+              <MetricTile
+                icon={tile.icon}
+                tone={tile.tone}
+                label={tile.label}
+                value={tile.value}
+                loading={overview.isLoading}
+              />
+            </button>
+          ))}
         </div>
       )}
 
@@ -184,6 +157,7 @@ function RequestsCard({ staff, onOpen }: { staff: boolean; onOpen: OverviewOpen 
   return (
     <Panel
       title={t('nav_requests')}
+      subtitle={t(staff ? 'req_overviewHintStaff' : 'req_overviewHintStudent')}
       icon={ClipboardList}
       action={
         total > MAX_ROWS ? (
@@ -221,8 +195,16 @@ function RequestsCard({ staff, onOpen }: { staff: boolean; onOpen: OverviewOpen 
   )
 }
 
+/**
+ * Обёртка над системной `SectionPanel` с состояниями загрузки и пустоты.
+ *
+ * Раньше здесь была своя карточка с шапкой — та же вёрстка, что у `SectionPanel`, но
+ * без подписи и со своим отступом: панели обзора документов и дашборда вуза расходились
+ * на пару пикселей. Иконка уезжает в заголовок — `title` у `SectionPanel` это ReactNode.
+ */
 function Panel({
   title,
+  subtitle,
   icon: Icon,
   action,
   loading,
@@ -230,19 +212,26 @@ function Panel({
   children,
 }: {
   title: string
+  subtitle: string
   icon: LucideIcon
   action?: ReactNode
   loading?: boolean
-  empty?: ReactNode
+  /** Текст пустого состояния. Задан — вместо содержимого рисуется EmptyState. */
+  empty?: string | null
   children: ReactNode
 }) {
   return (
-    <Card className="gap-0 py-0">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-        <Icon className="size-4 text-muted-foreground" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
-        {action}
-      </div>
+    <SectionPanel
+      title={
+        <span className="flex items-center gap-2">
+          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 truncate">{title}</span>
+        </span>
+      }
+      subtitle={subtitle}
+      actions={action}
+      bodyClassName="p-0"
+    >
       <div className="flex flex-col divide-y divide-border">
         {loading ? (
           <div className="flex flex-col gap-2 p-4">
@@ -251,12 +240,18 @@ function Panel({
             ))}
           </div>
         ) : empty ? (
-          <p className="p-4 text-sm text-muted-foreground">{empty}</p>
+          // Пусто выглядит так же, как в списках документов: иконка, заголовок, рамка.
+          // Внутри карточки своя рамка не нужна — её уже рисует панель.
+          <EmptyState
+            icon={<Icon className="size-6" aria-hidden />}
+            title={empty}
+            className="border-0 p-8"
+          />
         ) : (
           children
         )}
       </div>
-    </Card>
+    </SectionPanel>
   )
 }
 

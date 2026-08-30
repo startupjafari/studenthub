@@ -2,8 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { Briefcase, Building2, FileText, UserCheck } from 'lucide-react'
 import { careerEventKeys, fetchUniversityCareerAnalytics } from '../../../entities/career-event'
-import { PageHeader, PageLoader, Progress } from '../../../shared/ui'
+import { MetricTile, PageHeader, PageLoader, Progress, SectionPanel } from '../../../shared/ui'
 
 /**
  * Метрики карьерного модуля вуза.
@@ -27,42 +28,49 @@ export function CareerAnalyticsView() {
     d.profiles.total > 0 ? Math.round((d.profiles.visible / d.profiles.total) * 100) : null
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat value={d.companies.APPROVED ?? 0} label={t('companiesApproved')} />
-        <Stat value={d.vacancies.APPROVED ?? 0} label={t('vacanciesApproved')} />
-        <Stat value={sum(d.funnel)} label={t('applications')} />
-        <Stat value={d.funnel.HIRED ?? 0} label={t('hired')} />
+        <MetricTile
+          icon={Building2}
+          label={t('companiesApproved')}
+          value={d.companies.APPROVED ?? 0}
+        />
+        <MetricTile
+          icon={Briefcase}
+          tone="text-info"
+          label={t('vacanciesApproved')}
+          value={d.vacancies.APPROVED ?? 0}
+        />
+        <MetricTile
+          icon={FileText}
+          tone="text-warning"
+          label={t('applications')}
+          value={sum(d.funnel)}
+        />
+        <MetricTile
+          icon={UserCheck}
+          tone="text-success"
+          label={t('hired')}
+          value={d.funnel.HIRED ?? 0}
+        />
       </div>
 
-      <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-        <p className="text-sm font-semibold">{t('profilesTitle')}</p>
-        <p className="text-sm text-muted-foreground">
-          {t('profilesText', { visible: d.profiles.visible, total: d.profiles.total })}
-        </p>
+      <SectionPanel
+        title={t('profilesTitle')}
+        subtitle={t('profilesText', { visible: d.profiles.visible, total: d.profiles.total })}
+      >
         <Progress value={visibleShare ?? 0} />
-      </section>
+      </SectionPanel>
 
-      <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-        <p className="text-sm font-semibold">{t('ratesTitle')}</p>
+      <SectionPanel title={t('ratesTitle')} subtitle={t('ratesHint')}>
         <ul className="flex flex-col gap-2">
           <RateRow label={t('rateInterview')} value={d.rates.interview} />
           <RateRow label={t('rateOffer')} value={d.rates.offer} />
           <RateRow label={t('rateHired')} value={d.rates.hired} />
         </ul>
-        <p className="text-xs text-muted-foreground">{t('ratesHint')}</p>
-      </section>
-    </div>
-  )
-}
-
-function Stat({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-4">
-      <span className="text-2xl font-semibold tabular-nums">{value}</span>
-      <span className="text-sm text-muted-foreground">{label}</span>
+      </SectionPanel>
     </div>
   )
 }

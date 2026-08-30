@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { GraduationCap, Inbox } from 'lucide-react'
+import { GraduationCap, Inbox, Milestone, TrendingUp } from 'lucide-react'
 import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   EmptyState,
+  MetricTile,
   PageHeader,
   Progress,
   Skeleton,
@@ -63,7 +64,7 @@ export function StudentGradesView() {
   )
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       {q.isLoading ? (
@@ -81,23 +82,26 @@ export function StudentGradesView() {
         <EmptyState icon={<GraduationCap />} title={t('empty')} description={t('emptyHint')} />
       ) : (
         <>
+          {/* Сводка — теми же плитками, что в академическом профиле и на дашбордах:
+              шкала одна на всю платформу, а не своя на каждом экране. */}
           {overall !== null && (
-            <Card>
-              <CardContent className="flex items-center justify-between gap-4 p-5">
-                <div>
-                  <div className="font-heading text-3xl font-semibold tabular-nums">{overall}%</div>
-                  <div className="text-sm text-muted-foreground">{t('overall')}</div>
-                </div>
-                {totalCredits > 0 && (
-                  <div className="text-right">
-                    <div className="font-heading text-xl font-semibold tabular-nums">
-                      {totalCredits}
-                    </div>
-                    <div className="text-xs text-muted-foreground">{t('credits')}</div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <MetricTile
+                icon={TrendingUp}
+                label={t('overall')}
+                value={`${overall}%`}
+                progress={overall}
+                progressTone={toneClass(overall)}
+              />
+              {totalCredits > 0 && (
+                <MetricTile
+                  icon={Milestone}
+                  tone="text-warning"
+                  label={t('credits')}
+                  value={totalCredits}
+                />
+              )}
+            </div>
           )}
 
           <div className="flex flex-col gap-3">

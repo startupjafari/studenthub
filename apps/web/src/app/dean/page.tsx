@@ -1,5 +1,5 @@
-import { RoleLanding } from '../../views/role-landing'
+import { DeanDashboard } from '../../views/dean-dashboard'
 
 export default function Page() {
-  return <RoleLanding variant="dean" />
+  return <DeanDashboard />
 }

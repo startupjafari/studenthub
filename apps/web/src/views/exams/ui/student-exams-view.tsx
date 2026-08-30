@@ -14,7 +14,7 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { examKeys, fetchExams, type ExamItem } from '../../../entities/exam'
-import { EXAM_STATUS_BADGE, EXAM_STATUS_KEY, formatKey } from '../lib/visuals'
+import { EXAM_STATUS_BADGE, EXAM_STATUS_KEY, examFormatKey } from '../lib/visuals'
 
 // Экзамены и сессия студента (задача 11): timeline с допуском, статусом и результатом.
 export function StudentExamsView() {
@@ -31,7 +31,7 @@ export function StudentExamsView() {
   }, [q.data, now])
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('myTitle')} />
 
       {q.isLoading ? (
@@ -92,7 +92,7 @@ function ExamCard({ exam: e }: { exam: ExamItem }) {
             <h3 className="truncate font-heading text-base font-semibold">
               {e.course.subject.name}
             </h3>
-            <span className="text-xs text-muted-foreground">{t(formatKey(e.format))}</span>
+            <span className="text-xs text-muted-foreground">{t(examFormatKey(e.format))}</span>
           </div>
           {r && <Badge variant={EXAM_STATUS_BADGE[r.status]}>{t(EXAM_STATUS_KEY[r.status])}</Badge>}
         </div>

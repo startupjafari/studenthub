@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -44,11 +44,9 @@ import { AddColumnModal } from './add-column-modal'
 
 const cellKey = (columnId: string, studentId: string) => `${columnId}|${studentId}`
 
-// Сортировка матрицы — только по студенту: остальные колонки динамические (оценки),
-// и их порядок задаёт преподаватель. Ссылка стабильная — вне компонента.
-function sortValue(s: GradebookStudent): unknown {
-  return `${s.lastName} ${s.firstName}`
-}
+// Сортировка матрицы — по студенту и по итогу. По самим колонкам оценок нет: они
+// динамические, заголовок у каждой свой, и клик по нему уже занят меню колонки.
+// А «Итого» — главный вопрос преподавателя к журналу: кто внизу.
 
 // Журнал оценок дисциплины: матрица колонок×студентов с inline-редактированием,
 // публикацией колонок (черновик/опубликовано) и итогом. Desktop — таблица, mobile — карточки.
@@ -129,9 +127,10 @@ export function GradebookTable({ courseId }: { courseId: string }) {
     if (ok) removeCol.mutate(col.id)
   }
 
-  const total = useMemo(() => {
+  // Итог числом — на нём же строится сортировка по колонке «Итого».
+  const totalPct = useMemo(() => {
     const cols = q.data?.columns ?? []
-    return (studentId: string): string | null => {
+    return (studentId: string): number | null => {
       const scored = cols
         .map((c) => {
           const raw = values[cellKey(c.id, studentId)]
@@ -141,9 +140,21 @@ export function GradebookTable({ courseId }: { courseId: string }) {
         })
         .filter((x): x is number => x !== null)
       if (scored.length === 0) return null
-      return `${Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)}%`
+      return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)
     }
   }, [q.data?.columns, values])
+  const total = (studentId: string): string | null => {
+    const pct = totalPct(studentId)
+    return pct === null ? null : `${pct}%`
+  }
+
+  // Считает по ЧЕРНОВИКУ (values), поэтому только что проставленный балл сразу меняет
+  // порядок — сортировать по сохранённому значению во время заполнения бессмысленно.
+  const sortValue = useCallback(
+    (s: GradebookStudent, key: string): unknown =>
+      key === 'total' ? totalPct(s.id) : `${s.lastName} ${s.firstName}`,
+    [totalPct],
+  )
 
   // Хук до ранних выходов: порядок хуков не должен зависеть от состояния запроса.
   // Сортировка здесь клиентская намеренно: это не список, а матрица «студенты × колонки»
@@ -238,7 +249,9 @@ export function GradebookTable({ courseId }: { courseId: string }) {
                         </div>
                       </TableHead>
                     ))}
-                    <TableHead className="px-3 text-center">{t('total')}</TableHead>
+                    <TableHead numeric sortKey="total" sort={sort} onSort={toggle} className="px-3">
+                      {t('total')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

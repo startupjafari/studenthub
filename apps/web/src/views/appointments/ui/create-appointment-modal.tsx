@@ -4,7 +4,11 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { CreateAppointmentSchema, type CreateAppointmentInput } from '@studenthub/shared-schemas'
+import {
+  APPOINTMENT_TYPES,
+  CreateAppointmentSchema,
+  type CreateAppointmentInput,
+} from '@studenthub/shared-schemas'
 import {
   Button,
   DateTimePicker,
@@ -20,7 +24,7 @@ import {
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { appointmentKeys, createAppointmentRequest } from '../../../entities/appointment'
-import { APPOINTMENT_TYPES, typeKey } from '../lib/visuals'
+import { APPT_TYPE_KEY } from '../lib/visuals'
 
 // Модалка записи в деканат (студент): тип приёма, желаемое время, тема.
 export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
@@ -74,7 +78,7 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
             <SelectContent>
               {APPOINTMENT_TYPES.map((ty) => (
                 <SelectItem key={ty} value={ty}>
-                  {t(typeKey(ty))}
+                  {t(APPT_TYPE_KEY[ty])}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -82,7 +82,8 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-  DatePicker,
+  DateJumpPicker,
+  formatYmd,
   Modal,
   useConfirm,
 } from '../../../shared/ui'
@@ -2215,20 +2216,18 @@ export function ChatWindow() {
                 >
                   <Search className="size-4" aria-hidden />
                 </button>
-                {/* Переход по дате (#5): выбор прокручивает историю к этому дню и остаётся
-                    в поле; крестик в поле сбрасывает его, никуда не переходя. */}
-                <DatePicker
+                {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
+                    дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
+                    значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
+                    Будущее закрыто: сообщений там заведомо нет. */}
+                <DateJumpPicker
                   value={jumpDate}
                   onChange={(ymd) => {
                     setJumpDate(ymd)
                     if (ymd) void jumpToDate(ymd)
                   }}
-                  placeholder={t('jumpToDate')}
+                  max={formatYmd(new Date())}
                   aria-label={t('jumpToDate')}
-                  size="md"
-                  // Без даты — компактная кнопка под одну иконку; с датой полю нужно место
-                  // под саму дату и крестик очистки, иначе они наезжают друг на друга.
-                  className={cn('shrink-0', jumpDate ? 'w-32 sm:w-44' : 'w-9 sm:w-36')}
                 />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">

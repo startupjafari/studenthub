@@ -22,7 +22,7 @@ import {
   cancelAppointmentRequest,
   type Appointment,
 } from '../../../entities/appointment'
-import { APPT_STATUS_BADGE, APPT_STATUS_KEY, typeKey } from '../lib/visuals'
+import { APPT_STATUS_BADGE, APPT_STATUS_KEY, apptTypeKey } from '../lib/visuals'
 import { CreateAppointmentModal } from './create-appointment-modal'
 
 // «Запись в деканат» студента (задача 16): создание записи + мои записи.
@@ -45,7 +45,7 @@ export function StudentAppointmentsView() {
   })
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}
@@ -108,7 +108,7 @@ function AppointmentCard({
       <CardContent className="flex flex-col gap-2 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold">{t(typeKey(a.type))}</h3>
+            <h3 className="truncate text-sm font-semibold">{t(apptTypeKey(a.type))}</h3>
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <CalendarClock className="size-3.5" aria-hidden />
               {a.scheduledAt ? t('scheduledFor') : t('requestedFor')}{' '}

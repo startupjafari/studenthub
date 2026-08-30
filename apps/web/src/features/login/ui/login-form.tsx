@@ -260,7 +260,7 @@ function TwoFactorStep({
           <button
             type="button"
             onClick={switchMode}
-            className="cursor-pointer self-start rounded text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+            className="cursor-pointer self-center rounded text-center text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
           >
             {backupMode ? t('twoFactorUseAppHint') : t('twoFactorBackupHint')}
           </button>
