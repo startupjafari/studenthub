@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
   canTransitionApplication,
+  EMPLOYER_APPLICATION_STATUSES,
   type ApplicationListQueryInput,
   type CareerApplicationStatus,
   type ChangeApplicationStatusInput,
@@ -34,6 +35,19 @@ const STUDENT_SELECT = {
     },
   },
 } satisfies Prisma.CareerApplicationSelect
+
+/**
+ * Текст уведомления по статусу. Русский — как и остальные письма/уведомления платформы
+ * (полноценный i18n уведомлений — отдельная задача, см. модуль email).
+ */
+const STATUS_BODY: Record<(typeof EMPLOYER_APPLICATION_STATUSES)[number], string> = {
+  VIEWED: 'Компания посмотрела ваш отклик',
+  SHORTLISTED: 'Вас добавили в шорт-лист',
+  INTERVIEW: 'Вас пригласили на интервью',
+  OFFER: 'Вам сделали предложение',
+  HIRED: 'Вас приняли на работу',
+  REJECTED: 'По этому отклику отказ',
+}
 
 @Injectable()
 export class ApplicationsService {
@@ -230,7 +244,13 @@ export class ApplicationsService {
     const companyId = this.access.requireCompany(viewer)
     const application = await this.prisma.careerApplication.findFirst({
       where: { id, companyId },
-      select: { id: true, status: true, studentId: true, vacancyId: true },
+      select: {
+        id: true,
+        status: true,
+        studentId: true,
+        vacancyId: true,
+        vacancy: { select: { title: true } },
+      },
     })
     if (!application) throw new AppException('NOT_FOUND', 'Отклик не найден')
 
@@ -241,13 +261,28 @@ export class ApplicationsService {
 
     await this.transition(application.id, from, input.status, viewer.sub, input.comment)
 
+    const vacancyTitle = application.vacancy.title
+    const statusBody = STATUS_BODY[input.status]
+
     // Студент должен узнать о движении по своей заявке — молчание здесь и есть главная
     // претензия к job-бордам.
+    //
+    // Формат payload задан процессором уведомлений: получателей и готовый текст собирает
+    // продюсер, процессор их только доставляет. Без recipientIds и dedupeKey job молча
+    // отбрасывается — уведомление не дошло бы, а ошибки в логах не было.
+    const dedupeKey = `career-application:${application.id}:${input.status}`
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.APPLICATION_UPDATED,
-      { userId: application.studentId, applicationId: application.id, status: input.status },
-      { jobId: `career-app:${application.id}:${input.status}` },
+      {
+        recipientIds: [application.studentId],
+        type: 'APP_UPDATE',
+        title: vacancyTitle,
+        body: input.comment ?? statusBody,
+        data: { url: '/career/applications' },
+        dedupeKey,
+      },
+      { jobId: dedupeKey },
     )
 
     await this.audit.record({

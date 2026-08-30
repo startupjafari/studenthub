@@ -137,6 +137,7 @@ describe('ApplicationsService — воронка компании', () => {
       status: 'HIRED',
       studentId: 'stu-1',
       vacancyId: 'v-1',
+      vacancy: { title: 'Frontend-стажёр' },
     })
     await expect(
       service.changeStatus(employer, 'a-1', { status: 'REJECTED', comment: 'нет' }, ctx),
@@ -150,6 +151,7 @@ describe('ApplicationsService — воронка компании', () => {
       status: 'SUBMITTED',
       studentId: 'stu-1',
       vacancyId: 'v-1',
+      vacancy: { title: 'Frontend-стажёр' },
     })
 
     await service.changeStatus(employer, 'a-1', { status: 'SHORTLISTED' }, ctx)
@@ -168,11 +170,46 @@ describe('ApplicationsService — воронка компании', () => {
       status: 'SUBMITTED',
       studentId: 'stu-1',
       vacancyId: 'v-1',
+      vacancy: { title: 'Frontend-стажёр' },
     })
 
     await service.changeStatus(employer, 'a-1', { status: 'VIEWED' }, ctx)
 
-    expect(queue.enqueue).toHaveBeenCalled()
+    // Проверяем именно ФОРМАТ payload: без recipientIds и dedupeKey процессор
+    // уведомлений молча отбрасывает job — уведомление не дошло бы, и в логах было бы
+    // тихо. Ровно это я и написал в первой версии.
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        dedupeKey: expect.any(String),
+        type: 'APP_UPDATE',
+        title: 'Frontend-стажёр',
+        body: expect.any(String),
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('причина отказа уходит студенту вместо шаблонного текста', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.careerApplication.findFirst.mockResolvedValue({
+      id: 'a-1',
+      status: 'SUBMITTED',
+      studentId: 'stu-1',
+      vacancyId: 'v-1',
+      vacancy: { title: 'Frontend-стажёр' },
+    })
+
+    await service.changeStatus(employer, 'a-1', { status: 'REJECTED', comment: 'нужен опыт' }, ctx)
+
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ body: 'нужен опыт' }),
+      expect.anything(),
+    )
   })
 
   it('чужой отклик компании недоступен', async () => {
