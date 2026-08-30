@@ -235,8 +235,9 @@ model Vacancy {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  company Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  reviews VacancyUniversityReview[]
+  company      Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  reviews      VacancyUniversityReview[]
+  applications CareerApplication[]
 
   @@index([companyId, status])
   @@index([status, publishedAt])
@@ -273,4 +274,63 @@ model VacancyUniversityReview {
   @@unique([vacancyId, universityId])
   @@index([universityId, status])
   @@map("vacancy_university_reviews")
+}
+
+// ── Отклики (18.D) ───────────────────────────────────────────────────────────
+
+/**
+ * Отклик студента на вакансию.
+ * Модель построена по образцу заявок-услуг вуза (16-application-services.prisma):
+ * статус на записи + отдельная таблица событий с полной историей переходов. История
+ * обязательна: и студент, и компания должны видеть, что и когда происходило, а спор
+ * «мне не отвечали» решается журналом, а не памятью.
+ */
+model CareerApplication {
+  id           String @id @default(uuid())
+  vacancyId    String @map("vacancy_id")
+  studentId    String @map("student_id")
+  companyId    String @map("company_id")
+  // Вуз студента на момент отклика: компания могла потерять допуск позже, и выборки
+  // работодателя должны опираться на зафиксированное значение, а не на текущий профиль.
+  universityId String @map("university_id")
+
+  // SUBMITTED | VIEWED | SHORTLISTED | INTERVIEW | OFFER | HIRED | REJECTED | WITHDRAWN
+  status String @default("SUBMITTED")
+
+  coverLetter String? @map("cover_letter")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vacancy Vacancy                  @relation(fields: [vacancyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student User                     @relation("StudentCareerApplications", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  events  CareerApplicationEvent[]
+
+  // Один отклик на вакансию от студента: повторная отправка — это не новый отклик.
+  @@unique([vacancyId, studentId])
+  @@index([studentId, status])
+  @@index([companyId, status])
+  @@index([vacancyId, status])
+  @@map("career_applications")
+}
+
+/**
+ * Событие в истории отклика: кто и когда перевёл в какой статус.
+ */
+model CareerApplicationEvent {
+  id            String @id @default(uuid())
+  applicationId String @map("application_id")
+
+  fromStatus String? @map("from_status")
+  toStatus   String  @map("to_status")
+  comment    String?
+  // Кто выполнил переход. Скаляр без FK — как actorId в «Документах».
+  actorId    String  @map("actor_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  application CareerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("career_application_events")
 }

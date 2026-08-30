@@ -74,7 +74,8 @@
     "companies": "Компании",
     "companyProfile": "Компания",
     "universityAccess": "Университеты",
-    "vacancyReview": "Модерация вакансий"
+    "vacancyReview": "Модерация вакансий",
+    "candidates": "Кандидаты"
   },
   "Products": {
     "switch": "Переключить продукт",
@@ -255,6 +256,30 @@
     "reviewPending": "на модерации",
     "reviewApproved": "показывается",
     "reviewRejected": "отклонена"
+  },
+  "CareerApplications": {
+    "title": "Мои отклики",
+    "subtitle": "Что происходит с вашими заявками",
+    "empty": "Откликов пока нет",
+    "emptyHint": "Найдите вакансию и откликнитесь — статус появится здесь.",
+    "withdraw": "Отозвать",
+    "withdrawn": "Отклик отозван",
+    "cancel": "Отмена",
+    "pipelineTitle": "Кандидаты",
+    "pipelineSubtitle": "Отклики на ваши вакансии",
+    "pipelineEmpty": "Откликов нет",
+    "pipelineEmptyHint": "Отклики появятся, когда студенты увидят опубликованные вакансии.",
+    "statusChanged": "Статус изменён",
+    "rejectReason": "Причина отказа",
+    "rejectReasonPlaceholder": "Её увидит студент — без неё отказ выглядит как молчание",
+    "statusSubmitted": "Отправлен",
+    "statusViewed": "Просмотрен",
+    "statusShortlisted": "В шорт-листе",
+    "statusInterview": "Интервью",
+    "statusOffer": "Оффер",
+    "statusHired": "Принят",
+    "statusRejected": "Отказ",
+    "statusWithdrawn": "Отозван"
   },
   "Invites": {
     "emailInvalid": "Проверьте адрес — похоже, в нём опечатка",

@@ -166,9 +166,10 @@ model User {
   portfolioItems           PortfolioItem[]      @relation("UserPortfolio")
 
   // Карьера (Ф18): членство в компании-работодателе. Уникально — один человек, одна компания.
-  companyMembership CompanyMember?  @relation("UserCompanyMemberships")
-  careerProfile     CareerProfile?  @relation("UserCareerProfile")
-  careerConsents    CareerConsent[] @relation("UserCareerConsents")
+  companyMembership  CompanyMember?      @relation("UserCompanyMemberships")
+  careerProfile      CareerProfile?      @relation("UserCareerProfile")
+  careerConsents     CareerConsent[]     @relation("UserCareerConsents")
+  careerApplications CareerApplication[] @relation("StudentCareerApplications")
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).

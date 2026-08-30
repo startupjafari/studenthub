@@ -74,7 +74,8 @@
     "companies": "Companies",
     "companyProfile": "Company",
     "universityAccess": "Universities",
-    "vacancyReview": "Job moderation"
+    "vacancyReview": "Job moderation",
+    "candidates": "Candidates"
   },
   "Products": {
     "switch": "Switch product",
@@ -255,6 +256,30 @@
     "reviewPending": "in review",
     "reviewApproved": "shown",
     "reviewRejected": "rejected"
+  },
+  "CareerApplications": {
+    "title": "My applications",
+    "subtitle": "What is happening with your applications",
+    "empty": "No applications yet",
+    "emptyHint": "Find a job and apply — the status will appear here.",
+    "withdraw": "Withdraw",
+    "withdrawn": "Application withdrawn",
+    "cancel": "Cancel",
+    "pipelineTitle": "Candidates",
+    "pipelineSubtitle": "Applications to your jobs",
+    "pipelineEmpty": "No applications",
+    "pipelineEmptyHint": "Applications appear once students see your published jobs.",
+    "statusChanged": "Status changed",
+    "rejectReason": "Reason for rejection",
+    "rejectReasonPlaceholder": "The student will see it — without it a rejection reads as silence",
+    "statusSubmitted": "Submitted",
+    "statusViewed": "Viewed",
+    "statusShortlisted": "Shortlisted",
+    "statusInterview": "Interview",
+    "statusOffer": "Offer",
+    "statusHired": "Hired",
+    "statusRejected": "Rejected",
+    "statusWithdrawn": "Withdrawn"
   },
   "Invites": {
     "emailInvalid": "Check the address — it looks malformed",

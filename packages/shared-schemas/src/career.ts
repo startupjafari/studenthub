@@ -440,3 +440,89 @@ export function matchVacancy({ vacancy, profile }: MatchInput): MatchResult {
 
   return { score, matchedSkills, missingSkills }
 }
+
+// ── Отклики (18.D) ───────────────────────────────────────────────────────────
+
+export const CAREER_APPLICATION_STATUSES = [
+  'SUBMITTED',
+  'VIEWED',
+  'SHORTLISTED',
+  'INTERVIEW',
+  'OFFER',
+  'HIRED',
+  'REJECTED',
+  'WITHDRAWN',
+] as const
+export const CareerApplicationStatusSchema = z.enum(CAREER_APPLICATION_STATUSES)
+export type CareerApplicationStatus = z.infer<typeof CareerApplicationStatusSchema>
+
+/**
+ * Разрешённые переходы воронки. Держим в контракте: и API, и интерфейс должны одинаково
+ * понимать, какие кнопки показывать компании и что вообще возможно.
+ *
+ * Отказать можно на любом этапе до найма. Отозвать отклик может только студент — он же
+ * единственный переход, доступный ему; конечные состояния (HIRED, REJECTED, WITHDRAWN)
+ * не ведут никуда.
+ */
+export const CAREER_APPLICATION_TRANSITIONS: Record<
+  CareerApplicationStatus,
+  readonly CareerApplicationStatus[]
+> = {
+  SUBMITTED: ['VIEWED', 'SHORTLISTED', 'REJECTED', 'WITHDRAWN'],
+  VIEWED: ['SHORTLISTED', 'REJECTED', 'WITHDRAWN'],
+  SHORTLISTED: ['INTERVIEW', 'REJECTED', 'WITHDRAWN'],
+  INTERVIEW: ['OFFER', 'REJECTED', 'WITHDRAWN'],
+  OFFER: ['HIRED', 'REJECTED', 'WITHDRAWN'],
+  HIRED: [],
+  REJECTED: [],
+  WITHDRAWN: [],
+}
+
+export function canTransitionApplication(
+  from: CareerApplicationStatus,
+  to: CareerApplicationStatus,
+): boolean {
+  return CAREER_APPLICATION_TRANSITIONS[from].includes(to)
+}
+
+/** Переходы, доступные компании: отзыв отклика — право только студента. */
+export const EMPLOYER_APPLICATION_STATUSES = [
+  'VIEWED',
+  'SHORTLISTED',
+  'INTERVIEW',
+  'OFFER',
+  'HIRED',
+  'REJECTED',
+] as const
+
+/** Конечные состояния: дальше воронка не идёт. */
+export function isApplicationFinal(status: CareerApplicationStatus): boolean {
+  return CAREER_APPLICATION_TRANSITIONS[status].length === 0
+}
+
+export const CreateApplicationSchema = z.object({
+  vacancyId: z.string().uuid(),
+  coverLetter: optionalText(4000),
+})
+export type CreateApplicationInput = z.infer<typeof CreateApplicationSchema>
+
+/**
+ * Смена статуса компанией. Причина обязательна при отказе: это единственный момент,
+ * когда студенту есть что узнать, и без неё отклик превращается в молчание.
+ */
+export const ChangeApplicationStatusSchema = z
+  .object({
+    status: z.enum(EMPLOYER_APPLICATION_STATUSES),
+    comment: optionalText(2000),
+  })
+  .refine((v) => v.status !== 'REJECTED' || !!v.comment, {
+    message: 'Укажите причину отказа',
+    path: ['comment'],
+  })
+export type ChangeApplicationStatusInput = z.infer<typeof ChangeApplicationStatusSchema>
+
+export const ApplicationListQuerySchema = OffsetPaginationSchema.extend({
+  status: CareerApplicationStatusSchema.optional(),
+  vacancyId: z.string().uuid().optional(),
+})
+export type ApplicationListQueryInput = z.infer<typeof ApplicationListQuerySchema>

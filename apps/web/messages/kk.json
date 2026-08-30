@@ -74,7 +74,8 @@
     "companies": "Компаниялар",
     "companyProfile": "Компания",
     "universityAccess": "Университеттер",
-    "vacancyReview": "Вакансиялар модерациясы"
+    "vacancyReview": "Вакансиялар модерациясы",
+    "candidates": "Үміткерлер"
   },
   "Products": {
     "switch": "Өнімді ауыстыру",
@@ -255,6 +256,30 @@
     "reviewPending": "модерацияда",
     "reviewApproved": "көрсетіледі",
     "reviewRejected": "қабылданбады"
+  },
+  "CareerApplications": {
+    "title": "Менің өтінімдерім",
+    "subtitle": "Өтінімдеріңізбен не болып жатыр",
+    "empty": "Өтінімдер әзірге жоқ",
+    "emptyHint": "Вакансия тауып, өтінім беріңіз — мәртебе осында пайда болады.",
+    "withdraw": "Қайтарып алу",
+    "withdrawn": "Өтінім қайтарылды",
+    "cancel": "Болдырмау",
+    "pipelineTitle": "Үміткерлер",
+    "pipelineSubtitle": "Вакансияларыңызға өтінімдер",
+    "pipelineEmpty": "Өтінімдер жоқ",
+    "pipelineEmptyHint": "Студенттер жарияланған вакансияларды көргенде өтінімдер пайда болады.",
+    "statusChanged": "Мәртебе өзгертілді",
+    "rejectReason": "Бас тарту себебі",
+    "rejectReasonPlaceholder": "Оны студент көреді — онсыз бас тарту үнсіздік болып көрінеді",
+    "statusSubmitted": "Жіберілді",
+    "statusViewed": "Қаралды",
+    "statusShortlisted": "Шорт-парақта",
+    "statusInterview": "Сұхбат",
+    "statusOffer": "Ұсыныс",
+    "statusHired": "Қабылданды",
+    "statusRejected": "Бас тарту",
+    "statusWithdrawn": "Қайтарылды"
   },
   "Invites": {
     "emailInvalid": "Мекенжайды тексеріңіз — қате бар сияқты",
