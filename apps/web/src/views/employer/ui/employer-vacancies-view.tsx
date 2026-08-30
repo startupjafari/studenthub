@@ -33,6 +33,7 @@ import { toApiError } from '../../../shared/lib'
  */
 export function EmployerVacanciesView() {
   const t = useTranslations('EmployerVacancies')
+  const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const limit = 20
@@ -69,6 +70,10 @@ export function EmployerVacanciesView() {
             </li>
           ))}
         </ul>
+      ) : query.isError ? (
+        // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
+        // «пусто», выглядят как «данных нет» и прячут настоящую причину.
+        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Briefcase className="size-6" aria-hidden />}

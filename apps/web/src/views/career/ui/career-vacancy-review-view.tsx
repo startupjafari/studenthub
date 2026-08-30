@@ -34,6 +34,7 @@ type Filter = VacancyReviewStatus | 'ALL'
  */
 export function CareerVacancyReviewView() {
   const t = useTranslations('CareerAdmin')
+  const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<Filter>('PENDING')
   const [page, setPage] = useState(1)
@@ -93,6 +94,10 @@ export function CareerVacancyReviewView() {
             </li>
           ))}
         </ul>
+      ) : query.isError ? (
+        // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
+        // «пусто», выглядят как «данных нет» и прячут настоящую причину.
+        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Briefcase className="size-6" aria-hidden />}
