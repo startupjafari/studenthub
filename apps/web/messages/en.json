@@ -957,7 +957,8 @@
     "DEAN": "Dean",
     "TEACHER": "Teacher",
     "STAROSTA": "Group leader",
-    "STUDENT": "Student"
+    "STUDENT": "Student",
+    "EMPLOYER": "Employer"
   },
   "FileUpload": {
     "dropHint": "Drag a file here or click to choose",
