@@ -17,6 +17,18 @@ export interface InvitePayload {
   expiresAt: string
 }
 
+/**
+ * Подтверждение адреса при самостоятельной регистрации работодателя (Ф18).
+ * Единственный сценарий на платформе, где email не проверен инвайтом заранее, — поэтому
+ * до перехода по ссылке компания не видна ни одному вузу.
+ */
+export interface CompanyVerificationPayload {
+  to: string
+  companyName: string
+  verifyUrl: string
+  expiresAt: string
+}
+
 export interface WelcomePayload {
   to: string
   firstName: string
@@ -106,6 +118,24 @@ export function renderInvite(data: InvitePayload): RenderedEmail {
   )
   const text = `${invitedBy} присоединиться к ${BRAND} в роли «${data.roleLabel}».
 Завершите регистрацию по ссылке: ${data.inviteUrl}
+Ссылка действует до ${data.expiresAt}.`
+  return { subject, html, text }
+}
+
+export function renderCompanyVerification(data: CompanyVerificationPayload): RenderedEmail {
+  const subject = `Подтвердите email компании в ${BRAND}`
+  const html = layout(
+    'Подтвердите адрес',
+    paragraph(
+      `Вы зарегистрировали компанию «${data.companyName}» в ${BRAND}. Подтвердите адрес, чтобы подать заявку на доступ к студентам университета.`,
+    ) +
+      `<p style="margin:0 0 24px;">${button(data.verifyUrl, 'Подтвердить email')}</p>` +
+      paragraph(
+        `Ссылка действует до ${data.expiresAt}. Если вы не регистрировались — просто проигнорируйте это письмо, аккаунт останется неактивным.`,
+      ),
+  )
+  const text = `Вы зарегистрировали компанию «${data.companyName}» в ${BRAND}.
+Подтвердите адрес по ссылке: ${data.verifyUrl}
 Ссылка действует до ${data.expiresAt}.`
   return { subject, html, text }
 }

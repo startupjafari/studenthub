@@ -10,6 +10,9 @@ enum Role {
   TEACHER
   STAROSTA
   STUDENT
+  // Работодатель (Фаза 18). Единственная роль вне вуза: скоуп у неё не universityId,
+  // а компания, и доступ к студентам считается по CompanyUniversityAccess.
+  EMPLOYER
 }
 
 enum UniversityStatus {

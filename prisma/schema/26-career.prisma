@@ -1,0 +1,120 @@
+// Домен «Карьера» (Фаза 18): компании-работодатели и их допуск к студентам вузов.
+//
+// Ключевая идея модели доступа: у работодателя НЕТ одного universityId. Компания подаёт
+// заявку в каждый вуз отдельно, вуз её одобряет, и работодатель видит студентов ровно тех
+// вузов, где допуск активен. Поэтому доступ считается по паре «компания ↔ вуз»
+// (CompanyUniversityAccess), а не по скоупу из токена: отзыв допуска обязан действовать
+// немедленно, а не после истечения access-токена.
+//
+// Статусы — строками (стиль новых доменов, как в «Документах» и «Услугах»); контракт —
+// в @studenthub/shared-schemas (единый источник истины для state-machine и форм).
+
+// Компания-работодатель. Создаётся при самостоятельной регистрации работодателя
+// (публичный эндпоинт) либо приглашением от вуза.
+//
+// status — ПЛАТФОРМЕННЫЙ статус, отдельный от допусков вузов:
+// PENDING_EMAIL | ACTIVE | BLOCKED. Пока email не подтверждён — компания не видна никому.
+// BLOCKED ставит платформа: спам в несколько вузов не должен разбираться каждым вузом
+// отдельно.
+model Company {
+  id          String  @id @default(uuid())
+  name        String
+  // Человекочитаемый идентификатор для публичной страницы компании.
+  slug        String  @unique
+  description String?
+  // Сайт и город — витрина компании для студента.
+  website     String?
+  // Код КАТО (kato_units.code) либо свободный текст для зарубежной компании — как у вуза.
+  city        String?
+  // Логотип: File в публичном бакете (как обложка профиля). Скаляр без FK — файл может
+  // быть заменён, а компания жить дальше.
+  logoUrl     String? @map("logo_url")
+
+  status String @default("PENDING_EMAIL")
+
+  // Подтверждение адреса при самостоятельной регистрации. Токен хранится ХЭШЕМ —
+  // в открытом виде в БД его быть не должно, как у refresh-токенов. Одноразовый:
+  // после подтверждения оба поля гасятся.
+  emailVerificationHash      String?   @map("email_verification_hash")
+  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
+
+  // Причина блокировки платформой — показывается владельцу компании.
+  blockedReason String?   @map("blocked_reason")
+  blockedAt     DateTime? @map("blocked_at")
+
+  // Кто зарегистрировал. Скаляр без обратной связи: владелец определяется через
+  // CompanyMember с ролью OWNER, а этот след нужен для аудита.
+  createdById String? @map("created_by_id")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  members          CompanyMember[]
+  universityAccess CompanyUniversityAccess[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("companies")
+}
+
+// Человек, работающий от имени компании. role: OWNER | RECRUITER.
+// OWNER подаёт заявки в вузы и управляет составом; RECRUITER работает с вакансиями.
+model CompanyMember {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  userId    String   @map("user_id")
+  role      String   @default("RECRUITER")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User    @relation("UserCompanyMemberships", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Один человек — одна компания: аккаунт работодателя привязан к своей компании,
+  // переход в другую = новый аккаунт. Так проще и безопаснее считать доступ.
+  @@unique([userId])
+  @@index([companyId])
+  @@map("company_members")
+}
+
+// Заявка компании на допуск к студентам конкретного вуза и решение по ней.
+// Это и есть единица доступа: работодатель видит студентов вуза тогда и только тогда,
+// когда здесь лежит APPROVED-запись без истёкшего срока.
+//
+// status: REQUESTED | APPROVED | REJECTED | REVOKED
+// (REVOKED — отзыв ранее выданного допуска; REJECTED — отказ по заявке.)
+model CompanyUniversityAccess {
+  id           String @id @default(uuid())
+  companyId    String @map("company_id")
+  universityId String @map("university_id")
+
+  status  String  @default("REQUESTED")
+  // Сопроводительное сообщение компании — вузу нужно понимать, кого он пускает.
+  message String?
+
+  requestedById String   @map("requested_by_id")
+  requestedAt   DateTime @default(now()) @map("requested_at")
+
+  // Кто из сотрудников вуза рассмотрел. Скаляр без FK — как assignedToId в «Услугах».
+  decidedById String?   @map("decided_by_id")
+  decidedAt   DateTime? @map("decided_at")
+  // Причина отказа или отзыва — показывается компании.
+  reason      String?
+
+  // Срок действия допуска. null — бессрочно; истёкший допуск не даёт доступа,
+  // проверяется в запросе, отдельной джобы не требует.
+  expiresAt DateTime? @map("expires_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university University @relation("UniversityCompanyAccess", fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Одна заявка на пару «компания ↔ вуз»: повторное обращение меняет статус существующей,
+  // иначе история отказов превратилась бы в способ спамить вуз.
+  @@unique([companyId, universityId])
+  @@index([universityId, status])
+  @@index([companyId, status])
+  @@map("company_university_access")
+}

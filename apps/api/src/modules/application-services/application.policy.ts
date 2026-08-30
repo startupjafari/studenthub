@@ -47,6 +47,8 @@ const ROLE_ACTIONS: Record<Role, AppAction[]> = {
   [Role.UNIVERSITY_ADMIN]: ['read:university', 'manage-services', ...STAFF_ACTIONS],
   [Role.PLATFORM_ADMIN]: ['read:all', 'manage-services'],
   [Role.PLATFORM_MODERATOR]: [],
+  // Работодатель (Ф18) вне вуза: услуги вуза его не касаются.
+  [Role.EMPLOYER]: [],
 }
 
 // Поля заявки, достаточные для scope-решений (без загрузки всей записи).
