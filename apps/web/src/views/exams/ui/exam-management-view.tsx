@@ -4,21 +4,11 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import {
-  CalendarClock,
-  GraduationCap,
-  Inbox,
-  MapPin,
-  MoreHorizontal,
-  Plus,
-  Trash2,
-  Users,
-} from 'lucide-react'
+import { GraduationCap, Inbox, MoreHorizontal, Plus, Trash2, Users } from 'lucide-react'
 import {
   Badge,
   Button,
   Card,
-  CardContent,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -26,12 +16,27 @@ import {
   EmptyState,
   PageHeader,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import { examKeys, fetchExams, deleteExamRequest, type ExamItem } from '../../../entities/exam'
-import { formatKey } from '../lib/visuals'
+import { examFormatKey } from '../lib/visuals'
 import { CreateExamModal } from './create-exam-modal'
 import { ExamResultsRoster } from './exam-results-roster'
+
+// Дисциплина забирает остаток ширины: остальные колонки — короткие и предсказуемые.
+const COLS = ['32%', '18%', '14%', '14%', '16%', '3.5rem'] as const
+// Узкий экран оставляет дисциплину, дату и формат — по ним сессию и читают.
+const HIDE = { group: 'hidden md:table-cell', room: 'hidden lg:table-cell' } as const
 
 // Управление экзаменами (декан/преподаватель): список + назначение + ведомость.
 export function ExamManagementView({ mine }: { mine: boolean }) {
@@ -53,12 +58,31 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
+  const rows = q.data ?? []
+  // По умолчанию — ближайший экзамен сверху: сессию читают по датам.
+  const {
+    rows: sorted,
+    sort,
+    toggle,
+  } = useTableSort<ExamItem>(
+    rows,
+    (e, key) => {
+      if (key === 'subject') return e.course.subject.name
+      if (key === 'date') return e.date
+      if (key === 'group') return e.group.name
+      if (key === 'room') return e.room?.name ?? null
+      if (key === 'format') return e.format
+      return null
+    },
+    { key: 'date', dir: 'asc' },
+  )
+
   if (rosterId) {
     return <ExamResultsRoster examId={rosterId} onBack={() => setRosterId(null)} />
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('manageTitle')}
         actions={
@@ -69,37 +93,107 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
         }
       />
 
-      {q.isLoading ? (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      ) : q.isError ? (
+      {q.isError ? (
         <EmptyState
-          icon={<Inbox />}
+          icon={<Inbox className="size-6" aria-hidden />}
           title={t('loadError')}
           action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
         />
-      ) : (q.data ?? []).length === 0 ? (
+      ) : !q.isLoading && rows.length === 0 ? (
         <EmptyState
-          icon={<GraduationCap />}
+          icon={<GraduationCap className="size-6" aria-hidden />}
           title={t('manageEmpty')}
           description={t('manageEmptyHint')}
+          action={
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('newExam')}
+            </Button>
+          }
         />
       ) : (
-        <ul className="flex flex-col gap-2">
-          {(q.data ?? []).map((e) => (
-            <li key={e.id}>
-              <ExamRow
-                exam={e}
-                locale={locale}
-                onOpen={() => setRosterId(e.id)}
-                onDelete={() => remove.mutate(e.id)}
-                t={t}
-              />
-            </li>
-          ))}
-        </ul>
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="subject" sort={sort} onSort={toggle}>
+                  {t('colSubject')}
+                </TableHead>
+                <TableHead sortKey="date" sort={sort} onSort={toggle}>
+                  {t('colDate')}
+                </TableHead>
+                <TableHead sortKey="group" sort={sort} onSort={toggle} className={HIDE.group}>
+                  {t('colGroup')}
+                </TableHead>
+                <TableHead sortKey="room" sort={sort} onSort={toggle} className={HIDE.room}>
+                  {t('colRoom')}
+                </TableHead>
+                <TableHead sortKey="format" sort={sort} onSort={toggle}>
+                  {t('format')}
+                </TableHead>
+                <TableHead>
+                  <span className="sr-only">{t('actions')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {q.isLoading && <SkeletonRows />}
+              {sorted.map((e) => (
+                <TableRow
+                  key={e.id}
+                  onClick={() => setRosterId(e.id)}
+                  className="cursor-pointer hover:bg-muted/40"
+                >
+                  <TableCell className="font-medium">
+                    <TableText value={e.course.subject.name} />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                    {new Date(e.date).toLocaleString(locale, {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </TableCell>
+                  <TableCell className={cn(HIDE.group, 'text-muted-foreground')}>
+                    <TableText value={e.group.name} />
+                  </TableCell>
+                  <TableCell className={cn(HIDE.room, 'text-muted-foreground')}>
+                    {e.room ? <TableText value={e.room.name} /> : <TableEmpty />}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">{t(examFormatKey(e.format))}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon
+                          aria-label={t('actions')}
+                          onClick={(ev) => ev.stopPropagation()}
+                        >
+                          <MoreHorizontal className="size-4" aria-hidden />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setRosterId(e.id)}>
+                          <Users aria-hidden />
+                          {t('openRoster')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onClick={() => remove.mutate(e.id)}>
+                          <Trash2 aria-hidden />
+                          {t('delete')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
       {creating && <CreateExamModal mine={mine} onClose={() => setCreating(false)} />}
@@ -107,74 +201,20 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   )
 }
 
-function ExamRow({
-  exam: e,
-  locale,
-  onOpen,
-  onDelete,
-  t,
-}: {
-  exam: ExamItem
-  locale: string
-  onOpen: () => void
-  onDelete: () => void
-  t: ReturnType<typeof useTranslations>
-}) {
-  const d = new Date(e.date)
+// Те же классы скрытия, что и у данных: на время загрузки геометрия не меняется.
+function SkeletonRows({ rows = 8 }: { rows?: number }) {
+  const cells = [undefined, undefined, HIDE.group, HIDE.room, undefined, undefined]
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3 p-3.5">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-        >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <GraduationCap className="size-4" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{e.course.subject.name}</span>
-            <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <CalendarClock className="size-3" aria-hidden />
-                {d.toLocaleString(locale, {
-                  day: '2-digit',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
-              <span>{e.group.name}</span>
-              {e.room && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="size-3" aria-hidden />
-                  {e.room.name}
-                </span>
-              )}
-            </span>
-          </span>
-          <Badge variant="secondary" className="shrink-0">
-            {t(formatKey(e.format))}
-          </Badge>
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" icon aria-label={t('actions')}>
-              <MoreHorizontal className="size-4" aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onOpen}>
-              <Users aria-hidden />
-              {t('openRoster')}
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 aria-hidden />
-              {t('delete')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </CardContent>
-    </Card>
+    <>
+      {Array.from({ length: rows }).map((_, r) => (
+        <TableRow key={r}>
+          {cells.map((cls, c) => (
+            <TableCell key={c} className={cls}>
+              <Skeleton className="h-4 w-full" />
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
   )
 }

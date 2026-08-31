@@ -212,7 +212,8 @@ describe('Auth (e2e)', () => {
         .post('/api/v1/auth/2fa/setup')
         .set('Authorization', `Bearer ${token}`)
       const secret = setup.body.data.secret as string
-      expect(setup.body.data.qr).toContain('data:image/png;base64,')
+      // QR отдаётся как SVG (common/qr/qr-image.ts) — фирменный рендер со скруглениями и логотипом.
+      expect(setup.body.data.qr).toContain('data:image/svg+xml;base64,')
       const enable = await request(server)
         .post('/api/v1/auth/2fa/enable')
         .set('Authorization', `Bearer ${token}`)

@@ -4,25 +4,14 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import {
-  AlertTriangle,
-  ArrowRight,
-  CalendarDays,
-  ClipboardList,
-  FileClock,
-  FileText,
-  Inbox,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CalendarDays, FileClock, FileText, Inbox } from 'lucide-react'
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   EmptyState,
+  MetricTile,
   PageHeader,
+  SectionPanel,
   Skeleton,
 } from '../../../shared/ui'
 import { nowInTz, isoWeekParity } from '../../../shared/lib'
@@ -70,7 +59,7 @@ export function DeanToday() {
 
   if (schedule.isLoading) {
     return (
-      <div className="flex w-full flex-col gap-6">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <Skeleton className="h-24 w-full rounded-xl" />
       </div>
@@ -78,50 +67,55 @@ export function DeanToday() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} subtitle={greetingDate} />
 
+      {/* Плитки — системные MetricTile: та же шкала, что на дашборде вуза и в обзоре
+          документов. Тон несёт чип иконки, число остаётся текстовым токеном; исключение —
+          «Просрочено», где тревожно само значение. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile
+        <MetricTile
           icon={CalendarDays}
           label={t('kpi.classesToday')}
           value={dayPairs.length}
           href="/dean/schedule"
         />
-        <StatTile
+        <MetricTile
           icon={AlertTriangle}
+          tone={todayChanges.length > 0 ? 'text-warning' : 'text-muted-foreground'}
           label={t('kpi.scheduleIssues')}
           value={todayChanges.length}
-          tone={todayChanges.length > 0 ? 'warning' : 'default'}
           href="/dean/schedule"
         />
-        <StatTile
+        <MetricTile
           icon={FileText}
+          tone="text-info"
           label={t('kpi.newApplications')}
           value={queue.data?.new ?? 0}
+          loading={queue.isLoading}
           href="/dean/applications"
         />
-        <StatTile
+        <MetricTile
           icon={FileClock}
+          tone="text-destructive"
           label={t('kpi.overdue')}
           value={queue.data?.overdue ?? 0}
-          tone={(queue.data?.overdue ?? 0) > 0 ? 'destructive' : 'default'}
+          valueTone={(queue.data?.overdue ?? 0) > 0 ? 'text-destructive' : undefined}
+          loading={queue.isLoading}
           href="/dean/applications"
         />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <AlertTriangle className="size-4 text-primary" aria-hidden />
-                {t('scheduleIssuesToday')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <SectionPanel title={t('scheduleIssuesToday')} subtitle={t('scheduleIssuesTodayHint')}>
+            <>
               {todayChanges.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('noScheduleIssues')}</p>
+                <EmptyState
+                  icon={<AlertTriangle className="size-6" aria-hidden />}
+                  title={t('noScheduleIssues')}
+                  className="border-0 p-6"
+                />
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {todayChanges.map((c) => {
@@ -157,19 +151,17 @@ export function DeanToday() {
                   })}
                 </ul>
               )}
-            </CardContent>
-          </Card>
+            </>
+          </SectionPanel>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ClipboardList className="size-4 text-primary" aria-hidden />
-                {t('applicationsQueue')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
+          <SectionPanel title={t('applicationsQueue')} subtitle={t('applicationsQueueHint')}>
+            <div className="flex flex-col gap-3">
               {queue.isError ? (
-                <EmptyState icon={<Inbox />} title={t('loadError')} />
+                <EmptyState
+                  icon={<Inbox className="size-6" aria-hidden />}
+                  title={t('loadError')}
+                  className="border-0 p-6"
+                />
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -188,8 +180,8 @@ export function DeanToday() {
                   </Button>
                 </>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </SectionPanel>
         </div>
 
         <RecentChanges notifications={notifications.data ?? []} />
@@ -198,44 +190,13 @@ export function DeanToday() {
   )
 }
 
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  href,
-  tone = 'default',
-}: {
-  icon: LucideIcon
-  label: string
-  value: number
-  href: string
-  tone?: 'default' | 'warning' | 'destructive'
-}) {
-  const toneCls =
-    tone === 'destructive'
-      ? 'text-destructive'
-      : tone === 'warning'
-        ? 'text-warning-foreground dark:text-warning'
-        : 'text-foreground'
-  return (
-    <Link href={href}>
-      <Card className="transition-colors hover:bg-muted/40">
-        <CardContent className="flex flex-col gap-1 p-4">
-          <Icon className="size-4 text-muted-foreground" aria-hidden />
-          <span className={`font-heading text-2xl font-semibold tabular-nums ${toneCls}`}>
-            {value}
-          </span>
-          <span className="text-xs text-muted-foreground">{label}</span>
-        </CardContent>
-      </Card>
-    </Link>
-  )
-}
-
+// Мини-показатель внутри панели очереди. Не MetricTile: три плитки с чипами иконок
+// внутри панели перебивают её собственную шапку — здесь нужны только числа.
+// Кегль и подпись — те же, что у MetricTile, чтобы шкала не расходилась.
 function QueueStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-border p-2.5">
-      <div className="font-heading text-lg font-semibold tabular-nums">{value}</div>
+      <div className="text-xl leading-tight font-semibold tabular-nums">{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   )

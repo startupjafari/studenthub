@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { createHash, randomUUID } from 'node:crypto'
 import type Redis from 'ioredis'
-import * as QRCode from 'qrcode'
+import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { EnvVars } from '../../config/env.schema'
@@ -50,7 +50,7 @@ export class QrLoginService {
     await this.redis.set(tokKey(approveToken), qrId, 'EX', TTL_SECONDS)
 
     const url = `${this.webBase()}/qr?t=${approveToken}`
-    const qr = await QRCode.toDataURL(url)
+    const qr = renderQrDataUrl(url)
     return { qrId, qr, claimSecret, expiresIn: TTL_SECONDS }
   }
 

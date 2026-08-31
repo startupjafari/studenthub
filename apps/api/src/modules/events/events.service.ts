@@ -28,6 +28,9 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
   [Role.DEAN]: [PostAudience.FACULTY, PostAudience.GROUP],
   [Role.TEACHER]: [PostAudience.GROUP, PostAudience.SUBJECT],
   [Role.STAROSTA]: [PostAudience.GROUP],
+  // Работодатель (Ф18) событий платформы не создаёт: карьерные мероприятия организует
+  // вуз, а компания в них участвует.
+  [Role.EMPLOYER]: [],
   [Role.STUDENT]: [PostAudience.GROUP],
 }
 

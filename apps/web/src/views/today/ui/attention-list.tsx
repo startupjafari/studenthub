@@ -2,16 +2,9 @@
 
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import {
-  AlertTriangle,
-  CalendarClock,
-  ChevronRight,
-  ClipboardList,
-  FileText,
-  Inbox,
-} from 'lucide-react'
+import { CalendarClock, ChevronRight, ClipboardList, FileText, Inbox } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { Badge, Card, CardContent, CardHeader, CardTitle } from '../../../shared/ui'
+import { Badge, EmptyState, SectionPanel } from '../../../shared/ui'
 import type { AttentionItem, AttentionKind, AttentionPriority } from '../lib/attention'
 import { groupByPriority } from '../lib/attention'
 
@@ -43,19 +36,14 @@ export function AttentionList({ items }: AttentionListProps) {
   const groups = groupByPriority(items)
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <AlertTriangle className="size-4 text-primary" aria-hidden />
-          {t('attention')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <SectionPanel title={t('attention')} subtitle={t('attentionHint')}>
+      <>
         {items.length === 0 ? (
-          <div className="flex flex-col items-center gap-1.5 py-6 text-center">
-            <Inbox className="size-7 text-muted-foreground" aria-hidden />
-            <p className="text-sm text-muted-foreground">{t('attentionEmpty')}</p>
-          </div>
+          <EmptyState
+            icon={<Inbox className="size-6" aria-hidden />}
+            title={t('attentionEmpty')}
+            className="border-0 p-6"
+          />
         ) : (
           <div className="flex flex-col gap-4">
             {PRIORITY_ORDER.filter((p) => groups[p].length > 0).map((p) => (
@@ -95,7 +83,7 @@ export function AttentionList({ items }: AttentionListProps) {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </>
+    </SectionPanel>
   )
 }

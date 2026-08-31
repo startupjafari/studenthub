@@ -26,6 +26,9 @@ export const ALLOWED_ISSUERS: Record<Role, Role[]> = {
   [Role.TEACHER]: [Role.UNIVERSITY_ADMIN, Role.DEAN],
   [Role.STAROSTA]: [Role.DEAN],
   [Role.STUDENT]: [Role.DEAN, Role.STAROSTA],
+  // Работодателя нельзя пригласить по этой цепочке: компания регистрируется сама и
+  // получает допуск от вуза (CompanyUniversityAccess), а не инвайт на роль.
+  [Role.EMPLOYER]: [],
 }
 
 // Выводит фактический scope инвайта из иерархии и scope создателя.

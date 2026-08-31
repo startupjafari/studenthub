@@ -1,7 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
@@ -10,7 +9,6 @@ import {
   Ban,
   Bell,
   BellOff,
-  Camera,
   Check,
   Copy,
   Crown,
@@ -28,7 +26,6 @@ import {
   Play,
   Shield,
   ShieldOff,
-  Trash2,
   UserCheck,
   UserMinus,
   UserPlus,
@@ -42,16 +39,13 @@ import {
   blockUserRequest,
   chatKeys,
   createChatRequest,
-  editChatTitleRequest,
   fetchAttachmentUrl,
   fetchBlockedUsers,
   fetchChatLinks,
   fetchChatMedia,
   fetchChatMembers,
-  removeChatAvatarRequest,
   removeChatMemberRequest,
   setChatAdminRequest,
-  setChatAvatarRequest,
   transferOwnershipRequest,
   unbanChatMemberRequest,
   unblockUserRequest,
@@ -77,14 +71,9 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
-// Кадрирование нужно только владельцу группы в момент смены аватара — в бандл панели
-// чата оно не тянется (§11 FRONTEND_RULES).
-const ImageCropModal = dynamic(
-  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
-  { ssr: false },
-)
 import { identityColor, identityInitials } from '../../../shared/lib'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
+import { EditGroupDialog } from './edit-group-dialog'
 
 // §17: варианты «заглушить на время».
 const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
@@ -839,19 +828,10 @@ export function ChatDetailsPanel({
   const [muteMenuOpen, setMuteMenuOpen] = useState(false)
   // Режим выбирается до срока: галочка применяется к любому выбранному сроку заглушения.
   const [importantOnly, setImportantOnly] = useState(false)
-  const [editingTitle, setEditingTitle] = useState(false)
-  const [titleDraft, setTitleDraft] = useState(title)
-  const fileRef = useRef<HTMLInputElement>(null)
-  // Выбранный файл ждёт кадрирования: аватар группы круглый, и без кропа в него
-  // попадала бы середина произвольного снимка.
-  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null)
+  // Фото и название правятся в отдельном окне (EditGroupDialog) — как в мессенджерах.
+  const [editOpen, setEditOpen] = useState(false)
 
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
-  const invalidateChat = () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.members(chat.id) })
-    void qc.invalidateQueries({ queryKey: chatKeys.list() })
-  }
-
   const leave = useMutation({
     mutationFn: () => removeChatMemberRequest(chat.id, myId as string),
     onSuccess: () => {
@@ -861,49 +841,14 @@ export function ChatDetailsPanel({
     onError: err,
   })
 
-  const avatarMut = useMutation({
-    mutationFn: (file: File) => setChatAvatarRequest(chat.id, file),
-    onSuccess: () => {
-      invalidateChat()
-      setAvatarCropFile(null)
-      toast.success(t('avatarUpdated'))
-    },
-    onError: err,
-  })
-
-  const removeAvatar = useMutation({
-    mutationFn: () => removeChatAvatarRequest(chat.id),
-    onSuccess: () => {
-      invalidateChat()
-      toast.success(t('avatarRemoved'))
-    },
-    onError: err,
-  })
-
-  const rename = useMutation({
-    mutationFn: (name: string) => editChatTitleRequest(chat.id, name),
-    onSuccess: () => {
-      invalidateChat()
-      setEditingTitle(false)
-      toast.success(t('titleUpdated'))
-    },
-    onError: err,
-  })
-
-  function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>): void {
-    const file = e.target.files?.[0]
-    if (file) setAvatarCropFile(file)
-    e.target.value = ''
-  }
-
   const subtitle = isPrivate
     ? peerOnline
       ? t('online')
       : t('offlineStatus')
     : t('participants', { count: chat.memberCount })
-  // Аватар и название группы меняет владелец; название — любой админ.
-  const canEditAvatar = isGroup && chat.isOwner
-  const canRename = isGroup && chat.isAdmin
+  // Аватар группы меняет владелец, название — любой админ. Окно редактирования
+  // открывается по любому из двух прав, внутри доступное разграничено.
+  const canEdit = isGroup && (chat.isAdmin || chat.isOwner)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -922,84 +867,26 @@ export function ChatDetailsPanel({
       )}
 
       <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border p-5">
-        <div className="relative">
-          <Avatar className="size-20">
-            {chat.avatarUrl && <AvatarImage src={chat.avatarUrl} alt={title} />}
-            <AvatarFallback
-              className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
+        <Avatar className="size-20">
+          {chat.avatarUrl && <AvatarImage src={chat.avatarUrl} alt={title} />}
+          <AvatarFallback className={cn('text-2xl font-medium text-white', identityColor(chat.id))}>
+            {identityInitials(title)}
+          </AvatarFallback>
+        </Avatar>
+
+        <div className="flex min-w-0 max-w-full items-center gap-1.5">
+          <p className="min-w-0 truncate text-lg font-semibold">{title}</p>
+          {canEdit && (
+            <button
+              type="button"
+              aria-label={t('editGroup')}
+              onClick={() => setEditOpen(true)}
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              {identityInitials(title)}
-            </AvatarFallback>
-          </Avatar>
-          {canEditAvatar && (
-            <>
-              <button
-                type="button"
-                aria-label={t('changeAvatar')}
-                onClick={() => fileRef.current?.click()}
-                className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition-opacity hover:opacity-100"
-              >
-                <Camera className="size-6" aria-hidden />
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={onPickAvatar}
-              />
-            </>
+              <Pencil className="size-3.5" aria-hidden />
+            </button>
           )}
         </div>
-
-        {editingTitle ? (
-          <div className="flex w-full items-center gap-1.5">
-            <input
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              autoFocus
-              maxLength={150}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-            />
-            <button
-              type="button"
-              aria-label={t('save')}
-              disabled={rename.isPending || !titleDraft.trim()}
-              onClick={() => rename.mutate(titleDraft.trim())}
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
-            >
-              <Check className="size-4" aria-hidden />
-            </button>
-            <button
-              type="button"
-              aria-label={t('cancel')}
-              onClick={() => {
-                setEditingTitle(false)
-                setTitleDraft(title)
-              }}
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
-            >
-              <X className="size-4" aria-hidden />
-            </button>
-          </div>
-        ) : (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <p className="min-w-0 truncate text-lg font-semibold">{title}</p>
-            {canRename && (
-              <button
-                type="button"
-                aria-label={t('editTitle')}
-                onClick={() => {
-                  setTitleDraft(title)
-                  setEditingTitle(true)
-                }}
-                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="size-3.5" aria-hidden />
-              </button>
-            )}
-          </div>
-        )}
         <p className="text-sm text-muted-foreground">{subtitle}</p>
 
         <div className="mt-1 flex flex-wrap justify-center gap-2">
@@ -1058,18 +945,6 @@ export function ChatDetailsPanel({
                 </>
               )}
             </div>
-          )}
-
-          {canEditAvatar && chat.avatarUrl && (
-            <Button
-              variant="outline"
-              size="sm"
-              loading={removeAvatar.isPending}
-              onClick={() => removeAvatar.mutate()}
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              {t('removeAvatar')}
-            </Button>
           )}
 
           {isGroup ? (
@@ -1138,15 +1013,7 @@ export function ChatDetailsPanel({
         </div>
       </Tabs>
 
-      {avatarCropFile && (
-        <ImageCropModal
-          file={avatarCropFile}
-          title={t('changeAvatar')}
-          saving={avatarMut.isPending}
-          onCancel={() => setAvatarCropFile(null)}
-          onSave={(f) => avatarMut.mutate(f)}
-        />
-      )}
+      {editOpen && <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />}
     </div>
   )
 }

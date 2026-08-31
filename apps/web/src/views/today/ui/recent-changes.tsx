@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { Bell, CalendarClock, CalendarDays, FileText, History, Newspaper } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '../../../shared/ui'
+import { EmptyState, SectionPanel } from '../../../shared/ui'
 import type { NotificationItem, NotificationType } from '../../../entities/notification'
 
 // «Последние изменения» — только важные события (перенос пары, ответ по заявке,
@@ -42,16 +42,14 @@ export function RecentChanges({ notifications }: RecentChangesProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <History className="size-4 text-primary" aria-hidden />
-          {t('recentChanges')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <SectionPanel title={t('recentChanges')} subtitle={t('recentChangesHint')}>
+      <>
         {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('recentChangesEmpty')}</p>
+          <EmptyState
+            icon={<History className="size-6" aria-hidden />}
+            title={t('recentChangesEmpty')}
+            className="border-0 p-6"
+          />
         ) : (
           <ul className="flex flex-col gap-1">
             {items.map((n) => {
@@ -95,7 +93,7 @@ export function RecentChanges({ notifications }: RecentChangesProps) {
             })}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </>
+    </SectionPanel>
   )
 }

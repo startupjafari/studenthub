@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
-import * as QRCode from 'qrcode'
+import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Role } from '@studenthub/shared-types'
 import type {
   AttendanceRosterQueryInput,
@@ -198,7 +198,7 @@ export class AttendanceService {
       this.secret(),
     )
     const checkinUrl = `${this.webBase()}/checkin?t=${encodeURIComponent(token)}`
-    const qr = await QRCode.toDataURL(checkinUrl, { margin: 1, width: 320 })
+    const qr = renderQrDataUrl(checkinUrl, { margin: 1, width: 320 })
     return {
       token,
       qr,

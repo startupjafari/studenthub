@@ -33,6 +33,7 @@ import {
   TableSkeletonRows,
   TableText,
   Textarea,
+  useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -435,6 +436,21 @@ function AccessLog({ onRepeat }: { onRepeat: (req: AccessRequest) => void }) {
     return typeof value === 'string' ? value : null
   }
 
+  // Сортировка на фронте: журнал уже целиком в памяти (LOG_LIMIT записей, без страниц),
+  // и порядок строк не повод идти на сервер. initial = null — до первого клика остаётся
+  // хронология, свежие сверху: журнал по умолчанию читают именно так.
+  const {
+    rows: sorted,
+    sort,
+    toggle,
+  } = useTableSort<AuditLogItem>(rows, (entry, key) => {
+    if (key === 'date') return entry.createdAt
+    if (key === 'document') return entry.entityId
+    if (key === 'action') return entry.action
+    if (key === 'reason') return reasonOf(entry)
+    return null
+  })
+
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
       {error ? (
@@ -445,10 +461,18 @@ function AccessLog({ onRepeat }: { onRepeat: (req: AccessRequest) => void }) {
         <Table fixed scrollBody fill cols={LOG_COLS}>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('pa_colDate')}</TableHead>
-              <TableHead>{t('pa_colDocument')}</TableHead>
-              <TableHead className={LOG_HIDE.action}>{t('pa_colAction')}</TableHead>
-              <TableHead className={LOG_HIDE.reason}>{t('pa_reason')}</TableHead>
+              <TableHead sortKey="date" sort={sort} onSort={toggle}>
+                {t('pa_colDate')}
+              </TableHead>
+              <TableHead sortKey="document" sort={sort} onSort={toggle}>
+                {t('pa_colDocument')}
+              </TableHead>
+              <TableHead sortKey="action" sort={sort} onSort={toggle} className={LOG_HIDE.action}>
+                {t('pa_colAction')}
+              </TableHead>
+              <TableHead sortKey="reason" sort={sort} onSort={toggle} className={LOG_HIDE.reason}>
+                {t('pa_reason')}
+              </TableHead>
               <TableHead>
                 <span className="sr-only">{t('actions')}</span>
               </TableHead>
@@ -456,7 +480,7 @@ function AccessLog({ onRepeat }: { onRepeat: (req: AccessRequest) => void }) {
           </TableHeader>
           <TableBody>
             {loading && <TableSkeletonRows columns={LOG_SKELETON_COLS} />}
-            {rows.map((entry) => (
+            {sorted.map((entry) => (
               <TableRow key={entry.id} className="hover:bg-muted/40">
                 <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
                   {new Date(entry.createdAt).toLocaleString(locale, {
