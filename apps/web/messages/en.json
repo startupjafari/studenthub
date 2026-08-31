@@ -64,7 +64,283 @@
     "verifyId": "Verify ID",
     "academic": "Performance",
     "myGroup": "My group",
-    "rooms": "Rooms and QR"
+    "rooms": "Rooms and QR",
+    "careerHome": "Overview",
+    "vacancies": "Jobs",
+    "careerApplications": "My applications",
+    "careerProfile": "Career profile",
+    "resume": "Resume",
+    "careerEvents": "Career events",
+    "companies": "Companies",
+    "companyProfile": "Company",
+    "universityAccess": "Universities",
+    "vacancyReview": "Job moderation",
+    "candidates": "Candidates",
+    "careerAnalytics": "Metrics"
+  },
+  "Products": {
+    "switch": "Switch product",
+    "main": {
+      "hint": "Studies, schedule, campus"
+    },
+    "career": {
+      "title": "StudentHub Career",
+      "short": "Career",
+      "hint": "Jobs, internships, resume",
+      "soonTitle": "Career module in development",
+      "soonText": "Jobs and internships, a career profile and a resume will live here. The section is empty for now — use the logo to switch back to studies."
+    }
+  },
+  "Employer": {
+    "title": "Company",
+    "subtitle": "Student access and company profile",
+    "save": "Save",
+    "cancel": "Cancel",
+    "optional": "optional",
+    "toLogin": "Sign in",
+    "blockedTitle": "Company blocked",
+    "blockedText": "Contact platform support.",
+    "unverifiedTitle": "Confirm your email",
+    "unverifiedText": "Until the address is confirmed, no university can see your company. The confirmation link was sent when you signed up.",
+    "approvedUniversities": "Universities open",
+    "pendingRequests": "Requests pending",
+    "noAccessTitle": "No student access yet",
+    "noAccessText": "Access is granted by the university. Send a request — once approved, that university's students become available.",
+    "requestAccess": "Request access",
+    "requestAgain": "Request again",
+    "companyTitle": "Company profile",
+    "companyText": "Name, description and website are what a student sees on a job card.",
+    "companyFormHint": "Company details shown to students",
+    "editCompany": "Edit",
+    "saved": "Saved",
+    "fieldName": "Name",
+    "fieldDescription": "Description",
+    "fieldWebsite": "Website",
+    "fieldCity": "City",
+    "fieldCompanyName": "Company name",
+    "fieldFirstName": "First name",
+    "fieldLastName": "Last name",
+    "fieldEmail": "Work email",
+    "fieldPassword": "Password",
+    "accessTitle": "University access",
+    "accessSubtitle": "A university's students are visible only after the request is approved",
+    "searchUniversity": "Search universities",
+    "noUniversities": "No universities found",
+    "noUniversitiesHint": "Change the query or clear the search.",
+    "requestMessage": "Message to the university",
+    "requestMessagePlaceholder": "Tell them who you are hiring and why you need access",
+    "sendRequest": "Send request",
+    "requestSent": "Request sent",
+    "decisionReason": "Reason",
+    "statusApproved": "Access granted",
+    "statusRequested": "Pending",
+    "statusRejected": "Rejected",
+    "statusRevoked": "Access revoked",
+    "signupTitle": "Employer sign-up",
+    "signupSubtitle": "Create a company account and request access from a university",
+    "signupSubmit": "Create account",
+    "signupNote": "After signing up, confirm your email, then request access from a university. Universities grant student access.",
+    "signupSentTitle": "Check your inbox",
+    "signupSentText": "A confirmation link was sent to {email}. It is valid for 24 hours.",
+    "verifyOkTitle": "Email confirmed",
+    "verifyOkText": "Sign in and request access from a university.",
+    "verifyFailTitle": "Could not confirm",
+    "verifyNoToken": "The link has no confirmation token."
+  },
+  "CareerAdmin": {
+    "companiesTitle": "Companies",
+    "companiesSubtitle": "Who has access to this university's students",
+    "tabRequested": "Pending",
+    "tabApproved": "Approved",
+    "tabAll": "All",
+    "noCompanies": "No requests",
+    "noCompaniesHint": "Companies apply on their own — new requests appear here.",
+    "approve": "Approve",
+    "reject": "Reject",
+    "revoke": "Revoke access",
+    "cancel": "Cancel",
+    "decisionSaved": "Decision saved",
+    "decisionReason": "Reason",
+    "reasonPlaceholder": "Reason — the company will see it",
+    "statusApproved": "Access granted",
+    "statusRequested": "Pending",
+    "statusRejected": "Rejected",
+    "statusRevoked": "Revoked",
+    "vacanciesTitle": "Job moderation",
+    "vacanciesSubtitle": "Your decision applies only to your university's students",
+    "noVacancies": "Nothing in review",
+    "noVacanciesHint": "Jobs from companies you granted access to appear here.",
+    "statusPending": "In review"
+  },
+  "CareerProfile": {
+    "title": "Career profile",
+    "subtitle": "What an employer will see",
+    "saved": "Saved",
+    "save": "Save",
+    "empty": "not filled in",
+    "visibleTitle": "Profile visible to employers",
+    "visibleText": "Companies approved by your university can see your profile and invite you.",
+    "hiddenTitle": "Profile hidden",
+    "hiddenText": "Employers cannot see you. Open the profile to take part in hiring.",
+    "showProfile": "Open profile",
+    "hideProfile": "Hide profile",
+    "readiness": "Profile readiness",
+    "readinessHint": "This is not a rating of you — it lists what an employer cannot see yet.",
+    "partEducation": "Education",
+    "partSkills": "Skills",
+    "partPortfolio": "Portfolio",
+    "partPreferences": "Preferences",
+    "partAbout": "About",
+    "consentsTitle": "Sensitive data",
+    "consentsText": "Never shared by default. Tick what an employer may see; you can revoke it at any time.",
+    "consentGpa": "Show GPA",
+    "consentPhone": "Show phone",
+    "consentEmail": "Show email",
+    "lookingTitle": "What you are looking for",
+    "lookingHint": "Employers see this first — it sets the frame for your search",
+    "statusLooking": "Looking for work",
+    "statusOpen": "Open to offers",
+    "statusNotLooking": "Not looking",
+    "employmentTypes": "Employment type",
+    "employmentInternship": "Internship",
+    "employmentPartTime": "Part-time",
+    "employmentFullTime": "Full-time",
+    "employmentContract": "Contract",
+    "employmentFreelance": "Freelance",
+    "workFormats": "Where you can work",
+    "formatOnsite": "On site",
+    "formatHybrid": "Hybrid",
+    "formatRemote": "Remote",
+    "salaryFrom": "Salary from",
+    "salaryTo": "Salary to",
+    "about": "About you, for employers",
+    "aboutPlaceholder": "What you do, what you have built, what you want to learn",
+    "inheritedTitle": "From your university profile",
+    "inheritedText": "These fields are edited in your main profile — shown here for reference.",
+    "university": "University",
+    "specialty": "Specialty",
+    "course": "Year",
+    "skillsCount": "Skills",
+    "portfolioCount": "Portfolio entries"
+  },
+  "Vacancies": {
+    "title": "Jobs",
+    "subtitle": "Approved by your university",
+    "searchPlaceholder": "Role, company, technology",
+    "empty": "No jobs yet",
+    "emptyHint": "Companies appear here once your university grants them access and approves their jobs.",
+    "match": "match",
+    "salaryFrom": "from",
+    "salaryTo": "up to",
+    "employmentInternship": "Internship",
+    "employmentPartTime": "Part-time",
+    "employmentFullTime": "Full-time",
+    "employmentContract": "Contract",
+    "employmentFreelance": "Freelance",
+    "formatOnsite": "On site",
+    "formatHybrid": "Hybrid",
+    "formatRemote": "Remote"
+  },
+  "EmployerVacancies": {
+    "title": "Jobs",
+    "subtitle": "Publishing is not showing: each university decides separately",
+    "empty": "No jobs",
+    "emptyHint": "Create a job and send it for review to the universities that granted you access.",
+    "saved": "Done",
+    "publish": "Publish",
+    "pause": "Unpublish",
+    "close": "Close",
+    "byUniversity": "University decisions",
+    "statusDraft": "Draft",
+    "statusPublished": "Published",
+    "statusPaused": "Unpublished",
+    "statusClosed": "Closed",
+    "reviewPending": "in review",
+    "reviewApproved": "shown",
+    "reviewRejected": "rejected"
+  },
+  "CareerApplications": {
+    "title": "My applications",
+    "subtitle": "What is happening with your applications",
+    "empty": "No applications yet",
+    "emptyHint": "Find a job and apply — the status will appear here.",
+    "withdraw": "Withdraw",
+    "withdrawn": "Application withdrawn",
+    "cancel": "Cancel",
+    "pipelineTitle": "Candidates",
+    "pipelineSubtitle": "Applications to your jobs",
+    "pipelineEmpty": "No applications",
+    "pipelineEmptyHint": "Applications appear once students see your published jobs.",
+    "statusChanged": "Status changed",
+    "rejectReason": "Reason for rejection",
+    "rejectReasonPlaceholder": "The student will see it — without it a rejection reads as silence",
+    "statusSubmitted": "Submitted",
+    "statusViewed": "Viewed",
+    "statusShortlisted": "Shortlisted",
+    "statusInterview": "Interview",
+    "statusOffer": "Offer",
+    "statusHired": "Hired",
+    "statusRejected": "Rejected",
+    "statusWithdrawn": "Withdrawn"
+  },
+  "Resume": {
+    "title": "Resume",
+    "subtitle": "Assembled from your career profile — nothing to edit here",
+    "titleField": "Title",
+    "downloadPdf": "Download PDF",
+    "publicTitle": "Resume available by link",
+    "publicText": "Send the link to an employer — no account needed to view it.",
+    "privateTitle": "Resume is private",
+    "privateText": "Turn on the link to share your resume outside the platform.",
+    "publish": "Enable link",
+    "unpublish": "Disable link",
+    "copyLink": "Copy",
+    "copied": "Copied",
+    "includeContacts": "Show contacts on the public page",
+    "includeContactsHint": "Off by default: the link can be forwarded anywhere.",
+    "sourceHint": "Content comes from your career profile, portfolio and university-verified certificates. To change the resume, update your profile.",
+    "sectionAbout": "About",
+    "sectionEducation": "Education",
+    "sectionSkills": "Skills",
+    "sectionLanguages": "Languages",
+    "sectionExperience": "Experience",
+    "sectionProjects": "Projects",
+    "sectionCertificates": "Certificates",
+    "verified": "verified by university",
+    "generated": "Resume created in StudentHub Career",
+    "notFound": "Resume unavailable",
+    "notFoundHint": "The link is disabled or never existed."
+  },
+  "CareerEvents": {
+    "title": "Career events",
+    "subtitle": "Fairs, workshops, interview days",
+    "upcoming": "Upcoming",
+    "past": "Past",
+    "registered": "You are registered",
+    "online": "Online",
+    "empty": "No events",
+    "emptyHint": "The university career centre publishes them alongside regular events.",
+    "kindFair": "Career fair",
+    "kindWorkshop": "Workshop",
+    "kindInterviewDay": "Interview day",
+    "kindPresentation": "Company presentation",
+    "kindHackathon": "Hackathon"
+  },
+  "CareerAnalytics": {
+    "title": "Career metrics",
+    "subtitle": "Aggregates only — no personal data here",
+    "companiesApproved": "Companies approved",
+    "vacanciesApproved": "Jobs shown",
+    "applications": "Applications",
+    "hired": "Hired",
+    "profilesTitle": "Open profiles",
+    "profilesText": "{visible} of {total} students opened their profile to employers",
+    "ratesTitle": "Funnel conversion",
+    "ratesHint": "Rates are calculated from the total number of applications. A dash means there is nothing to calculate from yet.",
+    "rateInterview": "To interview",
+    "rateOffer": "To offer",
+    "rateHired": "To hire",
+    "noData": "—"
   },
   "Invites": {
     "emailInvalid": "Check the address — it looks malformed",
@@ -200,7 +476,33 @@
     "openSection": "Open section",
     "noPairsToday": "No classes today",
     "noUpcomingEvents": "No upcoming events",
-    "online": "Online"
+    "online": "Online",
+    "retry": "Retry",
+    "kpiStudents": "Students",
+    "kpiGroups": "Groups",
+    "kpiAttendance": "Attendance",
+    "kpiSubmissions": "Work to review",
+    "kpiExams": "Exams ahead",
+    "chartAttendance": "Attendance by group",
+    "chartAttendanceHint": "Worst first — that is where you start. Groups with no marks are hidden: there is nothing to count",
+    "chartNoAttendance": "Attendance has not been marked yet",
+    "chartRisk": "Why students are at risk",
+    "chartRiskHint": "How many students per reason. One student can fall into several at once",
+    "chartNoRisk": "Nobody needs attention",
+    "chartQueue": "Application queue",
+    "chartQueueHint": "What is in progress right now",
+    "chartNoQueue": "No applications",
+    "riskAttendance": "Low attendance",
+    "riskOverdue": "Overdue work",
+    "riskGrades": "Low grades",
+    "queueNew": "New",
+    "queueInWork": "In progress",
+    "queueActionNeeded": "Need action",
+    "queueReady": "Ready",
+    "queueOverdue": "Overdue",
+    "percentShort": "%",
+    "studentsShort": "students",
+    "applicationsShort": "applications"
   },
   "Common": {
     "clear": "Clear",
@@ -310,6 +612,87 @@
     "inviteInvalidText": "The invite has expired or was already used. Request a new invite from an administrator.",
     "backToHome": "Back to sign in",
     "identifierPlaceholder": "you@example.com or username"
+  },
+  "Legal": {
+    "privacyLink": "Privacy Policy",
+    "termsLink": "Terms of Service",
+    "updated": "Version of 29 August 2026",
+    "privacy": {
+      "title": "Privacy Policy",
+      "intro": "StudentHub is a closed platform your university grants access to by invitation. This page explains what data is processed, why, and who can see it.",
+      "sections": [
+        {
+          "heading": "1. Who processes your data",
+          "body": "The controller of your personal data is the university that issued your invitation. StudentHub processes data on its instructions and only to the extent the platform needs to work."
+        },
+        {
+          "heading": "2. What data is processed",
+          "body": "Account data: first and last name, email, username, role, faculty and group. Profile: photo, contacts and any details you fill in yourself. Academic data: schedule, applications, grades, attendance, submitted work and documents. Content you publish: posts, comments, messages and files. Technical data: connection address, device and browser type, sign-in times."
+        },
+        {
+          "heading": "3. Why it is needed",
+          "body": "Your data is used to give you access to academic services, show your schedule and grades, process applications, enable communication inside the university, protect your account from unauthorised sign-ins, and handle reports of misconduct."
+        },
+        {
+          "heading": "4. Who can see your data",
+          "body": "You control profile visibility in your settings. Teachers, the group leader and the dean's office see academic data within their groups and courses. University administrators see the accounts of their own institution. Platform staff access data only for technical support and incident handling."
+        },
+        {
+          "heading": "5. Storage and protection",
+          "body": "Your password is stored only as an irreversible hash — it cannot be recovered, which is why we never ask for it. Connections are protected by HTTPS and two-factor authentication is available for your account. Data is kept while your university account is active and is deleted or anonymised under the university's rules once it is closed."
+        },
+        {
+          "heading": "6. Your rights",
+          "body": "You can view and correct your profile data, limit its visibility, hide your email and delete your own publications. Requests to export, correct or erase data are submitted to your university administrator or the dean's office."
+        },
+        {
+          "heading": "7. Cookies and browser storage",
+          "body": "We use technical cookies for the sign-in session and browser local storage for interface settings and drafts. There are no advertising or third-party trackers on the platform, and no data is shared with ad networks."
+        },
+        {
+          "heading": "8. Changes to this policy",
+          "body": "We announce changes inside the platform. By continuing to use StudentHub after an update, you accept the new version."
+        }
+      ]
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "intro": "These terms describe the rules for using StudentHub. By starting to work in the platform, you accept them.",
+      "sections": [
+        {
+          "heading": "1. General provisions",
+          "body": "Access to the platform is granted by your university. Registration is only possible with a personal invitation; the invitation link must not be passed on to anyone else."
+        },
+        {
+          "heading": "2. Your account",
+          "body": "An account belongs to one person. Do not share your login, password or confirmation codes with third parties: everything done under your account is considered done by you. If you suspect someone else has gained access, change your password immediately and notify your university administrator."
+        },
+        {
+          "heading": "3. Rules of conduct",
+          "body": "Insults, harassment and threats, incitement of hatred, spam and bulk messaging, adult material, publishing someone else's personal data without consent, impersonating another person or staff member, and attempts to bypass access restrictions are all prohibited."
+        },
+        {
+          "heading": "4. Your content",
+          "body": "You keep the rights to the material you publish. By publishing content you allow the platform to store it and show it to the participants it is addressed to. You are responsible for the legality of what you publish and for holding the rights to the material you use."
+        },
+        {
+          "heading": "5. Academic integrity",
+          "body": "Learning materials, submitted work and grades in the platform belong to your university's academic process. Cheating, passing off someone else's work as your own and distributing closed assessment materials are judged under the university's rules."
+        },
+        {
+          "heading": "6. Moderation",
+          "body": "Violations can be reported through the built-in form. Moderators and the university administration may hide material, restrict access to individual features or block an account. Decisions can be appealed through the dean's office."
+        },
+        {
+          "heading": "7. Service availability",
+          "body": "The platform may be temporarily unavailable due to maintenance or failures. We work to keep such interruptions short, but we do not guarantee uninterrupted operation and are not liable for consequences caused by circumstances beyond our control."
+        },
+        {
+          "heading": "8. Changes and termination of access",
+          "body": "These terms may be updated; we announce changes inside the platform. Access ends on expulsion, termination of employment, or by decision of the university. Data is processed afterwards under the university's rules."
+        }
+      ]
+    }
   },
   "Profile": {
     "title": "Profile",
@@ -601,7 +984,8 @@
     "DEAN": "Dean",
     "TEACHER": "Teacher",
     "STAROSTA": "Group leader",
-    "STUDENT": "Student"
+    "STUDENT": "Student",
+    "EMPLOYER": "Employer"
   },
   "FileUpload": {
     "dropHint": "Drag a file here or click to choose",
@@ -634,7 +1018,8 @@
     "INTERNAL_ERROR": "Server error",
     "INVALID_2FA_CODE": "Invalid code",
     "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required",
-    "USERNAME_TAKEN": "This username is already taken"
+    "USERNAME_TAKEN": "This username is already taken",
+    "retryHint": "Could not load the data. Refresh the page or try again later."
   },
   "Notifications": {
     "title": "Notifications",
@@ -1127,7 +1512,7 @@
     "folderSubjects": "Subjects",
     "folderDean": "Dean's office",
     "folderUniversity": "University",
-    "jumpToDate": "Date",
+    "jumpToDate": "Jump to date",
     "searchInChat": "Search in chat",
     "searchPrev": "Previous",
     "searchNext": "Next",
@@ -1229,6 +1614,7 @@
     "deleteGroupConfirm": "Delete the group for all members?",
     "titleUpdated": "Title updated",
     "editTitle": "Edit title",
+    "editGroup": "Edit group",
     "adminGranted": "Admin granted",
     "adminRevoked": "Admin revoked",
     "ownershipTransferred": "Ownership transferred",
@@ -1789,7 +2175,15 @@
     "close": "Close",
     "req_title": "Document request",
     "req_emptyStudent": "No requests addressed to you yet",
+    "req_overviewHintStaff": "Your requests and how students are responding to them",
+    "req_overviewHintStudent": "What is expected from you and by when",
     "req_emptyStaff": "You have not created any requests yet",
+    "req_emptyStaffDesc": "Create a request — students will see it and attach the documents you need",
+    "req_colItems": "Items",
+    "req_colSubmitted": "Submitted",
+    "req_status_OPEN": "Open",
+    "req_status_CLOSED": "Closed",
+    "req_open": "Open",
     "req_dueLocale": "en-US",
     "req_progress": "{done} of {total} filled",
     "req_due": "due {date}",
@@ -1935,8 +2329,10 @@
       "materials": "Materials"
     },
     "todaySchedule": "Today's schedule",
+    "todayScheduleHint": "Today's classes, including substitutions and moves",
     "noPairsToday": "No classes today",
     "attention": "Needs attention",
+    "attentionHint": "Deadlines and applications that need something from you",
     "attentionEmpty": "Nothing needs your attention",
     "priority": {
       "urgent": "Urgent",
@@ -1954,6 +2350,7 @@
     },
     "recentChanges": "Recent changes",
     "recentChangesEmpty": "No recent changes yet",
+    "recentChangesHint": "Important notifications from the last few days",
     "loadError": "Failed to load",
     "retry": "Retry",
     "state": {
@@ -1973,7 +2370,9 @@
     },
     "scheduleIssuesToday": "Schedule issues today",
     "noScheduleIssues": "No schedule changes today",
+    "scheduleIssuesTodayHint": "Today's cancellations, moves and substitutions — people come to you about these",
     "applicationsQueue": "Applications queue",
+    "applicationsQueueHint": "How many applications are waiting for a decision right now",
     "queue": {
       "inWork": "In progress",
       "actionNeeded": "Action needed",
@@ -2233,6 +2632,7 @@
     "overall": "Overall attendance",
     "ofLessons": "of {n} classes",
     "recent": "Recent classes",
+    "recentHint": "Marks from your most recent classes",
     "status": {
       "present": "Present",
       "late": "Late",
@@ -2324,6 +2724,13 @@
       "retake": "Retake"
     },
     "format": "Format",
+    "formatLabel": {
+      "oral": "Oral",
+      "written": "Written",
+      "test": "Test",
+      "project": "Project",
+      "other": "Other"
+    },
     "manageTitle": "Exams",
     "newExam": "Schedule exam",
     "deleted": "Exam deleted",
@@ -2345,7 +2752,13 @@
     "cancel": "Cancel",
     "create": "Schedule",
     "formInvalid": "Check the fields",
-    "created": "Exam scheduled"
+    "created": "Exam scheduled",
+    "colSubject": "Subject",
+    "colDate": "Date",
+    "colGroup": "Group",
+    "colRoom": "Room",
+    "colStudent": "Student",
+    "colStatus": "Status"
   },
   "StudyPlan": {
     "title": "Study plan",
@@ -2368,14 +2781,11 @@
     "title": "Faculty analytics",
     "loadError": "Failed to load",
     "retry": "Retry",
-    "attention": "Needs attention",
     "groups": "Groups",
     "noGroups": "No groups",
     "back": "Back",
     "groupAttendance": "Attendance by student",
     "risk": "Risk",
-    "lowAttendance": "Attendance {rate}%",
-    "studentsN": "{n} std.",
     "kpi": {
       "students": "Students",
       "groups": "Groups",
@@ -2383,16 +2793,25 @@
       "submissionsPending": "Submissions to review",
       "examsUpcoming": "Upcoming exams"
     },
-    "riskStudents": "Students needing attention",
-    "reason": {
-      "lowAttendance": "Attendance {value}%",
-      "overdue": "Overdue: {value}",
-      "lowGrades": "Avg {value}%"
-    },
     "faculty": "Faculty",
-    "attentionHint": "Groups below {threshold}% attendance — start the review here",
-    "riskStudentsHint": "Every reason carries a number: no hidden scoring, a person makes the call",
-    "groupsHint": "Every group on the faculty, lowest attendance first — open one to review it student by student"
+    "riskStudentsHint": "Most problems first; on a tie the worse value wins. No hidden score — columns can be re-sorted",
+    "groupsHint": "Every group on the faculty, lowest attendance first — open one to review it student by student",
+    "riskCount": "{n} of {total} students",
+    "countAttendance": "Low attendance: {n}",
+    "countOverdue": "With overdue work: {n}",
+    "countGrade": "Low grades: {n}",
+    "colStudent": "Student",
+    "colGroup": "Group",
+    "colAttendance": "Attendance",
+    "colOverdue": "Overdue",
+    "colGrade": "Grade average",
+    "tabStudents": "Need attention",
+    "tabGroups": "Groups",
+    "colStudents": "Students",
+    "colTracked": "Marked",
+    "riskEmpty": "Nobody needs attention",
+    "riskEmptyHint": "No student in the faculty has low attendance, overdue work or low grades.",
+    "groupsCount": "{n} groups"
   },
   "Command": {
     "title": "Search & commands",
@@ -2406,7 +2825,12 @@
     "assignments": "Assignments",
     "materials": "Materials",
     "events": "Events",
-    "chats": "Chats"
+    "chats": "Chats",
+    "cancel": "Cancel",
+    "clear": "Clear",
+    "keyNavigate": "navigate",
+    "keyOpen": "open",
+    "keyClose": "close"
   },
   "Consultations": {
     "title": "Consultations",
@@ -2463,6 +2887,12 @@
     "linkedApplication": "Linked application",
     "cancel": "Cancel",
     "type": "Type",
+    "typeLabel": {
+      "consultation": "Consultation",
+      "document": "Documents",
+      "academic": "Academic matter",
+      "other": "Other"
+    },
     "status": {
       "requested": "Requested",
       "confirmed": "Confirmed",
@@ -2479,6 +2909,9 @@
     "queueTitle": "Dean office queue",
     "queueEmpty": "No appointments",
     "queueEmptyHint": "New appointments will appear here.",
+    "colStudent": "Student",
+    "colWhen": "Time",
+    "colStatus": "Status",
     "actions": "Actions",
     "confirm": "Confirm",
     "reschedule": "Reschedule",

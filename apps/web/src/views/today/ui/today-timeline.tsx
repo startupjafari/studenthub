@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl'
 import { CalendarDays, MapPin, User } from 'lucide-react'
-import { Badge, Card, CardContent, CardHeader, CardTitle } from '../../../shared/ui'
+import { Badge, EmptyState, SectionPanel } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import type { DayPair } from '../lib/schedule-day'
 import { PAIR_ACCENT, PAIR_BADGE, PAIR_STATE_KEY } from './pair-visuals'
@@ -18,16 +18,14 @@ export function TodayTimeline({ dayPairs, showTeacher = true }: TodayTimelinePro
   const t = useTranslations('Today')
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <CalendarDays className="size-4 text-primary" aria-hidden />
-          {t('todaySchedule')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <SectionPanel title={t('todaySchedule')} subtitle={t('todayScheduleHint')}>
+      <>
         {dayPairs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('noPairsToday')}</p>
+          <EmptyState
+            icon={<CalendarDays className="size-6" aria-hidden />}
+            title={t('noPairsToday')}
+            className="border-0 p-6"
+          />
         ) : (
           <ul className="flex flex-col gap-2">
             {dayPairs.map((dp) => {
@@ -93,7 +91,7 @@ export function TodayTimeline({ dayPairs, showTeacher = true }: TodayTimelinePro
             })}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </>
+    </SectionPanel>
   )
 }

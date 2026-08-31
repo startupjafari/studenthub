@@ -6,13 +6,17 @@ import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   ArrowRight,
+  CalendarCheck2,
+  Check,
   Clock,
   Download,
+  FileCheck2,
   FileText,
   MapPin,
   MessagesSquare,
   Paperclip,
   User,
+  X,
 } from 'lucide-react'
 import {
   Avatar,
@@ -29,6 +33,7 @@ import {
   Card,
   CardContent,
   EmptyState,
+  MetricTile,
   PageHeader,
   Skeleton,
   Tabs,
@@ -178,7 +183,7 @@ export function CourseView({ subject }: CourseViewProps) {
 
   if (schedule.isLoading) {
     return (
-      <div className="flex w-full flex-col gap-6">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
@@ -186,7 +191,7 @@ export function CourseView({ subject }: CourseViewProps) {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -272,7 +277,7 @@ export function CourseView({ subject }: CourseViewProps) {
               <CardContent className="p-4">
                 <h3 className="mb-3 font-heading text-sm font-semibold">{t('recentMaterials')}</h3>
                 {subjectMaterials.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('noMaterials')}</p>
+                  <EmptyState title={t('noMaterials')} className="border-0 p-6" />
                 ) : (
                   <ul className="flex flex-col gap-1.5">
                     {subjectMaterials.slice(0, 3).map((m) => (
@@ -432,22 +437,46 @@ export function CourseView({ subject }: CourseViewProps) {
             <EmptyState icon={<Clock />} title={t('noAttendanceData')} />
           ) : (
             <div className="flex flex-col gap-4">
-              <Card>
-                <CardContent className="flex items-center justify-between p-4">
-                  <div className="flex flex-col">
-                    <span className="text-xs text-muted-foreground">{tAtt('overall')}</span>
-                    <span className="font-heading text-2xl font-semibold tabular-nums">
-                      {attStats.rate}%
-                    </span>
-                  </div>
-                  <div className="flex gap-2 text-center text-xs">
-                    <AttCell label={tAtt('status.present')} value={attStats.present} />
-                    <AttCell label={tAtt('status.late')} value={attStats.late} />
-                    <AttCell label={tAtt('status.absent')} value={attStats.absent} />
-                    <AttCell label={tAtt('status.excused')} value={attStats.excused} />
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Те же плитки, что на «Посещаемости» и дашбордах — одна шкала. */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <MetricTile
+                  icon={CalendarCheck2}
+                  label={tAtt('overall')}
+                  value={`${attStats.rate}%`}
+                  progress={attStats.rate}
+                  progressTone={
+                    attStats.rate >= 75
+                      ? 'bg-success'
+                      : attStats.rate >= 50
+                        ? 'bg-warning'
+                        : 'bg-destructive'
+                  }
+                />
+                <MetricTile
+                  icon={Check}
+                  tone="text-success"
+                  label={tAtt('status.present')}
+                  value={attStats.present}
+                />
+                <MetricTile
+                  icon={Clock}
+                  tone="text-warning"
+                  label={tAtt('status.late')}
+                  value={attStats.late}
+                />
+                <MetricTile
+                  icon={X}
+                  tone="text-destructive"
+                  label={tAtt('status.absent')}
+                  value={attStats.absent}
+                />
+                <MetricTile
+                  icon={FileCheck2}
+                  tone="text-info"
+                  label={tAtt('status.excused')}
+                  value={attStats.excused}
+                />
+              </div>
               <Card>
                 <CardContent className="p-2">
                   <ul className="divide-y divide-border">
@@ -537,15 +566,6 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">{label}</span>
       {children}
-    </div>
-  )
-}
-
-function AttCell({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border px-2 py-1">
-      <div className="font-heading text-sm font-semibold tabular-nums">{value}</div>
-      <div className="text-[0.65rem] text-muted-foreground">{label}</div>
     </div>
   )
 }

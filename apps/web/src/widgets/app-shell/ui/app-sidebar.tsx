@@ -4,12 +4,14 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Bell, GraduationCap, LogOut, Search } from 'lucide-react'
+import { Bell, LogOut, Search } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
+import { ROLE_HOME } from '../../../shared/config'
+import { ProductSwitcher } from './product-switcher'
 import type { NavItem } from '../model/nav'
 
 function isActive(item: NavItem, pathname: string): boolean {
@@ -87,8 +89,9 @@ export function AppSidebar({
       ) : (
         <>
           <div className="flex h-16 items-center gap-2 px-6">
-            <GraduationCap className="size-6 text-primary" aria-hidden />
-            <span className="text-lg font-bold">StudentHub</span>
+            {/* Логотип — он же переключатель продуктов (учёба / Карьера), раскрывается
+                по наведению. Отдельного пункта в навигации у Карьеры нет. */}
+            <ProductSwitcher homeHref={me.data ? ROLE_HOME[me.data.role] : '/'} />
             {/* Поиск (Command Palette) — Ctrl/Cmd+K или клик. */}
             <button
               type="button"

@@ -11,8 +11,13 @@ export interface LinkPreview {
 }
 
 const FETCH_TIMEOUT_MS = 5000
-const MAX_BYTES = 512 * 1024 // читаем не больше 512 КБ HTML
+// Читаем до `</head>` — OG-теги живут там, остальное тело качать незачем. Потолок нужен на
+// случай страницы без закрывающего тега; 512 КБ не хватало: у YouTube один только <head>
+// весит ~700 КБ, обрезка приходилась до og:title, и превью молча не появлялось.
+const MAX_BYTES = 2 * 1024 * 1024
 const MAX_REDIRECTS = 3
+// Нахлёст между чанками при поиске `</head>`: тег может разорваться на границе.
+const HEAD_TAG_OVERLAP = 8
 
 // Приватные/служебные диапазоны — блок SSRF (запросы во внутреннюю сеть).
 function isPrivateIp(ip: string): boolean {
@@ -114,22 +119,29 @@ export class LinkPreviewService {
     }).finally(() => clearTimeout(timer))
   }
 
+  /**
+   * Тело до конца `<head>` или до потолка MAX_BYTES. Ищем закрывающий тег по каждому чанку
+   * с нахлёстом, а не по склеенному буферу: склейка на каждый чанк дала бы O(n²).
+   */
   private async readCapped(res: Response): Promise<string> {
     const reader = res.body?.getReader()
     if (!reader) return ''
     const chunks: Uint8Array[] = []
     let total = 0
+    let tail = ''
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
-      if (value) {
-        chunks.push(value)
-        total += value.length
-        if (total >= MAX_BYTES) {
-          await reader.cancel()
-          break
-        }
+      if (!value) continue
+      chunks.push(value)
+      total += value.length
+
+      const text = tail + Buffer.from(value).toString('utf8')
+      if (/<\/head\s*>/i.test(text) || total >= MAX_BYTES) {
+        await reader.cancel()
+        break
       }
+      tail = text.slice(-HEAD_TAG_OVERLAP)
     }
     return Buffer.concat(chunks).toString('utf8')
   }

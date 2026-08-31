@@ -111,6 +111,13 @@ const UNIVERSITY_MODERATOR: QuickAction[] = [
 // уместен — «Документы» ищут по названию раздела чаще, чем по имени файла.
 const DOCUMENTS: QuickAction = { navKey: 'documents', href: '/documents', icon: FolderLock }
 
+// Работодатель (Ф18): разделы его собственной зоны. Общий «Документы» ему не добавляется —
+// см. quickActionsFor.
+const EMPLOYER: QuickAction[] = [
+  { navKey: 'companyProfile', href: '/employer/company', icon: Building2 },
+  { navKey: 'universityAccess', href: '/employer/access', icon: GraduationCap },
+]
+
 // Быстрые действия есть у КАЖДОЙ роли: пустая палитра при открытии — это экран
 // «введите запрос», на котором нечего выбрать, и первое, что видит администратор.
 const BY_ROLE: Record<Role, QuickAction[]> = {
@@ -122,9 +129,12 @@ const BY_ROLE: Record<Role, QuickAction[]> = {
   [Role.UNIVERSITY_MODERATOR]: UNIVERSITY_MODERATOR,
   [Role.PLATFORM_ADMIN]: PLATFORM_ADMIN,
   [Role.PLATFORM_MODERATOR]: PLATFORM_MODERATOR,
+  [Role.EMPLOYER]: EMPLOYER,
 }
 
 export function quickActionsFor(role: Role | null): QuickAction[] {
   if (!role) return []
+  // Работодателю общий раздел «Документы» не показываем: это хранилище участника вуза.
+  if (role === Role.EMPLOYER) return BY_ROLE[role]
   return [...BY_ROLE[role], DOCUMENTS]
 }

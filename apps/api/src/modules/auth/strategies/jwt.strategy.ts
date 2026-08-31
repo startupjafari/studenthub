@@ -23,12 +23,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (payload.typ) {
       throw new UnauthorizedException('Недопустимый токен')
     }
+    // Белый список полей: в request.user попадает только то, что перечислено здесь, —
+    // посторонние claim'ы из подписанного токена внутрь приложения не проходят.
+    // Обратная сторона: КАЖДОЕ новое поле JwtPayload нужно добавить и сюда, иначе оно
+    // молча теряется. Ровно так пропал companyId (Ф18): токен его нёс, а работодатель
+    // получал «аккаунт не привязан к компании» на всех экранах.
     return {
       sub: payload.sub,
       role: payload.role,
       universityId: payload.universityId ?? null,
       facultyId: payload.facultyId ?? null,
       groupId: payload.groupId ?? null,
+      companyId: payload.companyId ?? null,
       tfa: payload.tfa ?? false,
     }
   }

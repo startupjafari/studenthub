@@ -53,7 +53,7 @@ describe('TwoFactorService', () => {
     const res = await service.setup('u1')
     expect(res.secret).toBeTruthy()
     expect(res.otpauthUrl).toContain('otpauth://totp/')
-    expect(res.qr.startsWith('data:image/png;base64,')).toBe(true)
+    expect(res.qr.startsWith('data:image/svg+xml;base64,')).toBe(true)
     expect(crypto.encrypt).toHaveBeenCalledWith(res.secret)
     expect(users.setPendingTwoFactorSecret).toHaveBeenCalledWith('u1', `enc(${res.secret})`)
   })

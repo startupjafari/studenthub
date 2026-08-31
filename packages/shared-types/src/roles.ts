@@ -11,6 +11,9 @@ export const Role = {
   TEACHER: 'TEACHER',
   STAROSTA: 'STAROSTA',
   STUDENT: 'STUDENT',
+  // Работодатель (Ф18) — единственная роль вне вуза. В иерархию инвайтов не входит:
+  // её не «выдают сверху вниз», компания регистрируется сама и получает допуск от вуза.
+  EMPLOYER: 'EMPLOYER',
 } as const
 
 export type Role = (typeof Role)[keyof typeof Role]
@@ -25,6 +28,9 @@ export const ROLE_HIERARCHY: readonly Role[] = [
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  // Работодатель стоит ниже всех: он не может пригласить никого и никем не приглашается
+  // по обычной цепочке. Место в массиве нужно только чтобы indexOf возвращал число.
+  Role.EMPLOYER,
 ]
 
 /** true, если роль `a` строго выше роли `b` в иерархии (для проверки выдачи инвайтов). */

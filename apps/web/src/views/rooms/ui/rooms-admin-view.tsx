@@ -146,7 +146,7 @@ export function RoomsAdminView() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       {/* Цепочка flex до таблицы: `fill` у Table требует, чтобы каждый предок отдавал ей
           высоту, иначе прокручивается страница целиком, а не тело таблицы. */}
       <div className="sh-no-print flex min-h-0 flex-1 flex-col gap-6">

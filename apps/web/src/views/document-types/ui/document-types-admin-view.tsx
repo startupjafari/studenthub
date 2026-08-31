@@ -28,6 +28,7 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { CreateDocumentTypeModal } from './create-document-type-modal'
@@ -60,9 +61,10 @@ export function DocumentTypesAdminView() {
   const typeName = (t2: EffectiveDocumentType) =>
     t2.custom ? (t2.label ?? t2.typeId) : t(`docType_${t2.typeId}`)
 
-  // Порядок фиксированный: категории идут в порядке справочника, внутри — по названию.
-  // Так строки одной категории стоят рядом (их видно колонкой), а сортировки по клику
-  // здесь нет намеренно — каталог приходит целиком одним ответом, страниц у него нет.
+  // Порядок по умолчанию: категории идут в порядке справочника, внутри — по названию.
+  // Так строки одной категории стоят рядом, и их видно колонкой. Клик по заголовку
+  // пересортировывает — каталог приходит целиком одним ответом, страниц у него нет,
+  // поэтому сортировка целиком на фронте, без похода на сервер.
   // Категория в DTO — строка (каталог гибридный, свои типы вуз заводит сам), поэтому
   // позицию ищем по списку значений, а не через indexOf константного кортежа.
   const catOrder = (category: string): number => {
@@ -73,6 +75,18 @@ export function DocumentTypesAdminView() {
   const rows = [...(q.data ?? [])].sort((a, b) => {
     const byCat = catOrder(a.category) - catOrder(b.category)
     return byCat !== 0 ? byCat : typeName(a).localeCompare(typeName(b))
+  })
+  // initial = null: пока по заголовку не кликнули, остаётся группировка по категориям выше.
+  const {
+    rows: sorted,
+    sort,
+    toggle,
+  } = useTableSort<EffectiveDocumentType>(rows, (row, key) => {
+    if (key === 'type') return typeName(row)
+    if (key === 'category') return catOrder(row.category)
+    if (key === 'fields') return row.fields.length
+    if (key === 'retention') return row.retentionDays
+    return null
   })
 
   // Цепочка flex до таблицы: `fill` требует, чтобы высоту отдавал каждый предок,
@@ -101,10 +115,18 @@ export function DocumentTypesAdminView() {
                 <TableHead>
                   <span className="sr-only">{t('dt_enabled')}</span>
                 </TableHead>
-                <TableHead>{t('dt_colType')}</TableHead>
-                <TableHead className={HIDE.category}>{t('dt_category')}</TableHead>
-                <TableHead className={HIDE.fields}>{t('dt_colFields')}</TableHead>
-                <TableHead numeric>{t('dt_retention')}</TableHead>
+                <TableHead sortKey="type" sort={sort} onSort={toggle}>
+                  {t('dt_colType')}
+                </TableHead>
+                <TableHead sortKey="category" sort={sort} onSort={toggle} className={HIDE.category}>
+                  {t('dt_category')}
+                </TableHead>
+                <TableHead sortKey="fields" sort={sort} onSort={toggle} className={HIDE.fields}>
+                  {t('dt_colFields')}
+                </TableHead>
+                <TableHead numeric sortKey="retention" sort={sort} onSort={toggle}>
+                  {t('dt_retention')}
+                </TableHead>
                 <TableHead>
                   <span className="sr-only">{t('dt_reset')}</span>
                 </TableHead>
@@ -112,7 +134,7 @@ export function DocumentTypesAdminView() {
             </TableHeader>
             <TableBody>
               {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
-              {rows.map((row) => (
+              {sorted.map((row) => (
                 <TypeRow
                   key={row.typeId}
                   row={row}

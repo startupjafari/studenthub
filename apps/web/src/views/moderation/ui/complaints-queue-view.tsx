@@ -93,7 +93,7 @@ export function ComplaintsQueueView() {
   const sortBy = (key: string): void => refilter(() => toggle(key))
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('complaintsTitle')}
         subtitle={t('complaintsSubtitle')}

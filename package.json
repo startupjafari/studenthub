@@ -29,7 +29,8 @@
     "db:seed:kato": "node prisma/seed-kato.mjs",
     "db:seed:apps": "node prisma/seed-applications.mjs",
     "db:seed:friends": "node prisma/seed-friends.mjs",
-    "db:seed:posts": "node prisma/seed-posts.mjs"
+    "db:seed:posts": "node prisma/seed-posts.mjs",
+    "db:seed:career": "node prisma/seed-career.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [

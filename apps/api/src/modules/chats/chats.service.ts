@@ -1556,6 +1556,7 @@ export class ChatsService {
         id: true,
         chatId: true,
         content: true,
+        linkPreview: true,
         media: { select: { bucket: true, key: true, mime: true, size: true, name: true } },
       },
     })
@@ -1569,6 +1570,10 @@ export class ChatsService {
           senderId: userId,
           content: source.content,
           forwardedFromId: source.id,
+          // Превью переносим готовым: ссылка та же, второй поход в сеть за тем же
+          // результатом не нужен. Если у оригинала его нет — доберём job'ом ниже.
+          linkPreview:
+            source.linkPreview === null ? undefined : (source.linkPreview as Prisma.InputJsonValue),
         },
         select: { id: true },
       }),
@@ -1582,6 +1587,11 @@ export class ChatsService {
       select: MESSAGE_SELECT,
     })
     await this.bumpChat(targetChatId)
+    // У оригинала превью могло не быть (сообщение старше фичи, job не успел, ссылка была
+    // недоступна) — тогда пробуем сами: пересланная ссылка ничем не хуже отправленной.
+    if (source.linkPreview === null) {
+      await this.enqueueLinkPreview(created.id, targetChatId, source.content ?? undefined)
+    }
     await this.notifyNewMessage(targetChatId, userId, message)
     this.realtime.emitToRoom(`chat:${targetChatId}`, 'message:new', {
       message,

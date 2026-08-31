@@ -42,7 +42,7 @@ describe('QrLoginService', () => {
     const res = await service.create()
     expect(res.qrId).toBeTruthy()
     expect(res.claimSecret).toBeTruthy()
-    expect(res.qr.startsWith('data:image/png;base64,')).toBe(true)
+    expect(res.qr.startsWith('data:image/svg+xml;base64,')).toBe(true)
     expect(res).not.toHaveProperty('approveToken')
   })
 
