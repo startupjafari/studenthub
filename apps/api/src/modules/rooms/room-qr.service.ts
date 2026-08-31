@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import * as QRCode from 'qrcode'
+import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Prisma, RoomKind } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { isAcademicRoomKind } from '@studenthub/shared-schemas'
@@ -295,12 +295,9 @@ export class RoomQrService {
       issuedAt: room.qrIssuedAt?.toISOString() ?? null,
       // Готовое изображение для печати: сервер уже умеет генерировать QR (qrcode,
       // студенческий билет), а фронт не тянет для этого ещё одну библиотеку.
-      qr: await QRCode.toDataURL(url, {
-        margin: 1,
-        width: QR_PRINT_WIDTH,
-        // Наклейку могут заляпать/поцарапать — берём коррекцию выше средней.
-        errorCorrectionLevel: 'Q',
-      }),
+      // Коррекция ошибок у общего рендера всегда H (под логотипом в центре),
+      // а наклейке на двери запас как раз кстати: её заляпают и поцарапают.
+      qr: renderQrDataUrl(url, { margin: 1, width: QR_PRINT_WIDTH }),
     }
   }
 

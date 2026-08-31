@@ -27,9 +27,11 @@ import {
   Newspaper,
   ScanLine,
   ScrollText,
+  Search,
   Send,
   Table2,
   ShieldAlert,
+  FileUser,
   TrendingUp,
   UserCog,
   Users,
@@ -58,6 +60,7 @@ export type NavVariant =
   | 'platform-admin'
   | 'platform-moderator'
   | 'university-moderator'
+  | 'employer'
 
 // Навигация студенческого дашборда (docs/PROJECT.md §12).
 // Профиль — плашка пользователя внизу сайдбара (см. AppSidebar), не пункт навигации.
@@ -138,43 +141,61 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
 // catch-all [...section] в ролевых сегментах остался предохранителем для неизвестных URL
 // (например ссылки на раздел, которого больше нет), а не «разделом в разработке».
+// Восемнадцать пунктов подряд не читались — сгруппированы по смыслу, как у админа вуза.
+// Порядок секций задаётся первым появлением группы в массиве (см. toSections в
+// AppSidebar), поэтому пункты внутри группы должны идти подряд.
 export const DEAN_NAV: NavItem[] = [
-  { key: 'today', href: '/dean/today', icon: CalendarCheck },
-  { key: 'dashboard', href: '/dean', icon: LayoutDashboard, exact: true },
-  { key: 'groups', href: '/dean/groups', icon: Users },
-  { key: 'students', href: '/dean/students', icon: GraduationCap },
-  { key: 'teachers', href: '/dean/teachers', icon: BookOpen },
-  { key: 'starostas', href: '/dean/starostas', icon: UserCog },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { key: 'schedule', href: '/dean/schedule', icon: CalendarDays },
-  { key: 'calendar', href: '/calendar', icon: CalendarRange },
-  { key: 'courses', href: '/dean/courses', icon: BookOpen },
-  { key: 'exams', href: '/dean/exams', icon: Award },
-  { key: 'analytics', href: '/dean/analytics', icon: BarChart3 },
-  { key: 'appointments', href: '/dean/appointments', icon: CalendarClock },
-  { key: 'applications', href: '/dean/applications', icon: FileText },
-  { key: 'posts', href: '/dean/posts', icon: Newspaper },
-  { key: 'invites', href: '/dean/invites', icon: Send },
-  { key: 'chats', href: '/dean/chats', icon: MessagesSquare },
-  { key: 'events', href: '/dean/events', icon: CalendarClock },
+  // Обзор дня: с чего декан начинает.
+  { key: 'today', href: '/dean/today', icon: CalendarCheck, group: 'main' },
+  { key: 'dashboard', href: '/dean', icon: LayoutDashboard, exact: true, group: 'main' },
+  { key: 'schedule', href: '/dean/schedule', icon: CalendarDays, group: 'main' },
+  { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
+
+  // Люди факультета и выдача доступа.
+  { key: 'groups', href: '/dean/groups', icon: Users, group: 'people' },
+  { key: 'students', href: '/dean/students', icon: GraduationCap, group: 'people' },
+  { key: 'teachers', href: '/dean/teachers', icon: BookOpen, group: 'people' },
+  { key: 'starostas', href: '/dean/starostas', icon: UserCog, group: 'people' },
+  { key: 'invites', href: '/dean/invites', icon: Send, group: 'people' },
+  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'people' },
+
+  // Учебный процесс и его показатели.
+  { key: 'courses', href: '/dean/courses', icon: BookOpen, group: 'study' },
+  { key: 'exams', href: '/dean/exams', icon: Award, group: 'study' },
+  { key: 'analytics', href: '/dean/analytics', icon: BarChart3, group: 'study' },
+
+  // Приём и заявки — сюда приходят с запросами. «Документы» подставляет withCommon,
+  // и попадают они в эту же группу.
+  { key: 'appointments', href: '/dean/appointments', icon: CalendarClock, group: 'services' },
+  { key: 'applications', href: '/dean/applications', icon: FileText, group: 'services' },
+
+  { key: 'posts', href: '/dean/posts', icon: Newspaper, group: 'communication' },
+  { key: 'chats', href: '/dean/chats', icon: MessagesSquare, group: 'communication' },
+  { key: 'events', href: '/dean/events', icon: CalendarClock, group: 'communication' },
 ]
 
+// Сгруппирована по тем же правилам, что навигация декана и админа вуза.
 export const TEACHER_NAV: NavItem[] = [
-  { key: 'today', href: '/teacher/today', icon: CalendarCheck },
-  { key: 'dashboard', href: '/teacher', icon: LayoutDashboard, exact: true },
-  { key: 'schedule', href: '/teacher/schedule', icon: CalendarDays },
-  { key: 'groups', href: '/teacher/groups', icon: Users },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { key: 'assignments', href: '/teacher/assignments', icon: ClipboardList },
-  { key: 'attendance', href: '/teacher/attendance', icon: ClipboardCheck },
-  { key: 'gradebook', href: '/teacher/gradebook', icon: Table2 },
-  { key: 'exams', href: '/teacher/exams', icon: Award },
-  { key: 'consultations', href: '/teacher/consultations', icon: Handshake },
-  { key: 'materials', href: '/teacher/materials', icon: FolderOpen },
-  { key: 'calendar', href: '/calendar', icon: CalendarRange },
-  { key: 'posts', href: '/teacher/posts', icon: Newspaper },
-  { key: 'chats', href: '/teacher/chats', icon: MessagesSquare },
-  { key: 'events', href: '/teacher/events', icon: CalendarClock },
+  { key: 'today', href: '/teacher/today', icon: CalendarCheck, group: 'main' },
+  { key: 'dashboard', href: '/teacher', icon: LayoutDashboard, exact: true, group: 'main' },
+  { key: 'schedule', href: '/teacher/schedule', icon: CalendarDays, group: 'main' },
+  { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
+
+  // Занятия: всё, что преподаватель ведёт и проверяет.
+  { key: 'groups', href: '/teacher/groups', icon: Users, group: 'study' },
+  { key: 'assignments', href: '/teacher/assignments', icon: ClipboardList, group: 'study' },
+  { key: 'attendance', href: '/teacher/attendance', icon: ClipboardCheck, group: 'study' },
+  { key: 'gradebook', href: '/teacher/gradebook', icon: Table2, group: 'study' },
+  { key: 'exams', href: '/teacher/exams', icon: Award, group: 'study' },
+  { key: 'materials', href: '/teacher/materials', icon: FolderOpen, group: 'study' },
+
+  // Приём студентов. «Документы» подставляет withCommon — в эту же группу.
+  { key: 'consultations', href: '/teacher/consultations', icon: Handshake, group: 'services' },
+  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
+
+  { key: 'posts', href: '/teacher/posts', icon: Newspaper, group: 'communication' },
+  { key: 'chats', href: '/teacher/chats', icon: MessagesSquare, group: 'communication' },
+  { key: 'events', href: '/teacher/events', icon: CalendarClock, group: 'communication' },
 ]
 
 // Староста — это студент с «преимуществом над группой»: у него ВСЕ студенческие
@@ -237,6 +258,7 @@ export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
   [Role.TEACHER]: 'teacher',
   [Role.STAROSTA]: 'starosta',
   [Role.STUDENT]: 'student',
+  [Role.EMPLOYER]: 'employer',
 }
 
 // Документы — общий пункт для всех ролей: защищённое хранилище (Ф15, отдельный раздел /documents).
@@ -258,6 +280,16 @@ function withCommon(items: NavItem[]): NavItem[] {
 
 // Резолв конфига по варианту. Массив содержит иконки-функции — резолвится в клиенте
 // (нельзя передавать пропом server→client, RSC-ограничение).
+// Навигация работодателя. Разделы платформы ему не показываются вообще: он видит
+// свою компанию, статус допусков и (со следующих под-фаз) вакансии и кандидатов.
+export const EMPLOYER_NAV: NavItem[] = [
+  { key: 'careerHome', href: '/employer', icon: LayoutDashboard, exact: true },
+  { key: 'vacancies', href: '/employer/vacancies', icon: Search },
+  { key: 'candidates', href: '/employer/candidates', icon: Users },
+  { key: 'companyProfile', href: '/employer/company', icon: Building2 },
+  { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
+]
+
 export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   student: withCommon(STUDENT_NAV),
   'university-admin': withCommon(UNIVERSITY_ADMIN_NAV),
@@ -267,4 +299,66 @@ export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   'platform-admin': withCommon(PLATFORM_ADMIN_NAV),
   'platform-moderator': withCommon(PLATFORM_MODERATOR_NAV),
   'university-moderator': withCommon(UNIVERSITY_MODERATOR_NAV),
+  // Без withCommon: общий раздел «Документы» — хранилище участника вуза, работодателя
+  // оно не касается.
+  employer: EMPLOYER_NAV,
+}
+
+// ── StudentHub Карьера ──────────────────────────────────────────────────────
+// Отдельный продукт со своей навигацией: пока пользователь под /career, сайдбар
+// показывает эти пункты вместо разделов платформы. Переключение — через логотип
+// (ProductSwitcher), отдельного пункта «Карьера» в основной навигации нет.
+//
+// Стажировок отдельным разделом нет намеренно: на MVP это вакансия с типом
+// «стажировка» и обычный отклик (см. план Фазы 18).
+
+/** Корень карьерного продукта. Всё, что под ним, показывает карьерную навигацию. */
+export const CAREER_ROOT = '/career'
+
+// Студент и староста: ищут работу.
+export const CAREER_STUDENT_NAV: NavItem[] = [
+  { key: 'careerHome', href: '/career', icon: LayoutDashboard, exact: true },
+  { key: 'vacancies', href: '/career/vacancies', icon: Search },
+  { key: 'careerApplications', href: '/career/applications', icon: Send },
+  { key: 'careerProfile', href: '/career/profile', icon: BriefcaseBusiness },
+  { key: 'resume', href: '/career/resume', icon: FileUser },
+  { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
+]
+
+// Сотрудники вуза: карьерный центр — допуск компаний и модерация вакансий.
+export const CAREER_STAFF_NAV: NavItem[] = [
+  { key: 'careerHome', href: '/career', icon: LayoutDashboard, exact: true },
+  { key: 'companies', href: '/career/companies', icon: Building2 },
+  // Модерация вакансий — отдельный пункт: витрина /career/vacancies показывает то, что
+  // уже одобрено, а здесь лежит очередь на решение.
+  { key: 'vacancyReview', href: '/career/vacancy-review', icon: ClipboardCheck },
+  { key: 'vacancies', href: '/career/vacancies', icon: Search },
+  { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
+  { key: 'careerAnalytics', href: '/career/analytics', icon: BarChart3 },
+]
+
+const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
+  [Role.STUDENT]: CAREER_STUDENT_NAV,
+  [Role.STAROSTA]: CAREER_STUDENT_NAV,
+  // Преподаватель в карьерном модуле — наблюдатель: своих действий у него пока нет,
+  // но события и вакансии видеть логично.
+  [Role.TEACHER]: CAREER_STAFF_NAV,
+  [Role.DEAN]: CAREER_STAFF_NAV,
+  [Role.UNIVERSITY_ADMIN]: CAREER_STAFF_NAV,
+  [Role.UNIVERSITY_MODERATOR]: CAREER_STAFF_NAV,
+  [Role.PLATFORM_ADMIN]: CAREER_STAFF_NAV,
+  [Role.PLATFORM_MODERATOR]: CAREER_STAFF_NAV,
+  // Работодатель в /career не заходит — его продукт целиком в зоне /employer.
+  // Значение задано, чтобы карта была исчерпывающей и не пришлось падать на undefined.
+  [Role.EMPLOYER]: EMPLOYER_NAV,
+}
+
+/** Навигация карьерного продукта для роли. */
+export function careerNavFor(role: Role | undefined): NavItem[] {
+  return role ? CAREER_NAV_BY_ROLE[role] : CAREER_STUDENT_NAV
+}
+
+/** Путь относится к карьерному продукту. */
+export function isCareerPath(pathname: string): boolean {
+  return pathname === CAREER_ROOT || pathname.startsWith(`${CAREER_ROOT}/`)
 }

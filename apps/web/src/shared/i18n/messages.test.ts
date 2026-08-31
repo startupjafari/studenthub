@@ -88,6 +88,49 @@ describe('словари i18n', () => {
     expect(missing).toEqual([])
   })
 
+  /**
+   * Ключи, собираемые ИЗ ЗНАЧЕНИЙ, а не из литералов: `tRoles(user.role)`,
+   * `tNav(item.key)`, `tNav(`group.${section.group}`)`. Проверка выше их не видит —
+   * в коде на месте ключа стоит переменная, — и именно так уехал `Roles.EMPLOYER`:
+   * роль добавили в enum, подпись в словари забыли, экран упал в рантайме.
+   *
+   * Источник истины берём из кода (enum ролей, список пунктов навигации), а не из
+   * словарей: иначе тест проверял бы словарь сам по себе.
+   */
+  it('у каждой роли есть подпись в Roles', () => {
+    const rolesSrc = readFileSync(
+      path.join(SRC, '..', '..', '..', 'packages', 'shared-types', 'src', 'roles.ts'),
+      'utf8',
+    )
+    const roles = [...rolesSrc.matchAll(/^\s{2}([A-Z_]+):\s*'[A-Z_]+',$/gm)].map((m) => m[1])
+    expect(roles.length).toBeGreaterThan(0)
+
+    const missing: string[] = []
+    for (const role of roles) {
+      const absent = LOCALES.filter((locale) => !dicts[locale].has(`Roles.${role}`))
+      if (absent.length > 0) missing.push(`Roles.${role} — нет в ${absent.join(', ')}`)
+    }
+    expect(missing).toEqual([])
+  })
+
+  it('у каждого пункта навигации есть подпись в Nav', () => {
+    const navSrc = readFileSync(path.join(SRC, 'widgets', 'app-shell', 'model', 'nav.ts'), 'utf8')
+    const keys = new Set([...navSrc.matchAll(/\bkey:\s*'([\w.]+)'/g)].map((m) => m[1]))
+    const groups = new Set([...navSrc.matchAll(/\bgroup:\s*'([\w.]+)'/g)].map((m) => m[1]))
+    expect(keys.size).toBeGreaterThan(0)
+
+    const missing: string[] = []
+    for (const key of keys) {
+      const absent = LOCALES.filter((locale) => !dicts[locale].has(`Nav.${key}`))
+      if (absent.length > 0) missing.push(`Nav.${key} — нет в ${absent.join(', ')}`)
+    }
+    for (const group of groups) {
+      const absent = LOCALES.filter((locale) => !dicts[locale].has(`Nav.group.${group}`))
+      if (absent.length > 0) missing.push(`Nav.group.${group} — нет в ${absent.join(', ')}`)
+    }
+    expect(missing).toEqual([])
+  })
+
   it('наборы ключей ru/en/kk совпадают', () => {
     const gaps: string[] = []
     for (const key of dicts.ru) {

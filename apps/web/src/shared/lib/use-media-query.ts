@@ -1,22 +1,35 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
-// Реактивный медиазапрос. На клиенте начальное значение читаем синхронно (ленивый инициализатор),
-// чтобы первый же клиентский рендер имел верную ширину — иначе на десктопе мелькает раскладка
-// «сайдбар виден, но embedded ещё false». На сервере window нет → false (страница чатов клиентская).
+/**
+ * Реактивный медиазапрос.
+ *
+ * Через `useSyncExternalStore`, а не `useState` + `useEffect`: React обязан отрисовать при
+ * гидрации ровно то же, что пришло с сервера. Прежняя версия читала `window.matchMedia`
+ * синхронно в ленивом инициализаторе состояния — на широком экране первый клиентский рендер
+ * получал `true` против серверного `false`, и React ронял «Hydration failed…», перерисовывая
+ * поддерево целиком (в чатах это `<aside>` с деталями диалога).
+ *
+ * `getServerSnapshot` возвращает то же `false`, что и SSR, поэтому разметка совпадает.
+ * Настоящее значение React забирает сразу после гидрации, до отрисовки кадра, — раскладка
+ * не «мелькает», ради чего инициализатор и появился.
+ */
+
+/** Стабильная ссылка: React сравнивает `getServerSnapshot` между рендерами. */
+const serverSnapshot = (): boolean => false
+
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia(query).matches : false,
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const mql = window.matchMedia(query)
+      mql.addEventListener('change', onStoreChange)
+      return () => mql.removeEventListener('change', onStoreChange)
+    },
+    [query],
   )
 
-  useEffect(() => {
-    const mql = window.matchMedia(query)
-    const update = (): void => setMatches(mql.matches)
-    update()
-    mql.addEventListener('change', update)
-    return () => mql.removeEventListener('change', update)
-  }, [query])
+  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query])
 
-  return matches
+  return useSyncExternalStore(subscribe, getSnapshot, serverSnapshot)
 }

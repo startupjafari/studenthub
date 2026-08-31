@@ -6,7 +6,7 @@ import { CalendarClock, CalendarDays, MapPin, Video } from 'lucide-react'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { FriendsPanel } from '../../../widgets/friends-panel'
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../../../shared/ui'
+import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '../../../shared/ui'
 
 // Чётность текущей ISO-недели (как в schedule-grid) — для выбора пар ODD/EVEN.
 function isoWeek(d: Date): number {
@@ -49,7 +49,7 @@ export function HomeSidebar() {
           {schedQ.isLoading ? (
             <Skeleton className="h-16 w-full rounded-lg" />
           ) : todayPairs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('noPairsToday')}</p>
+            <EmptyState title={t('noPairsToday')} className="border-0 p-6" />
           ) : (
             <ul className="flex flex-col gap-2">
               {todayPairs.map((p) => (
@@ -82,7 +82,7 @@ export function HomeSidebar() {
           {eventsQ.isLoading ? (
             <Skeleton className="h-16 w-full rounded-lg" />
           ) : events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('noUpcomingEvents')}</p>
+            <EmptyState title={t('noUpcomingEvents')} className="border-0 p-6" />
           ) : (
             <ul className="flex flex-col gap-3">
               {events.map((e) => (

@@ -14,6 +14,7 @@ import {
   MessagesSquare,
   Search,
   UserRound,
+  X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
@@ -176,6 +177,14 @@ export function CommandPalette() {
     setActive(0)
   }, [items.length])
 
+  // Стрелками список листается быстрее, чем прокручивается сам: без этого подсветка
+  // уезжает за нижний край и пользователь жмёт Enter вслепую.
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-idx="${active}"]`)?.scrollIntoView({
+      block: 'nearest',
+    })
+  }, [active])
+
   function select(item: Item | undefined) {
     if (!item) return
     setOpen(false)
@@ -183,12 +192,21 @@ export function CommandPalette() {
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    if (!items.length) return
+    // По кругу: в длинном списке результатов упор в край заставляет искать глазами,
+    // где остановилась подсветка. Так же ведут себя палитры Linear и VS Code.
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActive((i) => Math.min(i + 1, items.length - 1))
+      setActive((i) => (i + 1) % items.length)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setActive((i) => Math.max(i - 1, 0))
+      setActive((i) => (i - 1 + items.length) % items.length)
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setActive(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setActive(items.length - 1)
     } else if (e.key === 'Enter') {
       e.preventDefault()
       select(items[active])
@@ -205,7 +223,16 @@ export function CommandPalette() {
         <DialogPrimitive.Overlay className="fixed inset-0 z-[300] bg-overlay/30 backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           onKeyDown={onKeyDown}
-          className="fixed top-[8vh] left-1/2 z-[300] flex max-h-[80dvh] w-[80vw] max-w-[80vw] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+          className={cn(
+            'fixed z-[300] flex flex-col overflow-hidden bg-popover text-popover-foreground',
+            // Телефон: во весь экран. Прежние 80vw посреди страницы с открытой клавиатурой
+            // превращались в щель, а список результатов уезжал под клавиатуру.
+            'inset-0 h-dvh w-full pt-[env(safe-area-inset-top)]',
+            // Десктоп: узкая панель сверху. 80vw на широком мониторе растягивал строку
+            // результата через весь экран — глазу негде зацепиться за название.
+            'sm:inset-auto sm:top-[10vh] sm:left-1/2 sm:h-auto sm:max-h-[70dvh] sm:w-[calc(100%-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-border sm:pt-0',
+            'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          )}
         >
           <DialogPrimitive.Title className="sr-only">{t('title')}</DialogPrimitive.Title>
           <div className="flex items-center gap-2 border-b border-border px-4">
@@ -215,8 +242,23 @@ export function CommandPalette() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('placeholder')}
-              className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              // 16px на телефоне: при меньшем размере Safari зумит страницу на фокусе поля.
+              className="h-14 w-full bg-transparent text-base outline-none placeholder:text-muted-foreground sm:h-12 sm:text-sm"
             />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label={t('clear')}
+                className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            )}
+            {/* На телефоне Esc нажать нечем, а крестик в углу — мимо большого пальца. */}
+            <DialogPrimitive.Close className="shrink-0 cursor-pointer rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:hidden">
+              {t('cancel')}
+            </DialogPrimitive.Close>
           </div>
 
           <div ref={listRef} className="flex-1 overflow-y-auto p-2">
@@ -248,10 +290,12 @@ export function CommandPalette() {
                     )}
                     <button
                       type="button"
+                      data-idx={i}
                       onClick={() => select(item)}
                       onMouseEnter={() => setActive(i)}
                       className={cn(
-                        'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm outline-none',
+                        // min-h-12 на телефоне: строка в 36 px — промах пальцем.
+                        'flex min-h-12 w-full items-center gap-3 rounded-lg px-2.5 py-2.5 text-left text-sm outline-none sm:min-h-0 sm:py-2',
                         i === active ? 'bg-muted' : 'hover:bg-muted/60',
                       )}
                     >
@@ -264,7 +308,7 @@ export function CommandPalette() {
                       )}
                       {i === active && (
                         <CornerDownLeft
-                          className="size-3.5 shrink-0 text-muted-foreground"
+                          className="hidden size-3.5 shrink-0 text-muted-foreground sm:block"
                           aria-hidden
                         />
                       )}
@@ -274,8 +318,34 @@ export function CommandPalette() {
               })
             )}
           </div>
+
+          {/* Подсказка по клавишам: на телефоне клавиатуры нет, показывать нечего. */}
+          <div className="hidden items-center gap-4 border-t border-border px-4 py-2 text-xs text-muted-foreground sm:flex">
+            <span className="flex items-center gap-1.5">
+              <Key>↑</Key>
+              <Key>↓</Key>
+              {t('keyNavigate')}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Key>↵</Key>
+              {t('keyOpen')}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Key>Esc</Key>
+              {t('keyClose')}
+            </span>
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  )
+}
+
+// Клавиша в подсказке: символы (↑ ↵ Esc) не переводятся, поэтому лежат в разметке.
+function Key({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="flex h-5 min-w-5 items-center justify-center rounded border border-border bg-muted px-1 font-sans text-[0.6875rem] text-muted-foreground">
+      {children}
+    </kbd>
   )
 }

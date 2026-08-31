@@ -37,6 +37,7 @@ const ROLE_LABELS_RU: Record<Role, string> = {
   [Role.TEACHER]: 'Преподаватель',
   [Role.STAROSTA]: 'Староста',
   [Role.STUDENT]: 'Студент',
+  [Role.EMPLOYER]: 'Работодатель',
 }
 
 /**

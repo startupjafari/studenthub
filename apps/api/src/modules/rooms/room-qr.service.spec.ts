@@ -8,17 +8,19 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { AppException } from '../../common/exceptions/app.exception'
 
-// Библиотека qrcode (вместе с PNG-кодировщиком pngjs) грузится через резолвер Jest
-// ~1.5 с — на CI-раннере втрое дольше, и тест выдачи кода упирался в таймаут 5 с
-// (само кодирование картинки при этом занимает ~57 мс). Кодирование PNG — не наша
-// логика; подменяем библиотеку и проверяем, ЧТО мы ей передаём. Реальная генерация
-// проверена сквозным прогоном в браузере: наклейка печатается и сканируется.
-jest.mock('qrcode', () => ({
-  toDataURL: jest.fn(async () => 'data:image/png;base64,stub'),
+// Общий рендер QR тянет библиотеку qrcode через резолвер Jest — это ~1.5 с, на CI-раннере
+// втрое дольше, и тест выдачи кода упирался в таймаут 5 с. Сама отрисовка — не логика
+// этого модуля (она проверяется в qr-image.spec.ts); подменяем рендер и проверяем, ЧТО мы
+// ему передаём. Реальная генерация проверена прогоном в браузере: наклейка печатается и
+// сканируется.
+jest.mock('../../common/qr/qr-image', () => ({
+  renderQrDataUrl: jest.fn(() => 'data:image/svg+xml;base64,stub'),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const QRCode = require('qrcode') as { toDataURL: jest.Mock }
+const { renderQrDataUrl } = require('../../common/qr/qr-image') as {
+  renderQrDataUrl: jest.Mock
+}
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -193,12 +195,11 @@ describe('RoomQrService.issueBatch', () => {
     expect(dto?.code).toMatch(/^[2-9A-HJKMNP-Z]{8}$/)
     expect(dto?.url).toBe(`https://app.studenthub.kz/r/${dto?.code}`)
     // Картинка для печати генерируется на сервере (qrcode уже есть в зависимостях).
-    expect(dto?.qr.startsWith('data:image/png;base64,')).toBe(true)
-    // Параметры печати — наша логика: коррекция выше средней, потому что наклейку
-    // на двери заляпают и поцарапают, и запас по ширине для печати.
-    expect(QRCode.toDataURL).toHaveBeenCalledWith(
+    expect(dto?.qr.startsWith('data:image/svg+xml;base64,')).toBe(true)
+    // Параметр печати — наша логика: запас по ширине, наклейку читают с расстояния.
+    expect(renderQrDataUrl).toHaveBeenCalledWith(
       dto?.url,
-      expect.objectContaining({ errorCorrectionLevel: 'Q', width: 600, margin: 1 }),
+      expect.objectContaining({ width: 600, margin: 1 }),
     )
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'room_qr_issued' }))
   })

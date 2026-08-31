@@ -92,7 +92,7 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
 
   if (q.isLoading || !a) {
     return (
-      <div className="flex w-full flex-col gap-4">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
@@ -106,7 +106,7 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
   const sub = a.mySubmission
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={a.title}
         subtitle={a.course.subject.name}

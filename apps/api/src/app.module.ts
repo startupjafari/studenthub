@@ -35,6 +35,7 @@ import { KatoModule } from './modules/kato/kato.module'
 import { ConsultationsModule } from './modules/consultations/consultations.module'
 import { AppointmentsModule } from './modules/appointments/appointments.module'
 import { PortfolioModule } from './modules/portfolio/portfolio.module'
+import { CareerModule } from './modules/career/career.module'
 import { StudentIdModule } from './modules/student-id/student-id.module'
 // Заявки-услуги (переработка «Заявок в деканат», §3.2).
 import { ApplicationServicesModule } from './modules/application-services/application-services.module'
@@ -100,6 +101,7 @@ import { AppController } from './app.controller'
     ConsultationsModule,
     AppointmentsModule,
     PortfolioModule,
+    CareerModule,
     StudentIdModule,
     ApplicationServicesModule,
     PostsModule,

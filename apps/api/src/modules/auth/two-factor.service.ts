@@ -1,7 +1,7 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { randomBytes } from 'node:crypto'
 import { authenticator } from 'otplib'
-import * as QRCode from 'qrcode'
+import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { AppException } from '../../common/exceptions/app.exception'
 import { CryptoService } from '../../common/security/crypto.service'
 import { PasswordService } from '../../common/security/password.service'
@@ -38,7 +38,7 @@ export class TwoFactorService {
     const user = await this.users.findById(userId)
     const secret = authenticator.generateSecret()
     const otpauthUrl = authenticator.keyuri(user.email, ISSUER, secret)
-    const qr = await QRCode.toDataURL(otpauthUrl)
+    const qr = renderQrDataUrl(otpauthUrl)
     await this.users.setPendingTwoFactorSecret(userId, this.crypto.encrypt(secret))
     return { secret, otpauthUrl, qr }
   }
