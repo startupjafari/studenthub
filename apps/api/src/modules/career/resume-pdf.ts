@@ -1,7 +1,6 @@
 import { createElement as h } from 'react'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { Document, Font, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
 
 /**
  * Сборка PDF-резюме.
@@ -14,8 +13,17 @@ import { Document, Font, Page, StyleSheet, Text, View, renderToBuffer } from '@r
  * см. assets/fonts/README.md.
  */
 
+// @react-pdf/renderer v4 — ESM-only. api собирается в CommonJS, где TypeScript даунлевелит
+// dynamic import() в require() и падает на ESM-only пакете (ERR_REQUIRE_ESM) — тем же
+// способом падал и jest, поднимая AppModule в e2e. Function-обёртка сохраняет нативный
+// import() в рантайме, минуя эту трансформацию (тот же приём, что в files/mime-detector.ts).
+const importEsm = new Function('specifier', 'return import(specifier)') as <T>(
+  specifier: string,
+) => Promise<T>
+
+type ReactPdf = typeof import('@react-pdf/renderer')
+
 const FONT_FAMILY = 'Inter'
-let fontRegistered = false
 
 /**
  * Путь к файлу шрифта.
@@ -40,48 +48,75 @@ function fontPath(): string {
   return found
 }
 
-/** Регистрация один раз на процесс: Font.register держит глобальный реестр. */
-function ensureFont(): void {
-  if (fontRegistered) return
-  Font.register({ family: FONT_FAMILY, src: fontPath() })
-  // Переносы слов отключаем: встроенный словарь переносов рассчитан на английский и
-  // рвёт русские слова в неожиданных местах.
-  Font.registerHyphenationCallback((word) => [word])
-  fontRegistered = true
+function createStyles(StyleSheet: ReactPdf['StyleSheet']) {
+  return StyleSheet.create({
+    page: { fontFamily: FONT_FAMILY, fontSize: 10, padding: 40, color: '#111827' },
+    name: { fontSize: 22, marginBottom: 2 },
+    headline: { fontSize: 11, color: '#4b5563', marginBottom: 10 },
+    contactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+    contact: { fontSize: 9, color: '#4b5563' },
+    sectionTitle: {
+      fontSize: 9,
+      letterSpacing: 1,
+      color: '#6b7280',
+      marginTop: 14,
+      marginBottom: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: '#e5e7eb',
+      paddingBottom: 3,
+    },
+    body: { fontSize: 10, lineHeight: 1.5, color: '#1f2937' },
+    itemTitle: { fontSize: 10.5, marginBottom: 1 },
+    itemMeta: { fontSize: 9, color: '#6b7280', marginBottom: 2 },
+    item: { marginBottom: 8 },
+    skills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+    skill: {
+      fontSize: 9,
+      color: '#1f2937',
+      backgroundColor: '#f3f4f6',
+      paddingVertical: 2,
+      paddingHorizontal: 5,
+      borderRadius: 3,
+    },
+    verified: { fontSize: 8, color: '#047857' },
+    footer: {
+      position: 'absolute',
+      bottom: 24,
+      left: 40,
+      right: 40,
+      fontSize: 8,
+      color: '#9ca3af',
+    },
+  })
 }
 
-const styles = StyleSheet.create({
-  page: { fontFamily: FONT_FAMILY, fontSize: 10, padding: 40, color: '#111827' },
-  name: { fontSize: 22, marginBottom: 2 },
-  headline: { fontSize: 11, color: '#4b5563', marginBottom: 10 },
-  contactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  contact: { fontSize: 9, color: '#4b5563' },
-  sectionTitle: {
-    fontSize: 9,
-    letterSpacing: 1,
-    color: '#6b7280',
-    marginTop: 14,
-    marginBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    paddingBottom: 3,
-  },
-  body: { fontSize: 10, lineHeight: 1.5, color: '#1f2937' },
-  itemTitle: { fontSize: 10.5, marginBottom: 1 },
-  itemMeta: { fontSize: 9, color: '#6b7280', marginBottom: 2 },
-  item: { marginBottom: 8 },
-  skills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  skill: {
-    fontSize: 9,
-    color: '#1f2937',
-    backgroundColor: '#f3f4f6',
-    paddingVertical: 2,
-    paddingHorizontal: 5,
-    borderRadius: 3,
-  },
-  verified: { fontSize: 8, color: '#047857' },
-  footer: { position: 'absolute', bottom: 24, left: 40, right: 40, fontSize: 8, color: '#9ca3af' },
-})
+interface PdfKit {
+  pdf: ReactPdf
+  styles: ReturnType<typeof createStyles>
+}
+
+let kitPromise: Promise<PdfKit> | undefined
+
+/**
+ * Ленивая загрузка рендерера: модуль тяжёлый и нужен только на выдаче PDF, а его
+ * регистрация шрифта и стили — глобальные, поэтому делаются один раз на процесс
+ * (`Font.register` держит глобальный реестр).
+ */
+function loadKit(): Promise<PdfKit> {
+  kitPromise ??= importEsm<ReactPdf>('@react-pdf/renderer').then((pdf) => {
+    pdf.Font.register({ family: FONT_FAMILY, src: fontPath() })
+    // Переносы слов отключаем: встроенный словарь переносов рассчитан на английский и
+    // рвёт русские слова в неожиданных местах.
+    pdf.Font.registerHyphenationCallback((word) => [word])
+    return { pdf, styles: createStyles(pdf.StyleSheet) }
+  })
+  // Неудачную загрузку не кэшируем: иначе одна ошибка (например, отсутствующий шрифт)
+  // навсегда ломает выдачу PDF до перезапуска процесса.
+  return kitPromise.catch((error: unknown) => {
+    kitPromise = undefined
+    throw error
+  })
+}
 
 export interface ResumeItem {
   title: string
@@ -118,37 +153,37 @@ export interface ResumeData {
   labels: ResumeLabels
 }
 
-function section(title: string, children: React.ReactNode) {
+function section({ pdf, styles }: PdfKit, title: string, children: React.ReactNode) {
   return h(
-    View,
+    pdf.View,
     { wrap: false },
-    h(Text, { style: styles.sectionTitle }, title.toUpperCase()),
+    h(pdf.Text, { style: styles.sectionTitle }, title.toUpperCase()),
     children,
   )
 }
 
-function items(list: ResumeItem[], verifiedLabel: string) {
+function items({ pdf, styles }: PdfKit, list: ResumeItem[], verifiedLabel: string) {
   return h(
-    View,
+    pdf.View,
     null,
     ...list.map((item, index) =>
       h(
-        View,
+        pdf.View,
         { key: String(index), style: styles.item },
         h(
-          Text,
+          pdf.Text,
           { style: styles.itemTitle },
           item.title,
-          item.verified ? h(Text, { style: styles.verified }, `  ✓ ${verifiedLabel}`) : null,
+          item.verified ? h(pdf.Text, { style: styles.verified }, `  ✓ ${verifiedLabel}`) : null,
         ),
         item.organization || item.period
           ? h(
-              Text,
+              pdf.Text,
               { style: styles.itemMeta },
               [item.organization, item.period].filter(Boolean).join(' · '),
             )
           : null,
-        item.description ? h(Text, { style: styles.body }, item.description) : null,
+        item.description ? h(pdf.Text, { style: styles.body }, item.description) : null,
       ),
     ),
   )
@@ -156,36 +191,40 @@ function items(list: ResumeItem[], verifiedLabel: string) {
 
 /** Резюме в PDF. Возвращает буфер — контроллер отдаёт его как файл. */
 export async function renderResumePdf(data: ResumeData): Promise<Buffer> {
-  ensureFont()
+  const kit = await loadKit()
+  const { pdf, styles } = kit
 
   const doc = h(
-    Document,
+    pdf.Document,
     { title: data.fullName, author: data.fullName },
     h(
-      Page,
+      pdf.Page,
       { size: 'A4', style: styles.page },
-      h(Text, { style: styles.name }, data.fullName),
-      data.headline ? h(Text, { style: styles.headline }, data.headline) : null,
+      h(pdf.Text, { style: styles.name }, data.fullName),
+      data.headline ? h(pdf.Text, { style: styles.headline }, data.headline) : null,
       data.contacts.length > 0
         ? h(
-            View,
+            pdf.View,
             { style: styles.contactRow },
             ...data.contacts.map((contact, i) =>
-              h(Text, { key: String(i), style: styles.contact }, contact),
+              h(pdf.Text, { key: String(i), style: styles.contact }, contact),
             ),
           )
         : null,
 
-      data.about ? section(data.labels.about, h(Text, { style: styles.body }, data.about)) : null,
+      data.about
+        ? section(kit, data.labels.about, h(pdf.Text, { style: styles.body }, data.about))
+        : null,
 
       data.education.length > 0
         ? section(
+            kit,
             data.labels.education,
             h(
-              View,
+              pdf.View,
               null,
               ...data.education.map((line, i) =>
-                h(Text, { key: String(i), style: styles.body }, line),
+                h(pdf.Text, { key: String(i), style: styles.body }, line),
               ),
             ),
           )
@@ -193,34 +232,43 @@ export async function renderResumePdf(data: ResumeData): Promise<Buffer> {
 
       data.skills.length > 0
         ? section(
+            kit,
             data.labels.skills,
             h(
-              View,
+              pdf.View,
               { style: styles.skills },
               ...data.skills.map((skill, i) =>
-                h(Text, { key: String(i), style: styles.skill }, skill),
+                h(pdf.Text, { key: String(i), style: styles.skill }, skill),
               ),
             ),
           )
         : null,
 
       data.experience.length > 0
-        ? section(data.labels.experience, items(data.experience, data.labels.verified))
+        ? section(kit, data.labels.experience, items(kit, data.experience, data.labels.verified))
         : null,
       data.projects.length > 0
-        ? section(data.labels.projects, items(data.projects, data.labels.verified))
+        ? section(kit, data.labels.projects, items(kit, data.projects, data.labels.verified))
         : null,
       data.certificates.length > 0
-        ? section(data.labels.certificates, items(data.certificates, data.labels.verified))
+        ? section(
+            kit,
+            data.labels.certificates,
+            items(kit, data.certificates, data.labels.verified),
+          )
         : null,
 
       data.languages.length > 0
-        ? section(data.labels.languages, h(Text, { style: styles.body }, data.languages.join(', ')))
+        ? section(
+            kit,
+            data.labels.languages,
+            h(pdf.Text, { style: styles.body }, data.languages.join(', ')),
+          )
         : null,
 
-      h(Text, { style: styles.footer, fixed: true }, data.labels.generated),
+      h(pdf.Text, { style: styles.footer, fixed: true }, data.labels.generated),
     ),
   )
 
-  return renderToBuffer(doc)
+  return pdf.renderToBuffer(doc)
 }
