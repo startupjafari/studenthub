@@ -71,7 +71,7 @@ export function StudentConsultationsView() {
   // Экран слотов преподавателя.
   if (teacher) {
     return (
-      <div className="flex w-full flex-col gap-4">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
         <PageHeader
           title={teacher.name}
           subtitle={t('pickSlot')}
@@ -131,7 +131,7 @@ export function StudentConsultationsView() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       <Card>
@@ -142,7 +142,7 @@ export function StudentConsultationsView() {
           {mine.isLoading ? (
             <Skeleton className="h-16 w-full rounded-lg" />
           ) : (mine.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('noBookings')}</p>
+            <EmptyState title={t('noBookings')} className="border-0 p-6" />
           ) : (
             <ul className="flex flex-col gap-2">
               {(mine.data ?? []).map((s) => (
@@ -182,7 +182,7 @@ export function StudentConsultationsView() {
           {teachers.isLoading ? (
             <Skeleton className="h-16 w-full rounded-lg" />
           ) : (teachers.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('noTeachers')}</p>
+            <EmptyState title={t('noTeachers')} className="border-0 p-6" />
           ) : (
             <ul className="flex flex-col gap-1">
               {(teachers.data ?? []).map((tc) => (

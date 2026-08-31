@@ -1,4 +1,4 @@
-import type { AppointmentStatus } from '../../../entities/appointment'
+import type { AppointmentStatus, AppointmentType } from '../../../entities/appointment'
 
 export const APPT_STATUS_BADGE: Record<
   AppointmentStatus,
@@ -19,7 +19,22 @@ export const APPT_STATUS_KEY: Record<AppointmentStatus, string> = {
   CANCELLED: 'status.cancelled',
 }
 
-export const APPOINTMENT_TYPES = ['CONSULTATION', 'DOCUMENT', 'ACADEMIC', 'OTHER']
-export function typeKey(type: string): string {
-  return `type.${type.toLowerCase()}`
+/**
+ * Подписи типов записи.
+ *
+ * Явная карта, а не собранный ключ `type.${type.toLowerCase()}`. Построенный ключ не
+ * видит ни компилятор, ни тест словарей — и все четыре подписи молча печатались сырым
+ * «Appointments.type.other» сразу на трёх экранах (FRONTEND_RULES §10). С `Record` по
+ * union'у новый тип записи не собрать, пока для него нет подписи.
+ */
+export const APPT_TYPE_KEY: Record<AppointmentType, string> = {
+  CONSULTATION: 'typeLabel.consultation',
+  DOCUMENT: 'typeLabel.document',
+  ACADEMIC: 'typeLabel.academic',
+  OTHER: 'typeLabel.other',
+}
+
+/** Тип с сервера приходит строкой — неизвестное значение показываем как «Другое». */
+export function apptTypeKey(type: string): string {
+  return APPT_TYPE_KEY[type as AppointmentType] ?? APPT_TYPE_KEY.OTHER
 }

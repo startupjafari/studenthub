@@ -8,7 +8,6 @@ import { Save } from 'lucide-react'
 import {
   Button,
   Card,
-  CardContent,
   Checkbox,
   Input,
   PageHeader,
@@ -18,6 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import {
@@ -25,6 +32,7 @@ import {
   fetchExamResults,
   setExamResultsRequest,
   type ExamResultStatus,
+  type ExamRosterEntry,
 } from '../../../entities/exam'
 import { EXAM_STATUS_KEY, EXAM_STATUS_ORDER } from '../lib/visuals'
 
@@ -33,6 +41,11 @@ interface Row {
   status: ExamResultStatus
   score: string
 }
+
+// Имя забирает остаток ширины: остальные колонки — под конкретный контрол.
+// «Статус» — под самую длинную подпись («Запланирован»), «Балл» — под трёхзначное
+// число со стрелками числового поля: у́же placeholder обрезался до «Бал».
+const COLS = ['auto', '6rem', '13rem', '7rem'] as const
 
 // Ведомость экзамена: допуск + статус + балл по каждому студенту (декан/экзаменатор).
 export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: () => void }) {
@@ -78,8 +91,32 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
   const patch = (id: string, p: Partial<Row>) =>
     setRows((prev) => ({ ...prev, [id]: { ...prev[id]!, ...p } }))
 
+  /*
+    Сортировка на фронте: ведомость приходит целиком, страниц нет — сортировать на
+    сервере значило бы гонять запрос ради порядка строк, который уже весь в памяти.
+    Сортируем по ЧЕРНОВИКУ (rows), а не по ответу сервера: иначе поставленный балл
+    не влиял бы на порядок до сохранения, и «показать несданных сверху» не работало бы
+    ровно тогда, когда это нужно — во время заполнения.
+  */
+  const roster = q.data?.students ?? []
+  const {
+    rows: sorted,
+    sort,
+    toggle,
+  } = useTableSort<ExamRosterEntry>(roster, (s, key) => {
+    const draft = rows[s.studentId]
+    if (key === 'name') return `${s.lastName} ${s.firstName}`
+    if (key === 'admitted') return (draft?.admitted ?? s.admitted) ? 1 : 0
+    if (key === 'status') return EXAM_STATUS_ORDER.indexOf(draft?.status ?? s.status)
+    if (key === 'score') {
+      const raw = draft?.score
+      return raw === undefined ? s.score : raw === '' ? null : Number(raw)
+    }
+    return null
+  })
+
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('roster')}
         onBack={onBack}
@@ -100,33 +137,54 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
       {q.isLoading ? (
         <Skeleton className="h-80 w-full rounded-xl" />
       ) : (
-        <Card>
-          <CardContent className="p-2">
-            <ul className="divide-y divide-border">
-              {(q.data?.students ?? []).map((s) => {
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          {/*
+            Прокрутка внутри тела таблицы, без страниц: ведомость заполняют сверху вниз
+            за один проход, и разбиение на страницы означало бы «сохранить» посреди
+            группы. Шапка при этом остаётся на месте — видно, какая колонка под курсором.
+          */}
+          <Table fixed scrollBody fill cols={COLS}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="name" sort={sort} onSort={toggle}>
+                  {t('colStudent')}
+                </TableHead>
+                <TableHead sortKey="admitted" sort={sort} onSort={toggle}>
+                  {t('admittedShort')}
+                </TableHead>
+                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                  {t('colStatus')}
+                </TableHead>
+                <TableHead numeric sortKey="score" sort={sort} onSort={toggle}>
+                  {t('scoreShort')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((s) => {
                 const r = rows[s.studentId]
                 if (!r) return null
+                const name = `${s.lastName} ${s.firstName}`
                 return (
-                  <li
-                    key={s.studentId}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-2 p-2.5"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {s.lastName} {s.firstName}
-                    </span>
-                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <TableRow key={s.studentId}>
+                    <TableCell className="font-medium">
+                      <TableText value={name} />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {/* Подписи у флажка нет — её несёт заголовок колонки, но
+                          скринридеру нужно имя студента, иначе все флажки одинаковы. */}
                       <Checkbox
                         checked={r.admitted}
+                        aria-label={`${t('admittedShort')}: ${name}`}
                         onCheckedChange={(v) => patch(s.studentId, { admitted: v === true })}
                       />
-                      {t('admittedShort')}
-                    </label>
-                    <div className="w-36">
+                    </TableCell>
+                    <TableCell>
                       <Select
                         value={r.status}
                         onValueChange={(v) => patch(s.studentId, { status: v as ExamResultStatus })}
                       >
-                        <SelectTrigger size="md">
+                        <SelectTrigger size="md" aria-label={`${t('colStatus')}: ${name}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -137,20 +195,23 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                    <Input
-                      type="number"
-                      value={r.score}
-                      onChange={(e) => patch(s.studentId, { score: e.target.value })}
-                      size="md"
-                      className="w-20 text-center"
-                      placeholder={t('scoreShort')}
-                    />
-                  </li>
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        value={r.score}
+                        onChange={(e) => patch(s.studentId, { score: e.target.value })}
+                        size="md"
+                        className="text-center"
+                        aria-label={`${t('scoreShort')}: ${name}`}
+                        placeholder={t('scoreShort')}
+                      />
+                    </TableCell>
+                  </TableRow>
                 )
               })}
-            </ul>
-          </CardContent>
+            </TableBody>
+          </Table>
         </Card>
       )}
     </div>

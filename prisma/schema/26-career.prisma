@@ -1,0 +1,368 @@
+// Домен «Карьера» (Фаза 18): компании-работодатели и их допуск к студентам вузов.
+//
+// Ключевая идея модели доступа: у работодателя НЕТ одного universityId. Компания подаёт
+// заявку в каждый вуз отдельно, вуз её одобряет, и работодатель видит студентов ровно тех
+// вузов, где допуск активен. Поэтому доступ считается по паре «компания ↔ вуз»
+// (CompanyUniversityAccess), а не по скоупу из токена: отзыв допуска обязан действовать
+// немедленно, а не после истечения access-токена.
+//
+// Статусы — строками (стиль новых доменов, как в «Документах» и «Услугах»); контракт —
+// в @studenthub/shared-schemas (единый источник истины для state-machine и форм).
+
+// Компания-работодатель. Создаётся при самостоятельной регистрации работодателя
+// (публичный эндпоинт) либо приглашением от вуза.
+//
+// status — ПЛАТФОРМЕННЫЙ статус, отдельный от допусков вузов:
+// PENDING_EMAIL | ACTIVE | BLOCKED. Пока email не подтверждён — компания не видна никому.
+// BLOCKED ставит платформа: спам в несколько вузов не должен разбираться каждым вузом
+// отдельно.
+model Company {
+  id          String  @id @default(uuid())
+  name        String
+  // Человекочитаемый идентификатор для публичной страницы компании.
+  slug        String  @unique
+  description String?
+  // Сайт и город — витрина компании для студента.
+  website     String?
+  // Код КАТО (kato_units.code) либо свободный текст для зарубежной компании — как у вуза.
+  city        String?
+  // Логотип: File в публичном бакете (как обложка профиля). Скаляр без FK — файл может
+  // быть заменён, а компания жить дальше.
+  logoUrl     String? @map("logo_url")
+
+  status String @default("PENDING_EMAIL")
+
+  // Подтверждение адреса при самостоятельной регистрации. Токен хранится ХЭШЕМ —
+  // в открытом виде в БД его быть не должно, как у refresh-токенов. Одноразовый:
+  // после подтверждения оба поля гасятся.
+  emailVerificationHash      String?   @map("email_verification_hash")
+  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
+
+  // Причина блокировки платформой — показывается владельцу компании.
+  blockedReason String?   @map("blocked_reason")
+  blockedAt     DateTime? @map("blocked_at")
+
+  // Кто зарегистрировал. Скаляр без обратной связи: владелец определяется через
+  // CompanyMember с ролью OWNER, а этот след нужен для аудита.
+  createdById String? @map("created_by_id")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  members          CompanyMember[]
+  universityAccess CompanyUniversityAccess[]
+  vacancies        Vacancy[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("companies")
+}
+
+// Человек, работающий от имени компании. role: OWNER | RECRUITER.
+// OWNER подаёт заявки в вузы и управляет составом; RECRUITER работает с вакансиями.
+model CompanyMember {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  userId    String   @map("user_id")
+  role      String   @default("RECRUITER")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User    @relation("UserCompanyMemberships", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Один человек — одна компания: аккаунт работодателя привязан к своей компании,
+  // переход в другую = новый аккаунт. Так проще и безопаснее считать доступ.
+  @@unique([userId])
+  @@index([companyId])
+  @@map("company_members")
+}
+
+// Заявка компании на допуск к студентам конкретного вуза и решение по ней.
+// Это и есть единица доступа: работодатель видит студентов вуза тогда и только тогда,
+// когда здесь лежит APPROVED-запись без истёкшего срока.
+//
+// status: REQUESTED | APPROVED | REJECTED | REVOKED
+// (REVOKED — отзыв ранее выданного допуска; REJECTED — отказ по заявке.)
+model CompanyUniversityAccess {
+  id           String @id @default(uuid())
+  companyId    String @map("company_id")
+  universityId String @map("university_id")
+
+  status  String  @default("REQUESTED")
+  // Сопроводительное сообщение компании — вузу нужно понимать, кого он пускает.
+  message String?
+
+  requestedById String   @map("requested_by_id")
+  requestedAt   DateTime @default(now()) @map("requested_at")
+
+  // Кто из сотрудников вуза рассмотрел. Скаляр без FK — как assignedToId в «Услугах».
+  decidedById String?   @map("decided_by_id")
+  decidedAt   DateTime? @map("decided_at")
+  // Причина отказа или отзыва — показывается компании.
+  reason      String?
+
+  // Срок действия допуска. null — бессрочно; истёкший допуск не даёт доступа,
+  // проверяется в запросе, отдельной джобы не требует.
+  expiresAt DateTime? @map("expires_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university University @relation("UniversityCompanyAccess", fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Одна заявка на пару «компания ↔ вуз»: повторное обращение меняет статус существующей,
+  // иначе история отказов превратилась бы в способ спамить вуз.
+  @@unique([companyId, universityId])
+  @@index([universityId, status])
+  @@index([companyId, status])
+  @@map("company_university_access")
+}
+
+// ── Карьерный профиль студента (18.B) ────────────────────────────────────────
+//
+// Отдельной таблицы «профиля» с ФИО, навыками и образованием НЕТ намеренно: всё это
+// уже лежит в User (headline, skills, languages, gpa, specialty, course, graduationYear)
+// и в PortfolioItem (проекты, опыт, сертификаты, достижения). Здесь — только то, чего
+// в платформе не было: чего человек хочет от работы и кому это показывать.
+
+model CareerProfile {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  // Видимость для работодателей: HIDDEN | EMPLOYERS.
+  // По умолчанию HIDDEN — студент не становится виден компаниям молча, самим фактом
+  // существования аккаунта. Публичная ссылка на резюме появится отдельной сущностью (18.E).
+  visibility String @default("HIDDEN")
+
+  // Чего человек ищет.
+  employmentStatus String   @default("NOT_LOOKING") @map("employment_status") // LOOKING | OPEN | NOT_LOOKING
+  desiredPositions String[] @default([]) @map("desired_positions")
+  employmentTypes  String[] @default([]) @map("employment_types") // INTERNSHIP | PART_TIME | FULL_TIME | CONTRACT | FREELANCE
+  workFormats      String[] @default([]) @map("work_formats") // ONSITE | HYBRID | REMOTE
+  relocationReady  Boolean  @default(false) @map("relocation_ready")
+
+  desiredSalaryMin Int?    @map("desired_salary_min")
+  desiredSalaryMax Int?    @map("desired_salary_max")
+  salaryCurrency   String? @map("salary_currency")
+
+  // Короткий рассказ о себе для работодателя — отдельно от User.bio, который человек
+  // пишет для однокурсников и в другом тоне.
+  about String?
+
+  // Кэш готовности профиля (0–100). Считается детерминированно при чтении и пишется сюда,
+  // чтобы список кандидатов не пересчитывал его на каждую строку.
+  readinessScore Int?      @map("readiness_score")
+  readinessAt    DateTime? @map("readiness_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation("UserCareerProfile", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([visibility, employmentStatus])
+  @@map("career_profiles")
+}
+
+/**
+ * Явное согласие студента показать чувствительное поле работодателю.
+ * GPA, телефон и полный email по умолчанию не уходят работодателю НИКОГДА — только через
+ * запись здесь. Модель повторяет DocumentAccess: кому, когда выдано, когда отозвано.
+ * Отзыв действует немедленно, потому что проверка идёт в момент запроса, а не в момент
+ * отклика.
+ * companyId = null — согласие для всех допущенных работодателей; иначе для одной компании.
+ * Уникального индекса нет намеренно: в Postgres NULL-ы в уникальном ключе считаются
+ * различными, и индекс создавал бы ложное чувство защиты. Активность определяется
+ * выборкой по revokedAt = null.
+ */
+model CareerConsent {
+  id        String  @id @default(uuid())
+  userId    String  @map("user_id")
+  field     String // GPA | PHONE | EMAIL
+  companyId String? @map("company_id")
+
+  grantedAt DateTime  @default(now()) @map("granted_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  user User @relation("UserCareerConsents", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId, field, revokedAt])
+  @@index([companyId])
+  @@map("career_consents")
+}
+
+// ── Вакансии (18.C) ──────────────────────────────────────────────────────────
+
+/**
+ * Вакансия компании.
+ * Навыки — массивом строк, а не отдельной таблицей VacancySkill: они берутся из общего
+ * справочника (shared/config/skills.ts), там же хранятся навыки студента (User.skills),
+ * и пересечение двух массивов считается напрямую. Нормализованная таблица понадобится,
+ * когда появится фасетный поиск с подсчётами по каждому навыку, — не раньше.
+ */
+model Vacancy {
+  id        String @id @default(uuid())
+  companyId String @map("company_id")
+
+  title       String
+  description String
+
+  employmentType  String  @map("employment_type") // INTERNSHIP | PART_TIME | FULL_TIME | CONTRACT | FREELANCE
+  workFormat      String  @map("work_format") // ONSITE | HYBRID | REMOTE
+  experienceLevel String  @map("experience_level") // NO_EXPERIENCE | INTERN | JUNIOR | MIDDLE
+  // Код КАТО либо свободный текст (как у компании и вуза).
+  city            String?
+
+  salaryMin      Int?    @map("salary_min")
+  salaryMax      Int?    @map("salary_max")
+  salaryCurrency String? @map("salary_currency")
+
+  skills    String[] @default([])
+  languages String[] @default([])
+
+  deadline DateTime?
+
+  // Жизненный цикл со стороны компании: DRAFT | PUBLISHED | PAUSED | CLOSED.
+  // Видимость студентам определяется НЕ только этим статусом — см. VacancyUniversityReview.
+  status      String    @default("DRAFT")
+  publishedAt DateTime? @map("published_at")
+
+  createdById String @map("created_by_id")
+  views       Int    @default(0)
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  company      Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  reviews      VacancyUniversityReview[]
+  applications CareerApplication[]
+
+  @@index([companyId, status])
+  @@index([status, publishedAt])
+  @@index([deletedAt])
+  @@map("vacancies")
+}
+
+/**
+ * Решение конкретного вуза по конкретной вакансии.
+ * Почему на пару «вакансия ↔ вуз», а не один статус у вакансии: компания допущена в
+ * несколько вузов, и «одобрено» одним из них не должно открывать вакансию студентам
+ * другого. Строки создаются при публикации — по одной на каждый вуз с активным допуском;
+ * их немного, потому что допусков у компании единицы.
+ * status: PENDING | APPROVED | REJECTED. Студент видит вакансию, только если у ЕГО вуза
+ * стоит APPROVED.
+ */
+model VacancyUniversityReview {
+  id           String @id @default(uuid())
+  vacancyId    String @map("vacancy_id")
+  universityId String @map("university_id")
+
+  status String  @default("PENDING")
+  reason String?
+
+  decidedById String?   @map("decided_by_id")
+  decidedAt   DateTime? @map("decided_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vacancy    Vacancy    @relation(fields: [vacancyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  university University @relation("UniversityVacancyReviews", fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([vacancyId, universityId])
+  @@index([universityId, status])
+  @@map("vacancy_university_reviews")
+}
+
+// ── Отклики (18.D) ───────────────────────────────────────────────────────────
+
+/**
+ * Отклик студента на вакансию.
+ * Модель построена по образцу заявок-услуг вуза (16-application-services.prisma):
+ * статус на записи + отдельная таблица событий с полной историей переходов. История
+ * обязательна: и студент, и компания должны видеть, что и когда происходило, а спор
+ * «мне не отвечали» решается журналом, а не памятью.
+ */
+model CareerApplication {
+  id           String @id @default(uuid())
+  vacancyId    String @map("vacancy_id")
+  studentId    String @map("student_id")
+  companyId    String @map("company_id")
+  // Вуз студента на момент отклика: компания могла потерять допуск позже, и выборки
+  // работодателя должны опираться на зафиксированное значение, а не на текущий профиль.
+  universityId String @map("university_id")
+
+  // SUBMITTED | VIEWED | SHORTLISTED | INTERVIEW | OFFER | HIRED | REJECTED | WITHDRAWN
+  status String @default("SUBMITTED")
+
+  coverLetter String? @map("cover_letter")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vacancy Vacancy                  @relation(fields: [vacancyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  student User                     @relation("StudentCareerApplications", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  events  CareerApplicationEvent[]
+
+  // Один отклик на вакансию от студента: повторная отправка — это не новый отклик.
+  @@unique([vacancyId, studentId])
+  @@index([studentId, status])
+  @@index([companyId, status])
+  @@index([vacancyId, status])
+  @@map("career_applications")
+}
+
+/**
+ * Событие в истории отклика: кто и когда перевёл в какой статус.
+ */
+model CareerApplicationEvent {
+  id            String @id @default(uuid())
+  applicationId String @map("application_id")
+
+  fromStatus String? @map("from_status")
+  toStatus   String  @map("to_status")
+  comment    String?
+  // Кто выполнил переход. Скаляр без FK — как actorId в «Документах».
+  actorId    String  @map("actor_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  application CareerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("career_application_events")
+}
+
+// ── Резюме (18.E) ────────────────────────────────────────────────────────────
+
+/**
+ * Резюме студента.
+ * Содержимого здесь НЕТ: резюме собирается из карьерного профиля и портфолио в момент
+ * выдачи. Снимок данных означал бы, что резюме тихо устаревает, а студент об этом не
+ * знает; при сборке на лету «обновить резюме» — это просто обновить профиль.
+ * Одно резюме на человека: несколько версий под разные профессии отложены сознательно
+ * (см. план Фазы 18) — добавляются снятием @unique и полем title.
+ */
+model Resume {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  title String @default("Резюме")
+
+  /// Публичная ссылка: /r/resume/<slug>. null — ссылки нет, резюме только своё.
+  publicSlug  String?   @unique @map("public_slug")
+  publishedAt DateTime? @map("published_at")
+
+  /// Показывать ли контакты на публичной странице. По умолчанию нет: ссылку могут
+  /// переслать куда угодно, и email студента не должен уезжать вместе с ней молча.
+  includeContacts Boolean @default(false) @map("include_contacts")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation("UserResume", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("resumes")
+}

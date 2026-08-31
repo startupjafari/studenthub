@@ -12,6 +12,8 @@ import {
   NAV_BY_VARIANT,
   ROLE_TO_VARIANT,
   STUDENT_NAV,
+  careerNavFor,
+  isCareerPath,
   type NavItem,
   type NavVariant,
 } from '../model/nav'
@@ -43,6 +45,7 @@ function BottomNav({
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
   const tShell = useTranslations('Dashboard')
+  const tSearch = useTranslations('Command')
   const queryClient = useQueryClient()
   const [moreOpen, setMoreOpen] = useState(false)
   // Закрытие по крестику/фону тоже анимируем: лист уезжает вниз, фон гаснет, и только
@@ -162,18 +165,22 @@ function BottomNav({
               <div className="mx-auto h-1.5 w-12 rounded-full bg-muted-foreground/30" />
             </div>
 
-            {/* Быстрые действия — поиск и уведомления, самое частое в этом листе. */}
-            <div className="grid grid-cols-2 gap-2 px-3 pb-2">
+            {/* Поиск — первым и во всю ширину: он же строка ввода, к которой тянется рука,
+                и по нему промахнуться нельзя. Уведомления идут отдельной строкой ниже. */}
+            <div className="flex flex-col gap-2 px-3 pb-2">
               <button
                 type="button"
                 onClick={() => {
                   closeMore()
                   window.dispatchEvent(new Event('open-command-palette'))
                 }}
-                className={cn(sheetRow, 'justify-center border border-border')}
+                className={cn(
+                  sheetRow,
+                  'border border-border bg-muted/40 font-normal text-muted-foreground',
+                )}
               >
                 <Search className="size-5 shrink-0 opacity-80" aria-hidden />
-                {tNav('search')}
+                {tSearch('placeholder')}
               </button>
               <button
                 type="button"
@@ -181,11 +188,7 @@ function BottomNav({
                   closeMore()
                   onToggleNotif()
                 }}
-                className={cn(
-                  sheetRow,
-                  'justify-center border border-border',
-                  notifOpen && 'text-primary',
-                )}
+                className={cn(sheetRow, 'border border-border', notifOpen && 'text-primary')}
               >
                 <span className="relative">
                   <Bell className="size-5 shrink-0 opacity-80" aria-hidden />
@@ -262,10 +265,15 @@ export function AppShell({
   // сайдбар текущей роли). Проп variant — SSR-фолбэк до загрузки профиля.
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const effectiveVariant: NavVariant = me.data ? ROLE_TO_VARIANT[me.data.role] : variant
-  const nav = NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV
 
   // На экране чатов сайдбар превращается в панель списка чатов (список порталится в слот).
   const pathname = usePathname()
+
+  // Карьера — отдельный продукт: под /career сайдбар показывает её разделы, а не разделы
+  // платформы. Обратно — через переключатель под логотипом.
+  const nav = isCareerPath(pathname)
+    ? careerNavFor(me.data?.role)
+    : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
   const chatsMode = pathname.endsWith('/chats')
   const [listSlot, setListSlot] = useState<HTMLElement | null>(null)
 

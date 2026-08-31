@@ -77,7 +77,7 @@ export function MaterialsView() {
   })
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       {canCreate && (

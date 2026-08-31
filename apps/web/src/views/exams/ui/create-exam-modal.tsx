@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { CreateExamSchema, type CreateExamInput } from '@studenthub/shared-schemas'
+import { CreateExamSchema, EXAM_FORMATS, type CreateExamInput } from '@studenthub/shared-schemas'
 import {
   Button,
   DateTimePicker,
@@ -21,7 +21,7 @@ import {
 import { toApiError } from '../../../shared/lib'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import { examKeys, createExamRequest } from '../../../entities/exam'
-import { EXAM_FORMATS, formatKey } from '../lib/visuals'
+import { EXAM_FORMAT_KEY } from '../lib/visuals'
 
 interface Props {
   mine: boolean
@@ -125,7 +125,7 @@ export function CreateExamModal({ mine, onClose }: Props) {
               <SelectContent>
                 {EXAM_FORMATS.map((f) => (
                   <SelectItem key={f} value={f}>
-                    {t(formatKey(f))}
+                    {t(EXAM_FORMAT_KEY[f])}
                   </SelectItem>
                 ))}
               </SelectContent>

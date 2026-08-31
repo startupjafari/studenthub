@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import * as QRCode from 'qrcode'
+import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -72,7 +72,7 @@ export class StudentIdService {
     const exp = Date.now() + ID_TTL_MS
     const payload: IdPayload = { typ: ID_TYP, sub: viewer.sub, exp }
     const token = this.crypto.encrypt(JSON.stringify(payload))
-    const qr = await QRCode.toDataURL(
+    const qr = renderQrDataUrl(
       `${webBaseUrl(this.config)}/verify-id?t=${encodeURIComponent(token)}`,
       { margin: 1, width: 320 },
     )

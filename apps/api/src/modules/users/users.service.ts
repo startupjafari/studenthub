@@ -202,6 +202,8 @@ export class UserService {
         facultyId: true,
         groupId: true,
         twoFactorEnabled: true,
+        // Ф18: компания работодателя уходит в токен (см. JwtPayload.companyId).
+        companyMembership: { select: { companyId: true } },
       },
     })
   }
@@ -219,6 +221,7 @@ export class UserService {
         groupId: true,
         // Актуальный флаг 2FA → в токен (иначе refresh обнулял tfa и зацикливал форс).
         twoFactorEnabled: true,
+        companyMembership: { select: { companyId: true } },
       },
     })
   }
