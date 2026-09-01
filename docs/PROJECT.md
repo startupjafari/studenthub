@@ -448,12 +448,19 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 1. Администратор: POST /invites  → токен, роль, scope, expiresAt = now + 48ч, статус PENDING
 2. Очередь email: письмо со ссылкой https://app/register?token=UUID
 3. Пользователь открывает: GET /invites/:token/preview
-   → { role, universityName, facultyName, groupName, expiresAt }
+   → { role, emailRequired, universityId, facultyId, groupId, expiresAt }
    → истёк / использован / отозван → страница ошибки с конкретным кодом
-4. Форма: только имя, пароль, фото. Роль и scope показываются read-only
+4. Форма: имя, username, пароль, фото (+ email, если emailRequired). Роль и scope — read-only
 5. POST /auth/register-by-invite  → транзакция: создать User + Invite.status = USED
 6. Редирект на ROLE_HOME[role]
 ```
+
+**Инвайт без email.** `email` у инвайта необязателен: приглашение выдают и ссылкой (мессенджер,
+распечатка), а письмо тогда не отправляется. Адрес в этом случае приходит из формы регистрации,
+поэтому превью отдаёт признак `emailRequired = !invite.email`, а форма по нему показывает
+обязательное поле. Сам адрес превью не раскрывает никогда: ручка публична по токену, а ссылку
+могли переслать кому угодно. Без email не создаётся ни один пользователь — он логин и адрес
+восстановления пароля (`BAD_REQUEST`, если адреса нет ни в инвайте, ни в теле запроса).
 
 Защита: срок 48 ч (cron помечает `EXPIRED` раз в час), одноразовость (проверка внутри транзакции), отзыв через `PATCH /invites/:id/revoke`, throttling 3 попытки/час с IP, полный аудит.
 

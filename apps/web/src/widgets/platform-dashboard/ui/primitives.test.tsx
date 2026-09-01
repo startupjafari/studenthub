@@ -64,15 +64,17 @@ describe('ActivityGrid', () => {
     )
   }
 
+  // Клетки — не кнопки: нажатие на них ничего не делает, они только показывают значение
+  // при наведении и фокусе. Поэтому ищем их по подписи, а не по роли.
   it('рисует 7×24 ячейки', () => {
-    setup()
-    expect(screen.getAllByRole('button')).toHaveLength(7 * 24)
+    const { container } = setup()
+    expect(container.querySelectorAll('span[aria-label]')).toHaveLength(7 * 24)
   })
 
   it('наведение показывает значение строкой над сеткой', async () => {
     const user = userEvent.setup()
     setup()
-    await user.hover(screen.getByRole('button', { name: 'Пн, 18:00 — 6' }))
+    await user.hover(screen.getByLabelText('Пн, 18:00 — 6'))
     // Значение выводится один раз над сеткой, а не 168 всплывающими подсказками.
     expect(screen.getByText('Пн, 18:00 — 6')).toBeInTheDocument()
   })
@@ -82,7 +84,7 @@ describe('ActivityGrid', () => {
     setup()
     await user.tab()
     // Первая ячейка — Пн, 00:00.
-    expect(screen.getByRole('button', { name: 'Пн, 0:00 — 0' })).toHaveFocus()
+    expect(screen.getByLabelText('Пн, 0:00 — 0')).toHaveFocus()
   })
 })
 

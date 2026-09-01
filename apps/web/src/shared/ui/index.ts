@@ -56,7 +56,15 @@ export { Skeleton } from './skeleton'
 export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 export { EmptyState, type EmptyStateProps } from './empty-state'
 export { Markdown } from './markdown'
-export { MarkdownEditor } from './markdown-editor'
+export {
+  RichTextField,
+  MARKDOWN_ACTIONS_TEXT,
+  MARKDOWN_ACTIONS_ARTICLE,
+  MARKDOWN_ACTIONS_INLINE,
+  type MarkdownActionKey,
+  type RichTextFieldProps,
+  type RichTextHandle,
+} from './rich-text-field'
 export { MetricTile } from './metric-tile'
 export { SectionPanel } from './section-panel'
 export { FieldError } from './field-error'

@@ -29,18 +29,43 @@ export class TwoFactorService {
     authenticator.options = { window: 1 }
   }
 
-  /** Шаг 1: сгенерировать секрет, сохранить зашифрованным (pending), отдать QR + otpauth. */
+  /**
+   * Шаг 1: отдать секрет + QR (otpauth). Секрет генерится ОДИН раз и переиспользуется,
+   * пока 2FA не подтверждена.
+   *
+   * Почему не новый секрет на каждый вызов: экран настройки легко открыть повторно —
+   * перезагрузка страницы (состояние шага живёт в useState), вторая вкладка, возврат к
+   * «Настроить» после неверного кода. Каждый новый секрет молча обесценивал уже
+   * отсканированный QR: приложение-аутентификатор показывает коды от старого секрета,
+   * сервер ждёт от нового — пользователь получает бесконечный INVALID_2FA_CODE и не может
+   * понять, почему «правильный» код не подходит. Pending-секрет не даёт доступа, пока 2FA
+   * не включена, так что переиспользовать его безопасно.
+   */
   async setup(userId: string): Promise<TwoFactorSetup> {
     const state = await this.users.getTwoFactorState(userId)
     if (state?.twoFactorEnabled) {
       throw new AppException('CONFLICT', 'Двухфакторная аутентификация уже включена')
     }
     const user = await this.users.findById(userId)
-    const secret = authenticator.generateSecret()
+    const pending = state?.twoFactorSecret ? this.decryptPending(state.twoFactorSecret) : null
+    const secret = pending ?? authenticator.generateSecret()
     const otpauthUrl = authenticator.keyuri(user.email, ISSUER, secret)
     const qr = renderQrDataUrl(otpauthUrl)
-    await this.users.setPendingTwoFactorSecret(userId, this.crypto.encrypt(secret))
+    // Сохраняем только новый секрет: у переиспользованного в БД уже лежит тот же шифртекст.
+    if (!pending) {
+      await this.users.setPendingTwoFactorSecret(userId, this.crypto.encrypt(secret))
+    }
     return { secret, otpauthUrl, qr }
+  }
+
+  // Расшифровать pending-секрет. Нечитаемый (сменили TOTP_ENCRYPTION_KEY, битая запись)
+  // не должен ронять настройку 500-й: он всё равно никому не пригодится — начинаем заново.
+  private decryptPending(encrypted: string): string | null {
+    try {
+      return this.crypto.decrypt(encrypted)
+    } catch {
+      return null
+    }
   }
 
   /** Шаг 2: подтвердить кодом → включить 2FA и выдать backup-коды (показываются один раз). */

@@ -82,7 +82,10 @@ function LegalLink({ label, onClick }: { label: string; onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="cursor-pointer rounded text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+      // Строка в 16px — цель нажатия вдвое меньше минимума WCAG 2.5.8 (24×24). Растим
+      // отступами до 28px; отрицательный вертикальный гасит половину прибавки, чтобы
+      // подвал форм входа не подрос.
+      className="-my-1 cursor-pointer rounded px-2 py-1.5 text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
     >
       {label}
     </button>

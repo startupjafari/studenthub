@@ -20,18 +20,18 @@ import {
   FormAlert,
   Input,
   Label,
+  MARKDOWN_ACTIONS_ARTICLE,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
+  RichTextField,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
 import { DictMultiSelect } from './dict-multi-select'
-import { MarkdownToolbar } from './markdown-toolbar'
 import { ArticleCover, ARTICLE_GRADIENTS } from './article-cover'
 
 function errCode(e: unknown): string {
@@ -51,7 +51,6 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
-  const contentRef = useRef<HTMLTextAreaElement>(null)
   const coverRef = useRef<HTMLInputElement>(null)
 
   const [title, setTitle] = useState(initial?.title ?? '')
@@ -286,13 +285,16 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
             {t('readingTime', { min: readMin })}
           </span>
         </div>
-        <MarkdownToolbar textareaRef={contentRef} value={content} onChange={setContent} />
-        <Textarea
+        {/* Панель форматирования не стоит над полем, а всплывает над выделением: ряд
+            кнопок отъедал высоту у самого текста, ради которого окно и открывают.
+            На пустой строке показывается блочная панель — заголовок, список, картинка,
+            таблица: выделять там нечего, а вставить нужно. */}
+        <RichTextField
           id="a-content"
-          ref={contentRef}
           value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={9}
+          onChange={setContent}
+          actions={MARKDOWN_ACTIONS_ARTICLE}
+          className="max-h-[50vh] min-h-52 overflow-y-auto"
           placeholder={t('articleContentPlaceholder')}
         />
       </div>

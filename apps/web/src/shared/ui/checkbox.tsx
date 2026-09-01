@@ -8,22 +8,33 @@ import { cn } from 'shared/lib/utils'
 
 // Системный чекбокс (radix-ui): квадрат со скруглением, синяя заливка при отметке,
 // мягкий фокус-ринг в стиле Input/Select. Управляется через checked/onCheckedChange.
+//
+// Корень и видимый квадрат — разные элементы. Квадрат остаётся 20×20, а нажимается корень
+// 28×28: цель в 20px меньше минимума WCAG 2.5.8 (24×24), и на телефоне в неё не попасть.
+// Прибавку гасит отрицательный внешний отступ, поэтому в потоке чекбокс занимает те же 20px
+// и раскладка форм не меняется. Увеличивать сам квадрат нельзя — это другой визуальный вес
+// контрола во всех формах сразу (DESIGN_SYSTEM §13: область нажатия растят отступами).
 function Checkbox({ className, ...props }: React.ComponentProps<typeof CheckboxPrimitive.Root>) {
   return (
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        'peer inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md border border-input bg-background text-primary-foreground outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary aria-invalid:border-destructive aria-invalid:ring-4 aria-invalid:ring-destructive/15 dark:bg-input/30',
+        'group peer -m-1 inline-flex size-7 shrink-0 cursor-pointer items-center justify-center p-1 outline-none disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
     >
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        className="flex items-center justify-center text-current"
+      <span
+        data-slot="checkbox-box"
+        className="flex size-5 items-center justify-center rounded-md border border-input bg-background text-primary-foreground transition-[color,box-shadow,border-color] group-hover:border-ring/50 group-focus-visible:border-ring group-focus-visible:ring-4 group-focus-visible:ring-ring/15 group-data-[state=checked]:border-primary group-data-[state=checked]:bg-primary group-aria-invalid:border-destructive group-aria-invalid:ring-4 group-aria-invalid:ring-destructive/15 dark:bg-input/30"
       >
-        <Check className="size-3.5" strokeWidth={3} aria-hidden />
-      </CheckboxPrimitive.Indicator>
+        <CheckboxPrimitive.Indicator
+          data-slot="checkbox-indicator"
+          className="flex items-center justify-center text-current"
+        >
+          <Check className="size-3.5" strokeWidth={3} aria-hidden />
+        </CheckboxPrimitive.Indicator>
+      </span>
     </CheckboxPrimitive.Root>
   )
 }

@@ -1,5 +1,6 @@
-import { RoleLanding } from '../../../views/role-landing'
+import { UniversityModeratorDashboard } from '../../../views/moderator-dashboard'
 
+// Дашборд модератора вуза: состояние очереди модерации, а не плитки-дубли сайдбара.
 export default function Page() {
-  return <RoleLanding variant="university-moderator" />
+  return <UniversityModeratorDashboard />
 }

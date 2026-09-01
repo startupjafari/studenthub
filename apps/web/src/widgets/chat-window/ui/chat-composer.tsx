@@ -23,7 +23,15 @@ import {
   type ChatMessage,
   type VoiceRecorderController,
 } from '../../../entities/chat'
-import { Avatar, AvatarFallback, Button, EmojiPicker } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  Button,
+  EmojiPicker,
+  MARKDOWN_ACTIONS_INLINE,
+  RichTextField,
+  type RichTextHandle,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Composer (Telegram-стиль §29, §37): панель правки/ответа, @-упоминания, вложения,
@@ -45,7 +53,9 @@ export type ChatComposerProps = {
   onSend: () => void
   showSend: boolean
   connected: boolean
-  composerRef: RefObject<HTMLInputElement | null>
+  // Не ссылка на DOM-поле: поле форматированного текста отдаёт наружу свои операции
+  // (фокус, вставка текста, текст до курсора) — упоминаниям и emoji нужны они.
+  composerRef: RefObject<RichTextHandle | null>
   fileInputRef: RefObject<HTMLInputElement | null>
   onFilesPicked: (files: FileList | null) => void
   // Создать опрос (§38, attachment-меню). undefined — пункт не показываем (напр. в личных чатах).
@@ -90,17 +100,7 @@ export function ChatComposer({
 
   // Вставка emoji из пикера (§12) в позицию курсора поля ввода.
   function insertEmoji(emoji: string): void {
-    const el = composerRef.current
-    const start = el?.selectionStart ?? text.length
-    const end = el?.selectionEnd ?? text.length
-    onType(text.slice(0, start) + emoji + text.slice(end))
-    requestAnimationFrame(() => {
-      if (el) {
-        el.focus()
-        const p = start + emoji.length
-        el.setSelectionRange(p, p)
-      }
-    })
+    composerRef.current?.insertText(emoji)
   }
 
   return (
@@ -160,7 +160,9 @@ export function ChatComposer({
           )}
         </div>
       ) : (
-        <div className="relative flex items-center gap-1.5 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        // items-end, а не items-center: поле растёт вверх под многострочный текст, а
+        // скрепка, смайл и отправка остаются на своей строке у низа.
+        <div className="relative flex items-end gap-1.5 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           {/* Попап @-упоминаний участников */}
           {mentionCandidates.length > 0 && !voice.recording && (
             <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-lg">
@@ -284,32 +286,40 @@ export function ChatComposer({
                   </>
                 )}
               </div>
-              <input
-                ref={composerRef}
+              {/* Поле сообщения — то же поле форматированного текста, что у поста и
+                  статьи: жирный виден жирным сразу, на сервер уезжает markdown, панель
+                  всплывает над выделением (только строчная разметка). Enter отправляет,
+                  Shift+Enter переносит строку, поле растёт под текст и с пятой строки
+                  прокручивается. */}
+              <RichTextField
+                handle={composerRef}
                 value={text}
-                onChange={(e) => onType(e.target.value)}
+                onChange={onType}
+                actions={MARKDOWN_ACTIONS_INLINE}
+                wrapperClassName="flex-1"
+                className="max-h-32 overflow-y-auto"
+                aria-label={t('messagePlaceholder')}
+                placeholder={t('messagePlaceholder')}
                 onKeyDown={(e) => {
                   // Открыт попап упоминаний: Enter — выбрать первого, Escape — закрыть.
                   if (mentionCandidates.length > 0) {
                     if (e.key === 'Enter') {
-                      e.preventDefault()
                       const first = mentionCandidates[0]
                       if (first) onInsertMention(first)
-                      return
+                      return true
                     }
                     if (e.key === 'Escape') {
-                      e.preventDefault()
                       onCloseMentions()
-                      return
+                      return true
                     }
                   }
+                  // Enter отправляет, Shift+Enter — перенос строки (это делает редактор).
                   if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
                     onSend()
+                    return true
                   }
+                  return false
                 }}
-                placeholder={t('messagePlaceholder')}
-                className="h-10 min-w-0 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
               />
               {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для нескольких. */}
               <div className="relative shrink-0">

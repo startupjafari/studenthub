@@ -77,6 +77,7 @@ pnpm --filter web build               # next build
 export DATABASE_URL=...               # обязательно перед prisma-командами
 pnpm --filter api exec prisma migrate deploy
 node prisma/seed.mjs                  # seed (либо корневой скрипт: pnpm db:seed)
+pnpm db:seed:kato                     # справочник КАТО: без него селект «Город» пуст
 ```
 
 Генерация новой миграции (интерактивный `migrate dev` не используем):

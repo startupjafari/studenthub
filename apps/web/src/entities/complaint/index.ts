@@ -15,3 +15,4 @@ export {
   type ComplaintUser,
   type ComplaintChatMessage,
 } from './model/types'
+export { complaintPriority, PRIORITY_STYLE, STATUS_STYLE } from './lib/complaint-badges'

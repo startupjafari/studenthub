@@ -86,6 +86,7 @@ import {
   formatYmd,
   Modal,
   useConfirm,
+  type RichTextHandle,
 } from '../../../shared/ui'
 import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
@@ -245,7 +246,7 @@ export function ChatWindow() {
   const wasAtBottomRef = useRef(true)
   const typingSentAt = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const composerRef = useRef<HTMLInputElement>(null)
+  const composerRef = useRef<RichTextHandle>(null)
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
@@ -1566,9 +1567,11 @@ export function ChatWindow() {
         void saveChatDraft(chatId, v).catch(() => undefined)
       }, 800)
     }
-    // Определяем @-запрос перед курсором для автодополнения упоминаний.
-    const pos = composerRef.current?.selectionStart ?? v.length
-    const m = v.slice(0, pos).match(/(?:^|\s)@(\S*)$/)
+    // Определяем @-запрос перед курсором для автодополнения упоминаний. Текст до
+    // курсора берём у самого поля: значение `v` — это markdown всего сообщения, и по
+    // нему позиция курсора не восстанавливается.
+    const before = composerRef.current?.textBefore() ?? v
+    const m = before.match(/(?:^|\s)@(\S*)$/)
     setMentionQuery(m ? (m[1] ?? '') : null)
     if (!socket || !activeId) return
     const now = Date.now()
@@ -1580,19 +1583,13 @@ export function ChatWindow() {
 
   // Вставка упоминания: заменяет «@запрос» перед курсором на «@Имя Фамилия ».
   function insertMention(u: ChatMemberInfo): void {
-    const el = composerRef.current
-    const pos = el?.selectionStart ?? text.length
-    const before = text.slice(0, pos)
-    const after = text.slice(pos)
+    const handle = composerRef.current
     const name = `${u.firstName} ${u.lastName}`.trim()
-    const newBefore = before.replace(/(^|\s)@(\S*)$/, (_full, p1: string) => `${p1}@${name} `)
-    const next = newBefore + after
-    setText(next)
+    const before = handle?.textBefore() ?? ''
+    // Стираем сам «@запрос» перед курсором — вместе с собакой.
+    const typed = /(?:^|\s)@(\S*)$/.exec(before)
+    handle?.insertText(`@${name} `, typed ? (typed[1]?.length ?? 0) + 1 : 0)
     setMentionQuery(null)
-    requestAnimationFrame(() => {
-      el?.focus()
-      el?.setSelectionRange(newBefore.length, newBefore.length)
-    })
   }
 
   // Отфильтрованные кандидаты упоминания (по имени/фамилии), максимум 6.

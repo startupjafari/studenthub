@@ -10,11 +10,13 @@ import {
   fetchComplaintMessages,
   resolveComplaintRequest,
   type Complaint,
+  complaintPriority,
+  PRIORITY_STYLE,
+  STATUS_STYLE,
 } from '../../../entities/complaint'
 import { ProfileLink } from '../../../entities/user'
 import { Badge, Button, Input, Label, Modal } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { complaintPriority, PRIORITY_STYLE, STATUS_STYLE } from './complaint-badges'
 
 /** Пара «подпись — значение» списка деталей. Все пары одной сетки, поэтому колонки ровные. */
 function Field({ label, children }: { label: string; children: ReactNode }) {
