@@ -10,10 +10,10 @@ import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Camera, Eye, EyeOff, Loader2, ShieldAlert, Trash2 } from 'lucide-react'
+import { Camera, Eye, EyeOff, ShieldAlert, Trash2 } from 'lucide-react'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { RegisterByInviteSchema, type RegisterByInviteInput } from '@studenthub/shared-schemas'
-import { Badge, Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { Badge, Button, FormAlert, Input, Label, Skeleton } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
@@ -48,10 +48,22 @@ const ImageCropModal = dynamic(
   { ssr: false },
 )
 
+// Каркас поля: подпись, рамка ввода по шкале контролов (`lg` = h-10) и — где есть —
+// строка подсказки под ним. Ширины подписей заданы точками вызова: одинаковые полосы
+// выглядят сеткой, а не набором разных полей.
+function FieldSkeleton({ labelClass, hint = false }: { labelClass: string; hint?: boolean }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Skeleton className={`h-4 ${labelClass}`} />
+      <Skeleton className="h-10 w-full rounded-xl" />
+      {hint && <Skeleton className="h-3 w-3/4" />}
+    </div>
+  )
+}
+
 export function RegisterByInviteForm({ token }: { token: string }) {
   const t = useTranslations('Auth')
   const tRoles = useTranslations('Roles')
-  const tCommon = useTranslations('Common')
   const tStrength = useTranslations('Auth.passwordStrength')
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
@@ -179,11 +191,36 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     )
   }
 
+  // Пока грузится превью, показываем каркас той же формы, а не спиннер: ждём мы здесь
+  // ровно её, состав полей заранее известен (email добавляется только у инвайта без
+  // адреса), и карточка не схлопывается в пустоту с бегунком посередине, чтобы через
+  // мгновение прыгнуть на полную высоту.
   if (preview.isLoading) {
     return (
-      <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        {tCommon('loading')}
+      <div className="flex flex-col gap-6" aria-busy>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-2 pt-1">
+            <Skeleton className="h-7 w-56 max-w-full" />
+            <Skeleton className="h-4 w-72 max-w-full" />
+          </div>
+          <Skeleton className="size-16 shrink-0 rounded-full sm:size-20" />
+        </div>
+
+        {/* Значки роли и scope: ширины разные — одинаковые читались бы как таблица. */}
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-6 w-28 rounded-full" />
+          <Skeleton className="h-6 w-36 rounded-full" />
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FieldSkeleton labelClass="w-16" />
+            <FieldSkeleton labelClass="w-24" />
+          </div>
+          <FieldSkeleton labelClass="w-32" hint />
+          <FieldSkeleton labelClass="w-20" />
+          <Skeleton className="mt-1 h-11 w-full rounded-xl" />
+        </div>
       </div>
     )
   }
