@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -39,5 +39,29 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Посещаемость по студентам группы (drill-down)' })
   groupAttendance(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.analytics.groupAttendance(user, id)
+  }
+
+  // Ролевые дашборды. Scope у обоих — целиком из токена, идентификатора в запросе нет:
+  // преподаватель видит только свою нагрузку, староста — только свою группу. Поэтому и
+  // @Scope() здесь не нужен: подставить чужой ресурс нечем (§6.1).
+  @Get('teacher')
+  @Roles(Role.TEACHER)
+  @ApiOperation({ summary: 'Обзор преподавателя: нагрузка, очередь проверки, консультации' })
+  @ApiResponse({ status: 200, description: 'Показатели и панели дашборда преподавателя' })
+  @ApiResponse({ status: 401, description: 'Не аутентифицирован' })
+  @ApiResponse({ status: 403, description: 'Роль не преподаватель' })
+  teacher(@CurrentUser() user: CurrentUserData) {
+    return this.analytics.teacherOverview(user)
+  }
+
+  @Get('my-group')
+  @Roles(Role.STAROSTA)
+  @ApiOperation({ summary: 'Обзор своей группы для старосты (агрегаты, без персональных срезов)' })
+  @ApiResponse({ status: 200, description: 'Показатели и панели дашборда старосты' })
+  @ApiResponse({ status: 401, description: 'Не аутентифицирован' })
+  @ApiResponse({ status: 403, description: 'Роль не староста' })
+  @ApiResponse({ status: 404, description: 'Группа не назначена или не найдена' })
+  myGroup(@CurrentUser() user: CurrentUserData) {
+    return this.analytics.myGroupOverview(user)
   }
 }

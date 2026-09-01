@@ -6,6 +6,7 @@
 // иначе recharts приехал бы в основной бандл всем, кто импортирует `shared/ui`.
 export { chartPalette, sequentialStep, type ChartPalette } from './palette'
 export { ActivityGrid } from './activity-grid'
+export { ChartLegend } from './chart-legend'
 export { useChartTheme } from './use-chart-theme'
 export { useReducedMotion } from './use-reduced-motion'
 export {
