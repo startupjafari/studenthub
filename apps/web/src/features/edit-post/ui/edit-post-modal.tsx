@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { postKeys, updatePostRequest, type FeedPost } from '../../../entities/post'
-import { Button, FieldError, FormAlert, Input, MarkdownEditor, Modal } from '../../../shared/ui'
+import { Button, FieldError, FormAlert, Input, Modal, RichTextField } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 
 /**
@@ -69,16 +69,14 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
             // Рамку и фокус держит блок целиком — у заголовка своих границ нет.
             className="h-auto rounded-none border-transparent bg-transparent px-3 pt-3 pb-1 text-lg font-semibold hover:border-transparent focus-visible:border-transparent focus-visible:ring-0 md:text-lg dark:bg-transparent"
           />
-          <MarkdownEditor
+          <RichTextField
             id="edit-content"
             aria-label={t('contentLabel')}
             value={content}
             onChange={setContent}
             placeholder={t('placeholder')}
-            autoGrow
             bare
-            rows={3}
-            className="max-h-[45vh] min-h-28"
+            className="max-h-[45vh] min-h-28 overflow-y-auto"
           />
         </div>
         <FieldError>{empty && t('contentRequired')}</FieldError>

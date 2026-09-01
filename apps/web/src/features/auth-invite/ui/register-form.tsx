@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, type ChangeEvent } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
+import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
@@ -9,10 +10,10 @@ import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, EyeOff, Loader2, ShieldAlert, Upload, X } from 'lucide-react'
+import { Camera, Eye, EyeOff, ShieldAlert, Trash2 } from 'lucide-react'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { RegisterByInviteSchema, type RegisterByInviteInput } from '@studenthub/shared-schemas'
-import { Badge, Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { Badge, Button, FormAlert, Input, Label, Skeleton } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
@@ -40,16 +41,37 @@ const STRENGTH = [
 const AVATAR_MAX = FILE_UPLOAD.MAX_BYTES.IMAGE
 const AVATAR_MIMES = FILE_UPLOAD.ALLOWED_MIME.IMAGE as readonly string[]
 
+// Кроппер на canvas грузится только при выборе файла: страница регистрации — первый экран
+// нового пользователя, тащить его в основной бандл незачем (FRONTEND_RULES §4, §11).
+const ImageCropModal = dynamic(
+  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
+  { ssr: false },
+)
+
+// Каркас поля: подпись, рамка ввода по шкале контролов (`lg` = h-10) и — где есть —
+// строка подсказки под ним. Ширины подписей заданы точками вызова: одинаковые полосы
+// выглядят сеткой, а не набором разных полей.
+function FieldSkeleton({ labelClass, hint = false }: { labelClass: string; hint?: boolean }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Skeleton className={`h-4 ${labelClass}`} />
+      <Skeleton className="h-10 w-full rounded-xl" />
+      {hint && <Skeleton className="h-3 w-3/4" />}
+    </div>
+  )
+}
+
 export function RegisterByInviteForm({ token }: { token: string }) {
   const t = useTranslations('Auth')
   const tRoles = useTranslations('Roles')
-  const tCommon = useTranslations('Common')
   const tStrength = useTranslations('Auth.passwordStrength')
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [avatarError, setAvatarError] = useState<string | null>(null)
+  // Выбранный, но ещё не кадрированный файл — он же признак «открыть кроппер».
+  const [cropFile, setCropFile] = useState<File | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const preview = useQuery({
@@ -59,13 +81,33 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     enabled: token.length > 0,
   })
 
+  // Инвайт можно выдать без адреса — ссылкой в мессенджер вместо письма. Тогда email
+  // спрашиваем здесь: сервер иначе откажет («Для регистрации нужен email»), а поля в
+  // форме до этого не было вовсе — регистрация по такой ссылке была невозможна.
+  const emailRequired = preview.data?.emailRequired ?? false
+
+  // Схема-SSOT держит email опциональным (у инвайта с адресом поля в форме нет вовсе).
+  // Здесь она ужесточается ровно под случай «адреса нет» — через `refine`, а не `extend`:
+  // тип выхода остаётся тем же `RegisterByInviteInput`, и resolver не расходится с типом
+  // формы. Формат адреса проверяет сама схема, здесь — только «поле не пустое».
+  const schema = useMemo(
+    () =>
+      emailRequired
+        ? RegisterByInviteSchema.refine((v) => !!v.email, {
+            path: ['email'],
+            message: t('emailRequired'),
+          })
+        : RegisterByInviteSchema,
+    [emailRequired, t],
+  )
+
   const {
     register,
     handleSubmit,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<RegisterByInviteInput>({
-    resolver: zodResolver(RegisterByInviteSchema),
+    resolver: zodResolver(schema),
     defaultValues: { token },
   })
 
@@ -73,28 +115,42 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   const score = passwordScore(password)
   const strength = STRENGTH[score] ?? STRENGTH[0]
 
+  // Инициалы — из уже введённых имени и фамилии: до выбора фото круг показывает человека,
+  // а не заглушку. Порядок «фамилия + имя» — тот же, что в профиле (initialsOf).
+  const initials = (
+    ((watch('lastName') ?? '')[0] ?? '') + ((watch('firstName') ?? '')[0] ?? '')
+  ).toUpperCase()
+
+  // Выбор файла ведёт не сразу в превью, а в кроппер: аватар — круг, и кадр решает
+  // пользователь, а не случайные пропорции исходника. Ошибки типа/размера — тостом:
+  // контрол компактный и стоит в шапке, инлайн-сообщение ломало бы её высоту.
   function pickAvatar(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
+    // Сброс значения — иначе повторный выбор того же файла не даёт события change.
+    e.target.value = ''
     if (!file) return
     if (!AVATAR_MIMES.includes(file.type)) {
-      setAvatarError(t('avatarInvalid'))
+      toast.error(t('avatarInvalid'))
       return
     }
     if (file.size > AVATAR_MAX) {
-      setAvatarError(t('avatarTooLarge'))
+      toast.error(t('avatarTooLarge'))
       return
     }
+    setCropFile(file)
+  }
+
+  function applyCrop(cropped: File) {
     if (avatarUrl) URL.revokeObjectURL(avatarUrl)
-    setAvatarError(null)
-    setAvatarFile(file)
-    setAvatarUrl(URL.createObjectURL(file))
+    setAvatarFile(cropped)
+    setAvatarUrl(URL.createObjectURL(cropped))
+    setCropFile(null)
   }
 
   function removeAvatar() {
     if (avatarUrl) URL.revokeObjectURL(avatarUrl)
     setAvatarFile(null)
     setAvatarUrl(null)
-    setAvatarError(null)
   }
 
   async function onSubmit(values: RegisterByInviteInput) {
@@ -135,11 +191,36 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     )
   }
 
+  // Пока грузится превью, показываем каркас той же формы, а не спиннер: ждём мы здесь
+  // ровно её, состав полей заранее известен (email добавляется только у инвайта без
+  // адреса), и карточка не схлопывается в пустоту с бегунком посередине, чтобы через
+  // мгновение прыгнуть на полную высоту.
   if (preview.isLoading) {
     return (
-      <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        {tCommon('loading')}
+      <div className="flex flex-col gap-6" aria-busy>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-2 pt-1">
+            <Skeleton className="h-7 w-56 max-w-full" />
+            <Skeleton className="h-4 w-72 max-w-full" />
+          </div>
+          <Skeleton className="size-16 shrink-0 rounded-full sm:size-20" />
+        </div>
+
+        {/* Значки роли и scope: ширины разные — одинаковые читались бы как таблица. */}
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-6 w-28 rounded-full" />
+          <Skeleton className="h-6 w-36 rounded-full" />
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FieldSkeleton labelClass="w-16" />
+            <FieldSkeleton labelClass="w-24" />
+          </div>
+          <FieldSkeleton labelClass="w-32" hint />
+          <FieldSkeleton labelClass="w-20" />
+          <Skeleton className="mt-1 h-11 w-full rounded-xl" />
+        </div>
       </div>
     )
   }
@@ -151,9 +232,69 @@ export function RegisterByInviteForm({ token }: { token: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-semibold">{t('createAccountTitle')}</h2>
-        <p className="text-sm text-muted-foreground">{t('createAccountSubtitle')}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-2xl font-semibold">{t('createAccountTitle')}</h2>
+          <p className="text-sm text-muted-foreground">{t('createAccountSubtitle')}</p>
+        </div>
+
+        {/* Аватар — в шапке справа, тем же идиомом, что в профиле: круг с инициалами,
+            нажатие ведёт в выбор файла и кадрирование, удаление — корзиной на кромке.
+            Сама загрузка уходит после регистрации (§7.3, шаг 6): без токена грузить некуда,
+            поэтому здесь файл только держится в состоянии. */}
+        <div className="group relative size-16 shrink-0 sm:size-20">
+          {avatarUrl ? (
+            <Image
+              src={avatarUrl}
+              alt={t('avatarLabel')}
+              width={160}
+              height={160}
+              unoptimized
+              className="size-full rounded-full border border-border object-cover"
+            />
+          ) : (
+            <div className="flex size-full items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground sm:text-2xl">
+              {initials || <Camera className="size-6" aria-hidden />}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            aria-label={avatarUrl ? t('avatarChange') : t('avatarAdd')}
+            className="absolute inset-0 flex items-center justify-center rounded-full bg-foreground/55 text-background opacity-0 outline-none transition-opacity duration-300 ease-out group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+          >
+            <Camera className="size-5" aria-hidden />
+          </button>
+
+          {/* Значок камеры виден всегда: на тач-устройствах hover-оверлея нет, и без него
+              круг читался бы как картинка, а не как кнопка. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-0.5 -bottom-0.5 flex size-6 items-center justify-center rounded-full border-2 border-background bg-card text-muted-foreground group-hover:opacity-0"
+          >
+            <Camera className="size-3.5" />
+          </span>
+
+          {avatarUrl && (
+            <button
+              type="button"
+              onClick={removeAvatar}
+              aria-label={t('avatarRemove')}
+              className="absolute -top-0.5 -left-0.5 flex size-6 items-center justify-center rounded-full border-2 border-background bg-card text-muted-foreground outline-none transition-colors hover:text-destructive focus-visible:text-destructive"
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+            </button>
+          )}
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept={AVATAR_MIMES.join(',')}
+            className="hidden"
+            onChange={pickAvatar}
+          />
+        </div>
       </div>
 
       {preview.data && (
@@ -204,6 +345,26 @@ export function RegisterByInviteForm({ token }: { token: string }) {
           )}
         </div>
 
+        {emailRequired && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="email">{t('email')}</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              placeholder="name@example.com"
+              aria-invalid={!!errors.email}
+              {...register('email')}
+            />
+            {errors.email ? (
+              <p className="text-xs text-destructive">{errors.email.message}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('emailInviteHint')}</p>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">{t('password')}</Label>
           <div className="relative">
@@ -242,47 +403,23 @@ export function RegisterByInviteForm({ token }: { token: string }) {
           {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
         </div>
 
-        <div className="flex flex-col gap-2">
-          <Label>
-            {t('avatarLabel')}{' '}
-            <span className="font-normal text-muted-foreground">({t('avatarOptional')})</span>
-          </Label>
-          {avatarUrl ? (
-            <div className="flex items-center gap-3">
-              <Image
-                src={avatarUrl}
-                alt={t('avatarLabel')}
-                width={56}
-                height={56}
-                unoptimized
-                className="size-14 rounded-full object-cover"
-              />
-              <Button type="button" variant="ghost" size="sm" onClick={removeAvatar}>
-                <X className="size-4" aria-hidden />
-                {t('avatarRemove')}
-              </Button>
-            </div>
-          ) : (
-            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-input p-5 text-center text-muted-foreground transition-colors hover:border-ring hover:text-foreground">
-              <Upload className="size-5" aria-hidden />
-              <span className="text-xs">{t('avatarHint')}</span>
-              <input
-                type="file"
-                accept={AVATAR_MIMES.join(',')}
-                className="sr-only"
-                onChange={pickAvatar}
-              />
-            </label>
-          )}
-          {avatarError && <p className="text-xs text-destructive">{avatarError}</p>}
-        </div>
-
         <Button type="submit" size="xl" loading={isSubmitting} className="mt-1 w-full">
           {t('createAccount')}
         </Button>
 
         <p className="text-center text-xs text-muted-foreground">{t('oneTimeTokenNote')}</p>
       </form>
+
+      {cropFile && (
+        <ImageCropModal
+          file={cropFile}
+          // Здесь ничего не сохраняется на сервер: файл ложится в состояние формы и
+          // уходит уже после регистрации, поэтому окно никогда не в состоянии «сохраняю».
+          saving={false}
+          onCancel={() => setCropFile(null)}
+          onSave={applyCrop}
+        />
+      )}
     </div>
   )
 }

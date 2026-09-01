@@ -70,8 +70,11 @@ export function StudentConsultationsView() {
 
   // Экран слотов преподавателя.
   if (teacher) {
+    // Без `min-h-0`: экран прокручивается целиком, внутреннего скролл-контейнера тут нет.
+    // С `min-h-0` колонка ужималась до высоты `main`, а карточки с `overflow-hidden`
+    // резали содержимое — оно уходило за нижнюю границу без всякой прокрутки.
     return (
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+      <div className="flex w-full flex-1 flex-col gap-4">
         <PageHeader
           title={teacher.name}
           subtitle={t('pickSlot')}
@@ -131,7 +134,7 @@ export function StudentConsultationsView() {
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       <Card>

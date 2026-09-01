@@ -52,3 +52,8 @@ apps/web/.next-build/
 # Исходная выгрузка КАТО (~4.7 МБ). В git едет только сгенерированный prisma/data/kato.json;
 # пересборка — node scripts/gen-kato.mjs <выгрузка>
 kato_*.json
+
+# Артефакты UI-аудита (apps/web/e2e/ui-audit): скриншоты и отчёты прогона. Локальные —
+# каждый прогон переписывает их целиком, а latest.md меняется полностью при каждом запуске.
+ui-audit/screenshots/
+ui-audit/reports/

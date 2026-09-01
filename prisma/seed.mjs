@@ -54,18 +54,32 @@ async function insertMany(model, rows) {
   return rows.length
 }
 
+// Сброс 2FA на демо-аккаунтах. Привилегированным ролям 2FA обязательна (TwoFactorGuard),
+// поэтому сид оставляет их с чистым состоянием: без включённой 2FA и без «висящего»
+// pending-секрета от прошлой попытки настройки — иначе аутентификатор с прошлого QR
+// продолжает показывать коды от секрета, которого на сервере уже нет. Сам форс отключается
+// переменной TWO_FACTOR_ENFORCE=false в apps/api/.env (только для локальной разработки).
+const TWO_FACTOR_RESET = {
+  twoFactorEnabled: false,
+  twoFactorSecret: null,
+  twoFactorBackupCodes: [],
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash('Admin1234!', 12)
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
-    update: {}, // не перезаписываем пароль/профиль при повторном запуске
+    // Пароль/профиль при повторном запуске не трогаем, но 2FA сбрасываем: демо-аккаунт
+    // должен пускать по одному паролю (см. TWO_FACTOR_RESET).
+    update: TWO_FACTOR_RESET,
     create: {
       email: 'admin@studenthub.app',
       passwordHash,
       firstName: 'Платформенный',
       lastName: 'Администратор',
       role: 'PLATFORM_ADMIN',
+      ...TWO_FACTOR_RESET,
     },
   })
 
@@ -156,9 +170,10 @@ async function main() {
   for (const [role, email, firstName, lastName, userScope] of devUsers) {
     await prisma.user.upsert({
       where: { email },
-      // Синхронизируем имя на существующих dev-аккаунтах (иначе старые плейсхолдеры остаются).
-      update: { firstName, lastName },
-      create: { email, passwordHash, firstName, lastName, role, ...userScope },
+      // Синхронизируем имя на существующих dev-аккаунтах (иначе старые плейсхолдеры остаются)
+      // и сбрасываем 2FA — иначе недонастроенный секрет переживает пересид.
+      update: { firstName, lastName, ...TWO_FACTOR_RESET },
+      create: { email, passwordHash, firstName, lastName, role, ...userScope, ...TWO_FACTOR_RESET },
     })
   }
 
@@ -1248,6 +1263,8 @@ async function main() {
   for (const [role, email] of devUsers) {
     console.log(`    ${role}: ${email}`)
   }
+  console.log('  2FA у всех сброшена. Чтобы форс не требовал настройки на привилегированных')
+  console.log('  ролях, локально: TWO_FACTOR_ENFORCE=false в apps/api/.env')
   console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
   console.log('  Сгенерировано:')
   for (const [k, v] of Object.entries(counts)) {

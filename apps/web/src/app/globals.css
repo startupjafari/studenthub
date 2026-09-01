@@ -346,9 +346,9 @@ summary {
   input:not([type='checkbox']):not([type='radio']),
   textarea,
   select,
-  /* Копия текста под полем markdown-редактора: она не textarea, но обязана менять
-     кегль вместе с ним — иначе подсветка съедет относительно набранного текста. */
-  [data-md-mirror] {
+  /* Поле форматированного текста: это contenteditable, а не textarea, но при фокусе
+     Safari зумит его так же. */
+  .rte .tiptap {
     font-size: 16px;
   }
 }
@@ -480,4 +480,121 @@ summary {
   .sh-print-root {
     display: none;
   }
+}
+
+/* Поле форматированного текста (shared/ui/rich-text-field.tsx). Разметку внутри поля
+   строит сам редактор (ProseMirror), классы утилит к его узлам не приписать — поэтому
+   оформление узлов живёт здесь. Правило одно на все поля: текст в поле должен выглядеть
+   так же, как потом в посте, сообщении или статье. */
+.rte .tiptap {
+  outline: none;
+  overflow-wrap: break-word;
+}
+
+/* Подсказка пустого поля: Placeholder кладёт текст в data-атрибут первого абзаца.
+   float+height:0 — подсказка не занимает своей строки и не двигает курсор. */
+.rte .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.rte .tiptap > * + * {
+  margin-top: 0.5rem;
+}
+
+.rte .tiptap :is(h1, h2, h3) {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.rte .tiptap ul,
+.rte .tiptap ol {
+  padding-left: 1.25rem;
+}
+
+.rte .tiptap ul {
+  list-style: disc;
+}
+
+.rte .tiptap ol {
+  list-style: decimal;
+}
+
+/* Абзацы внутри пункта списка не должны отбиваться отступом — пункт остаётся строкой. */
+.rte .tiptap li > * + * {
+  margin-top: 0;
+}
+
+.rte .tiptap blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.625rem;
+  color: var(--muted-foreground);
+}
+
+.rte .tiptap a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rte .tiptap code {
+  border-radius: 0.25rem;
+  background: var(--muted);
+  padding: 0.125rem 0.25rem;
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 0.9em;
+}
+
+.rte .tiptap pre {
+  border-radius: 0.5rem;
+  background: var(--muted);
+  padding: 0.5rem 0.625rem;
+  overflow-x: auto;
+}
+
+.rte .tiptap pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.rte .tiptap img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+.rte .tiptap table {
+  width: 100%;
+  border-collapse: collapse;
+  /* Таблица шире поля не должна распирать окно — прокручиваем её внутри поля. */
+  display: block;
+  overflow-x: auto;
+}
+
+.rte .tiptap :is(th, td) {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+
+.rte .tiptap th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+/* Выбранный узел (картинка, ячейка) — видимая рамка вместо системного выделения. */
+.rte .tiptap .ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.rte .tiptap .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklch, var(--ring) 18%, transparent);
+  pointer-events: none;
 }

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Select as SelectPrimitive } from 'radix-ui'
+import { useTranslations } from 'next-intl'
 import { Check, ChevronDown } from 'lucide-react'
 
 import { cn } from 'shared/lib/utils'
@@ -39,12 +40,24 @@ function SelectTrigger({
   )
 }
 
+/**
+ * Поповер списка. Пустой список подписывается «Пусто» — раскрытая пустая рамка без
+ * единой строки читается как поломка («не загрузилось?»), а не как «выбирать нечего».
+ * Строка живёт здесь, а не на каждом экране: селект в системе один, и повторять проверку
+ * в двух десятках вызовов означало бы, что где-то её забудут (DESIGN_SYSTEM §17).
+ *
+ * Пустота считается по отрисованным детям: `{items.map(...)}` с пустым массивом даёт
+ * ноль элементов после `Children.toArray` (он разворачивает массивы и выбрасывает
+ * `null`/`false`), поэтому условные `{cond && <SelectItem/>}` тоже учитываются верно.
+ */
 function SelectContent({
   className,
   children,
   position = 'popper',
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  const t = useTranslations('Common')
+  const isEmpty = React.Children.toArray(children).length === 0
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -63,7 +76,13 @@ function SelectContent({
             position === 'popper' && 'w-full min-w-[var(--radix-select-trigger-width)]',
           )}
         >
-          {children}
+          {isEmpty ? (
+            // Не `SelectItem`: строка не выбирается и не должна попадать в навигацию
+            // стрелками — это подпись состояния, а не вариант.
+            <p className="px-2.5 py-2 text-sm text-muted-foreground">{t('empty')}</p>
+          ) : (
+            children
+          )}
         </SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>

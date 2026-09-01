@@ -183,6 +183,75 @@ describe('Auth (e2e)', () => {
       expect(user?.universityId).toBe('uni-e2e')
     })
 
+    // Инвайт без email — приглашение отдали ссылкой (мессенджер, распечатка), а не письмом.
+    // Адрес в этом случае приходит из формы регистрации; до появления поля в форме такая
+    // ссылка была нерабочей вовсе.
+    it('инвайт без email: адрес берётся из тела запроса', async () => {
+      await prisma.invite.create({
+        data: {
+          token: 'e2e-no-email',
+          role: 'UNIVERSITY_ADMIN',
+          universityId: 'uni-e2e',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 3_600_000),
+          createdById: adminId,
+        },
+      })
+      const res = await request(server).post('/api/v1/auth/register-by-invite').send({
+        token: 'e2e-no-email',
+        username: 'erlan45',
+        firstName: 'Ерлан',
+        lastName: 'Онласынов',
+        password: 'Passw0rd!',
+        email: 'erlan@t.io',
+      })
+      expect([200, 201]).toContain(res.status)
+
+      const user = await prisma.user.findUnique({ where: { email: 'erlan@t.io' } })
+      expect(user?.role).toBe('UNIVERSITY_ADMIN')
+      expect(user?.universityId).toBe('uni-e2e')
+    })
+
+    it('инвайт без email и без адреса в теле → 400 BAD_REQUEST', async () => {
+      await prisma.invite.create({
+        data: {
+          token: 'e2e-no-email-2',
+          role: 'UNIVERSITY_ADMIN',
+          universityId: 'uni-e2e',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 3_600_000),
+          createdById: adminId,
+        },
+      })
+      const res = await request(server).post('/api/v1/auth/register-by-invite').send({
+        token: 'e2e-no-email-2',
+        username: 'noemailuser',
+        firstName: 'A',
+        lastName: 'B',
+        password: 'Passw0rd!',
+      })
+      expect(res.status).toBe(400)
+      expect(res.body.error.code).toBe('BAD_REQUEST')
+    })
+
+    it('превью инвайта без email просит адрес у формы', async () => {
+      await prisma.invite.create({
+        data: {
+          token: 'e2e-preview-no-email',
+          role: 'UNIVERSITY_ADMIN',
+          universityId: 'uni-e2e',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 3_600_000),
+          createdById: adminId,
+        },
+      })
+      const res = await request(server).get('/api/v1/invites/e2e-preview-no-email/preview')
+      expect(res.status).toBe(200)
+      expect(res.body.data.emailRequired).toBe(true)
+      // Адрес не раскрывается ни в одном варианте — превью публично по токену.
+      expect(res.body.data).not.toHaveProperty('email')
+    })
+
     it('повторное использование токена → 410 INVITE_USED', async () => {
       await makeInvite('e2e-once')
       const body = {

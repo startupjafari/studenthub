@@ -18,6 +18,16 @@ describe('Markdown', () => {
     expect(lists[0]?.querySelectorAll('li')).toHaveLength(3)
   })
 
+  it('перенос строки редактора (обратный слеш) не попадает в текст', () => {
+    // Поле форматированного текста помечает перенос внутри абзаца обратным слешем —
+    // это разметка, а не символ сообщения: строки и так выводятся по отдельности.
+    const { container } = render(<Markdown source={'первая\\\nвторая'} />)
+    const lines = container.querySelectorAll('p > span')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]?.textContent).toBe('первая')
+    expect(lines[1]?.textContent).toBe('вторая')
+  })
+
   it('нумерованный список и цитата — разные блоки', () => {
     const { container } = render(<Markdown source={'1. раз\n2. два\n> цитата'} />)
     expect(container.querySelectorAll('ol li')).toHaveLength(2)

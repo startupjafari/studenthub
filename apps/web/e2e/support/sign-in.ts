@@ -10,11 +10,24 @@ import { expect, type Page } from '@playwright/test'
 //    Поэтому перед вводом ждём, пока React перехватит управление.
 
 // Аккаунты создаёт prisma/seed.mjs — тестовые данные, не секреты.
+//
+// Здесь перечислены ВСЕ посевные роли, а не только те, что нужны сценариям: по ним ходит
+// UI-аудит (e2e/ui-audit), которому нужна каждая ролевая зона. Роли EMPLOYER в списке нет —
+// её аккаунты создаёт seed-career.mjs, а e2e-стенд его не запускает (см. e2e/prepare-db.mjs).
+//
+// Важно про лимит входов: POST /auth/login throttled на 5 попыток / 15 мин с IP (docs/PROJECT.md
+// §7.4), а счётчик живёт в памяти процесса api. Один прогон = один свежий процесс = бюджет из
+// пяти входов на все роли сразу. Отсюда ограничение на число зон в одном прогоне аудита.
 export const PASSWORD = 'Admin1234!'
 export const ACCOUNTS = {
   student: 'student@studenthub.app',
-  dean: 'dean@studenthub.app',
+  starosta: 'starosta@studenthub.app',
   teacher: 'teacher@studenthub.app',
+  dean: 'dean@studenthub.app',
+  universityAdmin: 'university-admin@studenthub.app',
+  universityModerator: 'university-moderator@studenthub.app',
+  platformAdmin: 'admin@studenthub.app',
+  platformModerator: 'platform-moderator@studenthub.app',
 } as const
 
 export type Role = keyof typeof ACCOUNTS

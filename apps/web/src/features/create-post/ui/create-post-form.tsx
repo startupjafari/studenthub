@@ -35,7 +35,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  MarkdownEditor,
+  RichTextField,
 } from '../../../shared/ui'
 
 interface UploadedMedia {
@@ -237,24 +237,22 @@ export function CreatePostForm({
           className="h-auto rounded-none border-transparent bg-transparent px-3 pt-3 pb-1 text-lg font-semibold hover:border-transparent focus-visible:border-transparent focus-visible:ring-0 md:text-lg dark:bg-transparent"
           {...form.register('title', OPTIONAL_TEXT)}
         />
-        {/* Разметка остаётся видимой в поле: человек видит, что именно уедет на
-            сервер, а не догадывается по кнопкам панели. */}
+        {/* Форматирование видно сразу в поле (жирный — жирным), а на сервер уезжает
+            markdown: панель всплывает над выделением, постоянного ряда кнопок нет. */}
         <Controller
           control={form.control}
           name="content"
           render={({ field }) => (
-            <MarkdownEditor
+            <RichTextField
               id="post-content"
               aria-label={t('contentLabel')}
               value={field.value ?? ''}
               onChange={field.onChange}
               placeholder={t('placeholder')}
-              autoGrow
               bare
-              rows={3}
               // Поле растёт под текст: снизу — минимум в несколько строк, сверху —
               // половина экрана, иначе подвал с «Опубликовать» уезжает за нижний край.
-              className="max-h-[45vh] min-h-28"
+              className="max-h-[45vh] min-h-28 overflow-y-auto"
             />
           )}
         />

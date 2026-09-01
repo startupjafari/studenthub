@@ -41,21 +41,29 @@ import { cn } from '../../../shared/lib/utils'
 
 // Ширины: вуз · статус · факультеты · группы · аудитории · студенты · преподаватели · всего людей.
 const COLS = ['24%', '12%', '10%', '10%', '10%', '11%', '13%', '10%'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются вуз, статус и три счётчика людей.
+const COLS_NARROW = ['44%', '0', '0', '0', '0', '28%', '0', '28%'] as const
 const HIDE = {
+  // На телефоне остаются название вуза, студенты и «людей всего»: пять колонок ужимают
+  // заголовки до «С..» и «Пр…», и по такой шапке не понять, какое число к чему относится.
+  status: 'hidden md:table-cell',
   faculties: 'hidden md:table-cell',
   groups: 'hidden md:table-cell',
   rooms: 'hidden xl:table-cell',
+  teachers: 'hidden md:table-cell',
 } as const
 // Порядок классов = порядок колонок: скелетон обязан прятать те же колонки, что и шапка,
 // иначе во время загрузки в строке ячеек больше, чем в шапке, и колонки разъезжаются.
 const SKELETON_COLS = [
   undefined,
-  undefined,
+  HIDE.status,
   HIDE.faculties,
   HIDE.groups,
   HIDE.rooms,
   undefined,
-  undefined,
+  HIDE.teachers,
   undefined,
 ]
 
@@ -222,13 +230,13 @@ export function PlatformStatsView() {
         />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-          <Table fixed scrollBody fill cols={COLS}>
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
                 <TableHead sortKey="name" sort={sort} onSort={toggle}>
                   {tUni('name')}
                 </TableHead>
-                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                <TableHead sortKey="status" sort={sort} onSort={toggle} className={HIDE.status}>
                   {t('status')}
                 </TableHead>
                 <TableHead
@@ -261,7 +269,13 @@ export function PlatformStatsView() {
                 <TableHead numeric sortKey="students" sort={sort} onSort={toggle}>
                   {t('students')}
                 </TableHead>
-                <TableHead numeric sortKey="teachers" sort={sort} onSort={toggle}>
+                <TableHead
+                  numeric
+                  sortKey="teachers"
+                  sort={sort}
+                  onSort={toggle}
+                  className={HIDE.teachers}
+                >
                   {t('teachers')}
                 </TableHead>
                 <TableHead numeric sortKey="people" sort={sort} onSort={toggle}>
@@ -281,14 +295,14 @@ export function PlatformStatsView() {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className={cn('text-sm', STATUS_STYLE[row.status])}>
+                  <TableCell className={cn('text-sm', HIDE.status, STATUS_STYLE[row.status])}>
                     <TableText value={tUni(`status${row.status}`)} />
                   </TableCell>
                   <Num value={row.stats?.faculties} className={HIDE.faculties} />
                   <Num value={row.stats?.groups} className={HIDE.groups} />
                   <Num value={row.stats?.rooms} className={HIDE.rooms} />
                   <Num value={row.stats?.students} />
-                  <Num value={row.stats?.teachers} />
+                  <Num value={row.stats?.teachers} className={HIDE.teachers} />
                   <Num value={row.people ?? undefined} className="font-semibold" />
                 </TableRow>
               ))}

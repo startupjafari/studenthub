@@ -59,7 +59,11 @@ export function ActivityGrid({
                 <span
                   key={hour}
                   tabIndex={0}
-                  role="button"
+                  // Без `role="button"`: клетка ничего не делает по нажатию — она только
+                  // показывает значение при наведении и фокусе, а строка над сеткой его
+                  // озвучивает. Роль кнопки обещала бы действие, которого нет, и требовала
+                  // бы цели 24×24 (WCAG 2.5.8) — в сетке из 24 колонок на телефоне это
+                  // недостижимо: клетка там 7–8px, и увеличить её можно только сломав сетку.
                   aria-label={cellTitle(dayLabels[day] ?? '', hour, value)}
                   onPointerEnter={() => setActive({ day, hour })}
                   onFocus={() => setActive({ day, hour })}
