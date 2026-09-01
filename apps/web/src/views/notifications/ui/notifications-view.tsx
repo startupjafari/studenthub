@@ -227,66 +227,68 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* Теги-фильтры слайдером + мини-стрелки по бокам (появляются при переполнении). */}
-      <div className="flex items-center gap-0.5 border-b border-border px-2 py-2">
-        {canScroll && (
-          <button
-            type="button"
-            aria-label={t('scrollLeft')}
-            disabled={!arrows.left}
-            onClick={() => scrollTabs(-1)}
-            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-          </button>
-        )}
-        <div
-          ref={tabsRef}
-          className="flex flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setFilter(tab.key)}
-              aria-pressed={filter === tab.key}
-              className={cn(
-                'flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                filter === tab.key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {tab.label}
-              {tab.count > 0 && (
-                <span
-                  className={cn(
-                    'rounded-full px-1.5 tabular-nums',
-                    filter === tab.key ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15',
-                  )}
-                >
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        {canScroll && (
-          <button
-            type="button"
-            aria-label={t('scrollRight')}
-            disabled={!arrows.right}
-            onClick={() => scrollTabs(1)}
-            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <ChevronRight className="size-4" aria-hidden />
-          </button>
-        )}
-      </div>
-
       {/* Колонка, а не просто скролл-контейнер: состояния (скелетон, «нет уведомлений»)
           занимают всю высоту панели, а не жмутся полоской под фильтрами. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* Теги-фильтры слайдером + мини-стрелки по бокам (появляются при переполнении).
+            Лежат внутри скролл-контейнера: при вертикальном скролле списка уезжают вместе с ним,
+            освобождая высоту на мобильном. */}
+        <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-2 py-2">
+          {canScroll && (
+            <button
+              type="button"
+              aria-label={t('scrollLeft')}
+              disabled={!arrows.left}
+              onClick={() => scrollTabs(-1)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+            </button>
+          )}
+          <div
+            ref={tabsRef}
+            className="flex flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setFilter(tab.key)}
+                aria-pressed={filter === tab.key}
+                className={cn(
+                  'flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                  filter === tab.key
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                {tab.label}
+                {tab.count > 0 && (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 tabular-nums',
+                      filter === tab.key ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15',
+                    )}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {canScroll && (
+            <button
+              type="button"
+              aria-label={t('scrollRight')}
+              disabled={!arrows.right}
+              onClick={() => scrollTabs(1)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
+          )}
+        </div>
+
         {list.isLoading ? (
           <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
             {Array.from({ length: 8 }).map((_, i) => (

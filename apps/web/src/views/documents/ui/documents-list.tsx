@@ -18,7 +18,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -26,6 +25,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSkeletonRows,
   TableText,
   useSortState,
 } from '../../../shared/ui'
@@ -62,6 +62,19 @@ const HIDE = {
 } as const
 // Порог «скоро истекает» — тот же, что у плитки «Скоро истекает» в обзоре.
 const EXPIRING_DAYS = 30
+
+// Порядок и классы скрытия колонок — те же, что у строк с данными: на время загрузки
+// геометрия таблицы не меняется.
+const DOC_SKELETON_COLS = [
+  undefined,
+  HIDE.category,
+  undefined,
+  HIDE.number,
+  HIDE.issuedAt,
+  undefined,
+  HIDE.access,
+  undefined,
+]
 
 export function DocumentsList({
   preset,
@@ -259,7 +272,7 @@ export function DocumentsList({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {q.isLoading && <SkeletonRows />}
+              {q.isLoading && <TableSkeletonRows columns={DOC_SKELETON_COLS} />}
               {rows.map((doc) => (
                 <TableRow key={doc.id} className="hover:bg-muted/40">
                   <TableCell>
@@ -343,33 +356,5 @@ export function DocumentsList({
         </Card>
       )}
     </div>
-  )
-}
-
-// Скелетон строк: те же восемь ячеек с теми же классами скрытия, что и у данных, —
-// на время загрузки геометрия таблицы не меняется.
-function SkeletonRows({ rows = 8 }: { rows?: number }) {
-  const cells = [
-    undefined,
-    HIDE.category,
-    undefined,
-    HIDE.number,
-    HIDE.issuedAt,
-    undefined,
-    HIDE.access,
-    undefined,
-  ]
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, r) => (
-        <TableRow key={r}>
-          {cells.map((cls, c) => (
-            <TableCell key={c} className={cls}>
-              <Skeleton className="h-4 w-full" />
-            </TableCell>
-          ))}
-        </TableRow>
-      ))}
-    </>
   )
 }

@@ -35,7 +35,10 @@ function BreadcrumbLink({ className, href, ...props }: React.ComponentProps<type
     <Link
       data-slot="breadcrumb-link"
       href={href}
-      className={cn('transition-colors hover:text-foreground', className)}
+      // Ссылка хлебной крошки — строка в 20px, меньше минимальной цели нажатия WCAG 2.5.8
+      // (24×24). Вертикальные отступы дают 32px, отрицательный внешний оставляет высоту
+      // цепочки прежней.
+      className={cn('-my-1.5 py-1.5 transition-colors hover:text-foreground', className)}
       {...props}
     />
   )

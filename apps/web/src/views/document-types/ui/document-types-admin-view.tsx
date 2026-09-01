@@ -35,6 +35,10 @@ import { CreateDocumentTypeModal } from './create-document-type-modal'
 
 // Ширины колонок: включён · тип · категория · поля · срок хранения · сброс.
 const COLS = ['3rem', '30%', '16%', '28%', '14%', '3.5rem'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются включение, название, срок хранения и действие.
+const COLS_NARROW = ['2.5rem', '44%', '0', '0', '38%', '3rem'] as const
 // На узком экране остаются включение, название и срок — то, чем реально управляют.
 const HIDE = {
   category: 'hidden md:table-cell',
@@ -107,7 +111,7 @@ export function DocumentTypesAdminView() {
         <p className="text-sm text-destructive">{tErr('INTERNAL_ERROR')}</p>
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-          <Table fixed scrollBody fill cols={COLS}>
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
                 {/* Чекбокс включения — первой колонкой: это главное действие экрана,

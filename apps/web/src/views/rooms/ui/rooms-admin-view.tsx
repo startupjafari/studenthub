@@ -26,6 +26,7 @@ import {
   useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useMediaQuery } from '../../../shared/lib'
 import { CreateRoomModal } from './create-room-modal'
 import {
   deleteRoomRequest,
@@ -47,6 +48,10 @@ import { formatRoomCode } from '../lib/format-code'
 // Потолок 100 — столько разрешает OffsetPaginationSchema, на которой построен GET /rooms.
 const PAGE_SIZES = [20, 50, 100] as const
 const ROOM_COLS = ['24%', '16%', '14%', '8%', '10%', '15%', '13rem'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются название, QR и действия; колонка действий на телефоне уже.
+const ROOM_COLS_NARROW = ['34%', '0', '0', '0', '0', '30%', '6.5rem'] as const
 // На узком экране остаются название, QR и действия — то, ради чего сюда приходят.
 const HIDE = {
   kind: 'hidden md:table-cell',
@@ -74,6 +79,7 @@ export function RoomsAdminView() {
   const tErr = useTranslations('Errors')
   const confirm = useConfirm()
   const qc = useQueryClient()
+  const isWide = useMediaQuery('(min-width: 768px)')
 
   // Что уходит в печать. Пусто — печатать нечего, лист не рендерим.
   const [sheet, setSheet] = useState<RoomQr[]>([])
@@ -177,7 +183,7 @@ export function RoomsAdminView() {
           // `gap-0 py-0`: собственные отступы карточки дали бы полосу над шапкой таблицы
           // и просвет под последней строкой — таблица занимает карточку целиком.
           <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-            <Table fixed scrollBody fill cols={ROOM_COLS}>
+            <Table fixed scrollBody fill cols={ROOM_COLS} colsNarrow={ROOM_COLS_NARROW}>
               <TableHeader>
                 <TableRow>
                   <TableHead sortKey="name" sort={sort} onSort={toggleSort}>
@@ -258,6 +264,11 @@ export function RoomsAdminView() {
                         <Button
                           variant="outline"
                           size="sm"
+                          // До `md` подпись не влезает и кнопка наезжает на колонку QR —
+                          // остаётся иконка, название уходит в доступное имя.
+                          icon={!isWide}
+                          aria-label={isWide ? undefined : t('print')}
+                          title={isWide ? undefined : t('print')}
                           loading={
                             printMut.isPending &&
                             printMut.variables?.length === 1 &&
@@ -266,7 +277,7 @@ export function RoomsAdminView() {
                           onClick={() => printMut.mutate([room.id])}
                         >
                           <Printer className="size-4" aria-hidden />
-                          {t('print')}
+                          {isWide && t('print')}
                         </Button>
                         {room.qrCode && (
                           <Button

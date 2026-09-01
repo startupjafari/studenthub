@@ -109,7 +109,10 @@ export function LoginForm() {
               <button
                 type="button"
                 onClick={() => toast.info(t('forgotSoon'))}
-                className="cursor-pointer rounded text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+                // Отступы растят область нажатия до 28px по высоте (16px текста — вдвое
+                // меньше минимума WCAG 2.5.8), отрицательные внешние их гасят: строка с
+                // подписью «Пароль» остаётся той же высоты, а правый край — на месте.
+                className="-mx-1 -my-1.5 cursor-pointer rounded px-1 py-1.5 text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 {t('forgotPassword')}
               </button>
