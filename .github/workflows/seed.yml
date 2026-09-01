@@ -21,6 +21,10 @@ on:
         description: 'Запустить seed (db:seed)'
         type: boolean
         default: true
+      run_seed_kato:
+        description: 'Залить справочник КАТО (db:seed:kato)'
+        type: boolean
+        default: true
 
 concurrency:
   group: seed-railway
@@ -69,3 +73,11 @@ jobs:
       - name: Seed (db:seed)
         if: ${{ inputs.run_seed }}
         run: pnpm db:seed
+
+      # Справочник КАТО — отдельным шагом и отдельным флагом: он не демо-данные, а
+      # обязательная часть развёртывания. Без него `University.city` не во что резолвить
+      # и селект «Город» отдаёт пустой список. Сидер идемпотентен (ON CONFLICT DO UPDATE),
+      # так что повторный прогон безопасен.
+      - name: Seed КАТО (db:seed:kato)
+        if: ${{ inputs.run_seed_kato }}
+        run: pnpm db:seed:kato
