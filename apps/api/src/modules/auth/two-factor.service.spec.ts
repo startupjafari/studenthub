@@ -58,6 +58,31 @@ describe('TwoFactorService', () => {
     expect(users.setPendingTwoFactorSecret).toHaveBeenCalledWith('u1', `enc(${res.secret})`)
   })
 
+  it('setup: повторный вызов отдаёт тот же секрет и не перезаписывает pending', async () => {
+    // Иначе перезагрузка страницы настройки обесценивает уже отсканированный QR:
+    // приложение считает коды от старого секрета, сервер ждёт от нового.
+    const { service, users } = setup()
+    const secret = authenticator.generateSecret()
+    users.getTwoFactorState.mockResolvedValue({
+      twoFactorEnabled: false,
+      twoFactorSecret: `enc(${secret})`,
+    })
+    const res = await service.setup('u1')
+    expect(res.secret).toBe(secret)
+    expect(users.setPendingTwoFactorSecret).not.toHaveBeenCalled()
+  })
+
+  it('setup: нечитаемый pending-секрет → новый секрет, а не 500', async () => {
+    const { service, users, crypto } = setup()
+    crypto.decrypt.mockImplementation(() => {
+      throw new Error('Некорректный формат шифртекста')
+    })
+    users.getTwoFactorState.mockResolvedValue({ twoFactorEnabled: false, twoFactorSecret: 'мусор' })
+    const res = await service.setup('u1')
+    expect(res.secret).toBeTruthy()
+    expect(users.setPendingTwoFactorSecret).toHaveBeenCalledWith('u1', `enc(${res.secret})`)
+  })
+
   it('setup: если 2FA уже включена → CONFLICT', async () => {
     const { service, users } = setup()
     users.getTwoFactorState.mockResolvedValue({ twoFactorEnabled: true, twoFactorSecret: 'x' })

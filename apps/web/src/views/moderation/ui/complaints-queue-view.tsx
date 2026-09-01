@@ -12,6 +12,9 @@ import {
   type Complaint,
   type ComplaintPriorityValue,
   type ComplaintStatusValue,
+  complaintPriority,
+  PRIORITY_STYLE,
+  STATUS_STYLE,
 } from '../../../entities/complaint'
 import {
   Card,
@@ -36,7 +39,6 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ComplaintDetailModal } from './complaint-detail-modal'
-import { complaintPriority, PRIORITY_STYLE, STATUS_STYLE } from './complaint-badges'
 
 const STATUS_TABS: (ComplaintStatusValue | 'all')[] = ['PENDING', 'RESOLVED', 'DISMISSED', 'all']
 const PAGE_SIZES = ADMIN_PAGE_SIZES

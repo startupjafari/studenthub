@@ -76,8 +76,11 @@ export function MaterialsView() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  // Без `min-h-0`: экран прокручивается целиком, внутреннего скролл-контейнера тут нет.
+  // С `min-h-0` колонка ужималась до высоты `main`, а карточки с `overflow-hidden`
+  // резали содержимое — оно уходило за нижнюю границу без всякой прокрутки.
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       {canCreate && (
@@ -232,7 +235,8 @@ function MaterialCard({ material, canManage }: { material: Material; canManage: 
             href={material.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex w-fit items-center gap-1.5 text-sm text-primary hover:underline"
+            // Отступы поднимают цель нажатия с 20px до 28px — минимум WCAG 2.5.8 24×24.
+            className="-my-1 flex w-fit items-center gap-1.5 py-1 text-sm text-primary hover:underline"
           >
             <Link2 className="size-4" aria-hidden />
             {t('openLink')}

@@ -53,6 +53,10 @@ const STATUS_VARIANT: Record<InviteStatus, 'info' | 'success' | 'secondary'> = {
 const PAGE_SIZES = [20, 50, 100] as const
 // Ширины колонок: роль · email · статус · действует до · создано · «отозвать».
 const COLS = ['20%', '30%', '14%', '16%', '16%', '3.5rem'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются роль, статус, срок действия и отзыв.
+const COLS_NARROW = ['28%', '0', '26%', '30%', '0', '3.5rem'] as const
 // На узком экране остаются роль, статус и срок — без email и даты создания список читается.
 const HIDE = {
   email: 'hidden md:table-cell',
@@ -146,7 +150,7 @@ export function CreateInvite() {
       ) : (
         // Загрузка идёт скелетоном в строках: шапка и ширины колонок остаются на месте.
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-          <Table fixed scrollBody fill cols={COLS}>
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
                 <TableHead sortKey="role" sort={sort} onSort={toggle}>

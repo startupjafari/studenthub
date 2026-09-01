@@ -53,6 +53,10 @@ type TabKind = 'courses' | 'subjects' | 'terms'
 const PAGE_SIZES = [20, 50, 100] as const
 // Ширины колонок: дисциплина · группа · семестр · преподаватель · кредиты · «удалить».
 const COURSE_COLS = ['26%', '14%', '16%', '24%', '10%', '3.5rem'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются дисциплина, группа и удаление.
+const COURSE_COLS_NARROW = ['52%', '32%', '0', '0', '0', '3.5rem'] as const
 // Справочник: дисциплина · код · удаление.
 const SUBJECT_COLS = ['60%', '30%', '3.5rem'] as const
 // Семестры: название · начало · конец · статус · удаление.
@@ -182,7 +186,7 @@ export function CourseAdminView() {
             />
           ) : (
             <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-              <Table fixed scrollBody fill cols={COURSE_COLS}>
+              <Table fixed scrollBody fill cols={COURSE_COLS} colsNarrow={COURSE_COLS_NARROW}>
                 <TableHeader>
                   <TableRow>
                     <TableHead

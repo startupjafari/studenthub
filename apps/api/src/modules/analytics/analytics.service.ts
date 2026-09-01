@@ -20,6 +20,19 @@ const FACULTY_GROUPS_LIMIT = 500
 const AT_RISK_THRESHOLD = 60
 const GRADE_RISK_THRESHOLD = 50
 
+// Потолки выборок ролевых дашбордов (§5.3). Объёмы здесь на порядок меньше факультетских:
+// у преподавателя это только его курсы и пары, у старосты — одна группа.
+const TEACHER_SCOPE_LIMIT = 300
+const TEACHER_ATTENDANCE_LIMIT = 50_000
+// Сколько строк показывают панели-списки. Число общее для обеих панелей преподавателя:
+// они стоят рядом в сетке, и разная длина списков читается как перекос.
+const TEACHER_LIST_ROWS = 6
+const GROUP_STUDENTS_LIMIT = 500
+const GROUP_ATTENDANCE_LIMIT = 20_000
+const GROUP_LIST_ROWS = 6
+// Дисциплин у группы в семестре единицы; 12 полос — предел читаемой высоты графика.
+const GROUP_SUBJECT_ROWS = 12
+
 // Причина попадания студента в зону риска — всегда объективна и с числовым значением
 // (никаких непрозрачных авто-решений). value интерпретируется по kind (проценты/штуки).
 interface RiskReason {
@@ -309,6 +322,297 @@ export class AnalyticsService {
       facultyId,
       thresholds: { attendance: AT_RISK_THRESHOLD, gradeAvg: GRADE_RISK_THRESHOLD },
       students: atRisk,
+    }
+  }
+
+  /**
+   * Дашборд преподавателя: его собственная нагрузка и то, что ждёт действия.
+   *
+   * Scope целиком из токена (`viewer.sub`) — идентификатора преподавателя в запросе нет
+   * вовсе, подменить его нечем. Считается по двум опорам, и это разные вещи:
+   * `Course.teacherId` — что я веду (задания, оценки, экзамены), `Pair.teacherId` — что я
+   * провожу (посещаемость). Занятие может стоять на замене, а курс при этом остаётся за
+   * другим преподавателем, поэтому объединять их в одну выборку нельзя.
+   */
+  async teacherOverview(viewer: JwtPayload) {
+    const teacherId = viewer.sub
+    const now = new Date()
+
+    const [courses, pairGroups] = await Promise.all([
+      this.prisma.course.findMany({
+        where: { teacherId },
+        select: { id: true, groupId: true },
+        take: TEACHER_SCOPE_LIMIT,
+      }),
+      this.prisma.pair.findMany({
+        where: { teacherId },
+        select: { groupId: true },
+        distinct: ['groupId'],
+        take: TEACHER_SCOPE_LIMIT,
+      }),
+    ])
+
+    const groupIds = [
+      ...new Set([...courses.map((c) => c.groupId), ...pairGroups.map((p) => p.groupId)]),
+    ]
+
+    const [groups, students, attendance, submissionsPending, examsUpcoming, queue, consultations] =
+      await Promise.all([
+        this.prisma.group.findMany({
+          where: { id: { in: groupIds } },
+          select: { id: true, name: true },
+          take: groupIds.length || 1,
+        }),
+        this.prisma.user.groupBy({
+          by: ['groupId'],
+          where: {
+            groupId: { in: groupIds },
+            role: { in: ['STUDENT', 'STAROSTA'] },
+            deletedAt: null,
+            isBlocked: false,
+          },
+          _count: { _all: true },
+        }),
+        // Посещаемость — по парам, которые вёл именно этот преподаватель.
+        this.prisma.attendance.findMany({
+          where: { pair: { teacherId } },
+          select: { status: true, pair: { select: { groupId: true } } },
+          take: TEACHER_ATTENDANCE_LIMIT,
+        }),
+        this.prisma.submission.count({
+          where: { status: 'SUBMITTED', assignment: { course: { teacherId } } },
+        }),
+        // Экзамен может вести не тот, кто читал курс (внешний экзаменатор и наоборот).
+        this.prisma.exam.count({
+          where: { date: { gte: now }, OR: [{ examinerId: teacherId }, { course: { teacherId } }] },
+        }),
+        // Очередь проверки — по заданиям, где сдач больше всего: с них и начинают.
+        this.prisma.submission.groupBy({
+          by: ['assignmentId'],
+          where: { status: 'SUBMITTED', assignment: { course: { teacherId } } },
+          _count: { _all: true },
+          orderBy: { _count: { assignmentId: 'desc' } },
+          take: TEACHER_LIST_ROWS,
+        }),
+        // Записанного студента преподаватель и так видит в своём разделе консультаций
+        // (ConsultationsService отдаёт имя), поэтому здесь оно не новое раскрытие.
+        this.prisma.consultationSlot.findMany({
+          where: { teacherId, startsAt: { gte: now }, status: { in: ['OPEN', 'BOOKED'] } },
+          select: {
+            id: true,
+            startsAt: true,
+            endsAt: true,
+            status: true,
+            isOnline: true,
+            location: true,
+            topic: true,
+            student: { select: { firstName: true, lastName: true } },
+          },
+          orderBy: { startsAt: 'asc' },
+          take: TEACHER_LIST_ROWS,
+        }),
+      ])
+
+    const queueIds = queue.map((q) => q.assignmentId)
+    const queueAssignments = queueIds.length
+      ? await this.prisma.assignment.findMany({
+          where: { id: { in: queueIds } },
+          select: {
+            id: true,
+            title: true,
+            dueAt: true,
+            course: {
+              select: { subject: { select: { name: true } }, group: { select: { name: true } } },
+            },
+          },
+          take: queueIds.length,
+        })
+      : []
+
+    const studentsByGroup = new Map(students.map((s) => [s.groupId, s._count._all]))
+    const attByGroup = new Map<string, { total: number; absent: number }>()
+    const teacherAtt = { total: 0, absent: 0 }
+    for (const a of attendance) {
+      const gid = a.pair.groupId
+      const cur = attByGroup.get(gid) ?? { total: 0, absent: 0 }
+      cur.total += 1
+      teacherAtt.total += 1
+      if (a.status === 'ABSENT') {
+        cur.absent += 1
+        teacherAtt.absent += 1
+      }
+      attByGroup.set(gid, cur)
+    }
+
+    // Худшие группы сверху: график для того и нужен, чтобы увидеть проседание.
+    const groupStats = groups
+      .map((g) => {
+        const att = attByGroup.get(g.id) ?? { total: 0, absent: 0 }
+        return {
+          groupId: g.id,
+          name: g.name,
+          students: studentsByGroup.get(g.id) ?? 0,
+          attendanceRate: rateOf(att),
+          attendanceTracked: att.total,
+        }
+      })
+      .sort((a, b) => a.attendanceRate - b.attendanceRate)
+
+    const assignmentById = new Map(queueAssignments.map((a) => [a.id, a]))
+
+    return {
+      thresholds: { attendance: AT_RISK_THRESHOLD },
+      totals: {
+        courses: courses.length,
+        groups: groupStats.length,
+        students: [...studentsByGroup.values()].reduce((a, b) => a + b, 0),
+        attendanceRate: rateOf(teacherAtt),
+        attendanceTracked: teacherAtt.total,
+        submissionsPending,
+        examsUpcoming,
+      },
+      groups: groupStats,
+      // Порядок сохраняется от groupBy (по числу сдач), поэтому идём по нему, а не по
+      // выборке заданий: она вернулась в произвольном порядке.
+      queue: queue.flatMap((q) => {
+        const a = assignmentById.get(q.assignmentId)
+        if (!a) return []
+        return [
+          {
+            assignmentId: a.id,
+            title: a.title,
+            subject: a.course.subject.name,
+            groupName: a.course.group.name,
+            dueAt: a.dueAt,
+            pending: q._count._all,
+          },
+        ]
+      }),
+      consultations: consultations.map((c) => ({
+        id: c.id,
+        startsAt: c.startsAt,
+        endsAt: c.endsAt,
+        status: c.status,
+        isOnline: c.isOnline,
+        location: c.location,
+        topic: c.topic,
+        studentName: c.student ? `${c.student.firstName} ${c.student.lastName}` : null,
+      })),
+    }
+  }
+
+  /**
+   * Дашборд старосты: состояние ЕГО группы. Группа берётся из токена (`viewer.groupId`) —
+   * параметра в запросе нет, поэтому чужую группу не запросить в принципе.
+   *
+   * Персональных срезов здесь нет намеренно: староста — такой же студент, и посещаемость
+   * однокурсников по именам ему не показывается. Наружу уходят только агрегаты по группе
+   * и число студентов ниже порога — без имён и без идентификаторов.
+   */
+  async myGroupOverview(viewer: JwtPayload) {
+    const groupId = viewer.groupId
+    if (!groupId) {
+      throw new AppException('NOT_FOUND', 'Группа не назначена')
+    }
+    const now = new Date()
+
+    const [group, students, attendance, assignmentsOpen, examsUpcoming, exams] = await Promise.all([
+      this.prisma.group.findUnique({ where: { id: groupId }, select: { name: true } }),
+      this.prisma.user.findMany({
+        where: {
+          groupId,
+          role: { in: ['STUDENT', 'STAROSTA'] },
+          deletedAt: null,
+          isBlocked: false,
+        },
+        select: { id: true },
+        take: GROUP_STUDENTS_LIMIT,
+      }),
+      this.prisma.attendance.findMany({
+        where: { pair: { groupId } },
+        select: { studentId: true, status: true, pair: { select: { subject: true } } },
+        take: GROUP_ATTENDANCE_LIMIT,
+      }),
+      // Активные задания: срок ещё не вышел либо не задан вовсе.
+      this.prisma.assignment.count({
+        where: {
+          status: 'PUBLISHED',
+          course: { groupId },
+          OR: [{ dueAt: null }, { dueAt: { gte: now } }],
+        },
+      }),
+      this.prisma.exam.count({ where: { groupId, date: { gte: now } } }),
+      this.prisma.exam.findMany({
+        where: { groupId, date: { gte: now } },
+        select: {
+          id: true,
+          date: true,
+          format: true,
+          course: { select: { subject: { select: { name: true } } } },
+          room: { select: { name: true } },
+        },
+        orderBy: { date: 'asc' },
+        take: GROUP_LIST_ROWS,
+      }),
+    ])
+    if (!group) {
+      throw new AppException('NOT_FOUND', 'Группа не найдена')
+    }
+
+    const byStudent = new Map<string, { total: number; absent: number }>()
+    const bySubject = new Map<string, { total: number; absent: number }>()
+    const groupAtt = { total: 0, absent: 0 }
+    for (const a of attendance) {
+      const st = byStudent.get(a.studentId) ?? { total: 0, absent: 0 }
+      const sub = bySubject.get(a.pair.subject) ?? { total: 0, absent: 0 }
+      st.total += 1
+      sub.total += 1
+      groupAtt.total += 1
+      if (a.status === 'ABSENT') {
+        st.absent += 1
+        sub.absent += 1
+        groupAtt.absent += 1
+      }
+      byStudent.set(a.studentId, st)
+      bySubject.set(a.pair.subject, sub)
+    }
+
+    // Сколько человек ниже порога — числом, без имён (см. комментарий к методу).
+    // Студенты без отметок вовсе не считаются: там нечего мерить, а не «ноль процентов».
+    const lowAttendance = students.filter((s) => {
+      const att = byStudent.get(s.id)
+      return att && att.total > 0 && rateOf(att) < AT_RISK_THRESHOLD
+    }).length
+
+    const subjects = [...bySubject.entries()]
+      .map(([subject, att]) => ({
+        subject,
+        attendanceRate: rateOf(att),
+        attendanceTracked: att.total,
+      }))
+      .sort((a, b) => a.attendanceRate - b.attendanceRate)
+      .slice(0, GROUP_SUBJECT_ROWS)
+
+    return {
+      groupId,
+      name: group.name,
+      thresholds: { attendance: AT_RISK_THRESHOLD },
+      totals: {
+        students: students.length,
+        attendanceRate: rateOf(groupAtt),
+        attendanceTracked: groupAtt.total,
+        lowAttendance,
+        assignmentsOpen,
+        examsUpcoming,
+      },
+      subjects,
+      exams: exams.map((e) => ({
+        id: e.id,
+        date: e.date,
+        format: e.format,
+        subject: e.course.subject.name,
+        roomName: e.room?.name ?? null,
+      })),
     }
   }
 

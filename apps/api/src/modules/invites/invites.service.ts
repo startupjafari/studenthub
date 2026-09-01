@@ -366,6 +366,7 @@ export class InviteService {
       select: {
         role: true,
         status: true,
+        email: true,
         universityId: true,
         facultyId: true,
         groupId: true,
@@ -379,6 +380,11 @@ export class InviteService {
 
     return {
       role: invite.role,
+      // Приглашение можно выдать без email — ссылкой в мессенджер. Тогда адрес спрашивает
+      // форма регистрации (`registerByInvite` принимает его в теле), и она обязана знать,
+      // показывать ли поле. Наружу уходит только признак: сам email по публичному токену
+      // не отдаём — превью доступно любому, кто держит ссылку.
+      emailRequired: !invite.email,
       universityId: invite.universityId,
       facultyId: invite.facultyId,
       groupId: invite.groupId,
