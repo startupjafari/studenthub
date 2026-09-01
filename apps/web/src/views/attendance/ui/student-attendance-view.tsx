@@ -21,8 +21,11 @@ export function StudentAttendanceView() {
   const locale = useLocale()
   const q = useQuery({ queryKey: attendanceKeys.me(), queryFn: () => fetchMyAttendance() })
 
+  // Без `min-h-0`: экран прокручивается целиком, внутреннего скролл-контейнера тут нет.
+  // С `min-h-0` колонка ужималась до высоты `main`, а карточки с `overflow-hidden`
+  // резали содержимое — список уходил за нижнюю границу без всякой прокрутки.
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('myTitle')} />
 
       {q.isLoading ? (

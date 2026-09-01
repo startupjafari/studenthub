@@ -16,7 +16,6 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
-  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -24,6 +23,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSkeletonRows,
   TableText,
   useTableSort,
 } from '../../../shared/ui'
@@ -41,6 +41,10 @@ import { ConfirmAppointmentModal } from './confirm-appointment-modal'
 
 // Ширины колонок: тема тянет остаток — это единственное свободное поле в строке.
 const COLS = ['22%', '15%', '15%', '28%', '14%', '3.5rem'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются студент, время, статус и действие.
+const COLS_NARROW = ['28%', '0', '22%', '0', '38%', '3.5rem'] as const
 // На узком экране остаются студент, время и статус — по ним очередь и разбирают.
 const HIDE = {
   type: 'hidden md:table-cell',
@@ -53,6 +57,17 @@ function whenOf(a: Appointment): string {
 }
 
 // «Запись в деканат» деканата (задача 16): очередь записей + обработка.
+// Порядок и классы скрытия колонок — те же, что у строк с данными: на время загрузки
+// геометрия таблицы не меняется.
+const APPOINTMENT_SKELETON_COLS = [
+  undefined,
+  HIDE.type,
+  undefined,
+  HIDE.topic,
+  undefined,
+  undefined,
+]
+
 export function DeanAppointmentsView() {
   const t = useTranslations('Appointments')
   const tErr = useTranslations('Errors')
@@ -124,7 +139,7 @@ export function DeanAppointmentsView() {
         />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-          <Table fixed scrollBody fill cols={COLS}>
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
                 <TableHead sortKey="student" sort={sort} onSort={toggle}>
@@ -148,7 +163,7 @@ export function DeanAppointmentsView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {q.isLoading && <SkeletonRows />}
+              {q.isLoading && <TableSkeletonRows columns={APPOINTMENT_SKELETON_COLS} />}
               {sorted.map((a) => {
                 const active = a.status !== 'COMPLETED' && a.status !== 'CANCELLED'
                 return (
@@ -159,7 +174,7 @@ export function DeanAppointmentsView() {
                     <TableCell className={cn(HIDE.type, 'text-muted-foreground')}>
                       <TableText value={t(apptTypeKey(a.type))} />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                    <TableCell className="text-muted-foreground tabular-nums md:whitespace-nowrap">
                       {fmt(whenOf(a))}
                       {/* Пока приём не назначен, в колонке стоит пожелание студента —
                           без пометки его легко принять за подтверждённое время. */}
@@ -171,7 +186,7 @@ export function DeanAppointmentsView() {
                       {a.topic ? <TableText value={a.topic} /> : <TableEmpty />}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={APPT_STATUS_BADGE[a.status]}>
+                      <Badge variant={APPT_STATUS_BADGE[a.status]} className="max-w-full truncate">
                         {t(APPT_STATUS_KEY[a.status])}
                       </Badge>
                     </TableCell>
@@ -228,23 +243,5 @@ export function DeanAppointmentsView() {
         />
       )}
     </div>
-  )
-}
-
-// Те же классы скрытия, что и у данных: на время загрузки геометрия не меняется.
-function SkeletonRows({ rows = 8 }: { rows?: number }) {
-  const cells = [undefined, HIDE.type, undefined, HIDE.topic, undefined, undefined]
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, r) => (
-        <TableRow key={r}>
-          {cells.map((cls, c) => (
-            <TableCell key={c} className={cls}>
-              <Skeleton className="h-4 w-full" />
-            </TableCell>
-          ))}
-        </TableRow>
-      ))}
-    </>
   )
 }

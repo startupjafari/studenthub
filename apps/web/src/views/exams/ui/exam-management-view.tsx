@@ -15,7 +15,6 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
-  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -23,6 +22,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSkeletonRows,
   TableText,
   useTableSort,
 } from '../../../shared/ui'
@@ -35,10 +35,18 @@ import { ExamResultsRoster } from './exam-results-roster'
 
 // Дисциплина забирает остаток ширины: остальные колонки — короткие и предсказуемые.
 const COLS = ['32%', '18%', '14%', '14%', '16%', '3.5rem'] as const
+// Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
+// классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
+// Остаются дисциплина, дата, формат и действие.
+const COLS_NARROW = ['34%', '22%', '0', '0', '32%', '3.5rem'] as const
 // Узкий экран оставляет дисциплину, дату и формат — по ним сессию и читают.
 const HIDE = { group: 'hidden md:table-cell', room: 'hidden lg:table-cell' } as const
 
 // Управление экзаменами (декан/преподаватель): список + назначение + ведомость.
+// Порядок и классы скрытия колонок — те же, что у строк с данными: на время загрузки
+// геометрия таблицы не меняется.
+const EXAM_SKELETON_COLS = [undefined, undefined, HIDE.group, HIDE.room, undefined, undefined]
+
 export function ExamManagementView({ mine }: { mine: boolean }) {
   const t = useTranslations('Exams')
   const tErr = useTranslations('Errors')
@@ -113,7 +121,7 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
         />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-          <Table fixed scrollBody fill cols={COLS}>
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
                 <TableHead sortKey="subject" sort={sort} onSort={toggle}>
@@ -137,7 +145,7 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {q.isLoading && <SkeletonRows />}
+              {q.isLoading && <TableSkeletonRows columns={EXAM_SKELETON_COLS} />}
               {sorted.map((e) => (
                 <TableRow
                   key={e.id}
@@ -147,7 +155,9 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                   <TableCell className="font-medium">
                     <TableText value={e.course.subject.name} />
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                  {/* До `md` дата переносится на две строки: `nowrap` в узкой колонке
+                      вылезал на соседнюю. */}
+                  <TableCell className="text-muted-foreground tabular-nums md:whitespace-nowrap">
                     {new Date(e.date).toLocaleString(locale, {
                       day: '2-digit',
                       month: 'short',
@@ -162,7 +172,9 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                     {e.room ? <TableText value={e.room.name} /> : <TableEmpty />}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{t(examFormatKey(e.format))}</Badge>
+                    <Badge variant="secondary" className="max-w-full truncate">
+                      {t(examFormatKey(e.format))}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -198,23 +210,5 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
 
       {creating && <CreateExamModal mine={mine} onClose={() => setCreating(false)} />}
     </div>
-  )
-}
-
-// Те же классы скрытия, что и у данных: на время загрузки геометрия не меняется.
-function SkeletonRows({ rows = 8 }: { rows?: number }) {
-  const cells = [undefined, undefined, HIDE.group, HIDE.room, undefined, undefined]
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, r) => (
-        <TableRow key={r}>
-          {cells.map((cls, c) => (
-            <TableCell key={c} className={cls}>
-              <Skeleton className="h-4 w-full" />
-            </TableCell>
-          ))}
-        </TableRow>
-      ))}
-    </>
   )
 }

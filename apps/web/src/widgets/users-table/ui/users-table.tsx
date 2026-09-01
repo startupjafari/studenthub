@@ -8,6 +8,7 @@ import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
+import { useMediaQuery } from '../../../shared/lib'
 import {
   adminUserKeys,
   blockUserRequest,
@@ -61,6 +62,11 @@ const PAGE_SIZES = ADMIN_PAGE_SIZES
 // Ширины колонок: имя · email · роль · статус · действие (последняя — только тем,
 // кто может блокировать; без неё берём первые четыре).
 const COLS = ['26%', '30%', '18%', '14%', '12%'] as const
+// До `md` почта и роль не показываются: пять колонок на 375px дают по 15–23px каждая, и
+// таблица превращается в столбик многоточий (DESIGN_SYSTEM §15 — на мобильном таблица
+// становится списком строк, а не сжимается). Остаются имя, статус и действие.
+const COLS_NARROW = ['53%', '31%', '16%'] as const
+const COLS_NARROW_READONLY = ['70%', '30%'] as const
 const CAN_BLOCK: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
@@ -85,6 +91,9 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const qc = useQueryClient()
   const viewerRole = useAppSelector((s) => s.auth.role)
   const canBlock = viewerRole !== null && CAN_BLOCK.includes(viewerRole)
+  // `md` — та же граница, на которой в проекте прячут второстепенные колонки таблиц
+  // (`hidden md:table-cell` в комнатах, документах, курсах).
+  const isWide = useMediaQuery('(min-width: 768px)')
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
@@ -193,18 +202,35 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
         // Загрузка идёт скелетоном в строках: шапка, ширины колонок и подвал остаются
         // на месте, экран не «прыгает», когда данные приходят.
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-          <Table fixed scrollBody fill cols={canBlock ? COLS : COLS.slice(0, 4)}>
+          <Table
+            fixed
+            scrollBody
+            fill
+            cols={
+              isWide
+                ? canBlock
+                  ? COLS
+                  : COLS.slice(0, 4)
+                : canBlock
+                  ? COLS_NARROW
+                  : COLS_NARROW_READONLY
+            }
+          >
             <TableHeader>
               <TableRow>
                 <TableHead sortKey="name" sort={sort} onSort={sortBy}>
                   {t('colName')}
                 </TableHead>
-                <TableHead sortKey="email" sort={sort} onSort={sortBy}>
-                  {t('colEmail')}
-                </TableHead>
-                <TableHead sortKey="role" sort={sort} onSort={sortBy}>
-                  {t('colRole')}
-                </TableHead>
+                {isWide && (
+                  <TableHead sortKey="email" sort={sort} onSort={sortBy}>
+                    {t('colEmail')}
+                  </TableHead>
+                )}
+                {isWide && (
+                  <TableHead sortKey="role" sort={sort} onSort={sortBy}>
+                    {t('colRole')}
+                  </TableHead>
+                )}
                 <TableHead sortKey="blocked" sort={sort} onSort={sortBy}>
                   {t('colStatus')}
                 </TableHead>
@@ -212,23 +238,31 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.isLoading && <TableSkeletonRows columns={canBlock ? 5 : 4} />}
+              {users.isLoading && (
+                <TableSkeletonRows columns={(isWide ? 4 : 2) + (canBlock ? 1 : 0)} />
+              )}
               {rows.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">
                     <ProfileLink
                       userId={u.id}
-                      className="block truncate hover:text-primary hover:underline"
+                      // `-my-2 py-2` растягивает ссылку на всю высоту ячейки: строка имени
+                      // в 20px меньше минимальной цели нажатия WCAG 2.5.8 (24×24).
+                      className="-my-2 block truncate py-2 hover:text-primary hover:underline"
                     >
                       {u.lastName} {u.firstName}
                     </ProfileLink>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <TableText value={u.email} />
-                  </TableCell>
-                  <TableCell>
-                    <TableText value={tRoles(u.role)} />
-                  </TableCell>
+                  {isWide && (
+                    <TableCell className="text-muted-foreground">
+                      <TableText value={u.email} />
+                    </TableCell>
+                  )}
+                  {isWide && (
+                    <TableCell>
+                      <TableText value={tRoles(u.role)} />
+                    </TableCell>
+                  )}
                   <TableCell>
                     {u.isBlocked ? (
                       <Badge variant="secondary" className="text-destructive">
@@ -247,16 +281,19 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                         loading={blockMut.isPending && blockMut.variables?.id === u.id}
                         onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
                         className={u.isBlocked ? 'text-success' : 'text-destructive'}
+                        // До `md` подпись не влезает в колонку и обрезается на полуслове —
+                        // остаётся иконка, а название действия уходит в доступное имя.
+                        aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
                       >
                         {u.isBlocked ? (
                           <>
                             <ShieldCheck className="size-4" aria-hidden />
-                            {t('unblock')}
+                            {isWide && t('unblock')}
                           </>
                         ) : (
                           <>
                             <Ban className="size-4" aria-hidden />
-                            {t('block')}
+                            {isWide && t('block')}
                           </>
                         )}
                       </Button>

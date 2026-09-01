@@ -44,6 +44,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSkeletonRows,
   TableText,
   Textarea,
   useTableSort,
@@ -77,6 +78,17 @@ const REQ_HIDE = {
 } as const
 
 // Запросы вуза глазами сотрудника (Ф15C, 15.17): список + создание + проверка комплектов.
+// Порядок и классы скрытия колонок — те же, что у строк с данными: на время загрузки
+// геометрия таблицы не меняется.
+const REQ_SKELETON_COLS = [
+  undefined,
+  REQ_HIDE.items,
+  undefined,
+  undefined,
+  REQ_HIDE.status,
+  undefined,
+]
+
 export function StaffRequests() {
   const t = useTranslations('Documents')
   const [creating, setCreating] = useState(false)
@@ -175,7 +187,7 @@ function RequestsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading && <RequestSkeletonRows />}
+          {loading && <TableSkeletonRows columns={REQ_SKELETON_COLS} />}
           {sorted.map((r) => (
             <TableRow
               key={r.id}
@@ -219,24 +231,6 @@ function RequestsTable({
         </TableBody>
       </Table>
     </Card>
-  )
-}
-
-// Скелетон с теми же классами скрытия, что и у данных: геометрия таблицы не меняется.
-function RequestSkeletonRows({ rows = 6 }: { rows?: number }) {
-  const cells = [undefined, REQ_HIDE.items, undefined, undefined, REQ_HIDE.status, undefined]
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, r) => (
-        <TableRow key={r}>
-          {cells.map((cls, c) => (
-            <TableCell key={c} className={cls}>
-              <Skeleton className="h-4 w-full" />
-            </TableCell>
-          ))}
-        </TableRow>
-      ))}
-    </>
   )
 }
 

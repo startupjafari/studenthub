@@ -228,9 +228,10 @@ export function CommandPalette() {
             // Телефон: во весь экран. Прежние 80vw посреди страницы с открытой клавиатурой
             // превращались в щель, а список результатов уезжал под клавиатуру.
             'inset-0 h-dvh w-full pt-[env(safe-area-inset-top)]',
-            // Десктоп: узкая панель сверху. 80vw на широком мониторе растягивал строку
-            // результата через весь экран — глазу негде зацепиться за название.
-            'sm:inset-auto sm:top-[10vh] sm:left-1/2 sm:h-auto sm:max-h-[70dvh] sm:w-[calc(100%-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-border sm:pt-0',
+            // Десктоп: панель сверху по центру. Ширина растёт по брейкпоинтам, но с потолком —
+            // 80vw на широком мониторе растягивал строку результата через весь экран.
+            'sm:inset-auto sm:top-[10vh] sm:left-1/2 sm:h-auto sm:max-h-[70dvh] sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-border sm:pt-0',
+            'lg:max-w-4xl xl:max-w-5xl',
             'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           )}
         >
