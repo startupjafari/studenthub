@@ -55,12 +55,31 @@ const COL_WIDTHS = [
   '[&_tr>*:nth-child(10)]:w-[var(--col-10,auto)]',
 ].join(' ')
 
+// Те же ширины для узкого экрана. Проценты, рассчитанные на шесть-восемь колонок, на 375px
+// дают колонку в 34px — с учётом отступов ячейки на содержимое остаётся 2–20px, и заголовок
+// с кнопкой сортировки становится нечитаемым столбиком многоточий. Колонки, скрытые классом
+// `hidden md:table-cell`, свою долю не занимают, но и не отдают её соседям: ширины заданы
+// явно, поэтому второй набор нужен отдельно. Переменная не задана — берётся широкая.
+const COL_WIDTHS_NARROW = [
+  'max-md:[&_tr>*:nth-child(1)]:w-[var(--col-1-narrow,var(--col-1,auto))]',
+  'max-md:[&_tr>*:nth-child(2)]:w-[var(--col-2-narrow,var(--col-2,auto))]',
+  'max-md:[&_tr>*:nth-child(3)]:w-[var(--col-3-narrow,var(--col-3,auto))]',
+  'max-md:[&_tr>*:nth-child(4)]:w-[var(--col-4-narrow,var(--col-4,auto))]',
+  'max-md:[&_tr>*:nth-child(5)]:w-[var(--col-5-narrow,var(--col-5,auto))]',
+  'max-md:[&_tr>*:nth-child(6)]:w-[var(--col-6-narrow,var(--col-6,auto))]',
+  'max-md:[&_tr>*:nth-child(7)]:w-[var(--col-7-narrow,var(--col-7,auto))]',
+  'max-md:[&_tr>*:nth-child(8)]:w-[var(--col-8-narrow,var(--col-8,auto))]',
+  'max-md:[&_tr>*:nth-child(9)]:w-[var(--col-9-narrow,var(--col-9,auto))]',
+  'max-md:[&_tr>*:nth-child(10)]:w-[var(--col-10-narrow,var(--col-10,auto))]',
+].join(' ')
+
 export function Table({
   className,
   fixed = false,
   scrollBody = false,
   fill = false,
   cols,
+  colsNarrow,
   style,
   ...props
 }: ComponentProps<'table'> & {
@@ -89,6 +108,12 @@ export function Table({
    * тела, которые в режиме `scrollBody` являются отдельными таблицами.
    */
   cols?: readonly string[]
+  /**
+   * Ширины колонок до `md`. Нужны там, где часть колонок скрыта классом
+   * `hidden md:table-cell`: доли из `cols` рассчитаны на полный набор, и оставшимся
+   * колонкам достаётся по 30–40px вместе с отступами. Не задано — используются `cols`.
+   */
+  colsNarrow?: readonly string[]
 }) {
   const ref = useRef<HTMLTableElement>(null)
   // Полоса прокрутки съедает ширину только у `tbody`, поэтому шапка без компенсации
@@ -115,11 +140,13 @@ export function Table({
         ...style,
         ['--table-gutter' as string]: `${gutter}px`,
         ...Object.fromEntries((cols ?? []).map((w, i) => [`--col-${i + 1}`, w])),
+        ...Object.fromEntries((colsNarrow ?? []).map((w, i) => [`--col-${i + 1}-narrow`, w])),
       }}
       className={cn(
         'w-full text-left text-sm',
         fixed && 'table-fixed',
         cols && COL_WIDTHS,
+        colsNarrow && COL_WIDTHS_NARROW,
         // `thead` и каждая строка `tbody` становятся самостоятельными таблицами — только так
         // `tbody` можно сделать скролл-контейнером, оставив шапку снаружи.
         scrollBody &&
@@ -220,7 +247,9 @@ export function TableHead({
       data-slot="table-head"
       aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : undefined}
       className={cn(
-        'sticky top-0 z-10 bg-muted px-4 py-2 font-semibold shadow-[inset_0_-1px_0_var(--border)]',
+        // До `md` отступы ячейки вдвое уже: на 375px пара по 16px съедала треть колонки,
+        // и на содержимое оставалось 20–40px.
+        'sticky top-0 z-10 bg-muted px-2 py-2 font-semibold shadow-[inset_0_-1px_0_var(--border)] md:px-4',
         numeric && 'text-right',
         className,
       )}
@@ -231,8 +260,11 @@ export function TableHead({
           type="button"
           onClick={() => onSort(sortKey)}
           className={cn(
-            // Кнопка во всю ширину ячейки — кликабелен весь заголовок, а не только текст.
-            'flex w-full cursor-pointer items-center gap-1 transition-colors hover:text-foreground',
+            // Кнопка во всю ширину и высоту ячейки — кликабелен весь заголовок, а не только
+            // текст. `-my-2 py-2` забирает вертикальные отступы `th`: строка в 20px меньше
+            // минимальной цели нажатия WCAG 2.5.8 (24×24), а с отступами ячейки выходит 36px.
+            // Внешний отрицательный отступ гасит прибавку — высота шапки не меняется.
+            'flex w-full cursor-pointer items-center gap-1 -my-2 py-2 transition-colors hover:text-foreground',
             numeric ? 'justify-end text-right' : 'text-left',
             active && 'text-foreground',
           )}
@@ -248,7 +280,7 @@ export function TableHead({
 }
 
 export function TableCell({ className, ...props }: ComponentProps<'td'>) {
-  return <td data-slot="table-cell" className={cn('px-4 py-2', className)} {...props} />
+  return <td data-slot="table-cell" className={cn('px-2 py-2 md:px-4', className)} {...props} />
 }
 
 /**
@@ -348,10 +380,35 @@ export function TableSkeletonRows({
   rows?: number
 }) {
   const cells = typeof columns === 'number' ? Array.from<undefined>({ length: columns }) : columns
+  // Заглушка занимает всю высоту тела таблицы, а не первые восемь строк: на высоком экране
+  // под фиксированным числом строк оставалась пустота — читалось как «данные пришли, их мало».
+  // Сколько строк влезает, считаем сами: высота тела / высота строки. Высоту строки берём
+  // у первой отрисованной и запоминаем — дальше строки растягиваются флексом (`Table fill`),
+  // и повторное измерение давало бы уже растянутую, с каждым пересчётом занижая число строк.
+  const firstRow = useRef<HTMLTableRowElement>(null)
+  const rowHeight = useRef(0)
+  const [count, setCount] = useState(rows)
+  useEffect(() => {
+    const row = firstRow.current
+    const body = row?.parentElement
+    if (!row || !body) return
+    const measure = (): void => {
+      rowHeight.current ||= row.offsetHeight
+      const h = rowHeight.current
+      if (!h || !body.clientHeight) return
+      // Округление вниз: строка целиком или её нет. Лишняя строка вылезала бы за тело и
+      // включала прокрутку у заглушки, которой прокручивать нечего.
+      setCount(Math.max(1, Math.floor(body.clientHeight / h)))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [])
   return (
     <>
-      {Array.from({ length: rows }).map((_, r) => (
-        <TableRow key={r}>
+      {Array.from({ length: count }).map((_, r) => (
+        <TableRow key={r} ref={r === 0 ? firstRow : undefined}>
           {cells.map((cls, c) => (
             <TableCell key={c} className={cls}>
               <Skeleton className="h-4 w-full" />
