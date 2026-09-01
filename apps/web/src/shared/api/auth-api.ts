@@ -77,6 +77,9 @@ export interface MeResponse {
 
 export interface InvitePreview {
   role: Role
+  // Инвайт выдан без адреса (ссылкой в мессенджер) — email обязана спросить форма
+  // регистрации. Самого адреса в превью нет: оно публично по токену.
+  emailRequired: boolean
   universityId: string | null
   facultyId: string | null
   groupId: string | null

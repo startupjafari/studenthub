@@ -121,6 +121,7 @@ describe('InviteService', () => {
   describe('preview', () => {
     const base = {
       role: Role.STUDENT,
+      email: null,
       universityId: 'uni-A',
       facultyId: 'fac-A',
       groupId: 'grp-A',
@@ -173,13 +174,29 @@ describe('InviteService', () => {
       const result = await service.preview('x')
       expect(result).toEqual({
         role: Role.STUDENT,
+        emailRequired: true,
         universityId: 'uni-A',
         facultyId: 'fac-A',
         groupId: 'grp-A',
         expiresAt,
       })
+      // Адрес наружу не уходит: превью публично по токену, а ссылку могли переслать
+      // кому угодно. Форме достаточно признака emailRequired.
       expect(result).not.toHaveProperty('email')
       expect(result).not.toHaveProperty('createdById')
+    })
+
+    it('у инвайта есть email → emailRequired = false, адрес не раскрывается', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        ...base,
+        email: 'student@uni.kz',
+        status: InviteStatus.PENDING,
+        expiresAt: new Date(Date.now() + HOUR),
+      })
+      const result = await service.preview('x')
+      expect(result).toMatchObject({ emailRequired: false })
+      expect(result).not.toHaveProperty('email')
     })
   })
 
