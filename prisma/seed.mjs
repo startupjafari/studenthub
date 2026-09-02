@@ -1,9 +1,18 @@
 // Идемпотентный seed (docs/PROJECT.md §14): PLATFORM_ADMIN, демо-вуз/факультет/группа/
 // аудитории (Фаза 5) и dev-инвайт для UNIVERSITY_ADMIN на этот вуз.
+//
+// Масштаб задаётся профилем SEED_SCALE (prisma/seed/config.mjs):
+//   demo (по умолчанию) — этот демо-вуз, как раньше;
+//   small / full        — 5 / 100 вузов (генератор подключается следующими шагами).
+// Полный масштаб на нелокальной БД заблокирован без SEED_ALLOW_REMOTE=1.
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
+import { loadConfig } from './seed/config.mjs'
+import { makeRandom } from './seed/lib/rng.mjs'
+import { createProgress } from './seed/lib/progress.mjs'
 
 const prisma = new PrismaClient()
+const config = loadConfig()
 
 // Dev-инвайт: фиксированный токен, срок 30 дней (dev-only, резолюция §19.2). В проде отзывается после первого использования.
 const DEV_INVITE_TOKEN = 'seed-invite-university-admin-token'
@@ -11,23 +20,10 @@ const SEED_UNIVERSITY_ID = 'seed-university-001'
 const ALMATY_KATO_CODE = '750000000'
 
 // ── Утилиты для большого реалистичного seed'а ────────────────────────────────
-// Детерминированный PRNG (mulberry32) — данные воспроизводимы между прогонами,
-// а идемпотентность обеспечивают фиксированные id + createMany({ skipDuplicates }).
-function makeRng(seed) {
-  let a = seed >>> 0
-  return () => {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-const rng = makeRng(20260812)
-const pick = (arr) => arr[Math.floor(rng() * arr.length)]
-const randInt = (min, max) => min + Math.floor(rng() * (max - min + 1))
-const chance = (p) => rng() < p
-const daysFromNow = (n) => new Date(Date.now() + n * 86_400_000)
+// PRNG и хелперы выборки — из prisma/seed/lib/rng.mjs (общие с генератором вузов).
+// Зерно 20260812 оставлено историческим: демо-данные должны остаться теми же, иначе
+// у существующих строк поменялись бы значения при том же id.
+const { rng, pick, randInt, chance, daysFromNow } = makeRandom(20260812)
 
 // Глубина истории посещаемости: столько же, сколько окно тренда на дашборде вуза
 // (12 недель ≈ семестр). Меньше — и график динамики нечем наполнить.
@@ -46,10 +42,12 @@ function person(i) {
   return { firstName: first, lastName: last, gender: female ? 'FEMALE' : 'MALE' }
 }
 
-// Пакетная вставка чанками по 1000 — устойчиво к большим объёмам.
+// Пакетная вставка чанками (SEED_CHUNK) — устойчиво к большим объёмам.
+// На следующих шагах эпика демо-данные переедут на потоковый writer
+// (prisma/seed/lib/writer.mjs), который не держит все строки в памяти сразу.
 async function insertMany(model, rows) {
-  for (let i = 0; i < rows.length; i += 1000) {
-    await model.createMany({ data: rows.slice(i, i + 1000), skipDuplicates: true })
+  for (let i = 0; i < rows.length; i += config.chunkSize) {
+    await model.createMany({ data: rows.slice(i, i + config.chunkSize), skipDuplicates: true })
   }
   return rows.length
 }
@@ -66,6 +64,21 @@ const TWO_FACTOR_RESET = {
 }
 
 async function main() {
+  console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
+  if (config.scale !== 'demo') {
+    // Генератор 100 вузов подключается следующими шагами эпика (см. prisma/seed/steps/).
+    // Врать о масштабе нельзя: пока профиль влияет только на размер чанка и гарды.
+    console.log(
+      `  ВНИМАНИЕ: генератор вузов (${config.universities} шт.) ещё не подключён — ` +
+        'на этом шаге заливается только демо-вуз.',
+    )
+  }
+
+  // Прогресс создаём в самом начале: он же измеряет длительность прогона.
+  const progress = createProgress({ total: 1, label: 'Итого' })
+
+  // Один bcrypt-хэш на всех сид-пользователей. Это не оптимизация, а условие
+  // выполнимости: 125 000 хэшей с cost=12 — это часы работы CPU.
   const passwordHash = await bcrypt.hash('Admin1234!', 12)
 
   const admin = await prisma.user.upsert({
@@ -1257,6 +1270,8 @@ async function main() {
   }
   counts.platformDocAudit = await insertMany(prisma.auditLog, auditRows)
 
+  progress.addRows(Object.values(counts).reduce((a, b) => a + b, 0))
+
   console.log('Seed готов:')
   console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
   console.log('  Именованные роли (пароль у всех Admin1234!):')
@@ -1266,10 +1281,7 @@ async function main() {
   console.log('  2FA у всех сброшена. Чтобы форс не требовал настройки на привилегированных')
   console.log('  ролях, локально: TWO_FACTOR_ENFORCE=false в apps/api/.env')
   console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
-  console.log('  Сгенерировано:')
-  for (const [k, v] of Object.entries(counts)) {
-    console.log(`    ${k}: ${v}`)
-  }
+  progress.report(counts)
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }
 
