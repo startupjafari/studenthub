@@ -11,6 +11,7 @@ import { loadConfig } from './seed/config.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { seedUniversities } from './seed/index.mjs'
+import { seedMedia } from './seed/steps/10-media.mjs'
 
 const prisma = new PrismaClient()
 const config = loadConfig()
@@ -1275,6 +1276,13 @@ async function main() {
   console.log('  ролях, локально: TWO_FACTOR_ENFORCE=false в apps/api/.env')
   console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
   progress.report(counts)
+
+  // ── Медиа: общий пул фото и видео в MinIO ───────────────────────────────────
+  // До генератора вузов: аватары и обложки раздаются всем пользователям, включая
+  // демо-вуз. Пул нужен и следующим шагам эпика (вложения постов, чатов, альбомы).
+  if (config.media) {
+    await seedMedia(prisma, config)
+  }
 
   // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
   // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
