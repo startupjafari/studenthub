@@ -80,6 +80,15 @@ export function loadConfig() {
     // Пересоздать данные вузов, помеченных как готовые (см. lib/marker.mjs).
     force: bool('SEED_FORCE', false),
     media: bool('SEED_MEDIA', true),
+    // Фото — 1000 уникальных (требование задачи). Видео — «сколько есть, но все
+    // разные»: без API-ключа тысячу уникальных роликов не собрать, поэтому здесь
+    // потолок, а фактическое число зависит от доступности источников.
+    photos: num('SEED_PHOTOS', 1000),
+    videos: num('SEED_VIDEOS', 150),
+    // Кэш скачанного (в .gitignore): повторный прогон не тянет файлы из сети заново.
+    mediaDir: process.env.SEED_MEDIA_DIR ?? '.seed-media',
+    // Заново обойти Викисклад в поисках видео (иначе берётся кэш индекса).
+    mediaRefresh: bool('SEED_MEDIA_REFRESH', false),
     allowRemote: bool('SEED_ALLOW_REMOTE', false),
     databaseUrl: process.env.DATABASE_URL ?? '',
   }
