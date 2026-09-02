@@ -110,6 +110,12 @@ jobs:
       - name: Test (unit)
         run: pnpm test
 
+      # Тесты сида — на встроенном раннере Node, без БД и без MinIO: проверяют чистую
+      # логику (детерминизм PRNG, порядок флаша буферов, структурность id, план вуза,
+      # гарды конфигурации). Отдельным шагом, потому что turbo про них не знает.
+      - name: Test (seed)
+        run: pnpm test:seed
+
       - name: Test (e2e)
         run: pnpm --filter api test:e2e
 

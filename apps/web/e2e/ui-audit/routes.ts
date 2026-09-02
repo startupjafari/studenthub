@@ -59,7 +59,7 @@ const ZONE_AUDIENCE: Array<[prefix: string, audience: Audience]> = [
 const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
   [
     (url) => url.startsWith('/employer'),
-    'нет посевного аккаунта EMPLOYER: его создаёт seed-career.mjs, а e2e-стенд запускает только seed.mjs',
+    'нет посевного аккаунта EMPLOYER: его создаёт этап companies сида (SEED_SCALE=small и выше), а e2e-стенд гоняет профиль demo',
   ],
   [
     (url) => url === '/notifications',

@@ -1,9 +1,26 @@
 // Идемпотентный seed (docs/PROJECT.md §14): PLATFORM_ADMIN, демо-вуз/факультет/группа/
 // аудитории (Фаза 5) и dev-инвайт для UNIVERSITY_ADMIN на этот вуз.
+//
+// Масштаб задаётся профилем SEED_SCALE (prisma/seed/config.mjs):
+//   demo (по умолчанию) — этот демо-вуз, как раньше;
+//   small / full        — 5 / 100 вузов (генератор подключается следующими шагами).
+// Полный масштаб на нелокальной БД заблокирован без SEED_ALLOW_REMOTE=1.
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
+import { loadConfig } from './seed/config.mjs'
+import { makeRandom } from './seed/lib/rng.mjs'
+import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
+import { createProgress } from './seed/lib/progress.mjs'
+import { seedUniversities } from './seed/index.mjs'
+import { seedKato } from './seed/steps/00-kato.mjs'
+import { seedMedia } from './seed/steps/10-media.mjs'
+import { seedCompanies } from './seed/steps/15-companies.mjs'
+import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
+import { createWriter } from './seed/lib/writer.mjs'
+import { createStorage } from './seed/lib/storage.mjs'
 
 const prisma = new PrismaClient()
+const config = loadConfig()
 
 // Dev-инвайт: фиксированный токен, срок 30 дней (dev-only, резолюция §19.2). В проде отзывается после первого использования.
 const DEV_INVITE_TOKEN = 'seed-invite-university-admin-token'
@@ -11,23 +28,13 @@ const SEED_UNIVERSITY_ID = 'seed-university-001'
 const ALMATY_KATO_CODE = '750000000'
 
 // ── Утилиты для большого реалистичного seed'а ────────────────────────────────
-// Детерминированный PRNG (mulberry32) — данные воспроизводимы между прогонами,
-// а идемпотентность обеспечивают фиксированные id + createMany({ skipDuplicates }).
-function makeRng(seed) {
-  let a = seed >>> 0
-  return () => {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-const rng = makeRng(20260812)
-const pick = (arr) => arr[Math.floor(rng() * arr.length)]
-const randInt = (min, max) => min + Math.floor(rng() * (max - min + 1))
-const chance = (p) => rng() < p
-const daysFromNow = (n) => new Date(Date.now() + n * 86_400_000)
+// PRNG и хелперы выборки — из prisma/seed/lib/rng.mjs (общие с генератором вузов).
+// Зерно 20260812 оставлено историческим: демо-данные должны остаться теми же, иначе
+// у существующих строк поменялись бы значения при том же id.
+const { rng, pick, randInt, chance, daysFromNow } = makeRandom(20260812)
+// Отдельный генератор для профилей dev-аккаунтов: тянуть их из общего потока значило бы
+// сдвинуть все последующие случайные значения демо-вуза и переписать его данные.
+const devRandom = makeRandom(20260812)
 
 // Глубина истории посещаемости: столько же, сколько окно тренда на дашборде вуза
 // (12 недель ≈ семестр). Меньше — и график динамики нечем наполнить.
@@ -46,10 +53,12 @@ function person(i) {
   return { firstName: first, lastName: last, gender: female ? 'FEMALE' : 'MALE' }
 }
 
-// Пакетная вставка чанками по 1000 — устойчиво к большим объёмам.
+// Пакетная вставка чанками (SEED_CHUNK) — устойчиво к большим объёмам.
+// На следующих шагах эпика демо-данные переедут на потоковый writer
+// (prisma/seed/lib/writer.mjs), который не держит все строки в памяти сразу.
 async function insertMany(model, rows) {
-  for (let i = 0; i < rows.length; i += 1000) {
-    await model.createMany({ data: rows.slice(i, i + 1000), skipDuplicates: true })
+  for (let i = 0; i < rows.length; i += config.chunkSize) {
+    await model.createMany({ data: rows.slice(i, i + config.chunkSize), skipDuplicates: true })
   }
   return rows.length
 }
@@ -65,7 +74,72 @@ const TWO_FACTOR_RESET = {
   twoFactorBackupCodes: [],
 }
 
+// Медиа-пул из БД — для прогона только этапа вузов (SEED_ONLY=universities), когда шаг
+// медиа не выполнялся. Без этого новые пользователи остались бы без аватаров, хотя
+// объекты в MinIO уже лежат: пул целиком описан строками File с префиксом seed-media-.
+async function loadMediaPool(prisma) {
+  const files = await prisma.file.findMany({
+    where: { id: { startsWith: 'seed-media-' } },
+    select: { id: true, bucket: true, key: true, mime: true, size: true, posterKey: true },
+    take: 5000,
+  })
+  if (files.length === 0) return null
+  const storage = createStorage()
+  const pool = { faces: [], photos: [], videos: [] }
+  for (const file of files) {
+    const entry = {
+      fileId: file.id,
+      bucket: file.bucket,
+      key: file.key,
+      url: storage.publicUrl(file.bucket, file.key),
+      mime: file.mime,
+      size: file.size,
+    }
+    // Портреты отличаются бакетом (avatars), а не полем: раскладку задаёт шаг медиа.
+    if (file.mime.startsWith('video/')) pool.videos.push(entry)
+    else if (file.bucket === storage.buckets.avatars) pool.faces.push(entry)
+    else if (file.bucket === storage.buckets.profileMedia) pool.photos.push(entry)
+  }
+  return pool
+}
+
+// Компании платформы из БД — для прогона только этапа вузов (SEED_ONLY=universities).
+async function loadCompanies(prisma) {
+  const rows = await prisma.company.findMany({
+    where: { id: { startsWith: 'seed-co-' } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      members: { select: { userId: true }, take: 5 },
+      vacancies: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 20 },
+    },
+    take: 200,
+  })
+  return rows.map((c) => ({
+    ...c,
+    recruiterIds: c.members.map((m) => m.userId),
+    vacancyIds: c.vacancies.map((v) => v.id),
+  }))
+}
+
 async function main() {
+  console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
+
+  // Прогресс создаём в самом начале: он же измеряет длительность прогона.
+  const progress = createProgress({ total: 1, label: 'Итого' })
+
+  // ── Справочник КАТО (первым делом) ──────────────────────────────────────────
+  // Не демо-данные: `University.city` хранит 9-значный код, и без справочника город
+  // вуза не во что резолвить (селект «Город» пустой). Поэтому шаг обязателен и при
+  // развёртывании; он идемпотентен (ON CONFLICT DO UPDATE).
+  if (config.runs('kato')) {
+    await seedKato(prisma)
+  }
+
+  // Один bcrypt-хэш на всех сид-пользователей. Это не оптимизация, а условие
+  // выполнимости: 125 000 хэшей с cost=12 — это часы работы CPU.
   const passwordHash = await bcrypt.hash('Admin1234!', 12)
 
   const admin = await prisma.user.upsert({
@@ -84,7 +158,7 @@ async function main() {
   })
 
   // Демо-структура (Фаза 5): вуз ACTIVE, факультет, группа, 3 аудитории.
-  // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed-kato.mjs).
+  // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed/steps/00-kato.mjs).
   // Поле есть и в update, чтобы прогон сида перевёл на код вузы, заведённые до справочника.
   const university = await prisma.university.upsert({
     where: { id: SEED_UNIVERSITY_ID },
@@ -152,28 +226,100 @@ async function main() {
   }
   // Реалистичные имена: роль показывается отдельным бейджем, поэтому имя-плейсхолдер
   // из слов роли («Декан Факультета») читалось некорректно в любом порядке — заменено.
+  // Пол и отчество заданы явно, а не выведены генератором: имена этих аккаунтов
+  // фиксированы, и «Аружан Серикова Нурланович» выглядело бы поломкой.
   const devUsers = [
-    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Марат', 'Сулейменов', {}],
-    [
-      'UNIVERSITY_ADMIN',
-      'university-admin@studenthub.app',
-      'Айгуль',
-      'Нурланова',
-      scope.university,
-    ],
-    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Тимур', 'Байжанов', scope.university], // prettier-ignore
-    ['DEAN', 'dean@studenthub.app', 'Дамир', 'Ахметов', scope.faculty],
-    ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty],
-    ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group],
-    ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group],
+    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Марат', 'Сулейменов', {}, 'MALE', 'Ержанович'], // prettier-ignore
+    ['UNIVERSITY_ADMIN', 'university-admin@studenthub.app', 'Айгуль', 'Нурланова', scope.university, 'FEMALE', 'Сериковна'], // prettier-ignore
+    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Тимур', 'Байжанов', scope.university, 'MALE', 'Аскарович'], // prettier-ignore
+    ['DEAN', 'dean@studenthub.app', 'Дамир', 'Ахметов', scope.faculty, 'MALE', 'Талгатович'],
+    ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty, 'FEMALE', 'Сергеевна'],
+    ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group, 'FEMALE', 'Муратовна'], // prettier-ignore
+    ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group, 'MALE', 'Бауыржанович'], // prettier-ignore
   ]
-  for (const [role, email, firstName, lastName, userScope] of devUsers) {
+  // Профиль этих аккаунтов заполняется теми же построителями, что и у 130 тысяч
+  // сгенерированных (prisma/seed/data/profiles.mjs). Раньше здесь задавались только
+  // email, имя, фамилия и роль — то есть у аккаунтов, под которыми и заходят руками,
+  // профиль был пустой: ни телефона, ни био, ни курса, ни GPA, ни кабинета. Половина
+  // блоков на странице профиля просто не отрисовывалась.
+  //
+  // Профиль идёт и в update: у dev-аккаунтов это осознанно (как и имя выше) — они
+  // демонстрационные, и повторный прогон должен приводить их в известное состояние.
+  const DEMO_CITY = 'Алматы'
+  const devProfileFor = (role, firstName, lastName, gender, middleName) => {
+    const p = { firstName, lastName, middleName, gender }
+    const shared = { profile: { timezone: 'Asia/Almaty' }, cityName: DEMO_CITY }
+    if (role === 'STUDENT' || role === 'STAROSTA') {
+      return {
+        ...studentProfile(p, devRandom, {
+          ...shared,
+          group: { year: 2023 },
+          specialties: ['Информационные системы', 'Программная инженерия'],
+        }),
+        ...(role === 'STAROSTA'
+          ? {
+              starostaSince: new Date('2023-09-01'),
+              duties: 'Староста группы: посещаемость, объявления, связь с деканатом.',
+            }
+          : {}),
+      }
+    }
+    const template =
+      role === 'DEAN' || role === 'TEACHER'
+        ? { name: 'Факультет информационных технологий', subjects: [['Основы программирования']] }
+        : null
+    const staff = staffProfile(p, devRandom, { ...shared, template })
+    const byRole = {
+      PLATFORM_MODERATOR: {
+        position: 'Модератор платформы',
+        jobTitle: 'Модератор платформы',
+        responsibilities: 'Разбор жалоб, модерация вузов и контента.',
+        moderationAreas: 'Жалобы, вузы, публичный контент',
+      },
+      UNIVERSITY_ADMIN: {
+        position: 'Начальник управления',
+        jobTitle: 'Администратор университета',
+        responsibilities: 'Структура вуза, пользователи, инвайты, справочники.',
+      },
+      UNIVERSITY_MODERATOR: {
+        position: 'Модератор контента',
+        jobTitle: 'Модератор университета',
+        responsibilities: 'Проверка постов, событий и жалоб внутри вуза.',
+        moderationAreas: 'Посты и комментарии',
+      },
+      DEAN: {
+        position: 'Декан факультета',
+        academicDegree: 'Доктор наук',
+        academicTitle: 'Профессор',
+        jobTitle: 'Декан',
+        responsibilities: 'Учебный процесс факультета, приём студентов, аттестация.',
+      },
+      TEACHER: {
+        position: 'Старший преподаватель',
+        academicDegree: 'Кандидат наук',
+        academicTitle: 'Доцент',
+      },
+    }
+    return { ...staff, ...(byRole[role] ?? {}) }
+  }
+
+  for (const [role, email, firstName, lastName, userScope, gender, middleName] of devUsers) {
+    const profileFields = devProfileFor(role, firstName, lastName, gender, middleName)
     await prisma.user.upsert({
       where: { email },
       // Синхронизируем имя на существующих dev-аккаунтах (иначе старые плейсхолдеры остаются)
       // и сбрасываем 2FA — иначе недонастроенный секрет переживает пересид.
-      update: { firstName, lastName, ...TWO_FACTOR_RESET },
-      create: { email, passwordHash, firstName, lastName, role, ...userScope, ...TWO_FACTOR_RESET },
+      update: { firstName, lastName, ...profileFields, ...TWO_FACTOR_RESET },
+      create: {
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        role,
+        ...userScope,
+        ...profileFields,
+        ...TWO_FACTOR_RESET,
+      },
     })
   }
 
@@ -379,6 +525,9 @@ async function main() {
   const devIds = Object.fromEntries(
     (
       await prisma.user.findMany({
+        // take обязателен даже на выборке по списку из шести адресов:
+        // findMany без take запрещён (BACKEND_RULES §5.3, запрет №8).
+        take: 10,
         where: {
           email: {
             in: [
@@ -1257,6 +1406,8 @@ async function main() {
   }
   counts.platformDocAudit = await insertMany(prisma.auditLog, auditRows)
 
+  progress.addRows(Object.values(counts).reduce((a, b) => a + b, 0))
+
   console.log('Seed готов:')
   console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
   console.log('  Именованные роли (пароль у всех Admin1234!):')
@@ -1266,10 +1417,51 @@ async function main() {
   console.log('  2FA у всех сброшена. Чтобы форс не требовал настройки на привилегированных')
   console.log('  ролях, локально: TWO_FACTOR_ENFORCE=false в apps/api/.env')
   console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
-  console.log('  Сгенерировано:')
-  for (const [k, v] of Object.entries(counts)) {
-    console.log(`    ${k}: ${v}`)
+  progress.report(counts)
+
+  // ── Медиа: общий пул фото и видео в MinIO ───────────────────────────────────
+  // До генератора вузов: аватары и обложки раздаются всем пользователям, включая
+  // демо-вуз. Пул нужен и следующим шагам эпика (вложения постов, чатов, альбомы).
+  let mediaPool = null
+  if (config.media && config.runs('media')) {
+    mediaPool = await seedMedia(prisma, config)
   }
+
+  // ── Работодатели (общие для всех вузов) ─────────────────────────────────────
+  // До вузов: доступы к вузу и решения по вакансиям создаёт уже шаг карьеры внутри
+  // вуза, и компании к тому моменту должны существовать.
+  let companies = null
+  if (config.universities > 0 && config.runs('companies')) {
+    const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    companies = await seedCompanies(prisma, companyWriter, { passwordHash })
+  }
+
+  // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
+  // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
+  if (config.universities > 0 && config.runs('universities')) {
+    // Без этапа companies (SEED_ONLY=universities) карьерные компании берём из БД:
+    // они общие для платформы и обычно уже залиты предыдущим прогоном.
+    const linkedCompanies = companies ?? (await loadCompanies(prisma))
+    // Клиент хранилища один на прогон: шаг соцчасти делает через него серверные копии
+    // изображений постов. Если MinIO недоступен, шаг сам обойдётся без картинок.
+    const storage = config.media ? createStorage() : null
+    await seedUniversities(prisma, {
+      storage,
+      config,
+      passwordHash,
+      pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),
+      companies: linkedCompanies,
+    })
+  }
+  // ── Демо-дополнения ─────────────────────────────────────────────────────────
+  // Друзья dev-аккаунтов, очередь заявок демо-вуза, жалобы, воронка инвайтов и
+  // история для дашборда платформы (даты регистрации, журнал аудита).
+  if (config.runs('demo')) {
+    const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
+    await demoWriter.flush()
+  }
+
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }
 

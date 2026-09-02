@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { localId, useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
 
@@ -38,8 +38,16 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const [question, setQuestion] = useState(initial?.question ?? '')
-  const [options, setOptions] = useState<string[]>(
-    initial ? initial.options.map((o) => o.text) : ['', ''],
+  // id у варианта, а не key={i}: удаление идёт по индексу, и React переиспользовал бы
+  // поле по позиции — фокус и позиция курсора оставались бы на чужой строке
+  // (FRONTEND_RULES §15 п. 9). На сервер id не уходит, см. submit ниже.
+  const [options, setOptions] = useState<Array<{ id: string; text: string }>>(() =>
+    initial
+      ? initial.options.map((o) => ({ id: localId('opt'), text: o.text }))
+      : [
+          { id: localId('opt'), text: '' },
+          { id: localId('opt'), text: '' },
+        ],
   )
   const [multiple, setMultiple] = useState(initial?.multiple ?? false)
   const [anonymous, setAnonymous] = useState(initial?.anonymous ?? true)
@@ -58,7 +66,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
     mutationFn: (status: 'DRAFT' | 'PUBLISHED') => {
       const input = {
         question: question.trim(),
-        options: options.map((o) => o.trim()).filter(Boolean),
+        options: options.map((o) => o.text.trim()).filter(Boolean),
         multiple,
         anonymous,
         allowRevote,
@@ -85,7 +93,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
     return new Date(Date.now() + days * 86_400_000)
   }
 
-  const validOptions = options.map((o) => o.trim()).filter(Boolean)
+  const validOptions = options.map((o) => o.text.trim()).filter(Boolean)
   const canPublish = question.trim().length > 0 && validOptions.length >= 2
 
   const closeOptions: { id: ClosePreset; label: string }[] = [
@@ -115,21 +123,25 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
       <div className="flex flex-col gap-2">
         <Label>{t('pollOptions')}</Label>
         {options.map((opt, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={opt.id} className="flex items-center gap-2">
             <span className="w-5 shrink-0 text-center text-sm text-muted-foreground tabular-nums">
               {i + 1}
             </span>
             <Input
-              value={opt}
+              value={opt.text}
               maxLength={120}
-              onChange={(e) => setOptions(options.map((o, j) => (j === i ? e.target.value : o)))}
+              onChange={(e) =>
+                setOptions(
+                  options.map((o) => (o.id === opt.id ? { ...o, text: e.target.value } : o)),
+                )
+              }
               placeholder={t('pollOptionPlaceholder')}
             />
             {options.length > 2 && (
               <button
                 type="button"
                 aria-label={t('delete')}
-                onClick={() => setOptions(options.filter((_, j) => j !== i))}
+                onClick={() => setOptions(options.filter((o) => o.id !== opt.id))}
                 className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive"
               >
                 <X className="size-4" aria-hidden />
@@ -143,7 +155,7 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
             variant="ghost"
             size="sm"
             className="w-fit"
-            onClick={() => setOptions([...options, ''])}
+            onClick={() => setOptions([...options, { id: localId('opt'), text: '' }])}
           >
             <Plus className="size-4" aria-hidden />
             {t('pollAddOption')}

@@ -4,6 +4,7 @@ export { ChatLayoutProvider, useChatListSlot, useSetChatOpen } from './chat-layo
 export { toApiError } from './api-error'
 export { useFormAlert, type FormAlertController } from './use-form-alert'
 export { OPTIONAL_TEXT } from './optional-field'
+export { localId } from './local-id'
 export { useBodyScrollLock } from './use-body-scroll-lock'
 export { useSheetDragClose } from './use-sheet-drag-close'
 export { nowInTz, isoWeekParity, type NowInTz } from './tz-date'
