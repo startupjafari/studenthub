@@ -28,7 +28,8 @@ const GRADE_COLUMNS = [
   ['EXAM', 'Итоговый', 40],
 ]
 
-const ASSIGNMENT_TYPES = ['HOMEWORK', 'LAB', 'PROJECT', 'ESSAY']
+// Виды заданий — из ASSIGNMENT_TYPES (packages/shared-schemas/assignments.ts).
+const ASSIGNMENT_TYPES = ['HOMEWORK', 'LAB', 'COURSEWORK', 'PROJECT', 'OTHER']
 const EXAM_FORMATS = ['WRITTEN', 'ORAL', 'TEST', 'PROJECT']
 const APPOINTMENT_TOPICS = [
   'Вопрос по стипендии',

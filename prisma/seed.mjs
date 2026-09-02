@@ -12,6 +12,8 @@ import { makeRandom } from './seed/lib/rng.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { seedUniversities } from './seed/index.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
+import { seedCompanies } from './seed/steps/15-companies.mjs'
+import { createWriter } from './seed/lib/writer.mjs'
 
 const prisma = new PrismaClient()
 const config = loadConfig()
@@ -1285,10 +1287,19 @@ async function main() {
     mediaPool = await seedMedia(prisma, config)
   }
 
+  // ── Работодатели (общие для всех вузов) ─────────────────────────────────────
+  // До вузов: доступы к вузу и решения по вакансиям создаёт уже шаг карьеры внутри
+  // вуза, и компании к тому моменту должны существовать.
+  let companies = null
+  if (config.universities > 0) {
+    const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    companies = await seedCompanies(prisma, companyWriter, { passwordHash })
+  }
+
   // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
   // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
   if (config.universities > 0) {
-    await seedUniversities(prisma, { config, passwordHash, pool: mediaPool })
+    await seedUniversities(prisma, { config, passwordHash, pool: mediaPool, companies })
   }
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }

@@ -208,8 +208,10 @@ export async function seedChats(prisma, writer, ctx) {
       seq,
       senderId: chat.memberIds[0],
       content: '',
-      systemType: 'MEMBER_JOINED',
-      systemMeta: { userId: chat.memberIds[chat.memberIds.length - 1] },
+      // Тип и поля meta — те, что рендерит клиент (SYSTEM_KEY в message-item.tsx):
+      // ключи в нижнем регистре, подпись строится из actor/targetName/title.
+      systemType: 'member_added',
+      systemMeta: { targetName: 'новый участник' },
       createdAt: random.randomDate(-25, -1),
     })
 
