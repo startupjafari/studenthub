@@ -36,6 +36,8 @@ pnpm --filter api prisma validate
 pnpm --filter api prisma format
 pnpm --filter api prisma migrate dev --name <имя>
 pnpm --filter api prisma db seed
+pnpm db:seed:full                           # 100 вузов, ~22 млн строк (PROJECT.md §14)
+pnpm db:seed:media                          # только медиа-пул сида в MinIO
 
 pnpm --filter web lint
 pnpm --filter web build

@@ -26,18 +26,18 @@ import { seedCareer } from './steps/80-career.mjs'
 
 const KATO_PATH = fileURLToPath(new URL('../data/kato.json', import.meta.url))
 
-// Сколько строк ожидается от вуза — только для оценки объёма в логе перед прогоном.
-// Основную массу дают посещаемость (пары × недели × студенты) и журнал оценок.
+// Оценка объёма вуза — только для строки в логе перед прогоном, чтобы порядок величины
+// был известен заранее, а не через полчаса.
+//
+// Коэффициент калиброван замером, а не выведен из формулы: расписывать вклад каждой из
+// сорока моделей — это точность, которой у оценки всё равно нет (число строк зависит от
+// случайных величин: сколько документов у студента, сколько откликов, сколько
+// комментариев). Замер: вуз на 1350 студентов → 223 561 строка, то есть ~165 строк на
+// студента. Основную массу дают посещаемость, журнал оценок, документы и заявки.
+const ROWS_PER_STUDENT = 165
+
 function estimateRows(plan) {
-  const teachers = plan.faculties.reduce((sum, f) => sum + f.teacherCount, 0)
-  const people = (plan.students + teachers + plan.faculties.length + 3) * 2
-  const subjectsPerGroup = 6
-  const courses = plan.groupCount * subjectsPerGroup * 2
-  const grades = courses * 3 * (1 + 25)
-  const attendance = plan.groupCount * 3 * 12 * 25
-  const assignments = (courses / 2) * (1 + 25 * 0.8)
-  const exams = courses * (1 + 25)
-  return people + plan.groupCount + plan.roomCount + courses + grades + attendance + assignments + exams // prettier-ignore
+  return plan.students * ROWS_PER_STUDENT
 }
 
 export async function seedUniversities(prisma, { config, passwordHash, pool, companies }) {
