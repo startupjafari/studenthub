@@ -380,7 +380,7 @@ test.afterAll(() => {
     checked: [],
     skipped: {},
     unavailable:
-      'нет посевного аккаунта EMPLOYER: его создаёт prisma/seed-career.mjs, а e2e-стенд запускает только seed.mjs',
+      'нет посевного аккаунта EMPLOYER: его создаёт этап companies сида (SEED_SCALE=small и выше), а e2e-стенд гоняет профиль demo',
   })
 
   const outcome = writeReport(collector)
