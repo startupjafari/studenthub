@@ -20,6 +20,7 @@ import {
   type StaffSubmissionItem,
 } from '../../../entities/document-request'
 import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
+import { localId } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -235,6 +236,11 @@ function RequestsTable({
 }
 
 interface DraftItem {
+  // Локальный id строки черновика (на сервер не уходит): позиции удаляются по
+  // индексу, и с key={index} React переиспользовал бы поля по позиции — после
+  // удаления средней позиции ввод и фокус оставались бы на чужой строке
+  // (FRONTEND_RULES §15 п. 9).
+  id: string
   documentType: string
   title: string
   required: boolean
@@ -254,8 +260,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueAt, setDueAt] = useState('')
-  const [items, setItems] = useState<DraftItem[]>([
-    { documentType: firstType, title: '', required: true },
+  const [items, setItems] = useState<DraftItem[]>(() => [
+    { id: localId('req-item'), documentType: firstType, title: '', required: true },
   ])
   const [toUniversity, setToUniversity] = useState(true)
   const [toFaculty, setToFaculty] = useState(false)
@@ -353,15 +359,15 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
         {/* Позиции */}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('req_fieldItems')}</span>
-          {items.map((it, i) => (
+          {items.map((it) => (
             <div
-              key={i}
+              key={it.id}
               className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2"
             >
               <Select
                 value={it.documentType}
                 onValueChange={(v) =>
-                  setItems(items.map((x, j) => (j === i ? { ...x, documentType: v } : x)))
+                  setItems(items.map((x) => (x.id === it.id ? { ...x, documentType: v } : x)))
                 }
               >
                 <SelectTrigger aria-label={t('req_fieldType')} className="w-52">
@@ -378,7 +384,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               <Input
                 value={it.title}
                 onChange={(e) =>
-                  setItems(items.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))
+                  setItems(items.map((x) => (x.id === it.id ? { ...x, title: e.target.value } : x)))
                 }
                 placeholder={t(`docType_${it.documentType}`)}
                 className="min-w-[140px] flex-1"
@@ -387,7 +393,9 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
                 <Checkbox
                   checked={it.required}
                   onCheckedChange={(v) =>
-                    setItems(items.map((x, j) => (j === i ? { ...x, required: v === true } : x)))
+                    setItems(
+                      items.map((x) => (x.id === it.id ? { ...x, required: v === true } : x)),
+                    )
                   }
                 />
                 {t('req_required')}
@@ -398,7 +406,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
                   size="lg"
                   icon
                   aria-label={t('req_removeItem')}
-                  onClick={() => setItems(items.filter((_, j) => j !== i))}
+                  onClick={() => setItems(items.filter((x) => x.id !== it.id))}
                 >
                   <Trash2 className="size-4" aria-hidden />
                 </Button>
@@ -410,7 +418,10 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
             size="sm"
             className="self-start"
             onClick={() =>
-              setItems([...items, { documentType: firstType, title: '', required: true }])
+              setItems([
+                ...items,
+                { id: localId('req-item'), documentType: firstType, title: '', required: true },
+              ])
             }
           >
             <Plus className="size-4" aria-hidden /> {t('req_addItem')}

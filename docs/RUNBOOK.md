@@ -52,13 +52,18 @@ pnpm --filter web build && apps/web/node_modules/.bin/next start apps/web -p 300
 ```bash
 for m in <каждая старая миграция>; do prisma migrate resolve --applied "$m"; done
 prisma migrate deploy    # накатит только новые
-node prisma/seed.mjs
-node prisma/seed-kato.mjs   # справочник КАТО: без него город вуза не во что резолвить
+node prisma/seed.mjs        # справочник КАТО заливается первым шагом сида
 ```
 
 **Пересоздать dev-БД с нуля** (данных не жалко): `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-через `prisma db execute` (не `migrate reset`) → `migrate deploy` → `node prisma/seed.mjs` →
-`node prisma/seed-kato.mjs`.
+через `prisma db execute` (не `migrate reset`) → `migrate deploy` → `node prisma/seed.mjs`.
+
+**Залить платформу целиком** (100 вузов, ~77 млн строк, 40–70 мин, БД вырастает до ~32 ГБ,
+MinIO до ~13 ГБ):
+`pnpm db:seed:full` (КАТО заливается тем же прогоном). Профили и переключатели — `docs/PROJECT.md §14`.
+Прогон возобновляемый: упал или прервали — запустите снова, уже залитые вузы пропускаются
+по маркеру. Порциями: `SEED_FROM=41 SEED_TO=60 pnpm db:seed:full`. Перегенерировать —
+`SEED_FORCE=1`. Гард не даст залить такой объём в нелокальную БД без `SEED_ALLOW_REMOTE=1`.
 
 ## Бэкапы и восстановление
 

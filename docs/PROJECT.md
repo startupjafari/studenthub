@@ -67,6 +67,13 @@ STUDENT                   базовый пользователь
 | `STAROSTA` | `DEAN` | `groupId` |
 | `STUDENT` | `DEAN` / `STAROSTA` | `groupId` |
 
+**Исключение: `EMPLOYER` инвайтом не выдаётся.** Работодатель регистрируется сам —
+`POST /companies/signup` — потому что компания приходит извне платформы и приглашать её
+некому. Это единственное отступление от правила «регистрация только по инвайтам», его
+границы зафиксированы в `BACKEND_RULES §19` п. 9: компания создаётся в статусе
+`PENDING_EMAIL` и до подтверждения почты вузам не видна, scope пользователя пустой,
+профиль приватный, а к студентам компания получает доступ только после одобрения вузом.
+
 ### 2.2 Матрица доступа
 
 Легенда: ✅ полный · 👁 только чтение · ⚠️ ограниченно · ❌ нет доступа
@@ -540,7 +547,7 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Университеты** — `GET|POST /universities` · `GET|PATCH /universities/:id` · `PATCH /universities/:id/status` (Platform Admin) · `GET /universities/:id/stats`. Поле `city` хранит **код КАТО** (9 цифр), а не название: город переименуют — записи не протухнут, и казахская локаль берётся из справочника. Для зарубежного вуза, которого в КАТО нет, остаётся свободный текст — внешним ключом поле не связано.
 
-**Справочник КАТО** (классификатор административно-территориальных объектов РК) — `GET /kato?search=&scope=places|regions|all&limit=` (поиск для комбобокса; ищет по русскому и казахскому названию сразу) · `GET /kato/resolve?codes=a,b,c` (названия по кодам, до 100 за запрос — один запрос на список вместо запроса на строку). Доступен всем аутентифицированным, без `@Roles` и без scope-гейта: названия городов — не персональные данные, а справочник общий для платформы. Модель `KatoUnit` (`code` — 9-значный код КАТО как первичный ключ, `kind`, `nameRu`/`nameKk`, `parentCode` — self-FK, `regionCode`), enum `KatoKind = REGION|DISTRICT|ADMIN|CITY|SETTLEMENT|VILLAGE|STATION|OTHER`. 16 205 записей, заливаются сидером `pnpm db:seed:kato` из `prisma/data/kato.json` (генерируется из выгрузки stat.gov.kz скриптом `scripts/gen-kato.mjs`). **Верхний уровень — это `region_code = code` (20 записей: 17 областей + Астана, Алматы, Шымкент), а не `kind = 'REGION'`** (три города республиканского значения — города) и не `parentCode IS NULL` (под него попадают ещё 38 объектов с битой иерархией в исходной выгрузке).
+**Справочник КАТО** (классификатор административно-территориальных объектов РК) — `GET /kato?search=&scope=places|regions|all&limit=` (поиск для комбобокса; ищет по русскому и казахскому названию сразу) · `GET /kato/resolve?codes=a,b,c` (названия по кодам, до 100 за запрос — один запрос на список вместо запроса на строку). Доступен всем аутентифицированным, без `@Roles` и без scope-гейта: названия городов — не персональные данные, а справочник общий для платформы. Модель `KatoUnit` (`code` — 9-значный код КАТО как первичный ключ, `kind`, `nameRu`/`nameKk`, `parentCode` — self-FK, `regionCode`), enum `KatoKind = REGION|DISTRICT|ADMIN|CITY|SETTLEMENT|VILLAGE|STATION|OTHER`. 16 205 записей, заливаются шагом сида `pnpm db:seed:kato` из `prisma/seed/data/kato.json` (генерируется из выгрузки stat.gov.kz скриптом `scripts/gen-kato.mjs`). **Верхний уровень — это `region_code = code` (20 записей: 17 областей + Астана, Алматы, Шымкент), а не `kind = 'REGION'`** (три города республиканского значения — города) и не `parentCode IS NULL` (под него попадают ещё 38 объектов с битой иерархией в исходной выгрузке).
 
 **Факультеты** — `GET|POST /faculties` · `GET|PATCH|DELETE /faculties/:id` (удаление только без групп)
 
@@ -626,6 +633,24 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 **Аудит** — `GET /audit` (Moderator+/Admin, scope: платформа — всё, админ вуза — свой вуз, модератор — свои действия; фильтры `action/userId`, offset-пагинация (`limit` ≤ 200) + сортировка `?sort=createdAt|action|entity|userId&order=asc|desc`, по умолчанию `createdAt desc`)
 
 **Мой день (BFF)** (Unified UX, PR-1/PR-9 — см. `docs/UNIFIED_UX.md`) — `GET /me/today` (операционный экран «Сегодня»/Action Center по роли: `{ role, date, timezone, pairs, scheduleChanges, applications, events, assignments, notifications }`). Агрегирует существующие доменные сервисы (Schedules/Events/Notifications/Assignments/Applications) по scope роли, чтобы клиент делал один запрос вместо нескольких; заявки — только студенту/старосте; каждый источник устойчив к сбою (пустой дефолт). · `GET /me/activity?limit=` (единая лента активности, PR-9/#14): свои события из трёх журналов (`ApplicationEvent`/`DocumentEvent`/`AuditLog`) в общем контракте `Activity { id, source, action, entityType, entityId, actorId, ts, meta }` — БЕЗ слияния таблиц; scope = свои (`studentId`/`ownerId`/`userId`), слияние по времени desc, общий лимит. Output-only.
+
+**Карьера (Ф18)** — единственная зона платформы с внешним участником (`EMPLOYER`), поэтому правила доступа тут свои.
+
+*Компания.* `POST /career/companies/signup` (публ., throttle 5/15 мин) — саморегистрация работодателя: создаёт `Company` в статусе `PENDING_EMAIL` и пользователя с ролью `EMPLOYER`, пустым scope и `profileVisibility = PRIVATE`. Это единственное исключение из правила «регистрация только по инвайтам» (см. §2.1 и `BACKEND_RULES §19` п. 9). `POST /career/companies/verify-email` (публ.) — подтверждение по ссылке из письма; токен хранится хэшем. Далее `GET|PATCH /career/companies/me`, `GET /career/companies/me/access`, `GET /career/companies/me/universities`, `POST /career/companies/me/access` (запрос допуска к вузу) — все `EMPLOYER`.
+
+*Допуск к вузу.* `GET /career/university/companies` + `PATCH /career/university/companies/:id` (`PLATFORM_ADMIN`, `UNIVERSITY_ADMIN`; чтение — ещё `UNIVERSITY_MODERATOR`/`DEAN`) — очередь заявок компаний и решение по ним. Статусы `CompanyUniversityAccess.status` = `REQUESTED|APPROVED|REJECTED|REVOKED`, у одобренного возможен `expiresAt`.
+
+**Ключевое правило модуля:** компания видит студентов **только тех вузов, где её допуск активен прямо сейчас**. Набор вузов НЕ кладётся в JWT: отзыв допуска обязан действовать немедленно, а 15 минут доступа к чужим студентам после отзыва — это инцидент, а не задержка. Поэтому набор читается из БД на каждый запрос (`CareerAccessService`), с минутным кэшем в Redis и точечным сбросом при любом изменении допуска; кэш — ускорение, а не источник истины.
+
+*Вакансии.* Студенту и сотрудникам вуза — `GET /career/vacancies`, `GET /career/vacancies/:id` (показываются только одобренные их вузом). Работодателю — `GET|POST /career/employer/vacancies`, `PATCH /career/employer/vacancies/:id` и переходы `POST :id/publish|pause|close` (`Vacancy.status` = `DRAFT|PUBLISHED|PAUSED|CLOSED`). Вузу — `GET /career/university/vacancies` + `PATCH :id` (модерация; `VacancyUniversityReview.status` = `PENDING|APPROVED|REJECTED`): вакансия видна в вузе только после одобрения **этим** вузом.
+
+*Профиль кандидата и согласия.* `GET|PATCH /career/profile` (`STUDENT`/`STAROSTA`) — `CareerProfile` с `visibility` = `HIDDEN|EMPLOYERS`, статусом поиска (`LOOKING|OPEN|NOT_LOOKING`), желаемыми позициями, форматами и вилкой. `POST /career/profile/consents` — согласия на передачу полей (`CareerConsent.field` = `GPA|PHONE|EMAIL`, общее или на конкретную компанию, отзывается). `GET /career/profile/candidates/:id` (`EMPLOYER`) отдаёт `gpa` и `phone` **только при активном согласии**, иначе `null` — это проверяется на уровне `select`/маппинга, а не скрытием в UI (§11).
+
+*Резюме.* `GET|PATCH /career/resume`, `GET /career/resume/pdf` (`STUDENT`/`STAROSTA`) и `GET /career/resume/public/:slug` (публ.) — публикация по ссылке включается самим студентом (`publishedAt` + `publicSlug`), контакты в публичной версии — по флагу `includeContacts`.
+
+*Отклики.* Студент: `GET|POST /career/applications`, `GET :id/history`, `POST :id/withdraw`. Работодатель: `GET /career/employer/applications`, `PATCH :id` (смена статуса). Воронка `CareerApplication.status` = `SUBMITTED|VIEWED|SHORTLISTED|INTERVIEW|OFFER|HIRED|REJECTED|WITHDRAWN`, каждый переход пишется в `CareerApplicationEvent`.
+
+*Прочее.* `GET /career/events` — карьерные мероприятия (`Event.careerKind` = `CAREER_FAIR|WORKSHOP|INTERVIEW_DAY|COMPANY_PRESENTATION|HACKATHON`). `GET /career/analytics/university` (роли вуза) и `GET /career/analytics/company` (`EMPLOYER`) — воронка и срезы.
 
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
@@ -975,13 +1000,88 @@ pnpm dev        # turbo поднимает api:3001 и web:3000
 | # | Объект | Значение |
 |---|---|---|
 | 1 | `PLATFORM_ADMIN` | `admin@studenthub.app` / `Admin1234!` — **сменить сразу** |
-| 2 | Демо-университет | `seed-university-001`, Демо Университет, Алматы |
-| 3 | Демо-факультет | `seed-faculty-001`, ФИТ |
-| 4 | Демо-группа | `seed-group-001`, ИС-21 |
+| 2 | Демо-университет | `seed-university-001`, Университет «Алатау» (АУ), Алматы (КАТО `750000000`) |
+| 3 | Факультеты | 5, первый — `seed-faculty-001` «Факультет информационных технологий» |
+| 4 | Группы | 15, демо-группа `seed-group-001` «ИТ-23-1» |
 | 5 | Dev-инвайт `UNIVERSITY_ADMIN` | `http://localhost:3000/register?token=seed-invite-university-admin-token` |
-| 6 | Аудитории | А-101, А-201, Б-105 |
+| 6 | Аудитории | 101, 102, Лаборатория A + 18 аудиторий 200–217 |
+| 7 | Аккаунты остальных ролей | `platform-moderator@`, `university-admin@`, `university-moderator@`, `dean@`, `teacher@`, `starosta@`, `student@studenthub.app` — пароль у всех `Admin1234!` |
+| 8 | Академика демо-вуза | 90 курсов, 90 пар, 6.5 тыс. оценок, 13 тыс. отметок посещаемости, 2.2 тыс. результатов экзаменов |
+| 9 | Справочник КАТО | 16 205 записей (первый шаг прогона) |
 
 Seed идемпотентен (`upsert`). В production запускается один раз; после первого использования dev-инвайт отзывается, пароль администратора меняется.
+
+### Масштаб: профили `SEED_SCALE`
+
+Тот же `pnpm db:seed` умеет заливать платформу целиком — 100 вузов со студентами,
+академикой, чатами, документами, заявками и карьерой. Масштаб задаётся профилем:
+
+| `SEED_SCALE` | Вузов | Студентов на вуз | Строк | Время* |
+|---|---|---|---|---|
+| `demo` (по умолчанию) | только демо-вуз | ~360 | ~30 тыс. | секунды |
+| `small` | +5 | 200–400 | ~350 тыс. | ~1 мин |
+| `full` | +100 | 700–1700 | **~77 млн** | ~40–70 мин |
+
+\* на локальном Postgres. Замеры: вуз на 400 студентов — 244 тыс. строк за 22 с;
+структура и академика дают ~165 строк на студента, контент профиля — ещё ~420.
+
+### Контент на пользователя
+
+У каждого пользователя вуза свои посты, статьи и опросы; объёмы задаются ручками:
+
+| Ручка | По умолчанию | Что это даёт на 130 тыс. пользователей |
+|---|---|---|
+| `SEED_POSTS_MIN` / `SEED_POSTS_MAX` | 20 / 100 | ~7.8 млн постов |
+| `SEED_ARTICLES_MIN` / `SEED_ARTICLES_MAX` | 20 / 50 | ~4.6 млн статей |
+| `SEED_POLLS_MIN` / `SEED_POLLS_MAX` | 10 / 100 | ~7.2 млн опросов + 25 млн вариантов |
+| `SEED_POLL_VOTES_MAX` | 3 | ~11 млн голосов |
+| `SEED_POST_IMAGES_PER_USER` | 2 | ~260 тыс. изображений (~13 ГБ в MinIO) |
+
+**Про изображения постов.** `File.postId` — эксклюзивная привязка, а объект уникален по
+`(bucket, key)`: одна картинка живёт на одном посте. Поэтому «картинка у каждого поста»
+означала бы 7.8 млн объектов и 200+ ГБ хранилища. Вместо этого сид переиспользует уже
+скачанный пул: фото один раз уменьшаются до ширины поста (640px, `sharp`), кладутся в
+бакет постов как источники, а дальше нужное число объектов делается **серверным
+копированием внутри MinIO** (`copyObject`) — байты по сети не передаются и ничего не
+скачивается заново. Скорость — около 420 копий/с на локальном сервере.
+
+Демо-вуз (`seed-university-001`) генератор не трогает: он создаёт свои вузы `u001…u100`
+рядом. На исторические id демо-вуза ссылаются этот раздел, dev-инвайт и e2e.
+
+Ключевые переключатели (полный список — `prisma/seed/config.mjs`):
+
+```bash
+SEED_SCALE=full pnpm db:seed            # 100 вузов
+SEED_FROM=20 SEED_TO=40 …               # догенерировать порцию вузов
+SEED_FORCE=1 …                          # перегенерировать уже залитые вузы
+SEED_CONCURRENCY=4 …                    # сколько вузов генерировать параллельно
+SEED_MEDIA=1 pnpm db:seed                # медиа и для demo (по умолчанию только small/full)
+SEED_MEDIA=0 …                          # без скачивания медиа
+SEED_PHOTOS=1000 SEED_VIDEOS=150 …      # размер медиа-пула
+SEED_POSTS_MAX=30 SEED_POLLS_MAX=20 …   # урезать контент на пользователя
+SEED_POST_IMAGES_PER_USER=0 …           # без изображений у постов
+SEED_MEDIA_REFRESH=1 …                  # заново обойти Викисклад за видео
+```
+
+Гарды: масштаб больше `demo` на **нелокальной** БД заблокирован без `SEED_ALLOW_REMOTE=1`
+(22 млн строк на Railway — это тариф и полчаса прогона). Повторный прогон пропускает
+уже залитые вузы по маркеру в `AuditLog` (`action = SEED_UNIVERSITY`).
+
+### Медиа сида
+
+Шаг медиа скачивает **1000 уникальных фото** (200 портретов для аватаров + 800
+контентных) и **~120 уникальных видео** из источников со свободными лицензиями
+(picsum.photos, randomuser.me, образцы Blender Foundation, Викисклад), кладёт их в MinIO
+и создаёт на каждый объект запись `File`. Запись обязательна: cron `cleanOrphanFiles`
+удаляет из бакетов всё, на что нет `File`.
+
+Скачанное кэшируется в `.seed-media/` (в `.gitignore`) с манифестом (URL, sha256,
+лицензия) — повторный прогон не тянет из сети те же полгигабайта.
+
+Аватар и обложка есть у **всех** пользователей: это URL публичного бакета, его можно
+переиспользовать. А вложение поста, фото в альбоме и файл в чате — эксклюзивная привязка
+объекта (`File.postId`/`albumId`/`messageId` + уникальность по `(bucket, key)`), поэтому
+их получает столько сущностей, сколько объектов в пуле. Нужно больше — `SEED_PHOTOS`.
 
 Дальнейший порядок ввода пользователей — см. `IMPLEMENTATION_PLAN.md`, Приложение Б.
 

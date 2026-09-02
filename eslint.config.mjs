@@ -69,7 +69,18 @@ export default tseslint.config(
     // Node-скрипты (seed и пр.): console/process разрешены.
     files: ['prisma/**/*.mjs', 'scripts/**/*.mjs', 'apps/web/e2e/**/*.mjs'],
     languageOptions: {
-      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        // Глобалы Node 20, нужные сиду для скачивания медиа (fetch/таймеры/Buffer).
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        AbortController: 'readonly',
+        Buffer: 'readonly',
+      },
     },
     rules: { 'no-console': 'off' },
   },

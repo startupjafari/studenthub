@@ -57,3 +57,6 @@ kato_*.json
 # каждый прогон переписывает их целиком, а latest.md меняется полностью при каждом запуске.
 ui-audit/screenshots/
 ui-audit/reports/
+
+# Кэш медиа для сида (prisma/seed/steps/10-media.mjs): скачанные фото и видео.
+.seed-media/
