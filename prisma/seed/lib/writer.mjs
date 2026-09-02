@@ -45,13 +45,31 @@ export function createWriter(prisma, { chunkSize = 2000, onFlush } = {}) {
     onFlush?.(model, rows.length, written)
   }
 
+  // Флаш переполненного буфера вместе со всем, что было добавлено ДО него.
+  //
+  // Зачем: буферы наполняются с разной скоростью. `grade` набирает свои 2000 строк,
+  // когда `gradeColumn` (родитель по внешнему ключу) ещё лежит в буфере с двумя
+  // десятками строк, — и вставка оценок падает на grades_column_id_fkey.
+  //
+  // Порядок вставки в Map — это порядок первого обращения к модели в коде шага, а шаги
+  // всегда создают родителя раньше ребёнка (иначе внешний ключ не сошёлся бы и при
+  // одном общем flush). Значит, «всё до X включительно» — корректный порядок записи.
+  // Уже пустые буферы пропускаются, так что повторные флаши тяжёлой модели почти
+  // не платят за соседей.
+  async function flushUpTo(model) {
+    for (const [name, entry] of streams) {
+      if (entry.buffer.length > 0) await flushStream(name, entry)
+      if (name === model) break
+    }
+  }
+
   return {
     // Добавить строку. Возвращает промис только когда буфер переполнился, поэтому
     // вызывающий код всегда должен await'ить: `await w.add('grade', row)`.
     async add(model, row) {
       const entry = stream(model)
       entry.buffer.push(row)
-      if (entry.buffer.length >= chunkSize) await flushStream(model, entry)
+      if (entry.buffer.length >= chunkSize) await flushUpTo(model)
     },
 
     async addMany(model, rows) {

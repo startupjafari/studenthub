@@ -15,17 +15,24 @@ import { runPool } from './lib/pool.mjs'
 import { createProgress } from './lib/progress.mjs'
 import { universityRandom } from './lib/rng.mjs'
 import { createWriter } from './lib/writer.mjs'
-import { seedPeople } from './steps/30-people.mjs'
 import { planUniversity, seedStructure } from './steps/20-structure.mjs'
+import { seedPeople } from './steps/30-people.mjs'
+import { seedAcademics } from './steps/40-academics.mjs'
 
 const KATO_PATH = fileURLToPath(new URL('../data/kato.json', import.meta.url))
 
 // Сколько строк ожидается от вуза — только для оценки объёма в логе перед прогоном.
+// Основную массу дают посещаемость (пары × недели × студенты) и журнал оценок.
 function estimateRows(plan) {
   const teachers = plan.faculties.reduce((sum, f) => sum + f.teacherCount, 0)
-  const staff = plan.faculties.length + 3
-  // Пользователь + его настройки уведомлений + структура.
-  return (plan.students + teachers + staff) * 2 + plan.groupCount + plan.roomCount + 40
+  const people = (plan.students + teachers + plan.faculties.length + 3) * 2
+  const subjectsPerGroup = 6
+  const courses = plan.groupCount * subjectsPerGroup * 2
+  const grades = courses * 3 * (1 + 25)
+  const attendance = plan.groupCount * 3 * 12 * 25
+  const assignments = (courses / 2) * (1 + 25 * 0.8)
+  const exams = courses * (1 + 25)
+  return people + plan.groupCount + plan.roomCount + courses + grades + attendance + assignments + exams // prettier-ignore
 }
 
 export async function seedUniversities(prisma, { config, passwordHash }) {
@@ -71,6 +78,7 @@ export async function seedUniversities(prisma, { config, passwordHash }) {
 
     const structure = await seedStructure(prisma, writer, ctx)
     const people = await seedPeople(prisma, writer, { ...ctx, structure })
+    await seedAcademics(prisma, writer, { ...ctx, structure, people })
     await writer.flush()
 
     await markUniversityDone(prisma, uniId, {
@@ -84,8 +92,6 @@ export async function seedUniversities(prisma, { config, passwordHash }) {
       counts[model] = (counts[model] ?? 0) + count
     }
     progress.step(`${uniId} ${structure.profile.name}`, writer.written)
-    // people пока нужен только следующим шагам эпика; здесь — чтобы линтер видел связь.
-    void people
   })
 
   progress.report(counts)
