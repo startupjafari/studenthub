@@ -449,6 +449,9 @@ async function main() {
   const devIds = Object.fromEntries(
     (
       await prisma.user.findMany({
+        // take обязателен даже на выборке по списку из шести адресов:
+        // findMany без take запрещён (BACKEND_RULES §5.3, запрет №8).
+        take: 10,
         where: {
           email: {
             in: [

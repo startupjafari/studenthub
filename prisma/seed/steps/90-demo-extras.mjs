@@ -82,6 +82,9 @@ export async function seedDemoExtras(prisma, writer, { random }) {
   const dev = await prisma.user.findMany({
     where: { email: { in: DEV_EMAILS } },
     select: { id: true, email: true },
+    // findMany без take запрещён (BACKEND_RULES §5.3) — даже когда выборка ограничена
+    // списком адресов и больше семи строк вернуться не может.
+    take: DEV_EMAILS.length,
   })
   if (dev.length === 0) return
   const devByEmail = new Map(dev.map((u) => [u.email, u.id]))
