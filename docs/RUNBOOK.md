@@ -60,6 +60,12 @@ node prisma/seed-kato.mjs   # справочник КАТО: без него г�
 через `prisma db execute` (не `migrate reset`) → `migrate deploy` → `node prisma/seed.mjs` →
 `node prisma/seed-kato.mjs`.
 
+**Залить платформу целиком** (100 вузов, ~22 млн строк, 10–30 мин, БД вырастает до ~10 ГБ):
+`pnpm db:seed:kato` → `pnpm db:seed:full`. Профили и переключатели — `docs/PROJECT.md §14`.
+Прогон возобновляемый: упал или прервали — запустите снова, уже залитые вузы пропускаются
+по маркеру. Порциями: `SEED_FROM=41 SEED_TO=60 pnpm db:seed:full`. Перегенерировать —
+`SEED_FORCE=1`. Гард не даст залить такой объём в нелокальную БД без `SEED_ALLOW_REMOTE=1`.
+
 ## Бэкапы и восстановление
 
 - **PostgreSQL**: `pg_dump` по расписанию (cron/systemd-timer), хранить off-site; проверять

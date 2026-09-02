@@ -312,9 +312,21 @@ export async function seedServices(prisma, writer, ctx) {
   await writer.flush()
 
   // ── Заявки на услуги: все статусы, журнал переходов, документы и результаты ──
-  let appNo = 0
-  for (const [si, studentId] of allStudents.entries()) {
-    const faculty = people.faculties[si % people.faculties.length]
+  // Номер заявки уникален глобально, поэтому он должен быть СТРУКТУРНЫМ, а не
+  // счётчиком обхода: счётчик зависит от плана вуза, и при его изменении номер
+  // достался бы другой заявке — строка молча пропускается по уникальному индексу, а
+  // её события и документы падают по FK (см. историю с username в шаге 30).
+  const structuralNo = (fi, gi, si) => (fi + 1) * 100_000 + (gi + 1) * 100 + (si + 1)
+  const flatStudents = []
+  for (const [fi, faculty] of people.faculties.entries()) {
+    for (const [gi, group] of faculty.groups.entries()) {
+      for (const [si, studentId] of group.studentIds.entries()) {
+        flatStudents.push({ studentId, faculty, no: structuralNo(fi, gi, si) })
+      }
+    }
+  }
+
+  for (const [si, { studentId, faculty, no }] of flatStudents.entries()) {
     const status = random.pickWeighted(APP_FLOWS)
     const useOwn = random.chance(0.3)
     const service = useOwn ? null : GLOBAL_SERVICES[si % GLOBAL_SERVICES.length]
@@ -323,7 +335,7 @@ export async function seedServices(prisma, writer, ctx) {
     const slaHours = useOwn ? 72 : service.sla
 
     const applicationId = child(studentId, 'app')
-    appNo += 1
+    const appNo = no
     const submitted = status !== 'DRAFT' ? random.randomDate(-20, -1) : null
     const isReady = ['READY', 'READY_FOR_PICKUP', 'ISSUED', 'DELIVERED'].includes(status)
     const isIssued = status === 'ISSUED' || status === 'DELIVERED'

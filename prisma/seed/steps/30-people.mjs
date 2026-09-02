@@ -115,15 +115,35 @@ function staffProfile(p, random, ctx) {
 }
 
 export async function seedPeople(prisma, writer, ctx) {
-  const { index, random, structure, passwordHash } = ctx
+  const { index, random, structure, passwordHash, pool } = ctx
   const { uniId, profile, faculties } = structure
   const cityName = profile.cityName
   let counter = 0
 
+  // Аватар и обложку ставим ПРИ СОЗДАНИИ пользователя, а не апдейтом после.
+  // Шаг медиа идёт раньше генератора вузов (пул нужен всем шагам), и его раздача
+  // аватаров видит только тех, кто уже есть в БД, — новые 125 000 остались бы без
+  // аватара. Здесь это ноль дополнительных запросов: URL публичного бакета
+  // переиспользуется сколько угодно раз.
+  const faces = pool?.faces ?? []
+  const covers = pool?.photos ?? []
+  const mediaFor = (n) => {
+    if (faces.length === 0) return {}
+    const face = faces[(index * 37 + n) % faces.length]
+    const cover = covers.length > 0 ? covers[(index * 53 + n) % covers.length] : null
+    return {
+      avatarUrl: face.url,
+      // Отдельного объекта-превью у сида нет: джоба generate-thumbnail делает его при
+      // реальной загрузке, а клиенту разница не видна.
+      avatarThumbUrl: face.url,
+      ...(cover ? { coverUrl: cover.url } : {}),
+    }
+  }
+
   // Настройки уведомлений — по строке на каждого пользователя (иначе экран настроек
   // показывает дефолты, а не сохранённое состояние).
   const addUser = async (row) => {
-    await writer.add('user', row)
+    await writer.add('user', { ...mediaFor(counter), ...row })
     await writer.add('notificationSettings', {
       id: child(row.id, 'ns'),
       userId: row.id,
@@ -243,7 +263,13 @@ export async function seedPeople(prisma, writer, ctx) {
           // Локальная часть — хвост id студента (g.eco.3.st07): уникальна внутри вуза
           // по построению, в отличие от «имя.фамилия», которые повторяются.
           email: emailFor(index, localFromId(studentId)),
-          username: usernameFor(index, `st.${translit(studentPerson.lastName)}.${counter}`),
+          // username выводится из СТРУКТУРНОГО хвоста id, а не из «фамилия + счётчик».
+          // Иначе он зависит от случайной фамилии и позиции в обходе: смена плана вуза
+          // (стало больше факультетов) сдвигает счётчик, новый студент занимает username
+          // уже существующего, его строка молча пропускается по уникальному индексу — и
+          // NotificationSettings на несуществующего пользователя роняет прогон по FK.
+          // Ровно это и случилось на полном прогоне с двумя вузами.
+          username: usernameFor(index, `${translit(studentPerson.lastName)}.${localFromId(studentId)}`), // prettier-ignore
           passwordHash,
           ...studentPerson,
           role: isStarosta ? 'STAROSTA' : 'STUDENT',

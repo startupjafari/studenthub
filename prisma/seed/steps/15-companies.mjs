@@ -65,6 +65,20 @@ export async function seedCompanies(prisma, writer, { passwordHash }) {
         profileVisibility: 'PUBLIC',
         lastSeenAt: random.randomDate(-10, 0),
       })
+      // Настройки уведомлений — как у всех остальных ролей: экран настроек должен
+      // показывать сохранённое состояние, а не дефолты.
+      await writer.add('notificationSettings', {
+        id: `${recruiterId}-ns`,
+        userId: recruiterId,
+        emailEnabled: true,
+        pushEnabled: random.chance(0.5),
+        messageEnabled: true,
+        postEnabled: random.chance(0.5),
+        eventEnabled: true,
+        systemEnabled: true,
+        scheduleChangeEnabled: false,
+        appUpdateEnabled: true,
+      })
       await writer.add('companyMember', {
         id: `${recruiterId}-m`,
         companyId,

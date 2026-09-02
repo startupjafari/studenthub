@@ -14,6 +14,7 @@ import { seedUniversities } from './seed/index.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
+import { createStorage } from './seed/lib/storage.mjs'
 
 const prisma = new PrismaClient()
 const config = loadConfig()
@@ -65,6 +66,56 @@ const TWO_FACTOR_RESET = {
   twoFactorEnabled: false,
   twoFactorSecret: null,
   twoFactorBackupCodes: [],
+}
+
+// Медиа-пул из БД — для прогона только этапа вузов (SEED_ONLY=universities), когда шаг
+// медиа не выполнялся. Без этого новые пользователи остались бы без аватаров, хотя
+// объекты в MinIO уже лежат: пул целиком описан строками File с префиксом seed-media-.
+async function loadMediaPool(prisma) {
+  const files = await prisma.file.findMany({
+    where: { id: { startsWith: 'seed-media-' } },
+    select: { id: true, bucket: true, key: true, mime: true, size: true, posterKey: true },
+    take: 5000,
+  })
+  if (files.length === 0) return null
+  const storage = createStorage()
+  const pool = { faces: [], photos: [], videos: [] }
+  for (const file of files) {
+    const entry = {
+      fileId: file.id,
+      bucket: file.bucket,
+      key: file.key,
+      url: storage.publicUrl(file.bucket, file.key),
+      mime: file.mime,
+      size: file.size,
+    }
+    // Портреты отличаются бакетом (avatars), а не полем: раскладку задаёт шаг медиа.
+    if (file.mime.startsWith('video/')) pool.videos.push(entry)
+    else if (file.bucket === storage.buckets.avatars) pool.faces.push(entry)
+    else if (file.bucket === storage.buckets.profileMedia) pool.photos.push(entry)
+  }
+  return pool
+}
+
+// Компании платформы из БД — для прогона только этапа вузов (SEED_ONLY=universities).
+async function loadCompanies(prisma) {
+  const rows = await prisma.company.findMany({
+    where: { id: { startsWith: 'seed-co-' } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      members: { select: { userId: true }, take: 5 },
+      vacancies: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 20 },
+    },
+    take: 200,
+  })
+  return rows.map((c) => ({
+    ...c,
+    recruiterIds: c.members.map((m) => m.userId),
+    vacancyIds: c.vacancies.map((v) => v.id),
+  }))
 }
 
 async function main() {
@@ -1283,7 +1334,7 @@ async function main() {
   // До генератора вузов: аватары и обложки раздаются всем пользователям, включая
   // демо-вуз. Пул нужен и следующим шагам эпика (вложения постов, чатов, альбомы).
   let mediaPool = null
-  if (config.media) {
+  if (config.media && config.runs('media')) {
     mediaPool = await seedMedia(prisma, config)
   }
 
@@ -1291,15 +1342,23 @@ async function main() {
   // До вузов: доступы к вузу и решения по вакансиям создаёт уже шаг карьеры внутри
   // вуза, и компании к тому моменту должны существовать.
   let companies = null
-  if (config.universities > 0) {
+  if (config.universities > 0 && config.runs('companies')) {
     const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
     companies = await seedCompanies(prisma, companyWriter, { passwordHash })
   }
 
   // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
   // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
-  if (config.universities > 0) {
-    await seedUniversities(prisma, { config, passwordHash, pool: mediaPool, companies })
+  if (config.universities > 0 && config.runs('universities')) {
+    // Без этапа companies (SEED_ONLY=universities) карьерные компании берём из БД:
+    // они общие для платформы и обычно уже залиты предыдущим прогоном.
+    const linkedCompanies = companies ?? (await loadCompanies(prisma))
+    await seedUniversities(prisma, {
+      config,
+      passwordHash,
+      pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),
+      companies: linkedCompanies,
+    })
   }
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }

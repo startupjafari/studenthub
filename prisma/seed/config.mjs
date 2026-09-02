@@ -10,6 +10,9 @@
 
 // Профили. students — диапазон студентов на вуз, из него PRNG берёт число для каждого
 // вуза (детерминированно по индексу вуза, см. lib/rng.mjs).
+// Этапы, которые можно выбрать через SEED_ONLY.
+const STAGE_LIST = ['media', 'companies', 'universities']
+
 const PROFILES = {
   // demo: генератор вузов выключен — заливается только демо-вуз основного сида.
   demo: { universities: 0, students: [340, 380], label: 'демо (текущий объём)' },
@@ -75,11 +78,19 @@ export function loadConfig() {
     concurrency: num('SEED_CONCURRENCY', 4),
     // Размер чанка createMany. 2000 — компромисс между числом round-trip'ов и размером запроса.
     chunkSize: num('SEED_CHUNK', 2000),
-    // Только перечисленные шаги: SEED_ONLY=media,chats.
+    // Только перечисленные этапы: SEED_ONLY=media или SEED_ONLY=companies,universities.
+    //
+    // Гранулярность — этап, а не отдельный шаг вуза: шаги внутри вуза передают друг
+    // другу структуру и людей по памяти (структура → люди → академика → контент), и
+    // запустить «только чаты» без генерации остального нельзя — их не к чему привязать.
+    // Демо-вуз основного сида заливается всегда: он идемпотентен и занимает секунды.
     only: list('SEED_ONLY'),
     // Пересоздать данные вузов, помеченных как готовые (см. lib/marker.mjs).
     force: bool('SEED_FORCE', false),
-    media: bool('SEED_MEDIA', true),
+    // Медиа по умолчанию только на больших профилях: `pnpm db:seed` в demo не должен
+    // неожиданно тянуть из сети полгигабайта фото и видео (и требовать поднятый MinIO).
+    // Включить для demo — SEED_MEDIA=1, выключить где угодно — SEED_MEDIA=0.
+    media: bool('SEED_MEDIA', scaleName !== 'demo'),
     // Фото — 1000 уникальных (требование задачи). Видео — «сколько есть, но все
     // разные»: без API-ключа тысячу уникальных роликов не собрать, поэтому здесь
     // потолок, а фактическое число зависит от доступности источников.
@@ -92,6 +103,15 @@ export function loadConfig() {
     allowRemote: bool('SEED_ALLOW_REMOTE', false),
     databaseUrl: process.env.DATABASE_URL ?? '',
   }
+
+  const unknown = (config.only ?? []).filter((stage) => !STAGE_LIST.includes(stage))
+  if (unknown.length > 0) {
+    throw new Error(
+      `SEED_ONLY: неизвестные этапы ${unknown.join(', ')}. Доступно: ${STAGE_LIST.join(', ')}`,
+    )
+  }
+  // Удобный предикат для точки входа: без SEED_ONLY выполняются все этапы.
+  config.runs = (stage) => config.only === null || config.only.includes(stage)
 
   if (config.studentsMin > config.studentsMax) {
     throw new Error('SEED_STUDENTS_MIN больше SEED_STUDENTS_MAX')
@@ -114,4 +134,4 @@ export function loadConfig() {
   return config
 }
 
-export { PROFILES, isLocalDatabase }
+export { PROFILES, STAGE_LIST, isLocalDatabase }
