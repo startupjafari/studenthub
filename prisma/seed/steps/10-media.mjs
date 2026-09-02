@@ -385,7 +385,7 @@ export async function seedMedia(prisma, config) {
 // Как раздаём: один UPDATE ... FROM (VALUES …) на пачку в 500 человек. Через
 // updateMany пришлось бы либо ставить один аватар на всю пачку (и тогда в списке
 // группы 25 одинаковых лиц), либо делать по запросу на человека — 125 000
-// round-trip'ов. Значения идут параметрами (BACKEND_RULES §14.4), как в seed-kato.
+// round-trip'ов. Значения идут параметрами (BACKEND_RULES §14.4), как в шаге КАТО.
 async function assignAvatars(prisma, pool) {
   if (pool.faces.length === 0) return 0
   const chunkSize = 500

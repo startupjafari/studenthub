@@ -24,7 +24,7 @@ import { seedChats } from './steps/60-chats.mjs'
 import { seedServices } from './steps/70-services.mjs'
 import { seedCareer } from './steps/80-career.mjs'
 
-const KATO_PATH = fileURLToPath(new URL('../data/kato.json', import.meta.url))
+const KATO_PATH = fileURLToPath(new URL('./data/kato.json', import.meta.url))
 
 // Оценка объёма вуза — только для строки в логе перед прогоном, чтобы порядок величины
 // был известен заранее, а не через полчаса.
@@ -46,7 +46,7 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
   if (katoCount === 0) {
     // Не падаем: города в University.city хранятся кодом и без справочника, но селект
     // «Город» в интерфейсе будет пустой — об этом надо сказать прямо.
-    console.log('  ВНИМАНИЕ: справочник КАТО пуст — сначала `pnpm db:seed:kato`.')
+    console.log('  ВНИМАНИЕ: справочник КАТО пуст (шаг kato пропущен?).')
   }
 
   const indices = []
