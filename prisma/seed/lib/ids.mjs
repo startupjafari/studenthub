@@ -4,20 +4,19 @@
 // группа → студент), а не порядком генерации. Это и есть механизм идемпотентности:
 // повторный прогон формирует те же id, и createMany({ skipDuplicates }) их пропускает.
 //
-// Формат: `u07-f2-g03-st012` — читается глазами в psql и в UI, и по префиксу видно,
-// что строка создана сидом (а не человеком через интерфейс).
+// Формат: `u042-f-eco-g03-st012` — читается глазами в psql и в UI, и по префиксу видно,
+// что строка создана генератором (а не человеком через интерфейс).
 //
-// СОВМЕСТИМОСТЬ: вуз №1 — это существующий демо-вуз с историческими id
-// (`seed-university-001`, `seed-faculty-001`, `seed-group-001`, `seed-course-001`).
-// На них ссылаются docs/PROJECT.md §14, e2e-тесты и dev-инвайт, поэтому переименовать
-// их нельзя: legacyIds() отдаёт исторический id там, где он есть.
+// ДЕМО-ВУЗ СТОИТ ОТДЕЛЬНО. `seed-university-001` со всей его структурой создаёт
+// основной сид: на его исторические id ссылаются docs/PROJECT.md §14, dev-инвайт и
+// e2e-тесты. Генератор его не трогает и не «достраивает» — он создаёт свои 100 вузов
+// рядом (u001…u100). Иначе каждая сущность обросла бы ветками «а если это демо-вуз»,
+// а демо-группа ИТ-23-1 получила бы вторые 25 студентов сверх своих 26.
 
 export const DEMO_UNIVERSITY_ID = 'seed-university-001'
 export const DEMO_FACULTY_ID = 'seed-faculty-001'
 export const DEMO_GROUP_ID = 'seed-group-001'
 export const DEMO_TERM_ID = 'seed-term-001'
-export const DEMO_SUBJECT_ID = 'seed-subject-001'
-export const DEMO_COURSE_ID = 'seed-course-001'
 
 // Индекс вуза 1..N → префикс. Ширина 3 знака держит лексикографический порядок id
 // таким же, как числовой (u007 < u010), — сортировка в psql не путается.
@@ -25,37 +24,22 @@ export function uniPrefix(index) {
   return `u${String(index).padStart(3, '0')}`
 }
 
-// id вуза: №1 остаётся демо-вузом, остальные — по префиксу.
-export function universityId(index) {
-  return index === 1 ? DEMO_UNIVERSITY_ID : uniPrefix(index)
-}
+export const universityId = uniPrefix
 
-export function facultyId(index, facIndex) {
-  if (index === 1 && facIndex === 0) return DEMO_FACULTY_ID
-  return `${uniPrefix(index)}-f${facIndex}`
-}
-
-export function groupId(index, facIndex, grpIndex) {
-  if (index === 1 && facIndex === 0 && grpIndex === 1) return DEMO_GROUP_ID
-  return `${uniPrefix(index)}-f${facIndex}-g${String(grpIndex).padStart(2, '0')}`
-}
-
-// Прочие сущности вуза: id(1, 'room', 4) → 'u001-room-4'. Единая точка, чтобы
-// префиксы не расползались по шагам строковыми литералами.
+// Сущность вуза: id(42, 'room', 7) → 'u042-room-7'. Единая точка, чтобы префиксы не
+// расползались по шагам строковыми литералами.
 export function id(index, kind, ...parts) {
   return [uniPrefix(index), kind, ...parts].join('-')
 }
 
-// Дочерняя сущность по id родителя: child('u001-f0-g03', 'st', 12) → 'u001-f0-g03-st12'.
+// Дочерняя сущность по id родителя: child('u042-g-eco-3', 'st', 12) → 'u042-g-eco-3-st12'.
 export function child(parentId, kind, ...parts) {
   return [parentId, kind, ...parts].join('-')
 }
 
-// Email пользователя. Домен зависит от вуза: у демо-вуза — исторический alatau.edu.kz,
-// у остальных — u{NN}.edu.kz. Уникальность гарантирована структурой (роль+индексы).
+// Email пользователя: домен по индексу вуза, локальная часть — от роли и места в структуре.
 export function emailFor(index, local) {
-  const domain = index === 1 ? 'alatau.edu.kz' : `${uniPrefix(index)}.edu.kz`
-  return `${local}@${domain}`
+  return `${local}@${uniPrefix(index)}.edu.kz`
 }
 
 // username хранится в нижнем регистре и уникален глобально (User.username @unique),
