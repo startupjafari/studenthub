@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { loadConfig } from './seed/config.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
+import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
@@ -31,6 +32,9 @@ const ALMATY_KATO_CODE = '750000000'
 // Зерно 20260812 оставлено историческим: демо-данные должны остаться теми же, иначе
 // у существующих строк поменялись бы значения при том же id.
 const { rng, pick, randInt, chance, daysFromNow } = makeRandom(20260812)
+// Отдельный генератор для профилей dev-аккаунтов: тянуть их из общего потока значило бы
+// сдвинуть все последующие случайные значения демо-вуза и переписать его данные.
+const devRandom = makeRandom(20260812)
 
 // Глубина истории посещаемости: столько же, сколько окно тренда на дашборде вуза
 // (12 недель ≈ семестр). Меньше — и график динамики нечем наполнить.
@@ -222,28 +226,100 @@ async function main() {
   }
   // Реалистичные имена: роль показывается отдельным бейджем, поэтому имя-плейсхолдер
   // из слов роли («Декан Факультета») читалось некорректно в любом порядке — заменено.
+  // Пол и отчество заданы явно, а не выведены генератором: имена этих аккаунтов
+  // фиксированы, и «Аружан Серикова Нурланович» выглядело бы поломкой.
   const devUsers = [
-    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Марат', 'Сулейменов', {}],
-    [
-      'UNIVERSITY_ADMIN',
-      'university-admin@studenthub.app',
-      'Айгуль',
-      'Нурланова',
-      scope.university,
-    ],
-    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Тимур', 'Байжанов', scope.university], // prettier-ignore
-    ['DEAN', 'dean@studenthub.app', 'Дамир', 'Ахметов', scope.faculty],
-    ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty],
-    ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group],
-    ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group],
+    ['PLATFORM_MODERATOR', 'platform-moderator@studenthub.app', 'Марат', 'Сулейменов', {}, 'MALE', 'Ержанович'], // prettier-ignore
+    ['UNIVERSITY_ADMIN', 'university-admin@studenthub.app', 'Айгуль', 'Нурланова', scope.university, 'FEMALE', 'Сериковна'], // prettier-ignore
+    ['UNIVERSITY_MODERATOR', 'university-moderator@studenthub.app', 'Тимур', 'Байжанов', scope.university, 'MALE', 'Аскарович'], // prettier-ignore
+    ['DEAN', 'dean@studenthub.app', 'Дамир', 'Ахметов', scope.faculty, 'MALE', 'Талгатович'],
+    ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty, 'FEMALE', 'Сергеевна'],
+    ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group, 'FEMALE', 'Муратовна'], // prettier-ignore
+    ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group, 'MALE', 'Бауыржанович'], // prettier-ignore
   ]
-  for (const [role, email, firstName, lastName, userScope] of devUsers) {
+  // Профиль этих аккаунтов заполняется теми же построителями, что и у 130 тысяч
+  // сгенерированных (prisma/seed/data/profiles.mjs). Раньше здесь задавались только
+  // email, имя, фамилия и роль — то есть у аккаунтов, под которыми и заходят руками,
+  // профиль был пустой: ни телефона, ни био, ни курса, ни GPA, ни кабинета. Половина
+  // блоков на странице профиля просто не отрисовывалась.
+  //
+  // Профиль идёт и в update: у dev-аккаунтов это осознанно (как и имя выше) — они
+  // демонстрационные, и повторный прогон должен приводить их в известное состояние.
+  const DEMO_CITY = 'Алматы'
+  const devProfileFor = (role, firstName, lastName, gender, middleName) => {
+    const p = { firstName, lastName, middleName, gender }
+    const shared = { profile: { timezone: 'Asia/Almaty' }, cityName: DEMO_CITY }
+    if (role === 'STUDENT' || role === 'STAROSTA') {
+      return {
+        ...studentProfile(p, devRandom, {
+          ...shared,
+          group: { year: 2023 },
+          specialties: ['Информационные системы', 'Программная инженерия'],
+        }),
+        ...(role === 'STAROSTA'
+          ? {
+              starostaSince: new Date('2023-09-01'),
+              duties: 'Староста группы: посещаемость, объявления, связь с деканатом.',
+            }
+          : {}),
+      }
+    }
+    const template =
+      role === 'DEAN' || role === 'TEACHER'
+        ? { name: 'Факультет информационных технологий', subjects: [['Основы программирования']] }
+        : null
+    const staff = staffProfile(p, devRandom, { ...shared, template })
+    const byRole = {
+      PLATFORM_MODERATOR: {
+        position: 'Модератор платформы',
+        jobTitle: 'Модератор платформы',
+        responsibilities: 'Разбор жалоб, модерация вузов и контента.',
+        moderationAreas: 'Жалобы, вузы, публичный контент',
+      },
+      UNIVERSITY_ADMIN: {
+        position: 'Начальник управления',
+        jobTitle: 'Администратор университета',
+        responsibilities: 'Структура вуза, пользователи, инвайты, справочники.',
+      },
+      UNIVERSITY_MODERATOR: {
+        position: 'Модератор контента',
+        jobTitle: 'Модератор университета',
+        responsibilities: 'Проверка постов, событий и жалоб внутри вуза.',
+        moderationAreas: 'Посты и комментарии',
+      },
+      DEAN: {
+        position: 'Декан факультета',
+        academicDegree: 'Доктор наук',
+        academicTitle: 'Профессор',
+        jobTitle: 'Декан',
+        responsibilities: 'Учебный процесс факультета, приём студентов, аттестация.',
+      },
+      TEACHER: {
+        position: 'Старший преподаватель',
+        academicDegree: 'Кандидат наук',
+        academicTitle: 'Доцент',
+      },
+    }
+    return { ...staff, ...(byRole[role] ?? {}) }
+  }
+
+  for (const [role, email, firstName, lastName, userScope, gender, middleName] of devUsers) {
+    const profileFields = devProfileFor(role, firstName, lastName, gender, middleName)
     await prisma.user.upsert({
       where: { email },
       // Синхронизируем имя на существующих dev-аккаунтах (иначе старые плейсхолдеры остаются)
       // и сбрасываем 2FA — иначе недонастроенный секрет переживает пересид.
-      update: { firstName, lastName, ...TWO_FACTOR_RESET },
-      create: { email, passwordHash, firstName, lastName, role, ...userScope, ...TWO_FACTOR_RESET },
+      update: { firstName, lastName, ...profileFields, ...TWO_FACTOR_RESET },
+      create: {
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        role,
+        ...userScope,
+        ...profileFields,
+        ...TWO_FACTOR_RESET,
+      },
     })
   }
 
