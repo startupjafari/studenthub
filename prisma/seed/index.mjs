@@ -21,6 +21,7 @@ import { seedAcademics } from './steps/40-academics.mjs'
 import { seedSocial } from './steps/50-social.mjs'
 import { seedProfileContent } from './steps/55-profile-content.mjs'
 import { seedChats } from './steps/60-chats.mjs'
+import { seedServices } from './steps/70-services.mjs'
 
 const KATO_PATH = fileURLToPath(new URL('../data/kato.json', import.meta.url))
 
@@ -85,6 +86,7 @@ export async function seedUniversities(prisma, { config, passwordHash, pool }) {
     await seedSocial(prisma, writer, { ...ctx, structure, people })
     await seedProfileContent(prisma, writer, { ...ctx, structure, people })
     await seedChats(prisma, writer, { ...ctx, structure, people })
+    await seedServices(prisma, writer, { ...ctx, structure, people })
     await writer.flush()
 
     await markUniversityDone(prisma, uniId, {
