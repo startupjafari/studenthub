@@ -10,6 +10,7 @@ import bcrypt from 'bcrypt'
 import { loadConfig } from './seed/config.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
+import { seedUniversities } from './seed/index.mjs'
 
 const prisma = new PrismaClient()
 const config = loadConfig()
@@ -65,14 +66,6 @@ const TWO_FACTOR_RESET = {
 
 async function main() {
   console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
-  if (config.scale !== 'demo') {
-    // Генератор 100 вузов подключается следующими шагами эпика (см. prisma/seed/steps/).
-    // Врать о масштабе нельзя: пока профиль влияет только на размер чанка и гарды.
-    console.log(
-      `  ВНИМАНИЕ: генератор вузов (${config.universities} шт.) ещё не подключён — ` +
-        'на этом шаге заливается только демо-вуз.',
-    )
-  }
 
   // Прогресс создаём в самом начале: он же измеряет длительность прогона.
   const progress = createProgress({ total: 1, label: 'Итого' })
@@ -1282,6 +1275,12 @@ async function main() {
   console.log('  ролях, локально: TWO_FACTOR_ENFORCE=false в apps/api/.env')
   console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
   progress.report(counts)
+
+  // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
+  // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
+  if (config.universities > 0) {
+    await seedUniversities(prisma, { config, passwordHash })
+  }
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }
 

@@ -11,7 +11,8 @@
 // Профили. students — диапазон студентов на вуз, из него PRNG берёт число для каждого
 // вуза (детерминированно по индексу вуза, см. lib/rng.mjs).
 const PROFILES = {
-  demo: { universities: 1, students: [340, 380], label: 'демо (текущий объём)' },
+  // demo: генератор вузов выключен — заливается только демо-вуз основного сида.
+  demo: { universities: 0, students: [340, 380], label: 'демо (текущий объём)' },
   small: { universities: 5, students: [200, 400], label: 'малый (мультивузовость)' },
   full: { universities: 100, students: [700, 1700], label: 'полный' },
 }
@@ -86,7 +87,10 @@ export function loadConfig() {
   if (config.studentsMin > config.studentsMax) {
     throw new Error('SEED_STUDENTS_MIN больше SEED_STUDENTS_MAX')
   }
-  if (config.from < 1 || config.to > config.universities || config.from > config.to) {
+  if (
+    config.universities > 0 &&
+    (config.from < 1 || config.to > config.universities || config.from > config.to)
+  ) {
     throw new Error(
       `Диапазон SEED_FROM=${config.from}..SEED_TO=${config.to} вне 1..${config.universities}`,
     )
