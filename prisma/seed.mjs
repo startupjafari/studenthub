@@ -1280,14 +1280,15 @@ async function main() {
   // ── Медиа: общий пул фото и видео в MinIO ───────────────────────────────────
   // До генератора вузов: аватары и обложки раздаются всем пользователям, включая
   // демо-вуз. Пул нужен и следующим шагам эпика (вложения постов, чатов, альбомы).
+  let mediaPool = null
   if (config.media) {
-    await seedMedia(prisma, config)
+    mediaPool = await seedMedia(prisma, config)
   }
 
   // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
   // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
   if (config.universities > 0) {
-    await seedUniversities(prisma, { config, passwordHash })
+    await seedUniversities(prisma, { config, passwordHash, pool: mediaPool })
   }
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }

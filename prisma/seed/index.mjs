@@ -18,6 +18,8 @@ import { createWriter } from './lib/writer.mjs'
 import { planUniversity, seedStructure } from './steps/20-structure.mjs'
 import { seedPeople } from './steps/30-people.mjs'
 import { seedAcademics } from './steps/40-academics.mjs'
+import { seedSocial } from './steps/50-social.mjs'
+import { seedProfileContent } from './steps/55-profile-content.mjs'
 
 const KATO_PATH = fileURLToPath(new URL('../data/kato.json', import.meta.url))
 
@@ -35,7 +37,7 @@ function estimateRows(plan) {
   return people + plan.groupCount + plan.roomCount + courses + grades + attendance + assignments + exams // prettier-ignore
 }
 
-export async function seedUniversities(prisma, { config, passwordHash }) {
+export async function seedUniversities(prisma, { config, passwordHash, pool }) {
   const cities = loadCities(KATO_PATH)
   const katoCount = await prisma.katoUnit.count()
   if (katoCount === 0) {
@@ -74,11 +76,13 @@ export async function seedUniversities(prisma, { config, passwordHash }) {
     const random = universityRandom(index)
     // Writer на вуз: буферы не должны пересекаться между параллельными воркерами.
     const writer = createWriter(prisma, { chunkSize: config.chunkSize })
-    const ctx = { index, random, config: { ...config, cities }, passwordHash }
+    const ctx = { index, random, config: { ...config, cities }, passwordHash, pool }
 
     const structure = await seedStructure(prisma, writer, ctx)
     const people = await seedPeople(prisma, writer, { ...ctx, structure })
     await seedAcademics(prisma, writer, { ...ctx, structure, people })
+    await seedSocial(prisma, writer, { ...ctx, structure, people })
+    await seedProfileContent(prisma, writer, { ...ctx, structure, people })
     await writer.flush()
 
     await markUniversityDone(prisma, uniId, {
