@@ -11,11 +11,11 @@
 
 import {
   ALBUM_TITLES,
-  ARTICLES,
-  ARTICLE_BODY,
   COMMENTS,
-  POLLS,
   PORTFOLIO_PROJECTS,
+  articleBody,
+  articleTitle,
+  pollTopic,
 } from '../data/content.mjs'
 import { child } from '../lib/ids.mjs'
 import { poolSlice } from './50-social.mjs'
@@ -25,10 +25,14 @@ import { poolSlice } from './50-social.mjs'
 // PRIVATE|UNIVERSITY|PUBLIC. Общий список подсунул бы статье значение PRIVATE,
 // которого схема контента не знает.
 const CONTENT_VISIBILITY = ['ALL', 'UNIVERSITY', 'UNIVERSITY', 'FACULTY', 'GROUP']
+// Категории — коды из ARTICLE_CATEGORIES (packages/shared-schemas/profile.ts).
+const ARTICLE_CATEGORIES = ['STUDY','SCIENCE','STUDENT_LIFE','PROJECTS','INTERNSHIPS','CAREER','EVENTS','RESOURCES'] // prettier-ignore
 const PORTFOLIO_VISIBILITY = ['PRIVATE', 'UNIVERSITY', 'UNIVERSITY', 'PUBLIC']
 
 export async function seedProfileContent(prisma, writer, ctx) {
-  const { index, random, structure, people, pool } = ctx
+  const { index, random, structure, people, pool, config } = ctx
+  const [articlesMin, articlesMax] = config.articlesPerUser
+  const [pollsMin, pollsMax] = config.pollsPerUser
   const slice = poolSlice(pool, index)
   // Фото для наполнения альбомов — вторая половина среза (первая ушла на посты).
   const albumPhotos = slice.photos.slice(4)
@@ -81,71 +85,88 @@ export async function seedProfileContent(prisma, writer, ctx) {
           createdAt: random.randomDate(-300, -5),
         })
 
-        // ── Статья ──────────────────────────────────────────────────────────
-        const [title, category, description] = random.pick(ARTICLES)
-        const articleId = child(studentId, 'art')
-        const body = random.pick(ARTICLE_BODY)
-        await writer.add('profileArticle', {
-          id: articleId,
-          userId: studentId,
-          title,
-          description,
-          content: body,
-          coverUrl: cover?.url ?? null,
-          category,
-          tags: random.sample(['учёба', 'опыт', 'советы', 'проекты', 'карьера'], 2),
-          visibility: random.pick(CONTENT_VISIBILITY),
-          allowComments: random.chance(0.9),
-          status: 'PUBLISHED',
-          // Оценка времени чтения: 900 знаков ≈ минута.
-          readingMinutes: Math.max(1, Math.round(body.length / 900)),
-          views: random.randInt(0, 400),
-          publishedAt: random.randomDate(-200, -1),
-        })
-
-        // ── Опрос с вариантами и голосами ───────────────────────────────────
-        const [question, options] = POLLS[si % POLLS.length]
-        const pollId = child(studentId, 'poll')
-        await writer.add('poll', {
-          id: pollId,
-          userId: studentId,
-          question,
-          multiple: random.chance(0.2),
-          anonymous: random.chance(0.7),
-          allowRevote: random.chance(0.3),
-          resultsVisibility: random.pick(['AFTER_VOTE', 'AFTER_END', 'HIDDEN']),
-          visibility: random.pick(CONTENT_VISIBILITY),
-          status: 'PUBLISHED',
-          closesAt: random.chance(0.4) ? random.randomDate(1, 20) : null,
-          createdAt: random.randomDate(-120, -1),
-        })
-        const optionIds = []
-        for (const [oi, text] of options.entries()) {
-          const optionId = child(pollId, 'o', oi)
-          optionIds.push(optionId)
-          await writer.add('pollOption', { id: optionId, pollId, text, order: oi })
-        }
-        // Голосуют однокурсники: голос уникален по (option, user).
-        for (const voterId of random.sample(group.studentIds, random.randInt(3, 10))) {
-          const optionId = random.pick(optionIds)
-          await writer.add('pollVote', {
-            id: `${optionId}-v-${voterId}`,
-            pollId,
-            optionId,
-            userId: voterId,
-            createdAt: random.randomDate(-100, 0),
+        // ── Статьи: 20–50 на пользователя ───────────────────────────────────
+        // Заголовок и тело собирает генератор: пятьдесят статей у одного автора из
+        // списка в шесть штук выглядели бы как ошибка сида, а не как контент.
+        const articleCount = random.randInt(articlesMin, articlesMax)
+        const firstArticleId = child(studentId, 'art', 0)
+        for (let ai = 0; ai < articleCount; ai += 1) {
+          const body = articleBody(random)
+          const articleCover = ai === 0 ? cover : nextCover()
+          const publishedAt = random.randomDate(-700, -1)
+          await writer.add('profileArticle', {
+            id: child(studentId, 'art', ai),
+            userId: studentId,
+            title: articleTitle(random),
+            description: 'Личный опыт и выводы — коротко о том, что сработало.',
+            content: body,
+            coverUrl: articleCover?.url ?? null,
+            category: random.pick(ARTICLE_CATEGORIES),
+            tags: random.sample(['учёба', 'опыт', 'советы', 'проекты', 'карьера', 'наука'], 2),
+            visibility: random.pick(CONTENT_VISIBILITY),
+            allowComments: random.chance(0.9),
+            status: ai === articleCount - 1 && random.chance(0.15) ? 'DRAFT' : 'PUBLISHED',
+            // Оценка времени чтения: 900 знаков ≈ минута.
+            readingMinutes: Math.max(1, Math.round(body.length / 900)),
+            views: random.randInt(0, 400),
+            publishedAt,
+            createdAt: publishedAt,
           })
         }
 
-        // ── Комментарии к статье и закладки ─────────────────────────────────
+        // ── Опросы: 10–100 на пользователя ──────────────────────────────────
+        // Голоса — самый дорогой домен: 55 опросов на человека × 130 тыс. человек ×
+        // голоса даёт десятки миллионов строк, поэтому их число ограничено
+        // SEED_POLL_VOTES_MAX (по умолчанию до 3 на опрос).
+        const pollCount = random.randInt(pollsMin, pollsMax)
+        for (let qi = 0; qi < pollCount; qi += 1) {
+          const { question, options } = pollTopic(random)
+          const pollId = child(studentId, 'poll', qi)
+          const createdAt = random.randomDate(-500, -1)
+          await writer.add('poll', {
+            id: pollId,
+            userId: studentId,
+            question,
+            multiple: random.chance(0.2),
+            anonymous: random.chance(0.7),
+            allowRevote: random.chance(0.3),
+            resultsVisibility: random.pick(['AFTER_VOTE', 'AFTER_END', 'HIDDEN']),
+            visibility: random.pick(CONTENT_VISIBILITY),
+            status: 'PUBLISHED',
+            closesAt: random.chance(0.3) ? random.randomDate(1, 20) : null,
+            createdAt,
+          })
+          const optionIds = []
+          for (const [oi, text] of options.entries()) {
+            const optionId = child(pollId, 'o', oi)
+            optionIds.push(optionId)
+            await writer.add('pollOption', { id: optionId, pollId, text, order: oi })
+          }
+          // Голосуют однокурсники: голос уникален по (option, user), поэтому берём
+          // разных людей.
+          const voters = random.sample(group.studentIds, random.randInt(0, config.pollVotesMax))
+          for (const voterId of voters) {
+            const optionId = random.pick(optionIds)
+            await writer.add('pollVote', {
+              id: `${optionId}-v-${voterId}`,
+              pollId,
+              optionId,
+              userId: voterId,
+              createdAt: new Date(createdAt.getTime() + random.randInt(1, 48) * 3_600_000),
+            })
+          }
+        }
+
+        // ── Комментарии к ПЕРВОЙ статье и закладки ──────────────────────────
+        // Только к первой: комментарии на каждой из 20–50 статей — это ещё миллионы
+        // строк при нулевой пользе для проверки экрана.
         for (const [ci, commenterId] of random
           .sample(group.studentIds, random.randInt(0, 3))
           .entries()) {
-          // prettier-ignore
           await writer.add('contentComment', {
-            id: child(articleId, 'cc', ci),
+            id: child(firstArticleId, 'cc', ci),
             authorId: commenterId,
-            articleId,
+            articleId: firstArticleId,
             content: random.pick(COMMENTS),
             createdAt: random.randomDate(-90, 0),
           })
@@ -155,7 +176,7 @@ export async function seedProfileContent(prisma, writer, ctx) {
           await writer.add('bookmark', {
             id: `${studentId}-bm-${si}`,
             userId: studentId,
-            articleId: child(group.studentIds[si - 1], 'art'),
+            articleId: child(group.studentIds[si - 1], 'art', 0),
             createdAt: random.randomDate(-80, 0),
           })
         }

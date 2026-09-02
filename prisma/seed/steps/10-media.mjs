@@ -15,10 +15,14 @@
 
 import { Prisma } from '@prisma/client'
 import { fileURLToPath } from 'node:url'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createRequire } from 'node:module'
 import { createCache, downloadAll, mimeByExt } from '../lib/download.mjs'
 import { createStorage } from '../lib/storage.mjs'
+
+// sharp есть в зависимостях apps/api — резолвим оттуда, как и minio.
+const requireFromApi = createRequire(new URL('../../../apps/api/package.json', import.meta.url))
 
 const SOURCES = JSON.parse(
   readFileSync(fileURLToPath(new URL('../data/media-sources.json', import.meta.url)), 'utf8'),
@@ -362,7 +366,57 @@ export async function seedMedia(prisma, config) {
     pool.videos.push(await upload(item, buckets.profileMedia, key, { posterKey }))
   }
 
-  // ── 3. Аватары и обложки всем пользователям ───────────────────────────────
+  // ── 3. Источники для изображений постов ───────────────────────────────────
+  // Постов теперь десятки на пользователя, и картинка нужна многим. Скачивать что-то
+  // ещё незачем: берём уже загруженные фото, уменьшаем до ширины поста (640px, ~23 КБ
+  // против 74 КБ) и кладём в бакет постов как ИСТОЧНИКИ. Дальше шаг соцчасти делает из
+  // них серверные копии — по одной на пост, потому что File.postId эксклюзивен, а
+  // объект уникален по (bucket, key). Копия делается внутри MinIO: байты по сети не идут.
+  const imageSources = []
+  if (config.postImagesPerUser > 0 && photos.done.length > 0) {
+    const sharp = requireFromApi('sharp')
+    const smallDir = join(cache.dir, 'small')
+    mkdirSync(smallDir, { recursive: true })
+    const sourcePhotos = photos.done.filter((p) => p.kind === 'photo')
+    const rows = []
+    for (const [i, item] of sourcePhotos.entries()) {
+      const name = `src-${String(i).padStart(4, '0')}.jpg`
+      const smallPath = join(smallDir, name)
+      if (!existsSync(smallPath)) {
+        await sharp(item.path)
+          .resize(640, null, { withoutEnlargement: true })
+          .jpeg({ quality: 72 })
+          .toBuffer()
+          .then((buf) => writeFileSync(smallPath, buf))
+      }
+      const size = statSync(smallPath).size
+      const key = `seed/src/${name}`
+      await storage.putIfAbsent(buckets.posts, key, smallPath, size, 'image/jpeg')
+      // File-строка обязательна: бакет постов входит в ночную уборку сирот
+      // (cleanOrphanFiles), и объект без записи File исчез бы. postId у источника нет.
+      const fileId = `seed-media-src-${name.replace(/[^a-zA-Z0-9]/g, '-')}`
+      rows.push({
+        id: fileId,
+        bucket: buckets.posts,
+        key,
+        mime: 'image/jpeg',
+        size,
+        name,
+        ownerId,
+      })
+      imageSources.push({ bucket: buckets.posts, key, size, mime: 'image/jpeg' })
+    }
+    for (let i = 0; i < rows.length; i += 500) {
+      await prisma.file.createMany({ data: rows.slice(i, i + 500), skipDuplicates: true })
+    }
+    console.log(
+      `  источники для картинок постов: ${imageSources.length} шт. ` +
+        `(${Math.round(imageSources.reduce((s2, x) => s2 + x.size, 0) / 1024 / 1024)} МБ)`,
+    )
+  }
+  pool.imageSources = imageSources
+
+  // ── 4. Аватары и обложки всем пользователям ───────────────────────────────
   // Обновляем пачками updateMany по списку id: 125 000 отдельных update — это 125 000
   // round-trip'ов, а так выходит несколько сотен запросов.
   const assigned = await assignAvatars(prisma, pool)

@@ -18,8 +18,29 @@ import {
   POSTS_UNIVERSITY,
   POST_TITLES,
   REACTIONS,
+  postText,
 } from '../data/content.mjs'
 import { child, id } from '../lib/ids.mjs'
+import { runPool } from '../lib/pool.mjs'
+
+// Аудитория личных постов. Пост виден другим только если аудитория совпала со скоупом
+// зрителя (visibilityWhere в posts.service): пост «в никуда» на вкладке профиля увидел
+// бы лишь сам автор. Поэтому смесь: чаще всего группа (её видят однокурсники), реже
+// факультет и вуз, изредка ALL. У сотрудников группы нет — им факультет и вуз.
+const STUDENT_AUDIENCE = [
+  ['GROUP', 45],
+  ['FACULTY', 25],
+  ['UNIVERSITY', 20],
+  ['ALL', 10],
+]
+const STAFF_AUDIENCE = [
+  ['FACULTY', 50],
+  ['UNIVERSITY', 35],
+  ['ALL', 15],
+]
+// Параллелизм серверных копий в MinIO: на 16 одновременных запросах локальный сервер
+// отдаёт ~420 копий/с, дальше упирается в себя.
+const COPY_CONCURRENCY = 16
 
 // Сколько файлов пула отдаётся одному вузу. 8 фото × 100 вузов = 800 контентных фото
 // пула ровно на всех; видео (их около сотни) достаётся не каждому вузу.
@@ -121,8 +142,89 @@ export async function seedSocial(prisma, writer, ctx) {
     scheduledAt: random.randomDate(1, 6),
   })
 
+  // ── Личные посты: 20–100 на каждого пользователя вуза ───────────────────────
+  // Это самый объёмный домен сида: 60 постов × 1250 человек ≈ 75 тыс. постов на вуз.
+  // Тексты собираются генератором (см. postText), иначе у одного автора шестьдесят
+  // постов оказались бы шестью повторяющимися фразами.
+  const [postsMin, postsMax] = ctx.config.postsPerUser
+  const authors = [
+    ...people.faculties.flatMap((f) => [
+      { id: f.deanId, facultyId: f.id, groupId: null, staff: true },
+      ...f.teacherIds.map((tid) => ({ id: tid, facultyId: f.id, groupId: null, staff: true })),
+      ...f.groups.flatMap((g) =>
+        g.studentIds.map((sid) => ({ id: sid, facultyId: f.id, groupId: g.id, staff: false })),
+      ),
+    ]),
+    { id: people.adminId, facultyId: null, groupId: null, staff: true },
+    ...people.moderatorIds.map((mid) => ({ id: mid, facultyId: null, groupId: null, staff: true })),
+  ]
+
+  // Посты, которым достанется изображение: первые N у каждого автора.
+  const withImage = []
+  const sources = pool?.imageSources ?? []
+  // Без хранилища (SEED_MEDIA=0) или без источников картинки просто не ставим:
+  // File-строка на несуществующий объект дала бы presigned-ссылку с 404.
+  const imagesPerUser = sources.length > 0 && ctx.storage ? ctx.config.postImagesPerUser : 0
+
+  for (const [ai, author] of authors.entries()) {
+    const count = random.randInt(postsMin, postsMax)
+    for (let pi = 0; pi < count; pi += 1) {
+      const postId = child(author.id, 'p', pi)
+      const audience = random.pickWeighted(
+        author.staff || !author.groupId ? STAFF_AUDIENCE : STUDENT_AUDIENCE,
+      )
+      // Даты — за два последних года: лента и профиль должны прокручиваться в историю.
+      const publishedAt = random.randomDate(-730, 0)
+      await writer.add('post', {
+        id: postId,
+        authorId: author.id,
+        audience,
+        content: postText(random),
+        universityId: uniId,
+        facultyId: audience === 'FACULTY' || audience === 'GROUP' ? author.facultyId : null,
+        groupId: audience === 'GROUP' ? author.groupId : null,
+        status: 'PUBLISHED',
+        publishedAt,
+        createdAt: publishedAt,
+        views: random.randInt(0, 240),
+      })
+      if (pi < imagesPerUser) {
+        withImage.push({ postId, ownerId: author.id, source: sources[(ai + pi) % sources.length] })
+      }
+    }
+  }
+
   // Посты должны быть в БД раньше комментариев, реакций и привязки файлов.
   await writer.flush()
+
+  // ── Изображения постов: серверные копии уже скачанного пула ────────────────
+  // Отдельная File-строка на пост — требование схемы, а не желание: File.postId
+  // эксклюзивен, а объект уникален по (bucket, key). Зато копирование делает сам
+  // MinIO (copyObject), поэтому байты по сети не гоняются и ничего не скачивается.
+  if (withImage.length > 0) {
+    await runPool(withImage, COPY_CONCURRENCY, async (item) => {
+      const key = `seed/p/${item.postId}.jpg`
+      await ctx.storage.copyIfAbsent(
+        ctx.storage.buckets.posts,
+        key,
+        item.source.bucket,
+        item.source.key,
+      )
+    })
+    for (const item of withImage) {
+      await writer.add('file', {
+        id: `seed-pimg-${item.postId}`,
+        bucket: ctx.storage.buckets.posts,
+        key: `seed/p/${item.postId}.jpg`,
+        mime: 'image/jpeg',
+        size: item.source.size,
+        name: 'photo.jpg',
+        ownerId: item.ownerId,
+        postId: item.postId,
+      })
+    }
+    await writer.flush()
+  }
 
   // ── Вложения постов из пула ─────────────────────────────────────────────────
   for (const [fi, file] of attachable.entries()) {
@@ -173,6 +275,24 @@ export async function seedSocial(prisma, writer, ctx) {
     }
   }
   // Комментарии и реакции — до событий: дальше пойдут другие модели.
+  await writer.flush()
+
+  // Реакции на первые два поста каждого автора: пост без реакций выглядит мёртвым, а
+  // раздавать их всем 75 тысячам — это ещё полтора миллиона строк на вуз.
+  for (const author of authors) {
+    for (let pi = 0; pi < 2; pi += 1) {
+      const postId = child(author.id, 'p', pi)
+      for (const [ri, userId] of random.sample(commenters, random.randInt(0, 3)).entries()) {
+        await writer.add('reaction', {
+          id: child(postId, 'rx', ri),
+          postId,
+          userId,
+          emoji: random.pick(REACTIONS),
+          createdAt: random.randomDate(-200, 0),
+        })
+      }
+    }
+  }
   await writer.flush()
 
   // ── События и участники ─────────────────────────────────────────────────────
