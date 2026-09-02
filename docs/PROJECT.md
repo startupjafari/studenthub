@@ -634,6 +634,24 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Мой день (BFF)** (Unified UX, PR-1/PR-9 — см. `docs/UNIFIED_UX.md`) — `GET /me/today` (операционный экран «Сегодня»/Action Center по роли: `{ role, date, timezone, pairs, scheduleChanges, applications, events, assignments, notifications }`). Агрегирует существующие доменные сервисы (Schedules/Events/Notifications/Assignments/Applications) по scope роли, чтобы клиент делал один запрос вместо нескольких; заявки — только студенту/старосте; каждый источник устойчив к сбою (пустой дефолт). · `GET /me/activity?limit=` (единая лента активности, PR-9/#14): свои события из трёх журналов (`ApplicationEvent`/`DocumentEvent`/`AuditLog`) в общем контракте `Activity { id, source, action, entityType, entityId, actorId, ts, meta }` — БЕЗ слияния таблиц; scope = свои (`studentId`/`ownerId`/`userId`), слияние по времени desc, общий лимит. Output-only.
 
+**Карьера (Ф18)** — единственная зона платформы с внешним участником (`EMPLOYER`), поэтому правила доступа тут свои.
+
+*Компания.* `POST /career/companies/signup` (публ., throttle 5/15 мин) — саморегистрация работодателя: создаёт `Company` в статусе `PENDING_EMAIL` и пользователя с ролью `EMPLOYER`, пустым scope и `profileVisibility = PRIVATE`. Это единственное исключение из правила «регистрация только по инвайтам» (см. §2.1 и `BACKEND_RULES §19` п. 9). `POST /career/companies/verify-email` (публ.) — подтверждение по ссылке из письма; токен хранится хэшем. Далее `GET|PATCH /career/companies/me`, `GET /career/companies/me/access`, `GET /career/companies/me/universities`, `POST /career/companies/me/access` (запрос допуска к вузу) — все `EMPLOYER`.
+
+*Допуск к вузу.* `GET /career/university/companies` + `PATCH /career/university/companies/:id` (`PLATFORM_ADMIN`, `UNIVERSITY_ADMIN`; чтение — ещё `UNIVERSITY_MODERATOR`/`DEAN`) — очередь заявок компаний и решение по ним. Статусы `CompanyUniversityAccess.status` = `REQUESTED|APPROVED|REJECTED|REVOKED`, у одобренного возможен `expiresAt`.
+
+**Ключевое правило модуля:** компания видит студентов **только тех вузов, где её допуск активен прямо сейчас**. Набор вузов НЕ кладётся в JWT: отзыв допуска обязан действовать немедленно, а 15 минут доступа к чужим студентам после отзыва — это инцидент, а не задержка. Поэтому набор читается из БД на каждый запрос (`CareerAccessService`), с минутным кэшем в Redis и точечным сбросом при любом изменении допуска; кэш — ускорение, а не источник истины.
+
+*Вакансии.* Студенту и сотрудникам вуза — `GET /career/vacancies`, `GET /career/vacancies/:id` (показываются только одобренные их вузом). Работодателю — `GET|POST /career/employer/vacancies`, `PATCH /career/employer/vacancies/:id` и переходы `POST :id/publish|pause|close` (`Vacancy.status` = `DRAFT|PUBLISHED|PAUSED|CLOSED`). Вузу — `GET /career/university/vacancies` + `PATCH :id` (модерация; `VacancyUniversityReview.status` = `PENDING|APPROVED|REJECTED`): вакансия видна в вузе только после одобрения **этим** вузом.
+
+*Профиль кандидата и согласия.* `GET|PATCH /career/profile` (`STUDENT`/`STAROSTA`) — `CareerProfile` с `visibility` = `HIDDEN|EMPLOYERS`, статусом поиска (`LOOKING|OPEN|NOT_LOOKING`), желаемыми позициями, форматами и вилкой. `POST /career/profile/consents` — согласия на передачу полей (`CareerConsent.field` = `GPA|PHONE|EMAIL`, общее или на конкретную компанию, отзывается). `GET /career/profile/candidates/:id` (`EMPLOYER`) отдаёт `gpa` и `phone` **только при активном согласии**, иначе `null` — это проверяется на уровне `select`/маппинга, а не скрытием в UI (§11).
+
+*Резюме.* `GET|PATCH /career/resume`, `GET /career/resume/pdf` (`STUDENT`/`STAROSTA`) и `GET /career/resume/public/:slug` (публ.) — публикация по ссылке включается самим студентом (`publishedAt` + `publicSlug`), контакты в публичной версии — по флагу `includeContacts`.
+
+*Отклики.* Студент: `GET|POST /career/applications`, `GET :id/history`, `POST :id/withdraw`. Работодатель: `GET /career/employer/applications`, `PATCH :id` (смена статуса). Воронка `CareerApplication.status` = `SUBMITTED|VIEWED|SHORTLISTED|INTERVIEW|OFFER|HIRED|REJECTED|WITHDRAWN`, каждый переход пишется в `CareerApplicationEvent`.
+
+*Прочее.* `GET /career/events` — карьерные мероприятия (`Event.careerKind` = `CAREER_FAIR|WORKSHOP|INTERVIEW_DAY|COMPANY_PRESENTATION|HACKATHON`). `GET /career/analytics/university` (роли вуза) и `GET /career/analytics/company` (`EMPLOYER`) — воронка и срезы.
+
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
 Пагинация: списки контента и сообщений — cursor (`?cursor=&limit=`, `limit ≤ 50`); административные таблицы — offset (`?page=&limit=`, `limit ≤ 100`).
