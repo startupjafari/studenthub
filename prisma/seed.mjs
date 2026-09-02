@@ -11,8 +11,10 @@ import { loadConfig } from './seed/config.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { seedUniversities } from './seed/index.mjs'
+import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
+import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 
@@ -124,6 +126,14 @@ async function main() {
   // Прогресс создаём в самом начале: он же измеряет длительность прогона.
   const progress = createProgress({ total: 1, label: 'Итого' })
 
+  // ── Справочник КАТО (первым делом) ──────────────────────────────────────────
+  // Не демо-данные: `University.city` хранит 9-значный код, и без справочника город
+  // вуза не во что резолвить (селект «Город» пустой). Поэтому шаг обязателен и при
+  // развёртывании; он идемпотентен (ON CONFLICT DO UPDATE).
+  if (config.runs('kato')) {
+    await seedKato(prisma)
+  }
+
   // Один bcrypt-хэш на всех сид-пользователей. Это не оптимизация, а условие
   // выполнимости: 125 000 хэшей с cost=12 — это часы работы CPU.
   const passwordHash = await bcrypt.hash('Admin1234!', 12)
@@ -144,7 +154,7 @@ async function main() {
   })
 
   // Демо-структура (Фаза 5): вуз ACTIVE, факультет, группа, 3 аудитории.
-  // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed-kato.mjs).
+  // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed/steps/00-kato.mjs).
   // Поле есть и в update, чтобы прогон сида перевёл на код вузы, заведённые до справочника.
   const university = await prisma.university.upsert({
     where: { id: SEED_UNIVERSITY_ID },
@@ -1360,6 +1370,15 @@ async function main() {
       companies: linkedCompanies,
     })
   }
+  // ── Демо-дополнения ─────────────────────────────────────────────────────────
+  // Друзья dev-аккаунтов, очередь заявок демо-вуза, жалобы, воронка инвайтов и
+  // история для дашборда платформы (даты регистрации, журнал аудита).
+  if (config.runs('demo')) {
+    const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
+    await demoWriter.flush()
+  }
+
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }
 

@@ -11,7 +11,7 @@
 // Профили. students — диапазон студентов на вуз, из него PRNG берёт число для каждого
 // вуза (детерминированно по индексу вуза, см. lib/rng.mjs).
 // Этапы, которые можно выбрать через SEED_ONLY.
-const STAGE_LIST = ['media', 'companies', 'universities']
+const STAGE_LIST = ['kato', 'media', 'companies', 'universities', 'demo']
 
 const PROFILES = {
   // demo: генератор вузов выключен — заливается только демо-вуз основного сида.

@@ -1,9 +1,9 @@
 // Генератор справочника КАТО (Классификатор административно-территориальных объектов РК).
 //
 // Вход  — выгрузка stat.gov.kz (~22 700 записей, ~4.8 МБ), в git не хранится.
-// Выход — prisma/data/kato.json: нормализованный справочник для сидера (см. prisma/seed-kato.mjs).
+// Выход — prisma/seed/data/kato.json: нормализованный справочник для сида (см. prisma/seed/steps/00-kato.mjs).
 //
-// Запуск: node scripts/gen-kato.mjs <путь-к-выгрузке> [--out prisma/data/kato.json]
+// Запуск: node scripts/gen-kato.mjs <путь-к-выгрузке> [--out prisma/seed/data/kato.json]
 //
 // Что чинится по дороге (дефекты исходной выгрузки, проверено 2026-08-26):
 //   1. Ключ записи — то `id` (272 шт.), то `Id` (22 464 шт.).
@@ -23,7 +23,7 @@ if (!srcArg) {
   process.exit(1)
 }
 const outIdx = rest.indexOf('--out')
-const OUT = resolve(outIdx === -1 ? 'prisma/data/kato.json' : rest[outIdx + 1])
+const OUT = resolve(outIdx === -1 ? 'prisma/seed/data/kato.json' : rest[outIdx + 1])
 
 // --- 1. Гомоглифы: латиница, попавшая в кириллический текст ---------------------------------
 const HOMOGLYPHS = {

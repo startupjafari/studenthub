@@ -53,19 +53,22 @@ const GLOBAL_SERVICES = [
 ]
 
 // Статусы заявки и их «геометрия»: какие даты заполнены и что в журнале.
-// Статусы — строго из APPLICATION_STATUSES (packages/shared-schemas/applications.ts).
-// CANCELLED там НЕТ: отмена — это поле cancelledAt, а не отдельный статус.
+// Все двенадцать статусов из APPLICATION_STATUSES
+// (packages/shared-schemas/application-services.ts): каждая вкладка фильтра в очереди
+// сотрудника должна быть непустой, а «новые» и «в работе» — преобладать, как в жизни.
 const APP_FLOWS = [
-  ['DRAFT', 18],
-  ['SUBMITTED', 18],
-  ['IN_REVIEW', 14],
-  ['NEEDS_CORRECTION', 8],
+  ['DRAFT', 14],
+  ['SUBMITTED', 16],
+  ['IN_REVIEW', 13],
+  ['NEEDS_CORRECTION', 7],
+  ['RESUBMITTED', 6],
   ['IN_PREPARATION', 8],
-  ['READY', 12],
+  ['READY', 10],
   ['READY_FOR_PICKUP', 6],
-  ['ISSUED', 10],
+  ['ISSUED', 9],
   ['DELIVERED', 3],
-  ['REJECTED', 3],
+  ['REJECTED', 4],
+  ['CANCELLED', 4],
 ]
 
 const COMPLAINT_REASONS = [
@@ -339,6 +342,8 @@ export async function seedServices(prisma, writer, ctx) {
     const submitted = status !== 'DRAFT' ? random.randomDate(-20, -1) : null
     const isReady = ['READY', 'READY_FOR_PICKUP', 'ISSUED', 'DELIVERED'].includes(status)
     const isIssued = status === 'ISSUED' || status === 'DELIVERED'
+    // Черновик и отменённая заявка в работу не берутся.
+    const inWork = !['DRAFT', 'SUBMITTED', 'CANCELLED'].includes(status)
     await writer.add('application', {
       id: applicationId,
       // Номер уникален глобально — поэтому с префиксом вуза.
@@ -350,15 +355,16 @@ export async function seedServices(prisma, writer, ctx) {
       status,
       deliveryType: 'ELECTRONIC',
       formData: { purpose: 'по месту требования' },
-      assignedToId: status === 'DRAFT' || status === 'SUBMITTED' ? null : faculty.deanId,
-      assignedAt: status === 'DRAFT' || status === 'SUBMITTED' ? null : random.randomDate(-15, -1),
+      assignedToId: inWork ? faculty.deanId : null,
+      assignedAt: inWork ? random.randomDate(-15, -1) : null,
       submittedAt: submitted,
-      startedAt: status === 'DRAFT' || status === 'SUBMITTED' ? null : random.randomDate(-14, -1),
+      startedAt: inWork ? random.randomDate(-14, -1) : null,
       // Срок по SLA от подачи — так на экране очереди видно и просрочку, и запас.
       dueAt: submitted ? new Date(submitted.getTime() + slaHours * 3_600_000) : null,
       readyAt: isReady ? random.randomDate(-7, -1) : null,
       issuedAt: isIssued ? random.randomDate(-6, 0) : null,
       issuedById: isIssued ? faculty.deanId : null,
+      cancelledAt: status === 'CANCELLED' ? random.randomDate(-6, -1) : null,
       rejectionReason:
         status === 'REJECTED'
           ? 'Приложен нечитаемый скан документа'
@@ -378,10 +384,13 @@ export async function seedServices(prisma, writer, ctx) {
     // Журнал переходов: создание → подача → (взято в работу) → финал.
     const events = [['CREATED', null, 'DRAFT']]
     if (status !== 'DRAFT') events.push(['SUBMITTED', 'DRAFT', 'SUBMITTED'])
-    if (status !== 'DRAFT' && status !== 'SUBMITTED') {
-      events.push(['ASSIGNED', 'SUBMITTED', 'IN_REVIEW'])
-    }
+    if (inWork) events.push(['ASSIGNED', 'SUBMITTED', 'IN_REVIEW'])
     if (status === 'NEEDS_CORRECTION') events.push(['CORRECTION_REQUESTED', 'IN_REVIEW', 'NEEDS_CORRECTION']) // prettier-ignore
+    if (status === 'RESUBMITTED') {
+      events.push(['CORRECTION_REQUESTED', 'IN_REVIEW', 'NEEDS_CORRECTION'])
+      events.push(['RESUBMITTED', 'NEEDS_CORRECTION', 'RESUBMITTED'])
+    }
+    if (status === 'CANCELLED') events.push(['CANCELLED', 'SUBMITTED', 'CANCELLED'])
     if (status === 'IN_PREPARATION') events.push(['PREPARATION', 'IN_REVIEW', 'IN_PREPARATION'])
     if (isReady) events.push(['READY', 'IN_REVIEW', 'READY'])
     if (status === 'READY_FOR_PICKUP') events.push(['PICKUP_READY', 'READY', 'READY_FOR_PICKUP'])
