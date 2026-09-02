@@ -1363,7 +1363,11 @@ async function main() {
     // Без этапа companies (SEED_ONLY=universities) карьерные компании берём из БД:
     // они общие для платформы и обычно уже залиты предыдущим прогоном.
     const linkedCompanies = companies ?? (await loadCompanies(prisma))
+    // Клиент хранилища один на прогон: шаг соцчасти делает через него серверные копии
+    // изображений постов. Если MinIO недоступен, шаг сам обойдётся без картинок.
+    const storage = config.media ? createStorage() : null
     await seedUniversities(prisma, {
+      storage,
       config,
       passwordHash,
       pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),

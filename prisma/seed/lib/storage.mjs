@@ -95,6 +95,22 @@ export function createStorage() {
       }
     },
 
+    // Серверная копия объекта внутри MinIO: байты по сети не гоняются, копирование
+    // делает сам сервер. Так «изображение у поста» получается из УЖЕ скачанного пула —
+    // отдельная File-строка на пост нужна по схеме (File.postId эксклюзивен, объект
+    // уникален по bucket+key), а вот качать что-то заново незачем.
+    async copyIfAbsent(bucket, key, sourceBucket, sourceKey) {
+      try {
+        await client.statObject(bucket, key)
+        return false
+      } catch {
+        // объекта нет — копируем
+      }
+      const { CopyConditions } = requireFromApi('minio')
+      await client.copyObject(bucket, key, `/${sourceBucket}/${sourceKey}`, new CopyConditions())
+      return true
+    },
+
     // Загрузка с пропуском уже загруженного: сравниваем размер объекта в бакете.
     // Так повторный прогон сида не перекачивает гигабайты в MinIO.
     async putIfAbsent(bucket, key, filePath, size, mime) {

@@ -96,6 +96,21 @@ export function loadConfig() {
     // потолок, а фактическое число зависит от доступности источников.
     photos: num('SEED_PHOTOS', 1000),
     videos: num('SEED_VIDEOS', 150),
+    // ── Контент на пользователя ───────────────────────────────────────────────
+    // Объём здесь определяет почти весь размер БД: 60 постов × 130 тыс.
+    // пользователей — это 7.8 млн постов, а опросы с вариантами и голосами дают
+    // ещё десятки миллионов строк. Значения по умолчанию — как заказано.
+    postsPerUser: [num('SEED_POSTS_MIN', 20), num('SEED_POSTS_MAX', 100)],
+    articlesPerUser: [num('SEED_ARTICLES_MIN', 20), num('SEED_ARTICLES_MAX', 50)],
+    pollsPerUser: [num('SEED_POLLS_MIN', 10), num('SEED_POLLS_MAX', 100)],
+    // Голосов на опрос: множитель к самому большому домену. 3 голоса на опрос при
+    // 7.2 млн опросов — это ещё ~11 млн строк.
+    pollVotesMax: num('SEED_POLL_VOTES_MAX', 3),
+    // Постов с изображением на пользователя. Картинка требует объекта в MinIO
+    // (File.postId эксклюзивен, объект уникален по bucket+key), поэтому «картинка у
+    // каждого поста» = 7.8 млн объектов и сотни гигабайт. Здесь — серверные копии
+    // уже скачанных фото: 2 на пользователя ≈ 260 тыс. объектов ≈ 9 ГБ. 0 — выключить.
+    postImagesPerUser: num('SEED_POST_IMAGES_PER_USER', 2),
     // Кэш скачанного (в .gitignore): повторный прогон не тянет файлы из сети заново.
     mediaDir: process.env.SEED_MEDIA_DIR ?? '.seed-media',
     // Заново обойти Викисклад в поисках видео (иначе берётся кэш индекса).
@@ -115,6 +130,14 @@ export function loadConfig() {
 
   if (config.studentsMin > config.studentsMax) {
     throw new Error('SEED_STUDENTS_MIN больше SEED_STUDENTS_MAX')
+  }
+  for (const [name, range] of [
+    ['SEED_POSTS', config.postsPerUser],
+    ['SEED_ARTICLES', config.articlesPerUser],
+    ['SEED_POLLS', config.pollsPerUser],
+  ]) {
+    if (range[0] > range[1]) throw new Error(`${name}_MIN больше ${name}_MAX`)
+    if (range[0] < 0) throw new Error(`${name}_MIN отрицательный`)
   }
   if (
     config.universities > 0 &&

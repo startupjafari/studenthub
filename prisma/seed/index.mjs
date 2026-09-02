@@ -29,18 +29,28 @@ const KATO_PATH = fileURLToPath(new URL('./data/kato.json', import.meta.url))
 // Оценка объёма вуза — только для строки в логе перед прогоном, чтобы порядок величины
 // был известен заранее, а не через полчаса.
 //
-// Коэффициент калиброван замером, а не выведен из формулы: расписывать вклад каждой из
-// сорока моделей — это точность, которой у оценки всё равно нет (число строк зависит от
-// случайных величин: сколько документов у студента, сколько откликов, сколько
-// комментариев). Замер: вуз на 1350 студентов → 223 561 строка, то есть ~165 строк на
-// студента. Основную массу дают посещаемость, журнал оценок, документы и заявки.
-const ROWS_PER_STUDENT = 165
+// Базовая часть (структура, академика, документы, заявки, чаты, карьера) калибрована
+// замером: 165 строк на студента. Расписывать вклад каждой из сорока моделей смысла
+// нет — точности у оценки всё равно нет, слишком много случайных величин. А вот
+// контент на пользователя считаем из конфига: он задаётся ручками и меняет итог в
+// разы (60 постов и 55 опросов на человека — это больше половины всех строк).
+const BASE_ROWS_PER_STUDENT = 165
+const OPTIONS_PER_POLL = 3.5
 
-function estimateRows(plan) {
-  return plan.students * ROWS_PER_STUDENT
+function contentRowsPerUser(config) {
+  const avg = ([min, max]) => (min + max) / 2
+  const posts = avg(config.postsPerUser)
+  const articles = avg(config.articlesPerUser)
+  const polls = avg(config.pollsPerUser)
+  const votes = polls * (config.pollVotesMax / 2)
+  return posts + articles + polls * (1 + OPTIONS_PER_POLL) + votes + config.postImagesPerUser
 }
 
-export async function seedUniversities(prisma, { config, passwordHash, pool, companies }) {
+function estimateRows(plan, config) {
+  return Math.round(plan.students * (BASE_ROWS_PER_STUDENT + contentRowsPerUser(config)))
+}
+
+export async function seedUniversities(prisma, { config, passwordHash, pool, companies, storage }) {
   const cities = loadCities(KATO_PATH)
   const katoCount = await prisma.katoUnit.count()
   if (katoCount === 0) {
@@ -58,7 +68,8 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
   // Оценка объёма до старта: на полном масштабе прогон идёт десятки минут, и знать
   // порядок величины заранее полезнее, чем узнать его через полчаса.
   const estimate = indices.reduce(
-    (sum, index) => sum + estimateRows(planUniversity(index, universityRandom(index), config)),
+    (sum, index) =>
+      sum + estimateRows(planUniversity(index, universityRandom(index), config), config),
     0,
   )
   console.log(
@@ -79,7 +90,15 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     const random = universityRandom(index)
     // Writer на вуз: буферы не должны пересекаться между параллельными воркерами.
     const writer = createWriter(prisma, { chunkSize: config.chunkSize })
-    const ctx = { index, random, config: { ...config, cities }, passwordHash, pool, companies }
+    const ctx = {
+      index,
+      random,
+      config: { ...config, cities },
+      passwordHash,
+      pool,
+      companies,
+      storage,
+    }
 
     const structure = await seedStructure(prisma, writer, ctx)
     const people = await seedPeople(prisma, writer, { ...ctx, structure })
