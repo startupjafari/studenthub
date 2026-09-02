@@ -53,14 +53,19 @@ const GLOBAL_SERVICES = [
 ]
 
 // Статусы заявки и их «геометрия»: какие даты заполнены и что в журнале.
+// Статусы — строго из APPLICATION_STATUSES (packages/shared-schemas/applications.ts).
+// CANCELLED там НЕТ: отмена — это поле cancelledAt, а не отдельный статус.
 const APP_FLOWS = [
-  ['DRAFT', 20],
-  ['SUBMITTED', 20],
-  ['IN_REVIEW', 15],
-  ['READY', 15],
-  ['ISSUED', 20],
-  ['REJECTED', 5],
-  ['CANCELLED', 5],
+  ['DRAFT', 18],
+  ['SUBMITTED', 18],
+  ['IN_REVIEW', 14],
+  ['NEEDS_CORRECTION', 8],
+  ['IN_PREPARATION', 8],
+  ['READY', 12],
+  ['READY_FOR_PICKUP', 6],
+  ['ISSUED', 10],
+  ['DELIVERED', 3],
+  ['REJECTED', 3],
 ]
 
 const COMPLAINT_REASONS = [
@@ -320,7 +325,8 @@ export async function seedServices(prisma, writer, ctx) {
     const applicationId = child(studentId, 'app')
     appNo += 1
     const submitted = status !== 'DRAFT' ? random.randomDate(-20, -1) : null
-    const isDone = status === 'READY' || status === 'ISSUED'
+    const isReady = ['READY', 'READY_FOR_PICKUP', 'ISSUED', 'DELIVERED'].includes(status)
+    const isIssued = status === 'ISSUED' || status === 'DELIVERED'
     await writer.add('application', {
       id: applicationId,
       // Номер уникален глобально — поэтому с префиксом вуза.
@@ -335,26 +341,41 @@ export async function seedServices(prisma, writer, ctx) {
       assignedToId: status === 'DRAFT' || status === 'SUBMITTED' ? null : faculty.deanId,
       assignedAt: status === 'DRAFT' || status === 'SUBMITTED' ? null : random.randomDate(-15, -1),
       submittedAt: submitted,
-      startedAt: status === 'IN_REVIEW' || isDone ? random.randomDate(-14, -1) : null,
+      startedAt: status === 'DRAFT' || status === 'SUBMITTED' ? null : random.randomDate(-14, -1),
       // Срок по SLA от подачи — так на экране очереди видно и просрочку, и запас.
       dueAt: submitted ? new Date(submitted.getTime() + slaHours * 3_600_000) : null,
-      readyAt: isDone ? random.randomDate(-7, -1) : null,
-      issuedAt: status === 'ISSUED' ? random.randomDate(-6, 0) : null,
-      issuedById: status === 'ISSUED' ? faculty.deanId : null,
-      cancelledAt: status === 'CANCELLED' ? random.randomDate(-5, -1) : null,
-      rejectionReason: status === 'REJECTED' ? 'Приложен нечитаемый скан документа' : null,
-      pickupCode: status === 'ISSUED' ? `${uniId}-P${String(appNo).padStart(6, '0')}` : null,
+      readyAt: isReady ? random.randomDate(-7, -1) : null,
+      issuedAt: isIssued ? random.randomDate(-6, 0) : null,
+      issuedById: isIssued ? faculty.deanId : null,
+      rejectionReason:
+        status === 'REJECTED'
+          ? 'Приложен нечитаемый скан документа'
+          : status === 'NEEDS_CORRECTION'
+            ? 'Уточните место требования справки'
+            : null,
+      pickupCode:
+        status === 'READY_FOR_PICKUP' || isIssued
+          ? `${uniId}-P${String(appNo).padStart(6, '0')}`
+          : null,
+      pickupLocation: status === 'READY_FOR_PICKUP' ? 'Деканат, кабинет 210' : null,
+      pickupInstructions:
+        status === 'READY_FOR_PICKUP' ? 'Возьмите с собой удостоверение личности.' : null,
       createdAt: submitted ?? random.randomDate(-25, -1),
     })
 
     // Журнал переходов: создание → подача → (взято в работу) → финал.
     const events = [['CREATED', null, 'DRAFT']]
     if (status !== 'DRAFT') events.push(['SUBMITTED', 'DRAFT', 'SUBMITTED'])
-    if (status === 'IN_REVIEW' || isDone) events.push(['ASSIGNED', 'SUBMITTED', 'IN_REVIEW'])
-    if (isDone) events.push(['READY', 'IN_REVIEW', 'READY'])
-    if (status === 'ISSUED') events.push(['ISSUED', 'READY', 'ISSUED'])
+    if (status !== 'DRAFT' && status !== 'SUBMITTED') {
+      events.push(['ASSIGNED', 'SUBMITTED', 'IN_REVIEW'])
+    }
+    if (status === 'NEEDS_CORRECTION') events.push(['CORRECTION_REQUESTED', 'IN_REVIEW', 'NEEDS_CORRECTION']) // prettier-ignore
+    if (status === 'IN_PREPARATION') events.push(['PREPARATION', 'IN_REVIEW', 'IN_PREPARATION'])
+    if (isReady) events.push(['READY', 'IN_REVIEW', 'READY'])
+    if (status === 'READY_FOR_PICKUP') events.push(['PICKUP_READY', 'READY', 'READY_FOR_PICKUP'])
+    if (isIssued) events.push(['ISSUED', 'READY', 'ISSUED'])
+    if (status === 'DELIVERED') events.push(['DELIVERED', 'ISSUED', 'DELIVERED'])
     if (status === 'REJECTED') events.push(['REJECTED', 'IN_REVIEW', 'REJECTED'])
-    if (status === 'CANCELLED') events.push(['CANCELLED', 'SUBMITTED', 'CANCELLED'])
     for (const [ei, [action, fromStatus, toStatus]] of events.entries()) {
       await writer.add('applicationEvent', {
         id: child(applicationId, 'ev', ei),
@@ -375,14 +396,15 @@ export async function seedServices(prisma, writer, ctx) {
         requirementId,
         documentId: child(studentId, 'doc', 'ID_CARD'),
         source: 'STORAGE',
-        status: isDone ? 'ACCEPTED' : 'PENDING',
+        status: isReady ? 'ACCEPTED' : status === 'NEEDS_CORRECTION' ? 'REPLACEMENT_REQUIRED' : 'PENDING', // prettier-ignore
+        reviewComment: status === 'NEEDS_CORRECTION' ? 'Приложите разворот с фотографией' : null,
         snapshotTitle: 'Удостоверение личности',
-        reviewedById: isDone ? faculty.deanId : null,
-        reviewedAt: isDone ? random.randomDate(-7, -1) : null,
+        reviewedById: isReady ? faculty.deanId : null,
+        reviewedAt: isReady ? random.randomDate(-7, -1) : null,
       })
     }
     // Результат: выданная вузом электронная справка.
-    if (status === 'ISSUED') {
+    if (isIssued) {
       await writer.add('applicationResult', {
         id: child(applicationId, 'res'),
         applicationId,

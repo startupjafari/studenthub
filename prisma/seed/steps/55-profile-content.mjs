@@ -20,7 +20,12 @@ import {
 import { child } from '../lib/ids.mjs'
 import { poolSlice } from './50-social.mjs'
 
-const VISIBILITY = ['ALL', 'UNIVERSITY', 'UNIVERSITY', 'FACULTY', 'GROUP', 'PRIVATE']
+// Видимость контента и видимость портфолио — РАЗНЫЕ перечисления в shared-schemas:
+// CONTENT_VISIBILITY = ALL|UNIVERSITY|FACULTY|GROUP, а PORTFOLIO_VISIBILITY =
+// PRIVATE|UNIVERSITY|PUBLIC. Общий список подсунул бы статье значение PRIVATE,
+// которого схема контента не знает.
+const CONTENT_VISIBILITY = ['ALL', 'UNIVERSITY', 'UNIVERSITY', 'FACULTY', 'GROUP']
+const PORTFOLIO_VISIBILITY = ['PRIVATE', 'UNIVERSITY', 'UNIVERSITY', 'PUBLIC']
 
 export async function seedProfileContent(prisma, writer, ctx) {
   const { index, random, structure, people, pool } = ctx
@@ -61,7 +66,7 @@ export async function seedProfileContent(prisma, writer, ctx) {
             url: random.chance(0.4) ? 'https://portfolio.example.kz/item' : null,
             startDate: random.randomDate(-700, -60),
             endDate: random.chance(0.6) ? random.randomDate(-59, -10) : null,
-            visibility: random.pick(VISIBILITY),
+            visibility: random.pick(PORTFOLIO_VISIBILITY),
             order: k,
           })
         }
@@ -89,7 +94,7 @@ export async function seedProfileContent(prisma, writer, ctx) {
           coverUrl: cover?.url ?? null,
           category,
           tags: random.sample(['учёба', 'опыт', 'советы', 'проекты', 'карьера'], 2),
-          visibility: random.pick(VISIBILITY),
+          visibility: random.pick(CONTENT_VISIBILITY),
           allowComments: random.chance(0.9),
           status: 'PUBLISHED',
           // Оценка времени чтения: 900 знаков ≈ минута.
@@ -108,8 +113,8 @@ export async function seedProfileContent(prisma, writer, ctx) {
           multiple: random.chance(0.2),
           anonymous: random.chance(0.7),
           allowRevote: random.chance(0.3),
-          resultsVisibility: random.pick(['AFTER_VOTE', 'ALWAYS', 'AFTER_CLOSE']),
-          visibility: random.pick(VISIBILITY),
+          resultsVisibility: random.pick(['AFTER_VOTE', 'AFTER_END', 'HIDDEN']),
+          visibility: random.pick(CONTENT_VISIBILITY),
           status: 'PUBLISHED',
           closesAt: random.chance(0.4) ? random.randomDate(1, 20) : null,
           createdAt: random.randomDate(-120, -1),
