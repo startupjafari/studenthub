@@ -21,6 +21,14 @@ on:
         description: 'Запустить seed (db:seed)'
         type: boolean
         default: true
+      scale:
+        description: 'Масштаб сида: demo (только демо-вуз) / small (5 вузов) / full (100 вузов, ~22 млн строк!)'
+        type: choice
+        default: demo
+        options:
+          - demo
+          - small
+          - full
       run_seed_kato:
         description: 'Залить справочник КАТО (db:seed:kato)'
         type: boolean
@@ -70,8 +78,16 @@ jobs:
         if: ${{ inputs.run_migrations }}
         run: pnpm db:deploy
 
+      # Масштаб по умолчанию demo. full — это ~22 млн строк и десятки минут: на Railway
+      # такой прогон осознанно разрешается флагом SEED_ALLOW_REMOTE (гард в
+      # prisma/seed/config.mjs не даст залить это в удалённую БД случайно).
+      # Медиа выключено: качать в MinIO Railway полгигабайта с раннера — отдельная задача.
       - name: Seed (db:seed)
         if: ${{ inputs.run_seed }}
+        env:
+          SEED_SCALE: ${{ inputs.scale }}
+          SEED_ALLOW_REMOTE: '1'
+          SEED_MEDIA: '0'
         run: pnpm db:seed
 
       # Справочник КАТО — отдельным шагом и отдельным флагом: он не демо-данные, а

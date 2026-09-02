@@ -1,0 +1,81 @@
+{
+  "_comment": "Источники медиа для сида. Все — со свободными лицензиями и без API-ключей. Фото генерируются по шаблонам URL, видео берутся из списка образцов и из тематических категорий Викисклада (CC).",
+  "photos": {
+    "faces": {
+      "_comment": "Портреты для аватаров: randomuser.me, 100 мужских и 100 женских.",
+      "template": "https://randomuser.me/api/portraits/{gender}/{n}.jpg",
+      "genders": ["men", "women"],
+      "perGender": 100
+    },
+    "content": {
+      "_comment": "Контентные фото: picsum.photos (производное от Unsplash), seed делает URL детерминированным.",
+      "template": "https://picsum.photos/seed/studenthub-{n}/{w}/{h}",
+      "sizes": [
+        [1200, 800],
+        [1000, 1000],
+        [900, 1200]
+      ]
+    }
+  },
+  "videos": {
+    "samples": {
+      "_comment": "Открытые образцы (Blender Foundation, CC-BY) в mp4/h264 — воспроизводятся во всех браузерах.",
+      "base": "https://test-videos.co.uk/vids/",
+      "files": [
+        "bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4",
+        "bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4",
+        "bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4",
+        "bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_2MB.mp4",
+        "bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_5MB.mp4",
+        "bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4",
+        "bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_2MB.mp4",
+        "bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_5MB.mp4",
+        "jellyfish/mp4/h264/360/Jellyfish_360_10s_1MB.mp4",
+        "jellyfish/mp4/h264/360/Jellyfish_360_10s_2MB.mp4",
+        "jellyfish/mp4/h264/720/Jellyfish_720_10s_1MB.mp4",
+        "jellyfish/mp4/h264/720/Jellyfish_720_10s_2MB.mp4",
+        "jellyfish/mp4/h264/720/Jellyfish_720_10s_5MB.mp4",
+        "jellyfish/mp4/h264/1080/Jellyfish_1080_10s_2MB.mp4",
+        "jellyfish/mp4/h264/1080/Jellyfish_1080_10s_5MB.mp4",
+        "sintel/mp4/h264/360/Sintel_360_10s_1MB.mp4",
+        "sintel/mp4/h264/360/Sintel_360_10s_2MB.mp4",
+        "sintel/mp4/h264/720/Sintel_720_10s_1MB.mp4",
+        "sintel/mp4/h264/720/Sintel_720_10s_2MB.mp4",
+        "sintel/mp4/h264/720/Sintel_720_10s_5MB.mp4",
+        "sintel/mp4/h264/1080/Sintel_1080_10s_2MB.mp4",
+        "sintel/mp4/h264/1080/Sintel_1080_10s_5MB.mp4"
+      ]
+    },
+    "commons": {
+      "_comment": "Викисклад: тематические категории, содержимое проверяемо и безопасно для демо. Формат webm/ogv — воспроизводится в Chrome и Firefox.",
+      "api": "https://commons.wikimedia.org/w/api.php",
+      "categories": [
+        "Category:Videos_of_nature",
+        "Category:Time-lapse_videos",
+        "Category:Videos_of_animals",
+        "Category:Videos_of_plants",
+        "Category:Videos_of_clouds",
+        "Category:Videos_of_water",
+        "Category:Videos_of_mountains",
+        "Category:Videos_of_flowers",
+        "Category:Videos_of_birds",
+        "Category:Physics_videos",
+        "Category:Chemistry_videos",
+        "Category:Videos_of_sports",
+        "Category:Videos_of_insects",
+        "Category:Videos_of_the_sky",
+        "Category:Videos_of_waterfalls",
+        "Category:Videos_of_rain",
+        "Category:Videos_of_snow",
+        "Category:Astronomy_videos",
+        "Category:Biology_videos",
+        "Category:Videos_of_music",
+        "Category:Videos_of_dance",
+        "Category:Videos_of_trains",
+        "Category:Videos_of_experiments",
+        "Category:Videos_of_food"
+      ],
+      "maxBytes": 8000000
+    }
+  }
+}

@@ -1,19 +1,20 @@
-// Сидер справочника КАТО (docs/PROJECT.md §6.2). Идемпотентен и нужен не только в dev:
-// без него `University.city` не во что резолвить, поэтому запускается и при развёртывании.
+// Шаг «справочник КАТО» (классификатор административно-территориальных объектов РК).
 //
-// Данные: prisma/data/kato.json — генерируется из выгрузки stat.gov.kz скриптом
+// Это НЕ демо-данные: без справочника `University.city` (там хранится 9-значный код)
+// не во что резолвить, и селект «Город» отдаёт пустой список. Поэтому шаг выполняется
+// и при развёртывании, а не только в dev.
+//
+// Данные: prisma/seed/data/kato.json — генерируется из выгрузки stat.gov.kz скриптом
 // scripts/gen-kato.mjs (там же перечислены дефекты источника, которые он чинит).
-//
-// Запуск: pnpm db:seed:kato
+
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { PrismaClient, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 
-const prisma = new PrismaClient()
-const DATA = fileURLToPath(new URL('./data/kato.json', import.meta.url))
+const DATA = fileURLToPath(new URL('../data/kato.json', import.meta.url))
 const CHUNK = 500
 
-async function main() {
+export async function seedKato(prisma) {
   const items = JSON.parse(readFileSync(DATA, 'utf8'))
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error(`Справочник КАТО пуст или повреждён: ${DATA}`)
@@ -48,19 +49,10 @@ async function main() {
     `
   }
 
-  const [total, regions, cities] = await Promise.all([
+  const [total, cities] = await Promise.all([
     prisma.katoUnit.count(),
-    prisma.katoUnit.count({ where: { kind: 'REGION' } }),
     prisma.katoUnit.count({ where: { kind: 'CITY' } }),
   ])
-  console.log(
-    `КАТО: записано ${written}, в таблице ${total} (областей ${regions}, городов ${cities})`,
-  )
+  console.log(`КАТО: записано ${written}, в таблице ${total} (городов ${cities})`)
+  return written
 }
-
-main()
-  .catch((e) => {
-    console.error(e)
-    process.exit(1)
-  })
-  .finally(() => prisma.$disconnect())
