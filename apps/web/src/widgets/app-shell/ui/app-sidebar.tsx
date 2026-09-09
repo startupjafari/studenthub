@@ -76,7 +76,10 @@ export function AppSidebar({
     window.location.assign('/login')
   }
 
-  const profileActive = pathname === '/profile' || pathname.startsWith('/profile/')
+  // Плашка ведёт на СВОЙ профиль (`/profile`), а `/profile/<id>` — это чужой. Со
+  // `startsWith` открытый профиль другого пользователя подсвечивал плашку так, будто
+  // читатель стоит на своём: раздел в навигации указывал не туда, где он находится.
+  const profileActive = pathname === '/profile'
 
   return (
     <aside className="hidden w-72 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
