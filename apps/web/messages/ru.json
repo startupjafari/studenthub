@@ -1049,8 +1049,6 @@
     "typeSystem": "Системные",
     "systemHint": "Системные уведомления отключить нельзя.",
     "settingsError": "Не удалось сохранить настройки",
-    "scrollLeft": "Влево",
-    "scrollRight": "Вправо",
     "acceptRequest": "Принять",
     "declineRequest": "Отклонить",
     "friendRequestError": "Не удалось обработать заявку"
