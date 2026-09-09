@@ -1875,7 +1875,9 @@
     "thu": "Бс",
     "fri": "Жм",
     "sat": "Сб",
-    "sun": "Жс"
+    "sun": "Жс",
+    "scaleLess": "азырақ",
+    "scaleMore": "көбірек"
   },
   "People": {
     "myGroup": "Менің тобым",
@@ -3127,7 +3129,6 @@
   },
   "PlatformDashboard": {
     "hours": "{h} сағ",
-    "subtitle": "Таңдалған кезеңдегі платформа көрсеткіштері",
     "kpiUniversities": "Белсенді жоо",
     "kpiUniversitiesHint": "белсендіруді күтуде: {pending}",
     "kpiUsers": "Пайдаланушылар",
@@ -3184,7 +3185,13 @@
     "weekday_6": "Жс",
     "rangeLabel": "Кезең",
     "rangeDays": "{days} күн",
-    "tooltipTotal": "барлығы"
+    "tooltipTotal": "барлығы",
+    "subtitleRange": "Платформа көрсеткіштері · {period}",
+    "sizeSubtitleTop": "Пайдаланушы саны бойынша ең үлкен {count} жоо",
+    "showAll": "Барлығын көрсету ({count})",
+    "showTop": "{count} жооға дейін жию",
+    "scaleLess": "сирек",
+    "scaleMore": "жиі"
   },
   "Table": {
     "rows": "{count} жол",
