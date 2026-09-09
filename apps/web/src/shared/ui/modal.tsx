@@ -15,6 +15,22 @@ const SIZE = {
   '3xl': 'max-w-4xl',
 } as const
 
+// Высота окна. Ширина от содержимого не зависит никогда (`w-` + `max-w-`), а высота по
+// умолчанию — зависит, и это верно для окна с одной формой: пустое место под тремя полями
+// не нужно. Но окно, содержимое которого переключают на месте (вкладки, шаги), от этого
+// скачет: список друзей упирается в 90vh, четыре исходящие заявки дают вдвое меньше, и при
+// переключении вкладки окно меняет размер и, поскольку центрировано, ещё и уезжает под
+// курсором. Таким окнам нужна `stable`.
+//
+// Значение — не «всегда 90vh»: на высоком мониторе это окно во весь экран с четырьмя
+// строками внутри. Потолок в 36rem совпадает с шириной `lg` (`max-w-xl`) — окно выходит
+// квадратным, и высота остаётся осмысленной на любом экране. `min()` отдаёт 90vh там, где
+// экран ниже потолка.
+const HEIGHT = {
+  auto: '',
+  stable: 'h-[min(90vh,36rem)]',
+} as const
+
 export interface ModalProps {
   onClose: () => void
   /** Заголовок в шапке окна. Если не задан — sr-only (для a11y), в шапке только крестик. */
@@ -23,6 +39,12 @@ export interface ModalProps {
   onBack?: () => void
   backLabel?: string
   size?: keyof typeof SIZE
+  /**
+   * Высота окна: `auto` (по умолчанию) — по содержимому, до `max-h-[90vh]`; `stable` —
+   * фиксированная, чтобы окно не меняло размер при смене содержимого. `stable` нужен там,
+   * где содержимое переключают внутри окна: вкладки, шаги мастера.
+   */
+  height?: keyof typeof HEIGHT
   children: ReactNode
   className?: string
   /**
@@ -42,6 +64,7 @@ export function Modal({
   onBack,
   backLabel,
   size = 'xl',
+  height = 'auto',
   children,
   className,
   bodyClassName,
@@ -64,6 +87,7 @@ export function Modal({
           className={cn(
             'fixed top-1/2 left-1/2 z-[100] flex max-h-[90vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-card data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
             SIZE[size],
+            HEIGHT[height],
             className,
           )}
         >
