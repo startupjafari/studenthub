@@ -1049,8 +1049,6 @@
     "typeSystem": "System",
     "systemHint": "System notifications cannot be disabled.",
     "settingsError": "Failed to save settings",
-    "scrollLeft": "Scroll left",
-    "scrollRight": "Scroll right",
     "acceptRequest": "Accept",
     "declineRequest": "Decline",
     "friendRequestError": "Could not process the request"
