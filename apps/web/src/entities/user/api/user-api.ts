@@ -5,6 +5,7 @@ import type {
   ChangePasswordInput,
   UserListQueryInput,
   ProfileVisibilityValue,
+  UserDirectorySectionValue,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 import { api, getPaged } from '../../../shared/api'
@@ -187,4 +188,40 @@ export async function blockUserRequest(id: string): Promise<void> {
 
 export async function unblockUserRequest(id: string): Promise<void> {
   await api.patch(`/users/${id}/unblock`)
+}
+
+// ── Справочник людей своего вуза (§50, «кому написать») ─────────────────────
+
+// Визитка из GET /users/directory: доступна всем ролям, поэтому без email и служебных полей.
+// `section` задаёт группировку в UI, `isFriend` — пойдёт ли сообщение сразу или уйдёт запрос.
+export interface DirectoryUser {
+  id: string
+  firstName: string
+  lastName: string
+  middleName: string | null
+  avatarUrl: string | null
+  avatarThumbUrl: string | null
+  role: Role
+  headline: string | null
+  groupId: string | null
+  groupName: string | null
+  facultyName: string | null
+  isFriend: boolean
+  section: UserDirectorySectionValue
+}
+
+export const directoryKeys = {
+  all: ['user-directory'] as const,
+  search: (q: string, limit?: number) => ['user-directory', 'search', q, limit ?? 'all'] as const,
+}
+
+// hasMore=true — выдача упёрлась в лимит; курсора у эндпоинта нет, UI просит уточнить запрос.
+export async function fetchUserDirectory(
+  q: string,
+  limit?: number,
+): Promise<{ items: DirectoryUser[]; hasMore: boolean }> {
+  const { data } = await api.get<{ items: DirectoryUser[]; hasMore: boolean }>('/users/directory', {
+    params: { ...(q ? { q } : {}), ...(limit ? { limit } : {}) },
+  })
+  return data
 }
