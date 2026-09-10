@@ -22,6 +22,7 @@ export function ActivityGrid({
   dayLabels,
   cellTitle,
   ariaLabel,
+  scale,
 }: {
   cells: number[][]
   max: number
@@ -29,6 +30,12 @@ export function ActivityGrid({
   dayLabels: string[]
   cellTitle: (day: string, hour: number, value: number) => string
   ariaLabel: string
+  /**
+   * Подписи шкалы цвета («реже» → «чаще»). Без них заливка не значит ничего: у сетки
+   * нет оси величины, и единственный способ узнать, что тёмное — это много, был
+   * навести курсор на клетку. Необязательные: у сетки с одним значением шкала лишняя.
+   */
+  scale?: { less: string; more: string }
 }) {
   const [active, setActive] = useState<{ day: number; hour: number } | null>(null)
   const activeText =
@@ -101,6 +108,23 @@ export function ActivityGrid({
           ))}
         </div>
       </div>
+      {/* Шкала цвета — теми же красками, что и клетки: первый образец — пустая клетка
+          (значение 0), дальше шаги последовательной шкалы. */}
+      {scale && (
+        <div className="mt-0.5 flex items-center justify-end gap-1.5 text-[0.625rem] text-muted-foreground">
+          <span>{scale.less}</span>
+          <span className="flex items-center gap-0.5" aria-hidden>
+            {[palette.grid, ...palette.sequential].map((color) => (
+              <span
+                key={color}
+                className="size-2.5 rounded-[2px]"
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </span>
+          <span>{scale.more}</span>
+        </div>
+      )}
     </div>
   )
 }

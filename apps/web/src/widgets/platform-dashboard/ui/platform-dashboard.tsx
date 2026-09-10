@@ -19,6 +19,7 @@ import {
   type PlatformRange,
 } from '../../../entities/analytics'
 import {
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -70,6 +71,13 @@ const TIME_SYNC = 'platform-time'
 /** Данные живут в Redis 300 с — держим их свежими столько же и на клиенте. */
 const STALE_MS = 300_000
 
+/**
+ * Сколько вузов показываем в «Размере вузов» до раскрытия. Сервер отдаёт до 200,
+ * и полный список превращал карточку в полосу высотой в три экрана — на дашборде
+ * это не сравнение, а препятствие между графиками. Остальные доступны кнопкой.
+ */
+const TOP_UNIVERSITIES = 10
+
 const LATENCY_ORDER = ['lt1h', 'lt4h', 'lt1d', 'lt3d', 'lt7d', 'gte7d'] as const
 const INVITE_STATUSES = ['USED', 'PENDING', 'EXPIRED', 'REVOKED'] as const
 
@@ -79,19 +87,45 @@ const GROWTH_KEYS = ['students', 'teachers', 'staff'] as const
 const ACTIVE_KEYS = ['dau', 'wau'] as const
 const FLOW_KEYS = ['created', 'resolved'] as const
 
+const DAY_MS = 86_400_000
+
 /**
- * Период по выбранному окну, правый край округлён до часа. Округление важно —
- * иначе `new Date()` на каждом монтировании даёт новый ключ запроса, и кэш
- * (и клиентский, и Redis) не переиспользуется ни разу.
+ * Период по выбранному окну, выровненный по ГРАНИЦАМ КОРЗИН.
+ *
+ * Сервер раскладывает ряд по `date_trunc(interval, …)`, поэтому корзина, в которую
+ * попала только часть периода, показывает не провал спроса, а свою неполноту. Раньше
+ * правый край был «сейчас» — и каждая временная панель заканчивалась обрывом к нулю
+ * (текущие сутки ещё идут). Обрыв читался как авария платформы. Поэтому:
+ *
+ * - правый край — конец последней ЗАВЕРШЁННОЙ корзины (вчера / прошлая неделя);
+ * - левый край — НАЧАЛО корзины, а не «правый край минус N дней»: иначе тот же обрыв
+ *   переезжает в начало графика, где первая корзина содержала бы миллисекунду.
+ *
+ * Живые числа за сегодня никуда не делись — они в плитках сверху, у них свои окна,
+ * посчитанные на сервере.
+ *
+ * Побочная выгода: ключ запроса меняется раз в сутки (для недельного шага — раз в
+ * неделю), а не раз в час, и кэш (клиентский и Redis) наконец переиспользуется.
  */
 function useRange(rangeKey: RangeKey): PlatformRange {
   return useMemo(() => {
     const preset = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1]
     const now = new Date()
-    const to = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours()),
-    )
-    const from = new Date(to.getTime() - preset.days * 86_400_000)
+    const startOfToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    const bucketDays = preset.interval === 'week' ? 7 : 1
+    // Начало текущей (ещё не закрытой) корзины. Неделя — с понедельника, как
+    // date_trunc('week') в Postgres, поэтому воскресенье (getUTCDay() === 0)
+    // сдвигаем на 6 дней назад, а не на ноль.
+    const startOfBucket =
+      preset.interval === 'week'
+        ? startOfToday - ((now.getUTCDay() + 6) % 7) * DAY_MS
+        : startOfToday
+    // Целое число корзин, покрывающее окно: 90 дней недельным шагом — это 13 недель,
+    // а не 12.86, иначе первая корзина обрезана.
+    const buckets = Math.ceil(preset.days / bucketDays)
+    const from = new Date(startOfBucket - buckets * bucketDays * DAY_MS)
+    // Минус миллисекунда — правый край попадает в предыдущую, уже полную корзину.
+    const to = new Date(startOfBucket - 1)
     return { from: from.toISOString(), to: to.toISOString(), interval: preset.interval }
   }, [rangeKey])
 }
@@ -99,8 +133,26 @@ function useRange(rangeKey: RangeKey): PlatformRange {
 export function PlatformDashboard() {
   const t = useTranslations('PlatformDashboard')
   const tNav = useTranslations('Nav')
+  const locale = useLocale()
   const [rangeKey, setRangeKey] = useState<RangeKey>(DEFAULT_RANGE)
   const range = useRange(rangeKey)
+
+  // Границы окна показываем цифрами. «За выбранный период» не отвечает на вопрос
+  // «за какой», а ответ здесь нужен: правый край — последняя завершённая корзина,
+  // то есть не сегодня, и читатель должен видеть это, а не догадываться по оси.
+  //
+  // Зона — UTC, как и сами корзины: правый край это последняя миллисекунда суток,
+  // и в местной зоне со сдвигом вперёд он назвался бы уже следующим днём — заголовок
+  // разошёлся бы с последней подписью оси на единицу.
+  const period = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'UTC',
+      }).formatRange(new Date(range.from), new Date(range.to)),
+    [locale, range],
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -111,7 +163,7 @@ export function PlatformDashboard() {
           (справа), а не `tabs`: это фильтр периода, а не разделы страницы. */}
       <PageHeader
         title={tNav('dashboard')}
-        subtitle={t('subtitle')}
+        subtitle={t('subtitleRange', { period })}
         actions={
           <SegmentedTabs
             aria-label={t('rangeLabel')}
@@ -341,8 +393,13 @@ function ActiveUsersPanel({ range }: { range: PlatformRange }) {
 
 function UniversitiesPanel() {
   const t = useTranslations('PlatformDashboard')
+  const locale = useLocale()
+  const nf = useMemo(() => new Intl.NumberFormat(locale), [locale])
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
+  // Свёрнутый список — состояние по умолчанию: сравнивать сотню почти равных полос
+  // никто не приходит, а раскрыть их — один щелчок.
+  const [expanded, setExpanded] = useState(false)
 
   const q = useQuery({
     queryKey: platformAnalyticsKeys.universitiesSize(),
@@ -351,13 +408,17 @@ function UniversitiesPanel() {
     staleTime: STALE_MS,
   })
 
-  const items = q.data?.items ?? []
+  const all = q.data?.items ?? []
+  const items = expanded ? all : all.slice(0, TOP_UNIVERSITIES)
+  const hasMore = all.length > TOP_UNIVERSITIES
 
   return (
     <ChartPanel
       ref={ref}
       title={t('sizeTitle')}
-      subtitle={t('sizeSubtitle')}
+      subtitle={
+        hasMore && !expanded ? t('sizeSubtitleTop', { count: TOP_UNIVERSITIES }) : t('sizeSubtitle')
+      }
       busy={q.isFetching}
       ready={inView && !!q.data}
     >
@@ -367,7 +428,23 @@ function UniversitiesPanel() {
         height={Math.max(180, items.length * 34 + 40)}
         labels={items.map((u) => u.name)}
         values={items.map((u) => u.total)}
+        // Вузы отличаются на проценты: длина полос почти одинаковая, и без числа
+        // панель не отвечает даже на вопрос «насколько больше».
+        valueLabel={(v) => nf.format(v)}
       />
+      {hasMore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-2 w-full"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded
+            ? t('showTop', { count: TOP_UNIVERSITIES })
+            : t('showAll', { count: all.length })}
+        </Button>
+      )}
     </ChartPanel>
   )
 }
@@ -423,6 +500,8 @@ function ComplaintsFlowPanel({ range }: { range: PlatformRange }) {
 
 function LatencyPanel({ range }: { range: PlatformRange }) {
   const t = useTranslations('PlatformDashboard')
+  const locale = useLocale()
+  const nf = useMemo(() => new Intl.NumberFormat(locale), [locale])
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
 
@@ -447,6 +526,7 @@ function LatencyPanel({ range }: { range: PlatformRange }) {
         height={220}
         labels={LATENCY_ORDER.map((k) => t(`latency_${k}`))}
         values={LATENCY_ORDER.map((k) => q.data?.buckets.find((b) => b.key === k)?.value ?? 0)}
+        valueLabel={(v) => nf.format(v)}
       />
     </ChartPanel>
   )
@@ -545,6 +625,7 @@ function HeatmapPanel({ range }: { range: PlatformRange }) {
           palette={palette}
           dayLabels={[0, 1, 2, 3, 4, 5, 6].map((d) => t(`weekday_${d}`))}
           cellTitle={(day, hour, value) => t('heatmapCell', { day, hour, value })}
+          scale={{ less: t('scaleLess'), more: t('scaleMore') }}
         />
       )}
     </ChartPanel>
@@ -553,6 +634,8 @@ function HeatmapPanel({ range }: { range: PlatformRange }) {
 
 function ActionsPanel({ range }: { range: PlatformRange }) {
   const t = useTranslations('PlatformDashboard')
+  const locale = useLocale()
+  const nf = useMemo(() => new Intl.NumberFormat(locale), [locale])
   const { palette } = useChartTheme()
   const { ref, inView } = useInView<HTMLDivElement>()
 
@@ -580,6 +663,7 @@ function ActionsPanel({ range }: { range: PlatformRange }) {
         height={Math.max(180, items.length * 34 + 40)}
         labels={items.map((a) => a.action)}
         values={items.map((a) => a.value)}
+        valueLabel={(v) => nf.format(v)}
       />
     </ChartPanel>
   )
@@ -677,7 +761,13 @@ function useSeries(
 function useBucketLabels(data?: MultiSeries): string[] {
   const locale = useLocale()
   return useMemo(() => {
-    const fmt = new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' })
+    // Зона — UTC: корзины сервер режет по UTC, и в зоне со сдвигом назад начало
+    // корзины (00:00 UTC) называлось бы предыдущим днём — вся ось смещалась на сутки.
+    const fmt = new Intl.DateTimeFormat(locale, {
+      day: '2-digit',
+      month: 'short',
+      timeZone: 'UTC',
+    })
     return data?.series[0]?.points.map((p) => fmt.format(new Date(p.at))) ?? []
   }, [data, locale])
 }

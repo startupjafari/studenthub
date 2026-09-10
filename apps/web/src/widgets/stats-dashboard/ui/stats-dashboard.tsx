@@ -181,6 +181,9 @@ export function StatsDashboard() {
               labels={worst.map((g) => g.name)}
               values={worst.map((g) => g.attendanceRate)}
               seriesName={t('percentShort')}
+              // Проценты у полос: у худших групп разброс в единицы процентов, и
+              // сравнивать их по длине полосы бесполезно — нужна цифра.
+              valueLabel={(v) => `${v}${t('percentShort')}`}
             />
           )}
         </SectionPanel>
@@ -346,6 +349,7 @@ function RoomLoadPanel() {
           palette={palette}
           dayLabels={dayLabels}
           cellTitle={(day, hour, value) => t('roomLoadCell', { day, hour, value })}
+          scale={{ less: t('scaleLess'), more: t('scaleMore') }}
         />
       )}
     </SectionPanel>
