@@ -82,7 +82,10 @@ function BottomNav({
   }, [pathname])
 
   const overflow = nav.slice(4) // разделы роли, не влезшие в основные вкладки
-  const profileActive = pathname === '/profile' || pathname.startsWith('/profile/')
+  // Ссылка ведёт на СВОЙ профиль (`/profile`), а `/profile/<id>` — это чужой. Со
+  // `startsWith` открытый профиль другого пользователя подсвечивался так, будто читатель
+  // стоит на своём: навигация указывала не туда, где он находится.
+  const profileActive = pathname === '/profile'
 
   async function logout(): Promise<void> {
     await endSession()

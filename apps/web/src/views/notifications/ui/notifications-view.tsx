@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,7 +10,6 @@ import {
   CalendarClock,
   CalendarDays,
   CheckCheck,
-  ChevronLeft,
   ChevronRight,
   FileText,
   MessageSquare,
@@ -154,38 +153,6 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
     return acc
   }, [filtered, locale, t])
 
-  // Мини-стрелки прокрутки слайдера тегов: показываем при переполнении, гасим у краёв.
-  const tabsRef = useRef<HTMLDivElement>(null)
-  const [arrows, setArrows] = useState({ left: false, right: false })
-  const syncArrows = useCallback(() => {
-    const el = tabsRef.current
-    if (!el) return
-    setArrows({
-      left: el.scrollLeft > 1,
-      right: Math.ceil(el.scrollLeft + el.clientWidth) < el.scrollWidth,
-    })
-  }, [])
-  useEffect(() => {
-    syncArrows()
-    const el = tabsRef.current
-    if (!el) return
-    el.addEventListener('scroll', syncArrows, { passive: true })
-    window.addEventListener('resize', syncArrows)
-    return () => {
-      el.removeEventListener('scroll', syncArrows)
-      window.removeEventListener('resize', syncArrows)
-    }
-  }, [syncArrows])
-  // Пересчёт при изменении набора/счётчиков (меняется суммарная ширина тегов).
-  useEffect(() => {
-    syncArrows()
-  }, [syncArrows, counts])
-  const canScroll = arrows.left || arrows.right
-  function scrollTabs(dir: 1 | -1): void {
-    const el = tabsRef.current
-    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7, behavior: 'smooth' })
-  }
-
   function urlOf(n: NotificationItem): string | null {
     return typeof n.data?.url === 'string' ? n.data.url : null
   }
@@ -230,25 +197,14 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
       {/* Колонка, а не просто скролл-контейнер: состояния (скелетон, «нет уведомлений»)
           занимают всю высоту панели, а не жмутся полоской под фильтрами. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {/* Теги-фильтры слайдером + мини-стрелки по бокам (появляются при переполнении).
-            Лежат внутри скролл-контейнера: при вертикальном скролле списка уезжают вместе с ним,
-            освобождая высоту на мобильном. */}
-        <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-2 py-2">
-          {canScroll && (
-            <button
-              type="button"
-              aria-label={t('scrollLeft')}
-              disabled={!arrows.left}
-              onClick={() => scrollTabs(-1)}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <ChevronLeft className="size-4" aria-hidden />
-            </button>
-          )}
-          <div
-            ref={tabsRef}
-            className="flex flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
+        {/* Теги-фильтры лентой с горизонтальной прокруткой — без кнопок-стрелок: полоса
+            листается пальцем и колесом, а на десктопе шеврон по краю занимал место и
+            добавлял два состояния (виден/погашен) на ровном месте. Полосу прокрутки скрываем:
+            она перекрывала бы нижнюю кромку тегов.
+            Ряд лежит внутри вертикального скролл-контейнера: при прокрутке списка уезжает
+            вместе с ним, освобождая высоту на мобильном. */}
+        <div className="flex shrink-0 items-center border-b border-border bg-background px-2 py-2">
+          <div className="flex flex-1 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
@@ -276,17 +232,6 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          {canScroll && (
-            <button
-              type="button"
-              aria-label={t('scrollRight')}
-              disabled={!arrows.right}
-              onClick={() => scrollTabs(1)}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <ChevronRight className="size-4" aria-hidden />
-            </button>
-          )}
         </div>
 
         {list.isLoading ? (

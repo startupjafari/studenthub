@@ -1126,3 +1126,59 @@ describe('ChatsService.getUpdates — дельта догона', () => {
     )
   })
 })
+
+describe('ChatsService.createChat — один личный чат на пару', () => {
+  it('существующий личный чат переиспользуется, второй не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce({ id: 'c-old', type: 'PRIVATE', title: null })
+
+    const res = await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
+
+    expect(res).toEqual({ id: 'c-old', type: 'PRIVATE', title: null })
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  it('поиск требует ровно двух участников пары: третий в чате его не подходит', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.chat.create.mockResolvedValueOnce({ id: 'c-new', type: 'PRIVATE', title: null })
+
+    await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
+
+    // `every` отсекает чаты с третьим участником, два `some` требуют обоих из пары.
+    expect(prisma.chat.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          type: 'PRIVATE',
+          members: { every: { userId: { in: ['u1', 'u2'] } } },
+          AND: [{ members: { some: { userId: 'u1' } } }, { members: { some: { userId: 'u2' } } }],
+        },
+      }),
+    )
+  })
+
+  it('чата ещё нет — создаётся новый', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.chat.create.mockResolvedValueOnce({ id: 'c-new', type: 'PRIVATE', title: null })
+
+    const res = await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
+
+    expect(res.id).toBe('c-new')
+    expect(prisma.chat.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('группу не ищем — её создают явно, с собственным названием', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.create.mockResolvedValueOnce({ id: 'g1', type: 'GROUP', title: 'Проект' })
+
+    await service.createChat(user('u1'), {
+      type: 'GROUP',
+      title: 'Проект',
+      memberIds: ['u2', 'u3'],
+    })
+
+    expect(prisma.chat.findFirst).not.toHaveBeenCalled()
+    expect(prisma.chat.create).toHaveBeenCalledTimes(1)
+  })
+})

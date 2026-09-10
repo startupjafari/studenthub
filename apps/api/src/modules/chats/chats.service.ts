@@ -397,6 +397,18 @@ export class ChatsService {
       if (other && (await this.isBlockedBetween(actor.sub, other))) {
         throw new AppException('FORBIDDEN', 'Переписка недоступна: пользователь заблокирован')
       }
+      // Между двумя людьми личный чат ровно один. Кнопка «Написать сообщение» в профиле
+      // (и в панели участников группы) вызывает этот же эндпоинт, поэтому без поиска
+      // существующего каждое нажатие плодило новый чат: в списке появлялись дубли с одним
+      // и тем же собеседником, а переписка расходилась по ним.
+      //
+      // Скрытый «у себя» чат (hiddenAt) тоже переиспользуем: членство при удалении
+      // сохраняется, и заводить рядом второй значило бы потерять историю у собеседника.
+      // Из списка он вернётся сам — hiddenAt снимается при первом же сообщении.
+      if (other) {
+        const existing = await this.findPrivateChat(actor.sub, other)
+        if (existing) return existing
+      }
     }
     const chat = await this.prisma.chat.create({
       data: {
@@ -414,6 +426,29 @@ export class ChatsService {
       select: { id: true, type: true, title: true },
     })
     return chat
+  }
+
+  /**
+   * Существующий личный чат этой пары, если он есть.
+   *
+   * `every` отсекает чаты с третьим участником, два `some` требуют обоих из пары —
+   * вместе это «участники ровно эти двое». Одного `some` не хватило бы: он совпал бы и
+   * с чатом, где к паре кто-то добавлен.
+   */
+  private findPrivateChat(
+    userId: string,
+    otherId: string,
+  ): Promise<{ id: string; type: ChatType; title: string | null } | null> {
+    return this.prisma.chat.findFirst({
+      where: {
+        type: ChatType.PRIVATE,
+        members: { every: { userId: { in: [userId, otherId] } } },
+        AND: [{ members: { some: { userId } } }, { members: { some: { userId: otherId } } }],
+      },
+      // Самый старый: в нём лежит переписка, если дубли успели накопиться до этой правки.
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, type: true, title: true },
+    })
   }
 
   // ── История сообщений (9.5) — cursor ────────────────────────────────────────
