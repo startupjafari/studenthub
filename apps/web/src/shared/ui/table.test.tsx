@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { NextIntlClientProvider } from 'next-intl'
 import ru from '../../../messages/ru.json'
-import { TablePagination, nextSort, pageItems, sortRows } from './table'
+import { TablePagination, TableSkeletonRows, nextSort, pageItems, sortRows } from './table'
 
 // Берём настоящие ru-строки, а не заглушки: тест заодно ловит пропавший ключ.
 function renderPagination(props: {
@@ -155,5 +155,94 @@ describe('TablePagination', () => {
   it('пустая выборка — «1 из 1», а не «0 из 0»', () => {
     renderPagination({ page: 1, total: 0, limit: 20 })
     expect(screen.getByText('0 строк · Страница 1 из 1')).toBeInTheDocument()
+  })
+})
+
+// ── Скелетон строк ───────────────────────────────────────────────────────────
+
+const TABLE_H = 800
+const HEAD_H = 40
+const ROW_H = 33
+
+/**
+ * jsdom не считает раскладку: все размеры нулевые. Подменяем ровно те метрики,
+ * которые читает скелетон, и воспроизводим сломанное состояние: у `tbody` высота
+ * нулевая (в режиме `Table fill` тело — flex-элемент, и до раскладки родителя это
+ * реальное значение), а таблица уже растянута карточкой. Пока счёт шёл по `tbody`,
+ * скелетон залипал на восьми строках и оставлял под собой пустоту.
+ */
+function stubLayout(): () => void {
+  const offset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+  const client = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight')
+  const observer = globalThis.ResizeObserver
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.tagName === 'TR') return ROW_H
+      if (this.tagName === 'THEAD') return HEAD_H
+      return 0
+    },
+  })
+  Object.defineProperty(Element.prototype, 'clientHeight', {
+    configurable: true,
+    get(this: Element) {
+      return this.tagName === 'TABLE' ? TABLE_H : 0
+    },
+  })
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver
+  return () => {
+    if (offset) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offset)
+    if (client) Object.defineProperty(Element.prototype, 'clientHeight', client)
+    globalThis.ResizeObserver = observer
+  }
+}
+
+describe('TableSkeletonRows', () => {
+  it('заполняет строками всю высоту таблицы, а не первые восемь', () => {
+    const restore = stubLayout()
+    try {
+      const { container } = render(
+        <table>
+          <thead>
+            <tr>
+              <th>Название</th>
+            </tr>
+          </thead>
+          <tbody>
+            <TableSkeletonRows columns={3} />
+          </tbody>
+        </table>,
+      )
+      // Свободная высота — таблица минус шапка; строка целиком или её нет.
+      const expected = Math.floor((TABLE_H - HEAD_H) / ROW_H)
+      expect(expected).toBeGreaterThan(8)
+      expect(container.querySelectorAll('tbody > tr')).toHaveLength(expected)
+    } finally {
+      restore()
+    }
+  })
+
+  it('строк ровно столько, сколько колонок задано, и колонки не разъезжаются', () => {
+    const restore = stubLayout()
+    try {
+      const { container } = render(
+        <table>
+          <tbody>
+            <TableSkeletonRows columns={['', undefined, 'hidden md:table-cell']} />
+          </tbody>
+        </table>,
+      )
+      const firstRow = container.querySelector('tbody > tr')
+      expect(firstRow?.querySelectorAll('td')).toHaveLength(3)
+      // Класс видимости колонки доезжает до ячейки скелетона: во время загрузки
+      // ячеек не должно быть больше, чем в шапке.
+      expect(firstRow?.querySelectorAll('td')[2]).toHaveClass('hidden')
+    } finally {
+      restore()
+    }
   })
 })

@@ -1049,8 +1049,6 @@
     "typeSystem": "System",
     "systemHint": "System notifications cannot be disabled.",
     "settingsError": "Failed to save settings",
-    "scrollLeft": "Scroll left",
-    "scrollRight": "Scroll right",
     "acceptRequest": "Accept",
     "declineRequest": "Decline",
     "friendRequestError": "Could not process the request"
@@ -1875,7 +1873,9 @@
     "thu": "Thu",
     "fri": "Fri",
     "sat": "Sat",
-    "sun": "Sun"
+    "sun": "Sun",
+    "scaleLess": "less",
+    "scaleMore": "more"
   },
   "People": {
     "myGroup": "My group",
@@ -3127,7 +3127,6 @@
   },
   "PlatformDashboard": {
     "hours": "{h} h",
-    "subtitle": "Platform metrics for the selected period",
     "kpiUniversities": "Active universities",
     "kpiUniversitiesHint": "awaiting activation: {pending}",
     "kpiUsers": "Users",
@@ -3184,7 +3183,13 @@
     "weekday_6": "Sun",
     "rangeLabel": "Period",
     "rangeDays": "{days} days",
-    "tooltipTotal": "total"
+    "tooltipTotal": "total",
+    "subtitleRange": "Platform metrics · {period}",
+    "sizeSubtitleTop": "Largest {count} universities by users",
+    "showAll": "Show all ({count})",
+    "showTop": "Collapse to {count}",
+    "scaleLess": "less",
+    "scaleMore": "more"
   },
   "Table": {
     "rows": "{count, plural, one {# row} other {# rows}}",

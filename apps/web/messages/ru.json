@@ -1049,8 +1049,6 @@
     "typeSystem": "Системные",
     "systemHint": "Системные уведомления отключить нельзя.",
     "settingsError": "Не удалось сохранить настройки",
-    "scrollLeft": "Влево",
-    "scrollRight": "Вправо",
     "acceptRequest": "Принять",
     "declineRequest": "Отклонить",
     "friendRequestError": "Не удалось обработать заявку"
@@ -1875,7 +1873,9 @@
     "thu": "Чт",
     "fri": "Пт",
     "sat": "Сб",
-    "sun": "Вс"
+    "sun": "Вс",
+    "scaleLess": "меньше",
+    "scaleMore": "больше"
   },
   "People": {
     "myGroup": "Моя группа",
@@ -3127,7 +3127,6 @@
   },
   "PlatformDashboard": {
     "hours": "{h} ч",
-    "subtitle": "Показатели платформы за выбранный период",
     "kpiUniversities": "Вузов активно",
     "kpiUniversitiesHint": "ожидают активации: {pending}",
     "kpiUsers": "Пользователей",
@@ -3184,7 +3183,13 @@
     "weekday_6": "Вс",
     "rangeLabel": "Период",
     "rangeDays": "{days} дней",
-    "tooltipTotal": "всего"
+    "tooltipTotal": "всего",
+    "subtitleRange": "Показатели платформы · {period}",
+    "sizeSubtitleTop": "Крупнейшие {count} вузов по числу пользователей",
+    "showAll": "Показать все ({count})",
+    "showTop": "Свернуть до {count}",
+    "scaleLess": "реже",
+    "scaleMore": "чаще"
   },
   "Table": {
     "rows": "{count, plural, one {# строка} few {# строки} many {# строк} other {# строки}}",

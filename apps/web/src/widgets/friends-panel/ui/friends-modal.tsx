@@ -96,26 +96,45 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
   }
 
   return (
-    <Modal onClose={onClose} title={t('title')} size="lg">
-      <div className="flex flex-col gap-4">
+    // `height="stable"`: вкладки переключают содержимое на месте, и без фиксированной
+    // высоты окно меняло размер на каждое переключение — список друзей во весь экран,
+    // четыре исходящие заявки вдвое ниже. Окно центрировано, поэтому вместе с высотой
+    // менялось и его положение: кнопка уезжала из-под курсора.
+    //
+    // Отступы и прокрутку тело окна отдаёт содержимому (`p-0`, `overflow-hidden`):
+    // переключатель вкладок закреплён, а прокручивается только список — при постоянной
+    // высоте уезжающий вместе со списком переключатель был бы хуже прежнего скачка.
+    <Modal
+      onClose={onClose}
+      title={t('title')}
+      size="lg"
+      height="stable"
+      bodyClassName="overflow-hidden p-0"
+    >
+      <div className="shrink-0 px-5 pt-5">
         <SegmentedTabs
           aria-label={t('title')}
           value={tab}
           onChange={setTab}
           items={TABS.map((v) => ({ value: v, label: t(TAB_LABEL[v]) }))}
         />
+      </div>
 
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-4 pb-5">
         {loading ? (
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-[4.5rem] w-full rounded-xl" />
+          // Заглушки делят высоту окна: она теперь постоянна, и четыре полосы по 4.5rem
+          // оставляли под собой пустоту вместо списка, который придёт на их место.
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="min-h-[4.5rem] w-full flex-1 rounded-xl" />
             ))}
           </div>
         ) : rows.length === 0 ? (
+          // `EmptyState` сам по себе `min-h-0 flex-1` — в этой колонке он занимает
+          // остаток высоты и центрируется, отдельный `min-h` ему не нужен.
           <EmptyState
             icon={<UserRoundX className="size-6" aria-hidden />}
             title={t(EMPTY_LABEL[tab])}
-            className="min-h-[200px]"
           />
         ) : (
           <ul className="flex flex-col gap-2">

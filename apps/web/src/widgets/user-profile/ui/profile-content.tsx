@@ -278,8 +278,18 @@ function ContactsCard({ data }: { data: ProfileData }) {
   // вообще вправе заполнить. Instagram и сайт закрыты для служебных ролей
   // (PROFILE_FIELD_ROLES), и без этой проверки у админа платформы висели две строки,
   // которые не наполнятся никогда.
-  const tg = data.telegram?.replace(/^@+/, '')
-  const ig = data.instagram?.replace(/^@+/, '')
+  //
+  // Пустая строка из формы редактирования (незаполненные поля уходят как '') — это
+  // тоже «нет данных», иначе строка рендерилась пустой без подписи.
+  const filled = (v?: string | null): string | null => {
+    const s = v?.trim()
+    return s ? s : null
+  }
+  const email = filled(data.email)
+  const phone = filled(data.phone)
+  const website = filled(data.website)
+  const tg = filled(data.telegram)?.replace(/^@+/, '')
+  const ig = filled(data.instagram)?.replace(/^@+/, '')
   const items: {
     icon: LucideIcon
     label: string
@@ -292,11 +302,11 @@ function ContactsCard({ data }: { data: ProfileData }) {
     {
       icon: Mail,
       label: t('email'),
-      value: data.email ?? null,
-      href: data.email ? `mailto:${data.email}` : undefined,
-      copy: data.email ?? undefined,
+      value: email,
+      href: email ? `mailto:${email}` : undefined,
+      copy: email ?? undefined,
     },
-    { icon: Phone, label: t('phone'), value: data.phone ?? null, copy: data.phone ?? undefined },
+    { icon: Phone, label: t('phone'), value: phone, copy: phone ?? undefined },
     {
       icon: Send,
       label: t('telegram'),
@@ -316,9 +326,9 @@ function ContactsCard({ data }: { data: ProfileData }) {
       icon: Globe,
       field: 'website',
       label: t('website'),
-      value: data.website ?? null,
-      href: data.website ?? undefined,
-      copy: data.website ?? undefined,
+      value: website,
+      href: website ?? undefined,
+      copy: website ?? undefined,
     },
   ]
 
