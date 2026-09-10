@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Mic,
   MoreVertical,
+  Pause,
   Pencil,
   Play,
   Shield,
@@ -293,6 +294,159 @@ function FileRow({
   )
 }
 
+/**
+ * Плеер голосовых в правой панели: один транспорт на весь список.
+ *
+ * До этого у каждой строки был свой `<audio controls>`: слушать подряд было нельзя (после
+ * конца записи ничего не происходило), скорость не менялась, а два случайно запущенных
+ * плеера играли одновременно. Здесь один общий элемент, автопереход к следующей записи и
+ * скорость — то, ради чего голосовые вообще слушают из панели, а не из ленты.
+ */
+function VoicePlaylist({
+  items,
+  onJump,
+  locale,
+}: {
+  items: ChatMediaItem[]
+  onJump: (id: string) => void
+  locale: string
+}) {
+  const t = useTranslations('Chats')
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  const [playing, setPlaying] = useState(false)
+  const [rate, setRate] = useState(1)
+  const [progress, setProgress] = useState(0)
+
+  // Presigned-ссылку берём только для играющей записи: тянуть URL для всего списка — это
+  // подпись на каждый файл впустую, а живут они недолго.
+  const url = useFileUrl(currentId ?? '', currentId != null)
+
+  // Ссылка приехала (или сменилась запись) — запускаем воспроизведение.
+  useEffect(() => {
+    const el = audioRef.current
+    if (!el || !url.data || !playing) return
+    el.playbackRate = rate
+    void el.play().catch(() => setPlaying(false))
+  }, [url.data, playing, rate])
+
+  function toggle(id: string): void {
+    if (currentId === id) {
+      const el = audioRef.current
+      if (!el) return
+      if (playing) {
+        el.pause()
+        setPlaying(false)
+      } else {
+        setPlaying(true)
+      }
+      return
+    }
+    setProgress(0)
+    setCurrentId(id)
+    setPlaying(true)
+  }
+
+  // Автопереход: конец записи → следующая по списку. Последняя просто останавливает плеер.
+  function onEnded(): void {
+    const idx = items.findIndex((i) => i.id === currentId)
+    const next = idx >= 0 ? items[idx + 1] : undefined
+    setProgress(0)
+    if (next) {
+      setCurrentId(next.id)
+      setPlaying(true)
+    } else {
+      setPlaying(false)
+      setCurrentId(null)
+    }
+  }
+
+  return (
+    <>
+      <audio
+        ref={audioRef}
+        src={url.data}
+        preload="none"
+        onTimeUpdate={(e) => {
+          const el = e.currentTarget
+          setProgress(el.duration > 0 ? el.currentTime / el.duration : 0)
+        }}
+        onEnded={onEnded}
+        className="hidden"
+      />
+      {/* Скорость — общая для всей очереди: переключать её на каждой записи было бы мучением. */}
+      <div className="flex items-center justify-end gap-1 px-3 pb-1 pt-2">
+        <span className="text-xs text-muted-foreground">{t('playbackSpeed')}</span>
+        {[1, 1.5, 2].map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setRate(r)}
+            aria-pressed={rate === r}
+            className={cn(
+              'rounded-full px-2 py-0.5 text-xs font-medium transition-colors',
+              rate === r
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            {r}×
+          </button>
+        ))}
+      </div>
+      {items.map((it) => {
+        const active = currentId === it.id
+        const date = new Date(it.createdAt).toLocaleDateString(locale, {
+          day: '2-digit',
+          month: 'short',
+        })
+        return (
+          <div
+            key={it.id}
+            className={cn('flex items-center gap-3 px-3 py-2', active && 'bg-primary/5')}
+          >
+            <button
+              type="button"
+              aria-label={active && playing ? t('pause') : t('play')}
+              onClick={() => toggle(it.id)}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors hover:bg-primary/20"
+            >
+              {active && url.isFetching && !url.data ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : active && playing ? (
+                <Pause className="size-4" aria-hidden />
+              ) : (
+                <Play className="size-4" aria-hidden />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => onJump(it.messageId)}
+              className="min-w-0 flex-1 text-left"
+            >
+              <span className="block truncate text-sm font-medium">
+                {it.sender ? `${it.sender.lastName} ${it.sender.firstName}` : t('attachment')}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {formatBytes(it.size)} · {date}
+              </span>
+              {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
+              {active && (
+                <span className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full bg-primary transition-[width] duration-200"
+                    style={{ width: `${Math.round(progress * 100)}%` }}
+                  />
+                </span>
+              )}
+            </button>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 function FileTab({
   chatId,
   voice,
@@ -334,9 +488,13 @@ function FileTab({
   }
   return (
     <>
-      {items.map((it) => (
-        <FileRow key={it.id} item={it} voice={voice} onJump={onJump} locale={locale} />
-      ))}
+      {voice ? (
+        <VoicePlaylist items={items} onJump={onJump} locale={locale} />
+      ) : (
+        items.map((it) => (
+          <FileRow key={it.id} item={it} voice={false} onJump={onJump} locale={locale} />
+        ))
+      )}
       {q.hasNextPage && (
         <LoadMore
           onClick={() => void q.fetchNextPage()}
@@ -531,6 +689,8 @@ function ParticipantsTab({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Не-другу (в т.ч. декану, старосте, админу вуза) уходит запрос на переписку — §50.
+      if (created.requestPendingForId) toast.success(t('requestSent'))
       onOpenChat(created.id)
     },
     onError: err,

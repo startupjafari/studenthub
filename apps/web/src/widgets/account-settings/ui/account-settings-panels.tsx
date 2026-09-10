@@ -19,6 +19,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  RefreshCw,
   ShieldAlert,
   Sun,
   ShieldCheck,
@@ -82,6 +83,7 @@ import {
   updateNotificationSettings,
   type NotificationSettingsData,
 } from '../../../entities/notification'
+import { useAppUpdate } from '../../../shared/lib'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { promptPwaInstall, toApiError, useFormAlert, usePwaInstall } from '../../../shared/lib'
@@ -804,6 +806,49 @@ function ThemeSelect() {
  * приложения: там кнопка показывает инструкцию, как добавить руками. Логика перехвата
  * события — в `shared/lib/pwa-install.ts`.
  */
+/**
+ * Версия и обновление приложения.
+ *
+ * Установленное с домашнего экрана приложение не перезагружают неделями, а системная
+ * проверка обновлений редкая и невидимая. Без номера версии на экране на вопрос
+ * «обновилось ли?» ответить нечем, а без кнопки — нечего сделать, если нет.
+ */
+function VersionRow() {
+  const tS = useTranslations('Settings')
+  const { version, state, check, apply } = useAppUpdate()
+
+  return (
+    <SettingRow
+      title={tS('versionTitle')}
+      desc={tS('versionDesc', { version })}
+      // aria-live: нажали «Проверить» → результат должен быть объявлен, а не только показан.
+    >
+      <div aria-live="polite" className="flex items-center gap-2">
+        {state === 'current' && (
+          <span className="text-xs text-muted-foreground">{tS('versionUpToDate')}</span>
+        )}
+        {state === 'ready' ? (
+          <Button type="button" size="sm" onClick={apply}>
+            <RefreshCw className="size-4" aria-hidden />
+            {tS('versionApply')}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            loading={state === 'checking'}
+            onClick={check}
+          >
+            <RefreshCw className="size-4" aria-hidden />
+            {tS('versionCheck')}
+          </Button>
+        )}
+      </div>
+    </SettingRow>
+  )
+}
+
 function AppSection() {
   const tS = useTranslations('Settings')
   const { status, platform } = usePwaInstall()
@@ -841,6 +886,8 @@ function AppSection() {
           </Button>
         )}
       </SettingRow>
+
+      <VersionRow />
 
       {how && (
         <Modal onClose={() => setHow(false)} title={tS('installHowTitle')} size="md">
