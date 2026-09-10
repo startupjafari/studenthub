@@ -1,14 +1,16 @@
 'use client'
 
-import { useState, type RefObject } from 'react'
+import { useRef, useState, type RefObject } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Ban,
   BarChart3,
   BellOff,
+  Camera,
   ChevronUp,
   Clock,
   FileText,
+  ImageIcon,
   Mic,
   Paperclip,
   Pause,
@@ -36,6 +38,7 @@ import {
   type RichTextHandle,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useMediaQuery } from '../../../shared/lib'
 
 // Composer (Telegram-стиль §29, §37): панель правки/ответа, @-упоминания, вложения,
 // запись голосового и поле ввода. Презентационный лист — состояние и мутации живут в родителе.
@@ -113,6 +116,13 @@ export function ChatComposer({
   const [sendMenuOpen, setSendMenuOpen] = useState(false)
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  // Отдельные input'ы под фото/видео и съёмку: у них свои accept/capture, а общий (файл
+  // любого типа) приходит из родителя. Все три ведут в один onFilesPicked.
+  const mediaInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  // Съёмка есть только там, где есть камера под пальцем: на десктопе capture игнорируется
+  // и пункт открывал бы тот же диалог файлов — лишний ряд в меню.
+  const canCapture = useMediaQuery('(pointer: coarse)')
 
   // Вставка emoji из пикера (§12) в позицию курсора поля ввода.
   function insertEmoji(emoji: string): void {
@@ -120,10 +130,18 @@ export function ChatComposer({
   }
 
   return (
-    <>
+    // Остров, а не полоса у края: панель парит над лентой (уровень 3 — граница + тень),
+    // отступ до края экрана держит обёртка в ChatWindow. pointer-events-auto — потому что
+    // обёртка их снимает, чтобы лента прокручивалась пальцем рядом с панелью.
+    <div
+      className={cn(
+        'material-chrome pointer-events-auto flex flex-col rounded-2xl border border-border shadow-lg',
+        'transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15',
+      )}
+    >
       {/* Панель правки */}
       {editing && (
-        <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 rounded-t-2xl border-b border-border bg-muted/40 px-3 py-2 text-xs">
           <Pencil className="size-3.5 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0 flex-1">
             <span className="font-medium">{t('editing')}</span>
@@ -142,7 +160,7 @@ export function ChatComposer({
 
       {/* Панель ответа */}
       {replyTo && !editing && (
-        <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 rounded-t-2xl border-b border-border bg-muted/40 px-3 py-2 text-xs">
           <Reply className="size-3.5 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0 flex-1">
             <span className="font-medium">
@@ -173,7 +191,7 @@ export function ChatComposer({
       )}
 
       {blocked ? (
-        <div className="flex items-center justify-center gap-2 border-t border-border p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] text-center text-sm text-muted-foreground">
+        <div className="flex items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground">
           <Ban className="size-4 shrink-0" aria-hidden />
           <span>{iBlocked ? t('blockedBanner') : t('blockedByBanner')}</span>
           {iBlocked && otherId && (
@@ -189,7 +207,7 @@ export function ChatComposer({
       ) : (
         // items-end, а не items-center: поле растёт вверх под многострочный текст, а
         // скрепка, смайл и отправка остаются на своей строке у низа.
-        <div className="relative flex items-end gap-1.5 border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <div className="relative flex items-end gap-1 p-1.5">
           {/* Попап @-упоминаний участников */}
           {mentionCandidates.length > 0 && !voice.recording && (
             <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-lg">
@@ -217,6 +235,30 @@ export function ChatComposer({
             ref={fileInputRef}
             type="file"
             multiple
+            hidden
+            onChange={(e) => {
+              onFilesPicked(e.target.files)
+              e.target.value = ''
+            }}
+          />
+          {/* Фото/видео и съёмка — отдельные input'ы: accept открывает галерею сразу на
+              медиа, а capture — камеру, минуя выбор файла. */}
+          <input
+            ref={mediaInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              onFilesPicked(e.target.files)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
             hidden
             onChange={(e) => {
               onFilesPicked(e.target.files)
@@ -274,41 +316,64 @@ export function ChatComposer({
                 <button
                   type="button"
                   aria-label={t('attach')}
+                  aria-expanded={attachMenuOpen}
                   disabled={!connected || !!editing}
-                  onClick={() =>
-                    onCreatePoll ? setAttachMenuOpen((v) => !v) : fileInputRef.current?.click()
-                  }
+                  onClick={() => setAttachMenuOpen((v) => !v)}
                   className="flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                 >
                   <Paperclip className="size-5" aria-hidden />
                 </button>
-                {/* Attachment-меню (§37): Файл / Опрос. Показываем, если доступно создание опроса. */}
-                {attachMenuOpen && onCreatePoll && (
+                {/* Attachment-меню (§37): Фото/видео · Камера · Файл · Опрос. Фото отдельным
+                    пунктом, а не «файлом», — иначе галерея открывается на всех документах. */}
+                {attachMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setAttachMenuOpen(false)} />
-                    <div className="absolute bottom-full left-0 z-50 mb-1 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAttachMenuOpen(false)
-                          fileInputRef.current?.click()
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                      >
-                        <FileText className="size-4 shrink-0 opacity-80" aria-hidden />
-                        {t('attachFile')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAttachMenuOpen(false)
-                          onCreatePoll()
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                      >
-                        <BarChart3 className="size-4 shrink-0 opacity-80" aria-hidden />
-                        {t('createPoll')}
-                      </button>
+                    <div className="absolute bottom-full left-0 z-50 mb-2 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
+                      {(
+                        [
+                          {
+                            key: 'photo',
+                            icon: ImageIcon,
+                            label: t('attachPhoto'),
+                            run: () => mediaInputRef.current?.click(),
+                          },
+                          {
+                            key: 'camera',
+                            icon: Camera,
+                            label: t('attachCamera'),
+                            run: () => cameraInputRef.current?.click(),
+                            hidden: !canCapture,
+                          },
+                          {
+                            key: 'file',
+                            icon: FileText,
+                            label: t('attachFile'),
+                            run: () => fileInputRef.current?.click(),
+                          },
+                          {
+                            key: 'poll',
+                            icon: BarChart3,
+                            label: t('createPoll'),
+                            run: () => onCreatePoll?.(),
+                            hidden: !onCreatePoll,
+                          },
+                        ] as const
+                      )
+                        .filter((a) => !('hidden' in a && a.hidden))
+                        .map((a) => (
+                          <button
+                            key={a.key}
+                            type="button"
+                            onClick={() => {
+                              setAttachMenuOpen(false)
+                              a.run()
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                          >
+                            <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
+                            {a.label}
+                          </button>
+                        ))}
                     </div>
                   </>
                 )}
@@ -319,6 +384,7 @@ export function ChatComposer({
                   Shift+Enter переносит строку, поле растёт под текст и с пятой строки
                   прокручивается. */}
               <RichTextField
+                bare
                 handle={composerRef}
                 value={text}
                 onChange={onType}
@@ -446,6 +512,6 @@ export function ChatComposer({
           )}
         </div>
       )}
-    </>
+    </div>
   )
 }
