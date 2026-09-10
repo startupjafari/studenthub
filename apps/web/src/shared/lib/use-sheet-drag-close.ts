@@ -1,37 +1,48 @@
 'use client'
 
 import { useEffect, useRef, type RefObject } from 'react'
+import {
+  createSpring,
+  prefersReducedMotion,
+  projectMomentum,
+  rubberband,
+  velocityFrom,
+  type SpringHandle,
+} from './spring'
 
 interface Options {
   /**
-   * Затемнение под шторкой. Передан — гаснет вместе с ней: во время драга прозрачность
-   * падает пропорционально смещению, при закрытии уходит в 0 той же анимацией. Без него
-   * фон оставался бы плотным до самого конца, и лист «проваливался» бы в тёмный экран.
+   * Затемнение под шторкой. Передан — гаснет вместе с ней: прозрачность привязана к
+   * смещению на всём пути, и при драге, и при доводке. Без него фон оставался бы плотным
+   * до самого конца, и лист «проваливался» бы в тёмный экран.
    */
   backdropRef?: RefObject<HTMLElement | null>
-  /** Смещение вниз (px), после которого шторка закрывается. */
-  threshold?: number
-  /** Порог начала драга (px) — чтобы не реагировать на микродвижения/тапы. */
+  /** Доля высоты листа, за которой отпускание закрывает (по спроецированной точке). */
+  closeFraction?: number
+  /** Порог начала драга (px) — чтобы не реагировать на микродвижения и тапы. */
   startThreshold?: number
-  /** Скорость флика вниз (px/ms), при которой закрываем даже без порога смещения. */
-  flingVelocity?: number
 }
 
-// Единый жест «потянуть шторку вниз, чтобы закрыть» для BottomSheet/ActionSheet.
+// Жест «потянуть шторку вниз, чтобы закрыть» для BottomSheet/ActionSheet.
 //
-// Плавность (Telegram-стиль):
-//  • во время драга — transition отключён, лист 1:1 следует за пальцем (только вниз);
-//  • при отпускании ниже порога ИЛИ быстром флике вниз — лист плавно «уезжает» за нижний край,
-//    и лишь по завершении анимации вызывается onClose (без резкого исчезновения);
-//  • иначе — пружинный возврат к исходной позиции с той же анимацией.
+// Физика — apple-design §2–§6, §9:
+//  · слежение 1:1 за указателем, с учётом того, ГДЕ схватили (Pointer Events + capture,
+//    поэтому работает и мышью, и стилусом, и когда палец ушёл за пределы листа);
+//  · вверх лист тянется с нарастающим сопротивлением (резина), а не упирается в стену;
+//  · решение «закрыть или вернуть» принимается по СПРОЕЦИРОВАННОЙ точке остановки, а не по
+//    текущей: короткий быстрый флик закрывает, долгое медленное перетаскивание — нет;
+//  · доводка — пружина, стартующая со скоростью пальца, поэтому шва между жестом и
+//    анимацией нет;
+//  · **лист можно поймать в любой момент доводки** и потащить обратно. Это главное: раньше
+//    здесь стоял флаг `settling`, который глушил новые касания до конца анимации.
 //
-// touchmove вешаем НАТИВНО с { passive: false } и делаем preventDefault во время активного драга —
-// иначе React вешает passive-слушатель, preventDefault игнорируется, и жест параллельно уходит в
-// документ (iOS pull-to-refresh / прокрутка фона). Так один жест принадлежит только шторке.
-//
-// Драг стартует лишь когда контент прокручен в самый верх (scrollTop === 0) и палец идёт ВНИЗ —
-// иначе это обычная прокрутка контента шторки (её не перехватываем).
-const SETTLE_EASE = 'transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1)'
+// touchmove держим отдельным нативным слушателем с `{ passive: false }` только ради
+// preventDefault: Pointer Events сами по себе не мешают браузеру прокручивать страницу, а
+// без этого жест параллельно уходит в документ (iOS pull-to-refresh).
+
+/** Пружина доводки: лёгкий перелёт уместен — жест сам нёс инерцию (§4, «Drawer / sheet»). */
+const SHEET_DAMPING = 0.8
+const SHEET_RESPONSE = 0.3
 
 export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
   onClose: () => void,
@@ -46,126 +57,128 @@ export function useSheetDragClose<T extends HTMLElement = HTMLDivElement>(
     const el = ref.current
     if (!el) return
     const backdrop = backdropRef?.current ?? null
-    const threshold = options.threshold ?? 96
+    const closeFraction = options.closeFraction ?? 0.4
     const startThreshold = options.startThreshold ?? 6
-    const flingVelocity = options.flingVelocity ?? 0.55
-    let startY = 0
-    let dy = 0
+
+    const height = (): number => el.offsetHeight || 1
+
+    // Единственная точка правды о положении листа: и драг, и пружина пишут сюда.
+    const render = (y: number): void => {
+      el.style.transform = y === 0 ? '' : `translateY(${y}px)`
+      if (backdrop) backdrop.style.opacity = String(Math.max(0, 1 - y / height()))
+    }
+
+    let closing = false
+    const spring: SpringHandle = createSpring({
+      from: 0,
+      damping: SHEET_DAMPING,
+      response: SHEET_RESPONSE,
+      onChange: render,
+      onRest: () => {
+        if (closing) onCloseRef.current()
+      },
+    })
+
     let dragging = false
-    let settling = false // идёт анимация доводки/возврата — новые касания игнорируем
-    let lastY = 0
-    let lastT = 0
-    let velocity = 0 // px/ms, положительная — движение вниз
+    let pointerId: number | null = null
+    let grabY = 0 // положение листа в момент захвата
+    let startPointer = 0
+    let passedThreshold = false
+    let history: { position: number; time: number }[] = []
 
-    // Прозрачность фона по смещению: 1 → 0 к концу «уезда» листа.
-    const setBackdrop = (offset: number): void => {
-      if (!backdrop) return
-      const span = el.offsetHeight || 1
-      backdrop.style.opacity = String(Math.max(0, 1 - offset / span))
+    const onPointerDown = (e: PointerEvent): void => {
+      // Мышью тянем только основной кнопкой; правый клик — контекстное меню.
+      if (e.button !== 0) return
+      // Лист едет — перехватываем его на текущем месте. Именно это делает анимацию
+      // прерываемой: пружина гасится, а драг продолжается оттуда, где лист сейчас.
+      const catching = spring.animating
+      if (!catching && el.scrollTop > 0) return // обычная прокрутка контента — не наш жест
+      closing = false
+      spring.stop()
+      dragging = true
+      pointerId = e.pointerId
+      grabY = spring.value
+      startPointer = e.clientY
+      // Пойманный на лету лист уже «в жесте» — порог движения ему не нужен.
+      passedThreshold = catching
+      history = [{ position: e.clientY, time: e.timeStamp }]
+      el.setPointerCapture(e.pointerId)
     }
 
-    const clearTransitionOnEnd = (e: TransitionEvent): void => {
-      if (e.propertyName !== 'transform') return
-      el.style.transition = ''
-      el.removeEventListener('transitionend', clearTransitionOnEnd)
-      settling = false
-    }
+    const onPointerMove = (e: PointerEvent): void => {
+      if (!dragging || e.pointerId !== pointerId) return
+      const delta = e.clientY - startPointer
+      history.push({ position: e.clientY, time: e.timeStamp })
+      if (history.length > 8) history.shift()
 
-    const animateClose = (): void => {
-      settling = true
-      el.style.transition = SETTLE_EASE
-      if (backdrop) {
-        backdrop.style.transition = 'opacity 0.24s ease-out'
-        backdrop.style.opacity = '0'
+      if (!passedThreshold) {
+        // Вверх от закрытого положения жеста нет — это прокрутка контента.
+        if (delta < startThreshold) return
+        passedThreshold = true
       }
-      // Уезжаем за нижний край экрана, затем закрываем по завершении анимации.
-      el.style.transform = `translateY(${el.offsetHeight}px)`
-      let done = false
-      const finish = (): void => {
-        if (done) return
-        done = true
-        el.removeEventListener('transitionend', onEndTransition)
-        onCloseRef.current()
-      }
-      const onEndTransition = (e: TransitionEvent): void => {
-        if (e.propertyName === 'transform') finish()
-      }
-      el.addEventListener('transitionend', onEndTransition)
-      // Страховка, если transitionend не придёт (прерванная анимация/размонтирование).
-      window.setTimeout(finish, 300)
+      const raw = grabY + delta
+      // Выше открытого положения лист не поднимается, но и не упирается: резина.
+      spring.set(raw >= 0 ? raw : -rubberband(-raw, height()))
+      render(spring.value)
     }
 
-    const animateBack = (): void => {
-      settling = true
-      el.style.transition = SETTLE_EASE
-      el.style.transform = ''
-      if (backdrop) {
-        backdrop.style.transition = 'opacity 0.24s ease-out'
-        backdrop.style.opacity = ''
-      }
-      el.addEventListener('transitionend', clearTransitionOnEnd)
-      // Страховка на случай, если transform уже был 0 и transitionend не сработает.
-      window.setTimeout(() => {
-        el.style.transition = ''
-        settling = false
-      }, 300)
-    }
+    const settle = (): void => {
+      const y = spring.value
+      const velocity = velocityFrom(history)
+      // Куда лист доехал бы сам, если его отпустить (§6). Решение по проекции, а не по
+      // текущей точке: короткий резкий флик закрывает, вялое перетаскивание на ту же
+      // дистанцию — нет. Это и есть «маленький ввод → большой вывод».
+      const projected = y + projectMomentum(velocity)
+      closing = projected > height() * closeFraction
 
-    const onStart = (e: TouchEvent): void => {
-      if (settling) return
-      // Драг закрытия — только от самого верха контента; иначе отдаём жест прокрутке.
-      dragging = el.scrollTop <= 0
-      startY = e.touches[0]?.clientY ?? 0
-      lastY = startY
-      lastT = e.timeStamp
-      dy = 0
-      velocity = 0
-      el.style.transition = 'none' // во время драга — мгновенное следование за пальцем
-      if (backdrop) backdrop.style.transition = 'none'
-    }
-
-    const onMove = (e: TouchEvent): void => {
-      if (!dragging) return
-      const y = e.touches[0]?.clientY ?? 0
-      dy = y - startY
-      const dt = e.timeStamp - lastT
-      if (dt > 0) velocity = (y - lastY) / dt
-      lastY = y
-      lastT = e.timeStamp
-      if (dy <= startThreshold) {
-        el.style.transform = ''
-        setBackdrop(0)
+      if (prefersReducedMotion()) {
+        // Уменьшенное движение: без броска и перелёта — сразу конечное состояние.
+        spring.set(closing ? height() : 0)
+        render(spring.value)
+        if (closing) onCloseRef.current()
         return
       }
-      // Жест принадлежит шторке — не даём странице подхватить его (pull-to-refresh/скролл).
-      if (e.cancelable) e.preventDefault()
-      el.style.transform = `translateY(${dy}px)`
-      setBackdrop(dy)
+      // Скорость пальца становится начальной скоростью пружины — шва между жестом и
+      // анимацией не остаётся (§5).
+      spring.to(closing ? height() : 0, velocity)
     }
 
-    const onEnd = (): void => {
-      if (!dragging) return
+    const onPointerUp = (e: PointerEvent): void => {
+      if (!dragging || e.pointerId !== pointerId) return
       dragging = false
-      // Закрываем при достаточном смещении ИЛИ быстром флике вниз с заметным сдвигом.
-      if (dy > threshold || (velocity > flingVelocity && dy > startThreshold)) animateClose()
-      else animateBack()
-      dy = 0
-      velocity = 0
+      pointerId = null
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      if (!passedThreshold) return
+      settle()
     }
 
-    el.addEventListener('touchstart', onStart, { passive: true })
-    // passive:false — обязательно, иначе preventDefault() не сработает.
-    el.addEventListener('touchmove', onMove, { passive: false })
-    el.addEventListener('touchend', onEnd)
-    el.addEventListener('touchcancel', onEnd)
-    return () => {
-      el.removeEventListener('touchstart', onStart)
-      el.removeEventListener('touchmove', onMove)
-      el.removeEventListener('touchend', onEnd)
-      el.removeEventListener('touchcancel', onEnd)
-      el.removeEventListener('transitionend', clearTransitionOnEnd)
+    // Единственная задача — не отдать жест странице. Слушатель обязан быть non-passive,
+    // иначе preventDefault игнорируется (React вешает passive).
+    //
+    // Блокируем с ПЕРВОГО движения вниз, не дожидаясь порога: иначе браузер успевает
+    // счесть жест прокруткой, забирает его себе и присылает pointercancel — лист замирает
+    // на полпути. Движение вверх не трогаем: при scrollTop === 0 это обычная прокрутка
+    // содержимого шторки, и она должна работать.
+    const blockScroll = (e: TouchEvent): void => {
+      if (!dragging || !e.cancelable) return
+      const y = e.touches[0]?.clientY
+      if (y !== undefined && y > startPointer) e.preventDefault()
     }
-  }, [options.threshold, options.startThreshold, options.flingVelocity, backdropRef])
+
+    el.addEventListener('pointerdown', onPointerDown)
+    el.addEventListener('pointermove', onPointerMove)
+    el.addEventListener('pointerup', onPointerUp)
+    el.addEventListener('pointercancel', onPointerUp)
+    el.addEventListener('touchmove', blockScroll, { passive: false })
+    return () => {
+      spring.stop()
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('pointermove', onPointerMove)
+      el.removeEventListener('pointerup', onPointerUp)
+      el.removeEventListener('pointercancel', onPointerUp)
+      el.removeEventListener('touchmove', blockScroll)
+    }
+  }, [options.closeFraction, options.startThreshold, backdropRef])
 
   return ref
 }

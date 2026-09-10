@@ -30,6 +30,7 @@ import { ChatsService } from './chats.service'
 import { CreateChatDto } from './dto/create-chat.dto'
 import { AddChatMemberDto } from './dto/add-chat-member.dto'
 import { EditChatDto } from './dto/edit-chat.dto'
+import { ChatListQueryDto } from './dto/chat-list-query.dto'
 import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
 import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
@@ -42,6 +43,8 @@ import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
 import { SaveDraftDto } from './dto/save-draft.dto'
+import { ScheduleMessageDto } from './dto/schedule-message.dto'
+import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -52,10 +55,12 @@ export class ChatsController {
   constructor(private readonly chats: ChatsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Мои чаты (с последним сообщением и флагом непрочитанного)' })
-  @ApiResponse({ status: 200, description: 'Список чатов' })
-  list(@CurrentUser() user: CurrentUserData) {
-    return this.chats.listChats(user)
+  @ApiOperation({
+    summary: 'Мои чаты (последнее сообщение, флаг непрочитанного; cursor-пагинация)',
+  })
+  @ApiResponse({ status: 200, description: 'Страница чатов' })
+  list(@CurrentUser() user: CurrentUserData, @Query() query: ChatListQueryDto) {
+    return this.chats.listChats(user, query)
   }
 
   @Post()
@@ -70,6 +75,13 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Страница найденных сообщений (свежие первыми)' })
   search(@CurrentUser() user: CurrentUserData, @Query() query: MessageSearchQueryDto) {
     return this.chats.searchMessages(user, query)
+  }
+
+  @Get('unread')
+  @ApiOperation({ summary: 'Сводка непрочитанного для бейджа навигации: { chats, messages }' })
+  @ApiResponse({ status: 200, description: 'Число чатов с непрочитанным и всего сообщений' })
+  unread(@CurrentUser() user: CurrentUserData) {
+    return this.chats.getUnreadSummary(user)
   }
 
   @Get('saved')
@@ -195,7 +207,9 @@ export class ChatsController {
       chatId: id,
       content: fields.content,
       replyToId: fields.replyToId,
+      replyQuote: fields.replyQuote,
       spoiler: fields.spoiler,
+      silent: fields.silent,
     })
     if (!parsed.success) {
       throw new AppException('BAD_REQUEST', 'Некорректные поля сообщения')
@@ -268,6 +282,25 @@ export class ChatsController {
     return this.chats.exportMessages(user.sub, id)
   }
 
+  @Post(':id/request/accept')
+  @ApiOperation({ summary: 'Принять запрос на переписку (§50) — чат становится обычным' })
+  @ApiResponse({ status: 201, description: 'Запрос принят' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — решение принимает адресат' })
+  acceptRequest(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.acceptChatRequest(user.sub, id)
+  }
+
+  @Post(':id/request/decline')
+  @ApiOperation({ summary: 'Отклонить запрос на переписку — чат удаляется у обеих сторон' })
+  @ApiResponse({ status: 201, description: 'Запрос отклонён' })
+  async declineRequest(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+  ): Promise<null> {
+    await this.chats.declineChatRequest(user.sub, id)
+    return null
+  }
+
   @Post(':id/mute')
   @ApiOperation({
     summary:
@@ -285,6 +318,61 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Уведомления включены' })
   unmute(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.setMuted(user.sub, id, null)
+  }
+
+  @Get(':id/scheduled')
+  @ApiOperation({ summary: 'Мои отложенные сообщения в чате (чужие не видны)' })
+  @ApiResponse({ status: 200, description: 'Отложенные, ближайшие первыми' })
+  scheduled(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.listScheduled(user.sub, id)
+  }
+
+  @Post(':id/scheduled')
+  @ApiOperation({ summary: 'Отложить сообщение на будущее (только текст, без вложений)' })
+  @ApiResponse({ status: 201, description: 'Сообщение поставлено в очередь' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — время в прошлом или превышен лимит' })
+  schedule(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ScheduleMessageDto,
+  ) {
+    return this.chats.scheduleMessage(user.sub, id, dto)
+  }
+
+  @Patch('scheduled/:scheduledId')
+  @ApiOperation({ summary: 'Изменить текст или время своего отложенного сообщения' })
+  @ApiResponse({ status: 200, description: 'Отложенное обновлено' })
+  updateScheduled(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+    @Body() dto: UpdateScheduledMessageDto,
+  ) {
+    return this.chats.updateScheduled(user.sub, scheduledId, dto)
+  }
+
+  @Delete('scheduled/:scheduledId')
+  @ApiOperation({ summary: 'Отменить своё отложенное сообщение' })
+  @ApiResponse({ status: 200, description: 'Отложенное отменено' })
+  async cancelScheduled(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+  ): Promise<null> {
+    await this.chats.cancelScheduled(user.sub, scheduledId)
+    return null
+  }
+
+  @Post(':id/archive')
+  @ApiOperation({ summary: 'Убрать чат в архив (у себя)' })
+  @ApiResponse({ status: 201, description: 'Чат в архиве' })
+  archive(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.setChatArchived(user.sub, id, true)
+  }
+
+  @Delete(':id/archive')
+  @ApiOperation({ summary: 'Вернуть чат из архива' })
+  @ApiResponse({ status: 200, description: 'Чат возвращён в список' })
+  unarchive(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.setChatArchived(user.sub, id, false)
   }
 
   @Post(':id/pin')

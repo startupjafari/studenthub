@@ -2,8 +2,11 @@ import type {
   ChatMessagesQueryInput,
   CreateChatInput,
   CreateChatPollInput,
+  ScheduleMessageInput,
+  UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
+import { sortChats } from '../lib/sort-chats'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type {
   BlockedUser,
@@ -31,7 +34,21 @@ export const chatKeys = {
   links: (id: string) => ['chats', id, 'links'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
   blocked: () => ['chats', 'blocked'] as const,
+  unread: () => ['chats', 'unread'] as const,
+  scheduled: (id: string) => ['chats', id, 'scheduled'] as const,
   folders: () => ['chats', 'folders'] as const,
+}
+
+// Сводка непрочитанного для бейджа в навигации. Отдельный лёгкий запрос: тянуть ради
+// числа весь список чатов на каждом экране приложения незачем.
+export interface ChatUnreadSummary {
+  chats: number
+  messages: number
+}
+
+export async function fetchChatsUnread(): Promise<ChatUnreadSummary> {
+  const { data } = await api.get<ChatUnreadSummary>('/chats/unread')
+  return data
 }
 
 // «Сохранённые» (§15): id личного self-chat (создаётся на первом обращении).
@@ -40,14 +57,91 @@ export async function fetchSavedChat(): Promise<{ id: string }> {
   return data
 }
 
+// Размер страницы списка чатов и потолок числа страниц. Список нужен целиком: по нему
+// клиент считает вкладки-папки, счётчики непрочитанного и ищет по названиям, — поэтому
+// страницы забираются подряд до конца. Потолок страховочный: пятнадцать сотен чатов у
+// одного человека означали бы не «не долистали», а сломанные данные.
+const CHAT_PAGE_LIMIT = 100
+const CHAT_PAGE_MAX = 15
+
 export async function fetchChats(): Promise<ChatListItem[]> {
-  const { data } = await api.get<ChatListItem[]>('/chats')
+  const out: ChatListItem[] = []
+  let cursor: string | undefined
+  for (let page = 0; page < CHAT_PAGE_MAX; page += 1) {
+    const res = (await api.get<ChatListItem[]>('/chats', {
+      params: { limit: CHAT_PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
+    })) as ResponseWithMeta & { data: ChatListItem[] }
+    out.push(...res.data)
+    if (!res.meta?.hasNext || !res.meta.cursor) break
+    cursor = res.meta.cursor
+  }
+  // Закреплённые наверх — здесь, а не на сервере: порядок сквозной по всем страницам.
+  return sortChats(out)
+}
+
+// requestPendingForId — кому адресован непринятый запрос на переписку (§50); null —
+// обычный чат (друзья или запрос уже принят). Возвращается и для существующего чата.
+export async function createChatRequest(
+  input: CreateChatInput,
+): Promise<{ id: string; requestPendingForId?: string | null }> {
+  const { data } = await api.post<{ id: string; requestPendingForId?: string | null }>(
+    '/chats',
+    input,
+  )
   return data
 }
 
-export async function createChatRequest(input: CreateChatInput): Promise<{ id: string }> {
-  const { data } = await api.post<{ id: string }>('/chats', input)
+// Принять запрос на переписку — чат становится обычным у обеих сторон (§50).
+export async function acceptChatRequestRequest(chatId: string): Promise<void> {
+  await api.post(`/chats/${chatId}/request/accept`)
+}
+
+// Отклонить запрос — чат удаляется целиком; инициатор об отказе не уведомляется.
+export async function declineChatRequestRequest(chatId: string): Promise<void> {
+  await api.post(`/chats/${chatId}/request/decline`)
+}
+
+// ── Отложенные сообщения ─────────────────────────────────────────────────────
+
+export interface ScheduledMessage {
+  id: string
+  content: string
+  replyToId: string | null
+  replyQuote: string | null
+  silent: boolean
+  scheduledAt: string
+  createdAt: string
+}
+
+export async function fetchScheduled(chatId: string): Promise<ScheduledMessage[]> {
+  const { data } = await api.get<ScheduledMessage[]>(`/chats/${chatId}/scheduled`)
   return data
+}
+
+export async function scheduleMessageRequest(
+  chatId: string,
+  input: ScheduleMessageInput,
+): Promise<ScheduledMessage> {
+  const { data } = await api.post<ScheduledMessage>(`/chats/${chatId}/scheduled`, input)
+  return data
+}
+
+export async function updateScheduledRequest(
+  id: string,
+  input: UpdateScheduledMessageInput,
+): Promise<ScheduledMessage> {
+  const { data } = await api.patch<ScheduledMessage>(`/chats/scheduled/${id}`, input)
+  return data
+}
+
+export async function cancelScheduledRequest(id: string): Promise<void> {
+  await api.delete(`/chats/scheduled/${id}`)
+}
+
+// Архив «у себя»: чат уезжает в отдельную вкладку и перестаёт считаться в бейдже.
+export async function setChatArchivedRequest(chatId: string, archived: boolean): Promise<void> {
+  if (archived) await api.post(`/chats/${chatId}/archive`)
+  else await api.delete(`/chats/${chatId}/archive`)
 }
 
 // Присоединиться к группе по ссылке-приглашению (Ф9+).
@@ -112,14 +206,23 @@ export async function fetchChatUpdates(
  */
 export async function sendMessageWithAttachments(
   chatId: string,
-  input: { content?: string; replyToId?: string; spoiler?: boolean },
+  input: {
+    content?: string
+    replyToId?: string
+    replyQuote?: string
+    spoiler?: boolean
+    silent?: boolean
+  },
   files: File[],
   onProgress?: (fraction: number) => void,
 ): Promise<ChatMessage> {
   const form = new FormData()
   if (input.content) form.append('content', input.content)
   if (input.replyToId) form.append('replyToId', input.replyToId)
+  // Цитата без ответа схемой запрещена — отправляем только парой.
+  if (input.replyToId && input.replyQuote) form.append('replyQuote', input.replyQuote)
   if (input.spoiler) form.append('spoiler', 'true')
+  if (input.silent) form.append('silent', 'true')
   for (const file of files) form.append('file', file)
   const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
     onUploadProgress: onProgress

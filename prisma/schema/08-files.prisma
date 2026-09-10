@@ -31,6 +31,11 @@ model File {
   posterKey  String?  @map("poster_key")
   // Спойлер (§34): медиа показывается размытым до клика (для вложений сообщений чата).
   spoiler    Boolean  @default(false)
+  // Размеры изображения в пикселях: клиент резервирует под снимок точное место и показывает
+  // скелетон нужной формы, пока идут байты. NULL — не изображение, размеры не определились
+  // или файл загружен до появления полей.
+  width      Int?
+  height     Int?
   createdAt  DateTime @default(now()) @map("created_at")
 
   owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)

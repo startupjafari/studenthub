@@ -4,6 +4,7 @@ import type Redis from 'ioredis'
 import { ChatType, Prisma } from '@prisma/client'
 import type {
   CreateChatInput,
+  ChatListQueryInput,
   ChatMessagesQueryInput,
   ChatMediaQueryInput,
   ChatUpdatesQueryInput,
@@ -12,6 +13,8 @@ import type {
   MessageSearchQueryInput,
   MessageSendInput,
   PollVoteInput,
+  ScheduleMessageInput,
+  UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -40,12 +43,9 @@ const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, ava
 // чем склеивать: непрерывность ленты всё равно не гарантируется.
 const CHAT_UPDATES_LIMIT = 200
 
-// Потолки на списки (BACKEND_RULES §7.2 «findMany без take запрещён»). Списки чатов и
-// участников — экранные, поэтому режутся потолком; рассылки участникам обязаны дойти до
-// всех, поэтому читаются батчами (см. allMembers).
-const CHAT_LIST_LIMIT = 100
-/** Личный чат — ровно два участника, поэтому собеседников не больше двух на чат. */
-const PRIVATE_PEER_LIMIT = CHAT_LIST_LIMIT * 2
+// Потолки на списки (BACKEND_RULES §7.2 «findMany без take запрещён»). Список чатов теперь
+// страничный (cursor), и его спутники считаются от размера страницы — см. peerLimit
+// в listChats. Рассылки участникам обязаны дойти до всех и читаются батчами (allMembers).
 const BLOCKED_LIST_LIMIT = 200
 /** Голоса одного пользователя в одном опросе: не больше, чем вариантов. */
 const POLL_VOTES_LIMIT = 100
@@ -63,6 +63,17 @@ interface ChatMemberNotifyRow {
   mutedUntil: Date | null
   muteImportantOnly: boolean
 }
+
+// С какого момента сообщения считаются непрочитанными: позднее из «последнего прочтения»
+// и «очистки истории у себя». Оба могут быть null — тогда непрочитано всё, что есть.
+function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
+  if (!m.lastReadAt) return m.clearedAt
+  if (!m.clearedAt) return m.lastReadAt
+  return m.lastReadAt > m.clearedAt ? m.lastReadAt : m.clearedAt
+}
+
+// Потолок разбора членств для сводного счётчика непрочитанного (см. getUnreadSummary).
+const UNREAD_SCAN_LIMIT = 500
 
 // Заглушён ли участник (§17): навсегда (mutedAt) или на время (mutedUntil ещё не истёк).
 function isMemberMuted(m: { mutedAt: Date | null; mutedUntil: Date | null }): boolean {
@@ -117,7 +128,22 @@ const MESSAGE_SELECT = {
   systemType: true,
   systemMeta: true,
   sender: SENDER_SELECT,
-  media: { select: { id: true, mime: true, size: true, name: true, spoiler: true } },
+  // width/height — размеры изображения: клиент держит под снимок точное место, пока идут байты.
+  media: {
+    select: {
+      id: true,
+      mime: true,
+      size: true,
+      name: true,
+      spoiler: true,
+      width: true,
+      height: true,
+    },
+  },
+  // Процитированный фрагмент: клиент рисует его вместо начала исходного сообщения.
+  replyQuote: true,
+  // «Без звука»: клиенту нужен для пометки у своего сообщения («отправлено без звука»).
+  silent: true,
   replyTo: {
     select: { id: true, content: true, senderId: true, sender: SENDER_SELECT },
   },
@@ -158,6 +184,27 @@ type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
 
 // Окно троттлинга провижининга официальных чатов на пользователя (см. ensureOfficialChatsThrottled).
 const CHAT_ENSURE_TTL_SECONDS = 600
+
+// Антифлуд отправки: не больше FLOOD_MAX сообщений за окно (см. assertNotFlooding).
+const FLOOD_MAX = 20
+const FLOOD_WINDOW_SECONDS = 10
+
+// §50: сколько сообщений инициатор может отправить в ещё не принятый запрос на переписку.
+const REQUEST_MESSAGE_QUOTA = 5
+
+// Отложенные сообщения: потолок «в очереди» на чат и размер батча доставки за один тик cron.
+const SCHEDULED_PER_CHAT_LIMIT = 50
+const SCHEDULED_BATCH = 500
+
+const SCHEDULED_SELECT = {
+  id: true,
+  content: true,
+  replyToId: true,
+  replyQuote: true,
+  silent: true,
+  scheduledAt: true,
+  createdAt: true,
+} satisfies Prisma.ScheduledMessageSelect
 
 @Injectable()
 export class ChatsService {
@@ -200,8 +247,10 @@ export class ChatsService {
 
   // ── Список чатов (9.5/9.6) ──────────────────────────────────────────────────
 
-  async listChats(viewer: JwtPayload) {
-    await this.ensureOfficialChatsThrottled(viewer)
+  async listChats(viewer: JwtPayload, query: ChatListQueryInput): Promise<Paginated<unknown>> {
+    // Провижининг официальных чатов — только на первой странице: на второй он бы
+    // повторял ту же проверку ради тех же уже созданных чатов.
+    if (!query.cursor) await this.ensureOfficialChatsThrottled(viewer)
     const chats = await this.prisma.chat.findMany({
       // Забаненные (bannedAt != null) и скрытые «у себя» (hiddenAt != null) чаты в списке не показываем.
       where: { members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } } },
@@ -215,6 +264,7 @@ export class ChatsService {
         facultyId: true,
         universityId: true,
         subject: true,
+        requestPendingForId: true,
         updatedAt: true,
         members: {
           where: { userId: viewer.sub },
@@ -227,6 +277,7 @@ export class ChatsService {
             clearedAt: true,
             draft: true,
             pinnedAt: true,
+            archivedAt: true,
           },
         },
         messages: {
@@ -237,9 +288,15 @@ export class ChatsService {
         },
         _count: { select: { members: true } },
       },
-      orderBy: { updatedAt: 'desc' },
-      take: 100,
+      // Стабильный порядок под курсор: id — вторая ступень, иначе чаты с одинаковым
+      // updatedAt перемешивались бы между страницами. Закреплённые наверх поднимает
+      // клиент по pinnedAt: внутри страницы это сделать нельзя, порядок нужен сквозной.
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
+    const hasNext = chats.length > query.limit
+    if (hasNext) chats.length = query.limit
     // Watermark прочтения другими участниками — для статусов доставки своих сообщений (Ф9+).
     const chatIds = chats.map((c) => c.id)
     const reads =
@@ -258,11 +315,13 @@ export class ChatsService {
 
     // Статус блокировки для PRIVATE-чатов: второй участник + наличие UserBlock в любую сторону.
     const privateIds = chats.filter((c) => c.type === ChatType.PRIVATE).map((c) => c.id)
+    // По одной строке собеседника на личный чат страницы и до двух блокировок на пару.
+    const peerLimit = query.limit * 2
     const others =
       privateIds.length > 0
         ? await this.prisma.chatMember.findMany({
             where: { chatId: { in: privateIds }, userId: { not: viewer.sub } },
-            take: PRIVATE_PEER_LIMIT,
+            take: peerLimit,
             select: {
               chatId: true,
               userId: true,
@@ -288,7 +347,7 @@ export class ChatsService {
               ],
             },
             // Не больше двух записей на собеседника (по одной в каждую сторону).
-            take: PRIVATE_PEER_LIMIT,
+            take: peerLimit,
             select: { blockerId: true, blockedId: true },
           })
         : []
@@ -303,11 +362,6 @@ export class ChatsService {
 
     // Числовой счётчик непрочитанных: считаем только для чатов, где вообще есть непрочитанное
     // (последнее сообщение чужое и позже watermark'а), чтобы не делать COUNT по всем чатам.
-    const unreadFloor = (m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null => {
-      if (!m.lastReadAt) return m.clearedAt
-      if (!m.clearedAt) return m.lastReadAt
-      return m.lastReadAt > m.clearedAt ? m.lastReadAt : m.clearedAt
-    }
     const needCount = chats.filter((c) => {
       const lm = c.messages[0]
       const mem = c.members[0]
@@ -362,8 +416,14 @@ export class ChatsService {
           // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
           mutedImportantOnly: mem?.muteImportantOnly ?? false,
           draft: mem?.draft ?? null,
-          // Закреплён «у себя» (Telegram-стиль): показывается сверху списка.
+          // Закреплён «у себя» (Telegram-стиль): показывается сверху списка. Время нужно
+          // клиенту: страницы приходят по updatedAt, и «закреплённые сверху» он собирает
+          // сам поверх всех загруженных страниц.
           pinned: pinnedAt != null,
+          pinnedAt,
+          // Архив «у себя»: чат уезжает в отдельную вкладку. Список отдаёт его как обычно —
+          // раскладывает по вкладкам клиент, как и непринятые запросы.
+          archived: mem?.archivedAt != null,
           othersReadAt: readMap.get(c.id) ?? null,
           // Владелец группы (создатель).
           isOwner: c.createdById != null && c.createdById === viewer.sub,
@@ -374,23 +434,77 @@ export class ChatsService {
           blockedBy: other ? blockedMe.has(other) : false,
           // Собеседник онлайн (только PRIVATE); для групп/официальных чатов — false.
           online: other != null && onlineOthers.has(other),
+          // Запрос на переписку (§50): incoming — решение за мной (чат живёт во вкладке
+          // «Запросы» и никуда больше не попадает); outgoing — я написал и жду принятия.
+          requestIncoming: c.requestPendingForId === viewer.sub,
+          requestOutgoing: c.requestPendingForId != null && c.requestPendingForId !== viewer.sub,
           updatedAt: c.updatedAt,
         },
       }
     })
-    // Закреплённые — сверху (по времени закрепления, свежие выше), остальные — по updatedAt.
-    rows.sort((a, b) => {
-      if (!!a.pinnedAt !== !!b.pinnedAt) return a.pinnedAt ? -1 : 1
-      if (a.pinnedAt && b.pinnedAt) return b.pinnedAt.getTime() - a.pinnedAt.getTime()
-      return b.updatedAt.getTime() - a.updatedAt.getTime()
+    // Пустая оболочка непринятого запроса адресату не показывается: чат заводится уже по
+    // клику в поиске людей, и без первого сообщения показывать во «Запросах» нечего —
+    // человек увидел бы карточку, за которой ничего нет. Инициатор свой чат видит всегда:
+    // он в нём и пишет.
+    const visible = rows.filter((r) => !(r.item.requestIncoming && r.item.lastMessage === null))
+    // Курсор — id последнего чата СТРАНИЦЫ (до фильтрации пустых оболочек запроса):
+    // иначе отфильтрованный хвост уронил бы точку продолжения и страница повторилась бы.
+    const cursor = hasNext ? chats[chats.length - 1]?.id : undefined
+    return new Paginated(
+      visible.map((r) => r.item),
+      { cursor, hasNext },
+    )
+  }
+
+  /**
+   * Сводка непрочитанного для бейджа в навигации.
+   *
+   * Отдельный лёгкий эндпоинт, а не «посчитать по GET /chats»: список чатов клиент тянет
+   * страницами и целиком, а бейдж нужен на каждом экране приложения — грузить ради числа
+   * всю переписку со всеми превью незачем.
+   *
+   * Непринятые входящие запросы (§50) в счётчик не идут: согласия на переписку ещё не было,
+   * и бейдж по ним требовал бы внимания к тому, что человек, возможно, отклонит.
+   */
+  async getUnreadSummary(viewer: JwtPayload): Promise<{ chats: number; messages: number }> {
+    const members = await this.prisma.chatMember.findMany({
+      // Архив ради того и нужен, чтобы эти чаты перестали требовать внимания — в бейдж
+      // они не идут.
+      where: { userId: viewer.sub, bannedAt: null, hiddenAt: null, archivedAt: null },
+      select: {
+        chatId: true,
+        lastReadAt: true,
+        clearedAt: true,
+        chat: { select: { requestPendingForId: true } },
+      },
+      take: UNREAD_SCAN_LIMIT,
     })
-    return rows.map((r) => r.item)
+    // Пер-чатовый порог задаём OR-ветками: у каждого чата своя точка прочтения, и одним
+    // общим условием это не выражается — иначе пришлось бы делать COUNT на каждый чат.
+    const branches = members
+      .filter((m) => m.chat.requestPendingForId !== viewer.sub)
+      .map((m) => {
+        const floor = unreadFloor(m)
+        return { chatId: m.chatId, ...(floor ? { createdAt: { gt: floor } } : {}) }
+      })
+    if (branches.length === 0) return { chats: 0, messages: 0 }
+    const grouped = await this.prisma.message.groupBy({
+      by: ['chatId'],
+      where: { deletedAt: null, senderId: { not: viewer.sub }, OR: branches },
+      _count: { _all: true },
+    })
+    return {
+      chats: grouped.length,
+      messages: grouped.reduce((sum, g) => sum + g._count._all, 0),
+    }
   }
 
   // ── Создание PRIVATE/GROUP (9.5) ────────────────────────────────────────────
 
   async createChat(actor: JwtPayload, input: CreateChatInput) {
     const memberIds = [...new Set([actor.sub, ...input.memberIds])]
+    // Друзья — единственное, что открывает переписку сразу; всем остальным уходит запрос (§50).
+    let requestPendingForId: string | null = null
     // Личный чат с заблокированным (в любую сторону) создать нельзя.
     if (input.type === 'PRIVATE') {
       const other = memberIds.find((id) => id !== actor.sub)
@@ -408,6 +522,11 @@ export class ChatsService {
       if (other) {
         const existing = await this.findPrivateChat(actor.sub, other)
         if (existing) return existing
+        // Новый личный чат — только внутри своего вуза (§50). Дружба важнее скоупа: связь
+        // Friendship вуза не знает, и уже сложившимся друзьям переписку рвать нельзя.
+        const friends = await this.areFriends(actor.sub, other)
+        await this.assertCanStartPrivate(actor, other, friends)
+        if (!friends) requestPendingForId = other
       }
     }
     const chat = await this.prisma.chat.create({
@@ -416,6 +535,7 @@ export class ChatsService {
         title: input.title,
         // Создатель — «админ» пользовательской группы (для бана/аватара).
         createdById: input.type === 'GROUP' ? actor.sub : null,
+        requestPendingForId,
         members: {
           create: memberIds.map((userId) => ({
             userId,
@@ -423,9 +543,151 @@ export class ChatsService {
           })),
         },
       },
-      select: { id: true, type: true, title: true },
+      select: { id: true, type: true, title: true, requestPendingForId: true },
     })
     return chat
+  }
+
+  /** Есть ли принятая дружба между двумя пользователями. */
+  private async areFriends(a: string, b: string): Promise<boolean> {
+    const row = await this.prisma.friendship.findFirst({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { requesterId: a, addresseeId: b },
+          { requesterId: b, addresseeId: a },
+        ],
+      },
+      select: { id: true },
+    })
+    return row !== null
+  }
+
+  /**
+   * Кому вообще можно завести личный чат (§50): своему вузу. Друзьям — всегда (см. выше).
+   * Роли вне вуза (платформенные, работодатель) под ограничение не попадают: universityId
+   * у них null, и сравнивать не с чем — их доступ ограничивают другие правила.
+   */
+  private async assertCanStartPrivate(
+    actor: JwtPayload,
+    otherId: string,
+    friends: boolean,
+  ): Promise<void> {
+    if (friends || actor.universityId == null) return
+    const other = await this.prisma.user.findFirst({
+      where: { id: otherId, deletedAt: null, isBlocked: false },
+      select: { universityId: true },
+    })
+    if (!other) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    if (other.universityId != null && other.universityId !== actor.universityId) {
+      throw new AppException('FORBIDDEN', 'Написать можно только людям своего вуза')
+    }
+  }
+
+  /**
+   * Уведомление о запросе на переписку. Одно на чат: дальнейшие сообщения инициатора
+   * уведомлений не создают (notifyNewMessage вырезает адресата, пока запрос не принят) —
+   * иначе непринятый запрос работал бы как обычный чат и обходил само согласие.
+   */
+  private async notifyChatRequest(fromId: string, toId: string, chatId: string): Promise<void> {
+    const from = await this.prisma.user.findUnique({
+      where: { id: fromId },
+      select: { firstName: true, lastName: true },
+    })
+    const name = `${from?.lastName ?? ''} ${from?.firstName ?? ''}`.trim() || 'Пользователь'
+    const dedupeKey = `chat-request:${chatId}`
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.CHAT_REQUEST,
+      {
+        recipientIds: [toId],
+        // SYSTEM доставляется всегда, мимо пер-типовых настроек уведомлений о сообщениях:
+        // само согласие на переписку — не сообщение, и отключать его отдельно нечем.
+        type: 'SYSTEM',
+        title: 'Запрос на переписку',
+        body: `${name} хочет вам написать`,
+        data: { kind: 'chat-request', chatId, url: `/chats?c=${chatId}` },
+        dedupeKey,
+      },
+      { jobId: dedupeKey },
+    )
+  }
+
+  /**
+   * Принять запрос на переписку — чат становится обычным у обеих сторон.
+   * Ответ адресата сообщением делает то же самое (createMessage), это явная кнопка.
+   */
+  async acceptChatRequest(userId: string, chatId: string): Promise<{ id: string }> {
+    const chat = await this.requirePendingRequest(userId, chatId)
+    await this.clearChatRequest(chat.id)
+    // Обеим сторонам: у адресата чат уезжает из «Запросов», у инициатора снимается пометка.
+    await this.pingChatList(chat.id)
+    return { id: chat.id }
+  }
+
+  /**
+   * Отклонить запрос — чат удаляется целиком (сообщения и членства уходят по каскаду).
+   * Инициатору ничего не уведомляем: как и с заявками в друзья, отказ не сообщается.
+   */
+  async declineChatRequest(userId: string, chatId: string): Promise<void> {
+    const chat = await this.requirePendingRequest(userId, chatId)
+    const members = await this.allMembers(chat.id)
+    await this.prisma.notification.deleteMany({ where: { dedupeKey: `chat-request:${chat.id}` } })
+    await this.prisma.chat.delete({ where: { id: chat.id } })
+    for (const m of members) this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
+  }
+
+  /** Чат, ждущий решения именно этого пользователя. Иначе — 404/409, без утечки чужих чатов. */
+  private async requirePendingRequest(userId: string, chatId: string): Promise<{ id: string }> {
+    const chat = await this.prisma.chat.findFirst({
+      where: { id: chatId, members: { some: { userId } } },
+      select: { id: true, requestPendingForId: true },
+    })
+    if (!chat) throw new AppException('NOT_FOUND', 'Чат не найден')
+    if (chat.requestPendingForId == null) {
+      throw new AppException('CONFLICT', 'Запрос уже обработан')
+    }
+    if (chat.requestPendingForId !== userId) {
+      throw new AppException('FORBIDDEN', 'Решение по запросу принимает адресат')
+    }
+    return { id: chat.id }
+  }
+
+  /**
+   * Состояние запроса на переписку на момент отправки сообщения (§50). Возвращает того,
+   * чьё согласие ещё не получено, или null.
+   *
+   * Живёт на пути каждого сообщения (все пять способов отправки сходятся в notifyNewMessage),
+   * поэтому чат читается здесь ровно один раз и обслуживает сразу три вещи:
+   * - ответ адресата = согласие: отдельная кнопка была бы лишним шагом после уже написанного;
+   * - успевшая сложиться дружба снимает висящий запрос — согласие дано в другом месте;
+   * - первое сообщение инициатора порождает то самое SYSTEM-уведомление о запросе. Оно
+   *   привязано к чату, а не к созданию: оболочка заводится уже по клику в поиске людей, и
+   *   уведомлять по ней значило бы дёргать человека тем, что ему как раз не написали.
+   *   Процессор идемпотентен по dedupeKey, поэтому следующие сообщения его не задваивают.
+   */
+  private async resolveChatRequest(chatId: string, senderId: string): Promise<string | null> {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { requestPendingForId: true },
+    })
+    const pendingFor = chat?.requestPendingForId ?? null
+    if (pendingFor == null) return null
+    if (pendingFor === senderId || (await this.areFriends(senderId, pendingFor))) {
+      await this.clearChatRequest(chatId)
+      return null
+    }
+    await this.notifyChatRequest(senderId, pendingFor, chatId)
+    return pendingFor
+  }
+
+  /** Снять пометку запроса и погасить уведомление о нём (оно одноразовое). */
+  private async clearChatRequest(chatId: string): Promise<void> {
+    await this.prisma.chat.update({
+      where: { id: chatId },
+      data: { requestPendingForId: null },
+    })
+    await this.prisma.notification.deleteMany({ where: { dedupeKey: `chat-request:${chatId}` } })
   }
 
   /**
@@ -438,7 +700,12 @@ export class ChatsService {
   private findPrivateChat(
     userId: string,
     otherId: string,
-  ): Promise<{ id: string; type: ChatType; title: string | null } | null> {
+  ): Promise<{
+    id: string
+    type: ChatType
+    title: string | null
+    requestPendingForId: string | null
+  } | null> {
     return this.prisma.chat.findFirst({
       where: {
         type: ChatType.PRIVATE,
@@ -447,7 +714,7 @@ export class ChatsService {
       },
       // Самый старый: в нём лежит переписка, если дубли успели накопиться до этой правки.
       orderBy: { createdAt: 'asc' },
-      select: { id: true, type: true, title: true },
+      select: { id: true, type: true, title: true, requestPendingForId: true },
     })
   }
 
@@ -761,8 +1028,7 @@ export class ChatsService {
     input: CreateChatPollInput,
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, chatId)
-    this.assertNotFlooding(senderId)
-    await this.assertNotBlockedInPrivate(chatId, senderId)
+    await this.assertCanSend(chatId, senderId)
     const messageId = await this.prisma.$transaction(async (tx) => {
       const message = await tx.message.create({
         data: {
@@ -1178,10 +1444,14 @@ export class ChatsService {
   async createMessage(
     senderId: string,
     input: MessageSendInput,
+    // skipFlood — доставка отложенного сообщения из cron: темп задаёт расписание, а не
+    // человек, и пачка отложенных на одну минуту иначе упёрлась бы в лимит 20/10с.
+    // Блокировка и потолок непринятого запроса проверяются и здесь: за время ожидания
+    // собеседник мог заблокировать отправителя.
+    opts: { skipFlood?: boolean } = {},
   ): Promise<{ message: MessageRow; recipientIds: string[] }> {
     await this.assertMembership(senderId, input.chatId)
-    this.assertNotFlooding(senderId)
-    await this.assertNotBlockedInPrivate(input.chatId, senderId)
+    await this.assertCanSend(input.chatId, senderId, opts)
     await this.assertReplyInChat(input.chatId, input.replyToId)
     const message = await this.prisma.$transaction(async (tx) =>
       tx.message.create({
@@ -1191,6 +1461,8 @@ export class ChatsService {
           senderId,
           content: input.content,
           replyToId: input.replyToId,
+          replyQuote: input.replyQuote,
+          silent: input.silent ?? false,
         },
         select: MESSAGE_SELECT,
       }),
@@ -1224,12 +1496,18 @@ export class ChatsService {
    */
   async sendMessageRest(
     senderId: string,
-    input: { chatId: string; content?: string; replyToId?: string; spoiler?: boolean },
+    input: {
+      chatId: string
+      content?: string
+      replyToId?: string
+      replyQuote?: string
+      spoiler?: boolean
+      silent?: boolean
+    },
     files: { buffer: Buffer; name?: string }[],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, input.chatId)
-    this.assertNotFlooding(senderId)
-    await this.assertNotBlockedInPrivate(input.chatId, senderId)
+    await this.assertCanSend(input.chatId, senderId)
     await this.assertReplyInChat(input.chatId, input.replyToId)
     const content = input.content?.trim() ?? ''
     if (content.length === 0 && files.length === 0) {
@@ -1244,6 +1522,8 @@ export class ChatsService {
           senderId,
           content,
           replyToId: input.replyToId,
+          replyQuote: input.replyQuote,
+          silent: input.silent ?? false,
         },
         select: { id: true },
       }),
@@ -1358,7 +1638,15 @@ export class ChatsService {
     // Заглушённые — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
     const important = await this.importantRecipients(members, message)
+    const pendingFor = await this.resolveChatRequest(chatId, senderId)
+    // «Без звука»: сообщение уходит всем как обычно (WS, список чатов, счётчик), но
+    // уведомления и push по нему не создаются — это выбор отправителя, а не получателя,
+    // поэтому решается здесь, а не в настройках адресата.
+    if (message.silent) return []
     const recipientIds = members
+      // §50: адресат непринятого запроса уведомлений о сообщениях не получает — иначе
+      // непринятый чат ничем не отличался бы от принятого и согласие было бы формальностью.
+      .filter((m) => m.userId !== pendingFor)
       .filter((m) => !viewing.has(m.userId))
       // §17: заглушённый участник получает уведомление, только если сообщение «важное» для него.
       .filter((m) => !isMemberMuted(m) || important.has(m.userId))
@@ -1585,6 +1873,7 @@ export class ChatsService {
     sourceMessageId: string,
   ): Promise<MessageRow> {
     await this.assertMembership(userId, targetChatId)
+    await this.assertCanSend(targetChatId, userId)
     const source = await this.prisma.message.findFirst({
       where: { id: sourceMessageId, deletedAt: null },
       select: {
@@ -1592,7 +1881,17 @@ export class ChatsService {
         chatId: true,
         content: true,
         linkPreview: true,
-        media: { select: { bucket: true, key: true, mime: true, size: true, name: true } },
+        media: {
+          select: {
+            bucket: true,
+            key: true,
+            mime: true,
+            size: true,
+            name: true,
+            width: true,
+            height: true,
+          },
+        },
       },
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
@@ -1648,6 +1947,7 @@ export class ChatsService {
     comment?: string,
   ): Promise<MessageRow> {
     await this.assertMembership(viewer.sub, targetChatId)
+    await this.assertCanSend(targetChatId, viewer.sub)
     // Бросит NOT_FOUND, если пост не виден отправителю (IDOR-защита).
     await this.posts.assertVisibleToViewer(viewer, postId)
     const created = await this.prisma.$transaction(async (tx) =>
@@ -1719,6 +2019,26 @@ export class ChatsService {
       data: { ...data, muteImportantOnly: muted ? importantOnly : false },
     })
     return { chatId, muted, importantOnly: muted ? importantOnly : false }
+  }
+
+  /**
+   * Убрать чат в архив «у себя» / вернуть обратно.
+   *
+   * От «удалить у себя» (hiddenAt) отличается тем, что новое сообщение архив НЕ снимает:
+   * официальных чатов у роли автоматически создаётся с десяток, они пишут каждый день, и
+   * возвращающийся чат сводил бы архив на нет.
+   */
+  async setChatArchived(
+    userId: string,
+    chatId: string,
+    archived: boolean,
+  ): Promise<{ chatId: string; archived: boolean }> {
+    await this.assertMembership(userId, chatId)
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, userId },
+      data: { archivedAt: archived ? new Date() : null },
+    })
+    return { chatId, archived }
   }
 
   /** Закрепить/открепить чат «у себя» (Telegram-стиль): персонально, влияет только на порядок списка. */
@@ -1804,19 +2124,74 @@ export class ChatsService {
     this.realtime.emitToUser(b, 'chat:block', { userId: a })
   }
 
-  /** Для PRIVATE-чата — запретить отправку, если между участниками есть блокировка. */
-  private async assertNotBlockedInPrivate(chatId: string, senderId: string): Promise<void> {
+  /**
+   * Общие условия отправки в чат — единственное место, где они собраны.
+   *
+   * Раньше их звали только createMessage/sendMessageRest/createPoll, а forwardMessage и
+   * sharePost шли мимо: пересылкой обходились и личная блокировка (заблокировавший тебя
+   * человек всё равно получал сообщение), и лимит частоты.
+   *
+   * Чат читается один раз на три проверки: обе «личные» (блокировка и потолок непринятого
+   * запроса) касаются только PRIVATE и нуждаются в одних и тех же полях.
+   */
+  private async assertCanSend(
+    chatId: string,
+    senderId: string,
+    opts: { skipFlood?: boolean } = {},
+  ): Promise<void> {
+    if (!opts.skipFlood) await this.assertNotFlooding(senderId)
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
       select: {
         type: true,
+        requestPendingForId: true,
         members: { where: { userId: { not: senderId } }, select: { userId: true } },
       },
     })
     if (chat?.type !== ChatType.PRIVATE) return
+
     const other = chat.members[0]?.userId
     if (other && (await this.isBlockedBetween(senderId, other))) {
       throw new AppException('FORBIDDEN', 'Переписка недоступна: пользователь заблокирован')
+    }
+
+    // §50: потолок сообщений в непринятый запрос. Уведомлений адресат не получает, но без
+    // потолка инициатор набивал бы ему во вкладку «Запросы» стену текста — канал без
+    // согласия. Ответ адресата снимает запрос, а вместе с ним и потолок.
+    const pendingFor = chat.requestPendingForId
+    if (pendingFor != null && pendingFor !== senderId) {
+      const sent = await this.prisma.message.count({ where: { chatId, senderId, deletedAt: null } })
+      if (sent >= REQUEST_MESSAGE_QUOTA) {
+        throw new AppException(
+          'FORBIDDEN',
+          `Дождитесь ответа: до принятия запроса можно отправить не больше ${REQUEST_MESSAGE_QUOTA} сообщений`,
+        )
+      }
+    }
+  }
+
+  /**
+   * Антифлуд отправки. Счётчик в Redis, а не в памяти процесса: карта в памяти не
+   * переживала второй инстанс (лимит обходился попаданием на другой) и никогда не
+   * чистилась — запись оставалась навсегда на каждого, кто хоть раз написал.
+   *
+   * Окно фиксированное (INCR + EXPIRE на первой записи): на стыке двух окон пропускает
+   * до двух лимитов подряд, но это цена одной атомарной операции вместо списка меток.
+   * Redis недоступен — пропускаем (fail-open, как CronLockService): онемевшие чаты хуже,
+   * чем неограниченная частота на время аварии.
+   */
+  private async assertNotFlooding(userId: string): Promise<void> {
+    const key = `chat:flood:${userId}`
+    let count: number
+    try {
+      count = await this.redis.incr(key)
+      if (count === 1) await this.redis.expire(key, FLOOD_WINDOW_SECONDS)
+    } catch (error) {
+      this.logger.warn(`Redis недоступен, антифлуд пропущен: ${(error as Error).message}`)
+      return
+    }
+    if (count > FLOOD_MAX) {
+      throw new AppException('RATE_LIMIT', 'Слишком много сообщений — подождите немного')
     }
   }
 
@@ -2082,6 +2457,156 @@ export class ChatsService {
     return { chatId, deleted: false }
   }
 
+  // ── Отложенные сообщения ────────────────────────────────────────────────────
+
+  /**
+   * Поставить сообщение в очередь на отправку в будущем.
+   *
+   * Хранится отдельной моделью, а не «сообщением со временем»: у Message есть seq —
+   * монотонный номер, на котором держится дельта-догон после обрыва связи. Занятый заранее
+   * номер означал бы дыру в ленте у всех клиентов до самой доставки.
+   *
+   * Условия отправки (антифлуд, блокировка, потолок непринятого запроса) проверяются и
+   * сейчас, и повторно в момент доставки: за сутки ожидания собеседник может заблокировать.
+   */
+  async scheduleMessage(senderId: string, chatId: string, input: ScheduleMessageInput) {
+    await this.assertMembership(senderId, chatId)
+    await this.assertCanSend(chatId, senderId)
+    await this.assertReplyInChat(chatId, input.replyToId)
+    const pending = await this.prisma.scheduledMessage.count({ where: { chatId, senderId } })
+    if (pending >= SCHEDULED_PER_CHAT_LIMIT) {
+      throw new AppException(
+        'BAD_REQUEST',
+        `В одном чате нельзя держать больше ${SCHEDULED_PER_CHAT_LIMIT} отложенных сообщений`,
+      )
+    }
+    return this.prisma.scheduledMessage.create({
+      data: {
+        chatId,
+        senderId,
+        content: input.content,
+        replyToId: input.replyToId,
+        replyQuote: input.replyQuote,
+        silent: input.silent ?? false,
+        scheduledAt: new Date(input.scheduledAt),
+      },
+      select: SCHEDULED_SELECT,
+    })
+  }
+
+  /** Мои отложенные в этом чате — чужие не показываем: это черновики отправителя. */
+  async listScheduled(senderId: string, chatId: string) {
+    await this.assertMembership(senderId, chatId)
+    return this.prisma.scheduledMessage.findMany({
+      where: { chatId, senderId },
+      orderBy: { scheduledAt: 'asc' },
+      take: SCHEDULED_PER_CHAT_LIMIT,
+      select: SCHEDULED_SELECT,
+    })
+  }
+
+  /** Изменить текст/время своего отложенного сообщения. */
+  async updateScheduled(senderId: string, id: string, input: UpdateScheduledMessageInput) {
+    await this.ownScheduled(senderId, id)
+    return this.prisma.scheduledMessage.update({
+      where: { id },
+      data: {
+        ...(input.content !== undefined ? { content: input.content } : {}),
+        ...(input.scheduledAt !== undefined ? { scheduledAt: new Date(input.scheduledAt) } : {}),
+      },
+      select: SCHEDULED_SELECT,
+    })
+  }
+
+  /** Отменить своё отложенное сообщение. */
+  async cancelScheduled(senderId: string, id: string): Promise<void> {
+    await this.ownScheduled(senderId, id)
+    await this.prisma.scheduledMessage.delete({ where: { id } })
+  }
+
+  private async ownScheduled(senderId: string, id: string): Promise<void> {
+    const row = await this.prisma.scheduledMessage.findUnique({
+      where: { id },
+      select: { senderId: true },
+    })
+    if (!row) throw new AppException('NOT_FOUND', 'Отложенное сообщение не найдено')
+    if (row.senderId !== senderId) {
+      throw new AppException('FORBIDDEN', 'Это чужое отложенное сообщение')
+    }
+  }
+
+  /**
+   * Отправить всё, чему подошло время (вызывается cron'ом из CleanupService — §9.3,
+   * единственный дом для расписаний). Возвращает число доставленных.
+   *
+   * Каждое сообщение обрабатывается независимо: упавшее (чат удалён, автор исключён из
+   * группы, собеседник заблокировал) не должно тормозить остальные. Строка удаляется в
+   * любом случае — иначе неотправляемое сообщение крутилось бы в очереди вечно.
+   */
+  async deliverDueScheduled(): Promise<number> {
+    const due = await this.prisma.scheduledMessage.findMany({
+      where: { scheduledAt: { lte: new Date() } },
+      orderBy: { scheduledAt: 'asc' },
+      take: SCHEDULED_BATCH,
+      select: { ...SCHEDULED_SELECT, chatId: true, senderId: true },
+    })
+    let sent = 0
+    for (const row of due) {
+      try {
+        // Сообщение-адресат ответа могли удалить за время ожидания. Ронять из-за этого
+        // весь текст неправильно — отправляем без ответа и цитаты.
+        const replyAlive =
+          row.replyToId != null &&
+          (await this.prisma.message.count({
+            where: { id: row.replyToId, chatId: row.chatId, deletedAt: null },
+          })) > 0
+        await this.createMessage(
+          row.senderId,
+          {
+            chatId: row.chatId,
+            content: row.content,
+            ...(replyAlive && row.replyToId ? { replyToId: row.replyToId } : {}),
+            ...(replyAlive && row.replyQuote ? { replyQuote: row.replyQuote } : {}),
+            silent: row.silent,
+          },
+          { skipFlood: true },
+        )
+        sent += 1
+      } catch (error) {
+        // Молча терять написанный текст нельзя: человек рассчитывал, что оно уйдёт.
+        this.logger.warn(
+          `Отложенное сообщение ${row.id} не отправлено: ${(error as Error).message}`,
+        )
+        await this.notifyScheduleFailed(row.senderId, row.chatId, row.content)
+      }
+      await this.prisma.scheduledMessage.delete({ where: { id: row.id } }).catch(() => undefined)
+    }
+    if (sent > 0) this.logger.log(`Отложенных сообщений отправлено: ${sent}`)
+    return sent
+  }
+
+  /** Сообщить автору, что отложенное не ушло (чат удалён, его исключили, его заблокировали). */
+  private async notifyScheduleFailed(
+    senderId: string,
+    chatId: string,
+    content: string,
+  ): Promise<void> {
+    const dedupeKey = `scheduled-failed:${chatId}:${senderId}:${Date.now()}`
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.SCHEDULED_FAILED,
+      {
+        recipientIds: [senderId],
+        type: 'SYSTEM',
+        title: 'Отложенное сообщение не отправлено',
+        body: content.slice(0, 140),
+        data: { chatId, url: `/chats?c=${chatId}` },
+        dedupeKey,
+      },
+      { jobId: dedupeKey },
+    )
+  }
+
   /** Список заблокированных мной пользователей (для экрана управления блокировками). */
   async listBlocked(actorId: string) {
     const blocks = await this.prisma.userBlock.findMany({
@@ -2110,18 +2635,6 @@ export class ChatsService {
   }
 
   // Антиспам: не более 20 сообщений за 10 сек на пользователя (in-memory, сбрасывается рестартом).
-  private readonly msgTimes = new Map<string, number[]>()
-  private assertNotFlooding(userId: string): void {
-    const now = Date.now()
-    const windowMs = 10_000
-    const max = 20
-    const recent = (this.msgTimes.get(userId) ?? []).filter((t) => now - t < windowMs)
-    if (recent.length >= max) {
-      throw new AppException('RATE_LIMIT', 'Слишком много сообщений — подождите немного')
-    }
-    recent.push(now)
-    this.msgTimes.set(userId, recent)
-  }
 
   // ── Официальные чаты (9.6) ────────────────────────────────────────────────
 
