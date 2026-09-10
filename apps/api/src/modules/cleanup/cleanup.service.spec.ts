@@ -31,6 +31,9 @@ function makeService() {
     }) as Mock,
     get: jest.fn(async (key: string) => store.get(key) ?? null) as Mock,
   }
+  // Доставка отложенных сообщений чатов: cron только делегирует, поэтому в тесте достаточно
+  // счётчика — сама доставка проверяется в chats.service.spec.ts.
+  const chats = { deliverDueScheduled: jest.fn(async () => 0) as Mock }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -38,10 +41,11 @@ function makeService() {
     events as never,
     posts as never,
     documents as never,
+    chats as never,
     locks as never,
     redis as never,
   )
-  return { service, prisma, minio, config, events, posts, documents, locks, redis, store }
+  return { service, prisma, minio, config, events, posts, documents, chats, locks, redis, store }
 }
 
 // Поток MinIO listObjectsV2 → синхронно эмитим data+end при подписке на 'end'
