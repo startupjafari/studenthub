@@ -24,6 +24,23 @@ export const UserListQuerySchema = OffsetPaginationSchema.extend({
 })
 export type UserListQueryInput = z.infer<typeof UserListQuerySchema>
 
+// Справочник людей своего вуза (§50, «кому написать») — доступен всем ролям, в отличие от
+// UserListQuerySchema выше (та только для Admin+ и отдаёт админские поля). Отдаёт визитки
+// в пределах scope смотрящего, разбитые на секции: друзья → одногруппники → остальной вуз.
+// Курсора нет намеренно: это пикер, а не таблица — при переполнении просят уточнить запрос.
+export const UserDirectoryQuerySchema = z
+  .object({
+    q: z.string().max(100).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(30),
+  })
+  .strict()
+export type UserDirectoryQueryInput = z.infer<typeof UserDirectoryQuerySchema>
+
+// Секция карточки в справочнике: определяет и группировку в UI, и порядок выдачи.
+export const USER_DIRECTORY_SECTIONS = ['friend', 'group', 'university'] as const
+export const UserDirectorySectionSchema = z.enum(USER_DIRECTORY_SECTIONS)
+export type UserDirectorySectionValue = z.infer<typeof UserDirectorySectionSchema>
+
 // Видимость профиля целиком (docs/PROJECT.md §3.7, «закрытый профиль»): кто видит полную
 // карточку. PRIVATE — только владелец и надзорные роли (с аудитом). Порядок = от открытого к закрытому.
 export const PROFILE_VISIBILITY = ['PUBLIC', 'UNIVERSITY', 'FACULTY', 'GROUP', 'PRIVATE'] as const

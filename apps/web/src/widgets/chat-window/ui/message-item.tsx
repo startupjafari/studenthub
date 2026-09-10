@@ -251,7 +251,10 @@ function MessageItemInner({
                 )}
               >
                 <span className="font-medium">{replyToNameText}</span>
-                <p className="line-clamp-2">{m.replyTo.content || t('attachment')}</p>
+                {/* Цитата фрагмента заменяет начало оригинала: отвечают именно на неё. */}
+                <p className="line-clamp-2">
+                  {m.replyQuote || m.replyTo.content || t('attachment')}
+                </p>
               </button>
             )}
             {m.forwardedFrom && (
@@ -292,7 +295,10 @@ function MessageItemInner({
               <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
             ) : (
               m.content && (
-                <div className={cn((m.media.length > 0 || m.sharedPost) && 'mt-1')}>
+                // select-text точечно снимает select-none со строки: он там ради тач-жестов
+                // (свайп-ответ, long-press), а выделять нужно именно текст — из него делается
+                // цитата при ответе.
+                <div className={cn('select-text', (m.media.length > 0 || m.sharedPost) && 'mt-1')}>
                   <MessageContent content={m.content} highlight={highlightTerm} />
                 </div>
               )

@@ -11,6 +11,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
 import { UpdateUsernameDto } from './dto/update-username.dto'
 import { UserListQueryDto } from './dto/user-list-query.dto'
+import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -112,6 +113,15 @@ export class UsersController {
   @ApiResponse({ status: 403, description: 'FORBIDDEN' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: UserListQueryDto) {
     return this.users.list(user, query)
+  }
+
+  // Объявлен ДО @Get(':id') — иначе параметрический маршрут перехватил бы /users/directory.
+  @Get('directory')
+  @ApiOperation({
+    summary: 'Справочник людей своего вуза (визитки; секции друзья/группа/вуз) — все роли',
+  })
+  directory(@CurrentUser() user: CurrentUserData, @Query() query: UserDirectoryQueryDto) {
+    return this.users.directory(user, query)
   }
 
   @Get(':id')

@@ -1,8 +1,12 @@
 export {
   chatKeys,
   fetchChats,
+  fetchChatsUnread,
+  type ChatUnreadSummary,
   fetchSavedChat,
   createChatRequest,
+  acceptChatRequestRequest,
+  declineChatRequestRequest,
   joinChatRequest,
   fetchMessages,
   sendMessageWithAttachments,
@@ -17,6 +21,12 @@ export {
   exportChatRequest,
   setChatMutedRequest,
   setChatPinnedRequest,
+  setChatArchivedRequest,
+  fetchScheduled,
+  scheduleMessageRequest,
+  updateScheduledRequest,
+  cancelScheduledRequest,
+  type ScheduledMessage,
   fetchPresence,
   fetchChatMembers,
   fetchReadReceipts,
@@ -82,3 +92,5 @@ export { SharedPostCard } from './ui/shared-post-card'
 export { AttachmentDialog } from './ui/attachment-dialog'
 export { MessageContextMenu, type MessageMenuActions } from './ui/message-context-menu'
 export { useVoiceRecorder, type VoiceRecorderController } from './lib/use-voice-recorder'
+export { sortChats } from './lib/sort-chats'
+export { useChatsUnread } from './lib/use-chats-unread'

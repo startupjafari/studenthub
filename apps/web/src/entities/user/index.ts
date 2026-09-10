@@ -17,6 +17,9 @@ export {
   blockUserRequest,
   unblockUserRequest,
   type AdminUser,
+  directoryKeys,
+  fetchUserDirectory,
+  type DirectoryUser,
 } from './api/user-api'
 export { UserPicker, type PickedUser } from './ui/user-picker'
 export { ProfileLink } from './ui/profile-link'

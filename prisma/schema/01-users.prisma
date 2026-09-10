@@ -113,12 +113,13 @@ model User {
   reactions     Reaction[]
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
-  chatMemberships  ChatMember[]
-  messages         Message[]
-  messagesPinned   Message[]         @relation("MessagePinnedBy")
-  messageReactions MessageReaction[]
-  chatPollVotes    ChatPollVote[]
-  chatFolders      ChatFolder[]
+  chatMemberships   ChatMember[]
+  messages          Message[]
+  messagesScheduled ScheduledMessage[]
+  messagesPinned    Message[]          @relation("MessagePinnedBy")
+  messageReactions  MessageReaction[]
+  chatPollVotes     ChatPollVote[]
+  chatFolders       ChatFolder[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized     Event[]            @relation("EventOrganizer")

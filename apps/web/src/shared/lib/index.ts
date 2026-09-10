@@ -6,7 +6,16 @@ export { useFormAlert, type FormAlertController } from './use-form-alert'
 export { OPTIONAL_TEXT } from './optional-field'
 export { localId } from './local-id'
 export { useBodyScrollLock } from './use-body-scroll-lock'
+export { hapticTick, hapticCommit } from './haptics'
 export { useSheetDragClose } from './use-sheet-drag-close'
+export {
+  createSpring,
+  projectMomentum,
+  rubberband,
+  velocityFrom,
+  prefersReducedMotion,
+  type SpringHandle,
+} from './spring'
 export { nowInTz, isoWeekParity, type NowInTz } from './tz-date'
 export { safeNextPath } from './safe-next'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
@@ -18,7 +27,13 @@ export {
   type PwaInstallStatus,
   type PwaPlatform,
 } from './pwa-install'
-export { useServiceWorkerUpdate, useChunkErrorRecovery } from './use-sw-update'
+export {
+  useServiceWorkerUpdate,
+  useChunkErrorRecovery,
+  useAppUpdate,
+  BUILD_ID,
+  type AppUpdate,
+} from './use-sw-update'
 export { useBackClose } from './use-back-close'
 export { useKeyboardInset } from './use-keyboard-inset'
 export { isIosDevice, isStandalonePwa } from './platform'

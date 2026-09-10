@@ -145,6 +145,10 @@
   }
   html {
     @apply font-sans;
+    /* Оптический размер (apple-design §15): Inter подставляет начертание под кегль —
+       крупный текст становится плотнее, мелкий — просторнее и читаемее. Требует сборки
+       шрифта с осью opsz (импорт в layout.tsx), иначе свойство молча ничего не делает. */
+    font-optical-sizing: auto;
   }
   /* Гасим iOS Safari pull-to-refresh и «резиновое» цепное прокручивание viewport:
      жест на любой шторке/модалке не должен тянуть системный refresh или двигать страницу.
@@ -597,4 +601,99 @@ summary {
   inset: 0;
   background: color-mix(in oklch, var(--ring) 18%, transparent);
   pointer-events: none;
+}
+
+/* ─── Доступность движения и материалов (apple-design §14) ──────────────────
+   Три независимых сигнала системы. Раньше уважался только первый, и то точечно:
+   выключались четыре самописные анимации, а полсотни `animate-in`/`animate-out`
+   из tw-animate-css (модалки, поповеры, шторки, выезд панели чата) ехали всегда. */
+
+/* Уменьшенное движение — это НЕ «без анимации», а мягкая версия без вестибулярной
+   нагрузки. Гасим смещение, масштаб, поворот и размытие, оставляя кроссфейд по
+   прозрачности: он помогает понять, что элемент появился, и не укачивает.
+   Работаем через переменные tw-animate-css — так правило накрывает все её утилиты
+   разом, не трогая сами кейфреймы. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-enter-rotate: 0 !important;
+    --tw-exit-rotate: 0 !important;
+    --tw-enter-blur: 0 !important;
+    --tw-exit-blur: 0 !important;
+    transition-duration: 150ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Длительность режем ТОЛЬКО у входов/выходов — и не в ноль: мгновенная подмена
+     содержимого читается как глитч, короткий фейд — как смена состояния. Глобальный
+     `animation-duration` здесь был бы вреден: он разогнал бы и циклические анимации,
+     превратив пульсацию скелетонов в стробоскоп — ровно то, от чего человек защищается. */
+  [class*='animate-in'],
+  [class*='animate-out'] {
+    animation-duration: 150ms !important;
+  }
+  /* Циклические индикаторы не выключаем — без них непонятно, жив ли процесс, — но
+     замедляем: утомляет частота, а не сам факт движения. */
+  .animate-spin {
+    animation-duration: 1.5s !important;
+  }
+  .animate-pulse {
+    animation-duration: 3s !important;
+  }
+}
+
+/* Плавающая хром-панель (apple-design §12): полупрозрачный слой, под которым едет контент,
+   вместо непрозрачной полосы, отъедающей край экрана. Отдельный класс, а не утилиты
+   Tailwind: у поверхности обязан быть плотный запасной вид, а утилитную прозрачность
+   медиазапросом не отменить. */
+.material-chrome {
+  background: color-mix(in oklch, var(--background) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Нет поддержки backdrop-filter — полупрозрачность превратилась бы в просто мутный фон
+   с нечитаемым текстом поверх контента. Возвращаем плотную подложку. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .material-chrome {
+    background: var(--background);
+  }
+}
+
+/* Те же два сигнала, что глушат blur ниже, обязаны вернуть и плотность: панель без размытия,
+   но с 72% прозрачности читается хуже обоих вариантов. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .material-chrome {
+    background: var(--background);
+  }
+}
+
+/* Пониженная прозрачность: матовые поверхности становятся плотными. Blur снимаем
+   целиком — он и есть источник «плавающего» эффекта, от которого отказываются. */
+@media (prefers-reduced-transparency: reduce) {
+  *,
+  ::before,
+  ::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+/* Повышенный контраст: границы становятся видимыми, полупрозрачные подложки — плотнее. */
+@media (prefers-contrast: more) {
+  :root {
+    --border: var(--foreground);
+  }
+  *,
+  ::before,
+  ::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }

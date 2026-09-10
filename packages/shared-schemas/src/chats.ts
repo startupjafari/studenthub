@@ -18,6 +18,17 @@ export type ChatTypeValue = z.infer<typeof ChatTypeSchema>
 
 // ── REST ─────────────────────────────────────────────────────────────────────
 
+// Список чатов (cursor). Потолок страницы выше общего курсорного (50) намеренно: клиент
+// забирает список целиком — по нему считаются вкладки-папки, счётчики и поиск по названиям, —
+// и страница на 20 записей означала бы десяток запросов при каждом открытии экрана.
+export const ChatListQuerySchema = z
+  .object({
+    cursor: z.string().min(1).optional(),
+    limit: z.coerce.number().int().positive().max(200).default(100),
+  })
+  .strict()
+export type ChatListQueryInput = z.infer<typeof ChatListQuerySchema>
+
 // Пользователь создаёт только PRIVATE/GROUP; официальные чаты создаются автоматически (§3.6).
 export const CreateChatSchema = z
   .object({
@@ -26,6 +37,14 @@ export const CreateChatSchema = z
     memberIds: z.array(z.string().min(1)).min(1).max(100),
   })
   .strict()
+  // Личный чат — ровно один собеседник. Без этого сюда проходил список на 100 человек:
+  // проверки createChat (блокировка, свой вуз, дружба, запрос на переписку) делались
+  // только для первого не-себя, остальных добавляло молча, а дедупликация пары на такой
+  // чат не срабатывала — каждый вызов плодил новый «личный» чат на четверых.
+  .refine((v) => v.type !== 'PRIVATE' || v.memberIds.length === 1, {
+    path: ['memberIds'],
+    message: 'Личный чат создаётся ровно с одним собеседником',
+  })
 export type CreateChatInput = z.infer<typeof CreateChatSchema>
 
 export const AddChatMemberSchema = z.object({ userId: z.string().min(1) }).strict()
@@ -143,11 +162,60 @@ export const MessageSendRestSchema = z
     chatId: z.string().min(1),
     content: z.string().max(4000).optional(),
     replyToId: z.string().min(1).optional(),
+    // Ответ с цитатой фрагмента: выделенный кусок исходного сообщения. Хранится копией —
+    // оригинал могут отредактировать, и смещения в тексте поехали бы. Без replyToId
+    // бессмыслен: цитировать нечего.
+    replyQuote: z.string().min(1).max(500).optional(),
     // §34: пометить все вложения сообщения спойлером (размытие до клика).
     spoiler: z.coerce.boolean().optional(),
+    // multipart отдаёт поля строками, поэтому coerce (в отличие от WS-схемы ниже).
+    silent: z.coerce.boolean().optional(),
   })
   .strict()
+  // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
+  .refine((v) => !v.replyQuote || !!v.replyToId, {
+    path: ['replyQuote'],
+    message: 'Цитата возможна только вместе с ответом на сообщение',
+  })
 export type MessageSendRestInput = z.infer<typeof MessageSendRestSchema>
+
+// Отложенное сообщение: только текст (вложения у отложенных не поддерживаются — файл
+// пришлось бы держать в бакете без владельца-сообщения, и ночная чистка сирот удалила бы
+// его до отправки). Время — строго в будущем и не дальше года.
+export const ScheduleMessageSchema = z
+  .object({
+    content: z.string().min(1).max(4000),
+    replyToId: z.string().min(1).optional(),
+    replyQuote: z.string().min(1).max(500).optional(),
+    silent: z.boolean().optional(),
+    scheduledAt: z.string().datetime(),
+  })
+  .strict()
+  .refine((v) => new Date(v.scheduledAt).getTime() > Date.now(), {
+    path: ['scheduledAt'],
+    message: 'Время отправки должно быть в будущем',
+  })
+  .refine((v) => new Date(v.scheduledAt).getTime() < Date.now() + 365 * 24 * 60 * 60 * 1000, {
+    path: ['scheduledAt'],
+    message: 'Отложить можно не больше чем на год',
+  })
+export type ScheduleMessageInput = z.infer<typeof ScheduleMessageSchema>
+
+// Правка отложенного до отправки: текст и/или новое время.
+export const UpdateScheduledMessageSchema = z
+  .object({
+    content: z.string().min(1).max(4000).optional(),
+    scheduledAt: z.string().datetime().optional(),
+  })
+  .strict()
+  .refine((v) => v.content !== undefined || v.scheduledAt !== undefined, {
+    message: 'Нечего менять',
+  })
+  .refine((v) => !v.scheduledAt || new Date(v.scheduledAt).getTime() > Date.now(), {
+    path: ['scheduledAt'],
+    message: 'Время отправки должно быть в будущем',
+  })
+export type UpdateScheduledMessageInput = z.infer<typeof UpdateScheduledMessageSchema>
 
 // Реакция-эмодзи на сообщение (Ф9+): тоггл по [сообщение, пользователь, эмодзи].
 export const MessageReactionSchema = z.object({ emoji: z.string().min(1).max(16) }).strict()
@@ -174,11 +242,22 @@ export const MessageSendSchema = z
     chatId: z.string().min(1),
     content: z.string().min(1).max(4000),
     replyToId: z.string().min(1).optional(),
+    // Ответ с цитатой фрагмента: выделенный кусок исходного сообщения. Хранится копией —
+    // оригинал могут отредактировать, и смещения в тексте поехали бы. Без replyToId
+    // бессмыслен: цитировать нечего.
+    replyQuote: z.string().min(1).max(500).optional(),
+    // Отправить «без звука»: сообщение доставляется, уведомление и push по нему — нет.
+    silent: z.boolean().optional(),
     // Клиентский идентификатор для оптимистичной отправки (#1): сервер эхом возвращает его в
     // message:new, чтобы отправитель заменил свой временный «pending» пузырь. В БД не пишется.
     nonce: z.string().min(1).max(64).optional(),
   })
   .strict()
+  // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
+  .refine((v) => !v.replyQuote || !!v.replyToId, {
+    path: ['replyQuote'],
+    message: 'Цитата возможна только вместе с ответом на сообщение',
+  })
 export type MessageSendInput = z.infer<typeof MessageSendSchema>
 
 export const MessageEditSchema = z
