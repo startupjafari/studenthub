@@ -6,6 +6,7 @@ import {
   BarChart as RBarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -29,6 +30,7 @@ export default function BarChart({
   height = 260,
   ariaLabel,
   seriesName,
+  valueLabel,
 }: {
   labels: string[]
   values: number[]
@@ -41,6 +43,13 @@ export default function BarChart({
    * не выводится вовсе — категория уже стоит заголовком подсказки.
    */
   seriesName?: string
+  /**
+   * Число у конца полосы. Нужно там, где величины близки: 94 вуза по ~1300
+   * пользователей дают визуально одинаковые полосы, и длина перестаёт что-либо
+   * сообщать. С числами ось величины и сетка становятся лишними — их убираем,
+   * иначе одна и та же величина подписана дважды.
+   */
+  valueLabel?: (value: number) => string
 }) {
   const reduced = useReducedMotion()
   const max = Math.max(...values, 1)
@@ -48,6 +57,8 @@ export default function BarChart({
     () => labels.map((label, i) => ({ label, value: values[i] ?? 0 })),
     [labels, values],
   )
+  // Место справа под число: без запаса подпись самой длинной полосы уезжает за край.
+  const gutter = valueLabel ? Math.max(40, valueLabel(max).length * 8 + 12) : 12
 
   return (
     <div style={{ height }} role="group" aria-label={ariaLabel}>
@@ -55,12 +66,19 @@ export default function BarChart({
         <RBarChart
           data={rows}
           layout="vertical"
-          margin={{ top: 4, right: 12, bottom: 0, left: 0 }}
+          margin={{ top: 4, right: gutter, bottom: 0, left: 0 }}
           title={ariaLabel}
         >
-          {/* Сетка только по величине: на дорожках категорий линии не нужны. */}
-          <CartesianGrid stroke={palette.grid} horizontal={false} />
-          <XAxis type="number" {...axisProps(palette)} allowDecimals={false} tickCount={5} />
+          {/* Сетка только по величине: на дорожках категорий линии не нужны.
+              При числах у полос сетку и ось убираем — величина уже подписана. */}
+          {!valueLabel && <CartesianGrid stroke={palette.grid} horizontal={false} />}
+          <XAxis
+            type="number"
+            {...axisProps(palette)}
+            allowDecimals={false}
+            tickCount={5}
+            hide={!!valueLabel}
+          />
           <YAxis
             type="category"
             dataKey="label"
@@ -93,6 +111,15 @@ export default function BarChart({
             {rows.map((row) => (
               <Cell key={row.label} fill={sequentialStep(palette, row.value / max)} />
             ))}
+            {valueLabel && (
+              <LabelList
+                position="right"
+                offset={8}
+                fill={palette.ink}
+                fontSize={11}
+                valueAccessor={(entry) => valueLabel(Number(entry.value) || 0)}
+              />
+            )}
           </Bar>
         </RBarChart>
       </ResponsiveContainer>

@@ -380,28 +380,45 @@ export function TableSkeletonRows({
   rows?: number
 }) {
   const cells = typeof columns === 'number' ? Array.from<undefined>({ length: columns }) : columns
-  // Заглушка занимает всю высоту тела таблицы, а не первые восемь строк: на высоком экране
-  // под фиксированным числом строк оставалась пустота — читалось как «данные пришли, их мало».
-  // Сколько строк влезает, считаем сами: высота тела / высота строки. Высоту строки берём
-  // у первой отрисованной и запоминаем — дальше строки растягиваются флексом (`Table fill`),
-  // и повторное измерение давало бы уже растянутую, с каждым пересчётом занижая число строк.
+  // Заглушка занимает всю высоту таблицы, а не первые восемь строк: на высоком экране под
+  // фиксированным числом строк оставалась пустота — читалось как «данные пришли, их мало».
+  // Сколько строк влезает, считаем сами: свободная высота / высота строки.
+  //
+  // Свободную высоту берём у самой `table`, а не у `tbody`. В режиме `Table fill` тело —
+  // flex-элемент с `flex-1`, и его высота зависит от раскладки родителя: на момент эффекта
+  // она бывает ещё нулевой либо равной высоте содержимого, и тогда `clientHeight / h` даёт
+  // ровно те же восемь строк, с которых начали, — счётчик залипал. `table` растянута
+  // карточкой (`flex-1` в цепочке до `main`), её высота определена всегда; `thead` вычитаем,
+  // он стоит над телом.
+  //
+  // Высоту строки берём у первой отрисованной и запоминаем: при десяти и более строках они
+  // растягиваются флексом (`grow` у `Table fill`), и повторный замер брал бы уже растянутую
+  // высоту, с каждым пересчётом занижая число строк.
   const firstRow = useRef<HTMLTableRowElement>(null)
   const rowHeight = useRef(0)
   const [count, setCount] = useState(rows)
   useEffect(() => {
     const row = firstRow.current
     const body = row?.parentElement
-    if (!row || !body) return
+    const table = body?.parentElement
+    if (!row || !body || !table) return
+    const head = table.querySelector('thead')
     const measure = (): void => {
       rowHeight.current ||= row.offsetHeight
       const h = rowHeight.current
-      if (!h || !body.clientHeight) return
+      const available = table.clientHeight - (head?.offsetHeight ?? 0)
+      // Раскладка ещё не сложилась — ждём уведомления наблюдателя, а не занижаем счёт.
+      if (!h || available <= 0) return
       // Округление вниз: строка целиком или её нет. Лишняя строка вылезала бы за тело и
-      // включала прокрутку у заглушки, которой прокручивать нечего.
-      setCount(Math.max(1, Math.floor(body.clientHeight / h)))
+      // включала прокрутку у заглушки, которой прокручивать нечего. Остаток меньше строки
+      // добирают сами строки: от десяти штук у них `grow`.
+      setCount(Math.max(1, Math.floor(available / h)))
     }
     measure()
+    // Наблюдаем и таблицу, и тело: первое ловит изменение размера окна и позднюю раскладку,
+    // второе — появление полосы прокрутки.
     const observer = new ResizeObserver(measure)
+    observer.observe(table)
     observer.observe(body)
     return () => observer.disconnect()
   }, [])
