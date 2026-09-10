@@ -10,6 +10,8 @@ function message(id: string, seq: number, content = id): ChatMessage {
     senderId: 'u1',
     content,
     replyToId: null,
+    replyQuote: null,
+    silent: false,
     forwardedFromId: null,
     editedAt: null,
     pinnedAt: null,
