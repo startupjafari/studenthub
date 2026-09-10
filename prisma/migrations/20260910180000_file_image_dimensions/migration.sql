@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "files" ADD COLUMN     "width" INTEGER,
+ADD COLUMN     "height" INTEGER;

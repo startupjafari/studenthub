@@ -1535,6 +1535,7 @@
     "attachFile": "File",
     "emoji": "Emoji",
     "emojiSearch": "Search emoji",
+    "mediaFailed": "Couldn't load",
     "spoiler": "Spoiler",
     "spoilerToggle": "Hide as spoiler",
     "savedMessages": "Saved Messages",

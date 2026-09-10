@@ -128,7 +128,18 @@ const MESSAGE_SELECT = {
   systemType: true,
   systemMeta: true,
   sender: SENDER_SELECT,
-  media: { select: { id: true, mime: true, size: true, name: true, spoiler: true } },
+  // width/height — размеры изображения: клиент держит под снимок точное место, пока идут байты.
+  media: {
+    select: {
+      id: true,
+      mime: true,
+      size: true,
+      name: true,
+      spoiler: true,
+      width: true,
+      height: true,
+    },
+  },
   // Процитированный фрагмент: клиент рисует его вместо начала исходного сообщения.
   replyQuote: true,
   // «Без звука»: клиенту нужен для пометки у своего сообщения («отправлено без звука»).
@@ -1870,7 +1881,17 @@ export class ChatsService {
         chatId: true,
         content: true,
         linkPreview: true,
-        media: { select: { bucket: true, key: true, mime: true, size: true, name: true } },
+        media: {
+          select: {
+            bucket: true,
+            key: true,
+            mime: true,
+            size: true,
+            name: true,
+            width: true,
+            height: true,
+          },
+        },
       },
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
