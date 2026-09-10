@@ -20,6 +20,7 @@ import {
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
+import { useChatsUnread } from '../../../entities/chat'
 import { cn } from '../../../shared/lib/utils'
 import { ChatLayoutProvider, useSheetDragClose } from '../../../shared/lib'
 import { NotificationsPanel } from '../../../views/notifications'
@@ -44,6 +45,7 @@ function BottomNav({
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
+  const chatsUnread = useChatsUnread()
   const tShell = useTranslations('Dashboard')
   const tSearch = useTranslations('Command')
   const queryClient = useQueryClient()
@@ -101,10 +103,14 @@ function BottomNav({
 
   return (
     <>
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden">
+      {/* Полупрозрачный материал вместо глухой полосы (apple-design §12): список под панелью
+          виден и продолжает движение, поэтому она читается как парящий слой, а не как
+          отрезанный край экрана. Плотный запасной вид — в .material-chrome. */}
+      <nav className="material-chrome fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-border pb-[env(safe-area-inset-bottom)] lg:hidden">
         {nav.slice(0, 4).map((item) => {
           const active = isActive(item, pathname)
           const Icon = item.icon
+          const badgeCount = item.key === 'chats' ? chatsUnread : 0
           return (
             <Link
               key={item.key}
@@ -115,7 +121,19 @@ function BottomNav({
                 active ? 'text-primary' : 'text-muted-foreground',
               )}
             >
-              <Icon className="size-5 shrink-0" aria-hidden />
+              {/* Бейдж навешен на иконку, а не на строку: в нижней навигации подпись и так
+                  обрезается по ширине вкладки, и число рядом с ней было бы нечитаемо. */}
+              <span className="relative shrink-0">
+                <Icon className="size-5" aria-hidden />
+                {badgeCount > 0 && (
+                  <span
+                    aria-label={tNav('unreadMessages', { count: badgeCount })}
+                    className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground"
+                  >
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
+              </span>
               <span className="w-full truncate text-center leading-tight">{tNav(item.key)}</span>
             </Link>
           )

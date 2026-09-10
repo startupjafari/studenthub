@@ -5,6 +5,9 @@ import { useTranslations } from 'next-intl'
 import {
   Ban,
   BarChart3,
+  BellOff,
+  ChevronUp,
+  Clock,
   FileText,
   Mic,
   Paperclip,
@@ -41,7 +44,15 @@ export type ChatComposerProps = {
   onCancelEdit: () => void
   replyTo: ChatMessage | null
   replyToName: string
+  // Процитированный фрагмент отвечаемого сообщения (Telegram-стиль): показываем именно его,
+  // а не начало оригинала — человек выделил конкретное место.
+  replyQuote: string | null
   onCancelReply: () => void
+  // «Без звука»: залипающий переключатель у кнопки отправки.
+  silent: boolean
+  onToggleSilent: () => void
+  // «Отправить позже»: открывает выбор времени (отложенное сообщение).
+  onScheduleSend: () => void
   // Личная блокировка активна: вместо поля ввода — баннер (нельзя писать).
   blocked: boolean
   // Я заблокировал собеседника (можно разблокировать) vs он меня.
@@ -73,7 +84,11 @@ export function ChatComposer({
   onCancelEdit,
   replyTo,
   replyToName,
+  replyQuote,
   onCancelReply,
+  silent,
+  onToggleSilent,
+  onScheduleSend,
   blocked,
   iBlocked,
   otherId,
@@ -95,6 +110,7 @@ export function ChatComposer({
   recMMSS,
 }: ChatComposerProps) {
   const t = useTranslations('Chats')
+  const [sendMenuOpen, setSendMenuOpen] = useState(false)
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
 
@@ -129,9 +145,20 @@ export function ChatComposer({
         <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs">
           <Reply className="size-3.5 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0 flex-1">
-            <span className="font-medium">{t('replyingTo', { name: replyToName })}</span>
-            <p className="line-clamp-1 text-muted-foreground">
-              {replyTo.content || t('attachment')}
+            <span className="font-medium">
+              {replyQuote
+                ? t('quotingFrom', { name: replyToName })
+                : t('replyingTo', { name: replyToName })}
+            </span>
+            <p
+              className={cn(
+                'line-clamp-1 text-muted-foreground',
+                // Цитату отбиваем полосой, чтобы её было видно как чужой текст, а не как
+                // превью оригинала.
+                replyQuote && 'border-l-2 border-primary/50 pl-2 italic',
+              )}
+            >
+              {replyQuote || replyTo.content || t('attachment')}
             </p>
           </div>
           <button
@@ -342,16 +369,66 @@ export function ChatComposer({
                 )}
               </div>
               {showSend ? (
-                <Button
-                  type="button"
-                  size="lg"
-                  icon
-                  aria-label={t('send')}
-                  disabled={!connected}
-                  onClick={onSend}
-                >
-                  <Send className="size-4" aria-hidden />
-                </Button>
+                <div className="relative">
+                  <Button
+                    type="button"
+                    size="lg"
+                    icon
+                    aria-label={silent ? t('sendSilentAria') : t('send')}
+                    disabled={!connected}
+                    onClick={onSend}
+                    // Правый клик и долгое нажатие — дополнительные способы отправки,
+                    // как в Telegram. Обычный клик остаётся обычной отправкой.
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setSendMenuOpen(true)
+                    }}
+                  >
+                    {silent ? (
+                      <BellOff className="size-4" aria-hidden />
+                    ) : (
+                      <Send className="size-4" aria-hidden />
+                    )}
+                  </Button>
+                  <button
+                    type="button"
+                    aria-label={t('sendOptions')}
+                    aria-expanded={sendMenuOpen}
+                    onClick={() => setSendMenuOpen((v) => !v)}
+                    className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronUp className="size-3" aria-hidden />
+                  </button>
+                  {sendMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setSendMenuOpen(false)} />
+                      <div className="absolute bottom-full right-0 z-50 mb-2 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onToggleSilent()
+                            setSendMenuOpen(false)
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                        >
+                          <BellOff className="size-4 shrink-0 opacity-80" aria-hidden />
+                          {silent ? t('sendSilentOff') : t('sendSilentOn')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onScheduleSend()
+                            setSendMenuOpen(false)
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                        >
+                          <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
+                          {t('sendLater')}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               ) : (
                 <Button
                   type="button"

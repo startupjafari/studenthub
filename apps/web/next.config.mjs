@@ -17,6 +17,18 @@ const withPWA = withPWAInit({
   customWorkerSrc: 'worker',
   fallbacks: { document: '/offline' },
   workboxOptions: {
+    // Новый SW обязан ЖДАТЬ решения пользователя, а не подменять себя сам.
+    //
+    // Дефолт next-pwa — skipWaiting: true, и он противоречит остальному коду: SW
+    // активировался бы сразу, clientsClaim перехватывал бы открытую страницу, а наш
+    // обработчик controllerchange перезагружал бы её под руками — посреди набора
+    // сообщения или заполнения формы. Именно от этого предостерегает комментарий в
+    // use-sw-update.ts, но конфигурация делала ровно обратное.
+    //
+    // false — ждущий SW стоит и ничего не трогает, пока человек не нажмёт «Обновить»
+    // (тост или кнопка в настройках). Тогда страница шлёт SKIP_WAITING (worker/index.ts),
+    // SW активируется, controllerchange перезагружает — уже по согласию.
+    skipWaiting: false,
     // Офлайн-кэш только для полезных сценариев чтения (docs/UNIFIED_UX.md PR-10/#16):
     // расписание, Student Pass, «Сегодня», недавние материалы/задания, часть истории
     // сообщений. Все — NetworkFirst и ТОЛЬКО GET → мутации (POST/PUT/PATCH/DELETE) не
@@ -92,9 +104,24 @@ const withPWA = withPWAInit({
   },
 })
 
+// Версия сборки. Railway отдаёт SHA коммита; локально берём метку времени, чтобы две
+// сборки подряд всё-таки отличались. Значение видно в настройках и в консоли — без него
+// невозможно ответить на вопрос «а обновилось ли вообще», а именно он и возникает, когда
+// приложение с домашнего экрана неделями не перезапускают.
+const buildId = (
+  process.env.RAILWAY_GIT_COMMIT_SHA ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GIT_COMMIT_SHA ||
+  `dev-${Date.now().toString(36)}`
+).slice(0, 12)
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Тот же идентификатор, что показывается пользователю, становится и buildId Next:
+  // ссылки на чанки меняются вместе с ним, значит меняется и precache-манифест SW.
+  generateBuildId: () => buildId,
+  env: { NEXT_PUBLIC_BUILD_ID: buildId },
   // Отдельная папка сборки для e2e-стенда (NEXT_DIST_DIR=.next-e2e): позволяет держать
   // прогон Playwright и обычный `pnpm dev` одновременно — иначе два процесса Next дерутся
   // за общий `.next`. В обычном режиме переменной нет и путь прежний.
@@ -109,6 +136,29 @@ const nextConfig = {
   // Так auth-cookie (sh_refresh, sh_role) становятся first-party и видны middleware,
   // а CORS для HTTP не нужен. Цель читается на этапе build (Dockerfile ARG
   // API_PROXY_TARGET). Без неё (dev) rewrite не добавляется — ходим напрямую.
+  // Сам файл service worker кешировать нельзя. Браузер сверяет его побайтово, и если
+  // между ним и пользователем окажется прокси или CDN, отдающий вчерашнюю копию, новый
+  // SW не будет обнаружен вообще — приложение останется на старой версии навсегда, и
+  // никакая кнопка «обновить» не поможет: проверять будет нечего. Next по умолчанию
+  // отдаёт файлы из public/ с max-age=0, но полагаться на умолчание здесь нельзя —
+  // цена ошибки слишком велика, а заголовок бесплатный.
+  async headers() {
+    return [
+      {
+        source: '/:file(sw.js|sw.js.map|workbox-:hash*.js|worker-:hash*.js|fallback-:hash*.js)',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
+      {
+        // Манифест меняется редко, но устаревший ломает вид уже установленного ярлыка.
+        source: '/manifest.webmanifest',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' }],
+      },
+    ]
+  },
+
   async rewrites() {
     const target = process.env.API_PROXY_TARGET?.replace(/\/$/, '')
     if (!target) return []

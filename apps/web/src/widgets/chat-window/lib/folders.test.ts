@@ -6,6 +6,11 @@ function chat(id: string, type: ChatListItem['type'], unreadCount = 0): ChatList
   return { id, type, unreadCount } as ChatListItem
 }
 
+// Непринятый входящий запрос на переписку (§50).
+function request(id: string, unreadCount = 1): ChatListItem {
+  return { id, type: 'PRIVATE', unreadCount, requestIncoming: true } as ChatListItem
+}
+
 function folder(id: string, name: string, chatIds: string[], position = 0): ChatFolder {
   return { id, name, chatIds, position }
 }
@@ -63,6 +68,68 @@ describe('filterChatsByTab', () => {
 
   it('исчезнувшая вкладка (папку удалили с другого устройства) = «Все», а не пустой экран', () => {
     expect(filterChatsByTab(chats, undefined)).toHaveLength(3)
+  })
+})
+
+describe('запросы на переписку (§50)', () => {
+  const chats = [chat('c1', 'PRIVATE', 3), request('r1')]
+
+  it('вкладка «Запросы» появляется только при входящем запросе', () => {
+    expect(buildFolderTabs([chat('c1', 'PRIVATE')], []).map((t) => t.id)).not.toContain(
+      'folderRequests',
+    )
+    expect(buildFolderTabs(chats, []).map((t) => t.id)).toContain('folderRequests')
+  })
+
+  it('«Запросы» отдают только непринятые входящие', () => {
+    const tab = buildFolderTabs(chats, []).find((t) => t.id === 'folderRequests')
+    expect(filterChatsByTab(chats, tab).map((c) => c.id)).toEqual(['r1'])
+  })
+
+  it('непринятый запрос не попадает ни в «Все», ни в «Личные», ни в «Непрочитанные»', () => {
+    const tabs = buildFolderTabs(chats, [])
+    for (const id of ['folderAll', 'folderPersonal', 'folderUnread']) {
+      const tab = tabs.find((t) => t.id === id)
+      expect(filterChatsByTab(chats, tab).map((c) => c.id)).toEqual(['c1'])
+    }
+  })
+
+  it('непринятый запрос не всплывает и в пользовательской папке, даже если он в её составе', () => {
+    const tab = buildFolderTabs(chats, [folder('f1', 'Учёба', ['c1', 'r1'])]).find(
+      (t) => t.id === 'f1',
+    )
+    expect(filterChatsByTab(chats, tab).map((c) => c.id)).toEqual(['c1'])
+  })
+
+  it('тип-вкладка «Личные» не появляется ради одного непринятого запроса', () => {
+    expect(buildFolderTabs([request('r1')], []).map((t) => t.id)).not.toContain('folderPersonal')
+  })
+})
+
+describe('архив', () => {
+  const archived = (id: string): ChatListItem =>
+    ({ id, type: 'PRIVATE', unreadCount: 4, archived: true }) as ChatListItem
+  const chats = [chat('c1', 'PRIVATE', 2), archived('a1')]
+
+  it('вкладка «Архив» появляется, только когда в нём что-то есть', () => {
+    expect(buildFolderTabs([chat('c1', 'PRIVATE')], []).map((t) => t.id)).not.toContain(
+      'folderArchive',
+    )
+    expect(buildFolderTabs(chats, []).map((t) => t.id)).toContain('folderArchive')
+  })
+
+  it('архивный чат виден только в «Архиве» — ни в «Все», ни в «Непрочитанные»', () => {
+    const tabs = buildFolderTabs(chats, [])
+    const archiveTab = tabs.find((t) => t.id === 'folderArchive')
+    expect(filterChatsByTab(chats, archiveTab).map((c) => c.id)).toEqual(['a1'])
+    for (const id of ['folderAll', 'folderPersonal', 'folderUnread']) {
+      expect(
+        filterChatsByTab(
+          chats,
+          tabs.find((t) => t.id === id),
+        ).map((c) => c.id),
+      ).toEqual(['c1'])
+    }
   })
 })
 

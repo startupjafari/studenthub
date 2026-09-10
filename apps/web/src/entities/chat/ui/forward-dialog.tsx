@@ -39,7 +39,12 @@ export function ForwardDialog({
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const targets = useMemo(() => chats.filter((c) => c.id !== currentChatId), [chats, currentChatId])
+  // Непринятый входящий запрос (§50) целью пересылки быть не может: отправка в него
+  // считается ответом и молча приняла бы переписку, о которой решение ещё не принято.
+  const targets = useMemo(
+    () => chats.filter((c) => c.id !== currentChatId && !c.requestIncoming),
+    [chats, currentChatId],
+  )
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return targets

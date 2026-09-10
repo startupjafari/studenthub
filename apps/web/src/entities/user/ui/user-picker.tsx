@@ -6,8 +6,7 @@ import { useTranslations } from 'next-intl'
 import { Search, X } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import { adminUserKeys, fetchUsers } from '../api/user-api'
-import { fetchGroupMembers, groupKeys } from '../../group'
+import { adminUserKeys, directoryKeys, fetchUserDirectory, fetchUsers } from '../api/user-api'
 import { Input } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -32,17 +31,26 @@ const ADMIN_ROLES: Role[] = [
   Role.DEAN,
 ]
 
-// Универсальный выбор пользователя. Admin+ ищут через GET /users; остальные — по участникам
-// своей группы (GET /groups/:id/members), т.к. GET /users им недоступен.
+// Универсальный выбор пользователя. Admin+ ищут через GET /users (там есть фильтр по роли
+// и админский scope); остальные — через справочник GET /users/directory: свой вуз целиком,
+// а без запроса — круг общения (друзья и одногруппники). Раньше не-админам показывались
+// только участники своей группы, и позвать в чат-группу однокурсника с другого потока было
+// нельзя, хотя написать ему лично — можно.
 export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPickerProps) {
   const t = useTranslations('People')
   const viewerRole = useAppSelector((s) => s.auth.role)
-  const myGroupId = useAppSelector((s) => s.auth.groupId)
   const canAdminSearch = viewerRole !== null && ADMIN_ROLES.includes(viewerRole)
 
   const [search, setSearch] = useState('')
+  const [term, setTerm] = useState('')
   const [open, setOpen] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+
+  // Справочник ходит на сервер на каждый терм — дебаунсим, как поиск в чатах.
+  useEffect(() => {
+    const id = setTimeout(() => setTerm(search.trim()), 300)
+    return () => clearTimeout(id)
+  }, [search])
 
   useEffect(() => {
     if (!open) return
@@ -60,21 +68,17 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
     enabled: canAdminSearch && search.trim().length >= 2,
   })
 
-  const groupQuery = useQuery({
-    queryKey: groupKeys.members(myGroupId ?? ''),
-    queryFn: () => fetchGroupMembers(myGroupId as string),
-    enabled: !canAdminSearch && !!myGroupId,
+  const directoryQuery = useQuery({
+    queryKey: directoryKeys.search(term),
+    queryFn: () => fetchUserDirectory(term),
+    enabled: !canAdminSearch,
   })
 
+  // Фильтр по роли справочник не принимает (он не про подбор преподавателя, а про людей
+  // вокруг) — отсеиваем на клиенте по роли, которая и так есть в каждой карточке.
   const results: PickedUser[] = canAdminSearch
     ? (adminQuery.data ?? [])
-    : (groupQuery.data ?? [])
-        .filter((m) => !roleFilter || m.role === roleFilter)
-        .filter((m) =>
-          search.trim().length === 0
-            ? true
-            : `${m.lastName} ${m.firstName}`.toLowerCase().includes(search.toLowerCase()),
-        )
+    : (directoryQuery.data?.items ?? []).filter((u) => !roleFilter || u.role === roleFilter)
 
   if (value) {
     return (

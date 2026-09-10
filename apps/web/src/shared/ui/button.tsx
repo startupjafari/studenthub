@@ -8,8 +8,12 @@ import { CONTROL_SIZE, CONTROL_SQUARE, type ControlSize } from './control-size'
 
 // Кастомная современная кнопка (не дефолт shadcn): крупнее скругление (rounded-xl),
 // мягкий «дышащий» фокус (ring-4 ring/20), тень+подъём у заливных, лёгкое нажатие.
+//
+// transform намеренно ВНЕ списка переходов (apple-design §1): отклик на нажатие обязан быть
+// мгновенным. Под `transition-all` он проезжал те же 150 мс, что и цвет, и палец чувствовал
+// задержку там, где её быть не должно. Цвет и тень переходами оставляем — они не про отклик.
 const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-4 focus-visible:ring-ring/20 active:translate-y-px disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,opacity] duration-150 outline-none select-none focus-visible:ring-4 focus-visible:ring-ring/20 active:translate-y-px disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
