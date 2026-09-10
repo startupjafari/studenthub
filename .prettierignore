@@ -25,3 +25,8 @@ apps/web/public/worker-*.js
 apps/web/public/swe-worker-*.js
 apps/web/public/fallback-*.js
 apps/web/public/manifest.webmanifest
+
+# Вендорённые скиллы агентов: файл должен побайтово совпадать с источником, иначе
+# ломается сверка по skills-lock.json. Prettier из pre-commit хука уже переписал его
+# один раз (курсив *…* → _…_, 127 строк) — форматировать чужой файл здесь нечего.
+.agents/
