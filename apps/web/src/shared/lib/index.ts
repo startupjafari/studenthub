@@ -8,6 +8,7 @@ export { localId } from './local-id'
 export { useBodyScrollLock } from './use-body-scroll-lock'
 export { hapticTick, hapticCommit } from './haptics'
 export { useSheetDragClose } from './use-sheet-drag-close'
+export { useSwipeRows, type SwipeRowsController, type SwipeSide } from './use-swipe-row'
 export {
   createSpring,
   projectMomentum,

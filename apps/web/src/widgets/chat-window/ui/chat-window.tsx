@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -108,13 +108,11 @@ import {
   createSpring,
   hapticTick,
   prefersReducedMotion,
-  projectMomentum,
   rubberband,
   useChatListSlot,
   useMediaQuery,
   useSetChatOpen,
-  velocityFrom,
-  type SpringHandle,
+  useSwipeRows,
 } from '../../../shared/lib'
 
 import { ConversationList } from './conversation-list'
@@ -122,6 +120,9 @@ import { avatarColor, chatInitials, chatTitle, senderName } from '../lib/format'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
+
+// Ширина одной кнопки свайп-панели строки списка (w-[4.5rem]).
+const ROW_BTN_W = 72
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
@@ -265,30 +266,36 @@ export function ChatWindow() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // Пересылка нескольких выбранных сообщений (id) — переиспользуем ForwardDialog.
   const [forwardIds, setForwardIds] = useState<string[] | null>(null)
-  // Свайп-действия на строке списка чатов (мобильный): id открытой строки + учёт жеста.
-  // Открытая свайпом строка + сторона: 'left' — панель «Прочитать/Закрепить» (свайп вправо),
-  // 'right' — панель «Без звука/Удалить» (свайп влево).
-  const [swiped, setSwiped] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
-  const chatSwipe = useRef<{
-    id: string
-    startX: number
-    startY: number
-    moved: boolean
-    el: HTMLElement
-    base: number
-    // Окно последних точек — по нему считается скорость отпускания (§5, §6).
-    history: { position: number; time: number }[]
-  } | null>(null)
-  // Строка, которую сейчас доводит пружина: одновременно движется ровно одна.
-  const rowSpring = useRef<{ el: HTMLElement; spring: SpringHandle } | null>(null)
-  const chatSwipedFlag = useRef(false)
-  // Узлы строк списка (по id) — чтобы императивно доводить/сбрасывать свайп и закрывать соседние.
-  const rowEls = useRef<Map<string, HTMLElement>>(new Map())
+  // Свайп-действия на строке списка чатов (мобильный): вправо — «Прочитать · Закрепить»,
+  // влево — «Без звука · Архив · Удалить». Жест и его физика — общий хук shared/lib
+  // (та же механика у списка уведомлений).
+  const chatRows = useSwipeRows({
+    leftWidth: 2 * ROW_BTN_W, // Прочитать + Закрепить
+    rightWidth: 3 * ROW_BTN_W, // Без звука + Архив + Удалить
+  })
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
   const chatsRef = useRef<ChatListItem[] | undefined>(undefined)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
+  // Высота плавающего композера: он лежит поверх ленты, поэтому столько же пустоты держим
+  // под последним сообщением. Высота живая (панель ответа, многострочный текст, запись
+  // голосового) — следим ResizeObserver'ом, а не считаем один раз.
+  const [composerH, setComposerH] = useState(0)
+  const composerRO = useRef<ResizeObserver | null>(null)
+  const setComposerBox = useCallback((el: HTMLDivElement | null) => {
+    composerRO.current?.disconnect()
+    composerRO.current = null
+    if (!el) {
+      setComposerH(0)
+      return
+    }
+    const ro = new ResizeObserver(() => setComposerH(el.offsetHeight))
+    ro.observe(el)
+    composerRO.current = ro
+    setComposerH(el.offsetHeight)
+  }, [])
+  useEffect(() => () => composerRO.current?.disconnect(), [])
   // Виртуализатор списка сообщений (virtua): императивный скролл к индексу (вниз/к сообщению).
   const virtualizerRef = useRef<VirtualizerHandle>(null)
   // shift=true на время подгрузки старых сообщений (prepend вверх) — virtua сохраняет визуальную
@@ -1269,6 +1276,15 @@ export function ChatWindow() {
     }
   }, [messages.data, activeId, socket, myId])
 
+  // Панель ввода выросла (открылся ответ, текст в несколько строк, запись голосового):
+  // место под неё увеличилось, и стоявшего внизу человека надо там же и удержать — иначе
+  // последнее сообщение уезжает под панель.
+  useEffect(() => {
+    if (!wasAtBottomRef.current) return
+    const el = messagesScrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [composerH])
+
   // Скролл ленты: показ кнопки «вниз», отметка прочтения при доскролле вниз, авто-догрузка старых у верха.
   function onMessagesScroll(): void {
     const el = messagesScrollRef.current
@@ -1368,64 +1384,6 @@ export function ChatWindow() {
     exitSelect()
   }
 
-  // ── Свайп по строке списка чатов (мобильный, iOS/Telegram-стиль, двунаправленный) ──
-  // Вправо → открывается левая панель «Прочитать · Закрепить»; влево → правая панель
-  // «Без звука · Удалить». Во время жеста трансформируем узел напрямую (без ре-рендера ради
-  // плавности), на отпускании — доводим анимацией и синхронизируем состояние.
-  const ROW_BTN_W = 72 // ширина одной кнопки действия (w-[4.5rem])
-  const ROW_OPEN_THRESHOLD = 56
-  const LEFT_ACTIONS_W = 2 * ROW_BTN_W // Прочитать + Закрепить
-  const RIGHT_ACTIONS_W = 3 * ROW_BTN_W // Без звука + Архив + Удалить
-
-  // Текущее смещение строки по её открытому состоянию (право = +, лево = −).
-  function rowOffset(id: string): number {
-    if (swiped?.id !== id) return 0
-    return swiped.side === 'left' ? LEFT_ACTIONS_W : -RIGHT_ACTIONS_W
-  }
-
-  // Пружина доводки строки. Одна на список: одновременно двигается ровно одна строка,
-  // а держать по пружине на каждую — это сотня rAF-циклов ради одного жеста.
-  function paintRow(el: HTMLElement, x: number): void {
-    el.style.transform = x ? `translateX(${x}px)` : ''
-  }
-
-  /**
-   * Поставить строку в положение `x`. `velocity` (px/с) — скорость пальца в момент
-   * отпускания: пружина стартует с ней, поэтому между жестом и доводкой нет шва (§5).
-   * Без скорости — мгновенно (перехват пальцем, программное закрытие соседней строки).
-   */
-  function setRowTransform(el: HTMLElement | null, x: number, velocity?: number): void {
-    if (!el) return
-    rowSpring.current?.spring.stop()
-    // transition больше не участвует: пружина пишет transform покадрово сама.
-    el.style.transition = 'none'
-    if (velocity === undefined || prefersReducedMotion()) {
-      rowSpring.current = null
-      paintRow(el, x)
-      return
-    }
-    const from = currentRowX(el)
-    const spring = createSpring({
-      from,
-      // Строка «доброшена» пальцем — лёгкий перелёт здесь уместен (§4).
-      damping: 0.8,
-      response: 0.3,
-      onChange: (v) => paintRow(el, v),
-      onRest: () => {
-        rowSpring.current = null
-      },
-    })
-    rowSpring.current = { el, spring }
-    spring.to(x, velocity)
-  }
-
-  /** Текущее экранное смещение строки — точка старта при перехвате (§3). */
-  function currentRowX(el: HTMLElement): number {
-    if (rowSpring.current?.el === el) return rowSpring.current.spring.value
-    const m = /translateX\((-?[\d.]+)px\)/.exec(el.style.transform)
-    return m ? Number(m[1]) : 0
-  }
-
   function markChatRead(chatId: string): void {
     const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
       (c) => c.id === chatId,
@@ -1436,81 +1394,6 @@ export function ChatWindow() {
     qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
       (old ?? []).map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c)),
     )
-  }
-
-  function onRowTouchStart(e: React.TouchEvent<HTMLElement>, id: string): void {
-    const tch = e.touches[0]
-    if (!tch) return
-    const el = e.currentTarget
-    // Строку можно перехватить прямо на доводке: базой берём её ЭКРАННОЕ положение,
-    // а не логическое, иначе она прыгнет под пальцем (§3).
-    const base = rowSpring.current?.el === el ? currentRowX(el) : rowOffset(id)
-    rowSpring.current?.spring.stop()
-    chatSwipe.current = {
-      id,
-      startX: tch.clientX,
-      startY: tch.clientY,
-      moved: false,
-      el,
-      base,
-      history: [{ position: tch.clientX, time: e.timeStamp }],
-    }
-  }
-  function onRowTouchMove(e: React.TouchEvent<HTMLElement>): void {
-    const s = chatSwipe.current
-    const tch = e.touches[0]
-    if (!s || !tch) return
-    const dx = tch.clientX - s.startX
-    const dy = tch.clientY - s.startY
-    if (!s.moved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
-    if (!s.moved) return
-    s.history.push({ position: tch.clientX, time: e.timeStamp })
-    if (s.history.length > 8) s.history.shift()
-    let x = s.base + dx
-    // Резина за пределами хода панелей. Раньше здесь был линейный коэффициент 0.35 —
-    // строку можно было утащить сколь угодно далеко, просто медленнее. Формула §9
-    // асимптотически замирает: дальше некуда, но элемент продолжает откликаться.
-    const span = s.el.offsetWidth || 1
-    if (x > LEFT_ACTIONS_W) x = LEFT_ACTIONS_W + rubberband(x - LEFT_ACTIONS_W, span)
-    else if (x < -RIGHT_ACTIONS_W) x = -RIGHT_ACTIONS_W - rubberband(-RIGHT_ACTIONS_W - x, span)
-    setRowTransform(s.el, x)
-  }
-  function closeSwipedRow(id: string | null): void {
-    if (id) setRowTransform(rowEls.current.get(id) ?? null, 0, 0)
-    setSwiped((cur) => (cur?.id === id ? null : cur))
-  }
-  function onRowTouchEnd(e: React.TouchEvent<HTMLElement>, id: string): void {
-    const s = chatSwipe.current
-    chatSwipe.current = null
-    if (!s || !s.moved) return
-    chatSwipedFlag.current = true
-    const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
-    const finalX = s.base + dx
-    const velocity = velocityFrom(s.history)
-    // Решаем по точке, где строка ОСТАНОВИЛАСЬ БЫ сама (§6), а не по той, где палец
-    // отпустили. Иначе быстрый короткий флик не открывает панель, а медленное
-    // перетаскивание на ту же дистанцию — открывает; ощущается как лотерея.
-    const projected = finalX + projectMomentum(velocity)
-    // Соседнюю открытую строку всегда закрываем.
-    const closeOther = (): void => {
-      if (swiped && swiped.id !== id) setRowTransform(rowEls.current.get(swiped.id) ?? null, 0, 0)
-    }
-    if (projected > ROW_OPEN_THRESHOLD) {
-      closeOther()
-      // Панель открылась — тик синхронно с началом доводки, а не после неё: ощущение
-      // должно совпасть с кадром, на котором строка «поймала» открытое положение (§13).
-      hapticTick()
-      setRowTransform(s.el, LEFT_ACTIONS_W, velocity)
-      setSwiped({ id, side: 'left' })
-    } else if (projected < -ROW_OPEN_THRESHOLD) {
-      closeOther()
-      hapticTick()
-      setRowTransform(s.el, -RIGHT_ACTIONS_W, velocity)
-      setSwiped({ id, side: 'right' })
-    } else {
-      setRowTransform(s.el, 0, velocity)
-      setSwiped((cur) => (cur?.id === id ? null : cur))
-    }
   }
 
   // Подпись разделителя дня в ленте: Сегодня / Вчера / дата.
@@ -2227,13 +2110,13 @@ export function ChatWindow() {
       chatsLoading={chats.isLoading}
       myId={myId}
       locale={locale}
-      swiped={swiped}
-      swipedFlagRef={chatSwipedFlag}
-      rowElsRef={rowEls}
-      onRowTouchStart={onRowTouchStart}
-      onRowTouchMove={onRowTouchMove}
-      onRowTouchEnd={onRowTouchEnd}
-      onCloseSwiped={closeSwipedRow}
+      swiped={chatRows.swiped}
+      swipedFlagRef={chatRows.swipedFlagRef}
+      rowElsRef={chatRows.rowElsRef}
+      onRowTouchStart={chatRows.onRowTouchStart}
+      onRowTouchMove={chatRows.onRowTouchMove}
+      onRowTouchEnd={chatRows.onRowTouchEnd}
+      onCloseSwiped={chatRows.closeRow}
       onMarkRead={markChatRead}
       onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
       onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
@@ -2775,6 +2658,9 @@ export function ChatWindow() {
                 ref={messagesScrollRef}
                 onScroll={onMessagesScroll}
                 className="flex-1 overflow-y-auto p-4"
+                // Плавающий композер перекрывает низ ленты — держим под ним пустоту ровно
+                // по его высоте, иначе последнее сообщение уезжает под панель.
+                style={{ paddingBottom: composerH + 8 }}
               >
                 {messages.isLoading ? (
                   <div className="flex flex-col gap-3">
@@ -2861,7 +2747,8 @@ export function ChatWindow() {
                   type="button"
                   onClick={scrollToBottom}
                   aria-label={t('scrollToBottom')}
-                  className="absolute right-3 bottom-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform hover:bg-muted active:scale-95"
+                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform hover:bg-muted active:scale-95"
+                  style={{ bottom: composerH + 12 }}
                 >
                   <ChevronDown className="size-5" aria-hidden />
                   {newSinceScroll > 0 && (
@@ -2871,13 +2758,65 @@ export function ChatWindow() {
                   )}
                 </button>
               )}
+              {/* Панель ввода — плавающий остров поверх ленты (Telegram-стиль): она не
+                прибита к краю, лента прокручивается под ней, а место под последним
+                сообщением держит padding по измеренной высоте панели. */}
+              {!activeChat?.requestIncoming && (
+                <div
+                  ref={setComposerBox}
+                  // Зазор снизу — safe-area, но только пока нет клавиатуры: с поднятой клавиатурой
+                  // (--kb-inset) полоса жеста уже закрыта, и запас превратился бы в пустую щель.
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]"
+                >
+                  {activeChat?.requestOutgoing && (
+                    <p className="mx-auto mb-1 w-fit rounded-full bg-muted/80 px-2 py-0.5 text-center text-xs text-muted-foreground backdrop-blur">
+                      {t('requestPending')}
+                    </p>
+                  )}
+                  <ChatComposer
+                    editing={editing}
+                    onCancelEdit={() => {
+                      setEditing(null)
+                      setText('')
+                    }}
+                    replyTo={replyTo}
+                    replyToName={replyTo ? senderName(replyTo) : ''}
+                    replyQuote={replyQuote}
+                    onCancelReply={() => {
+                      setReplyTo(null)
+                      setReplyQuote(null)
+                    }}
+                    silent={silentSend}
+                    onToggleSilent={() => setSilentSend((v) => !v)}
+                    onScheduleSend={() => setScheduleOpen(true)}
+                    blocked={!!blockedActive}
+                    iBlocked={!!activeChat?.blocked}
+                    otherId={otherId}
+                    onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
+                    text={text}
+                    onType={onType}
+                    onSend={send}
+                    showSend={showSend}
+                    connected={connected}
+                    composerRef={composerRef}
+                    fileInputRef={fileInputRef}
+                    onFilesPicked={addFiles}
+                    onCreatePoll={isPrivate ? undefined : () => setPollCreatorOpen(true)}
+                    mentionCandidates={mentionCandidates}
+                    onInsertMention={insertMention}
+                    onCloseMentions={() => setMentionQuery(null)}
+                    myId={myId}
+                    voice={voice}
+                    recMMSS={recMMSS}
+                  />
+                </div>
+              )}
             </div>
-
             {/* «печатает…» показываем в шапке (вместо статуса), а не здесь — Telegram-стиль. */}
 
             {/* §50: непринятый входящий запрос — вместо поля ввода решение адресата.
                 Инициатору вместо этого показываем, что его сообщение ещё не принято. */}
-            {activeChat?.requestIncoming ? (
+            {activeChat?.requestIncoming && (
               <div className="flex flex-col gap-3 border-t border-border p-4">
                 <p className="text-center text-sm text-muted-foreground">{t('requestPrompt')}</p>
                 <div className="flex items-center justify-center gap-2">
@@ -2904,50 +2843,6 @@ export function ChatWindow() {
                   </Button>
                 </div>
               </div>
-            ) : (
-              <>
-                {activeChat?.requestOutgoing && (
-                  <p className="border-t border-border px-4 pt-2 text-center text-xs text-muted-foreground">
-                    {t('requestPending')}
-                  </p>
-                )}
-                <ChatComposer
-                  editing={editing}
-                  onCancelEdit={() => {
-                    setEditing(null)
-                    setText('')
-                  }}
-                  replyTo={replyTo}
-                  replyToName={replyTo ? senderName(replyTo) : ''}
-                  replyQuote={replyQuote}
-                  onCancelReply={() => {
-                    setReplyTo(null)
-                    setReplyQuote(null)
-                  }}
-                  silent={silentSend}
-                  onToggleSilent={() => setSilentSend((v) => !v)}
-                  onScheduleSend={() => setScheduleOpen(true)}
-                  blocked={!!blockedActive}
-                  iBlocked={!!activeChat?.blocked}
-                  otherId={otherId}
-                  onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
-                  text={text}
-                  onType={onType}
-                  onSend={send}
-                  showSend={showSend}
-                  connected={connected}
-                  composerRef={composerRef}
-                  fileInputRef={fileInputRef}
-                  onFilesPicked={addFiles}
-                  onCreatePoll={isPrivate ? undefined : () => setPollCreatorOpen(true)}
-                  mentionCandidates={mentionCandidates}
-                  onInsertMention={insertMention}
-                  onCloseMentions={() => setMentionQuery(null)}
-                  myId={myId}
-                  voice={voice}
-                  recMMSS={recMMSS}
-                />
-              </>
             )}
           </div>
         )}
