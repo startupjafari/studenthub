@@ -1535,6 +1535,7 @@
     "attachFile": "Файл",
     "emoji": "Эмодзи",
     "emojiSearch": "Поиск эмодзи",
+    "mediaFailed": "Не удалось загрузить",
     "spoiler": "Спойлер",
     "spoilerToggle": "Скрыть под спойлер",
     "savedMessages": "Сохранённые",

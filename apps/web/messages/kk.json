@@ -1535,6 +1535,7 @@
     "attachFile": "Файл",
     "emoji": "Эмодзи",
     "emojiSearch": "Эмодзи іздеу",
+    "mediaFailed": "Жүктеу мүмкін болмады",
     "spoiler": "Спойлер",
     "spoilerToggle": "Спойлер астына жасыру",
     "savedMessages": "Сақталған",

@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { FileText, Loader2, Play } from 'lucide-react'
+import { FileText, ImageOff, Loader2, Play } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
+import { Skeleton } from '../../../shared/ui'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import type { MessageAttachment } from '../model/types'
 import { VoiceMessage } from './voice-message'
@@ -30,6 +31,27 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Запасное место под снимок, когда размеров нет (видео, вложения старше полей width/height):
+// усреднённый прямоугольник. Без него пузырь схлопывается в ноль, а потом прыгает на всю
+// высоту картинки, и на медленной сети в нём зияет пустой цветной прямоугольник.
+const MEDIA_BOX = 'h-40 w-56 max-w-full'
+// Потолок высоты медиа в пузыре — тот же max-h-64, что и у самой картинки.
+const MEDIA_MAX_H = 256
+// Заглушка/подложка читается и на синем «своём» пузыре, и на сером чужом.
+const MEDIA_TINT = 'bg-foreground/10'
+
+// Коробка будущего снимка. Есть размеры с сервера — повторяем ровно ту, которую займёт
+// картинка: ширина по пузырю (max-w-full), высота по пропорции и потолку max-h-64.
+// Нет размеров (видео, вложения старше полей) — усреднённая заглушка.
+function frameProps(att: MessageAttachment): { className: string; style?: CSSProperties } {
+  if (!att.width || !att.height) return { className: MEDIA_BOX }
+  const scale = Math.min(1, MEDIA_MAX_H / att.height)
+  return {
+    className: 'max-w-full',
+    style: { width: Math.round(att.width * scale), aspectRatio: `${att.width} / ${att.height}` },
+  }
+}
+
 // presigned-URL живёт 15 мин — кэшируем 10, чтобы не дёргать API на каждый ререндер.
 // Для оптимистичных (ещё не отправленных) вложений с localUrl запрос не делаем.
 function useAttachmentUrl(att: MessageAttachment) {
@@ -41,7 +63,42 @@ function useAttachmentUrl(att: MessageAttachment) {
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   })
-  return { url: att.localUrl ?? q.data, isLoading: !hasLocal && q.isLoading }
+  return {
+    url: att.localUrl ?? q.data,
+    isLoading: !hasLocal && q.isPending,
+    isError: !hasLocal && q.isError,
+    // Ссылка живёт 15 мин: и «не пришла», и «протухла» лечатся повторным запросом.
+    refetch: () => void q.refetch(),
+  }
+}
+
+// Ошибка вместо медиа (FRONTEND_RULES §13: у асинхронного состояния есть error с «Повторить»).
+// Раньше и не пришедшая ссылка, и битый файл крутили спиннер бесконечно.
+function MediaFailed({ className, onRetry }: { className?: string; onRetry: () => void }) {
+  const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
+  return (
+    <span
+      className={cn(
+        'flex flex-col items-center justify-center gap-1 rounded-lg p-3 text-center',
+        MEDIA_TINT,
+        className,
+      )}
+    >
+      <ImageOff className="size-5 opacity-60" aria-hidden />
+      <span className="text-xs opacity-70">{t('mediaFailed')}</span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRetry()
+        }}
+        className="text-xs font-medium underline underline-offset-2"
+      >
+        {tCommon('retry')}
+      </button>
+    </span>
+  )
 }
 
 // Полупрозрачный оверлей загрузки поверх медиа (Telegram-стиль): затемнение + круг прогресса.
@@ -70,17 +127,39 @@ function Single({
   onOpen?: () => void
 }) {
   const t = useTranslations('Chats')
-  const { url, isLoading } = useAttachmentUrl(att)
+  const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
   // Спойлер (§34): размыто до клика.
   const [revealed, setRevealed] = useState(false)
   const blurred = !!att.spoiler && !revealed
+  // Пиксели снимка/кадра уже на экране: до этого держим скелетон, а не пустое место.
+  const [painted, setPainted] = useState(false)
+  // Сам файл не отрисовался (чаще всего протухшая ссылка) — показываем «Повторить».
+  const [broken, setBroken] = useState(false)
+  // Картинка и видео занимают место кадром, голосовые и файлы — узкой строкой.
+  const framed = !isVoice(att) && (att.mime.startsWith('image/') || att.mime.startsWith('video/'))
+
+  if (isError || broken) {
+    return (
+      <MediaFailed
+        className={framed ? MEDIA_BOX : 'w-56 max-w-full'}
+        onRetry={() => {
+          setBroken(false)
+          setPainted(false)
+          refetch()
+        }}
+      />
+    )
+  }
 
   if (isLoading || !url) {
+    // Пока едет presigned-ссылка, скелетон уже знает форму будущего снимка (если размеры есть).
+    const frame = frameProps(att)
     return (
-      <div className="flex h-10 w-40 items-center justify-center rounded-lg bg-black/10">
-        <Loader2 className="size-4 animate-spin opacity-60" aria-hidden />
-      </div>
+      <Skeleton
+        className={cn('rounded-lg', MEDIA_TINT, framed ? frame.className : 'h-10 w-40')}
+        style={framed ? frame.style : undefined}
+      />
     )
   }
 
@@ -100,20 +179,43 @@ function Single({
   if (att.mime.startsWith('image/')) {
     // GIF (image/gif) автопроигрывается нативно как <img>; для остальных — lazy-загрузка (§30).
     const isGif = att.mime === 'image/gif'
+    // Размеры с сервера: браузер по width/height считает пропорцию и держит место сам —
+    // ровно то, которое займёт снимок. Тогда скелетон ложится точно по кадру и вёрстка
+    // не прыгает. Без размеров остаётся усреднённая заглушка.
+    const sized = !!att.width && !!att.height
     return (
-      <span className="relative inline-block overflow-hidden rounded-lg">
+      <span
+        className={cn(
+          // w-fit обязателен: вложения лежат в колоночном флексе, и без него обёртка
+          // растягивается на ширину пузыря — заглушка оказалась бы шире самого снимка.
+          'relative inline-block w-fit overflow-hidden rounded-lg',
+          // Размеров нет — до первой отрисовки место держит заглушка, снимок вынут из потока.
+          !painted && !sized && MEDIA_BOX,
+        )}
+      >
         <img
           src={url}
           alt={t('attachment')}
           loading="lazy"
+          decoding="async"
+          width={att.width ?? undefined}
+          height={att.height ?? undefined}
+          // Из кэша картинка бывает готова раньше, чем навесится onLoad, — проверяем complete.
+          ref={(el) => {
+            if (el?.complete && el.naturalWidth > 0) setPainted(true)
+          }}
+          onLoad={() => setPainted(true)}
+          onError={() => setBroken(true)}
           className={cn(
-            'max-h-64 max-w-full rounded-lg object-cover transition-[filter]',
+            'max-h-64 max-w-full rounded-lg object-cover transition-[filter,opacity] duration-200',
+            !painted && (sized ? 'opacity-0' : 'absolute inset-0 size-full opacity-0'),
             blurred && 'scale-105 blur-xl',
             uploading ? 'cursor-default' : 'cursor-pointer',
           )}
           onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         />
-        {blurred && (
+        {!painted && <Skeleton className={cn('absolute inset-0 rounded-lg', MEDIA_TINT)} />}
+        {blurred && painted && (
           <button
             type="button"
             onClick={() => setRevealed(true)}
@@ -122,7 +224,7 @@ function Single({
             {t('spoiler')}
           </button>
         )}
-        {isGif && !uploading && !blurred && (
+        {isGif && painted && !uploading && !blurred && (
           <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[0.6rem] font-semibold uppercase text-white">
             GIF
           </span>
@@ -138,13 +240,24 @@ function Single({
         type="button"
         onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         disabled={uploading}
-        className="relative block max-w-full overflow-hidden rounded-lg"
+        className={cn(
+          'relative block w-fit max-w-full overflow-hidden rounded-lg',
+          // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
+          // сработать вовсе) — подложку под кадр держим сами, без бесконечной пульсации.
+          !painted && cn(MEDIA_BOX, MEDIA_TINT),
+        )}
       >
         <video
           src={url}
           preload="metadata"
           muted
-          className={cn('max-h-64 max-w-full', blurred && 'scale-105 blur-xl')}
+          onLoadedMetadata={() => setPainted(true)}
+          onError={() => setBroken(true)}
+          className={cn(
+            'max-h-64 max-w-full transition-opacity duration-200',
+            !painted && 'absolute inset-0 size-full object-cover opacity-0',
+            blurred && 'scale-105 blur-xl',
+          )}
         />
         {uploading ? (
           <MediaUploadOverlay progress={att.progress} />
@@ -209,26 +322,39 @@ function GridTile({
   onOpen?: () => void
   className?: string
 }) {
-  const { url, isLoading } = useAttachmentUrl(att)
+  const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
   const isVid = att.mime.startsWith('video/')
+  const [painted, setPainted] = useState(false)
+  const [broken, setBroken] = useState(false)
+  const failed = isError || broken
+  const retry = (): void => {
+    setBroken(false)
+    setPainted(false)
+    refetch()
+  }
   return (
     <button
       type="button"
-      onClick={uploading ? undefined : onOpen}
+      // Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
+      onClick={uploading ? undefined : failed ? retry : onOpen}
       disabled={uploading}
-      className={cn('relative block overflow-hidden bg-black/10', className)}
+      className={cn('relative block overflow-hidden', MEDIA_TINT, className)}
     >
-      {isLoading || !url ? (
+      {failed ? (
         <span className="absolute inset-0 flex items-center justify-center">
-          <Loader2 className="size-5 animate-spin opacity-60" aria-hidden />
+          <ImageOff className="size-5 opacity-60" aria-hidden />
         </span>
+      ) : isLoading || !url ? (
+        <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />
       ) : isVid ? (
         <>
           <video
             src={url}
             preload="metadata"
             muted
+            onLoadedMetadata={() => setPainted(true)}
+            onError={() => setBroken(true)}
             className="absolute inset-0 size-full object-cover"
           />
           {!uploading && (
@@ -240,7 +366,24 @@ function GridTile({
           )}
         </>
       ) : (
-        <img src={url} alt="" className="absolute inset-0 size-full object-cover" />
+        <>
+          <img
+            src={url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            ref={(el) => {
+              if (el?.complete && el.naturalWidth > 0) setPainted(true)
+            }}
+            onLoad={() => setPainted(true)}
+            onError={() => setBroken(true)}
+            className={cn(
+              'absolute inset-0 size-full object-cover transition-opacity duration-200',
+              !painted && 'opacity-0',
+            )}
+          />
+          {!painted && <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />}
+        </>
       )}
       {uploading && <MediaUploadOverlay progress={att.progress} />}
     </button>
