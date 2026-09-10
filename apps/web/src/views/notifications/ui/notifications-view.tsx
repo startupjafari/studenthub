@@ -14,6 +14,7 @@ import {
   FileText,
   MessageSquare,
   Newspaper,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -29,6 +30,7 @@ import {
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
+import { useSwipeRows } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationMenu } from './notification-menu'
 
@@ -66,6 +68,9 @@ const TYPE_META: Record<NotificationType, { icon: LucideIcon; bar: string; iconW
   },
 }
 
+// Ширина одной кнопки свайп-панели строки (как в списке чатов).
+const ROW_BTN_W = 72
+
 // Центр активности: продуктовые категории поверх грубого NotificationType (docs/UNIFIED_UX.md PR-2).
 // «action» — сводный фильтр «требует действия» (не категория, а срез по isActionable).
 type Filter = 'all' | 'action' | 'study' | 'deanery' | 'social' | 'system'
@@ -78,6 +83,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   const router = useRouter()
   const qc = useQueryClient()
   const [filter, setFilter] = useState<Filter>('all')
+  // Свайп по строке (мобильный, как в списке чатов): вправо — «Прочитать», влево — «Удалить».
+  // Физика жеста — общий хук shared/lib.
+  const rows = useSwipeRows({ leftWidth: ROW_BTN_W, rightWidth: ROW_BTN_W })
 
   const list = useQuery({
     queryKey: notificationKeys.list(),
@@ -254,7 +262,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
           />
         ) : (
           groups.map((group) => (
-            <div key={group.key} className="flex flex-col">
+            // shrink-0: группы и строки — flex-элементы прокручиваемой колонки, а строка ещё и
+            // overflow-hidden (панели свайпа), из-за чего теряет авто-минимум по контенту.
+            <div key={group.key} className="flex shrink-0 flex-col">
               <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {group.label}
               </p>
@@ -264,65 +274,127 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                 return (
                   <div
                     key={n.id}
-                    className={cn(
-                      'group relative flex items-start gap-3 border-b border-border/50 px-3 py-2.5 transition-colors hover:bg-muted/50',
-                      !n.isRead && 'bg-primary/[0.03]',
-                    )}
+                    className="group relative shrink-0 overflow-hidden border-b border-border/50 lg:overflow-visible"
                   >
-                    <span className={cn('absolute inset-y-0 left-0 w-1', meta.bar)} aria-hidden />
-                    <button
-                      type="button"
-                      onClick={() => onOpen(n)}
-                      className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 pr-7 text-left sm:pr-0"
-                    >
-                      <div
-                        className={cn(
-                          'flex size-9 shrink-0 items-center justify-center rounded-lg',
-                          meta.iconWrap,
-                        )}
+                    {/* Свайп ВПРАВО: «Прочитать» (мобильный) — та же раскладка, что у чатов. */}
+                    <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
+                      <button
+                        type="button"
+                        aria-label={t('markRead')}
+                        onClick={() => {
+                          if (!n.isRead) readMut.mutate(n.id)
+                          rows.closeRow(n.id)
+                        }}
+                        className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-info px-1 text-center text-[0.6rem] font-medium leading-tight text-info-foreground"
                       >
-                        <Icon className="size-5" aria-hidden />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          {!n.isRead && (
-                            <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
+                        <CheckCheck className="size-4" aria-hidden />
+                        {t('markReadShort')}
+                      </button>
+                    </div>
+                    {/* Свайп ВЛЕВО: «Удалить». */}
+                    <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
+                      <button
+                        type="button"
+                        aria-label={t('delete')}
+                        onClick={() => {
+                          rows.closeRow(n.id)
+                          delMut.mutate(n.id)
+                        }}
+                        className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                        {t('delete')}
+                      </button>
+                    </div>
+                    {/* Сама строка — она и едет под пальцем; фон непрозрачный, иначе панели
+                        просвечивают сквозь неё. */}
+                    <div
+                      ref={(el) => {
+                        if (el) rows.rowElsRef.current.set(n.id, el)
+                        else rows.rowElsRef.current.delete(n.id)
+                      }}
+                      onTouchStart={(e) => rows.onRowTouchStart(e, n.id)}
+                      onTouchMove={rows.onRowTouchMove}
+                      onTouchEnd={(e) => rows.onRowTouchEnd(e, n.id)}
+                      className="relative z-10 flex touch-pan-y items-start gap-3 bg-background px-3 py-2.5 transition-colors hover:bg-muted/50"
+                    >
+                      {!n.isRead && (
+                        <span
+                          className="pointer-events-none absolute inset-0 bg-primary/[0.03]"
+                          aria-hidden
+                        />
+                      )}
+                      <span className={cn('absolute inset-y-0 left-0 w-1', meta.bar)} aria-hidden />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Жест только что двигал строку — клик по ней не должен открывать
+                          // уведомление; открытая панель по клику просто закрывается.
+                          if (rows.swipedFlagRef.current) {
+                            rows.swipedFlagRef.current = false
+                            return
+                          }
+                          if (rows.swiped) {
+                            rows.closeRow(rows.swiped.id)
+                            return
+                          }
+                          onOpen(n)
+                        }}
+                        className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left lg:pr-7"
+                      >
+                        <div
+                          className={cn(
+                            'flex size-9 shrink-0 items-center justify-center rounded-lg',
+                            meta.iconWrap,
                           )}
-                          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                            {n.title}
-                          </span>
-                          <time className="shrink-0 text-[0.7rem] text-muted-foreground">
-                            {formatTime(n.createdAt)}
-                          </time>
+                        >
+                          <Icon className="size-5" aria-hidden />
                         </div>
-                        {n.body && (
-                          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                            {n.body}
-                          </p>
-                        )}
-                        {/* Прямое действие уведомления (deep-link). Строку целиком открывает onOpen —
-                            здесь только визуальный affordance с глаголом; выделяем, если требует действия. */}
-                        {notificationUrl(n) && (
-                          <span
-                            className={cn(
-                              'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
-                              isActionable(n) ? 'text-primary' : 'text-muted-foreground',
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            {!n.isRead && (
+                              <span
+                                className="size-2 shrink-0 rounded-full bg-primary"
+                                aria-hidden
+                              />
                             )}
-                          >
-                            {t(notificationActionKey(n))}
-                            <ChevronRight className="size-3.5" aria-hidden />
-                          </span>
-                        )}
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                              {n.title}
+                            </span>
+                            <time className="shrink-0 text-[0.7rem] text-muted-foreground">
+                              {formatTime(n.createdAt)}
+                            </time>
+                          </div>
+                          {n.body && (
+                            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                              {n.body}
+                            </p>
+                          )}
+                          {/* Прямое действие уведомления (deep-link). Строку целиком открывает onOpen —
+                            здесь только визуальный affordance с глаголом; выделяем, если требует действия. */}
+                          {notificationUrl(n) && (
+                            <span
+                              className={cn(
+                                'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
+                                isActionable(n) ? 'text-primary' : 'text-muted-foreground',
+                              )}
+                            >
+                              {t(notificationActionKey(n))}
+                              <ChevronRight className="size-3.5" aria-hidden />
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                      {/* На ПК жеста нет, а действия нужны те же: меню по наведению вместо
+                        свайп-панелей (apple-design §16.5 — интерфейс адаптируется к платформе,
+                        а не отбирает возможности). Вне потока, чтобы не «съедать» ширину строки. */}
+                      <div className="absolute right-1 top-1.5 z-20 hidden transition-opacity lg:block lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
+                        <NotificationMenu
+                          isRead={n.isRead}
+                          onMarkRead={() => readMut.mutate(n.id)}
+                          onDelete={() => delMut.mutate(n.id)}
+                        />
                       </div>
-                    </button>
-                    {/* Меню действий — вне потока (absolute), чтобы не «съедать» ширину строки:
-                        иначе время уведомления не доходит до правого края (особенно на мобильном, где нет hover). */}
-                    <div className="absolute right-1 top-1.5 z-10 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
-                      <NotificationMenu
-                        isRead={n.isRead}
-                        onMarkRead={() => readMut.mutate(n.id)}
-                        onDelete={() => delMut.mutate(n.id)}
-                      />
                     </div>
                   </div>
                 )
