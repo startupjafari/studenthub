@@ -342,7 +342,7 @@ export function ConversationList({
             ) : (
               <>
                 {chatMatches.length > 0 && (
-                  <div className="flex flex-col">
+                  <div className="flex shrink-0 flex-col">
                     <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {t('title')}
                     </p>
@@ -387,7 +387,7 @@ export function ConversationList({
                   </div>
                 )}
                 {(peopleMatches.length > 0 || peopleLoading) && (
-                  <div className="flex flex-col">
+                  <div className="flex shrink-0 flex-col">
                     <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {t('peopleSection')}
                     </p>
@@ -451,7 +451,7 @@ export function ConversationList({
                   </div>
                 )}
                 {(msgMatches.length > 0 || msgResultsLoading) && (
-                  <div className="flex flex-col">
+                  <div className="flex shrink-0 flex-col">
                     <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {t('messagesSection')}
                     </p>
@@ -553,7 +553,10 @@ export function ConversationList({
             return (
               <div
                 key={c.id}
-                className="group/row relative overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
+                // shrink-0 обязателен: строки — flex-элементы прокручиваемой колонки, а
+                // overflow-hidden (панели свайпа) снимает с них авто-минимум по контенту.
+                // Без него длинный список ужимался по высоте, и аватары резались пополам.
+                className="group/row relative shrink-0 overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
                 {/* Свайп ВПРАВО: Прочитать · Закрепить (мобильный). */}
                 <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
