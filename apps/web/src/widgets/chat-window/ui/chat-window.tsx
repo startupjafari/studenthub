@@ -98,6 +98,7 @@ import {
   DateJumpPicker,
   formatYmd,
   Modal,
+  Skeleton,
   useConfirm,
   type RichTextHandle,
 } from '../../../shared/ui'
@@ -121,6 +122,17 @@ import { avatarColor, chatInitials, chatTitle, senderName } from '../lib/format'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
+
+// Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
+// скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
+const MESSAGE_SKELETONS = [
+  { mine: false, size: 'h-10 w-48' },
+  { mine: true, size: 'h-14 w-56' },
+  { mine: false, size: 'h-10 w-36' },
+  { mine: true, size: 'h-10 w-44' },
+  { mine: false, size: 'h-20 w-52' },
+  { mine: true, size: 'h-10 w-32' },
+]
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
@@ -2765,8 +2777,16 @@ export function ChatWindow() {
                 className="flex-1 overflow-y-auto p-4"
               >
                 {messages.isLoading ? (
-                  <div className="flex justify-center py-8 text-muted-foreground">
-                    <Loader2 className="size-5 animate-spin" aria-hidden />
+                  <div className="flex flex-col gap-3">
+                    {MESSAGE_SKELETONS.map((bubble, i) => (
+                      <div
+                        key={i}
+                        className={cn('flex', bubble.mine ? 'justify-end' : 'justify-start')}
+                        aria-hidden
+                      >
+                        <Skeleton className={cn('rounded-2xl', bubble.size)} />
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <Virtualizer ref={virtualizerRef} scrollRef={messagesScrollRef} shift={shiftMode}>
