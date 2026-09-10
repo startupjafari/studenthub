@@ -7,11 +7,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  Archive,
+  ArchiveRestore,
   Bell,
   BellOff,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
+  Clock,
   Copy,
   Download,
   Forward,
@@ -28,6 +31,7 @@ import {
   X,
 } from 'lucide-react'
 import type { CreateChatPollInput } from '@studenthub/shared-schemas'
+import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
 import {
@@ -48,10 +52,16 @@ import {
   sendMessageWithAttachments,
   setChatMutedRequest,
   setChatPinnedRequest,
+  setChatArchivedRequest,
+  scheduleMessageRequest,
+  sortChats,
   blockUserRequest,
   unblockUserRequest,
   clearChatRequest,
+  createChatRequest,
   deleteChatRequest,
+  acceptChatRequestRequest,
+  declineChatRequestRequest,
   toggleReactionRequest,
   unpinMessageRequest,
   AttachmentDialog,
@@ -78,10 +88,13 @@ import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
 import { BlockedUsersDialog } from './blocked-users-dialog'
 import { CreateGroupDialog } from './create-group-dialog'
+import { ScheduleSendDialog } from './schedule-send-dialog'
+import { ScheduledPanel } from './scheduled-panel'
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
+  Button,
   DateJumpPicker,
   formatYmd,
   Modal,
@@ -90,10 +103,24 @@ import {
 } from '../../../shared/ui'
 import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
-import { useChatListSlot, useMediaQuery, useSetChatOpen } from '../../../shared/lib'
+import {
+  createSpring,
+  hapticTick,
+  prefersReducedMotion,
+  projectMomentum,
+  rubberband,
+  useChatListSlot,
+  useMediaQuery,
+  useSetChatOpen,
+  velocityFrom,
+  type SpringHandle,
+} from '../../../shared/lib'
 
 import { ConversationList } from './conversation-list'
 import { avatarColor, chatInitials, chatTitle, senderName } from '../lib/format'
+
+// Сколько человек показывать в секции «Люди» единой строки поиска.
+const PEOPLE_IN_SEARCH = 8
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
@@ -164,6 +191,14 @@ export function ChatWindow() {
   const loadingNewerRef = useRef(false)
   // Ф9+: ответ, вложения, поиск.
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  // Процитированный фрагмент отвечаемого сообщения: заполняется, если в момент нажатия
+  // «Ответить» внутри этого сообщения был выделен текст (Telegram-стиль).
+  const [replyQuote, setReplyQuote] = useState<string | null>(null)
+  // «Без звука» — залипающий переключатель у кнопки отправки, сбрасывается при смене чата.
+  const [silentSend, setSilentSend] = useState(false)
+  // Диалог «отправить позже» и панель уже отложенных сообщений этого чата.
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduledOpen, setScheduledOpen] = useState(false)
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
@@ -180,7 +215,14 @@ export function ChatWindow() {
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
   const [presence, setPresence] = useState<Record<string, boolean>>({})
   // Telegram-стиль: контекстное меню сообщения и режим правки.
-  const [menu, setMenu] = useState<{ message: ChatMessage; x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<{
+    message: ChatMessage
+    x: number
+    y: number
+    // Выделение снимаем при ОТКРЫТИИ меню: клик по пункту «Ответить» его уже сбросит,
+    // и читать window.getSelection() позже поздно.
+    selection: string | null
+  } | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
@@ -222,7 +264,11 @@ export function ChatWindow() {
     moved: boolean
     el: HTMLElement
     base: number
+    // Окно последних точек — по нему считается скорость отпускания (§5, §6).
+    history: { position: number; time: number }[]
   } | null>(null)
+  // Строка, которую сейчас доводит пружина: одновременно движется ровно одна.
+  const rowSpring = useRef<{ el: HTMLElement; spring: SpringHandle } | null>(null)
   const chatSwipedFlag = useRef(false)
   // Узлы строк списка (по id) — чтобы императивно доводить/сбрасывать свайп и закрывать соседние.
   const rowEls = useRef<Map<string, HTMLElement>>(new Map())
@@ -304,6 +350,31 @@ export function ChatWindow() {
     queryKey: chatKeys.search(listSearchTerm, undefined),
     queryFn: () => searchMessages(listSearchTerm),
     enabled: listSearchTerm.length >= 2,
+  })
+
+  // Люди своего вуза — в той же выдаче, что чаты и сообщения (Telegram-стиль): отдельного
+  // входа «написать человеку» нет, переписка начинается прямо из строки поиска.
+  // Восемь строк, а не вся выдача: люди стоят между чатами и сообщениями, и полный список
+  // на два десятка однофамильцев увёл бы секцию «Сообщения» за пределы экрана. Кому мало —
+  // дописывает запрос, об этом говорит подсказка в конце секции.
+  const listPeopleResults = useQuery({
+    queryKey: directoryKeys.search(listSearchTerm, PEOPLE_IN_SEARCH),
+    queryFn: () => fetchUserDirectory(listSearchTerm, PEOPLE_IN_SEARCH),
+    enabled: listSearchTerm.length >= 2,
+  })
+
+  // Клик по человеку: находим/заводим личный чат и открываем его. Не-другу это отправит
+  // запрос на переписку (§50) — говорим об этом тостом, потому что чат откроется одинаково.
+  const startDirect = useMutation({
+    mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
+    onSuccess: (chat) => {
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      if (chat.requestPendingForId) toast.success(t('requestSent'))
+      setListSearchRaw('')
+      setListSearchTerm('')
+      setActiveId(chat.id)
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
   // Поиск внутри чата (§3): дебаунс запроса + результаты по активному чату.
@@ -452,11 +523,17 @@ export function ChatWindow() {
       setChatPinnedRequest(chatId, pinned),
     onMutate: ({ chatId, pinned }) => {
       const prev = qc.getQueryData<ChatListItem[]>(chatKeys.list())
-      qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) => {
-        const list = (old ?? []).map((c) => (c.id === chatId ? { ...c, pinned } : c))
-        // Закреплённые — сверху; порядок внутри групп сохраняем (Array.sort стабилен).
-        return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned))
-      })
+      qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+        // pinnedAt проставляем вместе с флагом: по нему идёт сортировка (sortChats),
+        // и без него только что закреплённый чат уехал бы в конец закреплённых.
+        sortChats(
+          (old ?? []).map((c) =>
+            c.id === chatId
+              ? { ...c, pinned, pinnedAt: pinned ? new Date().toISOString() : null }
+              : c,
+          ),
+        ),
+      )
       return { prev }
     },
     onSuccess: (_data, { pinned }) => toast.success(pinned ? t('pinnedDone') : t('unpinnedDone')),
@@ -476,6 +553,74 @@ export function ChatWindow() {
       toast.success(blocked ? t('userUnblocked') : t('userBlocked'))
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  // Запрос на переписку (§50): решение адресата. Принятие оставляет чат открытым — он
+  // просто уезжает из вкладки «Запросы» в общий список; отказ удаляет чат, поэтому
+  // закрываем и переписку.
+  const acceptRequest = useMutation({
+    mutationFn: (chatId: string) => acceptChatRequestRequest(chatId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      toast.success(t('requestAccepted'))
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  const declineRequest = useMutation({
+    mutationFn: (chatId: string) => declineChatRequestRequest(chatId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      setActiveId(null)
+      toast.success(t('requestDeclined'))
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  // Отложенная отправка: текст из композера уходит в очередь, а не в чат.
+  const schedule = useMutation({
+    mutationFn: ({ chatId, scheduledAt }: { chatId: string; scheduledAt: string }) =>
+      scheduleMessageRequest(chatId, {
+        content: text.trim(),
+        ...(replyTo ? { replyToId: replyTo.id } : {}),
+        ...(replyTo && replyQuote ? { replyQuote } : {}),
+        silent: silentSend,
+        scheduledAt,
+      }),
+    onSuccess: (_d, { chatId }) => {
+      void qc.invalidateQueries({ queryKey: chatKeys.scheduled(chatId) })
+      setScheduleOpen(false)
+      setText('')
+      setReplyTo(null)
+      setReplyQuote(null)
+      toast.success(t('scheduleDone'))
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  // Архив «у себя»: чат уезжает в отдельную вкладку и перестаёт считаться в бейдже.
+  const archive = useMutation({
+    mutationFn: ({ chatId, archived }: { chatId: string; archived: boolean }) =>
+      setChatArchivedRequest(chatId, archived),
+    onMutate: ({ chatId, archived }) => {
+      const prev = qc.getQueryData<ChatListItem[]>(chatKeys.list())
+      qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+        (old ?? []).map((c) => (c.id === chatId ? { ...c, archived } : c)),
+      )
+      // Открытый чат уезжает во вкладку «Архив» — держать его раскрытым сбивает с толку.
+      if (archived) setActiveId((cur) => (cur === chatId ? null : cur))
+      return { prev }
+    },
+    onSuccess: (_d, { archived }) =>
+      toast.success(archived ? t('archivedDone') : t('unarchivedDone')),
+    onError: (e, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(chatKeys.list(), ctx.prev)
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+    },
   })
 
   const clearChat = useMutation({
@@ -560,7 +705,7 @@ export function ChatWindow() {
   const voice = useVoiceRecorder({
     onRecorded: (file) => {
       if (!activeId) return
-      sendFiles({ replyToId: replyTo?.id, files: [file] })
+      sendFiles({ replyToId: replyTo?.id, files: [file], silent: silentSend })
     },
     onError: (kind) =>
       toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied')),
@@ -653,12 +798,14 @@ export function ChatWindow() {
     replyToId: string | undefined,
     files: File[],
     spoiler?: boolean,
+    replyQuote?: string,
+    silent?: boolean,
   ): Promise<void> {
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
     try {
       const real = await sendMessageWithAttachments(
         chatId,
-        { content, replyToId, spoiler },
+        { content, replyToId, spoiler, replyQuote, silent },
         files,
         (f) => setUploadProgress(chatId, tempId, f),
       )
@@ -687,8 +834,10 @@ export function ChatWindow() {
   function sendFiles(payload: {
     content?: string
     replyToId?: string
+    replyQuote?: string
     files: File[]
     spoiler?: boolean
+    silent?: boolean
   }): void {
     if (!activeId || !me || payload.files.length === 0) return
     const chatId = activeId
@@ -717,6 +866,8 @@ export function ChatWindow() {
       senderId: me.id,
       content: payload.content ?? '',
       replyToId: payload.replyToId ?? null,
+      replyQuote: payload.replyQuote ?? null,
+      silent: payload.silent ?? false,
       forwardedFromId: null,
       editedAt: null,
       pinnedAt: null,
@@ -767,6 +918,8 @@ export function ChatWindow() {
       payload.replyToId,
       payload.files,
       payload.spoiler,
+      payload.replyQuote,
+      payload.silent,
     )
   }
 
@@ -775,6 +928,8 @@ export function ChatWindow() {
     if (!socket || !activeId) return
     socket.emit('chat:join', { chatId: activeId })
     setReplyTo(null)
+    setReplyQuote(null)
+    setSilentSend(false)
     setAttachFiles([])
     setAttachOpen(false)
     setPinnedIndex(0)
@@ -1208,7 +1363,7 @@ export function ChatWindow() {
   const ROW_BTN_W = 72 // ширина одной кнопки действия (w-[4.5rem])
   const ROW_OPEN_THRESHOLD = 56
   const LEFT_ACTIONS_W = 2 * ROW_BTN_W // Прочитать + Закрепить
-  const RIGHT_ACTIONS_W = 2 * ROW_BTN_W // Без звука + Удалить
+  const RIGHT_ACTIONS_W = 3 * ROW_BTN_W // Без звука + Архив + Удалить
 
   // Текущее смещение строки по её открытому состоянию (право = +, лево = −).
   function rowOffset(id: string): number {
@@ -1216,10 +1371,47 @@ export function ChatWindow() {
     return swiped.side === 'left' ? LEFT_ACTIONS_W : -RIGHT_ACTIONS_W
   }
 
-  function setRowTransform(el: HTMLElement | null, x: number, animate: boolean): void {
-    if (!el) return
-    el.style.transition = animate ? 'transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1)' : 'none'
+  // Пружина доводки строки. Одна на список: одновременно двигается ровно одна строка,
+  // а держать по пружине на каждую — это сотня rAF-циклов ради одного жеста.
+  function paintRow(el: HTMLElement, x: number): void {
     el.style.transform = x ? `translateX(${x}px)` : ''
+  }
+
+  /**
+   * Поставить строку в положение `x`. `velocity` (px/с) — скорость пальца в момент
+   * отпускания: пружина стартует с ней, поэтому между жестом и доводкой нет шва (§5).
+   * Без скорости — мгновенно (перехват пальцем, программное закрытие соседней строки).
+   */
+  function setRowTransform(el: HTMLElement | null, x: number, velocity?: number): void {
+    if (!el) return
+    rowSpring.current?.spring.stop()
+    // transition больше не участвует: пружина пишет transform покадрово сама.
+    el.style.transition = 'none'
+    if (velocity === undefined || prefersReducedMotion()) {
+      rowSpring.current = null
+      paintRow(el, x)
+      return
+    }
+    const from = currentRowX(el)
+    const spring = createSpring({
+      from,
+      // Строка «доброшена» пальцем — лёгкий перелёт здесь уместен (§4).
+      damping: 0.8,
+      response: 0.3,
+      onChange: (v) => paintRow(el, v),
+      onRest: () => {
+        rowSpring.current = null
+      },
+    })
+    rowSpring.current = { el, spring }
+    spring.to(x, velocity)
+  }
+
+  /** Текущее экранное смещение строки — точка старта при перехвате (§3). */
+  function currentRowX(el: HTMLElement): number {
+    if (rowSpring.current?.el === el) return rowSpring.current.spring.value
+    const m = /translateX\((-?[\d.]+)px\)/.exec(el.style.transform)
+    return m ? Number(m[1]) : 0
   }
 
   function markChatRead(chatId: string): void {
@@ -1237,13 +1429,19 @@ export function ChatWindow() {
   function onRowTouchStart(e: React.TouchEvent<HTMLElement>, id: string): void {
     const tch = e.touches[0]
     if (!tch) return
+    const el = e.currentTarget
+    // Строку можно перехватить прямо на доводке: базой берём её ЭКРАННОЕ положение,
+    // а не логическое, иначе она прыгнет под пальцем (§3).
+    const base = rowSpring.current?.el === el ? currentRowX(el) : rowOffset(id)
+    rowSpring.current?.spring.stop()
     chatSwipe.current = {
       id,
       startX: tch.clientX,
       startY: tch.clientY,
       moved: false,
-      el: e.currentTarget,
-      base: rowOffset(id),
+      el,
+      base,
+      history: [{ position: tch.clientX, time: e.timeStamp }],
     }
   }
   function onRowTouchMove(e: React.TouchEvent<HTMLElement>): void {
@@ -1254,14 +1452,19 @@ export function ChatWindow() {
     const dy = tch.clientY - s.startY
     if (!s.moved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
     if (!s.moved) return
+    s.history.push({ position: tch.clientX, time: e.timeStamp })
+    if (s.history.length > 8) s.history.shift()
     let x = s.base + dx
-    // Резина за пределами хода панелей — с сопротивлением.
-    if (x > LEFT_ACTIONS_W) x = LEFT_ACTIONS_W + (x - LEFT_ACTIONS_W) * 0.35
-    else if (x < -RIGHT_ACTIONS_W) x = -RIGHT_ACTIONS_W + (x + RIGHT_ACTIONS_W) * 0.35
-    setRowTransform(s.el, x, false)
+    // Резина за пределами хода панелей. Раньше здесь был линейный коэффициент 0.35 —
+    // строку можно было утащить сколь угодно далеко, просто медленнее. Формула §9
+    // асимптотически замирает: дальше некуда, но элемент продолжает откликаться.
+    const span = s.el.offsetWidth || 1
+    if (x > LEFT_ACTIONS_W) x = LEFT_ACTIONS_W + rubberband(x - LEFT_ACTIONS_W, span)
+    else if (x < -RIGHT_ACTIONS_W) x = -RIGHT_ACTIONS_W - rubberband(-RIGHT_ACTIONS_W - x, span)
+    setRowTransform(s.el, x)
   }
   function closeSwipedRow(id: string | null): void {
-    if (id) setRowTransform(rowEls.current.get(id) ?? null, 0, true)
+    if (id) setRowTransform(rowEls.current.get(id) ?? null, 0, 0)
     setSwiped((cur) => (cur?.id === id ? null : cur))
   }
   function onRowTouchEnd(e: React.TouchEvent<HTMLElement>, id: string): void {
@@ -1271,21 +1474,29 @@ export function ChatWindow() {
     chatSwipedFlag.current = true
     const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
     const finalX = s.base + dx
+    const velocity = velocityFrom(s.history)
+    // Решаем по точке, где строка ОСТАНОВИЛАСЬ БЫ сама (§6), а не по той, где палец
+    // отпустили. Иначе быстрый короткий флик не открывает панель, а медленное
+    // перетаскивание на ту же дистанцию — открывает; ощущается как лотерея.
+    const projected = finalX + projectMomentum(velocity)
     // Соседнюю открытую строку всегда закрываем.
     const closeOther = (): void => {
-      if (swiped && swiped.id !== id)
-        setRowTransform(rowEls.current.get(swiped.id) ?? null, 0, true)
+      if (swiped && swiped.id !== id) setRowTransform(rowEls.current.get(swiped.id) ?? null, 0, 0)
     }
-    if (finalX > ROW_OPEN_THRESHOLD) {
+    if (projected > ROW_OPEN_THRESHOLD) {
       closeOther()
-      setRowTransform(s.el, LEFT_ACTIONS_W, true)
+      // Панель открылась — тик синхронно с началом доводки, а не после неё: ощущение
+      // должно совпасть с кадром, на котором строка «поймала» открытое положение (§13).
+      hapticTick()
+      setRowTransform(s.el, LEFT_ACTIONS_W, velocity)
       setSwiped({ id, side: 'left' })
-    } else if (finalX < -ROW_OPEN_THRESHOLD) {
+    } else if (projected < -ROW_OPEN_THRESHOLD) {
       closeOther()
-      setRowTransform(s.el, -RIGHT_ACTIONS_W, true)
+      hapticTick()
+      setRowTransform(s.el, -RIGHT_ACTIONS_W, velocity)
       setSwiped({ id, side: 'right' })
     } else {
-      setRowTransform(s.el, 0, true)
+      setRowTransform(s.el, 0, velocity)
       setSwiped((cur) => (cur?.id === id ? null : cur))
     }
   }
@@ -1303,10 +1514,24 @@ export function ChatWindow() {
   }
 
   // #1: отправка по WS с nonce + пометка «отправляется» и таймаут «эхо не пришло → ошибка».
-  function emitSend(chatId: string, nonce: string, content: string, replyToId?: string): void {
+  function emitSend(
+    chatId: string,
+    nonce: string,
+    content: string,
+    replyToId?: string,
+    opts: { replyQuote?: string; silent?: boolean } = {},
+  ): void {
     const tempId = `tmp:${nonce}`
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
-    socket?.emit('message:send', { chatId, content, replyToId, nonce })
+    socket?.emit('message:send', {
+      chatId,
+      content,
+      replyToId,
+      // Цитата без ответа схемой запрещена — шлём только парой.
+      ...(replyToId && opts.replyQuote ? { replyQuote: opts.replyQuote } : {}),
+      ...(opts.silent ? { silent: true } : {}),
+      nonce,
+    })
     const prev = sendTimers.current.get(nonce)
     if (prev) clearTimeout(prev)
     sendTimers.current.set(
@@ -1349,7 +1574,10 @@ export function ChatWindow() {
       )
       return
     }
-    emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined)
+    emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined, {
+      replyQuote: m.replyQuote ?? undefined,
+      silent: m.silent,
+    })
   }
 
   function send(): void {
@@ -1378,6 +1606,8 @@ export function ChatWindow() {
       senderId: me.id,
       content,
       replyToId: replyTo?.id ?? null,
+      replyQuote: replyQuote,
+      silent: silentSend,
       forwardedFromId: null,
       editedAt: null,
       pinnedAt: null,
@@ -1407,7 +1637,10 @@ export function ChatWindow() {
       systemMeta: null,
     }
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
-    emitSend(activeId, nonce, content, replyTo?.id)
+    emitSend(activeId, nonce, content, replyTo?.id, {
+      replyQuote: replyQuote ?? undefined,
+      silent: silentSend,
+    })
     socket.emit('typing:stop', { chatId: activeId })
     setText('')
     draftsRef.current.delete(activeId)
@@ -1415,13 +1648,41 @@ export function ChatWindow() {
     if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
     void saveChatDraft(activeId, '').catch(() => undefined)
     setReplyTo(null)
+    setReplyQuote(null)
     setMentionQuery(null)
   }
 
   // ── Обработчики контекстного меню сообщения (Telegram-стиль) ────────────────
+  /**
+   * Начать ответ. Если внутри отвечаемого сообщения выделен фрагмент — он становится
+   * цитатой (Telegram-стиль): в длинном учебном вопросе важно показать, на какую именно
+   * часть отвечаешь. Выделение читаем ДО закрытия меню — клик по пункту его сбрасывает.
+   */
+  function startReply(m: ChatMessage, quote?: string | null): void {
+    setReplyTo(m)
+    const trimmed = quote?.trim() ?? ''
+    // Цитата длиннее самого сообщения смысла не имеет, как и цитата во всё сообщение.
+    setReplyQuote(trimmed && trimmed !== m.content.trim() ? trimmed.slice(0, 500) : null)
+  }
+
+  // Выделенный пользователем текст внутри конкретного сообщения; пусто — выделения нет
+  // или оно вне этого сообщения (иначе цитировали бы кусок соседнего пузыря).
+  function selectionWithin(messageId: string): string | null {
+    if (typeof window === 'undefined') return null
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null
+    // getElementById, а не querySelector: у оптимистичных пузырей id вида `tmp:...`,
+    // и двоеточие сломало бы CSS-селектор.
+    const host = document.getElementById(`msg-${messageId}`)
+    if (!host) return null
+    const range = sel.getRangeAt(0)
+    return host.contains(range.commonAncestorContainer) ? sel.toString() : null
+  }
+
   function startEdit(m: ChatMessage): void {
     setEditing(m)
     setReplyTo(null)
+    setReplyQuote(null)
     setText(m.content)
   }
 
@@ -1469,12 +1730,31 @@ export function ChatWindow() {
     timer: ReturnType<typeof setTimeout> | null
     longFired: boolean
     swiping: boolean
+    // Порог ответа уже пересечён — чтобы тактильный тик сработал ровно один раз.
+    reachedReply: boolean
   } | null>(null)
 
   function resetBubble(bubble: HTMLElement | null, animate: boolean): void {
     if (!bubble) return
-    bubble.style.transition = animate ? 'transform 150ms ease' : 'none'
-    bubble.style.transform = ''
+    bubble.style.transition = 'none'
+    if (!animate || prefersReducedMotion()) {
+      bubble.style.transform = ''
+      return
+    }
+    // Возврат пружиной от текущего экранного положения: фиксированные 150ms ease стартовали
+    // от логического значения и на быстром жесте давали заметный рывок.
+    const m = /translateX\((-?[\d.]+)px\)/.exec(bubble.style.transform)
+    const from = m ? Number(m[1]) : 0
+    if (from === 0) return
+    const spring = createSpring({
+      from,
+      damping: 1,
+      response: 0.3,
+      onChange: (v) => {
+        bubble.style.transform = v ? `translateX(${v}px)` : ''
+      },
+    })
+    spring.to(0)
   }
 
   function onMsgTouchStart(e: React.TouchEvent<HTMLDivElement>, m: ChatMessage): void {
@@ -1488,9 +1768,8 @@ export function ChatWindow() {
       if (!s) return
       s.longFired = true
       resetBubble(s.bubble, true)
-      setMenu({ message: m, x, y })
-      // Тактильный отклик при срабатывании долгого нажатия (где поддерживается).
-      if ('vibrate' in navigator) navigator.vibrate(8)
+      setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
+      hapticTick()
     }, LONG_PRESS_MS)
     msgTouch.current = {
       m,
@@ -1500,6 +1779,7 @@ export function ChatWindow() {
       timer,
       longFired: false,
       swiping: false,
+      reachedReply: false,
     }
   }
 
@@ -1517,10 +1797,23 @@ export function ChatWindow() {
     // Свайп вправо (преимущественно горизонтальный) → сдвигаем пузырь как визуальную подсказку.
     if (dx > 0 && Math.abs(dy) < 24) {
       s.swiping = true
-      const shift = Math.min(dx, 72)
+      // За порогом ответа пузырь не встаёт колом (было `Math.min(dx, 72)` — палец едет,
+      // пузырь стоит, и жест читается как «заело»), а сопротивляется всё сильнее: §9.
+      const shift =
+        dx <= SWIPE_REPLY_PX
+          ? dx
+          : SWIPE_REPLY_PX + rubberband(dx - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240)
       if (s.bubble) {
         s.bubble.style.transition = 'none'
         s.bubble.style.transform = `translateX(${shift}px)`
+      }
+      // Один тик ровно в момент пересечения порога — палец узнаёт, что отпускать уже можно,
+      // не глядя на экран (§13: обратная связь на причинном событии, а не в конце).
+      if (!s.reachedReply && dx > SWIPE_REPLY_PX) {
+        s.reachedReply = true
+        hapticTick()
+      } else if (s.reachedReply && dx <= SWIPE_REPLY_PX) {
+        s.reachedReply = false
       }
     } else if (s.swiping && dx <= 0) {
       resetBubble(s.bubble, false)
@@ -1822,6 +2115,8 @@ export function ChatWindow() {
   // реально пропускает перерисовку невизуально-изменившихся пузырей (#57).
   const msgHandlersRef = useRef({
     setReplyTo,
+    startReply,
+    selection: selectionWithin,
     setMenu,
     setForwardMsg,
     focusMessage,
@@ -1836,6 +2131,8 @@ export function ChatWindow() {
   })
   msgHandlersRef.current = {
     setReplyTo,
+    startReply,
+    selection: selectionWithin,
     setMenu,
     setForwardMsg,
     focusMessage,
@@ -1850,8 +2147,14 @@ export function ChatWindow() {
   }
   const messageActions = useMemo<MessageActions>(
     () => ({
-      reply: (m) => msgHandlersRef.current.setReplyTo(m),
-      openMenu: (m, x, y) => msgHandlersRef.current.setMenu({ message: m, x, y }),
+      reply: (m) => msgHandlersRef.current.startReply(m, msgHandlersRef.current.selection(m.id)),
+      openMenu: (m, x, y) =>
+        msgHandlersRef.current.setMenu({
+          message: m,
+          x,
+          y,
+          selection: msgHandlersRef.current.selection(m.id),
+        }),
       focus: (id) => msgHandlersRef.current.focusMessage(id),
       copy: (m) => msgHandlersRef.current.copyText(m),
       forward: (m) => msgHandlersRef.current.setForwardMsg(m),
@@ -1902,6 +2205,11 @@ export function ChatWindow() {
       chatMatches={chatMatches}
       msgMatches={msgMatches}
       msgResultsLoading={listMsgResults.isLoading}
+      peopleMatches={listPeopleResults.data?.items ?? []}
+      peopleLoading={listPeopleResults.isLoading}
+      peopleHasMore={listPeopleResults.data?.hasMore ?? false}
+      onOpenPerson={(u) => startDirect.mutate(u.id)}
+      startingPersonId={startDirect.isPending ? (startDirect.variables ?? null) : null}
       chatById={chatById}
       chats={list}
       chatsLoading={chats.isLoading}
@@ -1917,6 +2225,7 @@ export function ChatWindow() {
       onMarkRead={markChatRead}
       onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
       onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
+      onToggleArchive={(c) => archive.mutate({ chatId: c.id, archived: !c.archived })}
       onDeleteChat={(c) => {
         const msg =
           c.type !== 'PRIVATE' && c.isOwner ? t('deleteGroupConfirm') : t('deleteChatConfirm')
@@ -2275,6 +2584,38 @@ export function ChatWindow() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => {
+                            setScheduledOpen(true)
+                            setHeaderMenuOpen(false)
+                          }}
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                        >
+                          <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
+                          <span className="flex-1 text-left">{t('scheduledTitle')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeChat)
+                              archive.mutate({
+                                chatId: activeChat.id,
+                                archived: !activeChat.archived,
+                              })
+                            setHeaderMenuOpen(false)
+                          }}
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                        >
+                          {activeChat?.archived ? (
+                            <ArchiveRestore className="size-4 shrink-0 opacity-80" aria-hidden />
+                          ) : (
+                            <Archive className="size-4 shrink-0 opacity-80" aria-hidden />
+                          )}
+                          <span className="flex-1 text-left">
+                            {activeChat?.archived ? t('unarchive') : t('archive')}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
                           disabled={exportChat.isPending}
                           onClick={() => {
                             exportChat.mutate('txt')
@@ -2514,35 +2855,80 @@ export function ChatWindow() {
 
             {/* «печатает…» показываем в шапке (вместо статуса), а не здесь — Telegram-стиль. */}
 
-            <ChatComposer
-              editing={editing}
-              onCancelEdit={() => {
-                setEditing(null)
-                setText('')
-              }}
-              replyTo={replyTo}
-              replyToName={replyTo ? senderName(replyTo) : ''}
-              onCancelReply={() => setReplyTo(null)}
-              blocked={!!blockedActive}
-              iBlocked={!!activeChat?.blocked}
-              otherId={otherId}
-              onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
-              text={text}
-              onType={onType}
-              onSend={send}
-              showSend={showSend}
-              connected={connected}
-              composerRef={composerRef}
-              fileInputRef={fileInputRef}
-              onFilesPicked={addFiles}
-              onCreatePoll={isPrivate ? undefined : () => setPollCreatorOpen(true)}
-              mentionCandidates={mentionCandidates}
-              onInsertMention={insertMention}
-              onCloseMentions={() => setMentionQuery(null)}
-              myId={myId}
-              voice={voice}
-              recMMSS={recMMSS}
-            />
+            {/* §50: непринятый входящий запрос — вместо поля ввода решение адресата.
+                Инициатору вместо этого показываем, что его сообщение ещё не принято. */}
+            {activeChat?.requestIncoming ? (
+              <div className="flex flex-col gap-3 border-t border-border p-4">
+                <p className="text-center text-sm text-muted-foreground">{t('requestPrompt')}</p>
+                <div className="flex items-center justify-center gap-2">
+                  <Button
+                    size="sm"
+                    loading={acceptRequest.isPending}
+                    onClick={() => acceptRequest.mutate(activeChat.id)}
+                  >
+                    {t('requestAccept')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={declineRequest.isPending}
+                    onClick={() => {
+                      void confirm({ title: t('requestDeclineConfirm'), destructive: true }).then(
+                        (ok) => {
+                          if (ok) declineRequest.mutate(activeChat.id)
+                        },
+                      )
+                    }}
+                  >
+                    {t('requestDecline')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {activeChat?.requestOutgoing && (
+                  <p className="border-t border-border px-4 pt-2 text-center text-xs text-muted-foreground">
+                    {t('requestPending')}
+                  </p>
+                )}
+                <ChatComposer
+                  editing={editing}
+                  onCancelEdit={() => {
+                    setEditing(null)
+                    setText('')
+                  }}
+                  replyTo={replyTo}
+                  replyToName={replyTo ? senderName(replyTo) : ''}
+                  replyQuote={replyQuote}
+                  onCancelReply={() => {
+                    setReplyTo(null)
+                    setReplyQuote(null)
+                  }}
+                  silent={silentSend}
+                  onToggleSilent={() => setSilentSend((v) => !v)}
+                  onScheduleSend={() => setScheduleOpen(true)}
+                  blocked={!!blockedActive}
+                  iBlocked={!!activeChat?.blocked}
+                  otherId={otherId}
+                  onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
+                  text={text}
+                  onType={onType}
+                  onSend={send}
+                  showSend={showSend}
+                  connected={connected}
+                  composerRef={composerRef}
+                  fileInputRef={fileInputRef}
+                  onFilesPicked={addFiles}
+                  onCreatePoll={isPrivate ? undefined : () => setPollCreatorOpen(true)}
+                  mentionCandidates={mentionCandidates}
+                  onInsertMention={insertMention}
+                  onCloseMentions={() => setMentionQuery(null)}
+                  myId={myId}
+                  voice={voice}
+                  recMMSS={recMMSS}
+                />
+              </>
+            )}
           </div>
         )}
       </section>
@@ -2589,7 +2975,7 @@ export function ChatWindow() {
           onClose={() => setMenu(null)}
           actions={{
             onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
-            onReply: () => setReplyTo(menu.message),
+            onReply: () => startReply(menu.message, menu.selection),
             onEdit: () => startEdit(menu.message),
             onPin: () => setPin.mutate({ id: menu.message.id, pinned: !menu.message.pinnedAt }),
             onCopy: () => copyText(menu.message),
@@ -2625,6 +3011,19 @@ export function ChatWindow() {
             exitSelect()
           }}
         />
+      )}
+
+      {scheduleOpen && activeId && (
+        <ScheduleSendDialog
+          preview={text.trim()}
+          pending={schedule.isPending}
+          onClose={() => setScheduleOpen(false)}
+          onConfirm={(scheduledAt) => schedule.mutate({ chatId: activeId, scheduledAt })}
+        />
+      )}
+
+      {scheduledOpen && activeId && (
+        <ScheduledPanel chatId={activeId} onClose={() => setScheduledOpen(false)} />
       )}
 
       {createGroupOpen && (
@@ -2679,8 +3078,12 @@ export function ChatWindow() {
             sendFiles({
               content: caption || undefined,
               replyToId: replyTo?.id,
+              // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
+              // отправки, а не текста.
+              replyQuote: replyQuote ?? undefined,
               files: attachFiles,
               spoiler,
+              silent: silentSend,
             })
           }
           onAddMore={() => fileInputRef.current?.click()}

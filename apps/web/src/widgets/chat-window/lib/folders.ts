@@ -11,6 +11,10 @@ export interface BuiltinFolder {
   kind: 'builtin'
   types?: ChatTypeValue[]
   unread?: boolean
+  // Вкладка непринятых запросов на переписку (§50) — единственное место, где они видны.
+  requests?: boolean
+  // Вкладка архива — тоже единственное место, где видны убранные туда чаты.
+  archive?: boolean
 }
 
 export interface UserFolder {
@@ -24,6 +28,8 @@ export type FolderTab = BuiltinFolder | UserFolder
 
 export const BUILTIN_FOLDERS: BuiltinFolder[] = [
   { id: 'folderAll', kind: 'builtin' },
+  { id: 'folderRequests', kind: 'builtin', requests: true },
+  { id: 'folderArchive', kind: 'builtin', archive: true },
   { id: 'folderUnread', kind: 'builtin', unread: true },
   { id: 'folderPersonal', kind: 'builtin', types: ['PRIVATE'] },
   { id: 'folderGroups', kind: 'builtin', types: ['GROUP', 'GROUP_OFFICIAL'] },
@@ -31,6 +37,12 @@ export const BUILTIN_FOLDERS: BuiltinFolder[] = [
   { id: 'folderDean', kind: 'builtin', types: ['DEAN'] },
   { id: 'folderUniversity', kind: 'builtin', types: ['FACULTY', 'SUPPORT'] },
 ]
+
+// Чат «в общем списке»: не непринятый запрос и не убранный в архив. Обе вкладки
+// исключающие — чат виден либо там, либо в остальных вкладках, но не в обеих сразу.
+function isOpen(c: ChatListItem): boolean {
+  return !c.requestIncoming && !c.archived
+}
 
 /**
  * Вкладки для текущего списка чатов.
@@ -40,9 +52,15 @@ export const BUILTIN_FOLDERS: BuiltinFolder[] = [
  * человек создал её сам, и исчезающая вкладка выглядела бы как потеря данных.
  */
 export function buildFolderTabs(chats: ChatListItem[], userFolders: ChatFolder[]): FolderTab[] {
-  const builtins = BUILTIN_FOLDERS.filter(
-    (f) => f.id === 'folderAll' || f.unread || chats.some((c) => f.types?.includes(c.type)),
-  )
+  const builtins = BUILTIN_FOLDERS.filter((f) => {
+    // «Запросы» и «Архив» показываются, только когда в них что-то есть: пустая вкладка
+    // была бы постоянным напоминанием ни о чём.
+    if (f.requests) return chats.some((c) => c.requestIncoming)
+    if (f.archive) return chats.some((c) => c.archived && !c.requestIncoming)
+    return (
+      f.id === 'folderAll' || f.unread || chats.some((c) => isOpen(c) && f.types?.includes(c.type))
+    )
+  })
   const user: UserFolder[] = [...userFolders]
     .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
     .map((f) => ({ id: f.id, kind: 'user', name: f.name, chatIds: f.chatIds }))
@@ -54,13 +72,21 @@ export function filterChatsByTab(
   chats: ChatListItem[],
   tab: FolderTab | undefined,
 ): ChatListItem[] {
-  if (!tab || tab.id === 'folderAll') return chats
+  // Непринятый входящий запрос (§50) живёт только во вкладке «Запросы»: в «Все», «Личные»
+  // и пользовательские папки он не попадает — согласия на переписку ещё не было. Архив —
+  // так же: его вкладка единственная, иначе убирать чат было бы бессмысленно.
+  if (tab?.kind === 'builtin' && tab.requests) return chats.filter((c) => c.requestIncoming)
+  if (tab?.kind === 'builtin' && tab.archive) {
+    return chats.filter((c) => c.archived && !c.requestIncoming)
+  }
+  const open = chats.filter(isOpen)
+  if (!tab || tab.id === 'folderAll') return open
   if (tab.kind === 'user') {
     const ids = new Set(tab.chatIds)
-    return chats.filter((c) => ids.has(c.id))
+    return open.filter((c) => ids.has(c.id))
   }
-  if (tab.unread) return chats.filter((c) => c.unreadCount > 0)
-  return chats.filter((c) => tab.types?.includes(c.type))
+  if (tab.unread) return open.filter((c) => c.unreadCount > 0)
+  return open.filter((c) => tab.types?.includes(c.type))
 }
 
 /** Подпись вкладки: у встроенной — ключ i18n, у пользовательской — её имя как есть. */
