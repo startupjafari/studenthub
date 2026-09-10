@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from 'next'
 import { getLocale, getMessages, getTimeZone } from 'next-intl/server'
-import '@fontsource-variable/inter'
+// Сборка с осью opsz, а не только wght: Inter меняет пропорции и трекинг вместе с кеглем
+// (apple-design §15 — «шрифт должен менять форму с размером»). Тот же пакет, тот же вес
+// загрузки, включается одной строкой; без неё font-optical-sizing в globals.css ни на что
+// не влияет, потому что оси в шрифте просто нет.
+import '@fontsource-variable/inter/opsz.css'
 import { AppProviders } from './providers'
 import './globals.css'
 
