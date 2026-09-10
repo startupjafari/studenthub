@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type { Client as MinioClient } from 'minio'
+import sharp from 'sharp'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
@@ -42,8 +43,29 @@ const FILE_SELECT = {
   materialId: true,
   messageId: true,
   posterKey: true,
+  // Размеры изображения: клиент резервирует под снимок точное место (иначе вёрстка прыгает).
+  width: true,
+  height: true,
   createdAt: true,
 } as const
+
+/**
+ * Размеры изображения по содержимому: sharp читает только заголовок, декодировать не нужно.
+ * Экзотический или битый файл не должен ронять загрузку — тогда размеров просто нет (NULL),
+ * и клиент рисует заглушку усреднённой формы.
+ */
+async function imageDimensions(buffer: Buffer): Promise<{ width: number; height: number } | null> {
+  try {
+    const { width, height, orientation } = await sharp(buffer).metadata()
+    if (!width || !height) return null
+    // EXIF-поворот (обычное дело для снимков с телефона): браузер разворачивает картинку сам,
+    // значит и размеры нужно отдавать уже развёрнутыми — иначе под портретное фото зарезервируется
+    // место как под альбомное. Ориентации 5–8 меняют стороны местами.
+    return orientation && orientation >= 5 ? { width: height, height: width } : { width, height }
+  } catch {
+    return null
+  }
+}
 
 /**
  * Значение `Content-Disposition` для скачивания.
@@ -114,6 +136,10 @@ export class FileService {
       )
     }
 
+    // Размеры снимка снимаем до записи: потом байтов в памяти уже нет, а клиенту они нужны,
+    // чтобы держать место под картинку с первого кадра.
+    const dims = detected.category === 'IMAGE' ? await imageDimensions(buffer) : null
+
     const key = `${randomUUID()}.${detected.ext}`
     await this.minio.putObject(bucket, key, buffer, size, { 'Content-Type': detected.mime })
 
@@ -126,6 +152,8 @@ export class FileService {
         ownerId,
         materialId,
         messageId,
+        width: dims?.width,
+        height: dims?.height,
         // Обрезаем до лимита колонки; пустое имя не сохраняем.
         name: name?.slice(0, 255) || null,
       },
@@ -278,7 +306,16 @@ export class FileService {
    * ключ нельзя привязать к двум сообщениям, а объект остаётся общим только логически быть не может.
    */
   async copyToMessage(
-    source: { bucket: string; key: string; mime: string; size: number; name?: string | null },
+    source: {
+      bucket: string
+      key: string
+      mime: string
+      size: number
+      name?: string | null
+      // Размеры оригинала: у копии тот же объект, повторно считать нечего.
+      width?: number | null
+      height?: number | null
+    },
     ownerId: string,
     messageId: string,
   ) {
@@ -293,6 +330,8 @@ export class FileService {
         size: source.size,
         ownerId,
         messageId,
+        width: source.width ?? null,
+        height: source.height ?? null,
         name: source.name ?? null,
       },
       select: FILE_SELECT,

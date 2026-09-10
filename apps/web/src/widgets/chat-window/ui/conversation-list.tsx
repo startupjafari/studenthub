@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo, useState, type RefObject } from 'react'
+import { useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslations } from 'next-intl'
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Bell,
   BellOff,
@@ -12,17 +14,27 @@ import {
   FolderCog,
   Loader2,
   MessagesSquare,
+  MoreVertical,
   Pin,
   PinOff,
   Plus,
   Search,
   ShieldBan,
   Trash2,
+  UserRoundSearch,
   Users,
   X,
 } from 'lucide-react'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
-import { Avatar, AvatarFallback, AvatarImage, EmptyState, Skeleton } from '../../../shared/ui'
+import type { DirectoryUser } from '../../../entities/user'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  EmptyState,
+  Skeleton,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
@@ -56,6 +68,14 @@ export type ConversationListProps = {
   chatMatches: ChatListItem[]
   msgMatches: MsgSearchItem[]
   msgResultsLoading: boolean
+  // Люди своего вуза в той же выдаче поиска (Telegram-стиль): отдельного входа
+  // «написать человеку» нет — переписка начинается прямо отсюда.
+  peopleMatches: DirectoryUser[]
+  peopleLoading: boolean
+  // Выдача упёрлась в лимит секции — просим уточнить запрос (курсора у справочника нет).
+  peopleHasMore: boolean
+  onOpenPerson: (user: DirectoryUser) => void
+  startingPersonId: string | null
   chatById: Map<string, ChatListItem>
   chats: ChatListItem[]
   chatsLoading: boolean
@@ -71,6 +91,7 @@ export type ConversationListProps = {
   onMarkRead: (id: string) => void
   onTogglePin: (c: ChatListItem) => void
   onToggleMute: (c: ChatListItem) => void
+  onToggleArchive: (c: ChatListItem) => void
   // Пользовательские папки (§2) и вход в их настройку — данные и мутации живут в родителе.
   folders: ChatFolder[]
   onManageFolders: () => void
@@ -95,6 +116,11 @@ export function ConversationList({
   chatMatches,
   msgMatches,
   msgResultsLoading,
+  peopleMatches,
+  peopleLoading,
+  peopleHasMore,
+  onOpenPerson,
+  startingPersonId,
   chatById,
   chats,
   chatsLoading,
@@ -110,15 +136,27 @@ export function ConversationList({
   onMarkRead,
   onTogglePin,
   onToggleMute,
+  onToggleArchive,
   onDeleteChat,
   folders,
   onManageFolders,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
+  const tRoles = useTranslations('Roles')
   const [folder, setFolder] = useState<string>('folderAll')
+  // Единственный вход к человеку — это поле: пустое состояние не уводит в отдельное окно,
+  // а ставит курсор сюда же, где ищут чаты.
+  const searchRef = useRef<HTMLInputElement>(null)
+  // Открытое меню действий строки (десктоп). Одно на список — двух сразу не бывает.
+  const [rowMenu, setRowMenu] = useState<string | null>(null)
 
   const folderTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
-  const unreadTotal = useMemo(() => chats.filter((c) => c.unreadCount > 0).length, [chats])
+  // Непринятые запросы (§50) в счётчик «Непрочитанные» не идут: у них своя вкладка.
+  const unreadTotal = useMemo(
+    () => chats.filter((c) => !c.requestIncoming && c.unreadCount > 0).length,
+    [chats],
+  )
+  const requestsTotal = useMemo(() => chats.filter((c) => c.requestIncoming).length, [chats])
   const visibleChats = useMemo(
     () =>
       filterChatsByTab(
@@ -213,6 +251,7 @@ export function ConversationList({
             aria-hidden
           />
           <input
+            ref={searchRef}
             value={searchRaw}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t('searchAll')}
@@ -235,7 +274,12 @@ export function ConversationList({
         <div className="flex gap-1 overflow-x-auto border-b border-border px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none]">
           {folderTabs.map((f) => {
             const active = folder === f.id
-            const badge = f.id === 'folderUnread' && unreadTotal > 0 ? unreadTotal : null
+            const badge =
+              f.id === 'folderUnread' && unreadTotal > 0
+                ? unreadTotal
+                : f.id === 'folderRequests' && requestsTotal > 0
+                  ? requestsTotal
+                  : null
             return (
               <button
                 key={f.id}
@@ -284,7 +328,11 @@ export function ConversationList({
       >
         {searchTerm.length >= 2 ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            {chatMatches.length === 0 && msgMatches.length === 0 && !msgResultsLoading ? (
+            {chatMatches.length === 0 &&
+            msgMatches.length === 0 &&
+            peopleMatches.length === 0 &&
+            !msgResultsLoading &&
+            !peopleLoading ? (
               <div className="flex min-h-0 flex-1 flex-col p-3">
                 <EmptyState
                   icon={<Search className="size-6" aria-hidden />}
@@ -294,7 +342,7 @@ export function ConversationList({
             ) : (
               <>
                 {chatMatches.length > 0 && (
-                  <div className="flex flex-col">
+                  <div className="flex shrink-0 flex-col">
                     <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {t('title')}
                     </p>
@@ -338,8 +386,72 @@ export function ConversationList({
                     })}
                   </div>
                 )}
+                {(peopleMatches.length > 0 || peopleLoading) && (
+                  <div className="flex shrink-0 flex-col">
+                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t('peopleSection')}
+                    </p>
+                    {peopleLoading && peopleMatches.length === 0 ? (
+                      <div className="flex justify-center py-4 text-muted-foreground">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                      </div>
+                    ) : (
+                      peopleMatches.map((u) => {
+                        const name = [u.lastName, u.firstName].filter(Boolean).join(' ')
+                        const busy = startingPersonId === u.id
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            disabled={startingPersonId !== null}
+                            onClick={() => onOpenPerson(u)}
+                            className="flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-default disabled:opacity-70"
+                          >
+                            <Avatar className="size-10 shrink-0">
+                              {u.avatarUrl && (
+                                <AvatarImage src={u.avatarThumbUrl ?? u.avatarUrl} alt="" />
+                              )}
+                              <AvatarFallback
+                                className={cn('text-xs font-medium text-white', avatarColor(u.id))}
+                              >
+                                {chatInitials(name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold">{name}</span>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {[u.headline || tRoles(u.role), u.groupName || u.facultyName]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </p>
+                            </div>
+                            {busy ? (
+                              <Loader2
+                                className="size-4 shrink-0 animate-spin text-muted-foreground"
+                                aria-hidden
+                              />
+                            ) : (
+                              // Другу сообщение уйдёт сразу — помечаем только тех, кому
+                              // сначала уйдёт запрос: об этом лучше знать до клика.
+                              !u.isFriend && (
+                                <span className="shrink-0 text-[0.7rem] text-muted-foreground">
+                                  {t('willRequest')}
+                                </span>
+                              )
+                            )}
+                          </button>
+                        )
+                      })
+                    )}
+                    {peopleHasMore && (
+                      <p className="px-3 pb-1 pt-1 text-xs text-muted-foreground">
+                        {t('refineSearch')}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {(msgMatches.length > 0 || msgResultsLoading) && (
-                  <div className="flex flex-col">
+                  <div className="flex shrink-0 flex-col">
                     <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {t('messagesSection')}
                     </p>
@@ -408,6 +520,13 @@ export function ConversationList({
             <EmptyState
               icon={<MessagesSquare className="size-6" aria-hidden />}
               title={t('noChats')}
+              description={t('noChatsHint')}
+              action={
+                <Button size="sm" onClick={() => searchRef.current?.focus()}>
+                  <UserRoundSearch className="size-4" aria-hidden />
+                  {t('findPeople')}
+                </Button>
+              }
             />
           </div>
         ) : (
@@ -434,7 +553,10 @@ export function ConversationList({
             return (
               <div
                 key={c.id}
-                className="relative overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
+                // shrink-0 обязателен: строки — flex-элементы прокручиваемой колонки, а
+                // overflow-hidden (панели свайпа) снимает с них авто-минимум по контенту.
+                // Без него длинный список ужимался по высоте, и аватары резались пополам.
+                className="group/row relative shrink-0 overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
                 {/* Свайп ВПРАВО: Прочитать · Закрепить (мобильный). */}
                 <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
@@ -467,7 +589,7 @@ export function ConversationList({
                     {c.pinned ? t('unpinShort') : t('pinShort')}
                   </button>
                 </div>
-                {/* Свайп ВЛЕВО: Без звука · Удалить (мобильный). */}
+                {/* Свайп ВЛЕВО: Без звука · Архив · Удалить (мобильный). */}
                 <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
                   <button
                     type="button"
@@ -487,6 +609,22 @@ export function ConversationList({
                   </button>
                   <button
                     type="button"
+                    aria-label={c.archived ? t('unarchive') : t('archive')}
+                    onClick={() => {
+                      onToggleArchive(c)
+                      onCloseSwiped(c.id)
+                    }}
+                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-secondary px-1 text-center text-[0.6rem] font-medium leading-tight text-secondary-foreground"
+                  >
+                    {c.archived ? (
+                      <ArchiveRestore className="size-4" aria-hidden />
+                    ) : (
+                      <Archive className="size-4" aria-hidden />
+                    )}
+                    {c.archived ? t('unarchiveShort') : t('archiveShort')}
+                  </button>
+                  <button
+                    type="button"
                     aria-label={t('delete')}
                     onClick={() => {
                       onCloseSwiped(c.id)
@@ -497,6 +635,88 @@ export function ConversationList({
                     <Trash2 className="size-4" aria-hidden />
                     {t('delete')}
                   </button>
+                </div>
+                {/* Действия строки на десктопе. Панели свайпа скрыты на lg, и до этого
+                    закрепить, заглушить, отметить прочитанным, убрать в архив или удалить
+                    чат из списка на большом экране было нельзя вообще (apple-design §16.5:
+                    интерфейс адаптируется к платформе, а не отбирает возможности). */}
+                <div className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 lg:block">
+                  <button
+                    type="button"
+                    aria-label={t('chatActions')}
+                    aria-expanded={rowMenu === c.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setRowMenu((cur) => (cur === c.id ? null : c.id))
+                    }}
+                    className={cn(
+                      'flex size-7 items-center justify-center rounded-lg bg-background/80 text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100',
+                      rowMenu === c.id && 'opacity-100',
+                    )}
+                  >
+                    <MoreVertical className="size-4" aria-hidden />
+                  </button>
+                  {rowMenu === c.id && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setRowMenu(null)} />
+                      <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
+                        {(
+                          [
+                            {
+                              key: 'markRead',
+                              icon: CheckCheck,
+                              label: t('markRead'),
+                              run: () => onMarkRead(c.id),
+                              hidden: c.unreadCount === 0,
+                            },
+                            {
+                              key: 'pin',
+                              icon: c.pinned ? PinOff : Pin,
+                              label: c.pinned ? t('unpin') : t('pin'),
+                              run: () => onTogglePin(c),
+                            },
+                            {
+                              key: 'mute',
+                              icon: c.muted ? Bell : BellOff,
+                              label: c.muted ? t('unmute') : t('mute'),
+                              run: () => onToggleMute(c),
+                            },
+                            {
+                              key: 'archive',
+                              icon: c.archived ? ArchiveRestore : Archive,
+                              label: c.archived ? t('unarchive') : t('archive'),
+                              run: () => onToggleArchive(c),
+                            },
+                            {
+                              key: 'delete',
+                              icon: Trash2,
+                              label: t('delete'),
+                              run: () => onDeleteChat(c),
+                              danger: true,
+                            },
+                          ] as const
+                        )
+                          .filter((a) => !('hidden' in a && a.hidden))
+                          .map((a) => (
+                            <button
+                              key={a.key}
+                              type="button"
+                              onClick={() => {
+                                a.run()
+                                setRowMenu(null)
+                              }}
+                              className={cn(
+                                'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted',
+                                'danger' in a && a.danger && 'text-destructive',
+                              )}
+                            >
+                              <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
+                              {a.label}
+                            </button>
+                          ))}
+                      </div>
+                    </>
+                  )}
                 </div>
                 <button
                   type="button"

@@ -48,6 +48,11 @@ export const NOTIFICATION_JOBS = {
   DOCUMENT_RESULT: 'document-result',
   FRIEND_REQUEST: 'friend-request',
   FRIEND_ACCEPTED: 'friend-accepted',
+  // Запрос на переписку (§50): единственное уведомление до принятия — сами сообщения
+  // непринятого чата адресата не тревожат.
+  CHAT_REQUEST: 'chat-request',
+  // Отложенное сообщение не удалось доставить — сообщаем автору, а не теряем молча.
+  SCHEDULED_FAILED: 'scheduled-message-failed',
   ASSIGNMENT_PUBLISHED: 'assignment-published',
   ASSIGNMENT_GRADED: 'assignment-graded',
   CONSULTATION_BOOKED: 'consultation-booked',

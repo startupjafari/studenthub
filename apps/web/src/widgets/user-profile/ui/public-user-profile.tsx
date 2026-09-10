@@ -59,6 +59,7 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
+  const tChats = useTranslations('Chats')
   const router = useRouter()
 
   const q = useQuery({
@@ -87,7 +88,15 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const canWrite = !!chatsHref && !!me.data && me.data.id !== userId
   const openChat = useMutation({
     mutationFn: () => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
-    onSuccess: (chat) => router.push(`${chatsHref}?chat=${chat.id}`),
+    onSuccess: (chat) => {
+      // Не-другу уходит запрос на переписку (§50) — в чате это видно только пометкой над
+      // полем ввода, поэтому говорим прямо здесь, сразу после нажатия.
+      if (chat.requestPendingForId) toast.success(tChats('requestSent'))
+      router.push(`${chatsHref}?chat=${chat.id}`)
+    },
+    // Личный чат заводится только внутри своего вуза — молчаливая неудача выглядела бы
+    // как сломанная кнопка.
+    onError: (e) => toast.error(tErr(errCode(e))),
   })
 
   if (q.isLoading) return <PublicSkeleton />

@@ -12,6 +12,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
+import { ChatsService } from '../chats/chats.service'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
 // Разбрасывать @Cron по модулям запрещено. Все задачи работают батчами и логируют счётчик.
@@ -26,6 +27,7 @@ const BATCH_SIZE = 500
 const LOCK_TTL_MS = {
   scheduleEventReminders: 10 * 60 * 1000,
   publishScheduledPosts: 55 * 1000,
+  deliverScheduledMessages: 55 * 1000,
   sweepDocumentExpiry: 15 * 60 * 1000,
   expireInvites: 10 * 60 * 1000,
   cleanOldNotifications: 30 * 60 * 1000,
@@ -55,6 +57,7 @@ export class CleanupService {
     private readonly events: EventsService,
     private readonly posts: PostsService,
     private readonly documents: DocumentsService,
+    private readonly chats: ChatsService,
     private readonly locks: CronLockService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
@@ -73,6 +76,15 @@ export class CleanupService {
   async publishScheduledPosts(): Promise<number | null> {
     return this.locks.run('publishScheduledPosts', LOCK_TTL_MS.publishScheduledPosts, () =>
       this.posts.publishDueScheduled(),
+    )
+  }
+
+  // Отложенные сообщения чатов — тем же минутным тиком, что и отложенные посты.
+  // Расписание живёт здесь, а не в ChatsModule: разбрасывать @Cron по модулям запрещено (§9.3).
+  @Cron('* * * * *', { name: 'deliverScheduledMessages' })
+  async deliverScheduledMessages(): Promise<number | null> {
+    return this.locks.run('deliverScheduledMessages', LOCK_TTL_MS.deliverScheduledMessages, () =>
+      this.chats.deliverDueScheduled(),
     )
   }
 

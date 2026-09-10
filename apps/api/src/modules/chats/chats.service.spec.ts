@@ -43,10 +43,19 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
       // По умолчанию — GROUP без участников: проверка личной блокировки завершается сразу.
-      findUnique: jest.fn().mockResolvedValue({ type: 'GROUP', members: [] }),
+      // requestPendingForId: null — обычный чат, запрос на переписку (§50) не висит.
+      findUnique: jest.fn().mockResolvedValue({
+        type: 'GROUP',
+        members: [],
+        requestPendingForId: null,
+      }),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
+    // §50: по умолчанию — не друзья, поэтому переписка начинается с запроса.
+    friendship: { findFirst: jest.fn().mockResolvedValue(null) },
+    notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userBlock: {
       findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
@@ -87,7 +96,13 @@ function setup() {
   const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('chat-media') }
   // set→'OK' = флаг захвачен, провижининг официальных чатов выполняется (как до троттлинга).
-  const redis = { set: jest.fn().mockResolvedValue('OK'), del: jest.fn().mockResolvedValue(1) }
+  // incr/expire — антифлуд отправки (assertNotFlooding): 1 = первое сообщение в окне.
+  const redis = {
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+    incr: jest.fn().mockResolvedValue(1),
+    expire: jest.fn().mockResolvedValue(1),
+  }
   const service = new ChatsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
@@ -1168,6 +1183,84 @@ describe('ChatsService.createChat — один личный чат на пару
     expect(prisma.chat.create).toHaveBeenCalledTimes(1)
   })
 
+  it('не-другу чат заводится запросом на переписку (§50)', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1' })
+    prisma.chat.create.mockResolvedValueOnce({
+      id: 'c-new',
+      type: 'PRIVATE',
+      title: null,
+      requestPendingForId: 'u2',
+    })
+
+    const res = await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'PRIVATE', memberIds: ['u2'] },
+    )
+
+    expect(res.requestPendingForId).toBe('u2')
+    expect(prisma.chat.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ requestPendingForId: 'u2' }) }),
+    )
+  })
+
+  it('другу — обычный чат без запроса: роль адресата тут ни при чём, важна только дружба', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.friendship.findFirst.mockResolvedValueOnce({ id: 'f1' })
+    prisma.chat.create.mockResolvedValueOnce({
+      id: 'c-new',
+      type: 'PRIVATE',
+      title: null,
+      requestPendingForId: null,
+    })
+
+    await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'PRIVATE', memberIds: ['u2'] },
+    )
+
+    expect(prisma.chat.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ requestPendingForId: null }) }),
+    )
+    // Дружба сняла и проверку вуза — карточку адресата читать незачем.
+    expect(prisma.user.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('человеку из чужого вуза личный чат не заводится', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni2' })
+
+    const err = await service
+      .createChat({ ...user('u1'), universityId: 'uni1' }, { type: 'PRIVATE', memberIds: ['u2'] })
+      .catch((e) => e)
+
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  it('создание чата само по себе адресата не уведомляет — только первое сообщение', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1' })
+    prisma.chat.create.mockResolvedValueOnce({
+      id: 'c-new',
+      type: 'PRIVATE',
+      title: null,
+      requestPendingForId: 'u2',
+    })
+
+    await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'PRIVATE', memberIds: ['u2'] },
+    )
+
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('группу не ищем — её создают явно, с собственным названием', async () => {
     const { service, prisma } = setup()
     prisma.chat.create.mockResolvedValueOnce({ id: 'g1', type: 'GROUP', title: 'Проект' })
@@ -1180,5 +1273,253 @@ describe('ChatsService.createChat — один личный чат на пару
 
     expect(prisma.chat.findFirst).not.toHaveBeenCalled()
     expect(prisma.chat.create).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChatsService — запрос на переписку (§50)', () => {
+  // Личный чат, ждущий решения u2. Тот же объект отдаёт и findUnique (проверки внутри
+  // отправки), и findFirst (адресация accept/decline).
+  const pending = {
+    id: 'c1',
+    type: 'PRIVATE',
+    members: [{ userId: 'u2' }],
+    requestPendingForId: 'u2',
+  }
+
+  const messageRow = (senderId: string) => ({
+    id: 'msg1',
+    chatId: 'c1',
+    senderId,
+    content: 'hi',
+    replyToId: null,
+    editedAt: null,
+    createdAt: new Date(),
+    sender: { id: senderId, firstName: 'A', lastName: 'B', avatarUrl: null },
+  })
+
+  it('первое сообщение инициатора шлёт адресату запрос, но не уведомление о сообщении', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue(pending)
+    prisma.message.create.mockResolvedValue(messageRow('u1'))
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2' }])
+    prisma.user.findUnique.mockResolvedValue({ firstName: 'Иван', lastName: 'Иванов' })
+
+    const res = await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    // Адресата нет среди получателей уведомления о сообщении — оно бы обошло согласие.
+    expect(res.recipientIds).toEqual([])
+    const jobs = queue.enqueue.mock.calls.map((c) => c[2])
+    const request = jobs.find((j) => j.dedupeKey === 'chat-request:c1')
+    expect(request).toBeDefined()
+    expect(request.type).toBe('SYSTEM')
+    expect(request.recipientIds).toEqual(['u2'])
+    expect(jobs.some((j) => j.type === 'MESSAGE')).toBe(false)
+  })
+
+  it('ответ адресата принимает запрос — дальше чат обычный', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm2' })
+    prisma.chat.findUnique.mockResolvedValue(pending)
+    prisma.message.create.mockResolvedValue(messageRow('u2'))
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u1' }])
+
+    const res = await service.createMessage('u2', { chatId: 'c1', content: 'hi' })
+
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { requestPendingForId: null },
+    })
+    // Инициатор получает обычное уведомление: согласие уже дано.
+    expect(res.recipientIds).toEqual(['u1'])
+  })
+
+  it('accept снимает пометку и гасит уведомление о запросе', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'c1', requestPendingForId: 'u2' })
+    prisma.chat.update.mockResolvedValue({})
+
+    await service.acceptChatRequest('u2', 'c1')
+
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { requestPendingForId: null },
+    })
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+      where: { dedupeKey: 'chat-request:c1' },
+    })
+  })
+
+  it('принять запрос может только адресат, не инициатор', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'c1', requestPendingForId: 'u2' })
+
+    const err = await service.acceptChatRequest('u1', 'c1').catch((e) => e)
+
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chat.update).not.toHaveBeenCalled()
+  })
+
+  it('повторное решение по уже принятому запросу → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'c1', requestPendingForId: null })
+
+    const err = await service.acceptChatRequest('u2', 'c1').catch((e) => e)
+
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('decline удаляет чат целиком — переписки не остаётся ни у кого', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'c1', requestPendingForId: 'u2' })
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }])
+
+    await service.declineChatRequest('u2', 'c1')
+
+    expect(prisma.chat.delete).toHaveBeenCalledWith({ where: { id: 'c1' } })
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'chat:activity', { chatId: 'c1' })
+  })
+
+  it('отказ инициатору не уведомляется — как и с заявкой в друзья', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'c1', requestPendingForId: 'u2' })
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }])
+
+    await service.declineChatRequest('u2', 'c1')
+
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('успевшая сложиться дружба снимает висящий запрос сама', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue(pending)
+    prisma.friendship.findFirst.mockResolvedValue({ id: 'f1' })
+    prisma.message.create.mockResolvedValue(messageRow('u1'))
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2' }])
+
+    const res = await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { requestPendingForId: null },
+    })
+    expect(res.recipientIds).toEqual(['u2'])
+    expect(queue.enqueue.mock.calls.every((c) => c[2].dedupeKey !== 'chat-request:c1')).toBe(true)
+  })
+})
+
+describe('ChatsService — общие условия отправки (assertCanSend)', () => {
+  // Личный чат, где второй участник — u2.
+  const priv = { type: 'PRIVATE', members: [{ userId: 'u2' }], requestPendingForId: null }
+
+  const messageRow = () => ({
+    id: 'm-new',
+    chatId: 'c1',
+    senderId: 'u1',
+    content: 'hi',
+    replyToId: null,
+    editedAt: null,
+    createdAt: new Date(),
+    sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+    media: [],
+  })
+
+  function blockedSetup() {
+    const s = setup()
+    s.prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    s.prisma.chat.findUnique.mockResolvedValue(priv)
+    // Блокировка в любую сторону между u1 и u2.
+    s.prisma.userBlock.findFirst.mockResolvedValue({ id: 'b1' })
+    return s
+  }
+
+  it('пересылка в личный чат к заблокировавшему — FORBIDDEN, сообщение не создаётся', async () => {
+    const { service, prisma } = blockedSetup()
+
+    const err = await service.forwardMessage('u1', 'c1', 'src1').catch((e) => e)
+
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('«поделиться постом» в личный чат к заблокировавшему — FORBIDDEN', async () => {
+    const { service, prisma, posts } = blockedSetup()
+
+    const err = await service.sharePost(user('u1'), 'c1', 'p1').catch((e) => e)
+
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+    // До проверки видимости поста дело не доходит — отправка запрещена раньше.
+    expect(posts.assertVisibleToViewer).not.toHaveBeenCalled()
+  })
+
+  it('пересылка считается в антифлуд наравне с обычной отправкой', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    redis.incr.mockResolvedValue(21)
+
+    const err = await service.forwardMessage('u1', 'c1', 'src1').catch((e) => e)
+
+    expect(err.code).toBe('RATE_LIMIT')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('окно антифлуда ставится один раз — на первом сообщении', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue(messageRow())
+    prisma.chat.update.mockResolvedValue({})
+
+    redis.incr.mockResolvedValue(1)
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+    expect(redis.expire).toHaveBeenCalledWith('chat:flood:u1', 10)
+
+    redis.expire.mockClear()
+    redis.incr.mockResolvedValue(2)
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+    expect(redis.expire).not.toHaveBeenCalled()
+  })
+
+  it('Redis недоступен — отправка не блокируется (fail-open)', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue(messageRow())
+    prisma.chat.update.mockResolvedValue({})
+    redis.incr.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    const res = await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    expect(res.message.id).toBe('m-new')
+  })
+
+  it('§50: инициатор упирается в потолок сообщений до принятия запроса', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({ ...priv, requestPendingForId: 'u2' })
+    prisma.message.count.mockResolvedValue(5)
+
+    const err = await service.createMessage('u1', { chatId: 'c1', content: 'hi' }).catch((e) => e)
+
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('§50: потолок не касается адресата — его ответ и есть принятие', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm2' })
+    prisma.chat.findUnique.mockResolvedValue({ ...priv, requestPendingForId: 'u2' })
+    prisma.message.count.mockResolvedValue(99)
+    prisma.message.create.mockResolvedValue({ ...messageRow(), senderId: 'u2' })
+    prisma.chat.update.mockResolvedValue({})
+
+    const res = await service.createMessage('u2', { chatId: 'c1', content: 'ok' })
+
+    expect(res.message.id).toBe('m-new')
   })
 })

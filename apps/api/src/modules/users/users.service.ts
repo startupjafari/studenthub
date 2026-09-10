@@ -2,7 +2,12 @@ import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type { UserListQueryInput, UpdateProfileInput } from '@studenthub/shared-schemas'
+import type {
+  UserListQueryInput,
+  UpdateProfileInput,
+  UserDirectoryQueryInput,
+  UserDirectorySectionValue,
+} from '@studenthub/shared-schemas'
 import { disallowedProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
@@ -51,6 +56,35 @@ export interface TwoFactorLoginRecord {
 // Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
 // но потолок обязателен и здесь (BACKEND_RULES §7.2).
 const OLD_AVATARS_LIMIT = 100
+
+// Справочник людей (§50). Друзей и блокировок у человека десятки, но `take` обязателен
+// везде (§18): при переполнении секция «друзья» просто не пометит хвост — выдача остаётся
+// корректной, а не отваливается.
+const FRIENDS_SCAN_LIMIT = 1000
+const BLOCKS_SCAN_LIMIT = 1000
+
+const SECTION_ORDER: Record<UserDirectorySectionValue, number> = {
+  friend: 0,
+  group: 1,
+  university: 2,
+}
+
+// Визитка в справочнике: только публичные поля — эндпоинт открыт всем ролям.
+export interface DirectoryItem {
+  id: string
+  firstName: string
+  lastName: string
+  middleName: string | null
+  avatarUrl: string | null
+  avatarThumbUrl: string | null
+  role: Role
+  headline: string | null
+  groupId: string | null
+  groupName: string | null
+  facultyName: string | null
+  isFriend: boolean
+  section: UserDirectorySectionValue
+}
 
 const PROFILE_SELECT = {
   id: true,
@@ -291,6 +325,126 @@ export class UserService {
       this.prisma.user.count({ where }),
     ])
     return new Paginated(rows, { total })
+  }
+
+  /**
+   * Справочник людей своего вуза (§50) — «кому написать» в чатах. Доступен всем ролям,
+   * поэтому отдаёт только визитку: ни email, ни username, ни служебных полей (§14.3).
+   *
+   * Секции задают и порядок: друзья → одногруппники → остальной вуз. Дружба выясняется
+   * одним запросом по Friendship (в обе стороны), одногруппники — по groupId смотрящего;
+   * остальные роли попадают в «вуз». Заблокировавшие меня и заблокированные мной
+   * исключаются: писать им всё равно нельзя (UserBlock симметричен в PRIVATE).
+   */
+  async directory(
+    viewer: JwtPayload,
+    query: UserDirectoryQueryInput,
+  ): Promise<{ items: DirectoryItem[]; hasMore: boolean }> {
+    const q = query.q?.trim() ?? ''
+    const contains = { contains: q, mode: 'insensitive' as const }
+
+    const [friendships, blocks] = await Promise.all([
+      this.prisma.friendship.findMany({
+        where: {
+          status: 'ACCEPTED',
+          OR: [{ requesterId: viewer.sub }, { addresseeId: viewer.sub }],
+        },
+        select: { requesterId: true, addresseeId: true },
+        take: FRIENDS_SCAN_LIMIT,
+      }),
+      this.prisma.userBlock.findMany({
+        where: { OR: [{ blockerId: viewer.sub }, { blockedId: viewer.sub }] },
+        select: { blockerId: true, blockedId: true },
+        take: BLOCKS_SCAN_LIMIT,
+      }),
+    ])
+    const friendIds = new Set(
+      friendships.map((f) => (f.requesterId === viewer.sub ? f.addresseeId : f.requesterId)),
+    )
+    const blockedIds = new Set(
+      blocks.map((b) => (b.blockerId === viewer.sub ? b.blockedId : b.blockerId)),
+    )
+
+    const base: Prisma.UserWhereInput[] = [
+      this.directoryScope(viewer),
+      { id: { notIn: [viewer.sub, ...blockedIds] } },
+      { deletedAt: null, isBlocked: false },
+    ]
+    // +1 — чтобы отличить «ровно limit» от «есть ещё»: курсора здесь нет, и переполнение
+    // клиент показывает подсказкой «уточните запрос», а не кнопкой «показать ещё».
+    const take = query.limit + 1
+    const find = (where: Prisma.UserWhereInput[]) =>
+      this.prisma.user.findMany({
+        where: { AND: where },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          middleName: true,
+          avatarUrl: true,
+          avatarThumbUrl: true,
+          role: true,
+          headline: true,
+          groupId: true,
+          group: { select: { name: true } },
+          faculty: { select: { name: true } },
+        },
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+        take,
+      })
+
+    let rows: Awaited<ReturnType<typeof find>>
+    if (q) {
+      rows = await find([
+        ...base,
+        { OR: [{ firstName: contains }, { lastName: contains }, { username: contains }] },
+      ])
+    } else {
+      // Без запроса алфавитный срез вуза бесполезен: в списке на тысячу человек первые
+      // тридцать фамилий на «А» — не те, кому пишут. Показываем круг общения; и только
+      // если его нет вовсе (сотрудник без группы и друзей), падаем на общий список вуза,
+      // чтобы окно не открывалось пустым.
+      const circle: Prisma.UserWhereInput[] = [
+        {
+          OR: [
+            { id: { in: [...friendIds] } },
+            ...(viewer.groupId ? [{ groupId: viewer.groupId }] : []),
+          ],
+        },
+      ]
+      rows = friendIds.size > 0 || viewer.groupId ? await find([...base, ...circle]) : []
+      if (rows.length === 0) rows = await find(base)
+    }
+
+    const hasMore = rows.length > query.limit
+    const page = hasMore ? rows.slice(0, query.limit) : rows
+
+    const items: DirectoryItem[] = page.map(({ group, faculty, ...u }) => ({
+      ...u,
+      groupName: group?.name ?? null,
+      facultyName: faculty?.name ?? null,
+      // Друзьям пишут сразу, остальным уходит запрос на переписку (§50) — независимо от роли.
+      isFriend: friendIds.has(u.id),
+      section: friendIds.has(u.id)
+        ? 'friend'
+        : viewer.groupId != null && u.groupId === viewer.groupId
+          ? 'group'
+          : 'university',
+    }))
+    // Секция — первичный ключ сортировки; внутри секции порядок уже задан запросом (по ФИО).
+    items.sort((a, b) => SECTION_ORDER[a.section] - SECTION_ORDER[b.section])
+    return { items, hasMore }
+  }
+
+  /**
+   * Scope справочника. Обычные роли видят свой вуз; платформенные вуза не имеют и потому
+   * ищут по всем (иначе поиск у них всегда пуст). EMPLOYER вне вуза — ему справочник
+   * студентов не положен (доступ к ним считается по CompanyUniversityAccess, а не здесь).
+   */
+  private directoryScope(viewer: JwtPayload): Prisma.UserWhereInput {
+    if (viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR) return {}
+    if (viewer.role === Role.EMPLOYER) return { id: '__none__' }
+    return { universityId: viewer.universityId ?? '__none__' }
   }
 
   private listScope(viewer: JwtPayload): Prisma.UserWhereInput {

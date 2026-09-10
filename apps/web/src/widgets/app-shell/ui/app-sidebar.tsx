@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl'
 import { Bell, LogOut, Search } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
+import { useChatsUnread } from '../../../entities/chat'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
@@ -67,6 +68,7 @@ export function AppSidebar({
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
+  const chatsUnread = useChatsUnread()
   const tRoles = useTranslations('Roles')
   const tShell = useTranslations('Dashboard')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
@@ -146,7 +148,15 @@ export function AppSidebar({
                       )}
                     >
                       <Icon className="size-5 shrink-0" aria-hidden />
-                      {tNav(item.key)}
+                      <span className="min-w-0 flex-1 truncate">{tNav(item.key)}</span>
+                      {item.key === 'chats' && chatsUnread > 0 && (
+                        <span
+                          aria-label={tNav('unreadMessages', { count: chatsUnread })}
+                          className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] font-bold tabular-nums text-primary-foreground"
+                        >
+                          {chatsUnread > 99 ? '99+' : chatsUnread}
+                        </span>
+                      )}
                     </Link>
                   )
                 })}
