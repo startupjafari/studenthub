@@ -230,6 +230,42 @@
   );
 }
 
+/* Подложка системных экранов статуса: та же точечная сетка, что на брендовой панели
+   входа, плюс мягкое свечение брендовым тоном сверху. Нужна не для красоты: на подложке
+   приложения (bg-muted/30) карточка (bg-card) в тёмной теме почти не отличается по
+   светлоте, и экран читается как пустой холст с текстом посередине.
+
+   Точки — токеном текста (на брендовой панели они белые, потому что лежат на синем),
+   маска гасит сетку к краям, чтобы она не спорила с содержимым карточки. */
+.status-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, var(--foreground) 1px, transparent 0);
+  background-size: 28px 28px;
+  opacity: 0.05;
+  --status-mask: radial-gradient(70% 60% at 50% 42%, #000 0%, transparent 100%);
+  -webkit-mask-image: var(--status-mask);
+  mask-image: var(--status-mask);
+}
+
+.status-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(64% 48% at 50% 22%, var(--primary), transparent 70%);
+  opacity: 0.09;
+}
+
+/* Оба слоя — чистая декорация поверх фона. Кто просил плотных поверхностей или убрал
+   полупрозрачность, получает ровную подложку: контраст текста от этого только выигрывает. */
+@media (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
+  .status-backdrop::before,
+  .status-backdrop::after {
+    display: none;
+  }
+}
+
 /* Появление системных экранов статуса (403/404/ошибка). Классом, а не инлайн-стилем:
    инлайн не выключишь медиазапросом, а декоративная анимация обязана уважать
    prefers-reduced-motion. */

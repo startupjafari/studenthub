@@ -14,7 +14,6 @@ import {
   FolderCog,
   Loader2,
   MessagesSquare,
-  MoreVertical,
   Pin,
   PinOff,
   Plus,
@@ -33,9 +32,11 @@ import {
   AvatarImage,
   Button,
   EmptyState,
+  RowContextMenu,
+  SegmentedTabs,
   Skeleton,
+  type SegmentedTabItem,
 } from '../../../shared/ui'
-import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
@@ -145,13 +146,26 @@ export function ConversationList({
   const t = useTranslations('Chats')
   const tRoles = useTranslations('Roles')
   const [folder, setFolder] = useState<string>('folderAll')
-  // Ряд папок-фильтров: тянется пальцем и мышью, у краёв затухает (use-scroll-row).
-  const foldersRow = useScrollRow<HTMLDivElement>()
   // Единственный вход к человеку — это поле: пустое состояние не уводит в отдельное окно,
   // а ставит курсор сюда же, где ищут чаты.
   const searchRef = useRef<HTMLInputElement>(null)
-  // Открытое меню действий строки (десктоп). Одно на список — двух сразу не бывает.
-  const [rowMenu, setRowMenu] = useState<string | null>(null)
+  // Открытое меню действий строки: id чата + точка нажатия. Одно на список — двух сразу
+  // не бывает, и по id же подсвечивается строка, к которой меню относится.
+  const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const openRowMenu = (e: React.MouseEvent<HTMLElement>, id: string): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Клавиша «контекстное меню» (и Shift+F10) шлёт то же событие с координатами 0,0 —
+    // там меню оказалось бы в углу экрана, а не у строки. Берём её прямоугольник.
+    const box = e.currentTarget.getBoundingClientRect()
+    const keyboard = e.clientX === 0 && e.clientY === 0
+    setRowMenu({
+      id,
+      x: keyboard ? box.left + 24 : e.clientX,
+      y: keyboard ? box.bottom : e.clientY,
+    })
+  }
+  const menuChat = rowMenu ? chats.find((c) => c.id === rowMenu.id) : undefined
 
   const folderTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
   // Непринятые запросы (§50) в счётчик «Непрочитанные» не идут: у них своя вкладка.
@@ -167,6 +181,18 @@ export function ConversationList({
         folderTabs.find((f) => f.id === folder),
       ),
     [chats, folderTabs, folder],
+  )
+  // Счётчик рисуем только там, где он что-то значит: «Непрочитанные» и «Запросы».
+  // Число рядом с «Личные» было бы просто длиной списка под вкладкой.
+  const folderItems: SegmentedTabItem<string>[] = useMemo(
+    () =>
+      folderTabs.map((f) => ({
+        value: f.id,
+        label: folderTabLabel(f, t),
+        count:
+          f.id === 'folderUnread' ? unreadTotal : f.id === 'folderRequests' ? requestsTotal : 0,
+      })),
+    [folderTabs, t, unreadTotal, requestsTotal],
   )
 
   return (
@@ -272,60 +298,37 @@ export function ConversationList({
           )}
         </div>
       </div>
-      {/* Папки-фильтры (Telegram-стиль §2) — только вне режима поиска. */}
+      {/* Папки-фильтры (Telegram-стиль §2) — только вне режима поиска. Тот же
+          SegmentedTabs, что у фильтров уведомлений: один вид у всех рядов-фильтров
+          продукта, и вся механика ряда (прокрутка колесом и перетаскиванием, затухание
+          у краёв, доводка активной вкладки) приходит вместе с ним. Свои чипы были
+          отдельным языком: заливка `bg-primary` целиком и цель в 28px на десктопе. */}
       {searchTerm.length < 2 && chats.length > 0 && (
-        <div
-          ref={foldersRow.ref}
-          className={cn(
-            'flex gap-1 overflow-x-auto border-b border-border px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-            foldersRow.overflowing && 'cursor-grab',
-            foldersRow.dragging && 'cursor-grabbing select-none',
-          )}
-          style={{ maskImage: foldersRow.fadeMask, WebkitMaskImage: foldersRow.fadeMask }}
-        >
-          {folderTabs.map((f) => {
-            const active = folder === f.id
-            const badge =
-              f.id === 'folderUnread' && unreadTotal > 0
-                ? unreadTotal
-                : f.id === 'folderRequests' && requestsTotal > 0
-                  ? requestsTotal
-                  : null
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFolder(f.id)}
-                className={cn(
-                  'flex min-h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors lg:min-h-7',
-                  active
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted',
-                )}
-              >
-                {folderTabLabel(f, t)}
-                {badge != null && (
-                  <span
-                    className={cn(
-                      'rounded-full px-1 text-[0.6rem] tabular-nums',
-                      active ? 'bg-primary-foreground/20' : 'bg-primary/15 text-primary',
-                    )}
-                  >
-                    {badge > 99 ? '99+' : badge}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-          {/* Свои папки настраиваются здесь же: вкладки — единственное место, где они видны. */}
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+          <SegmentedTabs
+            className="min-w-0 flex-1"
+            items={folderItems}
+            value={folder}
+            onChange={setFolder}
+            // Сворачивать нечего: колонка чатов на узком экране занимает весь экран,
+            // и ряд папок — её единственная навигация.
+            collapsible={false}
+            aria-label={t('foldersTitle')}
+          />
+          {/* Свои папки настраиваются здесь же: вкладки — единственное место, где они видны.
+              `self-stretch` — высота берётся от ряда табов, а не задаётся числом: у табов
+              своя шкала (44px под палец, 32px под курсор) плюс отступы контейнера, и
+              повторять её здесь константой значило бы ломать пару при любой правке табов.
+              Поверхность тоже общая с рядом — иначе рядом с обведённым контейнером
+              висела бы голая иконка. */}
           <button
             type="button"
             onClick={onManageFolders}
-            aria-label={t('foldersTitle')}
-            title={t('foldersTitle')}
-            className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={t('foldersManage')}
+            title={t('foldersManage')}
+            className="flex w-11 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:w-10 lg:rounded-xl"
           >
-            <FolderCog className="size-3.5" aria-hidden />
+            <FolderCog className="size-4" aria-hidden />
           </button>
         </div>
       )}
@@ -567,7 +570,8 @@ export function ConversationList({
                 // shrink-0 обязателен: строки — flex-элементы прокручиваемой колонки, а
                 // overflow-hidden (панели свайпа) снимает с них авто-минимум по контенту.
                 // Без него длинный список ужимался по высоте, и аватары резались пополам.
-                className="group/row relative shrink-0 overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
+                onContextMenu={(e) => openRowMenu(e, c.id)}
+                className="relative shrink-0 overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
                 {/* Свайп ВПРАВО: Прочитать · Закрепить (мобильный). */}
                 <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
@@ -647,88 +651,6 @@ export function ConversationList({
                     {t('delete')}
                   </button>
                 </div>
-                {/* Действия строки на десктопе. Панели свайпа скрыты на lg, и до этого
-                    закрепить, заглушить, отметить прочитанным, убрать в архив или удалить
-                    чат из списка на большом экране было нельзя вообще (apple-design §16.5:
-                    интерфейс адаптируется к платформе, а не отбирает возможности). */}
-                <div className="absolute right-2 top-1/2 z-20 hidden -translate-y-1/2 lg:block">
-                  <button
-                    type="button"
-                    aria-label={t('chatActions')}
-                    aria-expanded={rowMenu === c.id}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setRowMenu((cur) => (cur === c.id ? null : c.id))
-                    }}
-                    className={cn(
-                      'flex size-7 items-center justify-center rounded-lg bg-background/80 text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100',
-                      rowMenu === c.id && 'opacity-100',
-                    )}
-                  >
-                    <MoreVertical className="size-4" aria-hidden />
-                  </button>
-                  {rowMenu === c.id && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setRowMenu(null)} />
-                      <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
-                        {(
-                          [
-                            {
-                              key: 'markRead',
-                              icon: CheckCheck,
-                              label: t('markRead'),
-                              run: () => onMarkRead(c.id),
-                              hidden: c.unreadCount === 0,
-                            },
-                            {
-                              key: 'pin',
-                              icon: c.pinned ? PinOff : Pin,
-                              label: c.pinned ? t('unpin') : t('pin'),
-                              run: () => onTogglePin(c),
-                            },
-                            {
-                              key: 'mute',
-                              icon: c.muted ? Bell : BellOff,
-                              label: c.muted ? t('unmute') : t('mute'),
-                              run: () => onToggleMute(c),
-                            },
-                            {
-                              key: 'archive',
-                              icon: c.archived ? ArchiveRestore : Archive,
-                              label: c.archived ? t('unarchive') : t('archive'),
-                              run: () => onToggleArchive(c),
-                            },
-                            {
-                              key: 'delete',
-                              icon: Trash2,
-                              label: t('delete'),
-                              run: () => onDeleteChat(c),
-                              danger: true,
-                            },
-                          ] as const
-                        )
-                          .filter((a) => !('hidden' in a && a.hidden))
-                          .map((a) => (
-                            <button
-                              key={a.key}
-                              type="button"
-                              onClick={() => {
-                                a.run()
-                                setRowMenu(null)
-                              }}
-                              className={cn(
-                                'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted',
-                                'danger' in a && a.danger && 'text-destructive',
-                              )}
-                            >
-                              <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
-                              {a.label}
-                            </button>
-                          ))}
-                      </div>
-                    </>
-                  )}
-                </div>
                 <button
                   type="button"
                   ref={(el) => {
@@ -752,6 +674,10 @@ export function ConversationList({
                   className={cn(
                     'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors hover:bg-muted/50',
                     activeId === c.id ? 'bg-primary/10' : '',
+                    // Строка, над которой открыто меню, выделена всё время его жизни:
+                    // список длинный, курсор уезжает к пунктам меню, и без метки
+                    // непонятно, какой именно чат сейчас удаляют.
+                    rowMenu?.id === c.id && (activeId === c.id ? 'bg-primary/20' : 'bg-muted'),
                   )}
                 >
                   <span className="relative shrink-0">
@@ -825,6 +751,52 @@ export function ConversationList({
           })
         )}
       </div>
+
+      {rowMenu && menuChat && (
+        <RowContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          ariaLabel={t('chatActions')}
+          onClose={() => setRowMenu(null)}
+          items={[
+            ...(menuChat.unreadCount > 0
+              ? [
+                  {
+                    key: 'markRead',
+                    icon: CheckCheck,
+                    label: t('markRead'),
+                    onClick: () => onMarkRead(menuChat.id),
+                  },
+                ]
+              : []),
+            {
+              key: 'pin',
+              icon: menuChat.pinned ? PinOff : Pin,
+              label: menuChat.pinned ? t('unpin') : t('pin'),
+              onClick: () => onTogglePin(menuChat),
+            },
+            {
+              key: 'mute',
+              icon: menuChat.muted ? Bell : BellOff,
+              label: menuChat.muted ? t('unmute') : t('mute'),
+              onClick: () => onToggleMute(menuChat),
+            },
+            {
+              key: 'archive',
+              icon: menuChat.archived ? ArchiveRestore : Archive,
+              label: menuChat.archived ? t('unarchive') : t('archive'),
+              onClick: () => onToggleArchive(menuChat),
+            },
+            {
+              key: 'delete',
+              icon: Trash2,
+              label: t('delete'),
+              onClick: () => onDeleteChat(menuChat),
+              danger: true,
+            },
+          ]}
+        />
+      )}
     </aside>
   )
 }

@@ -29,10 +29,15 @@ import {
   type NotificationType,
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
-import { EmptyState, SegmentedTabs, Skeleton, type SegmentedTabItem } from '../../../shared/ui'
+import {
+  EmptyState,
+  RowContextMenu,
+  SegmentedTabs,
+  Skeleton,
+  type SegmentedTabItem,
+} from '../../../shared/ui'
 import { useSwipeRows } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { NotificationMenu } from './notification-menu'
 
 // Визуал по типу: иконка, цвет левого акцента и подложки иконки.
 const TYPE_META: Record<NotificationType, { icon: LucideIcon; bar: string; iconWrap: string }> = {
@@ -83,6 +88,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   const router = useRouter()
   const qc = useQueryClient()
   const [filter, setFilter] = useState<Filter>('all')
+  // Открытое меню действий строки: id уведомления + точка нажатия. Одно на список —
+  // по этому же id подсвечивается строка, к которой меню относится.
+  const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   // Свайп по строке (мобильный, как в списке чатов): вправо — «Прочитать», влево — «Удалить».
   // Физика жеста — общий хук shared/lib.
   const rows = useSwipeRows({ leftWidth: ROW_BTN_W, rightWidth: ROW_BTN_W })
@@ -108,6 +116,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
 
   const items = useMemo(() => list.data ?? [], [list.data])
   const unread = items.filter((n) => !n.isRead).length
+  const menuItem = rowMenu ? items.find((n) => n.id === rowMenu.id) : undefined
 
   // Счётчики продуктовых категорий + «требует действия» (один проход).
   const counts = useMemo(() => {
@@ -160,6 +169,20 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
     }
     return acc
   }, [filtered, locale, t])
+
+  function openRowMenu(e: React.MouseEvent<HTMLElement>, id: string): void {
+    e.preventDefault()
+    e.stopPropagation()
+    // Клавиша «контекстное меню» (и Shift+F10) шлёт то же событие с координатами 0,0 —
+    // там меню оказалось бы в углу экрана, а не у строки. Берём её прямоугольник.
+    const box = e.currentTarget.getBoundingClientRect()
+    const keyboard = e.clientX === 0 && e.clientY === 0
+    setRowMenu({
+      id,
+      x: keyboard ? box.left + 24 : e.clientX,
+      y: keyboard ? box.bottom : e.clientY,
+    })
+  }
 
   function urlOf(n: NotificationItem): string | null {
     return typeof n.data?.url === 'string' ? n.data.url : null
@@ -252,7 +275,8 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                 return (
                   <div
                     key={n.id}
-                    className="group relative shrink-0 overflow-hidden border-b border-border/50 lg:overflow-visible"
+                    onContextMenu={(e) => openRowMenu(e, n.id)}
+                    className="relative shrink-0 overflow-hidden border-b border-border/50 lg:overflow-visible"
                   >
                     {/* Свайп ВПРАВО: «Прочитать» (мобильный) — та же раскладка, что у чатов. */}
                     <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
@@ -294,7 +318,13 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                       onTouchStart={(e) => rows.onRowTouchStart(e, n.id)}
                       onTouchMove={rows.onRowTouchMove}
                       onTouchEnd={(e) => rows.onRowTouchEnd(e, n.id)}
-                      className="relative z-10 flex touch-pan-y items-start gap-3 bg-background px-3 py-2.5 transition-colors hover:bg-muted/50"
+                      className={cn(
+                        'relative z-10 flex touch-pan-y items-start gap-3 bg-background px-3 py-2.5 transition-colors hover:bg-muted/50',
+                        // Строка, над которой открыто меню, выделена всё время его жизни:
+                        // список длинный, курсор уезжает к пунктам меню, и без метки
+                        // непонятно, какое именно уведомление сейчас удаляют.
+                        rowMenu?.id === n.id && 'bg-muted',
+                      )}
                     >
                       {!n.isRead && (
                         <span
@@ -318,7 +348,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                           }
                           onOpen(n)
                         }}
-                        className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left lg:pr-7"
+                        className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 text-left"
                       >
                         <div
                           className={cn(
@@ -363,16 +393,6 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                           )}
                         </div>
                       </button>
-                      {/* На ПК жеста нет, а действия нужны те же: меню по наведению вместо
-                        свайп-панелей (apple-design §16.5 — интерфейс адаптируется к платформе,
-                        а не отбирает возможности). Вне потока, чтобы не «съедать» ширину строки. */}
-                      <div className="absolute right-1 top-1.5 z-20 hidden transition-opacity lg:block lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
-                        <NotificationMenu
-                          isRead={n.isRead}
-                          onMarkRead={() => readMut.mutate(n.id)}
-                          onDelete={() => delMut.mutate(n.id)}
-                        />
-                      </div>
                     </div>
                   </div>
                 )
@@ -381,6 +401,34 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
           ))
         )}
       </div>
+
+      {menuItem && rowMenu && (
+        <RowContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          ariaLabel={t('actions')}
+          onClose={() => setRowMenu(null)}
+          items={[
+            ...(menuItem.isRead
+              ? []
+              : [
+                  {
+                    key: 'markRead',
+                    icon: CheckCheck,
+                    label: t('markRead'),
+                    onClick: () => readMut.mutate(menuItem.id),
+                  },
+                ]),
+            {
+              key: 'delete',
+              icon: Trash2,
+              label: t('delete'),
+              onClick: () => delMut.mutate(menuItem.id),
+              danger: true,
+            },
+          ]}
+        />
+      )}
     </div>
   )
 }

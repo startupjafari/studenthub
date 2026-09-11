@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, X } from 'lucide-react'
@@ -45,9 +45,48 @@ export function MediaViewer({
   useBodyScrollLock()
   useBackClose(onClose)
   const [rotation, setRotation] = useState(0)
+  // Масштаб «вписать повёрнутое»: поворот не меняет место, которое элемент занимает в
+  // раскладке, поэтому у горизонтального снимка, повёрнутого на 90°, габарит становится
+  // выше области просмотра и края уезжают под `overflow-hidden`. Считаем, во сколько раз
+  // ужать, чтобы повёрнутый прямоугольник влез целиком.
+  const [fit, setFit] = useState(1)
+  const boxRef = useRef<HTMLDivElement>(null)
+  // Callback-ref, а не объектный: один ref на <img> и <video> объектным пришлось бы
+  // типизировать пересечением их интерфейсов — ложью, которую TS пропускает по случайности.
+  const mediaRef = useRef<HTMLElement | null>(null)
+  const setMedia = useCallback((el: HTMLImageElement | HTMLVideoElement | null): void => {
+    mediaRef.current = el
+  }, [])
   const cur = items[index]
 
   useEffect(() => setRotation(0), [index])
+
+  const measureFit = useCallback((): void => {
+    const box = boxRef.current
+    const el = mediaRef.current
+    if (!box || !el) return
+    const quarter = ((rotation % 360) + 360) % 360
+    if (quarter !== 90 && quarter !== 270) {
+      setFit(1)
+      return
+    }
+    // offsetWidth/Height — размер ДО трансформации (getBoundingClientRect вернул бы уже
+    // повёрнутый габарит, и масштаб пересчитывался бы сам от себя).
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    if (!w || !h) return
+    // Повёрнутый прямоугольник меняет стороны местами: ширина меряется высотой.
+    // Больше единицы не увеличиваем — растянутый снимок хуже вписанного.
+    setFit(Math.min(1, box.clientWidth / h, box.clientHeight / w))
+  }, [rotation])
+
+  // Пересчёт при повороте, смене элемента и изменении окна. `src` в зависимостях не
+  // случайно: пока картинка не загрузилась, мерить нечего — есть ещё onLoad ниже.
+  useEffect(() => {
+    measureFit()
+    window.addEventListener('resize', measureFit)
+    return () => window.removeEventListener('resize', measureFit)
+  }, [measureFit, src, index])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -61,7 +100,7 @@ export function MediaViewer({
 
   if (!cur || typeof document === 'undefined') return null
   const isVideo = cur.mime.startsWith('video/')
-  const transform = { transform: `rotate(${rotation}deg)` }
+  const transform = { transform: `rotate(${rotation}deg) scale(${fit})` }
   const dl = downloadUrl ?? src
 
   return createPortal(
@@ -124,27 +163,35 @@ export function MediaViewer({
           </button>
         )}
 
-        {!src ? (
-          <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
-        ) : isVideo ? (
-          <video
-            src={src}
-            controls
-            autoPlay
-            style={transform}
-            className="h-full max-h-full w-auto max-w-full rounded-lg object-contain transition-transform"
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <img
-            src={src}
-            alt={cur.name ?? ''}
-            draggable={false}
-            style={transform}
-            className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
-            onClick={(e) => e.stopPropagation()}
-          />
-        )}
+        {/* Обёртка без отступов: по ней меряем свободное место под повёрнутый снимок —
+            у родителя они есть, и мерить по нему значило бы разрешить вылезти на них. */}
+        <div ref={boxRef} className="flex h-full min-h-0 w-full items-center justify-center">
+          {!src ? (
+            <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
+          ) : isVideo ? (
+            <video
+              ref={setMedia}
+              src={src}
+              controls
+              autoPlay
+              style={transform}
+              onLoadedMetadata={measureFit}
+              className="h-full max-h-full w-auto max-w-full rounded-lg object-contain transition-transform"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              ref={setMedia}
+              src={src}
+              alt={cur.name ?? ''}
+              draggable={false}
+              style={transform}
+              onLoad={measureFit}
+              className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </div>
 
         {items.length > 1 && index < items.length - 1 && (
           <button

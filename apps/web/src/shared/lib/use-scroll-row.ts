@@ -13,12 +13,16 @@ import {
 //
 // Что берёт на себя хук:
 //  1. Тянуть ряд мышью — на десктопе полосы прокрутки у таких рядов нет (она перекрывала бы
-//     кромку содержимого), а колесо крутит страницу, поэтому без перетаскивания дальние
-//     пункты недостижимы. На отпускании — инерция пружиной (DESIGN_SYSTEM §7.1: старт от
-//     экранного значения, скорость жеста передаётся в анимацию, решение по проекции).
-//  2. Знать, что ряд правда прокручивается и у какого края стоит, — из этого собирается
+//     кромку содержимого), поэтому без перетаскивания дальние пункты недостижимы.
+//     На отпускании — инерция пружиной (DESIGN_SYSTEM §7.1: старт от экранного значения,
+//     скорость жеста передаётся в анимацию, решение по проекции).
+//  2. Крутить ряд колесом мыши, когда курсор над ним. Вертикальное колесо — самый частый
+//     способ листать на ПК, и «покрутил над рядом — ничего не произошло» читается как
+//     мёртвый элемент. Shift+колесо не трогаем: это системный жест горизонтали, а Ctrl —
+//     масштаб страницы. У краёв ряда колесо отдаётся странице, иначе страница залипает.
+//  3. Знать, что ряд правда прокручивается и у какого края стоит, — из этого собирается
 //     маска затухания: «есть ещё» видно, а не угадывается.
-//  3. Довести нужный элемент до видимой зоны (`reveal`) — активный таб не остаётся за обрезом.
+//  4. Довести нужный элемент до видимой зоны (`reveal`) — активный таб не остаётся за обрезом.
 //
 // На тач-экране жест НЕ перехватывается: нативная инерционная прокрутка прерываема, знает
 // свои края, различает горизонтальный и вертикальный пан (палец из ряда может тянуть
@@ -179,7 +183,27 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
       e.stopPropagation()
     }
 
+    // Колесо над рядом крутит ряд, а не страницу. Трекпадный горизонтальный жест
+    // (|deltaX| > |deltaY|) отдан браузеру: он уже делает ровно то, что нужно.
+    const onWheel = (e: WheelEvent): void => {
+      if (e.ctrlKey || e.shiftKey) return
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
+      const max = maxScroll()
+      if (max < 1 || e.deltaY === 0) return
+      // deltaMode: 0 — пиксели, 1 — строки, 2 — экраны. Строку считаем за 16px.
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? node.clientWidth : 1
+      const delta = e.deltaY * unit
+      const at = node.scrollLeft
+      // На краю не перехватываем: иначе колесо над рядом парализует прокрутку страницы.
+      if ((delta < 0 && at <= 0) || (delta > 0 && at >= max - 1)) return
+      e.preventDefault()
+      springRef.current?.stop()
+      node.scrollLeft = Math.max(0, Math.min(at + delta, max))
+    }
+
     node.addEventListener('pointerdown', onPointerDown)
+    // passive: false — иначе preventDefault игнорируется и страница уедет вместе с рядом.
+    node.addEventListener('wheel', onWheel, { passive: false })
     // Движение и отпускание — на окне: мышь уходит за пределы ряда, а жест продолжается.
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
@@ -188,6 +212,7 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
     node.addEventListener('click', onClick, true)
     return () => {
       node.removeEventListener('pointerdown', onPointerDown)
+      node.removeEventListener('wheel', onWheel)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', onPointerUp)
