@@ -82,7 +82,7 @@ export function DateJumpPicker({
             className,
           )}
         >
-          <CalendarDays className="size-4" aria-hidden />
+          <CalendarDays className="size-5" aria-hidden />
         </button>
       </PopoverPrimitive.Trigger>
 

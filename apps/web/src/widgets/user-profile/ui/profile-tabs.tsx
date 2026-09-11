@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
@@ -20,6 +20,7 @@ import {
   profileContentKeys,
 } from '../../../entities/profile-content'
 import { fetchPollsByUser, pollKeys } from '../../../entities/poll'
+import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ProfilePosts } from './profile-posts'
 import { ProfileMediaGrid } from './profile-media-grid'
@@ -106,6 +107,15 @@ export function ProfileTabs({
     ...(settings ? [{ id: 'settings' as const, label: t('settings'), icon: Settings }] : []),
   ]
 
+  // Семь вкладок профиля в телефон не влезают: ряд тянется пальцем и мышью, у краёв
+  // затухает, а выбранная вкладка сама подъезжает в видимую зону (use-scroll-row).
+  const row = useScrollRow<HTMLDivElement>()
+  const { reveal } = row
+  const activeTabRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    reveal(activeTabRef.current)
+  }, [tab, reveal])
+
   const sigFor = (target: ProfileTabId) =>
     createSignal && createSignal.target === target ? createSignal.n : undefined
 
@@ -115,10 +125,20 @@ export function ProfileTabs({
       <div className="flex flex-col gap-4">
         {stickyTop}
         <div
+          ref={row.ref}
           role="tablist"
           aria-label={t('title')}
-          className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-muted/50 p-1 sm:grid"
-          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+          className={cn(
+            'flex gap-1 overflow-x-auto rounded-2xl border border-border bg-muted/50 p-1 sm:grid sm:rounded-xl',
+            '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            row.overflowing && 'cursor-grab',
+            row.dragging && 'cursor-grabbing select-none',
+          )}
+          style={{
+            gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+            maskImage: row.fadeMask,
+            WebkitMaskImage: row.fadeMask,
+          }}
         >
           {tabs.map((item) => {
             const Icon = item.icon
@@ -127,6 +147,7 @@ export function ProfileTabs({
             return (
               <button
                 key={item.id}
+                ref={active ? activeTabRef : undefined}
                 type="button"
                 role="tab"
                 aria-selected={active}
@@ -134,7 +155,7 @@ export function ProfileTabs({
                 disabled={locked}
                 onClick={() => onTabChange(item.id)}
                 className={cn(
-                  'flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:min-w-0 sm:shrink sm:gap-2 sm:px-2 sm:py-2 sm:text-sm',
+                  'flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium transition-colors sm:min-h-9 sm:min-w-0 sm:shrink sm:gap-2 sm:rounded-lg sm:px-2 sm:text-sm',
                   active
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',

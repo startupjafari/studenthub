@@ -86,7 +86,13 @@ import {
 import { useAppUpdate } from '../../../shared/lib'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
-import { promptPwaInstall, toApiError, useFormAlert, usePwaInstall } from '../../../shared/lib'
+import {
+  promptPwaInstall,
+  toApiError,
+  useFormAlert,
+  usePwaInstall,
+  useScrollRow,
+} from '../../../shared/lib'
 import {
   subscribeToPush,
   unsubscribeFromPush,
@@ -125,13 +131,23 @@ export function AccountSettingsPanels() {
   const tErr = useTranslations('Errors')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const [tab, setTab] = useState('personal')
+  // На телефоне навигация по блокам — ряд с прокруткой (с `lg` это колонка слева):
+  // ряд тянется, у краёв затухает.
+  const row = useScrollRow<HTMLElement>()
 
   return (
     <div className="grid w-full items-start gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
       {/* Левая навигация по блокам настроек */}
       <nav
+        ref={row.ref}
         aria-label={tS('title')}
-        className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-muted/40 p-2 lg:flex-col lg:overflow-visible lg:sticky lg:top-6"
+        className={cn(
+          'flex gap-1 overflow-x-auto rounded-xl border border-border bg-muted/40 p-2 lg:sticky lg:top-6 lg:flex-col lg:overflow-visible',
+          '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          row.overflowing && 'cursor-grab',
+          row.dragging && 'cursor-grabbing select-none',
+        )}
+        style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
       >
         {NAV.map((item) => {
           const Icon = item.icon
@@ -144,7 +160,7 @@ export function AccountSettingsPanels() {
               aria-current={active ? 'true' : undefined}
               onClick={() => setTab(item.id)}
               className={cn(
-                'flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                'flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors lg:min-h-9',
                 active
                   ? danger
                     ? 'bg-destructive/10 text-destructive'
