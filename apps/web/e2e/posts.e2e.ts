@@ -8,7 +8,9 @@ import { expect, test } from './support/fixtures'
 test('пост публикуется и появляется в ленте', async ({ deanPage: page }) => {
   await page.goto('/dean/posts')
 
-  const composer = page.getByPlaceholder('Что нового?')
+  // Тот же RichTextField, что и в чатах: placeholder рисуется через ::before и
+  // `getByPlaceholder` его не находит. У поля есть собственный id — целимся в него.
+  const composer = page.locator('#post-content')
   await expect(composer).toBeVisible({ timeout: 30_000 })
 
   // Аудиторию выбираем явно: у декана их несколько, и полагаться на значение по умолчанию тест

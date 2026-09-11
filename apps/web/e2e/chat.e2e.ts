@@ -17,7 +17,10 @@ test('сообщение отправляется и появляется в п�
   await chat.click()
 
   // Именно поле ввода сообщения: в левой колонке есть ещё поиск по чатам.
-  const composer = page.getByPlaceholder('Сообщение')
+  // Композер — RichTextField (contenteditable), а не <input>: placeholder у него рисует
+  // расширение TipTap через ::before, и `getByPlaceholder` его не видит. Целимся в
+  // доступное имя — оно же и есть контракт для скринридера.
+  const composer = page.getByRole('textbox', { name: 'Сообщение…' })
   await expect(composer).toBeVisible({ timeout: 15_000 })
 
   // Уникальный текст: история чата между прогонами сбрасывается не всегда.
