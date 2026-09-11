@@ -1,6 +1,7 @@
 'use client'
 
 import { Check } from 'lucide-react'
+import { useScrollRow } from '../lib/use-scroll-row'
 import { cn } from '../lib/utils'
 
 export interface StepperStep {
@@ -29,9 +30,20 @@ export function Stepper({
   className?: string
 }) {
   const doneCount = done ?? current
+  // Лесенка шагов в длинном сценарии не влезает в телефон: ряд тянется, у краёв затухает.
+  const row = useScrollRow<HTMLOListElement>()
 
   return (
-    <ol className={cn('flex items-center gap-1 overflow-x-auto pb-1', className)}>
+    <ol
+      ref={row.ref}
+      className={cn(
+        'flex items-center gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        row.overflowing && 'cursor-grab',
+        row.dragging && 'cursor-grabbing select-none',
+        className,
+      )}
+      style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
+    >
       {steps.map((s, i) => {
         const isDone = i < doneCount
         const isActive = i === current

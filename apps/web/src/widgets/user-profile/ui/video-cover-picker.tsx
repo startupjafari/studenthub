@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Check, Loader2 } from 'lucide-react'
+import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 export interface VideoCover {
@@ -105,6 +106,9 @@ export function VideoCoverPicker({
     }
   }, [file])
 
+  // Кадров-миниатюр много — ряд тянется мышью и затухает у краёв.
+  const row = useScrollRow<HTMLDivElement>()
+
   function pick(i: number) {
     const f = frames[i]
     if (!f) return
@@ -127,7 +131,15 @@ export function VideoCoverPicker({
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {t('coverHint')}
       </p>
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div
+        ref={row.ref}
+        className={cn(
+          'flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          row.overflowing && 'cursor-grab',
+          row.dragging && 'cursor-grabbing select-none',
+        )}
+        style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
+      >
         {frames.map((f, i) => (
           <button
             key={f.time}

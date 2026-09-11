@@ -35,6 +35,7 @@ import {
   EmptyState,
   Skeleton,
 } from '../../../shared/ui'
+import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
@@ -144,6 +145,8 @@ export function ConversationList({
   const t = useTranslations('Chats')
   const tRoles = useTranslations('Roles')
   const [folder, setFolder] = useState<string>('folderAll')
+  // Ряд папок-фильтров: тянется пальцем и мышью, у краёв затухает (use-scroll-row).
+  const foldersRow = useScrollRow<HTMLDivElement>()
   // Единственный вход к человеку — это поле: пустое состояние не уводит в отдельное окно,
   // а ставит курсор сюда же, где ищут чаты.
   const searchRef = useRef<HTMLInputElement>(null)
@@ -271,7 +274,15 @@ export function ConversationList({
       </div>
       {/* Папки-фильтры (Telegram-стиль §2) — только вне режима поиска. */}
       {searchTerm.length < 2 && chats.length > 0 && (
-        <div className="flex gap-1 overflow-x-auto border-b border-border px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div
+          ref={foldersRow.ref}
+          className={cn(
+            'flex gap-1 overflow-x-auto border-b border-border px-2 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            foldersRow.overflowing && 'cursor-grab',
+            foldersRow.dragging && 'cursor-grabbing select-none',
+          )}
+          style={{ maskImage: foldersRow.fadeMask, WebkitMaskImage: foldersRow.fadeMask }}
+        >
           {folderTabs.map((f) => {
             const active = folder === f.id
             const badge =
@@ -286,7 +297,7 @@ export function ConversationList({
                 type="button"
                 onClick={() => setFolder(f.id)}
                 className={cn(
-                  'flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                  'flex min-h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors lg:min-h-7',
                   active
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-muted',

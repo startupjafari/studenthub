@@ -18,7 +18,7 @@ import {
 import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { EmojiPicker } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useSheetDragClose, useBodyScrollLock } from '../../../shared/lib'
+import { useSheetDragClose, useBodyScrollLock, useScrollRow } from '../../../shared/lib'
 import type { ChatMessage } from '../model/types'
 
 export interface MessageMenuActions {
@@ -90,6 +90,8 @@ export function MessageContextMenu({
   // и не срабатывает iOS pull-to-refresh (один жест — только шторке).
   const sheetRef = useSheetDragClose<HTMLDivElement>(onClose)
   useBodyScrollLock()
+  // Ряд реакций на узком экране не влезает: тянется (на тач — нативно) и затухает у краёв.
+  const reactionsScroll = useScrollRow<HTMLDivElement>()
 
   const run = (fn: () => void) => () => {
     fn()
@@ -127,7 +129,15 @@ export function MessageContextMenu({
   // Ряд реакций: внутренняя обёртка w-max+mx-auto центрирует эмодзи, когда они влезают, и позволяет
   // прокрутку по горизонтали, когда нет (узкий экран / много эмодзи) — иначе крайние обрезались.
   const reactionsRow = (big: boolean): React.ReactNode => (
-    <div className="overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      ref={reactionsScroll.ref}
+      className={cn(
+        'overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        reactionsScroll.overflowing && 'cursor-grab',
+        reactionsScroll.dragging && 'cursor-grabbing select-none',
+      )}
+      style={{ maskImage: reactionsScroll.fadeMask, WebkitMaskImage: reactionsScroll.fadeMask }}
+    >
       <div className="mx-auto flex w-max items-center gap-0.5">
         {CHAT_REACTION_EMOJIS.map((emoji) => (
           <button

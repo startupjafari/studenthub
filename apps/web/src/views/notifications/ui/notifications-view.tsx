@@ -29,7 +29,7 @@ import {
   type NotificationType,
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
-import { EmptyState, Skeleton } from '../../../shared/ui'
+import { EmptyState, SegmentedTabs, Skeleton, type SegmentedTabItem } from '../../../shared/ui'
 import { useSwipeRows } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationMenu } from './notification-menu'
@@ -119,13 +119,13 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
     return c
   }, [items])
 
-  const tabs: { key: Filter; label: string; count: number }[] = [
-    { key: 'all', label: t('filterAll'), count: counts.all },
-    { key: 'action', label: t('filterActionNeeded'), count: counts.action },
-    { key: 'study', label: t('filterStudy'), count: counts.study },
-    { key: 'deanery', label: t('filterDeanery'), count: counts.deanery },
-    { key: 'social', label: t('filterSocial'), count: counts.social },
-    { key: 'system', label: t('filterSystem'), count: counts.system },
+  const tabs: SegmentedTabItem<Filter>[] = [
+    { value: 'all', label: t('filterAll'), count: counts.all },
+    { value: 'action', label: t('filterActionNeeded'), count: counts.action },
+    { value: 'study', label: t('filterStudy'), count: counts.study },
+    { value: 'deanery', label: t('filterDeanery'), count: counts.deanery },
+    { value: 'social', label: t('filterSocial'), count: counts.social },
+    { value: 'system', label: t('filterSystem'), count: counts.system },
   ]
 
   const filtered = items.filter((n) => {
@@ -205,41 +205,19 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
       {/* Колонка, а не просто скролл-контейнер: состояния (скелетон, «нет уведомлений»)
           занимают всю высоту панели, а не жмутся полоской под фильтрами. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {/* Теги-фильтры лентой с горизонтальной прокруткой — без кнопок-стрелок: полоса
-            листается пальцем и колесом, а на десктопе шеврон по краю занимал место и
-            добавлял два состояния (виден/погашен) на ровном месте. Полосу прокрутки скрываем:
-            она перекрывала бы нижнюю кромку тегов.
+        {/* Фильтры — общий SegmentedTabs: у него и прокрутка ряда пальцем и мышью, и
+            затухание у краёв, и сворачивание в селектор на узком экране. Свой ряд чипов
+            был вдвое ниже цели нажатия (24 px против 44 px в §13) и на телефоне ловился
+            с третьего раза.
             Ряд лежит внутри вертикального скролл-контейнера: при прокрутке списка уезжает
             вместе с ним, освобождая высоту на мобильном. */}
-        <div className="flex shrink-0 items-center border-b border-border bg-background px-2 py-2">
-          <div className="flex flex-1 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setFilter(tab.key)}
-                aria-pressed={filter === tab.key}
-                className={cn(
-                  'flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                  filter === tab.key
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                {tab.label}
-                {tab.count > 0 && (
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 tabular-nums',
-                      filter === tab.key ? 'bg-primary-foreground/20' : 'bg-muted-foreground/15',
-                    )}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+        <div className="shrink-0 border-b border-border bg-background px-2 py-2">
+          <SegmentedTabs
+            items={tabs}
+            value={filter}
+            onChange={setFilter}
+            aria-label={t('filters')}
+          />
         </div>
 
         {list.isLoading ? (
