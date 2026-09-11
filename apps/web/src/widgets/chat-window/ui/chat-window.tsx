@@ -18,6 +18,7 @@ import {
   Copy,
   Download,
   Forward,
+  List as ListIcon,
   Loader2,
   Ban,
   Eraser,
@@ -80,7 +81,6 @@ import {
   type MessageAttachment,
 } from '../../../entities/chat'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
-import { PeerInfoCard } from './peer-info-card'
 import { ChatDetailsPanel } from './chat-details-panel'
 import { ChatFoldersDialog } from './chat-folders-dialog'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
@@ -116,7 +116,7 @@ import {
 } from '../../../shared/lib'
 
 import { ConversationList } from './conversation-list'
-import { avatarColor, chatInitials, chatTitle, senderName } from '../lib/format'
+import { avatarColor, chatInitials, chatTitle, listTime, senderName } from '../lib/format'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
@@ -140,6 +140,25 @@ const MESSAGE_SKELETONS = [
 // стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
 const HEADER_ICON_BTN =
   'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-10'
+
+/**
+ * Подсветка совпавшего фрагмента в превью результата поиска. Первое вхождение, без
+ * регистра: строка превью короткая, а подсвечивать все вхождения в двух строках —
+ * пестрота, из которой уже не видно самого текста.
+ */
+function highlightTerm(text: string, term: string): React.ReactNode {
+  const at = term ? text.toLowerCase().indexOf(term.toLowerCase()) : -1
+  if (at < 0) return text
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="rounded-sm bg-primary/20 px-0.5 text-foreground">
+        {text.slice(at, at + term.length)}
+      </mark>
+      {text.slice(at + term.length)}
+    </>
+  )
+}
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
@@ -252,12 +271,13 @@ export function ChatWindow() {
   const [chatSearchRaw, setChatSearchRaw] = useState('')
   const [chatSearchTerm, setChatSearchTerm] = useState('')
   const [searchIdx, setSearchIdx] = useState(0)
+  // Список совпадений под строкой поиска. Открыт, пока не выбрали конкретное сообщение:
+  // шагать по совпадениям вслепую стрелками — это и есть «неудобно», когда их два десятка.
+  const [searchListOpen, setSearchListOpen] = useState(true)
   const searchJumpedFor = useRef<string | null>(null)
   // Фильтр «От кого» (§4): id+имя выбранного автора (или null — все).
   const [searchFrom, setSearchFrom] = useState<{ id: string; name: string } | null>(null)
   const [searchFromOpen, setSearchFromOpen] = useState(false)
-  // Мини-карточка собеседника (личный чат, Telegram-стиль) — по клику на шапку.
-  const [peerCardOpen, setPeerCardOpen] = useState(false)
   // Докнутая правая панель деталей (десктоп ≥xl): профиль/участники/медиа без ухода из чата.
   const [detailsOpen, setDetailsOpen] = useState(false)
   // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
@@ -405,7 +425,11 @@ export function ChatWindow() {
   // Поиск внутри чата (§3): дебаунс запроса + результаты по активному чату.
   useEffect(() => {
     const term = chatSearchRaw.trim()
-    const id = setTimeout(() => setChatSearchTerm(term.length >= 2 ? term : ''), 300)
+    const id = setTimeout(() => {
+      setChatSearchTerm(term.length >= 2 ? term : '')
+      // Новый запрос — снова показываем список: выбор прошлого запроса к нему не относится.
+      setSearchListOpen(true)
+    }, 300)
     return () => clearTimeout(id)
   }, [chatSearchRaw])
   const chatSearchResults = useQuery({
@@ -1212,7 +1236,9 @@ export function ChatWindow() {
     setText(activeId ? (draftsRef.current.get(activeId) ?? '') : '')
     setSelectMode(false)
     setSelectedIds(new Set())
-    setPeerCardOpen(false)
+    // Мини-карточку собеседника закрывать больше нечем: её заменила вкладка «Профиль»
+    // в панели деталей, а панель перемонтируется по key={chat.id} и сама открывается
+    // на первой вкладке.
   }, [activeId])
 
   // Снимок числа непрочитанных РОВНО при открытии чата (до отметки прочтения/инвалидации списка).
@@ -1898,6 +1924,26 @@ export function ChatWindow() {
     })
   }
 
+  // Ctrl/⌘+F в открытом чате ищет по переписке, а не по странице браузера: искать
+  // «где это было» браузерным поиском бессмысленно — в DOM только видимый кусок ленты
+  // (виртуализация). Перехватываем только когда чат открыт и фокус не в поле ввода.
+  useEffect(() => {
+    if (!activeId) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'f' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+      const el = document.activeElement
+      const typing =
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLElement && el.isContentEditable)
+      if (typing && !chatSearchOpen) return
+      e.preventDefault()
+      setChatSearchOpen(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeId, chatSearchOpen])
+
   // Новые результаты in-chat поиска → прыгаем к самому свежему совпадению (idx 0), один раз на набор.
   useEffect(() => {
     if (!chatSearchOpen) return
@@ -1910,12 +1956,24 @@ export function ChatWindow() {
     void jumpToMessage(first.id)
   }, [chatSearchOpen, chatSearchTerm, chatSearchResults.data, jumpToMessage])
 
+  // Выбор совпадения из списка: прыгаем к нему и убираем список — дальше человек
+  // читает переписку вокруг найденного, а не выдачу.
+  function pickSearchResult(index: number): void {
+    const items = chatSearchResults.data?.items ?? []
+    const m = items[index]
+    if (!m) return
+    setSearchIdx(index)
+    setSearchListOpen(false)
+    void jumpToMessage(m.id)
+  }
+
   // Шаг по совпадениям: dir=+1 — старее (следующее), -1 — новее (предыдущее). Прыгаем к сообщению.
   function stepSearch(dir: 1 | -1): void {
     const items = chatSearchResults.data?.items ?? []
     if (items.length === 0) return
     const next = Math.min(Math.max(searchIdx + dir, 0), items.length - 1)
     setSearchIdx(next)
+    setSearchListOpen(false)
     const m = items[next]
     if (m) void jumpToMessage(m.id)
   }
@@ -1925,6 +1983,7 @@ export function ChatWindow() {
     setChatSearchRaw('')
     setChatSearchTerm('')
     setSearchIdx(0)
+    setSearchListOpen(true)
     setSearchFrom(null)
     setSearchFromOpen(false)
     searchJumpedFor.current = null
@@ -1998,7 +2057,11 @@ export function ChatWindow() {
             importantOnly,
           }),
         onUnmute: () => mute.mutate({ chatId: activeChat.id, muted: false }),
-        onOpenPeerProfile: otherId ? () => setPeerCardOpen(true) : undefined,
+        peerId: otherId ?? undefined,
+        peerBlocked: activeChat.blocked,
+        onToggleBlock: otherId
+          ? () => block.mutate({ userId: otherId, blocked: activeChat.blocked })
+          : undefined,
         onJump: focusMessage,
         onLeft: () => {
           setDetailsOpen(false)
@@ -2208,137 +2271,195 @@ export function ChatWindow() {
                 </button>
               </header>
             )}
-            {/* Режим поиска внутри чата (§3): ввод + счётчик совпадений + навигация ↑↓. */}
+            {/* Режим поиска внутри чата (§3): ввод, счётчик совпадений, навигация ↑↓ и
+                список найденных сообщений. Список — главное: без него единственным
+                способом добраться до нужного совпадения было жать ↓ и смотреть, куда
+                прыгнула переписка. Он лежит поверх ленты (absolute), чтобы прыжок к
+                сообщению был виден за ним и переписка не сжималась. */}
             {chatSearchOpen &&
               (() => {
                 const found = chatSearchResults.data?.items ?? []
                 const total = found.length
                 return (
-                  <header className="flex items-center gap-1 border-b border-border px-2 py-3">
-                    <button
-                      type="button"
-                      aria-label={t('cancel')}
-                      onClick={closeChatSearch}
-                      className={cn(HEADER_ICON_BTN, 'active:scale-90')}
-                    >
-                      <ChevronLeft className="size-5" aria-hidden />
-                    </button>
-                    <div className="relative min-w-0 flex-1">
-                      <Search
-                        className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                        aria-hidden
-                      />
-                      <input
-                        autoFocus
-                        value={chatSearchRaw}
-                        onChange={(e) => setChatSearchRaw(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            stepSearch(e.shiftKey ? -1 : 1)
-                          } else if (e.key === 'Escape') {
-                            e.preventDefault()
-                            closeChatSearch()
-                          }
-                        }}
-                        placeholder={t('searchInChat')}
-                        className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
-                      />
-                    </div>
-                    {/* Фильтр «От кого» (§4) — только в группах. */}
-                    {activeIsGroup && (
-                      <div className="relative shrink-0">
-                        <button
-                          type="button"
-                          aria-label={t('searchFrom')}
-                          onClick={() => setSearchFromOpen((v) => !v)}
-                          className={cn(
-                            'flex h-11 max-w-28 items-center gap-1 rounded-xl px-2.5 text-xs transition-colors lg:h-10',
-                            searchFrom
-                              ? 'bg-primary/10 text-primary'
-                              : 'text-muted-foreground hover:bg-muted',
-                          )}
-                        >
-                          <UserSearch className="size-4 shrink-0" aria-hidden />
-                          {searchFrom && <span className="truncate">{searchFrom.name}</span>}
-                        </button>
-                        {searchFromOpen && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-40"
-                              onClick={() => setSearchFromOpen(false)}
-                            />
-                            <div className="absolute right-0 top-full z-50 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSearchFrom(null)
-                                  setSearchFromOpen(false)
-                                }}
-                                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                              >
-                                {t('searchFromAll')}
-                              </button>
-                              {(membersQuery.data ?? []).map((mem) => {
-                                const name = `${mem.lastName} ${mem.firstName}`.trim()
-                                return (
-                                  <button
-                                    key={mem.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSearchFrom({ id: mem.id, name })
-                                      setSearchFromOpen(false)
-                                    }}
-                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
-                                  >
-                                    <Avatar className="size-6 shrink-0">
-                                      {mem.avatarUrl && (
-                                        <AvatarImage src={mem.avatarUrl} alt={name} />
-                                      )}
-                                      <AvatarFallback className="text-[0.6rem]">
-                                        {(mem.lastName[0] ?? '') + (mem.firstName[0] ?? '')}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                    <span className="min-w-0 flex-1 truncate">{name}</span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </>
-                        )}
+                  <div className="relative z-30 shrink-0">
+                    <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+                      <button
+                        type="button"
+                        aria-label={t('cancel')}
+                        onClick={closeChatSearch}
+                        className={cn(HEADER_ICON_BTN, 'active:scale-90')}
+                      >
+                        <ChevronLeft className="size-5" aria-hidden />
+                      </button>
+                      <div className="relative min-w-0 flex-1">
+                        <Search
+                          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                          aria-hidden
+                        />
+                        <input
+                          autoFocus
+                          value={chatSearchRaw}
+                          onChange={(e) => setChatSearchRaw(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              stepSearch(e.shiftKey ? -1 : 1)
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault()
+                              closeChatSearch()
+                            }
+                          }}
+                          placeholder={t('searchInChat')}
+                          className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
+                        />
                       </div>
+                      {/* Фильтр «От кого» (§4) — только в группах. */}
+                      {activeIsGroup && (
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            aria-label={t('searchFrom')}
+                            onClick={() => setSearchFromOpen((v) => !v)}
+                            className={cn(
+                              'flex h-11 max-w-28 items-center gap-1 rounded-xl px-2.5 text-xs transition-colors lg:h-10',
+                              searchFrom
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-muted-foreground hover:bg-muted',
+                            )}
+                          >
+                            <UserSearch className="size-4 shrink-0" aria-hidden />
+                            {searchFrom && <span className="truncate">{searchFrom.name}</span>}
+                          </button>
+                          {searchFromOpen && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setSearchFromOpen(false)}
+                              />
+                              <div className="absolute right-0 top-full z-50 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSearchFrom(null)
+                                    setSearchFromOpen(false)
+                                  }}
+                                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                                >
+                                  {t('searchFromAll')}
+                                </button>
+                                {(membersQuery.data ?? []).map((mem) => {
+                                  const name = `${mem.lastName} ${mem.firstName}`.trim()
+                                  return (
+                                    <button
+                                      key={mem.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSearchFrom({ id: mem.id, name })
+                                        setSearchFromOpen(false)
+                                      }}
+                                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                                    >
+                                      <Avatar className="size-6 shrink-0">
+                                        {mem.avatarUrl && (
+                                          <AvatarImage src={mem.avatarUrl} alt={name} />
+                                        )}
+                                        <AvatarFallback className="text-[0.6rem]">
+                                          {(mem.lastName[0] ?? '') + (mem.firstName[0] ?? '')}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <span className="min-w-0 flex-1 truncate">{name}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {chatSearchResults.isFetching ? (
+                        <Loader2
+                          className="size-4 shrink-0 animate-spin text-muted-foreground"
+                          aria-hidden
+                        />
+                      ) : (
+                        chatSearchTerm.length >= 2 && (
+                          <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
+                            {total > 0 ? `${searchIdx + 1}/${total}` : t('noResults')}
+                          </span>
+                        )
+                      )}
+                      <button
+                        type="button"
+                        aria-label={t('searchPrev')}
+                        onClick={() => stepSearch(-1)}
+                        disabled={total === 0 || searchIdx <= 0}
+                        className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                      >
+                        <ChevronUp className="size-5" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t('searchNext')}
+                        onClick={() => stepSearch(1)}
+                        disabled={total === 0 || searchIdx >= total - 1}
+                        className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                      >
+                        <ChevronDown className="size-5" aria-hidden />
+                      </button>
+                      {/* Вернуть список, когда из него уже выбрали сообщение. */}
+                      <button
+                        type="button"
+                        aria-label={t('searchResults')}
+                        title={t('searchResults')}
+                        disabled={total === 0}
+                        aria-expanded={searchListOpen}
+                        onClick={() => setSearchListOpen((v) => !v)}
+                        className={cn(
+                          HEADER_ICON_BTN,
+                          'disabled:opacity-40',
+                          searchListOpen && 'bg-primary/10 text-primary',
+                        )}
+                      >
+                        <ListIcon className="size-5" aria-hidden />
+                      </button>
+                    </header>
+
+                    {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
+                      <ul
+                        aria-label={t('searchResults')}
+                        className="absolute inset-x-0 top-full max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain border-b border-border bg-background shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
+                      >
+                        {found.map((m, i) => (
+                          <li key={m.id}>
+                            <button
+                              type="button"
+                              onClick={() => pickSearchResult(i)}
+                              className={cn(
+                                'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
+                                i === searchIdx && 'bg-primary/10',
+                              )}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                                    {m.senderId === myId ? t('you') : senderName(m)}
+                                  </span>
+                                  <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                                    {listTime(m.createdAt, locale)}
+                                  </span>
+                                </div>
+                                {/* Совпавший кусок подсвечен: из строки в две строки видно,
+                                  то ли это сообщение, ещё до перехода к нему. */}
+                                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                  {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
+                                </p>
+                              </div>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
                     )}
-                    {chatSearchResults.isFetching ? (
-                      <Loader2
-                        className="size-4 shrink-0 animate-spin text-muted-foreground"
-                        aria-hidden
-                      />
-                    ) : (
-                      chatSearchTerm.length >= 2 && (
-                        <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
-                          {total > 0 ? `${searchIdx + 1}/${total}` : t('noResults')}
-                        </span>
-                      )
-                    )}
-                    <button
-                      type="button"
-                      aria-label={t('searchPrev')}
-                      onClick={() => stepSearch(-1)}
-                      disabled={total === 0 || searchIdx <= 0}
-                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                    >
-                      <ChevronUp className="size-5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t('searchNext')}
-                      onClick={() => stepSearch(1)}
-                      disabled={total === 0 || searchIdx >= total - 1}
-                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                    >
-                      <ChevronDown className="size-5" aria-hidden />
-                    </button>
-                  </header>
+                  </div>
                 )
               })()}
             <header
@@ -2356,10 +2477,15 @@ export function ChatWindow() {
               >
                 <ChevronLeft className="size-5" aria-hidden />
               </button>
+              {/* Подсветка при наведении идёт вровень с шапкой: отрицательные поля
+                  съедают её собственные отступы, поэтому область занимает всю высоту
+                  и (на ПК, где кнопки «назад» нет) доходит до левого края. Скруглённый
+                  прямоугольник в рамке из пустоты читался как чужой элемент внутри
+                  шапки, а не как сама шапка. */}
               <button
                 type="button"
                 onClick={() => setDetailsOpen((v) => !v)}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left transition-colors hover:bg-muted"
+                className="-my-3 flex min-w-0 flex-1 items-center gap-2 rounded-none px-1 py-3 text-left transition-colors hover:bg-muted md:-ml-4 md:pl-4"
               >
                 <span className="relative shrink-0">
                   <Avatar className="size-9">
@@ -2769,15 +2895,25 @@ export function ChatWindow() {
                   )}
                 </button>
               )}
-              {/* Панель ввода — плавающий остров поверх ленты (Telegram-стиль): она не
-                прибита к краю, лента прокручивается под ней, а место под последним
-                сообщением держит padding по измеренной высоте панели. */}
+              {/* Панель ввода. На телефоне — плавающий остров поверх ленты (Telegram-стиль):
+                он не прибит к краю, лента прокручивается под ним, а место под последним
+                сообщением держит padding по измеренной высоте панели.
+                На ПК панель докована: сплошная плашка во всю ширину с верхней границей —
+                та же поверхность, что у шапки чата. Парящие острова оставляли между собой
+                и по краям просветы, сквозь которые лезла лента: у большого пальца это
+                читается как «панель лежит поверх», у курсора — как дырки в интерфейсе. */}
               {!activeChat?.requestIncoming && (
                 <div
                   ref={setComposerBox}
                   // Зазор снизу — safe-area, но только пока нет клавиатуры: с поднятой клавиатурой
                   // (--kb-inset) полоса жеста уже закрыта, и запас превратился бы в пустую щель.
-                  className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]"
+                  className={cn(
+                    'absolute inset-x-0 bottom-0 z-30',
+                    'pointer-events-none px-3 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]',
+                    // Плашка ловит указатель сама: прокручивать ленту «сквозь» непрозрачную
+                    // поверхность всё равно негде.
+                    'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2',
+                  )}
                 >
                   {activeChat?.requestOutgoing && (
                     <p className="mx-auto mb-1 w-fit rounded-full bg-muted/80 px-2 py-0.5 text-center text-xs text-muted-foreground backdrop-blur">
@@ -2873,7 +3009,12 @@ export function ChatWindow() {
         >
           {detailsProps && (
             <div className="h-full w-[22rem]">
-              <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="column" />
+              <ChatDetailsPanel
+                key={detailsProps.chat.id}
+                {...detailsProps}
+                variant="column"
+                open={detailsOpen}
+              />
             </div>
           )}
         </aside>
@@ -2978,19 +3119,6 @@ export function ChatWindow() {
           onClose={() => setPollCreatorOpen(false)}
           onCreate={(input) => createPoll.mutate(input)}
           pending={createPoll.isPending}
-        />
-      )}
-
-      {/* Подробная карточка собеседника (личный чат, Telegram-стиль). */}
-      {peerCardOpen && isPrivate && activeChat && otherId && (
-        <PeerInfoCard
-          userId={otherId}
-          online={otherOnline}
-          blocked={activeChat.blocked}
-          muted={activeChat.muted}
-          onToggleBlock={() => block.mutate({ userId: otherId, blocked: activeChat.blocked })}
-          onToggleMute={() => mute.mutate({ chatId: activeChat.id, muted: !activeChat.muted })}
-          onClose={() => setPeerCardOpen(false)}
         />
       )}
 

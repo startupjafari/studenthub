@@ -46,6 +46,7 @@ export function StudentAttendanceView() {
                 внутри большой. */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               <MetricTile
+                index={0}
                 icon={CalendarCheck2}
                 label={t('overall')}
                 value={`${q.data.rate}%`}
@@ -59,30 +60,35 @@ export function StudentAttendanceView() {
                 }
               />
               <MetricTile
+                index={1}
                 icon={CalendarDays}
                 tone="text-muted-foreground"
                 label={t('ofLessons', { n: q.data.total })}
                 value={q.data.total}
               />
               <MetricTile
+                index={2}
                 icon={Check}
                 tone="text-success"
                 label={t('status.present')}
                 value={q.data.present}
               />
               <MetricTile
+                index={3}
                 icon={Clock}
                 tone="text-warning"
                 label={t('status.late')}
                 value={q.data.late}
               />
               <MetricTile
+                index={4}
                 icon={X}
                 tone="text-destructive"
                 label={t('status.absent')}
                 value={q.data.absent}
               />
               <MetricTile
+                index={5}
                 icon={FileCheck2}
                 tone="text-info"
                 label={t('status.excused')}

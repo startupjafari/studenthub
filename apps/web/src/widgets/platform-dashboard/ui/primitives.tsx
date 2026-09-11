@@ -1,6 +1,8 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import Link from 'next/link'
+import { ChevronRight } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
 import { sequentialStep, type ChartPalette } from '../../../shared/ui/chart'
 // ActivityGrid и ChartLegend переехали в систему (shared/ui/chart) — здесь только
@@ -25,6 +27,7 @@ export function StatTile({
   hint,
   delta,
   spark,
+  href,
   /** Порядковый номер в строке — задаёт задержку входа. */
   index = 0,
 }: {
@@ -33,20 +36,37 @@ export function StatTile({
   hint?: string
   delta?: { text: string; good: boolean } | null
   spark?: ReactNode
+  /**
+   * Раздел, где лежат сами данные. Задан — плитка становится ссылкой: сводка, из
+   * которой нельзя провалиться к строкам, заставляет искать тот же раздел в меню.
+   */
+  href?: string
   index?: number
 }) {
-  return (
+  const body = (
     <div
       style={{ animationDelay: `${index * 70}ms` }}
       className={cn(
-        'flex flex-col gap-1.5 rounded-xl bg-card p-4 ring-1 ring-foreground/10',
+        'flex h-full flex-col gap-1.5 rounded-xl bg-card p-4 ring-1 ring-foreground/10',
         'animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-500 motion-reduce:animate-none',
-        // Отклик на наведение: плитка кликабельной не является, поэтому только
-        // кольцо — без подъёма, чтобы не обещать переход.
-        'transition-[box-shadow] hover:ring-ring/50',
+        href
+          ? // Кликабельная карточка (§8): подложка на наведении; кольцо фокуса на обёртке.
+            'transition-colors group-hover/tile:bg-muted/40'
+          : // Некликабельная плитка: только намёк на кольце, без подъёма — он обещал бы переход.
+            'transition-[box-shadow] hover:ring-ring/50',
       )}
     >
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+        <span className="min-w-0 truncate">{label}</span>
+        {href && (
+          // Статичный признак перехода: наведения на тач-экране нет, а плитка-счётчик
+          // и плитка-ссылка иначе неразличимы.
+          <ChevronRight
+            className="size-3.5 shrink-0 transition-transform group-hover/tile:translate-x-0.5"
+            aria-hidden
+          />
+        )}
+      </span>
       {/* Крупное число — пропорциональными цифрами; tabular только в колонках. */}
       <span className="text-2xl font-semibold leading-none">{value}</span>
       <div className="flex min-h-7 items-end justify-between gap-2">
@@ -60,6 +80,17 @@ export function StatTile({
         {spark && <span className="block h-7 w-24 shrink-0">{spark}</span>}
       </div>
     </div>
+  )
+
+  return href ? (
+    <Link
+      href={href}
+      className="group/tile block h-full rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+    >
+      {body}
+    </Link>
+  ) : (
+    body
   )
 }
 

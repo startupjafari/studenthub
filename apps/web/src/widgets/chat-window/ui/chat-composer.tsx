@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Ban,
@@ -37,7 +37,105 @@ import {
   type RichTextHandle,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { plainPreview } from '../lib/format'
 import { useMediaQuery } from '../../../shared/lib'
+
+// Сколько курсор может быть «мимо» до закрытия поповера. Ноль означал бы, что панель
+// захлопывается на любом дрожании руки по дороге к ней; полсекунды — что она висит уже
+// после того, как человек ушёл. 180 мс — привычный запас из десктопных меню.
+const HOVER_CLOSE_MS = 180
+
+/**
+ * Поповер панели ввода, который раскрывается наведением, а не нажатием: смайлы и опции
+ * отправки смотрят, а не выбирают вслепую, и лишний клик на пути только мешает.
+ *
+ * Три вещи, без которых наведение работает хуже нажатия:
+ *  · Закрытие с задержкой. Между кнопкой и панелью курсор идёт по диагонали и успевает
+ *    выйти за оба элемента — мгновенное закрытие делает панель недостижимой.
+ *  · Только мышь. На тач-экране наведения нет вовсе, на пере оно случайно; там остаётся
+ *    нажатие, и закрывает панель тоже жест, а не увод курсора.
+ *  · Клавиатура не забыта: кнопка остаётся кнопкой, Enter открывает, Escape закрывает.
+ *
+ * Панель, открытую жестом, гасит нажатие мимо — слушателем на документе, а не невидимым
+ * слоем поверх экрана: капсула поля ввода несёт `backdrop-filter`, а он делает её
+ * containing block для `position: fixed`, и такой слой накрыл бы саму капсулу вместо окна.
+ */
+function useHoverMenu(): {
+  open: boolean
+  /** Ref обёртки «кнопка + панель»: по нему отличаем нажатие внутри от нажатия мимо. */
+  ref: RefObject<HTMLDivElement | null>
+  hoverProps: {
+    onPointerEnter: (e: React.PointerEvent) => void
+    onPointerLeave: (e: React.PointerEvent) => void
+  }
+  toggle: () => void
+  close: () => void
+} {
+  const [open, setOpen] = useState(false)
+  const [byHover, setByHover] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clear = (): void => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+
+  useEffect(() => clear, [])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        clear()
+        setOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  // Нажатие мимо закрывает только панель, открытую жестом: у наведения эту роль играет
+  // увод курсора, и гасить её ещё и по клику значило бы закрывать смайлы на каждый выбор.
+  useEffect(() => {
+    if (!open || byHover) return
+    const onDown = (e: PointerEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        clear()
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
+  }, [open, byHover])
+
+  return {
+    open,
+    ref,
+    hoverProps: {
+      onPointerEnter: (e) => {
+        if (e.pointerType !== 'mouse') return
+        clear()
+        setByHover(true)
+        setOpen(true)
+      },
+      onPointerLeave: (e) => {
+        if (e.pointerType !== 'mouse' || !byHover) return
+        clear()
+        timer.current = setTimeout(() => setOpen(false), HOVER_CLOSE_MS)
+      },
+    },
+    toggle: () => {
+      clear()
+      setByHover(false)
+      setOpen((v) => !v)
+    },
+    close: () => {
+      clear()
+      setOpen(false)
+    },
+  }
+}
 
 // Composer (Telegram-стиль §29, §37): панель правки/ответа, @-упоминания, вложения,
 // запись голосового и поле ввода. Презентационный лист — состояние и мутации живут в родителе.
@@ -112,9 +210,9 @@ export function ChatComposer({
   recMMSS,
 }: ChatComposerProps) {
   const t = useTranslations('Chats')
-  const [sendMenuOpen, setSendMenuOpen] = useState(false)
-  const [attachMenuOpen, setAttachMenuOpen] = useState(false)
-  const [emojiOpen, setEmojiOpen] = useState(false)
+  const attachMenu = useHoverMenu()
+  const sendMenu = useHoverMenu()
+  const emoji = useHoverMenu()
   // Отдельные input'ы под фото/видео и съёмку: у них свои accept/capture, а общий (файл
   // любого типа) приходит из родителя. Все три ведут в один onFilesPicked.
   const mediaInputRef = useRef<HTMLInputElement>(null)
@@ -129,64 +227,87 @@ export function ChatComposer({
   }
 
   // Плавающий остров панели: полупрозрачный материал, граница и тень (уровень 3).
-  const island = 'material-island border border-border/60 shadow-lg'
-  // Круглая кнопка-остров (скрепка, микрофон, отмена записи) — 56 px: та же высота, что у
-  // поля и у островов нижней навигации, поэтому весь нижний ряд стоит на одной линии.
+  // На ПК тени нет: панель там лежит в сплошной плашке и ни над чем не парит, а тень
+  // означает ровно «парит над страницей» (§5.2).
+  const island = 'material-island border border-border/60 shadow-lg lg:shadow-none'
+  // Одна геометрия у всех круглых кнопок ряда — заливка и только она отличает отправку от
+  // остальных: раньше каждая кнопка перечисляла свои классы заново, и любая правка
+  // расходилась по трём местам.
+  //
+  // Размера два: 56 px под палец и 40 px под курсор. 56 — правило плавающих островов у
+  // нижнего края (§4): панель ввода стоит там в одном ряду с нижней навигацией и обязана
+  // совпадать с ней по высоте. На десктопе нижней навигации нет вовсе — панель остаётся у
+  // края одна, равняться ей не на что, и тот же остров читается просто как огромный.
+  // 40 px — обычный размер контрола (`lg` шкалы) и та же высота, что у иконочных кнопок
+  // шапки чата: на десктопе панель ввода встаёт с ними в один рост.
+  const ROUND = 'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-10 lg:rounded-md' // prettier-ignore
   const roundBtn = cn(
     island,
-    'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,transform] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50',
+    ROUND,
+    // В плашке у кнопки своей обводки нет — рамка внутри рамки. Форму на ПК ей задаёт
+    // подложка на наведении, как пункту меню или кнопке шапки.
+    'text-muted-foreground hover:text-foreground lg:border-transparent lg:hover:bg-muted',
   )
+  const sendBtn = cn(ROUND, 'bg-primary text-primary-foreground shadow-lg lg:shadow-none')
 
   return (
     // Не одна панель, а несколько островов в колонке: ответ/правка сверху, ниже ряд
     // «скрепка · поле · микрофон». Отступ до края экрана держит обёртка в ChatWindow;
     // pointer-events-auto — обёртка их снимает, чтобы лента прокручивалась рядом с панелью.
     <div className="pointer-events-auto flex flex-col gap-2">
-      {/* Панель правки */}
+      {/* Панель правки (Telegram-стиль): иконка · вертикальная полоса-акцент · заголовок
+          акцентным цветом и однострочное превью · крестик. Полоса — та же метка «это про
+          вон то сообщение», что у цитаты в пузыре; без неё панель читалась как обычная
+          подсказка над полем. Превью — без markdown: звёздочки и обратные кавычки в
+          однострочной справке не значат ничего, а строку засоряют. */}
       {editing && (
-        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 text-xs')}>
-          <Pencil className="size-3.5 shrink-0 text-primary" aria-hidden />
+        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 lg:rounded-md')}>
+          <Pencil className="size-4 shrink-0 text-primary" aria-hidden />
+          <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
           <div className="min-w-0 flex-1">
-            <span className="font-medium">{t('editing')}</span>
-            <p className="line-clamp-1 text-muted-foreground">{editing.content}</p>
+            <span className="block text-xs font-medium text-primary">{t('editing')}</span>
+            <p className="truncate text-xs text-muted-foreground">
+              {plainPreview(editing.content) || t('attachment')}
+            </p>
           </div>
           <button
             type="button"
             aria-label={t('cancelReply')}
             onClick={onCancelEdit}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="size-4" aria-hidden />
           </button>
         </div>
       )}
 
-      {/* Панель ответа */}
+      {/* Панель ответа — тот же строй, что у правки. */}
       {replyTo && !editing && (
-        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 text-xs')}>
-          <Reply className="size-3.5 shrink-0 text-primary" aria-hidden />
+        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 lg:rounded-md')}>
+          <Reply className="size-4 shrink-0 text-primary" aria-hidden />
+          <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
           <div className="min-w-0 flex-1">
-            <span className="font-medium">
+            <span className="block text-xs font-medium text-primary">
               {replyQuote
                 ? t('quotingFrom', { name: replyToName })
                 : t('replyingTo', { name: replyToName })}
             </span>
             <p
               className={cn(
-                'line-clamp-1 text-muted-foreground',
-                // Цитату отбиваем полосой, чтобы её было видно как чужой текст, а не как
-                // превью оригинала.
-                replyQuote && 'border-l-2 border-primary/50 pl-2 italic',
+                'truncate text-xs text-muted-foreground',
+                // Курсив отличает выделенный фрагмент от превью всего сообщения: полосу
+                // для этого больше не занимаем — она теперь общая метка панели.
+                replyQuote && 'italic',
               )}
             >
-              {replyQuote || replyTo.content || t('attachment')}
+              {plainPreview(replyQuote || replyTo.content) || t('attachment')}
             </p>
           </div>
           <button
             type="button"
             aria-label={t('cancelReply')}
             onClick={onCancelReply}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="size-4" aria-hidden />
           </button>
@@ -197,7 +318,7 @@ export function ChatComposer({
         <div
           className={cn(
             island,
-            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground',
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:rounded-md',
           )}
         >
           <Ban className="size-4 shrink-0" aria-hidden />
@@ -282,12 +403,12 @@ export function ChatComposer({
                 onClick={voice.cancel}
                 className={cn(roundBtn, 'text-destructive hover:text-destructive')}
               >
-                <Trash2 className="size-6" aria-hidden />
+                <Trash2 className="size-6 lg:size-5" aria-hidden />
               </button>
               <div
                 className={cn(
                   island,
-                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4',
+                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-10 lg:rounded-md',
                 )}
               >
                 <span
@@ -305,7 +426,7 @@ export function ChatComposer({
                   type="button"
                   aria-label={voice.paused ? t('resumeRecording') : t('pauseRecording')}
                   onClick={voice.paused ? voice.resume : voice.pause}
-                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground lg:size-7"
                 >
                   {voice.paused ? (
                     <Play className="size-4" aria-hidden />
@@ -318,30 +439,38 @@ export function ChatComposer({
                 type="button"
                 aria-label={t('send')}
                 onClick={voice.finish}
-                className="flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+                className={sendBtn}
               >
-                <Send className="size-6" aria-hidden />
+                <Send className="size-6 lg:size-5" aria-hidden />
               </button>
             </>
           ) : (
             <>
-              <div className="relative shrink-0">
+              <div
+                ref={attachMenu.ref}
+                className="relative shrink-0"
+                // Выключенная кнопка не открывается и наведением: обработчики висят на
+                // обёртке, а она про `disabled` кнопки внутри ничего не знает.
+                {...(connected && !editing ? attachMenu.hoverProps : {})}
+              >
                 <button
                   type="button"
                   aria-label={t('attach')}
-                  aria-expanded={attachMenuOpen}
+                  aria-expanded={attachMenu.open}
                   disabled={!connected || !!editing}
-                  onClick={() => setAttachMenuOpen((v) => !v)}
+                  onClick={attachMenu.toggle}
                   className={roundBtn}
                 >
-                  <Paperclip className="size-6" aria-hidden />
+                  <Paperclip className="size-6 lg:size-5" aria-hidden />
                 </button>
                 {/* Attachment-меню (§37): Фото/видео · Камера · Файл · Опрос. Фото отдельным
-                    пунктом, а не «файлом», — иначе галерея открывается на всех документах. */}
-                {attachMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setAttachMenuOpen(false)} />
-                    <div className="absolute bottom-full left-0 z-50 mb-2 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
+                    пунктом, а не «файлом», — иначе галерея открывается на всех документах.
+                    Раскрывается наведением, как смайлы и опции отправки: три соседние
+                    кнопки одного ряда не могут вести себя по-разному. Отступ — padding
+                    контейнера, а не margin меню: иначе на пути курсора мёртвая зона. */}
+                {attachMenu.open && (
+                  <div className="absolute bottom-full left-0 z-50 pb-2">
+                    <div className="w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
                       {(
                         [
                           {
@@ -378,17 +507,17 @@ export function ChatComposer({
                             key={a.key}
                             type="button"
                             onClick={() => {
-                              setAttachMenuOpen(false)
+                              attachMenu.close()
                               a.run()
                             }}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                           >
                             <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
                             {a.label}
                           </button>
                         ))}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
               {/* Поле и смайл — одна капсула (референс Telegram): текст растёт внутрь
@@ -399,7 +528,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70',
+                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-10 lg:rounded-md',
                 )}
               >
                 <RichTextField
@@ -409,7 +538,7 @@ export function ChatComposer({
                   onChange={onType}
                   actions={MARKDOWN_ACTIONS_INLINE}
                   wrapperClassName="min-w-0 flex-1"
-                  className="max-h-32 overflow-y-auto py-3 pl-4 pr-1"
+                  className="max-h-32 overflow-y-auto py-3 pl-4 pr-1 lg:py-2 lg:pl-3.5"
                   aria-label={t('messagePlaceholder')}
                   placeholder={t('messagePlaceholder')}
                   onKeyDown={(e) => {
@@ -433,24 +562,37 @@ export function ChatComposer({
                     return false
                   }}
                 />
-                {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для нескольких. */}
-                <div className="relative shrink-0 self-end pb-1.5 pr-1.5">
+                {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для
+                    нескольких. Раскрывается наведением — смайл выбирают глазами, и клик
+                    «чтобы посмотреть» тут лишний шаг. Кнопка живёт внутри капсулы поля
+                    (референс Telegram), поэтому её диаметр — высота капсулы минус её же
+                    скругление: круг во все 56 px вылез бы за кромку. Иконка и отклик на
+                    нажатие — те же, что у круглых кнопок ряда. */}
+                <div
+                  ref={emoji.ref}
+                  className="relative shrink-0 self-end p-1"
+                  {...(connected ? emoji.hoverProps : {})}
+                >
                   <button
                     type="button"
                     aria-label={t('emoji')}
+                    aria-expanded={emoji.open}
                     disabled={!connected}
-                    onClick={() => setEmojiOpen((v) => !v)}
-                    className="flex size-11 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                    onClick={emoji.toggle}
+                    className="flex size-12 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,transform] hover:bg-foreground/[0.06] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-8 lg:rounded-md"
                   >
-                    <Smile className="size-5" aria-hidden />
+                    <Smile className="size-6 lg:size-5" aria-hidden />
                   </button>
-                  {emojiOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setEmojiOpen(false)} />
-                      <div className="absolute bottom-full right-0 z-50 mb-2">
-                        <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
-                      </div>
-                    </>
+                  {emoji.open && (
+                    // Отступ — внутренним padding, а не margin: между кнопкой и панелью
+                    // не должно быть мёртвой зоны, иначе курсор до панели не доходит.
+                    <div className="absolute bottom-full right-0 z-50 pb-2">
+                      <EmojiPicker
+                        size="lg"
+                        searchPlaceholder={t('emojiSearch')}
+                        onPick={insertEmoji}
+                      />
+                    </div>
                   )}
                 </div>
               </div>
@@ -465,54 +607,67 @@ export function ChatComposer({
                     // как в Telegram. Обычный клик остаётся обычной отправкой.
                     onContextMenu={(e) => {
                       e.preventDefault()
-                      setSendMenuOpen(true)
+                      sendMenu.toggle()
                     }}
-                    className="flex size-14 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 disabled:cursor-default disabled:opacity-50"
+                    className={sendBtn}
                   >
                     {silent ? (
-                      <BellOff className="size-6" aria-hidden />
+                      <BellOff className="size-6 lg:size-5" aria-hidden />
                     ) : (
-                      <Send className="size-6" aria-hidden />
+                      <Send className="size-6 lg:size-5" aria-hidden />
                     )}
                   </button>
-                  <button
-                    type="button"
-                    aria-label={t('sendOptions')}
-                    aria-expanded={sendMenuOpen}
-                    onClick={() => setSendMenuOpen((v) => !v)}
-                    className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:text-foreground"
+                  {/* Опции отправки («без звука», «позже») — своя зона наведения, а не вся
+                      кнопка: иначе меню выскакивало бы каждый раз, когда курсор идёт к
+                      «Отправить». Шеврон подрос с 16 до 24 px — в прежний попадали через
+                      раз, а по §13 цель нажатия не бывает меньше 24. */}
+                  <div
+                    ref={sendMenu.ref}
+                    className="absolute -top-1 -right-1"
+                    {...sendMenu.hoverProps}
                   >
-                    <ChevronUp className="size-3" aria-hidden />
-                  </button>
-                  {sendMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setSendMenuOpen(false)} />
-                      <div className="absolute bottom-full right-0 z-50 mb-2 w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onToggleSilent()
-                            setSendMenuOpen(false)
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                        >
-                          <BellOff className="size-4 shrink-0 opacity-80" aria-hidden />
-                          {silent ? t('sendSilentOff') : t('sendSilentOn')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onScheduleSend()
-                            setSendMenuOpen(false)
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                        >
-                          <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
-                          {t('sendLater')}
-                        </button>
+                    <button
+                      type="button"
+                      aria-label={t('sendOptions')}
+                      aria-expanded={sendMenu.open}
+                      onClick={sendMenu.toggle}
+                      className="flex size-6 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-5"
+                    >
+                      <ChevronUp className="size-4 lg:size-3.5" aria-hidden />
+                    </button>
+                    {sendMenu.open && (
+                      // right-1 гасит вынос самого шеврона за кнопку: правый край меню
+                      // встаёт вровень с «Отправить», а не на 4px за ним.
+                      // Отступ — padding контейнера, а не margin меню: между шевроном и
+                      // меню не должно быть мёртвой зоны, иначе курсор до него не дойдёт.
+                      <div className="absolute bottom-full right-1 z-50 pb-2">
+                        <div className="w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onToggleSilent()
+                              sendMenu.close()
+                            }}
+                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                          >
+                            <BellOff className="size-4 shrink-0 opacity-80" aria-hidden />
+                            {silent ? t('sendSilentOff') : t('sendSilentOn')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onScheduleSend()
+                              sendMenu.close()
+                            }}
+                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                          >
+                            <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
+                            {t('sendLater')}
+                          </button>
+                        </div>
                       </div>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </div>
               ) : (
                 <button
@@ -522,7 +677,7 @@ export function ChatComposer({
                   onClick={() => void voice.start()}
                   className={roundBtn}
                 >
-                  <Mic className="size-6" aria-hidden />
+                  <Mic className="size-6 lg:size-5" aria-hidden />
                 </button>
               )}
             </>

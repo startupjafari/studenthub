@@ -33,7 +33,7 @@ import { useChartTheme } from '../../../shared/ui/chart'
 import { useInView } from './use-in-view'
 import { Sparkline } from './sparkline'
 import { ActivityGrid, ChartLegend, Meter, StatTile } from './primitives'
-import { useCountUp } from './use-count-up'
+import { useCountUp } from '../../../shared/lib'
 
 // Тяжёлый recharts — только на клиенте (FRONTEND_RULES §4, §11), со скелетоном.
 const loading = (h: number) => () => <Skeleton className="w-full" style={{ height: h }} />
@@ -220,6 +220,7 @@ function KpiRow() {
         label={t('kpiUniversities')}
         target={o.universities.active}
         hint={t('kpiUniversitiesHint', { pending: o.universities.pending })}
+        href="/platform-admin/universities"
       />
       <CountTile
         index={1}
@@ -227,6 +228,7 @@ function KpiRow() {
         target={o.users.total}
         hint={t('kpiUsersHint')}
         spark={<Sparkline values={o.users.spark} ariaLabel={t('kpiUsersHint')} />}
+        href="/platform-admin/users"
       />
       <CountTile
         index={2}
@@ -234,6 +236,7 @@ function KpiRow() {
         target={o.complaints.pending}
         hint={t('kpiComplaintsHint')}
         spark={<Sparkline values={o.complaints.spark} ariaLabel={t('kpiComplaintsHint')} />}
+        href="/platform-admin/complaints"
       />
       <CountTile
         index={3}
@@ -250,6 +253,7 @@ function KpiRow() {
         target={o.activeUsers.dau}
         hint={t('kpiWau', { wau: nf.format(o.activeUsers.wau) })}
         spark={<Sparkline values={o.activeUsers.spark} ariaLabel={t('kpiDau')} />}
+        href="/platform-admin/stats"
       />
     </div>
   )
@@ -266,6 +270,7 @@ function CountTile({
   delta,
   spark,
   index,
+  href,
   fractional = false,
   format,
 }: {
@@ -276,6 +281,7 @@ function CountTile({
   delta?: { text: string; good: boolean } | null
   spark?: ReactNode
   index: number
+  href?: string
   fractional?: boolean
   format?: (value: number) => string
 }) {
@@ -285,7 +291,15 @@ function CountTile({
   const text = target === null ? '—' : (format?.(counted) ?? nf.format(counted))
 
   return (
-    <StatTile index={index} label={label} value={text} hint={hint} delta={delta} spark={spark} />
+    <StatTile
+      index={index}
+      label={label}
+      value={text}
+      hint={hint}
+      delta={delta}
+      spark={spark}
+      href={href}
+    />
   )
 }
 
@@ -613,9 +627,9 @@ function HeatmapPanel({ range }: { range: PlatformRange }) {
       busy={q.isFetching}
       ready={inView && !!q.data}
       className="lg:col-span-2"
-      // Сетка теперь во всю ширину, а клетки квадратные — высота выросла примерно вдвое.
-      // Прежние 200px давали заметный скачок вёрстки в момент загрузки.
-      skeletonHeight={400}
+      // Высота сетки: 7 строк по ≤16px + зазоры, строка значения, ось часов и шкала.
+      // Скелетон держим примерно на ней, чтобы загрузка не двигала вёрстку.
+      skeletonHeight={200}
     >
       {q.data && (
         <ActivityGrid

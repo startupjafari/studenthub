@@ -106,7 +106,7 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {tiles.map((tile) => (
+          {tiles.map((tile, i) => (
             // Плитка ведёт в «Мои документы» с этим фильтром: счётчик без перехода
             // к самим документам — тупик. Кнопка, а не ссылка: раздел переключается
             // состоянием внутри страницы, отдельного URL у него нет.
@@ -117,6 +117,7 @@ export function OverviewPanel({ onOpen }: { onOpen: OverviewOpen }) {
               className="rounded-xl text-left focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none [&>*]:h-full [&>*]:transition-colors [&>*]:hover:bg-muted/40"
             >
               <MetricTile
+                index={i}
                 icon={tile.icon}
                 tone={tile.tone}
                 label={tile.label}

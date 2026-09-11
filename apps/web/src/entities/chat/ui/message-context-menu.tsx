@@ -41,6 +41,72 @@ interface ActionDef {
   danger?: boolean
 }
 
+/**
+ * Ряд быстрых реакций. Отдельный компонент, а не функция, возвращающая разметку, ровно
+ * из-за прокрутки: `useScrollRow` держит ОДИН узел, а рядов на экране два — компактный
+ * в десктопном меню и крупный в нижнем листе. Оба монтируются всегда (прячет их
+ * медиазапрос, а не условие), и общий контроллер доставался тому, кто смонтировался
+ * последним, — мобильному. На ПК ряд из-за этого не тянулся мышью, не крутился колесом
+ * и не затухал у краёв: вся механика висела на невидимом соседе.
+ *
+ * Внутренняя обёртка `w-max mx-auto` центрирует эмодзи, когда они влезают, и разрешает
+ * прокрутку, когда нет — иначе крайние обрезались бы без возможности до них добраться.
+ */
+function ReactionsRow({
+  big = false,
+  onReact,
+  onOpenPicker,
+  pickerLabel,
+}: {
+  /** Крупный вариант для нижнего листа: цель под палец, а не под курсор. */
+  big?: boolean
+  onReact: (emoji: string) => void
+  onOpenPicker: () => void
+  pickerLabel: string
+}) {
+  const row = useScrollRow<HTMLDivElement>()
+  const btn = cn(
+    'flex shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted active:scale-95',
+    big ? 'size-11' : 'size-10',
+  )
+
+  return (
+    <div
+      ref={row.ref}
+      className={cn(
+        'overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        row.overflowing && 'cursor-grab',
+        row.dragging && 'cursor-grabbing select-none',
+      )}
+      style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
+    >
+      <div className="mx-auto flex w-max items-center gap-0.5">
+        {CHAT_REACTION_EMOJIS.map((emoji) => (
+          <button key={emoji} type="button" onClick={() => onReact(emoji)} className={btn}>
+            <span
+              className={cn(
+                'flex items-center justify-center overflow-hidden leading-none',
+                big ? 'text-2xl' : 'text-[22px]',
+              )}
+            >
+              {emoji}
+            </span>
+          </button>
+        ))}
+        {/* §11: открыть полный пикер для реакции любым emoji. */}
+        <button
+          type="button"
+          aria-label={pickerLabel}
+          onClick={onOpenPicker}
+          className={cn(btn, 'text-muted-foreground')}
+        >
+          <SmilePlus className={big ? 'size-6' : 'size-5'} aria-hidden />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Блок взаимодействия с сообщением (Telegram-стиль): затемнение фона + быстрый ряд реакций и действия.
 // Десктоп — компактное меню у точки (правый клик/шеврон). Мобильный — нижний лист (bottom sheet)
 // с крупными целями и safe-area, открывается долгим нажатием.
@@ -90,8 +156,6 @@ export function MessageContextMenu({
   // и не срабатывает iOS pull-to-refresh (один жест — только шторке).
   const sheetRef = useSheetDragClose<HTMLDivElement>(onClose)
   useBodyScrollLock()
-  // Ряд реакций на узком экране не влезает: тянется (на тач — нативно) и затухает у краёв.
-  const reactionsScroll = useScrollRow<HTMLDivElement>()
 
   const run = (fn: () => void) => () => {
     fn()
@@ -125,55 +189,6 @@ export function MessageContextMenu({
         ]
       : []),
   ]
-
-  // Ряд реакций: внутренняя обёртка w-max+mx-auto центрирует эмодзи, когда они влезают, и позволяет
-  // прокрутку по горизонтали, когда нет (узкий экран / много эмодзи) — иначе крайние обрезались.
-  const reactionsRow = (big: boolean): React.ReactNode => (
-    <div
-      ref={reactionsScroll.ref}
-      className={cn(
-        'overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-        reactionsScroll.overflowing && 'cursor-grab',
-        reactionsScroll.dragging && 'cursor-grabbing select-none',
-      )}
-      style={{ maskImage: reactionsScroll.fadeMask, WebkitMaskImage: reactionsScroll.fadeMask }}
-    >
-      <div className="mx-auto flex w-max items-center gap-0.5">
-        {CHAT_REACTION_EMOJIS.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            onClick={run(() => actions.onReact(emoji))}
-            className={cn(
-              'flex shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted active:scale-95',
-              big ? 'size-11' : 'size-8',
-            )}
-          >
-            <span
-              className={cn(
-                'flex items-center justify-center overflow-hidden leading-none',
-                big ? 'text-2xl' : 'text-[18px]',
-              )}
-            >
-              {emoji}
-            </span>
-          </button>
-        ))}
-        {/* §11: открыть полный пикер для реакции любым emoji. */}
-        <button
-          type="button"
-          aria-label={t('emoji')}
-          onClick={() => setPickerOpen(true)}
-          className={cn(
-            'flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform hover:scale-110 hover:bg-muted active:scale-95',
-            big ? 'size-11' : 'size-8',
-          )}
-        >
-          <SmilePlus className={big ? 'size-6' : 'size-5'} aria-hidden />
-        </button>
-      </div>
-    </div>
-  )
 
   const actionsList = (variant: 'menu' | 'sheet'): React.ReactNode => (
     <div className={variant === 'sheet' ? 'py-1' : 'py-1'}>
@@ -217,7 +232,7 @@ export function MessageContextMenu({
           'absolute hidden md:block',
           pickerOpen
             ? ''
-            : 'w-60 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg',
+            : 'w-72 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg',
         )}
       >
         {pickerOpen ? (
@@ -230,7 +245,14 @@ export function MessageContextMenu({
           />
         ) : (
           <>
-            {reactionsRow(false)}
+            <ReactionsRow
+              onReact={(emoji) => {
+                actions.onReact(emoji)
+                onClose()
+              }}
+              onOpenPicker={() => setPickerOpen(true)}
+              pickerLabel={t('emoji')}
+            />
             {actionsList('menu')}
           </>
         )}
@@ -259,7 +281,15 @@ export function MessageContextMenu({
           </div>
         ) : (
           <>
-            {reactionsRow(true)}
+            <ReactionsRow
+              big
+              onReact={(emoji) => {
+                actions.onReact(emoji)
+                onClose()
+              }}
+              onOpenPicker={() => setPickerOpen(true)}
+              pickerLabel={t('emoji')}
+            />
             {actionsList('sheet')}
           </>
         )}

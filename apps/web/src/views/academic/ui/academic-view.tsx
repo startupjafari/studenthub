@@ -86,6 +86,7 @@ export function AcademicView() {
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <MetricTile
+              index={0}
               icon={TrendingUp}
               label={t('gpa')}
               value={gpa === null ? null : `${gpa}%`}
@@ -93,6 +94,7 @@ export function AcademicView() {
               progressTone={gpa === null ? undefined : toneClass(gpa)}
             />
             <MetricTile
+              index={1}
               icon={ClipboardCheck}
               tone="text-info"
               label={t('attendance')}
@@ -101,6 +103,7 @@ export function AcademicView() {
               progressTone={rate === null ? undefined : toneClass(rate)}
             />
             <MetricTile
+              index={2}
               icon={Milestone}
               tone="text-warning"
               label={t('credits')}
@@ -108,6 +111,7 @@ export function AcademicView() {
               progress={totalCredits ? Math.round((credits / totalCredits) * 100) : null}
             />
             <MetricTile
+              index={3}
               icon={GraduationCap}
               tone="text-success"
               label={
