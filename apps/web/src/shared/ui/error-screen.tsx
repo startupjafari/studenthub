@@ -31,6 +31,9 @@ export function ErrorScreen({
       icon={TriangleAlert}
       title={t('error')}
       description={t('errorDesc')}
+      // digest показываем человеку: это единственная ниточка между тем, что он видел,
+      // и записью в Sentry. Без неё обращение в поддержку звучит как «у меня всё сломалось».
+      detail={error.digest ? { label: t('errorCode'), value: error.digest } : undefined}
       onRetry={reset}
       showHome
     />

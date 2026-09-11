@@ -75,12 +75,14 @@ export function DeanToday() {
           «Просрочено», где тревожно само значение. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetricTile
+          index={0}
           icon={CalendarDays}
           label={t('kpi.classesToday')}
           value={dayPairs.length}
           href="/dean/schedule"
         />
         <MetricTile
+          index={1}
           icon={AlertTriangle}
           tone={todayChanges.length > 0 ? 'text-warning' : 'text-muted-foreground'}
           label={t('kpi.scheduleIssues')}
@@ -88,6 +90,7 @@ export function DeanToday() {
           href="/dean/schedule"
         />
         <MetricTile
+          index={2}
           icon={FileText}
           tone="text-info"
           label={t('kpi.newApplications')}
@@ -96,6 +99,7 @@ export function DeanToday() {
           href="/dean/applications"
         />
         <MetricTile
+          index={3}
           icon={FileClock}
           tone="text-destructive"
           label={t('kpi.overdue')}

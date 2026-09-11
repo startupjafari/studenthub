@@ -147,9 +147,20 @@ export function DeanAnalyticsView() {
             {/* Показатели факультета — та же шкала плиток, что на дашборде вуза
                 и в обзоре документов: иконка в чипе, число, подпись. */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              <MetricTile icon={Users} label={t('kpi.students')} value={q.data.totals.students} />
-              <MetricTile icon={BookOpen} label={t('kpi.groups')} value={q.data.totals.groups} />
               <MetricTile
+                index={0}
+                icon={Users}
+                label={t('kpi.students')}
+                value={q.data.totals.students}
+              />
+              <MetricTile
+                index={1}
+                icon={BookOpen}
+                label={t('kpi.groups')}
+                value={q.data.totals.groups}
+              />
+              <MetricTile
+                index={2}
                 icon={Percent}
                 tone="text-info"
                 label={t('kpi.attendance')}
@@ -159,12 +170,14 @@ export function DeanAnalyticsView() {
                 }
               />
               <MetricTile
+                index={3}
                 icon={FileClock}
                 tone="text-warning"
                 label={t('kpi.submissionsPending')}
                 value={q.data.totals.submissionsPending}
               />
               <MetricTile
+                index={4}
                 icon={GraduationCap}
                 label={t('kpi.examsUpcoming')}
                 value={q.data.totals.examsUpcoming}

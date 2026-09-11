@@ -183,15 +183,20 @@ function Single({
     // ровно то, которое займёт снимок. Тогда скелетон ложится точно по кадру и вёрстка
     // не прыгает. Без размеров остаётся усреднённая заглушка.
     const sized = !!att.width && !!att.height
+    const frame = frameProps(att)
     return (
       <span
         className={cn(
           // w-fit обязателен: вложения лежат в колоночном флексе, и без него обёртка
           // растягивается на ширину пузыря — заглушка оказалась бы шире самого снимка.
           'relative inline-block w-fit overflow-hidden rounded-lg',
-          // Размеров нет — до первой отрисовки место держит заглушка, снимок вынут из потока.
-          !painted && !sized && MEDIA_BOX,
+          // Есть размеры — коробка задана ими и держится всегда, а не только до загрузки.
+          // Раньше после отрисовки её снимали, и форму снимка определял уже сам <img>
+          // внутри флекс-колонки: широкое фото растягивалось на весь пузырь и обрезалось
+          // по `max-h-64` в полосу. Коробка с `aspectRatio` не даёт этому случиться.
+          sized ? frame.className : !painted && MEDIA_BOX,
         )}
+        style={sized ? frame.style : undefined}
       >
         <img
           src={url}
@@ -207,7 +212,10 @@ function Single({
           onLoad={() => setPainted(true)}
           onError={() => setBroken(true)}
           className={cn(
-            'max-h-64 max-w-full rounded-lg object-cover transition-[filter,opacity] duration-200',
+            'rounded-lg transition-[filter,opacity] duration-200',
+            // В заданной коробке — по ней целиком (кроп исключён: коробка в пропорциях
+            // снимка). Без размеров — по своим, с потолком высоты и ширины пузыря.
+            sized ? 'size-full object-cover' : 'max-h-64 max-w-full object-contain',
             !painted && (sized ? 'opacity-0' : 'absolute inset-0 size-full opacity-0'),
             blurred && 'scale-105 blur-xl',
             uploading ? 'cursor-default' : 'cursor-pointer',
@@ -322,11 +330,17 @@ function GridTile({
   onOpen?: () => void
   className?: string
 }) {
+  const t = useTranslations('Chats')
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
   const isVid = att.mime.startsWith('video/')
   const [painted, setPainted] = useState(false)
   const [broken, setBroken] = useState(false)
+  // Спойлер (§34) — и в альбоме тоже. Сервер помечает им ВСЕ вложения сообщения
+  // (chats.service: updateMany по messageId), а рисовала его только одиночная картинка:
+  // отправив под спойлером три снимка, отправитель видел их открытыми у всех.
+  const [revealed, setRevealed] = useState(false)
+  const blurred = !!att.spoiler && !revealed
   const failed = isError || broken
   const retry = (): void => {
     setBroken(false)
@@ -337,7 +351,8 @@ function GridTile({
     <button
       type="button"
       // Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
-      onClick={uploading ? undefined : failed ? retry : onOpen}
+      // Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик.
+      onClick={uploading ? undefined : failed ? retry : blurred ? () => setRevealed(true) : onOpen}
       disabled={uploading}
       className={cn('relative block overflow-hidden', MEDIA_TINT, className)}
     >
@@ -355,9 +370,12 @@ function GridTile({
             muted
             onLoadedMetadata={() => setPainted(true)}
             onError={() => setBroken(true)}
-            className="absolute inset-0 size-full object-cover"
+            className={cn(
+              'absolute inset-0 size-full object-cover transition-[filter] duration-200',
+              blurred && 'scale-105 blur-xl',
+            )}
           />
-          {!uploading && (
+          {!uploading && !blurred && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/15">
               <span className="flex size-10 items-center justify-center rounded-full bg-black/50 text-white">
                 <Play className="size-5 translate-x-0.5" aria-hidden />
@@ -378,20 +396,32 @@ function GridTile({
             onLoad={() => setPainted(true)}
             onError={() => setBroken(true)}
             className={cn(
-              'absolute inset-0 size-full object-cover transition-opacity duration-200',
+              'absolute inset-0 size-full object-cover transition-[filter,opacity] duration-200',
               !painted && 'opacity-0',
+              blurred && 'scale-105 blur-xl',
             )}
           />
           {!painted && <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />}
         </>
+      )}
+      {blurred && painted && (
+        <span className="absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
+          {t('spoiler')}
+        </span>
       )}
       {uploading && <MediaUploadOverlay progress={att.progress} />}
     </button>
   )
 }
 
-// Альбом изображений/видео сеткой-мозаикой (Telegram-стиль): 2 — рядом, 3 — крупное слева + два
-// справа, 4 — 2×2, 5+ — по три в ряд. Клик по ячейке открывает полноэкранный просмотрщик.
+// Альбом изображений/видео сеткой (Telegram-стиль): 2 и 4 — по два в ряд, 3 и 5+ — по три.
+// Клик по ячейке открывает полноэкранный просмотрщик.
+//
+// Все ячейки квадратные. Прежняя мозаика делала первую из трёх высокой (`row-span-2`), и
+// квадратный снимок в ней обрезался до вертикального прямоугольника — на превью от него
+// оставалась полоса посередине. Настоящая мозаика Telegram подбирает раскладку по
+// пропорциям самих снимков; выдавать за неё одну жёстко заданную форму — хуже, чем
+// честная ровная сетка.
 function MediaGrid({
   items,
   onOpen,
@@ -400,21 +430,15 @@ function MediaGrid({
   onOpen: (att: MessageAttachment) => void
 }) {
   const n = items.length
-  const cols = n === 3 || n === 4 ? 'grid-cols-2' : n === 2 ? 'grid-cols-2' : 'grid-cols-3'
-  const width = n >= 5 ? 300 : 260
+  const cols = n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3'
+  const width = n === 2 || n === 4 ? 260 : 300
   return (
     <div
       className={cn('grid gap-0.5 overflow-hidden rounded-lg', cols)}
       style={{ width, maxWidth: '100%' }}
     >
-      {items.map((att, i) => (
-        <GridTile
-          key={att.id}
-          att={att}
-          onOpen={() => onOpen(att)}
-          // 3 медиа: первое — высокое слева (span на 2 ряда), остальные — квадраты.
-          className={n === 3 && i === 0 ? 'row-span-2' : 'aspect-square'}
-        />
+      {items.map((att) => (
+        <GridTile key={att.id} att={att} onOpen={() => onOpen(att)} className="aspect-square" />
       ))}
     </div>
   )
