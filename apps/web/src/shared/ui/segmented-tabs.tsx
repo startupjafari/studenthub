@@ -45,6 +45,12 @@ export interface SegmentedTabsProps<T extends string> {
    * пункта или где список обязан быть виден целиком.
    */
   collapsible?: boolean
+  /**
+   * Плотный ряд: на шкалу ниже по высоте (40 px под палец, 28 px под курсор). Для рядов,
+   * которые стоят не в шапке страницы, а полосой над списком — папки чатов, фильтры
+   * уведомлений: там таб соседствует со строками списка, и рост в 52 px съедает экран.
+   */
+  compact?: boolean
   className?: string
 }
 
@@ -54,6 +60,7 @@ export function SegmentedTabs<T extends string>({
   onChange,
   'aria-label': ariaLabel,
   collapsible = true,
+  compact = false,
   className,
 }: SegmentedTabsProps<T>) {
   const row = useScrollRow<HTMLDivElement>()
@@ -101,7 +108,10 @@ export function SegmentedTabs<T extends string>({
           type="button"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen(true)}
-          className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-2xl border border-border bg-muted/50 px-3.5 text-sm font-medium transition-colors"
+          className={cn(
+            'flex w-full cursor-pointer items-center gap-2 rounded-2xl border border-border bg-muted/50 px-3.5 text-sm font-medium transition-colors',
+            compact ? 'min-h-10' : 'min-h-11',
+          )}
         >
           {ActiveIcon && <ActiveIcon className="size-4 shrink-0" aria-hidden />}
           <span className="min-w-0 truncate">{active?.label}</span>
@@ -173,7 +183,8 @@ export function SegmentedTabs<T extends string>({
       // Список может не влезть в узкий экран — прокрутка без видимой полосы, зато с
       // затуханием у краёв и перетаскиванием (см. useScrollRow).
       className={cn(
-        'flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-muted/50 p-1 lg:rounded-xl',
+        'flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-muted/50 lg:rounded-xl',
+        compact ? 'p-0.5' : 'p-1',
         '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         row.overflowing && 'cursor-grab',
         row.dragging && 'cursor-grabbing select-none',
@@ -196,7 +207,9 @@ export function SegmentedTabs<T extends string>({
             className={cn(
               // 44 px под палец (§13) и компактные 32 px там, где курсор: одна и та же
               // строка табов служит и шапкой мобильного экрана, и фильтром на десктопе.
-              'flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-xl px-3.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:min-h-8 lg:rounded-lg lg:px-3',
+              // `compact` опускает обе ступени на шкалу ниже — 40 и 28 px.
+              'flex shrink-0 cursor-pointer items-center gap-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:rounded-lg',
+              compact ? 'min-h-10 px-3 lg:min-h-7 lg:px-2.5' : 'min-h-11 px-3.5 lg:min-h-8 lg:px-3',
               isActive
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',

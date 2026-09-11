@@ -234,11 +234,13 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
             с третьего раза.
             Ряд лежит внутри вертикального скролл-контейнера: при прокрутке списка уезжает
             вместе с ним, освобождая высоту на мобильном. */}
-        <div className="shrink-0 border-b border-border bg-background px-2 py-2">
+        <div className="shrink-0 border-b border-border bg-background px-2 py-1.5">
           <SegmentedTabs
             items={tabs}
             value={filter}
             onChange={setFilter}
+            // Полоса над списком уведомлений — та же плотность, что у папок чатов.
+            compact
             aria-label={t('filters')}
           />
         </div>
