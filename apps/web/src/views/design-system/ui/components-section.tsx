@@ -42,6 +42,7 @@ import {
   PageLoader,
   Progress,
   PromptDialog,
+  ScrollRow,
   SegmentedTabs,
   Select,
   SelectContent,
@@ -109,6 +110,17 @@ const DEMO_ROWS = [
 function demoSortValue(r: (typeof DEMO_ROWS)[number], key: string): unknown {
   return key === 'name' ? r.name : key === 'email' ? r.email : r.role
 }
+
+// Ряд, который заведомо не влезает: на нём видно и затухание краёв, и перетаскивание.
+const DEMO_CHIPS = [
+  'Все',
+  'Требует действия',
+  'Учёба',
+  'Деканат',
+  'Социальное',
+  'Системные',
+  'Архив',
+]
 
 const STEPS = [
   { id: 'service', label: 'Услуга' },
@@ -472,6 +484,26 @@ export function ComponentsSection() {
         <Demo label="Stepper" className="block">
           <Stepper steps={STEPS} current={1} />
         </Demo>
+
+        <Demo label="ScrollRow" className="block">
+          <ScrollRow className="items-center gap-2">
+            {DEMO_CHIPS.map((chip) => (
+              <span
+                key={chip}
+                className="flex min-h-11 shrink-0 items-center rounded-full border border-border px-3.5 text-sm lg:min-h-8 lg:px-3"
+              >
+                {chip}
+              </span>
+            ))}
+          </ScrollRow>
+        </Demo>
+        <Caption>
+          Ряд, который может не влезть в экран: тянется мышью с инерцией (на тач-экране остаётся
+          нативная прокрутка), у краёв затухает вместо обрыва, полосы прокрутки нет. Табы с
+          выбранным значением берут не это, а <Code>SegmentedTabs</Code>: он ещё подвозит активный
+          пункт в видимую зону и на экране шириной до 400 px сворачивается в селектор — список
+          приходит островом над нижней навигацией.
+        </Caption>
 
         <Demo label="Breadcrumb" rule="только при вложенности от трёх уровней">
           <Breadcrumb>
