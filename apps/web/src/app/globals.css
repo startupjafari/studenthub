@@ -658,10 +658,20 @@ summary {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
+/* Плавающие острова (нижняя навигация, панель ввода в чате): тот же материал, но плотнее.
+   Полоса во всю ширину стоит на краю экрана, а остров лежит прямо поверх ленты — на 72%
+   сквозь него читался текст под панелью, и капсула переставала быть поверхностью. */
+.material-island {
+  background: color-mix(in oklch, var(--background) 88%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
 /* Нет поддержки backdrop-filter — полупрозрачность превратилась бы в просто мутный фон
    с нечитаемым текстом поверх контента. Возвращаем плотную подложку. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .material-chrome {
+  .material-chrome,
+  .material-island {
     background: var(--background);
   }
 }
@@ -669,7 +679,8 @@ summary {
 /* Те же два сигнала, что глушат blur ниже, обязаны вернуть и плотность: панель без размытия,
    но с 72% прозрачности читается хуже обоих вариантов. */
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .material-chrome {
+  .material-chrome,
+  .material-island {
     background: var(--background);
   }
 }
