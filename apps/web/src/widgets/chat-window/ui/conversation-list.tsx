@@ -304,12 +304,14 @@ export function ConversationList({
           у краёв, доводка активной вкладки) приходит вместе с ним. Свои чипы были
           отдельным языком: заливка `bg-primary` целиком и цель в 28px на десктопе. */}
       {searchTerm.length < 2 && chats.length > 0 && (
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1">
           <SegmentedTabs
             className="min-w-0 flex-1"
             items={folderItems}
             value={folder}
             onChange={setFolder}
+            // Полоса над списком чатов, а не шапка страницы: высоту забирает список.
+            compact
             // Сворачивать нечего: колонка чатов на узком экране занимает весь экран,
             // и ряд папок — её единственная навигация.
             collapsible={false}
@@ -317,8 +319,10 @@ export function ConversationList({
           />
           {/* Свои папки настраиваются здесь же: вкладки — единственное место, где они видны.
               `self-stretch` — высота берётся от ряда табов, а не задаётся числом: у табов
-              своя шкала (44px под палец, 32px под курсор) плюс отступы контейнера, и
-              повторять её здесь константой значило бы ломать пару при любой правке табов.
+              своя шкала (в `compact` — 40px под палец, 28px под курсор) плюс отступы
+              контейнера, и повторять её здесь константой значило бы ломать пару при любой
+              правке табов. Ширина же задаётся руками и держит квадрат: w-11 под 44px ряда
+              на телефоне, lg:w-8 под 32px на десктопе.
               Поверхность тоже общая с рядом — иначе рядом с обведённым контейнером
               висела бы голая иконка. */}
           <button
@@ -326,7 +330,7 @@ export function ConversationList({
             onClick={onManageFolders}
             aria-label={t('foldersManage')}
             title={t('foldersManage')}
-            className="flex w-11 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:w-10 lg:rounded-xl"
+            className="flex w-11 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:w-8 lg:rounded-xl"
           >
             <FolderCog className="size-4" aria-hidden />
           </button>

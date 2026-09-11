@@ -1,14 +1,14 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Loader2, Paperclip, X } from 'lucide-react'
+import { FileBadge, Loader2, Paperclip, X } from 'lucide-react'
 import { DOCUMENT_TYPES } from '@studenthub/shared-config'
 import type { ApplicationResultType } from '@studenthub/shared-schemas'
 import { uploadDocumentFile } from '../../../entities/document'
-import { addResultRequest } from '../../../entities/application-service'
+import { addResultRequest, issueCertificateRequest } from '../../../entities/application-service'
 import {
   Button,
   FieldError,
@@ -56,6 +56,8 @@ export function ResultModal({
   const tDoc = useTranslations('Documents')
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
+  // Язык бланка справки: подписи в документе переводит сервер.
+  const locale = useLocale()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [type, setType] = useState<ApplicationResultType>('ELECTRONIC_DOCUMENT')
@@ -90,6 +92,25 @@ export function ResultModal({
       if (fileRef.current) fileRef.current.value = ''
     }
   }
+
+  /**
+   * Справку об обучении платформа формирует сама — сотруднику нечего загружать.
+   *
+   * Это не часть формы, а завершённое действие: сервер собирает бланк, выдаёт документ
+   * студенту и сам записывает результат заявки. Поэтому после него модалку закрываем,
+   * а не возвращаем в форму.
+   */
+  const certificateMut = useMutation({
+    mutationFn: () => issueCertificateRequest(appId, locale),
+    onSuccess: ({ verificationCode }) => {
+      // Код проверки показываем сразу: сотрудник может продиктовать его студенту, не
+      // открывая сам документ.
+      toast.success(t('certificateIssued', { code: verificationCode }))
+      onDone()
+      onClose()
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
 
   const saveMut = useMutation({
     mutationFn: () =>
@@ -132,6 +153,26 @@ export function ResultModal({
             </SelectContent>
           </Select>
         </div>
+
+        {needsFile && !file && (
+          <div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/40 p-3">
+            <div className="flex items-center gap-2">
+              <FileBadge className="size-4 shrink-0 text-primary" aria-hidden />
+              <span className="text-sm font-medium">{t('certificateTitle')}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('certificateHint')}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-center"
+              loading={certificateMut.isPending}
+              disabled={uploading}
+              onClick={() => certificateMut.mutate()}
+            >
+              {t('certificateAction')}
+            </Button>
+          </div>
+        )}
 
         {needsFile && (
           <>

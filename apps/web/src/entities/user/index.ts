@@ -14,6 +14,7 @@ export {
   removeCoverRequest,
   adminUserKeys,
   fetchUsers,
+  exportUsers,
   blockUserRequest,
   unblockUserRequest,
   type AdminUser,

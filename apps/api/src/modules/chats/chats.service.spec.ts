@@ -103,6 +103,10 @@ function setup() {
     incr: jest.fn().mockResolvedValue(1),
     expire: jest.fn().mockResolvedValue(1),
   }
+  // Журнал выгрузок проверяется своим тестом (common/export) — здесь заглушка.
+  const exportRegistry = {
+    register: jest.fn().mockResolvedValue({ id: 'e-1', shortId: 'ABCD2345' }),
+  }
   const service = new ChatsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
@@ -111,8 +115,9 @@ function setup() {
     posts as unknown as PostsService,
     config as unknown as ConfigService<EnvVars, true>,
     redis as never,
+    exportRegistry as never,
   )
-  return { service, prisma, queue, realtime, files, posts, config, redis }
+  return { service, prisma, queue, realtime, files, posts, config, redis, exportRegistry }
 }
 
 const user = (sub: string): JwtPayload => ({

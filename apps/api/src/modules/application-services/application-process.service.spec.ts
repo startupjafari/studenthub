@@ -1,9 +1,16 @@
 import { Role } from '@studenthub/shared-types'
+import { AppException } from '../../common/exceptions/app.exception'
 import { ApplicationProcessService } from './application-process.service'
 import { ApplicationPolicy } from './application.policy'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { QueueService } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+
+// Настоящий рендер тянет @react-pdf и файл шрифта — секунды на каждый тест. Бланк
+// проверяется прогоном (см. B7), здесь — порядок действий вокруг него.
+jest.mock('./study-certificate-pdf', () => ({
+  renderStudyCertificatePdf: jest.fn(async () => Buffer.from('%PDF-stub')),
+}))
 
 // $transaction поддерживает обе формы: колбэк (async tx => …) и массив промисов.
 function makePrisma(appRow: Record<string, unknown>) {
@@ -34,21 +41,66 @@ const dean: JwtPayload = {
   groupId: null,
 }
 
+/** Учебные данные студента для бланка справки — ровно то, что отдаёт UserService. */
+const academicSubject = {
+  fullName: 'Оспанова Аружан',
+  specialty: 'Информационные системы',
+  course: 3,
+  educationLevel: 'Бакалавриат',
+  studyForm: 'Очная',
+  fundingType: 'Грант',
+  enrollmentYear: 2023,
+  graduationYear: 2027,
+  academicStatus: 'ACTIVE',
+  studentCardNumber: 'СБ-1',
+  groupName: 'ИТ-23-1',
+  facultyName: 'ФИТ',
+  universityName: 'Алатауский университет',
+  universityCity: 'Алматы',
+  timezone: 'Asia/Almaty',
+}
+
 function setup(appRow: Record<string, unknown>) {
   const prisma = makePrisma(appRow)
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const realtime = { emitEventToUser: jest.fn() }
   // Выдача документа студенту (issueToOwner) — единственное, что процесс просит у домена
   // «Документы»; в юнитах подменяем заглушкой.
-  const documents = { issueToOwner: jest.fn().mockResolvedValue({ id: 'doc-issued' }) }
+  const documents = {
+    issueToOwner: jest.fn().mockResolvedValue({ id: 'doc-issued' }),
+    uploadFile: jest.fn().mockResolvedValue({ id: 'file-1', mime: 'application/pdf', size: 1024 }),
+  }
+  // Справка об обучении (B7): данные студента, брендирование и журнал выгрузок — чужие
+  // домены, в юните подменяются заглушками. Сам рендер PDF проверяется отдельно.
+  const users = {
+    academicSubject: jest.fn().mockResolvedValue(academicSubject),
+    fullName: jest.fn().mockResolvedValue('Иванова Елена'),
+  }
+  const branding = {
+    publicUrl: 'https://studenthub.kz',
+    dateTime: jest.fn().mockReturnValue('11.09.2026, 14:15 (Asia/Almaty)'),
+    pdfBranding: jest.fn().mockResolvedValue({
+      metadata: {},
+      logo: null,
+      generatedLine: '',
+      footerLine: () => '',
+    }),
+  }
+  const exportRegistry = {
+    register: jest.fn().mockResolvedValue({ id: 'exp-1', shortId: 'JT9ZPNDD' }),
+    revokeByDocumentNumber: jest.fn().mockResolvedValue(1),
+  }
   const service = new ApplicationProcessService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     queue as unknown as QueueService,
     realtime as never,
     documents as never,
+    users as never,
+    branding as never,
+    exportRegistry as never,
   )
-  return { service, prisma, queue, realtime, documents }
+  return { service, prisma, queue, realtime, documents, users, branding, exportRegistry }
 }
 
 const base = {
@@ -170,5 +222,95 @@ describe('ApplicationProcessService — scope', () => {
   it('декан чужого факультета → FORBIDDEN', async () => {
     const { service } = setup({ ...base, status: 'SUBMITTED', facultyId: 'other' })
     await expect(service.take(dean, 'a1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+})
+
+describe('ApplicationProcessService — справка об обучении', () => {
+  const inPreparation = {
+    id: 'app-1',
+    number: 'SH-2026-001842',
+    status: 'IN_PREPARATION',
+    deliveryType: 'ELECTRONIC',
+    studentId: 'stu-1',
+    facultyId: 'fac',
+    universityId: 'uni',
+    assignedToId: 'dean',
+    dueAt: null,
+    service: { nameRu: 'Справка об обучении' },
+  }
+
+  it('формируется только на этапе подготовки', async () => {
+    const { service } = setup({ ...inPreparation, status: 'IN_REVIEW' })
+    await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow(AppException)
+  })
+
+  it('регистрирует документ в журнале ДО рендера и выдаёт студенту', async () => {
+    const { service, documents, exportRegistry, branding } = setup(inPreparation)
+
+    const result = await service.issueStudyCertificate(dean, 'app-1', 'ru')
+
+    expect(result.verificationCode).toBe('JT9ZPNDD')
+    // Код проверки печатается внутри документа, поэтому запись в журнале обязана быть
+    // раньше брендирования и рендера.
+    expect(exportRegistry.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: 'pdf',
+        context: expect.objectContaining({ kind: 'certificate' }),
+      }),
+    )
+    expect(branding.pdfBranding).toHaveBeenCalledWith(
+      expect.objectContaining({ shortId: 'JT9ZPNDD' }),
+    )
+    // Документ заводится на студента, а не на выдающего сотрудника.
+    expect(documents.issueToOwner).toHaveBeenCalledWith(
+      dean,
+      expect.objectContaining({ ownerId: 'stu-1', type: 'STUDY_PLACE_REF' }),
+    )
+  })
+
+  it('не выдаёт справку, если её не удалось записать в журнал', async () => {
+    const { service, documents, exportRegistry } = setup(inPreparation)
+    exportRegistry.register.mockResolvedValue(null)
+
+    // Официальный документ без записи в журнале непроверяем — выдавать его нельзя,
+    // в отличие от рабочих выгрузок, где сбой журнала терпим.
+    await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow(AppException)
+    expect(documents.issueToOwner).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationProcessService — отзыв справки', () => {
+  const issued = {
+    id: 'app-1',
+    number: 'SH-2026-001842',
+    status: 'ISSUED',
+    deliveryType: 'ELECTRONIC',
+    studentId: 'stu-1',
+    facultyId: 'fac',
+    universityId: 'uni',
+    assignedToId: 'dean',
+    dueAt: null,
+    service: { nameRu: 'Справка об обучении' },
+  }
+
+  it('отзывает по номеру заявки и пишет событие в историю', async () => {
+    const { service, exportRegistry, prisma } = setup(issued)
+
+    const result = await service.revokeStudyCertificate(dean, 'app-1', 'выдана ошибочно')
+
+    expect(result.revoked).toBe(1)
+    expect(exportRegistry.revokeByDocumentNumber).toHaveBeenCalledWith('SH-2026-001842')
+    expect(prisma.applicationEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'RESULT_REVOKED', comment: 'выдана ошибочно' }),
+      }),
+    )
+  })
+
+  it('сообщает, когда отзывать нечего, вместо тихого успеха', async () => {
+    const { service, exportRegistry } = setup(issued)
+    exportRegistry.revokeByDocumentNumber.mockResolvedValue(0)
+
+    await expect(service.revokeStudyCertificate(dean, 'app-1')).rejects.toThrow(AppException)
   })
 })
