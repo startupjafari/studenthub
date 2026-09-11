@@ -19,9 +19,18 @@ import { useCallback, useSyncExternalStore } from 'react'
 /** Стабильная ссылка: React сравнивает `getServerSnapshot` между рендерами. */
 const serverSnapshot = (): boolean => false
 
+// matchMedia есть не везде: старые вебвью и jsdom в тестах его не реализуют. Хук общий —
+// без проверки любой рендер его потребителя (табы, чаты, журнал) падал бы там целиком,
+// поэтому в таком окружении отдаём то же `false`, что и SSR: запрос просто не совпал.
+const supported = (): boolean => typeof window.matchMedia === 'function'
+
+/** Отписка для случая без `matchMedia`: подписываться было не на что. */
+const noop = (): void => undefined
+
 export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
+      if (!supported()) return noop
       const mql = window.matchMedia(query)
       mql.addEventListener('change', onStoreChange)
       return () => mql.removeEventListener('change', onStoreChange)
@@ -29,7 +38,7 @@ export function useMediaQuery(query: string): boolean {
     [query],
   )
 
-  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query])
+  const getSnapshot = useCallback(() => supported() && window.matchMedia(query).matches, [query])
 
   return useSyncExternalStore(subscribe, getSnapshot, serverSnapshot)
 }
