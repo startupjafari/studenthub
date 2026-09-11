@@ -1,11 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common'
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
-import type { FastifyRequest } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { UserService } from './users.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
@@ -16,7 +17,10 @@ import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
 @ApiTags('Пользователи')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UserService) {}
+  constructor(
+    private readonly users: UserService,
+    private readonly branding: ExportBrandingService,
+  ) {}
 
   @Get('me')
   @ApiOperation({ summary: 'Мой профиль' })
@@ -113,6 +117,45 @@ export class UsersController {
   @ApiResponse({ status: 403, description: 'FORBIDDEN' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: UserListQueryDto) {
     return this.users.list(user, query)
+  }
+
+  /**
+   * Выгрузка списка в файл (задача 12.8). Фильтры — те же, что у `GET /users`, плюс
+   * `format` (xlsx по умолчанию) и `locale` для подписей.
+   *
+   * Объявлен ДО `@Get(':id')`: параметрический маршрут перехватил бы /users/export.
+   */
+  @Get('export')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+    Role.DEAN,
+  )
+  @ApiOperation({ summary: 'Выгрузить список пользователей (XLSX/CSV, по scope и фильтрам)' })
+  @ApiResponse({ status: 200, description: 'Файл выгрузки' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — строк больше предела выгрузки' })
+  async export(
+    @CurrentUser() user: CurrentUserData,
+    @Query() query: UserListQueryDto,
+    @Query('format') format: string | undefined,
+    @Query('locale') locale: string | undefined,
+    @Req() req: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const ext = format === 'csv' ? 'csv' : 'xlsx'
+    const { body, filename } = await this.users.exportList(
+      user,
+      query,
+      this.branding.resolveLocale(locale),
+      ext,
+      { ip: req.ip, userAgent: req.headers['user-agent'] },
+    )
+    await reply
+      .header('content-type', this.branding.contentType(ext))
+      .header('content-disposition', this.branding.disposition(filename))
+      .send(body)
   }
 
   // Объявлен ДО @Get(':id') — иначе параметрический маршрут перехватил бы /users/directory.

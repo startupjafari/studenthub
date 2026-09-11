@@ -3,6 +3,8 @@ import { ResumeService } from './resume.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
+import type { ExportBrandingService } from '../../common/export/export-branding.service'
+import type { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 // Настоящий рендер PDF грузит react-pdf и файл шрифта — это секунды на каждый тест.
@@ -35,7 +37,8 @@ function sourceUser(over: Record<string, unknown> = {}) {
     graduationYear: 2027,
     skills: ['React'],
     languages: ['ru'],
-    university: { name: 'Алатау' },
+    // Таймзона вуза идёт в дату выгрузки PDF (см. describe «PDF»).
+    university: { name: 'Алатау', timezone: 'Asia/Almaty' },
     careerProfile: { about: 'Ищу стажировку' },
     portfolioItems: [
       {
@@ -70,11 +73,27 @@ function setup(resume: Record<string, unknown> | null = null) {
     user: { findFirst: jest.fn().mockResolvedValue(sourceUser()) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  // Брендирование проверяется своим тестом (common/export); здесь важно лишь, что сервис
+  // спрашивает у него имя файла и не собирает его сам.
+  const branding = {
+    pdfBranding: jest.fn().mockResolvedValue({
+      metadata: {},
+      logo: null,
+      generatedLine: 'Сформировано',
+      footerLine: () => 'StudentHub',
+    }),
+    filename: jest.fn().mockReturnValue('studenthub_resume_2026-09-13.pdf'),
+  }
+  const exportRegistry = {
+    register: jest.fn().mockResolvedValue({ id: 'e-1', shortId: 'ABCD2345' }),
+  }
   const service = new ResumeService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
+    branding as unknown as ExportBrandingService,
+    exportRegistry as unknown as ExportRegistryService,
   )
-  return { service, prisma, audit }
+  return { service, prisma, audit, branding, exportRegistry }
 }
 
 describe('ResumeService — публичная ссылка', () => {
@@ -208,3 +227,42 @@ describe('ResumeService — сборка содержимого', () => {
     await expect(service.publicBySlug('abc123')).rejects.toBeInstanceOf(AppException)
   })
 })
+
+describe('ResumeService — PDF', () => {
+  it('отдаёт имя файла от службы брендирования, а не собирает своё', async () => {
+    const { service, branding } = setup()
+    const result = await service.pdf(student, EMPTY_PDF_LABELS, 'ru')
+
+    expect(result.filename).toBe('studenthub_resume_2026-09-13.pdf')
+    expect(branding.filename).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'resume' }),
+      'pdf',
+    )
+  })
+
+  it('в контекст выгрузки уходят студент и таймзона вуза', async () => {
+    const { service, branding } = setup()
+    await service.pdf(student, EMPTY_PDF_LABELS, 'kk')
+
+    expect(branding.pdfBranding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locale: 'kk',
+        timezone: 'Asia/Almaty',
+        actor: expect.objectContaining({ id: 'stu-1', fullName: 'Аружан Оспанова' }),
+      }),
+    )
+  })
+})
+
+/** Подписи разделов приходят с фронта; для этих тестов их содержание неважно. */
+const EMPTY_PDF_LABELS = {
+  about: '',
+  education: '',
+  skills: '',
+  languages: '',
+  experience: '',
+  projects: '',
+  certificates: '',
+  verified: '',
+  generated: '',
+}

@@ -13,6 +13,14 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
 import { AuditService } from '../../common/audit/audit.service'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
+import { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
+import {
+  buildCsv,
+  buildWorkbook,
+  type SpreadsheetColumn,
+} from '../../common/export/spreadsheet.builder'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -208,6 +216,8 @@ export class UserService {
     @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     private readonly realtime: RealtimeGateway,
     private readonly audit: AuditService,
+    private readonly branding: ExportBrandingService,
+    private readonly exports: ExportRegistryService,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -276,11 +286,18 @@ export class UserService {
    * платформа — все, админ/модератор вуза — свой вуз, декан — свой факультет. passwordHash
    * не выбирается (§14.9). Роли гейтит @Roles на контроллере.
    */
-  async list(viewer: JwtPayload, query: UserListQueryInput): Promise<Paginated<unknown>> {
+  /**
+   * Условие выборки списка: scope смотрящего И клиентские фильтры.
+   *
+   * Вынесено из `list`, потому что ровно та же выборка нужна выгрузке (§12.8): два
+   * отдельных условия разошлись бы, и файл перестал бы совпадать с тем, что видно на
+   * экране, — худший вид расхождения, потому что заметен он не сразу.
+   */
+  private listWhere(viewer: JwtPayload, query: UserListQueryInput): Prisma.UserWhereInput {
     // scope и клиентские фильтры — через AND: ?facultyId=/?groupId= обязаны СУЖАТЬ scope,
     // а не перезаписывать его (spread по общему ключу facultyId дал бы декану выборку
     // пользователей чужого факультета/вуза с email — cross-tenant PII). См. §14.7/§14.10.
-    const where: Prisma.UserWhereInput = {
+    return {
       deletedAt: null,
       AND: [
         this.listScope(viewer),
@@ -301,6 +318,60 @@ export class UserService {
           : []),
       ],
     }
+  }
+
+  /**
+   * Учебные данные студента для официальной справки (этап B7).
+   *
+   * Отдельный метод, а не `findById`: там профиль для экрана, здесь — поля бланка, и
+   * названия факультета, группы и вуза берутся связями (в профиле лежат только их id).
+   * Модуль-владелец таблицы пользователей отдаёт их сам — прямой `prisma.user` из другого
+   * модуля запрещён (§2.1).
+   */
+  async academicSubject(userId: string): Promise<AcademicSubject | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        specialty: true,
+        course: true,
+        educationLevel: true,
+        studyForm: true,
+        fundingType: true,
+        enrollmentYear: true,
+        graduationYear: true,
+        academicStatus: true,
+        studentCardNumber: true,
+        group: { select: { name: true } },
+        faculty: { select: { name: true } },
+        university: { select: { name: true, shortName: true, city: true, timezone: true } },
+      },
+    })
+    if (!user) return null
+    return {
+      // Отчество есть не у всех — склеиваем то, что заполнено, и не оставляем двойных пробелов.
+      fullName: [user.lastName, user.firstName, user.middleName].filter(Boolean).join(' '),
+      specialty: user.specialty,
+      course: user.course,
+      educationLevel: user.educationLevel,
+      studyForm: user.studyForm,
+      fundingType: user.fundingType,
+      enrollmentYear: user.enrollmentYear,
+      graduationYear: user.graduationYear,
+      academicStatus: user.academicStatus,
+      studentCardNumber: user.studentCardNumber,
+      groupName: user.group?.name ?? null,
+      facultyName: user.faculty?.name ?? null,
+      universityName: user.university?.name ?? null,
+      universityCity: user.university?.city ?? null,
+      timezone: user.university?.timezone ?? 'UTC',
+    }
+  }
+
+  async list(viewer: JwtPayload, query: UserListQueryInput): Promise<Paginated<unknown>> {
+    const where = this.listWhere(viewer, query)
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,
@@ -325,6 +396,98 @@ export class UserService {
       this.prisma.user.count({ where }),
     ])
     return new Paginated(rows, { total })
+  }
+
+  /**
+   * Выгрузка списка пользователей в XLSX или CSV (задача 12.8).
+   *
+   * Выборка — ровно та же, что у таблицы на экране (`listWhere`), включая scope: декан
+   * выгружает свой факультет и ничего кроме. Раньше файл собирал браузер по первой
+   * странице ответа, то есть выгрузка молча обрывалась на 200 строках.
+   */
+  async exportList(
+    viewer: JwtPayload,
+    query: UserListQueryInput,
+    locale: ExportLocale,
+    format: 'xlsx' | 'csv',
+    request: { ip?: string; userAgent?: string } = {},
+  ): Promise<{ body: Buffer | string; filename: string }> {
+    const where = this.listWhere(viewer, query)
+    const total = await this.prisma.user.count({ where })
+    if (total > EXPORT_MAX_ROWS) {
+      // Честный отказ вместо тихого обрезания: неполный файл, который выглядит полным,
+      // опаснее отсутствия файла — по нему принимают решения.
+      throw new AppException(
+        'BAD_REQUEST',
+        `В выгрузку попало ${total} строк, предел — ${EXPORT_MAX_ROWS}. Сузьте фильтр.`,
+      )
+    }
+
+    const rows: ExportUserRow[] = []
+    // Страницами, а не одним findMany: выборка без потолка запрещена (§7.2), а держать в
+    // памяти книгу целиком и так придётся — SheetJS иначе не умеет.
+    while (rows.length < total) {
+      const page = await this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isBlocked: true,
+          createdAt: true,
+        },
+        orderBy: userListOrderBy(query),
+        skip: rows.length,
+        take: EXPORT_PAGE_SIZE,
+      })
+      if (page.length === 0) break
+      rows.push(...page)
+    }
+
+    const context: ExportContext = {
+      kind: 'users',
+      actor: { id: viewer.sub, fullName: await this.fullName(viewer.sub) },
+      locale,
+      timezone: await this.viewerTimezone(viewer.sub),
+      generatedAt: new Date(),
+      // Фильтры уходят на лист «Инфо» и в журнал: через месяц по файлу должно быть
+      // понятно, по какой выборке он собран.
+      params: {
+        role: query.role,
+        facultyId: query.facultyId,
+        groupId: query.groupId,
+        blocked: query.blocked,
+        search: query.search,
+      },
+    }
+    const labels = this.branding.labels(locale)
+    const columns = exportColumns(locale, context.timezone)
+
+    const body =
+      format === 'xlsx'
+        ? buildWorkbook({
+            columns,
+            rows,
+            labels,
+            info: this.branding.infoRows(context),
+            meta: this.branding.sheetMetadata(context),
+          })
+        : buildCsv({ columns, rows })
+
+    // Выгрузка персональных данных — событие для двух журналов сразу. AuditLog ставит его
+    // в общую ленту действий пользователя, реестр выгрузок — в перечень выданных файлов с
+    // собственным кодом. Сами данные ни туда, ни туда не пишем (§13): только объём и условия.
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'users_export',
+      entity: 'User',
+      metadata: { format, rows: rows.length, filters: context.params },
+    })
+    await this.exports.register({ context, format, rows: rows.length, ...request })
+
+    return { body, filename: this.branding.filename(context, format) }
   }
 
   /**
@@ -445,6 +608,27 @@ export class UserService {
     if (viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR) return {}
     if (viewer.role === Role.EMPLOYER) return { id: '__none__' }
     return { universityId: viewer.universityId ?? '__none__' }
+  }
+
+  /** ФИО пользователя одной строкой: в JWT имён нет, а шапке файла и журналу они нужны. */
+  async fullName(userId: string): Promise<string> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    })
+    return user ? `${user.firstName} ${user.lastName}` : ''
+  }
+
+  /**
+   * Таймзона вуза выгружающего — в ней печатаются даты в файле и дата в его имени.
+   * Нет вуза (платформенные роли) — UTC, и это честно написано на листе «Инфо».
+   */
+  private async viewerTimezone(userId: string): Promise<string> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId },
+      select: { university: { select: { timezone: true } } },
+    })
+    return user?.university?.timezone ?? 'UTC'
   }
 
   private listScope(viewer: JwtPayload): Prisma.UserWhereInput {
@@ -1276,4 +1460,103 @@ export class UserService {
     ])
     return { active, registered }
   }
+}
+
+/**
+ * Потолок одной выгрузки. Пять тысяч строк — это книга примерно на мегабайт, которую
+ * SheetJS собирает в памяти целиком; выше начинается риск для процесса, а не польза для
+ * деканата. Больше — повод сузить фильтр или просить постраничную выдачу.
+ */
+const EXPORT_MAX_ROWS = 5000
+const EXPORT_PAGE_SIZE = 500
+
+interface ExportUserRow {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  role: string
+  isBlocked: boolean
+  createdAt: Date
+}
+
+/**
+ * Заголовки колонок выгрузки. Живут в модуле-владельце отчёта, а не в общем словаре
+ * брендирования: состав колонок — это про пользователей, и общий слой о нём знать не
+ * должен. Когда отчётов станет много, их стоит собрать в один справочник.
+ *
+ * Роль остаётся кодом (`STUDENT`), а не переводится: по ней фильтруют и сверяют с API,
+ * а перевод превратил бы значение в текст, зависящий от языка выгрузки.
+ */
+const EXPORT_HEADERS: Record<ExportLocale, Record<keyof ExportUserRow, string>> = {
+  ru: {
+    id: 'ID',
+    email: 'Email',
+    lastName: 'Фамилия',
+    firstName: 'Имя',
+    role: 'Роль',
+    isBlocked: 'Заблокирован',
+    createdAt: 'Дата регистрации',
+  },
+  kk: {
+    id: 'ID',
+    email: 'Email',
+    lastName: 'Тегі',
+    firstName: 'Аты',
+    role: 'Рөлі',
+    isBlocked: 'Бұғатталған',
+    createdAt: 'Тіркелген күні',
+  },
+  en: {
+    id: 'ID',
+    email: 'Email',
+    lastName: 'Last name',
+    firstName: 'First name',
+    role: 'Role',
+    isBlocked: 'Blocked',
+    createdAt: 'Registered at',
+  },
+}
+
+function exportColumns(locale: ExportLocale, timezone: string): SpreadsheetColumn<ExportUserRow>[] {
+  const header = EXPORT_HEADERS[locale]
+  // Дата в таймзоне вуза и без её подписи в каждой ячейке: таймзона названа один раз на
+  // листе «Инфо». Строкой, а не датой Excel: серийная дата у SheetJS пишется без зоны,
+  // и файл, открытый в другой стране, показал бы другое время.
+  const dateFormat = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: timezone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return [
+    { header: header.id, value: (r) => r.id, width: 38 },
+    { header: header.email, value: (r) => r.email, width: 28 },
+    { header: header.lastName, value: (r) => r.lastName, width: 18 },
+    { header: header.firstName, value: (r) => r.firstName, width: 18 },
+    { header: header.role, value: (r) => r.role, width: 22 },
+    { header: header.isBlocked, value: (r) => r.isBlocked, width: 14 },
+    { header: header.createdAt, value: (r) => dateFormat.format(r.createdAt), width: 18 },
+  ]
+}
+
+/** Поля бланка справки об обучении: всё, что платформа знает о студенте как об учащемся. */
+export interface AcademicSubject {
+  fullName: string
+  specialty: string | null
+  course: number | null
+  educationLevel: string | null
+  studyForm: string | null
+  fundingType: string | null
+  enrollmentYear: number | null
+  graduationYear: number | null
+  academicStatus: string | null
+  studentCardNumber: string | null
+  groupName: string | null
+  facultyName: string | null
+  universityName: string | null
+  universityCity: string | null
+  timezone: string
 }

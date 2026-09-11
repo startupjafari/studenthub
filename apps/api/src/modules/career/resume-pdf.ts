@@ -1,6 +1,6 @@
 import { createElement as h } from 'react'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import type { PdfBranding } from '../../common/export/export-branding.types'
+import { PDF_FONT_FAMILY, registerPdfFont } from '../../common/export/pdf-font'
 
 /**
  * Сборка PDF-резюме.
@@ -23,34 +23,9 @@ const importEsm = new Function('specifier', 'return import(specifier)') as <T>(
 
 type ReactPdf = typeof import('@react-pdf/renderer')
 
-const FONT_FAMILY = 'Inter'
-
-/**
- * Путь к файлу шрифта.
- *
- * Считаем от каталога модуля, а не от `process.cwd()`: рабочий каталог зависит от того,
- * откуда запустили процесс, и в монорепо это то корень репозитория, то пакет. От
- * `__dirname` три уровня вверх дают корень пакета api и в `src/`, и в собранном `dist/` —
- * структура каталогов одинаковая.
- */
-function fontPath(): string {
-  const candidates = [
-    join(__dirname, '..', '..', '..', 'assets', 'fonts', 'InterVariable.ttf'),
-    join(process.cwd(), 'assets', 'fonts', 'InterVariable.ttf'),
-    join(process.cwd(), 'apps', 'api', 'assets', 'fonts', 'InterVariable.ttf'),
-  ]
-  const found = candidates.find((path) => existsSync(path))
-  if (!found) {
-    // Падаем внятно: без шрифта PDF на русском выйдет пустым, и молчаливая деградация
-    // здесь хуже ошибки.
-    throw new Error(`Шрифт для PDF не найден. Искали: ${candidates.join(', ')}`)
-  }
-  return found
-}
-
 function createStyles(StyleSheet: ReactPdf['StyleSheet']) {
   return StyleSheet.create({
-    page: { fontFamily: FONT_FAMILY, fontSize: 10, padding: 40, color: '#111827' },
+    page: { fontFamily: PDF_FONT_FAMILY, fontSize: 10, padding: 40, color: '#111827' },
     name: { fontSize: 22, marginBottom: 2 },
     headline: { fontSize: 11, color: '#4b5563', marginBottom: 10 },
     contactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
@@ -79,6 +54,20 @@ function createStyles(StyleSheet: ReactPdf['StyleSheet']) {
       borderRadius: 3,
     },
     verified: { fontSize: 8, color: '#047857' },
+    // Полоса происхождения над резюме: знак и строка «сформировано» мелко и серым.
+    // Документ принадлежит студенту, а не платформе, — марка обязана быть заметной
+    // ровно настолько, чтобы её нашли, когда усомнятся в подлинности.
+    brandBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      marginBottom: 16,
+      paddingBottom: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: '#e5e7eb',
+    },
+    brandLogo: { width: 12, height: 12 },
+    brandLine: { fontSize: 7.5, color: '#9ca3af' },
     footer: {
       position: 'absolute',
       bottom: 24,
@@ -104,10 +93,7 @@ let kitPromise: Promise<PdfKit> | undefined
  */
 function loadKit(): Promise<PdfKit> {
   kitPromise ??= importEsm<ReactPdf>('@react-pdf/renderer').then((pdf) => {
-    pdf.Font.register({ family: FONT_FAMILY, src: fontPath() })
-    // Переносы слов отключаем: встроенный словарь переносов рассчитан на английский и
-    // рвёт русские слова в неожиданных местах.
-    pdf.Font.registerHyphenationCallback((word) => [word])
+    registerPdfFont(pdf.Font)
     return { pdf, styles: createStyles(pdf.StyleSheet) }
   })
   // Неудачную загрузку не кэшируем: иначе одна ошибка (например, отсутствующий шрифт)
@@ -151,6 +137,12 @@ export interface ResumeData {
   projects: ResumeItem[]
   certificates: ResumeItem[]
   labels: ResumeLabels
+  /**
+   * Происхождение документа: свойства файла, знак, шапка и колонтитул. Собирает
+   * ExportBrandingService — здесь только рисуем, чтобы рендер не знал ни про конфигурацию,
+   * ни про язык.
+   */
+  branding: PdfBranding
 }
 
 function section({ pdf, styles }: PdfKit, title: string, children: React.ReactNode) {
@@ -194,12 +186,31 @@ export async function renderResumePdf(data: ResumeData): Promise<Buffer> {
   const kit = await loadKit()
   const { pdf, styles } = kit
 
+  const { branding } = data
+
   const doc = h(
     pdf.Document,
-    { title: data.fullName, author: data.fullName },
+    // Свойства файла: автор — платформа, а не студент. Документ выпустила она, и в
+    // «Свойствах документа» это должно быть видно без открытия самого резюме.
+    // Персональных данных здесь нет намеренно (см. ExportBrandingService.pdfMetadata).
+    {
+      title: branding.metadata.title,
+      author: branding.metadata.author,
+      subject: branding.metadata.subject,
+      keywords: branding.metadata.keywords,
+      creator: branding.metadata.creator,
+      producer: branding.metadata.producer,
+      creationDate: branding.metadata.creationDate,
+    },
     h(
       pdf.Page,
       { size: 'A4', style: styles.page },
+      h(
+        pdf.View,
+        { style: styles.brandBar },
+        branding.logo ? h(pdf.Image, { src: branding.logo, style: styles.brandLogo }) : null,
+        h(pdf.Text, { style: styles.brandLine }, branding.generatedLine),
+      ),
       h(pdf.Text, { style: styles.name }, data.fullName),
       data.headline ? h(pdf.Text, { style: styles.headline }, data.headline) : null,
       data.contacts.length > 0
@@ -266,7 +277,14 @@ export async function renderResumePdf(data: ResumeData): Promise<Buffer> {
           )
         : null,
 
-      h(pdf.Text, { style: styles.footer, fixed: true }, data.labels.generated),
+      // Колонтитул на каждой странице: платформа, домен и «стр. N из M». `render` зовётся
+      // на каждой странице уже после разбивки — только так известно общее число страниц.
+      h(pdf.Text, {
+        style: styles.footer,
+        fixed: true,
+        render: ({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) =>
+          branding.footerLine(pageNumber, totalPages),
+      }),
     ),
   )
 

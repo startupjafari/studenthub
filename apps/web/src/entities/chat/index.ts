@@ -19,6 +19,7 @@ export {
   forwardMessageRequest,
   sharePostRequest,
   exportChatRequest,
+  exportChatFile,
   setChatMutedRequest,
   setChatPinnedRequest,
   setChatArchivedRequest,

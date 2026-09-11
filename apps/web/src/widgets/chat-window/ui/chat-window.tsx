@@ -37,7 +37,7 @@ import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
 import {
   chatKeys,
-  exportChatRequest,
+  exportChatFile,
   fetchChats,
   fetchSavedChat,
   createChatPoll,
@@ -109,6 +109,7 @@ import {
   hapticTick,
   prefersReducedMotion,
   rubberband,
+  saveFile,
   useChatListSlot,
   useMediaQuery,
   useSetChatOpen,
@@ -692,31 +693,12 @@ export function ChatWindow() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  // Файл собирает сервер: в нём шапка с происхождением выгрузки (кто, когда, из какой
+  // системы) и единое имя по шаблону платформы. Браузер такой файл собрать не мог —
+  // он не знает ни домена, ни версии, ни таймзоны вуза.
   const exportChat = useMutation({
-    mutationFn: async (format: 'txt' | 'json') => {
-      const items = await exportChatRequest(activeId as string)
-      const title = activeChat ? chatTitle(activeChat, t) : activeId
-      const body =
-        format === 'json'
-          ? JSON.stringify(items, null, 2)
-          : items
-              .map(
-                (m) =>
-                  `[${new Date(m.createdAt).toLocaleString(locale)}] ${senderName(m)}: ${
-                    m.content || (m.media.length ? `[${t('attachment')}]` : '')
-                  }`,
-              )
-              .join('\n')
-      const blob = new Blob([body], {
-        type: format === 'json' ? 'application/json' : 'text/plain;charset=utf-8',
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `chat-${title}.${format}`
-      a.click()
-      URL.revokeObjectURL(url)
-    },
+    mutationFn: (format: 'txt' | 'json') => exportChatFile(activeId as string, format, locale),
+    onSuccess: saveFile,
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 

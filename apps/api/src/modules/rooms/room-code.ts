@@ -1,17 +1,12 @@
-import { randomInt } from 'node:crypto'
+import { readableCode } from '../../common/crypto/readable-code'
 
-// Код в печатном QR помещения (Ф16). Алфавит без визуально похожих символов (0/O, 1/I/L),
-// потому что код печатается на наклейке текстом — как запасной путь, если QR не читается.
-const ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+// Код в печатном QR помещения (Ф16). Алфавит и длина — общие для всех кодов, которые
+// человек набирает руками (см. common/crypto/readable-code).
 const LENGTH = 8
 
-/** Случайный код помещения: 8 символов из 31 → ~8·10^11 вариантов, коллизии ловит unique-индекс. */
+/** Случайный код помещения. Коллизии ловит unique-индекс. */
 export function randomCode(): string {
-  let code = ''
-  for (let i = 0; i < LENGTH; i += 1) {
-    code += ALPHABET[randomInt(ALPHABET.length)]
-  }
-  return code
+  return readableCode(LENGTH)
 }
 
 /** Отображение на наклейке: `ABCD-EFGH` читается и набирается вручную заметно легче. */

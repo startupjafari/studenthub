@@ -1295,6 +1295,10 @@
     "startPreparation": "Start preparation",
     "requestCorrection": "Request correction",
     "rejectApp": "Reject",
+    "certificateTitle": "Certificate of enrolment",
+    "certificateHint": "The platform builds the form from the student profile, issues it to their account and assigns a verification code. No upload needed.",
+    "certificateAction": "Generate and issue",
+    "certificateIssued": "Certificate issued. Verification code: {code}",
     "addResult": "Add result",
     "markReady": "Mark ready",
     "issue": "Issue document",
@@ -1845,7 +1849,7 @@
     "subtitle": "All users on the platform",
     "searchPlaceholder": "Search by name or email",
     "allRoles": "All roles",
-    "exportCsv": "Export CSV",
+    "export": "Export",
     "empty": "No users",
     "updated": "Updated",
     "colName": "Name",
@@ -3294,5 +3298,22 @@
     "imageUrl": "Image address",
     "insert": "Insert",
     "cancel": "Cancel"
+  },
+  "Verify": {
+    "loading": "Verifying the document…",
+    "notFoundTitle": "Document not found",
+    "notFoundHint": "No document with this code was issued. Check the code on the form — it contains no letters O, I, L and no digits 0 or 1.",
+    "validBadge": "Verified by StudentHub",
+    "revokedBadge": "Document revoked",
+    "notOfficialBadge": "This is an internal data export, not an official document",
+    "kind": "Type",
+    "kind_certificate": "Certificate of enrolment",
+    "kind_other": "Data export",
+    "number": "Number",
+    "subject": "Issued to",
+    "issuer": "Issued by",
+    "issuedAt": "Issued on",
+    "revokedAt": "Revoked on",
+    "privacyHint": "This page confirms only that the document was issued. Its contents and full personal data are not disclosed."
   }
 }
