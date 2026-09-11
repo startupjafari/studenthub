@@ -103,59 +103,66 @@ function BottomNav({
 
   return (
     <>
-      {/* Полупрозрачный материал вместо глухой полосы (apple-design §12): список под панелью
-          виден и продолжает движение, поэтому она читается как парящий слой, а не как
-          отрезанный край экрана. Плотный запасной вид — в .material-chrome. */}
-      <nav className="material-chrome fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-border pb-[env(safe-area-inset-bottom)] lg:hidden">
-        {nav.slice(0, 4).map((item) => {
-          const active = isActive(item, pathname)
-          const Icon = item.icon
-          const badgeCount = item.key === 'chats' ? chatsUnread : 0
-          return (
-            <Link
-              key={item.key}
-              href={item.href}
-              aria-current={active ? 'page' : undefined}
-              className={cn(
-                'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 py-2 text-[0.6875rem] font-medium transition-colors',
-                active ? 'text-primary' : 'text-muted-foreground',
-              )}
-            >
-              {/* Бейдж навешен на иконку, а не на строку: в нижней навигации подпись и так
-                  обрезается по ширине вкладки, и число рядом с ней было бы нечитаемо. */}
-              <span className="relative shrink-0">
-                <Icon className="size-5" aria-hidden />
-                {badgeCount > 0 && (
-                  <span
-                    aria-label={tNav('unreadMessages', { count: badgeCount })}
-                    className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground"
-                  >
-                    {badgeCount > 99 ? '99+' : badgeCount}
-                  </span>
+      {/* Навигация — плавающие острова, а не полоса во всю ширину: капсула с разделами и
+          отдельная круглая кнопка «Ещё». Полупрозрачный материал (apple-design §12) — контент
+          виден под панелью и продолжает движение, нижний край экрана не отрезан. Плотный
+          запасной вид — в .material-island. */}
+      <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex items-end gap-2 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
+        <div className="material-island pointer-events-auto flex min-w-0 flex-1 items-stretch gap-0.5 rounded-full border border-border/60 p-1 shadow-lg">
+          {nav.slice(0, 4).map((item) => {
+            const active = isActive(item, pathname)
+            const Icon = item.icon
+            const badgeCount = item.key === 'chats' ? chatsUnread : 0
+            return (
+              <Link
+                key={item.key}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 py-1 text-[0.625rem] font-medium transition-colors',
+                  // Активный раздел — залитая пилюля внутри капсулы: на полупрозрачном
+                  // материале одного цвета текста мало, чтобы прочитать «я здесь».
+                  active ? 'bg-foreground/[0.08] text-primary' : 'text-muted-foreground',
                 )}
-              </span>
-              <span className="w-full truncate text-center leading-tight">{tNav(item.key)}</span>
-            </Link>
-          )
-        })}
+              >
+                {/* Бейдж навешен на иконку, а не на строку: в нижней навигации подпись и так
+                  обрезается по ширине вкладки, и число рядом с ней было бы нечитаемо. */}
+                <span className="relative shrink-0">
+                  <Icon className="size-5" aria-hidden />
+                  {badgeCount > 0 && (
+                    <span
+                      aria-label={tNav('unreadMessages', { count: badgeCount })}
+                      className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground"
+                    >
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  )}
+                </span>
+                <span className="w-full truncate text-center leading-tight">{tNav(item.key)}</span>
+              </Link>
+            )
+          })}
+        </div>
+        {/* «Ещё» — отдельный круглый остров: он открывает лист, а не переводит на раздел,
+            и внутри капсулы разделов читался бы как пятая вкладка. */}
         <button
           type="button"
           onClick={() => (moreOpen ? closeMore() : setMoreOpen(true))}
           aria-expanded={moreOpen}
+          aria-label={tNav('more')}
           className={cn(
-            'flex min-h-14 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 px-0.5 py-2 text-[0.6875rem] font-medium transition-colors',
+            'material-island pointer-events-auto flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/60 shadow-lg transition-[color,transform] active:scale-95',
             moreOpen ? 'text-primary' : 'text-muted-foreground',
           )}
         >
-          <span className="relative shrink-0">
-            <MoreHorizontal className="size-5" aria-hidden />
+          <span className="relative">
+            <MoreHorizontal className="size-6" aria-hidden />
             {count > 0 && (
-              <span className="absolute -top-1.5 -right-2 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
+              <span className="absolute -top-2 -right-2.5 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
                 {badge}
               </span>
             )}
           </span>
-          <span className="w-full truncate text-center leading-tight">{tNav('more')}</span>
         </button>
       </nav>
 
@@ -329,7 +336,7 @@ export function AppShell({
               не меняются — блок с авто-высотой в колонке ведёт себя как раньше. */}
           {/* `sh-scroll` резервирует место под полосу прокрутки: без этого переход с короткой
               страницы на длинную сдвигал всю раскладку на ширину полосы. */}
-          <main className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-24 md:p-6 md:pt-6 lg:pb-6">
+          <main className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-28 md:p-6 md:pt-6 md:pb-28 lg:pb-6">
             {children}
           </main>
         </div>

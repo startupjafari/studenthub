@@ -31,7 +31,6 @@ import {
 import {
   Avatar,
   AvatarFallback,
-  Button,
   EmojiPicker,
   MARKDOWN_ACTIONS_INLINE,
   RichTextField,
@@ -129,19 +128,22 @@ export function ChatComposer({
     composerRef.current?.insertText(emoji)
   }
 
+  // Плавающий остров панели: полупрозрачный материал, граница и тень (уровень 3).
+  const island = 'material-island border border-border/60 shadow-lg'
+  // Круглая кнопка-остров (скрепка, микрофон, отмена записи) — 48 px под палец.
+  const roundBtn = cn(
+    island,
+    'flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,transform] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50',
+  )
+
   return (
-    // Остров, а не полоса у края: панель парит над лентой (уровень 3 — граница + тень),
-    // отступ до края экрана держит обёртка в ChatWindow. pointer-events-auto — потому что
-    // обёртка их снимает, чтобы лента прокручивалась пальцем рядом с панелью.
-    <div
-      className={cn(
-        'material-chrome pointer-events-auto flex flex-col rounded-2xl border border-border shadow-lg',
-        'transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15',
-      )}
-    >
+    // Не одна панель, а несколько островов в колонке: ответ/правка сверху, ниже ряд
+    // «скрепка · поле · микрофон». Отступ до края экрана держит обёртка в ChatWindow;
+    // pointer-events-auto — обёртка их снимает, чтобы лента прокручивалась рядом с панелью.
+    <div className="pointer-events-auto flex flex-col gap-2">
       {/* Панель правки */}
       {editing && (
-        <div className="flex items-center gap-2 rounded-t-2xl border-b border-border bg-muted/40 px-3 py-2 text-xs">
+        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 text-xs')}>
           <Pencil className="size-3.5 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0 flex-1">
             <span className="font-medium">{t('editing')}</span>
@@ -160,7 +162,7 @@ export function ChatComposer({
 
       {/* Панель ответа */}
       {replyTo && !editing && (
-        <div className="flex items-center gap-2 rounded-t-2xl border-b border-border bg-muted/40 px-3 py-2 text-xs">
+        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 text-xs')}>
           <Reply className="size-3.5 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0 flex-1">
             <span className="font-medium">
@@ -191,7 +193,12 @@ export function ChatComposer({
       )}
 
       {blocked ? (
-        <div className="flex items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground">
+        <div
+          className={cn(
+            island,
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground',
+          )}
+        >
           <Ban className="size-4 shrink-0" aria-hidden />
           <span>{iBlocked ? t('blockedBanner') : t('blockedByBanner')}</span>
           {iBlocked && otherId && (
@@ -206,8 +213,8 @@ export function ChatComposer({
         </div>
       ) : (
         // items-end, а не items-center: поле растёт вверх под многострочный текст, а
-        // скрепка, смайл и отправка остаются на своей строке у низа.
-        <div className="relative flex items-end gap-1 p-1.5">
+        // круглые кнопки остаются внизу, на своей линии.
+        <div className="relative flex items-end gap-2">
           {/* Попап @-упоминаний участников */}
           {mentionCandidates.length > 0 && !voice.recording && (
             <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-lg">
@@ -268,18 +275,20 @@ export function ChatComposer({
           {voice.recording ? (
             // Строка записи: отмена · таймер + волны · пауза/продолжить · отправить
             <>
-              <Button
+              <button
                 type="button"
-                size="lg"
-                icon
-                variant="ghost"
                 aria-label={t('cancelRecording')}
                 onClick={voice.cancel}
-                className="text-destructive hover:text-destructive"
+                className={cn(roundBtn, 'text-destructive hover:text-destructive')}
               >
                 <Trash2 className="size-5" aria-hidden />
-              </Button>
-              <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-input px-3">
+              </button>
+              <div
+                className={cn(
+                  island,
+                  'flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full px-4',
+                )}
+              >
                 <span
                   className={cn(
                     'size-2 shrink-0 rounded-full bg-destructive',
@@ -291,24 +300,27 @@ export function ChatComposer({
                   {recMMSS}
                 </span>
                 <VoiceWaveform analyserRef={voice.analyserRef} paused={voice.paused} />
+                <button
+                  type="button"
+                  aria-label={voice.paused ? t('resumeRecording') : t('pauseRecording')}
+                  onClick={voice.paused ? voice.resume : voice.pause}
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+                >
+                  {voice.paused ? (
+                    <Play className="size-4" aria-hidden />
+                  ) : (
+                    <Pause className="size-4" aria-hidden />
+                  )}
+                </button>
               </div>
-              <Button
+              <button
                 type="button"
-                size="lg"
-                icon
-                variant="ghost"
-                aria-label={voice.paused ? t('resumeRecording') : t('pauseRecording')}
-                onClick={voice.paused ? voice.resume : voice.pause}
+                aria-label={t('send')}
+                onClick={voice.finish}
+                className="flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
               >
-                {voice.paused ? (
-                  <Play className="size-5" aria-hidden />
-                ) : (
-                  <Pause className="size-5" aria-hidden />
-                )}
-              </Button>
-              <Button type="button" size="lg" icon aria-label={t('send')} onClick={voice.finish}>
-                <Send className="size-4" aria-hidden />
-              </Button>
+                <Send className="size-5" aria-hidden />
+              </button>
             </>
           ) : (
             <>
@@ -319,7 +331,7 @@ export function ChatComposer({
                   aria-expanded={attachMenuOpen}
                   disabled={!connected || !!editing}
                   onClick={() => setAttachMenuOpen((v) => !v)}
-                  className="flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  className={roundBtn}
                 >
                   <Paperclip className="size-5" aria-hidden />
                 </button>
@@ -378,68 +390,73 @@ export function ChatComposer({
                   </>
                 )}
               </div>
-              {/* Поле сообщения — то же поле форматированного текста, что у поста и
-                  статьи: жирный виден жирным сразу, на сервер уезжает markdown, панель
-                  всплывает над выделением (только строчная разметка). Enter отправляет,
-                  Shift+Enter переносит строку, поле растёт под текст и с пятой строки
-                  прокручивается. */}
-              <RichTextField
-                bare
-                handle={composerRef}
-                value={text}
-                onChange={onType}
-                actions={MARKDOWN_ACTIONS_INLINE}
-                wrapperClassName="flex-1"
-                className="max-h-32 overflow-y-auto"
-                aria-label={t('messagePlaceholder')}
-                placeholder={t('messagePlaceholder')}
-                onKeyDown={(e) => {
-                  // Открыт попап упоминаний: Enter — выбрать первого, Escape — закрыть.
-                  if (mentionCandidates.length > 0) {
-                    if (e.key === 'Enter') {
-                      const first = mentionCandidates[0]
-                      if (first) onInsertMention(first)
-                      return true
-                    }
-                    if (e.key === 'Escape') {
-                      onCloseMentions()
-                      return true
-                    }
-                  }
-                  // Enter отправляет, Shift+Enter — перенос строки (это делает редактор).
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    onSend()
-                    return true
-                  }
-                  return false
-                }}
-              />
-              {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для нескольких. */}
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  aria-label={t('emoji')}
-                  disabled={!connected}
-                  onClick={() => setEmojiOpen((v) => !v)}
-                  className="flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                >
-                  <Smile className="size-5" aria-hidden />
-                </button>
-                {emojiOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setEmojiOpen(false)} />
-                    <div className="absolute bottom-full right-0 z-50 mb-2">
-                      <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
-                    </div>
-                  </>
+              {/* Поле и смайл — одна капсула (референс Telegram): текст растёт внутрь
+                  острова, смайл живёт у правого края поля, а не отдельной кнопкой в ряду.
+                  Само поле — то же RichTextField, что у поста и статьи: жирный виден жирным
+                  сразу, на сервер уезжает markdown, панель всплывает над выделением. Enter
+                  отправляет, Shift+Enter переносит строку, с пятой строки поле прокручивается. */}
+              <div
+                className={cn(
+                  island,
+                  'relative flex min-w-0 flex-1 items-end rounded-3xl transition-[border-color] focus-within:border-ring/70',
                 )}
+              >
+                <RichTextField
+                  bare
+                  handle={composerRef}
+                  value={text}
+                  onChange={onType}
+                  actions={MARKDOWN_ACTIONS_INLINE}
+                  wrapperClassName="min-w-0 flex-1"
+                  className="max-h-32 overflow-y-auto py-3 pl-4 pr-1"
+                  aria-label={t('messagePlaceholder')}
+                  placeholder={t('messagePlaceholder')}
+                  onKeyDown={(e) => {
+                    // Открыт попап упоминаний: Enter — выбрать первого, Escape — закрыть.
+                    if (mentionCandidates.length > 0) {
+                      if (e.key === 'Enter') {
+                        const first = mentionCandidates[0]
+                        if (first) onInsertMention(first)
+                        return true
+                      }
+                      if (e.key === 'Escape') {
+                        onCloseMentions()
+                        return true
+                      }
+                    }
+                    // Enter отправляет, Shift+Enter — перенос строки (это делает редактор).
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      onSend()
+                      return true
+                    }
+                    return false
+                  }}
+                />
+                {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для нескольких. */}
+                <div className="relative shrink-0 pb-1 pr-1">
+                  <button
+                    type="button"
+                    aria-label={t('emoji')}
+                    disabled={!connected}
+                    onClick={() => setEmojiOpen((v) => !v)}
+                    className="flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                  >
+                    <Smile className="size-5" aria-hidden />
+                  </button>
+                  {emojiOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setEmojiOpen(false)} />
+                      <div className="absolute bottom-full right-0 z-50 mb-2">
+                        <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
               {showSend ? (
-                <div className="relative">
-                  <Button
+                <div className="relative shrink-0">
+                  <button
                     type="button"
-                    size="lg"
-                    icon
                     aria-label={silent ? t('sendSilentAria') : t('send')}
                     disabled={!connected}
                     onClick={onSend}
@@ -449,13 +466,14 @@ export function ChatComposer({
                       e.preventDefault()
                       setSendMenuOpen(true)
                     }}
+                    className="flex size-12 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 disabled:cursor-default disabled:opacity-50"
                   >
                     {silent ? (
-                      <BellOff className="size-4" aria-hidden />
+                      <BellOff className="size-5" aria-hidden />
                     ) : (
-                      <Send className="size-4" aria-hidden />
+                      <Send className="size-5" aria-hidden />
                     )}
-                  </Button>
+                  </button>
                   <button
                     type="button"
                     aria-label={t('sendOptions')}
@@ -496,17 +514,15 @@ export function ChatComposer({
                   )}
                 </div>
               ) : (
-                <Button
+                <button
                   type="button"
-                  size="lg"
-                  icon
-                  variant="ghost"
                   aria-label={t('recordVoice')}
                   disabled={!connected}
                   onClick={() => void voice.start()}
+                  className={roundBtn}
                 >
                   <Mic className="size-5" aria-hidden />
-                </Button>
+                </button>
               )}
             </>
           )}
