@@ -3,19 +3,19 @@
 import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { useMediaQuery } from '../../../shared/lib'
+import { saveFile, useMediaQuery } from '../../../shared/lib'
 import {
   adminUserKeys,
   blockUserRequest,
+  exportUsers,
   fetchUsers,
   ProfileLink,
   unblockUserRequest,
-  type AdminUser,
 } from '../../../entities/user'
 import {
   Badge,
@@ -74,18 +74,10 @@ const CAN_BLOCK: Role[] = [
   Role.UNIVERSITY_MODERATOR,
 ]
 
-function toCsv(users: AdminUser[]): string {
-  const head = ['id', 'email', 'lastName', 'firstName', 'role', 'blocked', 'createdAt']
-  const rows = users.map((u) =>
-    [u.id, u.email, u.lastName, u.firstName, u.role, u.isBlocked, u.createdAt]
-      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-      .join(','),
-  )
-  return [head.join(','), ...rows].join('\n')
-}
-
 export function UsersTable({ title, subtitle, role, showRoleFilter = false }: UsersTableProps) {
   const t = useTranslations('Users')
+  // Язык подписей в файле выгрузки (заголовки колонок и лист «Инфо» переводит API).
+  const locale = useLocale()
   const tRoles = useTranslations('Roles')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -139,17 +131,14 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
-  // Экспорт — по всей выборке фильтров, а не по видимой странице (лимит сервера — 200).
-  async function exportCsv(): Promise<void> {
-    const all = await fetchUsers({ ...filters, page: 1, limit: 200 })
-    const blob = new Blob(['﻿' + toCsv(all.items)], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `users-${Date.now()}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  // Файл собирает сервер: там полная выборка по тем же фильтрам, лист с происхождением
+  // выгрузки и единое имя файла. Клиентская сборка брала первую страницу ответа и молча
+  // обрывала выгрузку на 200 строках — в файле это никак не было видно.
+  const exportMut = useMutation({
+    mutationFn: () => exportUsers(filters, locale),
+    onSuccess: saveFile,
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -186,9 +175,15 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 </SelectContent>
               </Select>
             )}
-            <Button type="button" size="md" onClick={() => void exportCsv()} disabled={total === 0}>
+            <Button
+              type="button"
+              size="md"
+              onClick={() => exportMut.mutate()}
+              loading={exportMut.isPending}
+              disabled={total === 0}
+            >
               <Download className="size-4" aria-hidden />
-              {t('exportCsv')}
+              {t('export')}
             </Button>
           </>
         }

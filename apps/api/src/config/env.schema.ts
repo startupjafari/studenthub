@@ -88,6 +88,18 @@ export const envSchema = z.object({
   SMTP_FROM: z.string().optional(),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+
+  // Брендирование выгружаемых файлов (план «Брендирование экспорта», этап A1).
+  /** Название платформы в шапках, колонтитулах и метаданных документов. */
+  BRAND_NAME: z.string().min(1).default('StudentHub'),
+  /**
+   * Публичный адрес веба для колонтитулов и ссылок проверки документов.
+   *
+   * Отдельно от CORS_ORIGIN намеренно: адрес попадает ВНУТРЬ выданных файлов и должен
+   * переживать смену настроек CORS, а после переезда на постоянный домен меняться одной
+   * строкой. Не задан — берётся первый origin CORS_ORIGIN (dev работает из коробки).
+   */
+  APP_PUBLIC_URL: optionalEnv(z.string().url()),
   THROTTLE_TTL: z.coerce.number().int().positive().default(900),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(5),
   // Мониторинг (Ф13.8). Без SENTRY_DSN трекер не инициализируется вовсе — ни в dev,

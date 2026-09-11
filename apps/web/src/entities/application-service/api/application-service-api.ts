@@ -304,6 +304,25 @@ export async function addResultRequest(id: string, body: AddApplicationResultInp
   await api.post(`/applications/${id}/results`, body)
 }
 
+/**
+ * Сформировать справку об обучении вместо загрузки готового файла.
+ *
+ * Всё делает сервер: собирает бланк по данным студента, регистрирует документ в журнале
+ * выгрузок и выдаёт его студенту. Возвращает код проверки — его печатают в бланке, и по
+ * нему справку подтверждают.
+ */
+export async function issueCertificateRequest(
+  id: string,
+  locale: string,
+): Promise<{ documentId: string; verificationCode: string }> {
+  const { data } = await api.post<{ documentId: string; verificationCode: string }>(
+    `/applications/${id}/results/certificate`,
+    undefined,
+    { params: { locale } },
+  )
+  return data
+}
+
 // Ссылка на выданный документ: гейт по scope заявки, а не по владению документом —
 // поэтому и студент, и обработчик берут её здесь, а не в домене «Документы».
 export async function fetchApplicationResultUrl(

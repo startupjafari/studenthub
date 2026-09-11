@@ -196,7 +196,8 @@ model ApplicationEvent {
   applicationId String   @map("application_id")
   actorId       String?  @map("actor_id")
   // STATUS_CHANGED | CREATED | SUBMITTED | ASSIGNED | DOCUMENT_ADDED | DOCUMENT_ACCEPTED |
-  // DOCUMENT_REJECTED | COMMENT_ADDED | RESULT_ADDED | CANCELLED | REJECTED | READY | ISSUED ...
+  // DOCUMENT_REJECTED | COMMENT_ADDED | RESULT_ADDED | RESULT_REVOKED | CANCELLED | REJECTED |
+  // READY | ISSUED ...
   action        String
   fromStatus    String?  @map("from_status")
   toStatus      String?  @map("to_status")

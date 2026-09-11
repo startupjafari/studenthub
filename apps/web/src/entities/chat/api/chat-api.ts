@@ -6,6 +6,7 @@ import type {
   UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
+import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import { sortChats } from '../lib/sort-chats'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type {
@@ -351,6 +352,18 @@ export async function sharePostRequest(
     comment: comment?.trim() || undefined,
   })
   return data
+}
+
+/**
+ * Экспорт истории чата файлом. Собирает сервер: файл несёт шапку с происхождением
+ * выгрузки и единое имя, а браузер об этом ничего не знает.
+ */
+export async function exportChatFile(
+  chatId: string,
+  format: 'txt' | 'json',
+  locale: string,
+): Promise<DownloadedFile> {
+  return requestFile(`/chats/${chatId}/export/file`, { format, locale })
 }
 
 export async function exportChatRequest(chatId: string): Promise<ChatMessage[]> {

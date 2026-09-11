@@ -1,4 +1,5 @@
 import * as QRCode from 'qrcode'
+import { brandMarkBadge } from '../brand/brand-mark'
 
 /**
  * Единый рендер QR-кодов платформы: скруглённые модули, скруглённая подложка и логотип
@@ -17,8 +18,6 @@ import * as QRCode from 'qrcode'
 /** Цвет модулей. Максимальный контраст: наклейки печатают и сканируют в плохом свете. */
 const DARK = '#000000'
 const LIGHT = '#ffffff'
-/** Брендовый синий — hex-приближение `--primary` из globals.css (SVG в <img> не видит CSS-переменные). */
-const BRAND = '#2f6bf3'
 
 /** Доля ширины кода, которую занимает бейдж логотипа. Выше ~30% — риск для распознавания. */
 const LOGO_RATIO = 0.24
@@ -80,7 +79,7 @@ export function renderQrDataUrl(text: string, options: QrImageOptions = {}): str
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${width}" viewBox="0 0 ${total} ${total}" shape-rendering="geometricPrecision">`,
     `<rect width="${total}" height="${total}" rx="${PLATE_RADIUS}" fill="${LIGHT}"/>`,
     `<g fill="${DARK}">${parts.join('')}</g>`,
-    logo ? logoBadge(centre, logoSpan) : '',
+    logo ? brandMarkBadge(centre, logoSpan) : '',
     `</svg>`,
   ].join('')
 
@@ -105,32 +104,5 @@ function finder(x: number, y: number): string {
   return [
     `<rect x="${x + 0.5}" y="${y + 0.5}" width="6" height="6" rx="1.9" fill="none" stroke="${DARK}" stroke-width="1"/>`,
     `<rect x="${x + 2}" y="${y + 2}" width="3" height="3" rx="0.95"/>`,
-  ].join('')
-}
-
-/**
- * Бейдж с логотипом StudentHub: белая скруглённая плашка и академическая шапочка.
- * Шапочка нарисована здесь, а не взята из lucide: в API этой библиотеки нет, а фигура —
- * ромб, тулья и кисточка.
- */
-function logoBadge(centre: number, span: number): string {
-  const x = centre - span / 2
-  const glyph = span * 0.66
-  const gx = centre - glyph / 2
-  const scale = glyph / 24
-
-  return [
-    `<g>`,
-    `<rect x="${x}" y="${x}" width="${span}" height="${span}" rx="${span * 0.26}" fill="${LIGHT}"/>`,
-    `<g transform="translate(${gx} ${gx}) scale(${scale})" fill="${BRAND}">`,
-    // Ромб-верх шапочки.
-    `<path d="M12 3.4 22.6 8.6 12 13.8 1.4 8.6Z"/>`,
-    // Тулья под ним.
-    `<path d="M6.4 11.4v3.9c0 1.6 2.5 2.8 5.6 2.8s5.6-1.2 5.6-2.8v-3.9L12 14.2Z"/>`,
-    // Кисточка.
-    `<rect x="20.4" y="9.4" width="1.5" height="5" rx="0.75"/>`,
-    `<circle cx="21.15" cy="15.4" r="1.35"/>`,
-    `</g>`,
-    `</g>`,
   ].join('')
 }
