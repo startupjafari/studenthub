@@ -53,6 +53,7 @@ export {
 export { ConfirmProvider, useConfirm, type ConfirmOptions } from './confirm-dialog'
 export { PromptDialog } from './prompt-dialog'
 export { ScrollRow, type ScrollRowProps } from './scroll-row'
+export { RowContextMenu, type RowContextMenuItem } from './row-context-menu'
 export { Skeleton } from './skeleton'
 export { Avatar, AvatarImage, AvatarFallback } from './avatar'
 export { EmptyState, type EmptyStateProps } from './empty-state'

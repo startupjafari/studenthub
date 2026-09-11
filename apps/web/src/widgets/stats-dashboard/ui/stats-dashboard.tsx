@@ -129,6 +129,7 @@ export function StatsDashboard() {
           факультетов меняется раз в год. */}
       <div className="grid gap-3 sm:grid-cols-3">
         <MetricTile
+          index={0}
           icon={Percent}
           tone="text-info"
           label={t('attendanceRate')}
@@ -136,6 +137,7 @@ export function StatsDashboard() {
           loading={analyticsLoading}
         />
         <MetricTile
+          index={1}
           icon={ClipboardList}
           tone="text-warning"
           label={t('submissionsPending')}
@@ -143,6 +145,7 @@ export function StatsDashboard() {
           loading={analyticsLoading}
         />
         <MetricTile
+          index={2}
           icon={CalendarClock}
           label={t('examsUpcoming')}
           value={examsUpcoming}
@@ -151,9 +154,10 @@ export function StatsDashboard() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {structure.map((tile) => (
+        {structure.map((tile, i) => (
           <MetricTile
             key={tile.key}
+            index={i}
             icon={tile.icon}
             label={t(tile.key)}
             value={tile.value}

@@ -87,6 +87,7 @@ export function StudentGradesView() {
           {overall !== null && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <MetricTile
+                index={0}
                 icon={TrendingUp}
                 label={t('overall')}
                 value={`${overall}%`}
@@ -95,6 +96,7 @@ export function StudentGradesView() {
               />
               {totalCredits > 0 && (
                 <MetricTile
+                  index={1}
                   icon={Milestone}
                   tone="text-warning"
                   label={t('credits')}
