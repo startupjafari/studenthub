@@ -126,7 +126,7 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
 
     const maxScroll = (): number => node.scrollWidth - node.clientWidth
 
-    function onPointerDown(e: PointerEvent): void {
+    const onPointerDown = (e: PointerEvent): void => {
       // Только мышь и только левой кнопкой: тач отдан нативной прокрутке, перо и правая
       // кнопка — системным жестам.
       if (e.pointerType !== 'mouse' || e.button !== 0) return
@@ -142,7 +142,7 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
       history = [{ position: e.clientX, time: performance.now() }]
     }
 
-    function onPointerMove(e: PointerEvent): void {
+    const onPointerMove = (e: PointerEvent): void => {
       if (!active) return
       const dx = e.clientX - startX
       if (!moved) {
@@ -158,7 +158,7 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
       e.preventDefault()
     }
 
-    function onPointerUp(): void {
+    const onPointerUp = (): void => {
       if (!active) return
       active = false
       if (!moved) return
@@ -172,7 +172,7 @@ export function useScrollRow<T extends HTMLElement = HTMLDivElement>(): ScrollRo
       glide(node, target, scrollVelocity)
     }
 
-    function onClick(e: MouseEvent): void {
+    const onClick = (e: MouseEvent): void => {
       if (!draggedRef.current) return
       draggedRef.current = false
       e.preventDefault()
