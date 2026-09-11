@@ -33,23 +33,27 @@ export function CareerAnalyticsView() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile
+          index={0}
           icon={Building2}
           label={t('companiesApproved')}
           value={d.companies.APPROVED ?? 0}
         />
         <MetricTile
+          index={1}
           icon={Briefcase}
           tone="text-info"
           label={t('vacanciesApproved')}
           value={d.vacancies.APPROVED ?? 0}
         />
         <MetricTile
+          index={2}
           icon={FileText}
           tone="text-warning"
           label={t('applications')}
           value={sum(d.funnel)}
         />
         <MetricTile
+          index={3}
           icon={UserCheck}
           tone="text-success"
           label={t('hired')}

@@ -115,12 +115,14 @@ export function StudyPlanView() {
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <MetricTile
+              index={0}
               icon={Milestone}
               tone="text-warning"
               label={t('credits')}
               value={`${model.doneCredits} / ${model.totalCredits}`}
             />
             <MetricTile
+              index={1}
               icon={TrendingUp}
               tone="text-success"
               label={t('progress')}

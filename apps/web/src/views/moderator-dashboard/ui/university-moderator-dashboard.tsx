@@ -236,6 +236,7 @@ export function UniversityModeratorDashboard() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricTile
+          index={0}
           icon={ShieldAlert}
           label={t('kpiQueue')}
           value={pending.data?.total ?? null}
@@ -243,6 +244,7 @@ export function UniversityModeratorDashboard() {
           href={QUEUE_HREF}
         />
         <MetricTile
+          index={1}
           icon={Flame}
           tone="text-destructive"
           label={t('kpiHigh')}
@@ -252,6 +254,7 @@ export function UniversityModeratorDashboard() {
           href={QUEUE_HREF}
         />
         <MetricTile
+          index={2}
           icon={Clock}
           tone="text-warning"
           label={t('kpiOverdue')}
@@ -261,6 +264,7 @@ export function UniversityModeratorDashboard() {
           href={QUEUE_HREF}
         />
         <MetricTile
+          index={3}
           icon={CheckCheck}
           tone="text-success"
           label={t('kpiResolvedWeek')}
@@ -269,6 +273,7 @@ export function UniversityModeratorDashboard() {
           href={AUDIT_HREF}
         />
         <MetricTile
+          index={4}
           icon={UserX}
           label={t('kpiBlocked')}
           value={blocked.data?.total ?? null}
