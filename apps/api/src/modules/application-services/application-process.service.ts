@@ -8,6 +8,13 @@ import {
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
+import { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
+import { UserService } from '../users/users.service'
+import { renderQrPngDataUrl } from '../../common/qr/qr-raster'
+import { renderStudyCertificatePdf } from './study-certificate-pdf'
+import { STUDY_CERTIFICATE_LABELS } from './study-certificate-labels'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -16,6 +23,13 @@ import { ApplicationPolicy } from './application.policy'
 
 // Обработка заявки сотрудником (§15–§17, §27): business-actions вместо generic PATCH /status.
 // Каждое действие: canProcess + scope + проверка перехода (state-machine) + событие + уведомление.
+
+/**
+ * Тип выдаваемого документа для справки об обучении. Категория `ISSUED_BY_UNIVERSITY` —
+ * обязательное условие `documents.issueToOwner` (выдать можно только то, что каталог вуза
+ * относит к выданному университетом).
+ */
+const STUDY_CERTIFICATE_TYPE = 'STUDY_PLACE_REF'
 
 const PROC_SELECT = {
   id: true,
@@ -49,6 +63,9 @@ export class ApplicationProcessService {
     private readonly queue: QueueService,
     private readonly realtime: RealtimeGateway,
     private readonly documents: DocumentsService,
+    private readonly users: UserService,
+    private readonly branding: ExportBrandingService,
+    private readonly exports: ExportRegistryService,
   ) {}
 
   /** Взять в работу: SUBMITTED/RESUBMITTED → IN_REVIEW, назначить на себя. */
@@ -137,22 +154,149 @@ export class ApplicationProcessService {
       })
       documentId = issued.id
     }
+    await this.recordResult(viewer, id, {
+      type: dto.type,
+      documentId,
+      documentNumber: dto.documentNumber,
+      note: dto.note,
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Сформировать справку об обучении и выдать её студенту (этап B7).
+   *
+   * Заменяет загрузку готового файла сотрудником: данные у платформы уже есть, а документ,
+   * который она выпустила сама, можно проверить — у него есть запись в журнале выгрузок и
+   * код в бланке.
+   *
+   * Порядок важен: сначала запись в журнале, потом рендер. Код проверки печатается ВНУТРИ
+   * документа, а после подписи документ неизменяем — дорисовать его потом будет нельзя.
+   */
+  async issueStudyCertificate(viewer: JwtPayload, id: string, locale: ExportLocale) {
+    const app = await this.load(viewer, id)
+    if (app.status !== 'IN_PREPARATION') {
+      throw new AppException('BAD_REQUEST', 'Справка формируется на этапе подготовки')
+    }
+    const subject = await this.users.academicSubject(app.studentId)
+    if (!subject) {
+      throw new AppException('NOT_FOUND', 'Данные студента не найдены')
+    }
+
+    const context: ExportContext = {
+      kind: 'certificate',
+      actor: { id: viewer.sub, fullName: await this.users.fullName(viewer.sub) },
+      locale,
+      // Таймзона вуза студента: дата выдачи справки — это дата по месту учёбы.
+      timezone: subject.timezone,
+      generatedAt: new Date(),
+      params: { applicationId: app.id, number: app.number },
+    }
+
+    // Официальный документ без записи в журнале непроверяем, поэтому здесь — в отличие от
+    // рабочих выгрузок — сбой журнала отменяет выдачу (см. ExportRegistryService.register).
+    const record = await this.exports.register({
+      context,
+      format: 'pdf',
+      // Реквизиты для страницы проверки: с ними сверяют бумагу, которую держат в руках.
+      // Снимком на момент выдачи — смена фамилии не должна задним числом «испортить»
+      // уже выданную справку.
+      document: {
+        subjectName: subject.fullName,
+        documentNumber: app.number ?? undefined,
+        issuerName: subject.universityName,
+      },
+    })
+    if (!record) {
+      throw new AppException(
+        'INTERNAL_ERROR',
+        'Не удалось зарегистрировать документ — справка не выдана',
+      )
+    }
+
+    const withCode: ExportContext = { ...context, shortId: record.shortId }
+    const verifyUrl = `${this.branding.publicUrl}/verify/${record.shortId}`
+    const buffer = await renderStudyCertificatePdf({
+      number: app.number ?? record.shortId,
+      verificationCode: record.shortId,
+      verificationUrl: verifyUrl,
+      verificationQr: await renderQrPngDataUrl(verifyUrl, { width: 256 }),
+      subject,
+      issuedAt: this.branding.dateTime(withCode),
+      labels: STUDY_CERTIFICATE_LABELS[locale],
+      branding: await this.branding.pdfBranding(withCode),
+    })
+
+    // Файл заводится на сотрудника (того требует issueToOwner), а документ — на студента.
+    const file = await this.documents.uploadFile(viewer, buffer)
+    const issued = await this.documents.issueToOwner(viewer, {
+      ownerId: app.studentId,
+      universityId: app.universityId,
+      type: STUDY_CERTIFICATE_TYPE,
+      title: app.service.nameRu,
+      number: app.number ?? undefined,
+      fileId: file.id,
+    })
+    await this.recordResult(viewer, id, {
+      type: 'DOCUMENT',
+      documentId: issued.id,
+      documentNumber: app.number ?? undefined,
+    })
+    return { documentId: issued.id, verificationCode: record.shortId }
+  }
+
+  /**
+   * Отозвать выданную справку: документ на руках перестаёт быть подтверждённым, страница
+   * проверки показывает «отозван» вместо зелёной отметки.
+   *
+   * Право то же, что на обработку заявки (`ApplicationPolicy`): отзывает тот, кто выдавал,
+   * — декан факультета или администрация вуза. Отдельной роли «отзывающего» не заводим,
+   * пока вуз не потребует иного.
+   *
+   * Сам файл не трогаем: он уже у студента на руках и в его кабинете, а изъять бумагу
+   * нельзя. Отзыв — это статус в журнале, и проверка по коду показывает именно его.
+   */
+  async revokeStudyCertificate(viewer: JwtPayload, id: string, reason?: string) {
+    const app = await this.load(viewer, id)
+    if (!app.number) {
+      throw new AppException('BAD_REQUEST', 'У заявки нет номера — отзывать нечего')
+    }
+    const revoked = await this.exports.revokeByDocumentNumber(app.number)
+    if (revoked === 0) {
+      throw new AppException('NOT_FOUND', 'Действующей справки по этой заявке нет')
+    }
+    await this.prisma.applicationEvent.create({
+      data: {
+        applicationId: id,
+        actorId: viewer.sub,
+        action: 'RESULT_REVOKED',
+        comment: reason ?? null,
+      },
+    })
+    return { revoked }
+  }
+
+  /** Запись результата заявки и события — общая для загруженного файла и выданной справки. */
+  private async recordResult(
+    viewer: JwtPayload,
+    applicationId: string,
+    result: { type: string; documentId: string | null; documentNumber?: string; note?: string },
+  ): Promise<void> {
     await this.prisma.$transaction([
       this.prisma.applicationResult.create({
         data: {
-          applicationId: id,
-          type: dto.type,
-          documentId,
-          documentNumber: dto.documentNumber,
-          note: dto.note,
+          applicationId,
+          type: result.type,
+          documentId: result.documentId,
+          documentNumber: result.documentNumber,
+          note: result.note,
           issuedById: viewer.sub,
         },
       }),
       this.prisma.applicationEvent.create({
-        data: { applicationId: id, actorId: viewer.sub, action: 'RESULT_ADDED' },
+        data: { applicationId, actorId: viewer.sub, action: 'RESULT_ADDED' },
       }),
     ])
-    return { ok: true }
   }
 
   /** Пометить готовым: IN_PREPARATION → READY (электронно) или READY_FOR_PICKUP (бумажный/оба). */

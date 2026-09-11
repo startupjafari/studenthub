@@ -8,6 +8,7 @@ import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ResumeService } from './resume.service'
 import { UpdateResumeDto } from './dto/update-resume.dto'
 import type { ResumeLabels } from './resume-pdf'
@@ -15,7 +16,10 @@ import type { ResumeLabels } from './resume-pdf'
 @ApiTags('Карьера — резюме')
 @Controller('career/resume')
 export class ResumeController {
-  constructor(private readonly resume: ResumeService) {}
+  constructor(
+    private readonly resume: ResumeService,
+    private readonly branding: ExportBrandingService,
+  ) {}
 
   @Get()
   @Roles(Role.STUDENT, Role.STAROSTA)
@@ -42,6 +46,10 @@ export class ResumeController {
    *
    * Подписи разделов приходят от клиента: язык интерфейса знает фронт, а держать в API
    * третью копию переводов — верный способ развести их с `messages/*.json`.
+   *
+   * `?locale=` — язык брендирования (шапка, колонтитул, свойства файла): эти строки живут
+   * в API и переводятся им же. Параметр необязательный, старые клиенты продолжают
+   * получать русский, контракт не сломан.
    */
   @Get('pdf')
   @Roles(Role.STUDENT, Role.STAROSTA)
@@ -50,23 +58,32 @@ export class ResumeController {
   @ApiResponse({ status: 200, description: 'PDF-файл' })
   async pdf(
     @CurrentUser() user: CurrentUserData,
-    @Query() labels: Partial<ResumeLabels>,
+    @Query() query: Partial<ResumeLabels> & { locale?: string },
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
-    const buffer = await this.resume.pdf(user, {
-      about: labels.about ?? 'About',
-      education: labels.education ?? 'Education',
-      skills: labels.skills ?? 'Skills',
-      languages: labels.languages ?? 'Languages',
-      experience: labels.experience ?? 'Experience',
-      projects: labels.projects ?? 'Projects',
-      certificates: labels.certificates ?? 'Certificates',
-      verified: labels.verified ?? 'verified',
-      generated: labels.generated ?? 'StudentHub',
-    })
+    const { buffer, filename } = await this.resume.pdf(
+      user,
+      {
+        about: query.about ?? 'About',
+        education: query.education ?? 'Education',
+        skills: query.skills ?? 'Skills',
+        languages: query.languages ?? 'Languages',
+        experience: query.experience ?? 'Experience',
+        projects: query.projects ?? 'Projects',
+        certificates: query.certificates ?? 'Certificates',
+        verified: query.verified ?? 'verified',
+        generated: query.generated ?? 'StudentHub',
+      },
+      this.branding.resolveLocale(query.locale),
+      this.ctx(req),
+    )
+    // Заголовки собирает служба брендирования: имя файла по единому шаблону и обе формы
+    // `filename` (RFC 5987). Раньше здесь стояла строка `resume.pdf` — кириллица в имени
+    // из неё выйти не могла в принципе.
     await reply
-      .header('content-type', 'application/pdf')
-      .header('content-disposition', 'attachment; filename="resume.pdf"')
+      .header('content-type', this.branding.contentType('pdf'))
+      .header('content-disposition', this.branding.disposition(filename))
       .send(buffer)
   }
 

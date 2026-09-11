@@ -1,5 +1,6 @@
 import type { UpdateResumeInput } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
+import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type { PublicResume, ResumeSettings } from '../model/types'
 
 export const resumeKeys = {
@@ -30,10 +31,9 @@ export async function fetchPublicResume(slug: string): Promise<PublicResume> {
  * Подписи разделов передаём с фронта: язык интерфейса знает он, и третья копия переводов
  * в API разошлась бы с messages/*.json.
  */
-export async function downloadResumePdf(labels: Record<string, string>): Promise<Blob> {
-  const { data } = await api.get<Blob>('/career/resume/pdf', {
-    params: labels,
-    responseType: 'blob',
-  })
-  return data
+export async function downloadResumePdf(
+  labels: Record<string, string>,
+  locale: string,
+): Promise<DownloadedFile> {
+  return requestFile('/career/resume/pdf', { ...labels, locale })
 }

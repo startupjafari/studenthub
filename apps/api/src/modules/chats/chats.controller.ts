@@ -11,6 +11,7 @@ import {
   Put,
   Query,
   Req,
+  Res,
 } from '@nestjs/common'
 import {
   ApiBearerAuth,
@@ -20,12 +21,14 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger'
-import type { FastifyRequest } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import { MessageSendRestSchema } from '@studenthub/shared-schemas'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
 import { readSingleUpload, readUploadWithFields } from '../../common/http/read-upload'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
+import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
 import { ChatsService } from './chats.service'
 import { CreateChatDto } from './dto/create-chat.dto'
 import { AddChatMemberDto } from './dto/add-chat-member.dto'
@@ -52,7 +55,10 @@ import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
 @ApiBearerAuth()
 @Controller('chats')
 export class ChatsController {
-  constructor(private readonly chats: ChatsService) {}
+  constructor(
+    private readonly chats: ChatsService,
+    private readonly branding: ExportBrandingService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -280,6 +286,54 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Массив сообщений для экспорта' })
   exportChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.exportMessages(user.sub, id)
+  }
+
+  /**
+   * То же самое файлом: с шапкой происхождения, единым именем и заголовками скачивания.
+   *
+   * Отдельный маршрут, а не `?format=` на эндпоинте выше: тот отдаёт JSON через общий
+   * интерцептор ответа, а файл уходит в `reply` мимо него — совмещать оба поведения в
+   * одном обработчике значило бы ветвить ответ до интерцептора.
+   */
+  @Get(':id/export/file')
+  @ApiOperation({ summary: 'Скачать историю чата файлом (txt или json)' })
+  @ApiResponse({ status: 200, description: 'Файл выгрузки' })
+  async exportChatFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query('format') format: string | undefined,
+    @Query('locale') locale: string | undefined,
+    @Req() req: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const ext = format === 'json' ? 'json' : 'txt'
+    const context = await this.exportContext(user.sub, this.branding.resolveLocale(locale))
+    const body = await this.chats.exportFile(user.sub, id, {
+      context,
+      info: this.branding.infoRows(context),
+      provenance: this.branding.provenance(context),
+      format: ext,
+      request: { ip: req.ip, userAgent: req.headers['user-agent'] },
+    })
+    await reply
+      .header('content-type', this.branding.contentType(ext))
+      .header(
+        'content-disposition',
+        this.branding.disposition(this.branding.filename(context, ext)),
+      )
+      .send(body)
+  }
+
+  /** Кто и когда выгружает: ФИО для шапки файла и таймзона вуза для дат. */
+  private async exportContext(userId: string, locale: ExportLocale): Promise<ExportContext> {
+    const actor = await this.chats.exportActor(userId)
+    return {
+      kind: 'chat',
+      actor: { id: userId, fullName: actor.fullName },
+      locale,
+      timezone: actor.timezone,
+      generatedAt: new Date(),
+    }
   }
 
   @Post(':id/request/accept')

@@ -23,8 +23,8 @@ test('декан добавляет пару в расписание групп�
 
   // Время сдвигаем на вечер: модалка предзаполняет понедельник 08:00–09:30, а seed ставит первую
   // пару в 08:30 — пересечение, и сервер вернул бы конфликт. Последний слот seed — 15:40–17:10.
-  await dialog.locator('#start').fill('18:00')
-  await dialog.locator('#end').fill('19:30')
+  await dialog.locator('#p-start').fill('18:00')
+  await dialog.locator('#p-end').fill('19:30')
 
   await dialog.getByRole('button', { name: 'Добавить пару' }).click()
 
