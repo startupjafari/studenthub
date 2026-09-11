@@ -28,6 +28,8 @@ import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import { PostsService } from '../posts/posts.service'
 import type { EnvVars } from '../../config/env.schema'
+import { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { ExportContext } from '../../common/export/export-branding.types'
 
 /** Проголосовавший в неанонимном опросе (§39). */
 interface PollVoter {
@@ -218,6 +220,7 @@ export class ChatsService {
     private readonly posts: PostsService,
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly exports: ExportRegistryService,
   ) {}
 
   // ── Членство ────────────────────────────────────────────────────────────────
@@ -1991,6 +1994,77 @@ export class ChatsService {
       this.logger.warn(`Экспорт чата ${chatId}: история усечена до ${CAP} сообщений`)
     }
     return rows
+  }
+
+  /**
+   * Кто выгружает: ФИО для шапки файла и таймзона вуза для дат в нём.
+   *
+   * Живёт здесь, а не в контроллере: к таблице пользователей ходит модуль-владелец, и
+   * запрос из контроллера был бы вторым местом, где это знание нужно поддерживать.
+   */
+  async exportActor(userId: string): Promise<{ fullName: string; timezone: string }> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, university: { select: { timezone: true } } },
+    })
+    return {
+      fullName: user ? `${user.firstName} ${user.lastName}` : '',
+      timezone: user?.university?.timezone ?? 'UTC',
+    }
+  }
+
+  /**
+   * Экспорт истории чата файлом.
+   *
+   * Собирает сервер, а не браузер: файл обязан нести происхождение (кто, когда, из какой
+   * системы выгрузил), а браузер об этом ничего не знает. Старый JSON-эндпоинт остаётся
+   * как был — на нём контракт клиента.
+   *
+   * `txt` — расшифровка для человека: шапка с происхождением и строки «[время] автор:
+   * текст». `json` — машинный формат, и там происхождение уезжает в отдельный ключ
+   * `export`, чтобы массив сообщений остался массивом сообщений.
+   */
+  async exportFile(
+    userId: string,
+    chatId: string,
+    options: {
+      /** Кто и когда выгружает: из него берётся таймзона и запись в журнал. */
+      context: ExportContext
+      /** Происхождение для текстовой шапки — подписи на языке выгрузки (`infoRows`). */
+      info: Array<[label: string, value: string]>
+      /** Оно же машинными ключами для JSON (`provenance`): ключ не зависит от языка. */
+      provenance: Record<string, string>
+      format: 'txt' | 'json'
+      request?: { ip?: string; userAgent?: string }
+    },
+  ): Promise<string> {
+    const rows = await this.exportMessages(userId, chatId)
+    await this.exports.register({
+      context: options.context,
+      format: options.format,
+      rows: rows.length,
+      ...options.request,
+    })
+
+    if (options.format === 'json') {
+      return JSON.stringify({ export: options.provenance, messages: rows }, null, 2)
+    }
+
+    const time = new Intl.DateTimeFormat('ru-RU', {
+      timeZone: options.context.timezone,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    const header = options.info.map(([label, value]) => `${label}: ${value}`)
+    const lines = rows.map((message) => {
+      const author = `${message.sender.lastName} ${message.sender.firstName}`.trim()
+      const body = message.content || (message.media.length > 0 ? '[вложение]' : '')
+      return `[${time.format(message.createdAt)}] ${author}: ${body}`
+    })
+    return [...header, '', ...lines].join('\n')
   }
 
   // ── Mute уведомлений (Ф9+) ─────────────────────────────────────────────────

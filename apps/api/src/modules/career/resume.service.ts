@@ -6,7 +6,19 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
+import { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { ExportLocale } from '../../common/export/export-branding.types'
 import { renderResumePdf, type ResumeData, type ResumeItem, type ResumeLabels } from './resume-pdf'
+
+/**
+ * Резюме, собранное из профиля и портфолио. Брендирование к нему добавляется только на
+ * пути PDF: в публичный JSON оно не идёт — там оформление рисует фронт.
+ *
+ * `timezone` — таймзона вуза для даты выгрузки. Живёт здесь, а не в `ResumeData`, потому
+ * что нужна PDF-пути, но не самому документу.
+ */
+type AssembledResume = Omit<ResumeData, 'branding'> & { timezone: string | null }
 
 /**
  * Резюме студента.
@@ -20,6 +32,8 @@ export class ResumeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly branding: ExportBrandingService,
+    private readonly exports: ExportRegistryService,
   ) {}
 
   async mine(viewer: JwtPayload) {
@@ -79,9 +93,35 @@ export class ResumeService {
   }
 
   /** PDF своего резюме. */
-  async pdf(viewer: JwtPayload, labels: ResumeLabels): Promise<Buffer> {
-    const data = await this.assemble(viewer.sub, { withContacts: true, labels })
-    return renderResumePdf(data)
+  /**
+   * PDF своего резюме вместе с именем файла: имя собирает служба брендирования, и
+   * контроллеру остаётся только поставить заголовки. Раньше оно было строкой
+   * `resume.pdf` в контроллере и второй такой же строкой на фронте.
+   */
+  async pdf(
+    viewer: JwtPayload,
+    labels: ResumeLabels,
+    locale: ExportLocale,
+    request: { ip?: string; userAgent?: string } = {},
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const { timezone, ...resume } = await this.assemble(viewer.sub, { withContacts: true, labels })
+    const context = {
+      kind: 'resume' as const,
+      actor: { id: viewer.sub, fullName: resume.fullName },
+      locale,
+      // Таймзона вуза, а не сервера: дата в шапке и в имени файла должна совпадать с той,
+      // в которой живёт студент. Нет вуза (теоретически — у платформенных ролей) — UTC.
+      timezone: timezone ?? 'UTC',
+      generatedAt: new Date(),
+    }
+    const buffer = await renderResumePdf({
+      ...resume,
+      branding: await this.branding.pdfBranding(context),
+    })
+    // Выгрузка в журнал: резюме — рабочий документ, поэтому сбой записи его не отменяет
+    // (см. ExportRegistryService.register).
+    await this.exports.register({ context, format: 'pdf', ...request })
+    return { buffer, filename: this.branding.filename(context, 'pdf') }
   }
 
   /**
@@ -97,7 +137,9 @@ export class ResumeService {
     })
     if (!resume) throw new AppException('NOT_FOUND', 'Резюме не найдено')
 
-    const data = await this.assemble(resume.userId, {
+    // Таймзона нужна только PDF — в публичный JSON она не уходит: контракт эндпоинта
+    // менять незачем, а лишнее поле наружу — лишнее поле наружу.
+    const { timezone: _timezone, ...data } = await this.assemble(resume.userId, {
       withContacts: resume.includeContacts,
       labels: null,
     })
@@ -110,7 +152,7 @@ export class ResumeService {
   private async assemble(
     userId: string,
     options: { withContacts: boolean; labels: ResumeLabels | null },
-  ): Promise<ResumeData> {
+  ): Promise<AssembledResume> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: {
@@ -126,7 +168,7 @@ export class ResumeService {
         graduationYear: true,
         skills: true,
         languages: true,
-        university: { select: { name: true } },
+        university: { select: { name: true, timezone: true } },
         careerProfile: { select: { about: true } },
         portfolioItems: {
           select: {
@@ -201,6 +243,7 @@ export class ResumeService {
         })),
       ],
       labels: options.labels ?? EMPTY_LABELS,
+      timezone: user.university?.timezone ?? null,
     }
   }
 }

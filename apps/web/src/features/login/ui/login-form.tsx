@@ -7,10 +7,11 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Eye, EyeOff, QrCode } from 'lucide-react'
+import type { ApiErrorBody } from '@studenthub/shared-types'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
-import { Button, CodeInput, FormAlert, Input, Label, LegalLinks } from '../../../shared/ui'
+import { Button, CodeInput, Input, Label, LegalLinks } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
-import { useFormAlert, safeNextPath } from '../../../shared/lib'
+import { useFormAlert, safeNextPath, toApiError } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
@@ -18,20 +19,49 @@ import { QrLoginPanel } from './qr-login-panel'
 
 export function LoginForm() {
   const t = useTranslations('Auth')
+  const tErr = useTranslations('Errors')
   const router = useRouter()
   const searchParams = useSearchParams()
   const [showPassword, setShowPassword] = useState(false)
   const [mode, setMode] = useState<'password' | 'qr'>('password')
   // Если у пользователя включена 2FA — после пароля храним challenge и показываем ввод кода.
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  // Хук остался состоянием последней серверной ошибки, но больше ничего не «показывает»:
+  // alert'а на экране нет, отсюда markApiError вместо show.
+  const { error: apiError, show: markApiError, reset: resetApiError } = useFormAlert()
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginInput>({ resolver: zodResolver(LoginSchema) })
 
+  // Серверная ошибка входа уходит тостом в правый нижний угол, а не алертом над полями:
+  // блок внутри карточки раздвигал форму и уводил поля из-под курсора прямо в момент
+  // повторной попытки. Состояние ошибки при этом остаётся — по нему шаг 2FA чистит код
+  // и красит рамку. Один id на все попытки: повторный отказ заменяет тост, а не копит стопку.
+  function failLogin(err: unknown) {
+    markApiError(err)
+    const api = toApiError(err)
+    const details = api.code === 'VALIDATION_ERROR' ? api.details : undefined
+    toast.error(tErr(api.code), {
+      id: 'login-error',
+      description: details?.length ? details.map((d) => d.message).join(' · ') : undefined,
+    })
+  }
+
+  // Гасить тост руками можно только там, где следом заведомо не прилетит новый: sonner
+  // помечает закрытый тост `delete: true` и размонтирует через 200 мс, и ответ сервера,
+  // пришедший внутри этого окна, обновляет уже помеченную запись — уведомление молча
+  // исчезает вместо того, чтобы показать новую ошибку. Перед повторной попыткой поэтому
+  // не гасим: тот же id сам обновит текст и перезапустит таймер.
+  function dismissLoginError() {
+    resetApiError()
+    toast.dismiss('login-error')
+  }
+
   async function completeLogin(token: string) {
+    // Вход удался — уносить ошибку прошлой попытки на следующий экран незачем.
+    dismissLoginError()
     const role = await establishSession(token)
     // ?next= проставляет middleware, когда пользователь пришёл по ссылке без сессии
     // (например, отсканировал печатный QR помещения, Ф16). Возвращаем его туда.
@@ -48,8 +78,7 @@ export function LoginForm() {
       }
       await completeLogin(result.accessToken)
     } catch (err) {
-      // Серверные ошибки (в т.ч. VALIDATION_ERROR с details[]) — в Alert над формой (§5.4/§7).
-      showApiError(err)
+      failLogin(err)
     }
   }
 
@@ -63,7 +92,7 @@ export function LoginForm() {
     step = (
       <TwoFactorStep
         onBack={() => {
-          resetApiError()
+          dismissLoginError()
           setChallengeToken(null)
         }}
         onVerify={async (code) => {
@@ -72,7 +101,7 @@ export function LoginForm() {
             const token = await loginVerify2faRequest(challengeToken, code)
             await completeLogin(token)
           } catch (err) {
-            showApiError(err)
+            failLogin(err)
           }
         }}
         apiError={apiError}
@@ -87,7 +116,6 @@ export function LoginForm() {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-          <FormAlert error={apiError} />
           <div className="flex flex-col gap-2">
             <Label htmlFor="identifier">{t('emailOrUsername')}</Label>
             <Input
@@ -187,7 +215,9 @@ function TwoFactorStep({
 }: {
   onVerify: (code: string) => Promise<void>
   onBack: () => void
-  apiError: React.ComponentProps<typeof FormAlert>['error']
+  // Не для показа: текст ошибки уже ушёл тостом. Здесь ошибка — сигнал полю кода:
+  // очистить ячейки, вернуть фокус в первую и держать красную рамку, пока не начали вводить.
+  apiError: ApiErrorBody | null
 }) {
   const t = useTranslations('Auth')
   const [code, setCode] = useState('')
@@ -237,7 +267,6 @@ function TwoFactorStep({
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
           <Label htmlFor="twoFactorCode">
             {backupMode ? t('twoFactorBackupCodeLabel') : t('twoFactorCodeLabel')}

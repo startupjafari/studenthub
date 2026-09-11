@@ -7,5 +7,13 @@ import type { EnvVars } from './env.schema'
  * для этого нет, а в проде CORS_ORIGIN всегда указывает на web (docs/RAILWAY.md §2).
  */
 export function webBaseUrl(config: ConfigService<EnvVars, true>): string {
-  return config.get('CORS_ORIGIN', { infer: true }).split(',')[0]?.trim() ?? ''
+  return pickWebBase(config.get('CORS_ORIGIN', { infer: true }))
+}
+
+/**
+ * То же правило без DI — для шаблонов писем: они чистые функции рендера и ConfigService
+ * не получают, но адрес в подвале обязан совпадать с адресом в ссылках.
+ */
+export function pickWebBase(raw: string): string {
+  return raw.split(',')[0]?.trim() ?? ''
 }

@@ -17,7 +17,8 @@ test.describe('Вход', () => {
 
     // Остаёмся на форме…
     await expect(page).toHaveURL(/\/login/)
-    // …и пользователю сказано, что пошло не так (текст — из i18n по коду ошибки, §5.4).
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 15_000 })
+    // …и пользователю сказано, что пошло не так — тостом в правом нижнем углу
+    // (текст — из i18n по коду ошибки, §5.4).
+    await expect(page.locator('[data-sonner-toast]').first()).toBeVisible({ timeout: 15_000 })
   })
 })
