@@ -2766,7 +2766,7 @@ export function ChatWindow() {
                   ref={setComposerBox}
                   // Зазор снизу — safe-area, но только пока нет клавиатуры: с поднятой клавиатурой
                   // (--kb-inset) полоса жеста уже закрыта, и запас превратился бы в пустую щель.
-                  className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]"
                 >
                   {activeChat?.requestOutgoing && (
                     <p className="mx-auto mb-1 w-fit rounded-full bg-muted/80 px-2 py-0.5 text-center text-xs text-muted-foreground backdrop-blur">
