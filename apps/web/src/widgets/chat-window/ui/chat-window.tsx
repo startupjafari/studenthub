@@ -135,6 +135,12 @@ const MESSAGE_SKELETONS = [
   { mine: true, size: 'h-10 w-32' },
 ]
 
+// Иконочные кнопки шапок чата (обычная, поиск, выбор сообщений) — одна геометрия на все три
+// режима: 44 px под палец (§13) и 40 px под курсор, иконка внутри size-5. Раньше в одном ряду
+// стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
+const HEADER_ICON_BTN =
+  'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-10'
+
 export function ChatWindow() {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
@@ -2156,7 +2162,7 @@ export function ChatWindow() {
                   type="button"
                   aria-label={t('cancel')}
                   onClick={exitSelect}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+                  className={cn(HEADER_ICON_BTN, 'active:scale-90')}
                 >
                   <X className="size-5" aria-hidden />
                 </button>
@@ -2168,7 +2174,7 @@ export function ChatWindow() {
                   aria-label={t('copyText')}
                   disabled={selectedIds.size === 0}
                   onClick={bulkCopy}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                  className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
                 >
                   <Copy className="size-5" aria-hidden />
                 </button>
@@ -2177,7 +2183,7 @@ export function ChatWindow() {
                   aria-label={t('forward')}
                   disabled={selectedIds.size === 0}
                   onClick={() => setForwardIds([...selectedIds])}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                  className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
                 >
                   <Forward className="size-5" aria-hidden />
                 </button>
@@ -2193,7 +2199,10 @@ export function ChatWindow() {
                       if (ok) bulkDelete()
                     })
                   }}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
+                  className={cn(
+                    HEADER_ICON_BTN,
+                    'text-destructive hover:bg-destructive/10 hover:text-destructive disabled:opacity-40',
+                  )}
                 >
                   <Trash2 className="size-5" aria-hidden />
                 </button>
@@ -2210,7 +2219,7 @@ export function ChatWindow() {
                       type="button"
                       aria-label={t('cancel')}
                       onClick={closeChatSearch}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+                      className={cn(HEADER_ICON_BTN, 'active:scale-90')}
                     >
                       <ChevronLeft className="size-5" aria-hidden />
                     </button>
@@ -2233,7 +2242,7 @@ export function ChatWindow() {
                           }
                         }}
                         placeholder={t('searchInChat')}
-                        className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+                        className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
                       />
                     </div>
                     {/* Фильтр «От кого» (§4) — только в группах. */}
@@ -2244,7 +2253,7 @@ export function ChatWindow() {
                           aria-label={t('searchFrom')}
                           onClick={() => setSearchFromOpen((v) => !v)}
                           className={cn(
-                            'flex h-9 max-w-28 items-center gap-1 rounded-lg px-2 text-xs transition-colors',
+                            'flex h-11 max-w-28 items-center gap-1 rounded-xl px-2.5 text-xs transition-colors lg:h-10',
                             searchFrom
                               ? 'bg-primary/10 text-primary'
                               : 'text-muted-foreground hover:bg-muted',
@@ -2316,7 +2325,7 @@ export function ChatWindow() {
                       aria-label={t('searchPrev')}
                       onClick={() => stepSearch(-1)}
                       disabled={total === 0 || searchIdx <= 0}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
                     >
                       <ChevronUp className="size-5" aria-hidden />
                     </button>
@@ -2325,7 +2334,7 @@ export function ChatWindow() {
                       aria-label={t('searchNext')}
                       onClick={() => stepSearch(1)}
                       disabled={total === 0 || searchIdx >= total - 1}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
                     >
                       <ChevronDown className="size-5" aria-hidden />
                     </button>
@@ -2343,7 +2352,7 @@ export function ChatWindow() {
                 type="button"
                 aria-label={t('back')}
                 onClick={() => setActiveId(null)}
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+                className={cn(HEADER_ICON_BTN, 'md:hidden')}
               >
                 <ChevronLeft className="size-5" aria-hidden />
               </button>
@@ -2413,15 +2422,16 @@ export function ChatWindow() {
                   type="button"
                   aria-label={t('searchInChat')}
                   onClick={() => setChatSearchOpen(true)}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className={HEADER_ICON_BTN}
                 >
-                  <Search className="size-4" aria-hidden />
+                  <Search className="size-5" aria-hidden />
                 </button>
                 {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
                     дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
                     значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
                     Будущее закрыто: сообщений там заведомо нет. */}
                 <DateJumpPicker
+                  className={HEADER_ICON_BTN}
                   value={jumpDate}
                   onChange={(ymd) => {
                     setJumpDate(ymd)
@@ -2437,11 +2447,12 @@ export function ChatWindow() {
                     onClick={() => setHeaderMenuOpen((v) => !v)}
                     aria-label={t('messageActions')}
                     className={cn(
-                      'relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                      HEADER_ICON_BTN,
+                      'relative',
                       headerMenuOpen && 'bg-muted text-foreground',
                     )}
                   >
-                    <MoreVertical className="size-4" aria-hidden />
+                    <MoreVertical className="size-5" aria-hidden />
                     {activeChat?.muted && (
                       <span
                         className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
