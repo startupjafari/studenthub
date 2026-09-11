@@ -54,6 +54,7 @@ export function EmployerHomeView() {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <MetricTile
+          index={0}
           icon={CheckCircle2}
           tone="text-success"
           value={approved.length}
@@ -61,6 +62,7 @@ export function EmployerHomeView() {
           loading={access.isLoading}
         />
         <MetricTile
+          index={1}
           icon={Clock}
           tone="text-warning"
           value={pending.length}

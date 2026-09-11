@@ -74,6 +74,7 @@ import { cn } from '../../../shared/lib/utils'
 
 import { identityColor, identityInitials } from '../../../shared/lib'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
+import { PeerProfileTab } from './peer-profile-tab'
 import { EditGroupDialog } from './edit-group-dialog'
 
 // §17: варианты «заглушить на время».
@@ -955,10 +956,13 @@ export function ChatDetailsPanel({
   peerOnline = false,
   myId,
   variant = 'column',
+  open = true,
   onClose,
   onMute,
   onUnmute,
-  onOpenPeerProfile,
+  peerId,
+  peerBlocked = false,
+  onToggleBlock,
   onJump,
   onLeft,
   onOpenChat,
@@ -969,12 +973,21 @@ export function ChatDetailsPanel({
   peerOnline?: boolean
   myId: string | undefined
   variant?: 'column' | 'modal'
+  /**
+   * Панель показана прямо сейчас. Колонка на ПК не размонтируется при закрытии (её
+   * ширина анимируется), поэтому без этого флага вкладка оставалась бы той, на которой
+   * панель закрыли, — а открываться она должна с начала.
+   */
+  open?: boolean
   onClose: () => void
   // §17: заглушить на время (minutes) или навсегда ('forever'); onUnmute — включить.
   // importantOnly — режим «только важные»: ответы мне и упоминания уведомляют и в mute.
   onMute: (mode: number | 'forever', importantOnly?: boolean) => void
   onUnmute: () => void
-  onOpenPeerProfile?: () => void
+  /** Собеседник личного чата — под него открывается вкладка «Профиль». */
+  peerId?: string
+  peerBlocked?: boolean
+  onToggleBlock?: () => void
   onJump: (messageId: string) => void
   // Вышел из группы — родитель закрывает панель и сбрасывает активный чат.
   onLeft: () => void
@@ -1009,6 +1022,19 @@ export function ChatDetailsPanel({
   // Аватар группы меняет владелец, название — любой админ. Окно редактирования
   // открывается по любому из двух прав, внутри доступное разграничено.
   const canEdit = isGroup && (chat.isAdmin || chat.isOwner)
+  // Вкладка профиля есть только там, где есть один собеседник: у «Избранного»
+  // (личный чат с самим собой) и групп её нет. Объект, а не флаг: из него TS видит,
+  // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
+  const peer = isPrivate && peerId && onToggleBlock ? { id: peerId, onToggleBlock } : null
+
+  // Вкладка по умолчанию: участники в группе, профиль в личном чате, иначе медиа.
+  const firstTab = isGroup ? 'participants' : peer ? 'profile' : 'media'
+  // Тип — string, а не объединение литералов: Radix отдаёт в onValueChange обычную
+  // строку, и узкий сеттер туда не подходит.
+  const [tab, setTab] = useState<string>(firstTab)
+  useEffect(() => {
+    if (open) setTab(firstTab)
+  }, [open, firstTab])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -1107,7 +1133,25 @@ export function ChatDetailsPanel({
             </div>
           )}
 
-          {isGroup ? (
+          {/* Блокировка — иконкой и без подписи, рядом со звуком: это парные действия
+              над собеседником, и оба должны быть под рукой на любой вкладке. Подпись
+              «Заблокировать» рядом со «Заглушить» ломала ряд на две строки и делала
+              необратимое действие таким же заметным, как переключатель уведомлений. */}
+          {peer && (
+            <Button
+              icon
+              variant="outline"
+              size="sm"
+              aria-label={peerBlocked ? t('unblockUser') : t('blockUser')}
+              title={peerBlocked ? t('unblockUser') : t('blockUser')}
+              className={cn(!peerBlocked && 'text-destructive hover:text-destructive')}
+              onClick={peer.onToggleBlock}
+            >
+              {peerBlocked ? <UserCheck aria-hidden /> : <Ban aria-hidden />}
+            </Button>
+          )}
+
+          {isGroup && (
             <Button
               variant="outline"
               size="sm"
@@ -1117,25 +1161,22 @@ export function ChatDetailsPanel({
               <LogOut className="size-3.5" aria-hidden />
               {t('leave')}
             </Button>
-          ) : (
-            onOpenPeerProfile && (
-              <Button variant="outline" size="sm" onClick={onOpenPeerProfile}>
-                <UserRound className="size-3.5" aria-hidden />
-                {t('openProfile')}
-              </Button>
-            )
           )}
         </div>
       </div>
 
-      <Tabs
-        defaultValue={isGroup ? 'participants' : 'media'}
-        className="flex min-h-0 flex-1 flex-col"
-      >
+      {/* Первой открывается вкладка о самом собеседнике (в группе — её участники):
+          «кто это» — вопрос раньше, чем «что здесь присылали». */}
+      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="mx-2 mt-2 grid shrink-0 grid-flow-col justify-stretch">
           {isGroup && (
             <TabsTrigger value="participants" aria-label={t('tabParticipants')}>
               <Users className="size-4" aria-hidden />
+            </TabsTrigger>
+          )}
+          {peer && (
+            <TabsTrigger value="profile" aria-label={t('openProfile')}>
+              <UserRound className="size-4" aria-hidden />
             </TabsTrigger>
           )}
           <TabsTrigger value="media" aria-label={t('tabMedia')}>
@@ -1156,6 +1197,11 @@ export function ChatDetailsPanel({
           {isGroup && (
             <TabsContent value="participants" className={TAB_PANE}>
               <ParticipantsTab chat={chat} myId={myId} onOpenChat={onOpenChat} />
+            </TabsContent>
+          )}
+          {peer && (
+            <TabsContent value="profile" className={TAB_PANE}>
+              <PeerProfileTab userId={peer.id} />
             </TabsContent>
           )}
           <TabsContent value="media" className={TAB_PANE}>

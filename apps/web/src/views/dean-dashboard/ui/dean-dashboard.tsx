@@ -110,6 +110,7 @@ export function DeanDashboard() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricTile
+          index={0}
           icon={Users}
           label={t('kpiStudents')}
           value={totals?.students ?? null}
@@ -117,6 +118,7 @@ export function DeanDashboard() {
           href="/dean/students"
         />
         <MetricTile
+          index={1}
           icon={BookOpen}
           label={t('kpiGroups')}
           value={totals?.groups ?? null}
@@ -124,6 +126,7 @@ export function DeanDashboard() {
           href="/dean/groups"
         />
         <MetricTile
+          index={2}
           icon={Percent}
           tone="text-info"
           label={t('kpiAttendance')}
@@ -135,6 +138,7 @@ export function DeanDashboard() {
           href="/dean/analytics"
         />
         <MetricTile
+          index={3}
           icon={FileClock}
           tone="text-warning"
           label={t('kpiSubmissions')}
@@ -142,6 +146,7 @@ export function DeanDashboard() {
           loading={overview.isLoading}
         />
         <MetricTile
+          index={4}
           icon={GraduationCap}
           label={t('kpiExams')}
           value={totals?.examsUpcoming ?? null}

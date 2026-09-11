@@ -44,22 +44,23 @@ export function ActivityGrid({
       : null
 
   return (
-    // Сетка занимает всю ширину карточки. Клетки остаются квадратными (`aspect-square`
-    // на ячейке), поэтому вместе с шириной растёт и высота — это осознанно: обрезанная
-    // по ширине сетка оставляла половину карточки пустой.
-    <div className="flex w-full flex-col gap-1" role="img" aria-label={ariaLabel}>
+    // Сетка занимает всю ширину карточки, но в высоту вместе с ней не растёт: клетка
+    // квадратная, пока не упёрлась в потолок высоты, дальше становится широкой плашкой.
+    // Совсем квадратная сетка из 24 колонок на карточке шириной 1500px давала клетку в
+    // 60px и полэкрана высоты — читать её не легче, а пролистывать дашборд дольше.
+    <div className="flex w-full flex-col gap-0.5" role="img" aria-label={ariaLabel}>
       {/* Читаемое значение держим в одной строке над сеткой: 168 ячеек своих
           всплывающих подсказок дали бы дрожание и перерисовку на каждый пиксель. */}
-      <p className="min-h-5 text-xs font-medium text-foreground" aria-live="polite">
+      <p className="min-h-4 text-[0.6875rem] font-medium text-foreground" aria-live="polite">
         {activeText ?? ''}
       </p>
       {cells.map((row, day) => (
         <div key={day} className="flex items-center gap-2">
-          <span className="w-7 shrink-0 text-right text-[0.6875rem] text-muted-foreground">
+          <span className="w-7 shrink-0 text-right text-[0.625rem] text-muted-foreground">
             {dayLabels[day]}
           </span>
           {/* 2px зазора между ячейками даёт сама сетка (gap), а не обводка. */}
-          <div className="grid min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-1">
+          <div className="grid min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
             {row.map((value, hour) => {
               const on = active?.day === day && active?.hour === hour
               return (
@@ -77,7 +78,9 @@ export function ActivityGrid({
                   onPointerLeave={() => setActive(null)}
                   onBlur={() => setActive(null)}
                   className={cn(
-                    'aspect-square rounded-[3px] outline-none transition-[box-shadow]',
+                    // `max-h-*` поверх `aspect-square`: на узком экране клетка квадратная,
+                    // на широком перестаёт тянуться в высоту.
+                    'aspect-square max-h-4 rounded-[3px] outline-none transition-[box-shadow]',
                     // Наведённая ячейка «поднимается» кольцом цветом поверхности,
                     // чтобы читатель видел отклик и не терял её из вида.
                     on && 'ring-2 ring-foreground/40',
@@ -96,7 +99,7 @@ export function ActivityGrid({
           иначе подписи уезжают от своих колонок. */}
       <div className="flex items-center gap-2">
         <span className="w-7 shrink-0" aria-hidden />
-        <div className="grid min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-1">
+        <div className="grid min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
           {Array.from({ length: 24 }, (_, hour) => (
             <span
               key={hour}
@@ -111,7 +114,7 @@ export function ActivityGrid({
       {/* Шкала цвета — теми же красками, что и клетки: первый образец — пустая клетка
           (значение 0), дальше шаги последовательной шкалы. */}
       {scale && (
-        <div className="mt-0.5 flex items-center justify-end gap-1.5 text-[0.625rem] text-muted-foreground">
+        <div className="flex items-center justify-end gap-1.5 text-[0.625rem] text-muted-foreground">
           <span>{scale.less}</span>
           <span className="flex items-center gap-0.5" aria-hidden>
             {[palette.grid, ...palette.sequential].map((color) => (

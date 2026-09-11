@@ -440,6 +440,7 @@ export function CourseView({ subject }: CourseViewProps) {
               {/* Те же плитки, что на «Посещаемости» и дашбордах — одна шкала. */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 <MetricTile
+                  index={0}
                   icon={CalendarCheck2}
                   label={tAtt('overall')}
                   value={`${attStats.rate}%`}
@@ -453,24 +454,28 @@ export function CourseView({ subject }: CourseViewProps) {
                   }
                 />
                 <MetricTile
+                  index={1}
                   icon={Check}
                   tone="text-success"
                   label={tAtt('status.present')}
                   value={attStats.present}
                 />
                 <MetricTile
+                  index={2}
                   icon={Clock}
                   tone="text-warning"
                   label={tAtt('status.late')}
                   value={attStats.late}
                 />
                 <MetricTile
+                  index={3}
                   icon={X}
                   tone="text-destructive"
                   label={tAtt('status.absent')}
                   value={attStats.absent}
                 />
                 <MetricTile
+                  index={4}
                   icon={FileCheck2}
                   tone="text-info"
                   label={tAtt('status.excused')}
