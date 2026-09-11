@@ -207,18 +207,18 @@ export function CourseView({ subject }: CourseViewProps) {
       <PageHeader title={subject} />
 
       <Tabs defaultValue="overview">
-        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <TabsList>
-            <TabsTrigger value="overview">{t('tab.overview')}</TabsTrigger>
-            <TabsTrigger value="schedule">{t('tab.schedule')}</TabsTrigger>
-            <TabsTrigger value="assignments">{t('tab.assignments')}</TabsTrigger>
-            <TabsTrigger value="materials">{t('tab.materials')}</TabsTrigger>
-            <TabsTrigger value="grades">{t('tab.grades')}</TabsTrigger>
-            <TabsTrigger value="attendance">{t('tab.attendance')}</TabsTrigger>
-            <TabsTrigger value="chat">{t('tab.chat')}</TabsTrigger>
-            <TabsTrigger value="participants">{t('tab.participants')}</TabsTrigger>
-          </TabsList>
-        </div>
+        {/* Обёртки-скроллера вокруг списка нет: `TabsList` прокручивается сам (и только
+            тогда тянется мышью и затухает у краёв — shared/lib/use-scroll-row). */}
+        <TabsList>
+          <TabsTrigger value="overview">{t('tab.overview')}</TabsTrigger>
+          <TabsTrigger value="schedule">{t('tab.schedule')}</TabsTrigger>
+          <TabsTrigger value="assignments">{t('tab.assignments')}</TabsTrigger>
+          <TabsTrigger value="materials">{t('tab.materials')}</TabsTrigger>
+          <TabsTrigger value="grades">{t('tab.grades')}</TabsTrigger>
+          <TabsTrigger value="attendance">{t('tab.attendance')}</TabsTrigger>
+          <TabsTrigger value="chat">{t('tab.chat')}</TabsTrigger>
+          <TabsTrigger value="participants">{t('tab.participants')}</TabsTrigger>
+        </TabsList>
 
         <TabsContent value="overview">
           <div className="flex flex-col gap-4">

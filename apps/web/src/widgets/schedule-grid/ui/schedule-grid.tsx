@@ -16,6 +16,7 @@ import {
 } from '../../../entities/schedule'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
+import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { PairDetailSheet } from './pair-detail-sheet'
 
@@ -70,6 +71,10 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+
+  // Сетка недели шире телефона: её тянут мышью, как календарь (на тач — нативная
+  // прокрутка). Клик по паре после броска не срабатывает — жест не путается с выбором.
+  const gridScroll = useScrollRow<HTMLDivElement>()
 
   const [weekStart, setWeekStart] = useState<Date>(() => mondayOf(new Date()))
   const [parityMode, setParityMode] = useState<ParityMode>('AUTO')
@@ -222,7 +227,14 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
           description={t('emptyHint')}
         />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border">
+        <div
+          ref={gridScroll.ref}
+          className={cn(
+            'overflow-x-auto rounded-2xl border border-border',
+            gridScroll.overflowing && 'cursor-grab',
+            gridScroll.dragging && 'cursor-grabbing select-none',
+          )}
+        >
           <div className="min-w-[52rem]">
             {/* Заголовки дней */}
             <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-muted/30">

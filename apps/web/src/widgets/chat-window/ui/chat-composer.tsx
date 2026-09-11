@@ -130,10 +130,11 @@ export function ChatComposer({
 
   // Плавающий остров панели: полупрозрачный материал, граница и тень (уровень 3).
   const island = 'material-island border border-border/60 shadow-lg'
-  // Круглая кнопка-остров (скрепка, микрофон, отмена записи) — 48 px под палец.
+  // Круглая кнопка-остров (скрепка, микрофон, отмена записи) — 56 px: та же высота, что у
+  // поля и у островов нижней навигации, поэтому весь нижний ряд стоит на одной линии.
   const roundBtn = cn(
     island,
-    'flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,transform] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50',
+    'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,transform] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50',
   )
 
   return (
@@ -281,12 +282,12 @@ export function ChatComposer({
                 onClick={voice.cancel}
                 className={cn(roundBtn, 'text-destructive hover:text-destructive')}
               >
-                <Trash2 className="size-5" aria-hidden />
+                <Trash2 className="size-6" aria-hidden />
               </button>
               <div
                 className={cn(
                   island,
-                  'flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full px-4',
+                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4',
                 )}
               >
                 <span
@@ -317,9 +318,9 @@ export function ChatComposer({
                 type="button"
                 aria-label={t('send')}
                 onClick={voice.finish}
-                className="flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+                className="flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
               >
-                <Send className="size-5" aria-hidden />
+                <Send className="size-6" aria-hidden />
               </button>
             </>
           ) : (
@@ -333,7 +334,7 @@ export function ChatComposer({
                   onClick={() => setAttachMenuOpen((v) => !v)}
                   className={roundBtn}
                 >
-                  <Paperclip className="size-5" aria-hidden />
+                  <Paperclip className="size-6" aria-hidden />
                 </button>
                 {/* Attachment-меню (§37): Фото/видео · Камера · Файл · Опрос. Фото отдельным
                     пунктом, а не «файлом», — иначе галерея открывается на всех документах. */}
@@ -398,7 +399,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'relative flex min-w-0 flex-1 items-end rounded-3xl transition-[border-color] focus-within:border-ring/70',
+                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70',
                 )}
               >
                 <RichTextField
@@ -433,13 +434,13 @@ export function ChatComposer({
                   }}
                 />
                 {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для нескольких. */}
-                <div className="relative shrink-0 pb-1 pr-1">
+                <div className="relative shrink-0 self-end pb-1.5 pr-1.5">
                   <button
                     type="button"
                     aria-label={t('emoji')}
                     disabled={!connected}
                     onClick={() => setEmojiOpen((v) => !v)}
-                    className="flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                    className="flex size-11 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:cursor-default disabled:opacity-50"
                   >
                     <Smile className="size-5" aria-hidden />
                   </button>
@@ -466,12 +467,12 @@ export function ChatComposer({
                       e.preventDefault()
                       setSendMenuOpen(true)
                     }}
-                    className="flex size-12 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 disabled:cursor-default disabled:opacity-50"
+                    className="flex size-14 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 disabled:cursor-default disabled:opacity-50"
                   >
                     {silent ? (
-                      <BellOff className="size-5" aria-hidden />
+                      <BellOff className="size-6" aria-hidden />
                     ) : (
-                      <Send className="size-5" aria-hidden />
+                      <Send className="size-6" aria-hidden />
                     )}
                   </button>
                   <button
@@ -521,7 +522,7 @@ export function ChatComposer({
                   onClick={() => void voice.start()}
                   className={roundBtn}
                 >
-                  <Mic className="size-5" aria-hidden />
+                  <Mic className="size-6" aria-hidden />
                 </button>
               )}
             </>

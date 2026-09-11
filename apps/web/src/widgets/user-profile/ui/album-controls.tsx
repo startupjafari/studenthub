@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { FolderPlus, Images, MoreHorizontal, Pencil, Star, Trash2, X } from 'lucide-react'
 import type { Album } from '../../../entities/profile-content'
 import { Button } from '../../../shared/ui'
+import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 export type AlbumFilter = 'all' | 'none' | string
@@ -34,7 +35,7 @@ export function AlbumBar({
       type="button"
       onClick={() => onSelect(f)}
       className={cn(
-        'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors',
+        'flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm transition-colors lg:min-h-8 lg:px-3',
         active === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted',
       )}
     >
@@ -44,10 +45,20 @@ export function AlbumBar({
   )
 
   const activeIsAlbum = active !== 'all' && active !== 'none'
+  // Альбомов может быть много — ряд чипов тянется и затухает у краёв.
+  const row = useScrollRow<HTMLDivElement>()
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      <div
+        ref={row.ref}
+        className={cn(
+          'flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          row.overflowing && 'cursor-grab',
+          row.dragging && 'cursor-grabbing select-none',
+        )}
+        style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
+      >
         {chip('all', t('albumAll'))}
         {albums.map((a) => chip(a.id, a.title, a.count))}
         {chip('none', t('albumNone'))}

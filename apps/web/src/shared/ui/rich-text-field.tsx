@@ -23,6 +23,7 @@ import {
   Table as TableIcon,
 } from 'lucide-react'
 import { PromptDialog } from './prompt-dialog'
+import { useScrollRow } from '../lib/use-scroll-row'
 import { cn } from '../lib/utils'
 
 /**
@@ -176,8 +177,18 @@ function ActionRow({
 }) {
   const t = useTranslations('Editor')
   const shown = actions.flatMap((key) => ACTIONS.filter((a) => a.key === key))
+  // Полный набор кнопок в одну строку не влезает на телефоне — ряд тянется (§7.1).
+  const row = useScrollRow<HTMLDivElement>()
   return (
-    <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-border bg-popover p-1 shadow-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      ref={row.ref}
+      className={cn(
+        'flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-border bg-popover p-1 shadow-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        row.overflowing && 'cursor-grab',
+        row.dragging && 'cursor-grabbing select-none',
+      )}
+      style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
+    >
       {shown.map(({ key, icon: Icon, isActive }) => (
         <button
           key={key}

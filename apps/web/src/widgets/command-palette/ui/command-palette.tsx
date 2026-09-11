@@ -3,39 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import {
-  BookOpen,
-  CalendarDays,
-  ClipboardList,
-  CornerDownLeft,
-  FolderOpen,
-  MessagesSquare,
-  Search,
-  UserRound,
-  X,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { CornerDownLeft, Search, X } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { searchKeys, fetchSearch } from '../../../entities/search'
+import { useSearchItems, type SearchItem } from '../../../entities/search'
 import { quickActionsFor } from '../model/quick-actions'
 
 // Ширины строк скелетона: разной длины, иначе блок читается как таблица, а не как
 // список названий. Значения же и служат ключами — индекс в key запрещён (§15).
 const SKELETON_WIDTHS = ['42%', '61%', '35%', '54%', '47%']
-
-interface Item {
-  id: string
-  navKey?: string // для быстрых действий — ключ i18n Nav
-  label: string
-  sub?: string
-  href: string
-  icon: LucideIcon
-  section: string
-}
 
 // Command Palette + глобальный поиск (задачи 22–23). Открытие: Ctrl/Cmd+K или событие
 // `open-command-palette`. Быстрые действия зависят от роли; поиск — кросс-модульный по scope.
@@ -48,7 +26,6 @@ export function CommandPalette() {
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [debounced, setDebounced] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -74,104 +51,30 @@ export function CommandPalette() {
   useEffect(() => {
     if (!open) {
       setQuery('')
-      setDebounced('')
       setActive(0)
     }
   }, [open])
 
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(query.trim()), 250)
-    return () => clearTimeout(id)
-  }, [query])
+  // Дебаунс, запрос и разбор выдачи — в общем хуке поиска: палитра и поиск в нижней
+  // навигации показывают одно и то же. Закрытая палитра ничего не запрашивает.
+  const {
+    items: results,
+    active: searchActive,
+    searching,
+    hasResults,
+  } = useSearchItems(open ? query : '')
 
-  const search = useQuery({
-    queryKey: searchKeys.query(debounced),
-    queryFn: () => fetchSearch(debounced),
-    enabled: open && debounced.length >= 2,
-    retry: false,
-  })
-
-  // «Ищем» начинается с ввода, а не с ухода запроса: между ними лежат 250 мс
-  // дебаунса, и без этого флага список на них успевает мигнуть быстрыми
-  // действиями — как будто набранный запрос сбросился.
-  const typed = query.trim()
-  const searching = typed.length >= 2 && (typed !== debounced || search.isFetching)
-  // Уже показанные результаты при уточнении запроса не заменяем скелетоном: строки
-  // просто обновятся. Скелетон — только когда показывать пока нечего.
-  const hasResults = debounced.length >= 2 && !!search.data
-
-  const items: Item[] = useMemo(() => {
-    if (debounced.length >= 2) {
-      const r = search.data
-      if (!r) return []
-      const out: Item[] = []
-      for (const p of r.people)
-        out.push({
-          id: `p-${p.id}`,
-          label: `${p.firstName} ${p.lastName}`,
-          href: `/profile/${p.id}`,
-          icon: UserRound,
-          section: t('people'),
-        })
-      for (const c of r.courses)
-        out.push({
-          id: `c-${c.id}`,
-          label: c.subject.name,
-          sub: c.group.name,
-          href: `/courses/${encodeURIComponent(c.subject.name)}`,
-          icon: BookOpen,
-          section: t('courses'),
-        })
-      for (const a of r.assignments)
-        out.push({
-          id: `a-${a.id}`,
-          label: a.title,
-          sub: a.course.subject.name,
-          // Диплинк в конкретное задание (роут /assignments раскрывает деталь по ?open=).
-          // Прежний '/assignments' не открывал найденное задание.
-          href: `/assignments?open=${a.id}`,
-          icon: ClipboardList,
-          section: t('assignments'),
-        })
-      for (const m of r.materials)
-        out.push({
-          id: `m-${m.id}`,
-          label: m.title,
-          sub: m.subject ?? undefined,
-          // Отдельного роута /materials нет (он 404-ил); материалы живут во вкладке
-          // курса. Ведём в workspace дисциплины (роль-независимый роут), либо в список курсов.
-          href: m.subject ? `/courses/${encodeURIComponent(m.subject)}` : '/courses',
-          icon: FolderOpen,
-          section: t('materials'),
-        })
-      for (const e of r.events)
-        out.push({
-          id: `e-${e.id}`,
-          label: e.title,
-          href: '/events',
-          icon: CalendarDays,
-          section: t('events'),
-        })
-      for (const ch of r.chats)
-        out.push({
-          id: `ch-${ch.id}`,
-          label: ch.title ?? '',
-          href: '/chats',
-          icon: MessagesSquare,
-          section: t('chats'),
-        })
-      return out
-    }
-    // Быстрые действия по роли.
+  const items: SearchItem[] = useMemo(() => {
+    if (searchActive) return results
+    // Быстрые действия по роли — то, что показывается до ввода запроса.
     return quickActionsFor(role).map((qa) => ({
       id: `qa-${qa.navKey}`,
-      navKey: qa.navKey,
       label: tNav(qa.navKey),
       href: qa.href,
       icon: qa.icon,
       section: t('actions'),
     }))
-  }, [debounced, search.data, role, t, tNav])
+  }, [searchActive, results, role, t, tNav])
 
   useEffect(() => {
     setActive(0)
@@ -185,7 +88,7 @@ export function CommandPalette() {
     })
   }, [active])
 
-  function select(item: Item | undefined) {
+  function select(item: SearchItem | undefined) {
     if (!item) return
     setOpen(false)
     router.push(item.href)
@@ -276,7 +179,7 @@ export function CommandPalette() {
               </ul>
             ) : items.length === 0 ? (
               <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                {debounced.length >= 2 ? t('empty') : t('hint')}
+                {searchActive ? t('empty') : t('hint')}
               </p>
             ) : (
               items.map((item, i) => {
