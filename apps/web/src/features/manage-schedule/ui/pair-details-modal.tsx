@@ -27,7 +27,6 @@ import type { Room } from '../../../entities/room'
 import {
   Button,
   DatePicker,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -38,7 +37,7 @@ import {
   SelectValue,
   useConfirm,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -78,7 +77,7 @@ export function PairDetailsModal({
   const tPeople = useTranslations('People')
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('pair-details')
 
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: scheduleKeys.container(containerId) })
@@ -106,7 +105,6 @@ export function PairDetailsModal({
 
   const updatePair = useMutation({
     mutationFn: (input: UpdatePairInput) => updatePairRequest(pair.id, input),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidate()
       toast.success(t('pairUpdated'))
@@ -126,7 +124,6 @@ export function PairDetailsModal({
 
   const deletePair = useMutation({
     mutationFn: () => deletePairRequest(pair.id),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidate()
       toast.success(t('pairDeleted'))
@@ -145,7 +142,6 @@ export function PairDetailsModal({
 
   const createChange = useMutation({
     mutationFn: (input: CreateScheduleChangeInput) => createScheduleChangeRequest(input),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.all })
       changeForm.reset({ type: 'CANCELLED', pairId: pair.id })
@@ -158,8 +154,6 @@ export function PairDetailsModal({
   return (
     <Modal onClose={onClose} title={pair.subject} size="lg">
       <div className="flex flex-col gap-4">
-        <FormAlert error={apiError} />
-
         {isTeacher && !canEdit && (
           <p className="text-sm text-muted-foreground">{t('notYourPair')}</p>
         )}

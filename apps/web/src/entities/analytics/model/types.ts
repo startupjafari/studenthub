@@ -118,8 +118,15 @@ export interface InvitesFunnel {
 export interface ActivityHeatmap {
   from: string
   to: string
+  /** Зона, в которой сервер разложил часы (эхо запроса). */
+  tz: string
   /** cells[dow][hour], dow: 0 = понедельник. */
   cells: number[][]
+  /**
+   * Сколько календарных дат каждого дня недели попало в период — делитель для
+   * сравнения будней с выходными: понедельников в окне обычно больше, чем суббот.
+   */
+  days: number[]
   max: number
 }
 

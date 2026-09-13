@@ -16,7 +16,6 @@ import type { Room } from '../../../entities/room'
 import {
   Button,
   FieldError,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -26,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -61,7 +60,7 @@ export function AddPairModal({
   const tPeople = useTranslations('People')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('add-pair')
   const [teacher, setTeacher] = useState<PickedUser | null>(null)
 
   const form = useForm<CreatePairInput>({
@@ -71,7 +70,6 @@ export function AddPairModal({
 
   const createPair = useMutation({
     mutationFn: (input: CreatePairInput) => createPairRequest(input),
-    onMutate: () => reset(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.container(scheduleId) })
       void qc.invalidateQueries({ queryKey: scheduleKeys.all })
@@ -98,8 +96,6 @@ export function AddPairModal({
         )}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={error} />
-
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="p-subject">{t('subject')}</Label>
           <Input id="p-subject" autoFocus {...form.register('subject')} />

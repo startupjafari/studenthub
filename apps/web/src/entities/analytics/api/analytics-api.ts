@@ -112,11 +112,13 @@ export const platformAnalyticsKeys = {
   complaintsLatency: (r: PlatformRange) =>
     ['analytics', 'platform', 'complaints-latency', r] as const,
   invitesFunnel: (r: PlatformRange) => ['analytics', 'platform', 'invites-funnel', r] as const,
-  activityHeatmap: (r: PlatformRange) => ['analytics', 'platform', 'activity-heatmap', r] as const,
+  activityHeatmap: (r: PlatformRange, tz: string) =>
+    ['analytics', 'platform', 'activity-heatmap', r, tz] as const,
   topActions: (r: PlatformRange) => ['analytics', 'platform', 'top-actions', r] as const,
 }
 
-async function getPlatform<T>(path: string, params?: PlatformRange): Promise<T> {
+// `tz` добавляет только активность по часам — остальные ряды сервер режет по UTC.
+async function getPlatform<T>(path: string, params?: PlatformRange & { tz?: string }): Promise<T> {
   const { data } = await api.get<T>(`/analytics/platform/${path}`, { params })
   return data
 }
@@ -142,8 +144,12 @@ export const fetchComplaintsLatency = (r: PlatformRange): Promise<ComplaintsLate
 export const fetchInvitesFunnel = (r: PlatformRange): Promise<InvitesFunnel> =>
   getPlatform<InvitesFunnel>('invites-funnel', r)
 
-export const fetchActivityHeatmap = (r: PlatformRange): Promise<ActivityHeatmap> =>
-  getPlatform<ActivityHeatmap>('activity-heatmap', r)
+/**
+ * Зона — единственный параметр, который клиент добавляет от себя: часы событий
+ * раскладываются в ней на сервере. Без неё сервер вернёт UTC-раскладку.
+ */
+export const fetchActivityHeatmap = (r: PlatformRange, tz: string): Promise<ActivityHeatmap> =>
+  getPlatform<ActivityHeatmap>('activity-heatmap', { ...r, tz })
 
 export const fetchTopActions = (r: PlatformRange): Promise<TopActions> =>
   getPlatform<TopActions>('top-actions', r)

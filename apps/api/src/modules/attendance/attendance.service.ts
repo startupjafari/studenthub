@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Role } from '@studenthub/shared-types'
 import type {
+  AttendanceMarkedQueryInput,
   AttendanceRosterQueryInput,
   AttendanceSummaryQueryInput,
   MarkAttendanceInput,
@@ -49,6 +50,27 @@ export class AttendanceService {
   ) {}
 
   /** Ростер занятия (пара+дата): студенты группы + их текущие отметки (для преподавателя). */
+  /**
+   * Какие из перечисленных пар уже отмечены на дату.
+   *
+   * Один запрос вместо ростера по каждой паре: дашборду нужен не состав отметок, а
+   * один факт — заполнен журнал или нет. Пара считается отмеченной, если по ней есть
+   * хотя бы одна запись: журнал сохраняется целиком, частичных отметок не бывает.
+   *
+   * Scope держит `resolvePair`-проверка на записи: здесь читаются только те пары,
+   * которые клиент уже получил из своего расписания, а чужой pairId не даст ничего
+   * сверх факта «отметок нет» — состава журнала в ответе нет вовсе.
+   */
+  async marked(query: AttendanceMarkedQueryInput): Promise<{ marked: string[] }> {
+    const rows = await this.prisma.attendance.findMany({
+      where: { pairId: { in: query.pairIds }, date: new Date(query.date) },
+      select: { pairId: true },
+      distinct: ['pairId'],
+      take: query.pairIds.length,
+    })
+    return { marked: rows.map((r) => r.pairId) }
+  }
+
   async roster(viewer: JwtPayload, query: AttendanceRosterQueryInput) {
     const pair = await this.resolvePair(query.pairId)
     this.assertManagePair(viewer, pair)

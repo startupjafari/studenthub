@@ -49,22 +49,21 @@ export function GroupDrilldown({
     queryFn: () => fetchGroupAttendance(groupId),
   })
 
-  // Худшие сверху: сюда приходят из списка «требует внимания», а не читать всех подряд
-  // по алфавиту. Студенты без отметок — в конец: у них нечего считать, а не ноль.
+  // Сортировки по умолчанию нет: список приходит в порядке сервера, а колонки
+  // сортируются по щелчку. Прежняя «худшие сверху» перемешивала список так, что найти
+  // в нём конкретного студента глазами было нельзя, — а именно это здесь и делают.
+  // Студенты без отметок при сортировке по проценту уходят в конец: у них нечего
+  // считать, а не ноль.
   const {
     rows: sorted,
     sort,
     toggle,
-  } = useTableSort<StudentAttendanceStat>(
-    q.data?.students ?? [],
-    (s, key) => {
-      if (key === 'name') return `${s.lastName} ${s.firstName}`
-      if (key === 'rate') return s.tracked > 0 ? s.attendanceRate : null
-      if (key === 'tracked') return s.tracked
-      return null
-    },
-    { key: 'rate', dir: 'asc' },
-  )
+  } = useTableSort<StudentAttendanceStat>(q.data?.students ?? [], (s, key) => {
+    if (key === 'name') return `${s.lastName} ${s.firstName}`
+    if (key === 'rate') return s.tracked > 0 ? s.attendanceRate : null
+    if (key === 'tracked') return s.tracked
+    return null
+  })
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">

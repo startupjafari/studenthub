@@ -434,7 +434,7 @@ function GroupsTab({
       if (key === 'rate') return g.attendanceTracked > 0 ? g.attendanceRate : null
       return null
     },
-    { key: 'rate', dir: 'asc' },
+    // Сортировки по умолчанию нет: порядок задаёт сервер, колонки сортируются щелчком.
   )
 
   if (groups.length === 0) {

@@ -12,6 +12,7 @@ export const attendanceKeys = {
   roster: (pairId: string, date: string) => ['attendance', 'roster', pairId, date] as const,
   me: (query: Partial<AttendanceSummaryQueryInput> = {}) => ['attendance', 'me', query] as const,
   qr: (pairId: string, date: string) => ['attendance', 'qr', pairId, date] as const,
+  marked: (date: string, pairIds: string[]) => ['attendance', 'marked', date, pairIds] as const,
 }
 
 export async function fetchRoster(pairId: string, date: string): Promise<AttendanceRoster> {
@@ -41,4 +42,16 @@ export async function fetchAttendanceQr(pairId: string, date: string): Promise<A
 export async function checkInRequest(token: string): Promise<CheckInResult> {
   const { data } = await api.post<CheckInResult>('/attendance/check-in', { token })
   return data
+}
+
+/**
+ * Какие из пар уже отмечены на дату. Пары клиент уже получил из `/me/today` —
+ * сюда уходят только их идентификаторы, расписание второй раз не запрашивается.
+ */
+export async function fetchMarkedPairs(date: string, pairIds: string[]): Promise<string[]> {
+  if (pairIds.length === 0) return []
+  const { data } = await api.get<{ marked: string[] }>('/attendance/marked', {
+    params: { date, pairIds: pairIds.join(',') },
+  })
+  return data.marked
 }

@@ -8,6 +8,7 @@ import { Newspaper } from 'lucide-react'
 import type { FeedFilterValue } from '@studenthub/shared-schemas'
 import { fetchFeed, postKeys, type FeedPage } from '../../../entities/post'
 import { Button, EmptyState, Skeleton } from '../../../shared/ui'
+import { useInfiniteScroll } from '../../../shared/lib'
 import { PostCard } from './post-card'
 
 // Лайтбокс (портал, галерея, видео, свайпы) грузится только при открытии медиа —
@@ -35,6 +36,14 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
   })
 
   const posts = query.data?.pages.flatMap((p) => p.items) ?? []
+
+  // Кнопки «показать ещё» нет: лента догружается сама, когда читатель доходит до
+  // конца. Хук объявлен до ранних выходов — порядок хуков в рендере обязан совпадать.
+  const loadMoreRef = useInfiniteScroll<HTMLDivElement>({
+    hasNext: query.hasNextPage,
+    loading: query.isFetchingNextPage,
+    onLoad: () => void query.fetchNextPage(),
+  })
 
   if (query.isLoading) {
     return (
@@ -81,16 +90,13 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
         />
       ))}
 
+      {/* Маячок подгрузки. Пока следующая страница есть — держим на его месте
+          заготовку карточки: она и сообщает, что лента не кончилась, и не даёт
+          полосе прокрутки дёрнуться в момент, когда посты придут. */}
       {query.hasNextPage && (
-        <Button
-          type="button"
-          variant="outline"
-          loading={query.isFetchingNextPage}
-          onClick={() => query.fetchNextPage()}
-          className="self-center"
-        >
-          {t('loadMore')}
-        </Button>
+        <div ref={loadMoreRef} aria-hidden>
+          <Skeleton className="h-64 w-full rounded-2xl" />
+        </div>
       )}
 
       {open !== null && (
