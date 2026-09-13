@@ -77,13 +77,17 @@ jobs:
 
       # MinIO нельзя поднять через `services:` — образу нужен аргумент `server /data`,
       # который в service-контейнере не передать. Поэтому запускаем шагом.
+      # Образ тянем с quay.io: на Docker Hub репозиторий `minio/minio` больше не
+      # публикуется (pull отдаёт «pull access denied ... repository does not exist»),
+      # quay.io — официальный источник MinIO. Тег пришпилен, чтобы CI не зависел от
+      # свежего `latest`.
       - name: Start MinIO
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=ci-access \
             -e MINIO_ROOT_PASSWORD=ci-secret \
-            minio/minio server /data
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
           echo "Waiting for MinIO to become healthy..."
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then

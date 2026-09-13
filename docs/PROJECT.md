@@ -367,7 +367,7 @@ studenthub/
 |---|---|---|
 | postgres | `postgres:16-alpine` | Основная БД |
 | redis | `redis:7-alpine` | Брокер BullMQ + кэш |
-| minio | `minio/minio` | Медиафайлы |
+| minio | `quay.io/minio/minio` | Медиафайлы (Docker Hub-образ больше не публикуется) |
 | api | `apps/api/Dockerfile` | NestJS |
 | web | `apps/web/Dockerfile` | Next.js |
 | nginx | `nginx:alpine` | Reverse proxy, TLS, WS-upgrade |
