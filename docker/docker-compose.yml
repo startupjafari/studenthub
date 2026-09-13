@@ -40,7 +40,8 @@ services:
       start_period: 5s
 
   minio:
-    image: minio/minio:latest
+    # Docker Hub `minio/minio` больше не публикуется — официальный источник quay.io.
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: studenthub-minio
     restart: unless-stopped
     command: ['server', '/data', '--console-address', ':9001']
