@@ -10,6 +10,8 @@ import type { QueueService } from '../../common/queue'
 import type { AuthService } from '../auth/auth.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { AuditService } from '../../common/audit/audit.service'
+import type { ExportBrandingService } from '../../common/export/export-branding.service'
+import type { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 
@@ -34,6 +36,18 @@ function setup() {
   const authService = { revokeAllUserSessions: jest.fn().mockResolvedValue(undefined) }
   const realtime = { isOnline: jest.fn().mockReturnValue(false) }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  // Брендирование проверяется своим тестом (common/export); здесь достаточно заглушки,
+  // которая отдаёт узнаваемые значения.
+  const branding = {
+    labels: jest.fn().mockReturnValue({ dataSheet: 'Данные', infoSheet: 'Инфо' }),
+    infoRows: jest.fn().mockReturnValue([['Система', 'StudentHub']]),
+    sheetMetadata: jest.fn().mockReturnValue({}),
+    filename: jest.fn().mockReturnValue('studenthub_users_2026-09-13.xlsx'),
+    resolveLocale: jest.fn().mockReturnValue('ru'),
+  }
+  const exportRegistry = {
+    register: jest.fn().mockResolvedValue({ id: 'e-1', shortId: 'ABCD2345' }),
+  }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -43,8 +57,22 @@ function setup() {
     authService as unknown as AuthService,
     realtime as unknown as RealtimeGateway,
     audit as unknown as AuditService,
+    branding as unknown as ExportBrandingService,
+    exportRegistry as unknown as ExportRegistryService,
   )
-  return { service, prisma, passwords, files, queue, config, authService, realtime, audit }
+  return {
+    service,
+    prisma,
+    passwords,
+    files,
+    queue,
+    config,
+    authService,
+    realtime,
+    audit,
+    branding,
+    exportRegistry,
+  }
 }
 
 const target = {
@@ -812,5 +840,80 @@ describe('UserService.updateUsername', () => {
 
     await expect(service.updateUsername('u1', 'taken')).rejects.toBeInstanceOf(AppException)
     expect(audit.record).not.toHaveBeenCalled()
+  })
+})
+
+describe('UserService — выгрузка списка', () => {
+  const admin: JwtPayload = {
+    sub: 'adm-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-a',
+    facultyId: null,
+    groupId: null,
+  }
+  const query = { page: 1, limit: 20 } as never
+
+  function row(id: string) {
+    return {
+      id,
+      email: `${id}@uni-a.io`,
+      firstName: 'Имя',
+      lastName: 'Фамилия',
+      role: Role.STUDENT,
+      isBlocked: false,
+      createdAt: new Date('2026-09-01T10:00:00Z'),
+    }
+  }
+
+  it('отказывает, когда строк больше предела, вместо тихого обрезания', async () => {
+    const { service, prisma } = setup()
+    prisma.user.count.mockResolvedValue(5001)
+
+    await expect(service.exportList(admin, query, 'ru', 'xlsx')).rejects.toThrow(AppException)
+    // Данные при этом не читаются: отказ до выборки, а не после.
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
+  it('собирает книгу и записывает выгрузку в журнал', async () => {
+    const { service, prisma, audit, branding } = setup()
+    prisma.user.count.mockResolvedValue(2)
+    prisma.user.findFirst.mockResolvedValue({
+      firstName: 'Асан',
+      lastName: 'Асанов',
+      university: { timezone: 'Asia/Almaty' },
+    })
+    prisma.user.findMany.mockResolvedValueOnce([row('u-1'), row('u-2')]).mockResolvedValue([])
+
+    const result = await service.exportList(admin, query, 'ru', 'xlsx')
+
+    expect(result.filename).toBe('studenthub_users_2026-09-13.xlsx')
+    expect(Buffer.isBuffer(result.body)).toBe(true)
+    expect(branding.filename).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'users', timezone: 'Asia/Almaty' }),
+      'xlsx',
+    )
+    // В журнал идут объём и условия, но не сами данные (§13).
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'users_export',
+        metadata: expect.objectContaining({ format: 'xlsx', rows: 2 }),
+      }),
+    )
+  })
+
+  it('CSV отдаётся строкой с BOM — иначе Excel ломает кириллицу', async () => {
+    const { service, prisma } = setup()
+    prisma.user.count.mockResolvedValue(1)
+    prisma.user.findFirst.mockResolvedValue({
+      firstName: 'Асан',
+      lastName: 'Асанов',
+      university: { timezone: 'Asia/Almaty' },
+    })
+    prisma.user.findMany.mockResolvedValueOnce([row('u-1')]).mockResolvedValue([])
+
+    const { body } = await service.exportList(admin, query, 'ru', 'csv')
+
+    expect(typeof body).toBe('string')
+    expect((body as string).charCodeAt(0)).toBe(0xfeff)
   })
 })

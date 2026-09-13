@@ -9,6 +9,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 import { api, getPaged } from '../../../shared/api'
+import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type { MeResponse, Paged } from '../../../shared/api'
 
 export const userKeys = {
@@ -180,6 +181,19 @@ export async function fetchUsers(
   query: Partial<UserListQueryInput> = {},
 ): Promise<Paged<AdminUser>> {
   return getPaged<AdminUser>('/users', { page: 1, limit: 20, ...query })
+}
+
+/**
+ * Выгрузка списка в файл. Собирает её сервер: там и единый шаблон имени, и лист с
+ * происхождением выгрузки, и — главное — полная выборка. Клиентская сборка работала по
+ * первой странице ответа и молча обрывалась на 200 строках.
+ */
+export async function exportUsers(
+  query: Partial<UserListQueryInput>,
+  locale: string,
+  format: 'xlsx' | 'csv' = 'xlsx',
+): Promise<DownloadedFile> {
+  return requestFile('/users/export', { ...query, format, locale })
 }
 
 export async function blockUserRequest(id: string): Promise<void> {

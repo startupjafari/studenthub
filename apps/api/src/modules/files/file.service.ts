@@ -6,6 +6,7 @@ import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
 import { AppException } from '../../common/exceptions/app.exception'
+import { attachmentHeader } from '../../common/http/content-disposition'
 import { detectAllowedFileType } from './mime-detector'
 
 export interface UploadFileParams {
@@ -65,20 +66,6 @@ async function imageDimensions(buffer: Buffer): Promise<{ width: number; height:
   } catch {
     return null
   }
-}
-
-/**
- * Значение `Content-Disposition` для скачивания.
- *
- * Две формы имени обязательны: `filename` понимают все браузеры, но только ASCII —
- * кириллица в нём превратилась бы в мусор; `filename*` (RFC 5987) несёт настоящее имя
- * в UTF-8. Кавычки и обратный слэш в ASCII-варианте экранируются, иначе имя файла
- * могло бы закрыть строку и подставить свои параметры в заголовок.
- */
-function attachmentHeader(name: string | null): string {
-  const safe = name?.trim() || 'file'
-  const ascii = safe.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safe)}`
 }
 
 /**
