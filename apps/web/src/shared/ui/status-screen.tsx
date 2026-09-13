@@ -59,9 +59,13 @@ export function StatusScreen({
           (reduced-transparency / contrast: more), а не условием в React. */}
       <div className="status-backdrop pointer-events-none absolute inset-0" aria-hidden />
 
+      {/* Тот же логотип, что в шапке сайдбара (ProductSwitcher): иконка `size-6` и
+          `text-lg font-bold`. Экран статуса показывают вне оболочки, и рядом не с чем
+          свериться — уменьшенная подпись читалась как чужая страница, а не как та же
+          система. Раскрывающегося переключателя продуктов здесь нет: выбирать нечего. */}
       <div className="status-brand relative flex items-center gap-2 px-6 pt-6">
-        <GraduationCap className="size-5 text-primary" aria-hidden />
-        <span className="text-sm font-semibold tracking-tight text-foreground/80">StudentHub</span>
+        <GraduationCap className="size-6 shrink-0 text-primary" aria-hidden />
+        <span className="text-lg font-bold">StudentHub</span>
       </div>
 
       {/* Содержимое по центру свободного места: панель растянута, а читаемая колонка

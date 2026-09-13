@@ -59,7 +59,7 @@ export function LegalLinks({ className }: LegalLinksProps) {
 
       {content && (
         <Modal onClose={() => setDoc(null)} title={content.title} size="xl">
-          <div className="flex flex-col gap-5 text-sm leading-relaxed">
+          <div className="flex flex-col gap-4 text-sm leading-relaxed">
             <div className="flex flex-col gap-2">
               <p className="text-xs text-muted-foreground">{t('updated')}</p>
               <p className="text-muted-foreground">{content.intro}</p>

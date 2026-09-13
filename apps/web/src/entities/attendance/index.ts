@@ -1,6 +1,7 @@
 export {
   attendanceKeys,
   fetchRoster,
+  fetchMarkedPairs,
   markAttendanceRequest,
   fetchMyAttendance,
   fetchAttendanceQr,

@@ -1,6 +1,8 @@
 'use client'
 
+import { useEffect } from 'react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
@@ -24,12 +26,14 @@ import {
   CareerUniversityPicker,
   useCareerUniversity,
 } from '../../../features/career-university-scope'
+import { careerHomeFor } from '../../../widgets/app-shell'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
 import {
   EmptyState,
   MetricTile,
   PageHeader,
+  PageLoader,
   Progress,
   SectionPanel,
   Skeleton,
@@ -47,9 +51,14 @@ const LineChart = dynamic(() => import('../../../shared/ui/chart/line-chart'), {
   loading: () => <Skeleton className="h-56 w-full" />,
 })
 
-/** Роли, которым /career открывает карьерный центр вуза, а не витрину соискателя. */
+/**
+ * Роли, которым /career открывает карьерный центр вуза, а не витрину соискателя.
+ *
+ * Преподавателя здесь нет: сводка вуза строится на `GET /career/analytics/university`,
+ * куда API его не пускает, — он видел бы не обзор, а отказ. Ему открыты только витрина
+ * вакансий и карьерные события (nav.ts, CAREER_TEACHER_NAV).
+ */
 const STAFF_ROLES: Role[] = [
-  Role.TEACHER,
   Role.DEAN,
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
@@ -61,7 +70,21 @@ const COMPANIES_HREF = '/career/companies'
 const REVIEW_HREF = '/career/vacancy-review'
 
 export function CareerView() {
+  const tCommon = useTranslations('Common')
   const role = useAppSelector((s) => s.auth.role)
+  const router = useRouter()
+
+  // Преподавателю показать на корне нечего: обзор — это метрики вуза, куда API его не
+  // пускает (PROJECT.md §694), а витрина соискателя не про него — он видел заглушку
+  // «карьерный модуль в разработке» без единой ссылки. Ведём в первый раздел, который
+  // ему открыт; тот же адрес стоит за входом в «Карьеру» в переключателе продуктов.
+  const home = careerHomeFor(role ?? undefined)
+  const redirecting = home !== '/career'
+  useEffect(() => {
+    if (redirecting) router.replace(home)
+  }, [redirecting, home, router])
+
+  if (redirecting) return <PageLoader label={tCommon('loading')} />
   return role !== null && STAFF_ROLES.includes(role) ? <StaffOverview /> : <SeekerOverview />
 }
 
@@ -316,7 +339,11 @@ function StaffOverview() {
 
             <SectionPanel title={tA('ratesTitle')} subtitle={tA('ratesHint')}>
               {!d ? (
-                <Skeleton className="h-24 w-full" />
+                // Та же заготовка, что у соседней панели «Дефицит навыков»: обе карточки
+                // стоят в одной строке сетки и растягиваются по высоте до самой высокой,
+                // поэтому и заготовка у них общая — иначе одна закрыта целиком, а вторая
+                // висит короткой плашкой посреди пустой карточки.
+                <Skeleton className="h-40 w-full" />
               ) : (
                 <ul className="flex flex-col gap-3">
                   {[
@@ -421,7 +448,7 @@ function SkillsGap({
           { key: 'supply', label: tA('skillsSupply'), color: palette.series[2] },
         ]}
       />
-      <ul className="flex flex-col gap-2.5">
+      <ul className="flex flex-col gap-2">
         {skills.map((s) => (
           <li
             key={s.skill}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   Input,
+  PageHeader,
   Skeleton,
   Table,
   TableBody,
@@ -50,7 +51,14 @@ const cellKey = (columnId: string, studentId: string) => `${columnId}|${studentI
 
 // Журнал оценок дисциплины: матрица колонок×студентов с inline-редактированием,
 // публикацией колонок (черновик/опубликовано) и итогом. Desktop — таблица, mobile — карточки.
-export function GradebookTable({ courseId }: { courseId: string }) {
+export function GradebookTable({
+  courseId,
+  courseSelect,
+}: {
+  courseId: string
+  /** Выбор дисциплины из `GradebookView` — стоит в шапке рядом с действиями журнала. */
+  courseSelect?: ReactNode
+}) {
   const t = useTranslations('Gradebook')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -162,28 +170,8 @@ export function GradebookTable({ courseId }: { courseId: string }) {
   // означал бы сортировку по значению произвольной колонки оценок, чего в контракте нет.
   const { rows: sortedStudents, sort, toggle } = useTableSort(q.data?.students ?? [], sortValue)
 
-  if (q.isLoading) return <Skeleton className="h-80 w-full rounded-xl" />
-  if (!q.data) return null
-  const { columns, students } = q.data
-
-  const toolbar = (
-    <div className="flex items-center justify-between gap-3">
-      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAdding(true)}>
-        <Plus className="size-4" aria-hidden />
-        {t('addColumn')}
-      </Button>
-      <Button
-        size="sm"
-        className="gap-1.5"
-        onClick={() => save.mutate()}
-        loading={save.isPending}
-        disabled={dirty.size === 0}
-      >
-        <Save className="size-4" aria-hidden />
-        {t('save')}
-      </Button>
-    </div>
-  )
+  const columns = q.data?.columns ?? []
+  const students = q.data?.students ?? []
 
   const columnMenu = (col: GradeColumnItem) => (
     <DropdownMenu>
@@ -206,83 +194,101 @@ export function GradebookTable({ courseId }: { courseId: string }) {
     </DropdownMenu>
   )
 
-  if (columns.length === 0) {
-    return (
-      <div className="flex flex-col gap-4">
-        {toolbar}
-        <EmptyState icon={<Plus />} title={t('noColumns')} description={t('noColumnsHint')} />
-        {adding && <AddColumnModal courseId={courseId} onClose={() => setAdding(false)} />}
-      </div>
-    )
-  }
-
   return (
-    <div className="flex flex-col gap-4">
-      {toolbar}
+    // `min-h-0` — только под таблицу: матрица прокручивается внутри себя и обязана
+    // получить высоту от корня (§10.7). На мобильной вёрстке вместо неё список карточек,
+    // и там прокручивается страница — с `min-h-0` он был бы обрезан по низу экрана.
+    <div className={cn('flex w-full flex-1 flex-col gap-4', isDesktop && 'min-h-0')}>
+      <PageHeader
+        title={t('title')}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {courseSelect}
+            <Button size="md" variant="outline" className="gap-1.5" onClick={() => setAdding(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('addColumn')}
+            </Button>
+            <Button
+              size="md"
+              className="gap-1.5"
+              onClick={() => save.mutate()}
+              loading={save.isPending}
+              disabled={dirty.size === 0}
+            >
+              <Save className="size-4" aria-hidden />
+              {t('save')}
+            </Button>
+          </div>
+        }
+      />
 
-      {isDesktop ? (
-        <Card>
-          <CardContent className="p-0">
-            {/* Матрица «студенты × колонки»: шапка липнет к верху, первая колонка — к левому
-                краю, поэтому при любом скролле видно, чья оценка и в какую колонку. */}
-            <TableScroll className="max-h-[70vh]">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead
-                      sortKey="student"
-                      sort={sort}
-                      onSort={toggle}
-                      className="sticky left-0 z-20 px-3"
-                    >
-                      {t('student')}
+      {q.isLoading ? (
+        <Skeleton className="h-80 w-full rounded-xl" />
+      ) : columns.length === 0 ? (
+        <EmptyState icon={<Plus />} title={t('noColumns')} description={t('noColumnsHint')} />
+      ) : isDesktop ? (
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          {/* Матрица «студенты × колонки»: шапка липнет к верху, первая колонка — к левому
+              краю, поэтому при любом скролле видно, чья оценка и в какую колонку.
+              Высоту даёт карточка (`flex-1`), а не `max-h-*`: журнал доходит до низа
+              области контента, и последняя строка не обрезается на середине. */}
+          <TableScroll className="max-h-none min-h-0 flex-1">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead
+                    sortKey="student"
+                    sort={sort}
+                    onSort={toggle}
+                    className="sticky left-0 z-20 px-3"
+                  >
+                    {t('student')}
+                  </TableHead>
+                  {columns.map((col) => (
+                    <TableHead key={col.id} className="px-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="truncate">{col.title}</span>
+                        {columnMenu(col)}
+                      </div>
+                      <div className="flex items-center justify-center gap-1 text-[11px] font-normal">
+                        {col.maxScore != null && <span>/{col.maxScore}</span>}
+                        {!col.published && <Badge variant="secondary">{t('draft')}</Badge>}
+                      </div>
                     </TableHead>
-                    {columns.map((col) => (
-                      <TableHead key={col.id} className="px-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <span className="truncate">{col.title}</span>
-                          {columnMenu(col)}
-                        </div>
-                        <div className="flex items-center justify-center gap-1 text-[11px] font-normal">
-                          {col.maxScore != null && <span>/{col.maxScore}</span>}
-                          {!col.published && <Badge variant="secondary">{t('draft')}</Badge>}
-                        </div>
-                      </TableHead>
-                    ))}
-                    <TableHead numeric sortKey="total" sort={sort} onSort={toggle} className="px-3">
-                      {t('total')}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedStudents.map((s) => (
-                    <TableRow key={s.id}>
-                      <TableCell className="sticky left-0 z-10 truncate bg-card px-3 py-1.5 font-medium">
-                        {s.lastName} {s.firstName[0]}.
-                      </TableCell>
-                      {columns.map((col) => (
-                        <TableCell key={col.id} className="px-2 py-1.5 text-center">
-                          <Input
-                            type="number"
-                            value={values[cellKey(col.id, s.id)] ?? ''}
-                            onChange={(e) => setCell(col.id, s.id, e.target.value)}
-                            className={cn(
-                              'mx-auto h-8 w-16 px-2 text-center',
-                              !col.published && 'bg-muted/40',
-                            )}
-                            max={col.maxScore ?? undefined}
-                          />
-                        </TableCell>
-                      ))}
-                      <TableCell className="px-3 py-1.5 text-center font-semibold tabular-nums">
-                        {total(s.id) ?? <TableEmpty />}
-                      </TableCell>
-                    </TableRow>
                   ))}
-                </TableBody>
-              </Table>
-            </TableScroll>
-          </CardContent>
+                  <TableHead numeric sortKey="total" sort={sort} onSort={toggle} className="px-3">
+                    {t('total')}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedStudents.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="sticky left-0 z-10 truncate bg-card px-3 py-1.5 font-medium">
+                      {s.lastName} {s.firstName[0]}.
+                    </TableCell>
+                    {columns.map((col) => (
+                      <TableCell key={col.id} className="px-2 py-1.5 text-center">
+                        <Input
+                          type="number"
+                          value={values[cellKey(col.id, s.id)] ?? ''}
+                          onChange={(e) => setCell(col.id, s.id, e.target.value)}
+                          className={cn(
+                            'mx-auto h-8 w-16 px-2 text-center',
+                            !col.published && 'bg-muted/40',
+                          )}
+                          max={col.maxScore ?? undefined}
+                        />
+                      </TableCell>
+                    ))}
+                    <TableCell className="px-3 py-1.5 text-center font-semibold tabular-nums">
+                      {total(s.id) ?? <TableEmpty />}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableScroll>
         </Card>
       ) : (
         <ul className="flex flex-col gap-3">

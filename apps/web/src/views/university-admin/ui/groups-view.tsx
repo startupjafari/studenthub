@@ -208,7 +208,12 @@ export function GroupsAdminView() {
   const noFaculties = faculties.data && faculties.data.length === 0
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    // Без `min-h-0`: страница — обычный список, и высота должна считаться по нему.
+    // С `min-h-0` корень имел право сжаться ниже содержимого, список вылезал за его
+    // границы, и нижний отступ `main` оставался НАД вылезшим хвостом — последняя
+    // карточка упиралась в край окна. `flex-1` при этом сохранён: на коротком списке
+    // он по-прежнему растягивает страницу, чтобы пустое состояние встало по центру.
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('groupsTitle')}
         actions={

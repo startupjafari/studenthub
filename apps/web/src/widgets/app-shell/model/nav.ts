@@ -145,8 +145,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
 // Порядок секций задаётся первым появлением группы в массиве (см. toSections в
 // AppSidebar), поэтому пункты внутри группы должны идти подряд.
 export const DEAN_NAV: NavItem[] = [
-  // Обзор дня: с чего декан начинает.
-  { key: 'today', href: '/dean/today', icon: CalendarCheck, group: 'main' },
+  // Дашборд — и есть обзор дня: операционный блок «сегодня» стоит на нём сверху,
+  // показатели факультета ниже. Отдельного пункта «Сегодня» больше нет.
   { key: 'dashboard', href: '/dean', icon: LayoutDashboard, exact: true, group: 'main' },
   { key: 'schedule', href: '/dean/schedule', icon: CalendarDays, group: 'main' },
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
@@ -176,7 +176,8 @@ export const DEAN_NAV: NavItem[] = [
 
 // Сгруппирована по тем же правилам, что навигация декана и админа вуза.
 export const TEACHER_NAV: NavItem[] = [
-  { key: 'today', href: '/teacher/today', icon: CalendarCheck, group: 'main' },
+  // Дашборд преподавателя — это и есть его рабочий экран дня (см. app/teacher/page.tsx):
+  // отдельного пункта «Сегодня» нет, плитки-ссылки по разделам убраны как дубль сайдбара.
   { key: 'dashboard', href: '/teacher', icon: LayoutDashboard, exact: true, group: 'main' },
   { key: 'schedule', href: '/teacher/schedule', icon: CalendarDays, group: 'main' },
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
@@ -337,12 +338,19 @@ export const CAREER_STAFF_NAV: NavItem[] = [
   { key: 'careerAnalytics', href: '/career/analytics', icon: BarChart3 },
 ]
 
+// Преподаватель — наблюдатель: своих действий в карьерном центре у него нет, и API
+// не пускает его ни в допуск компаний, ни в модерацию вакансий, ни в метрики
+// (PROJECT.md §682/§686/§694). Полная навигация карьерного центра показывала ему три
+// раздела, каждый из которых отвечал «Недостаточно прав», — здесь ровно то, что открыто.
+export const CAREER_TEACHER_NAV: NavItem[] = [
+  { key: 'vacancies', href: '/career/vacancies', icon: Search },
+  { key: 'careerEvents', href: '/career/events', icon: CalendarDays },
+]
+
 const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
   [Role.STUDENT]: CAREER_STUDENT_NAV,
   [Role.STAROSTA]: CAREER_STUDENT_NAV,
-  // Преподаватель в карьерном модуле — наблюдатель: своих действий у него пока нет,
-  // но события и вакансии видеть логично.
-  [Role.TEACHER]: CAREER_STAFF_NAV,
+  [Role.TEACHER]: CAREER_TEACHER_NAV,
   [Role.DEAN]: CAREER_STAFF_NAV,
   [Role.UNIVERSITY_ADMIN]: CAREER_STAFF_NAV,
   [Role.UNIVERSITY_MODERATOR]: CAREER_STAFF_NAV,
@@ -356,6 +364,18 @@ const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
 /** Навигация карьерного продукта для роли. */
 export function careerNavFor(role: Role | undefined): NavItem[] {
   return role ? CAREER_NAV_BY_ROLE[role] : CAREER_STUDENT_NAV
+}
+
+/**
+ * Куда ведёт вход в «Карьеру» для роли — первый раздел её карьерной навигации.
+ *
+ * У большинства ролей это сам корень (`careerHome`), но у преподавателя обзора нет:
+ * обзор карьерного центра — метрики вуза, куда API его не пускает. Вести его на корень
+ * значило бы открывать заглушку «модуль в разработке» вместо разделов, которые ему
+ * открыты.
+ */
+export function careerHomeFor(role: Role | undefined): string {
+  return careerNavFor(role)[0]?.href ?? CAREER_ROOT
 }
 
 /** Путь относится к карьерному продукту. */
