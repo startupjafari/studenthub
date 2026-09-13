@@ -82,7 +82,8 @@ config-as-code (`apps/api/railway.json`, `apps/web/railway.json`).
 ## 4. Объектное хранилище
 
 **Вариант А — MinIO как сервис Railway:**
-1. **+ New → Docker Image** → `minio/minio`.
+1. **+ New → Docker Image** → `quay.io/minio/minio` (на Docker Hub образ больше не
+   публикуется).
 2. **Settings → Deploy → Custom Start Command**: `server /data --console-address ":9001"`.
 3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.).
 4. **Settings → Volumes** — примонтировать том на `/data` (иначе файлы не переживут редеплой).
