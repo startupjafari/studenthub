@@ -124,6 +124,9 @@ function BottomNav({
     if (!moreOpen && !searchOpen) return
     function onKey(e: KeyboardEvent): void {
       if (e.key !== 'Escape') return
+      // Нажатие остаётся здесь: иначе глобальный «Esc = назад» (shared/lib/use-escape-back)
+      // закроет остров и тем же нажатием уведёт со страницы.
+      e.preventDefault()
       if (searchOpen) closeSearch()
       else closeMore()
     }

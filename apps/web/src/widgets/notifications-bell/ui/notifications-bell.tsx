@@ -150,6 +150,19 @@ export function NotificationsBell() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
+  // Закрытие по Esc. `preventDefault` обязателен: без него глобальный «Esc = назад»
+  // (shared/lib/use-escape-back) закрыл бы панель и тем же нажатием увёл со страницы.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
   const count = unread.data ?? 0
   const badge = count > 99 ? '99+' : String(count)
 
@@ -192,7 +205,11 @@ export function NotificationsBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-background sm:w-96">
+        <div
+          // data-overlay — маркер открытого слоя для глобального Esc.
+          data-overlay
+          className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-background sm:w-96"
+        >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <span className="text-sm font-semibold">
               {view === 'list' ? t('title') : t('settings')}

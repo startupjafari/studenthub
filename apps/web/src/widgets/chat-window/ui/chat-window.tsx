@@ -125,6 +125,16 @@ const PEOPLE_IN_SEARCH = 8
 // Ширина одной кнопки свайп-панели строки списка (w-[4.5rem]).
 const ROW_BTN_W = 72
 
+// Фокус в поле ввода при открытии чата: редактор создаётся после монтирования, поэтому
+// попыток несколько. Полсекунды — с запасом на медленный первый кадр, дальше пробовать
+// бессмысленно: значит, поля на экране нет (входящая заявка, блокировка).
+const FOCUS_RETRY_MS = 50
+const FOCUS_TRIES = 10
+
+// Высота пометки дня в потоке ленты: строка 20 px + вертикальные отступы my-2 (8+8).
+// По ней понимаем, ушла ли пометка под верх — тогда её подменяет прилипший заголовок.
+const DAY_LABEL_H = 36
+
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
 const MESSAGE_SKELETONS = [
@@ -287,7 +297,6 @@ export function ChatWindow() {
   // Плавающий заголовок даты (Telegram-стиль §6): дата верхнего видимого сообщения, гаснет вне скролла.
   const [floatingDay, setFloatingDay] = useState<string | null>(null)
   const [floatingDayShown, setFloatingDayShown] = useState(false)
-  const floatingHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Режим множественного выбора сообщений (Telegram-стиль): чекбоксы + массовые действия.
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -378,6 +387,30 @@ export function ChatWindow() {
       appliedDeeplink.current = key
     }
   }, [deepChatId, deepMsgId, activeId, messages.isSuccess, jumpToMessage])
+
+  /**
+   * Открыли чат — курсор сразу в поле ввода: чат открывают, чтобы писать, и лишний клик
+   * по полю перед каждым сообщением ничем не оправдан.
+   *
+   * Только на десктопе. На телефоне автофокус поднимает экранную клавиатуру на пол-экрана
+   * и закрывает ровно те сообщения, ради которых чат и открыли; там поле фокусируют
+   * касанием, когда собираются писать.
+   *
+   * Не один вызов в следующем кадре, а несколько попыток: редактор создаётся уже после
+   * монтирования (`immediatelyRender: false` в RichTextField), и при открытии чата с нуля
+   * первая попытка приходится на момент, когда фокусировать ещё нечего.
+   */
+  useEffect(() => {
+    if (!activeId || !isDesktop) return
+    let tries = 0
+    const timer = setInterval(() => {
+      tries += 1
+      const handle = composerRef.current
+      handle?.focus()
+      if (handle || tries >= FOCUS_TRIES) clearInterval(timer)
+    }, FOCUS_RETRY_MS)
+    return () => clearInterval(timer)
+  }, [activeId, isDesktop])
 
   const pinned = useQuery({
     queryKey: chatKeys.pinned(activeId ?? ''),
@@ -1299,11 +1332,38 @@ export function ChatWindow() {
     if (el) el.scrollTop = el.scrollHeight
   }, [composerH])
 
+  // Начальная пометка дня: лента открывается внизу, и до первого скролла обработчик
+  // не сработает — без этого заголовок дня появлялся бы только после касания колеса.
+  useEffect(() => {
+    const data = messages.data
+    if (!data || data.length === 0) {
+      setFloatingDay(null)
+      return
+    }
+    const last = data[data.length - 1]
+    if (last) {
+      setFloatingDay(dayLabel(last.createdAt))
+      // Чат открывается у последнего сообщения: пометка его дня осталась выше кадра
+      // (если сообщений за день больше одного) — показываем заголовок сразу.
+      const first = data[0]
+      setFloatingDayShown(
+        !!first &&
+          new Date(first.createdAt).toDateString() !== new Date(last.createdAt).toDateString(),
+      )
+    }
+    // Пересчёт при смене чата и подгрузке истории; дальше день ведёт onMessagesScroll.
+  }, [activeId, messages.data])
+
   // Скролл ленты: показ кнопки «вниз», отметка прочтения при доскролле вниз, авто-догрузка старых у верха.
   function onMessagesScroll(): void {
     const el = messagesScrollRef.current
     if (!el) return
-    // Плавающий заголовок даты (§6): дата верхнего видимого сообщения + авто-затухание вне скролла.
+    // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
+    // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
+    // пока сама пометка уехала под верх: тогда дата всё равно видна, а когда пометка
+    // возвращается в кадр, заголовок гаснет, чтобы не было двух одинаковых дат.
+    // (Настоящий `position: sticky` не годится: virtua оборачивает каждое сообщение,
+    // и прилипало бы в пределах одного сообщения, а не до следующей даты.)
     const vh = virtualizerRef.current
     const data = messages.data
     if (vh && data && data.length > 0) {
@@ -1311,9 +1371,14 @@ export function ChatWindow() {
       const top = data[topIdx]
       if (top) {
         setFloatingDay(dayLabel(top.createdAt))
-        setFloatingDayShown(true)
-        if (floatingHideTimer.current) clearTimeout(floatingHideTimer.current)
-        floatingHideTimer.current = setTimeout(() => setFloatingDayShown(false), 1500)
+        const prev = data[topIdx - 1]
+        const startsDay =
+          !prev ||
+          new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
+        // Насколько верхнее сообщение уже ушло под верх: пока меньше высоты пометки,
+        // она видна целиком и подменять её нечем.
+        const scrolledInto = vh.scrollOffset - vh.getItemOffset(topIdx)
+        setFloatingDayShown(!startsDay || scrolledInto > DAY_LABEL_H)
       }
     }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
@@ -1497,6 +1562,7 @@ export function ChatWindow() {
       if (content && socket) socket.emit('message:edit', { messageId: editing.id, content })
       setEditing(null)
       setText('')
+      composerRef.current?.focus()
       return
     }
     // Вложения отправляются из диалога AttachmentDialog; здесь — только текст.
@@ -1559,6 +1625,9 @@ export function ChatWindow() {
     setReplyTo(null)
     setReplyQuote(null)
     setMentionQuery(null)
+    // Отправка с Enter фокус и не теряет, а вот клик по кнопке уводит его на кнопку —
+    // и следующее сообщение приходится начинать с клика по полю.
+    composerRef.current?.focus()
   }
 
   // ── Обработчики контекстного меню сообщения (Telegram-стиль) ────────────────
@@ -2760,12 +2829,12 @@ export function ChatWindow() {
                   </span>
                 </div>
               )}
-              {/* Плавающий заголовок даты (§6): дата верхних видимых сообщений, гаснет вне скролла. */}
+              {/* Прилипшая дата: видна, только когда пометка дня уехала под верх ленты. */}
               {floatingDay && !loadingOlder && (
                 <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
                   <span
                     className={cn(
-                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-opacity duration-300',
+                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-opacity duration-200',
                       floatingDayShown ? 'opacity-100' : 'opacity-0',
                     )}
                   >
@@ -2801,7 +2870,7 @@ export function ChatWindow() {
                       const arr = messages.data ?? []
                       const prevMsg = arr[i - 1]
                       const firstOfRun = prevMsg?.senderId !== m.senderId
-                      // Разделитель дня: перед первым сообщением и при смене календарного дня.
+                      // Пометка дня: перед первым сообщением и при смене календарного дня.
                       const showDay =
                         !prevMsg ||
                         new Date(prevMsg.createdAt).toDateString() !==
@@ -2830,9 +2899,9 @@ export function ChatWindow() {
                           m={m}
                           mine={mine}
                           firstOfRun={firstOfRun}
-                          isFirstInList={i === 0}
                           showDay={showDay}
                           dayText={showDay ? dayLabel(m.createdAt) : null}
+                          isFirstInList={i === 0}
                           isUnreadDivider={unreadDividerId === m.id}
                           highlighted={highlightId === m.id}
                           selecting={selectMode}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -106,6 +106,28 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   }
 
   useRealtimeEvent<{ notification: NotificationItem }>('notification:new', () => invalidate())
+
+  /**
+   * Закрытие по Esc. Панель — слой поверх сайдбара (на мобильном — поверх всего экрана),
+   * и Esc обязан убирать именно её.
+   *
+   * `preventDefault` здесь не формальность: без него глобальный «Esc = назад»
+   * (shared/lib/use-escape-back) закрывал панель и тем же нажатием уводил на предыдущий
+   * экран — человек, открывший уведомления на дашборде, оказывался там, откуда на дашборд
+   * пришёл.
+   *
+   * Открытое меню строки забирает нажатие себе: оно вложено в панель, и закрывать сразу
+   * оба слоя одним Esc — значит терять место, куда человек смотрел.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || rowMenu) return
+      e.preventDefault()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, rowMenu])
 
   // Оптимистичные мутации (общий хук, §5.5): мгновенно read/read-all/delete.
   const {

@@ -11,7 +11,7 @@ export type ExportLocale = 'ru' | 'kk' | 'en'
  * Вид выгрузки. Значение попадает в имя файла и в метаданные, поэтому список закрыт:
  * новый вид добавляется вместе с подписью на трёх языках, а не строкой на месте вызова.
  */
-export type ExportKind = 'resume' | 'users' | 'chat' | 'certificate'
+export type ExportKind = 'resume' | 'users' | 'chat' | 'certificate' | 'career-report'
 
 /** Расширение выгружаемого файла — оно же ключ к Content-Type. */
 export type ExportFormat = 'pdf' | 'xlsx' | 'csv' | 'txt' | 'json'

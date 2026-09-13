@@ -1,31 +1,54 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Building2, ExternalLink } from 'lucide-react'
-import type { CompanyAccessStatus, DecideCompanyAccessInput } from '@studenthub/shared-schemas'
+import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
+import type {
+  CompanyAccessStatus,
+  CompanySort,
+  DecideCompanyAccessInput,
+} from '@studenthub/shared-schemas'
 import {
   companyKeys,
   decideCompanyAccess,
   fetchUniversityCompanyAccess,
-  type UniversityCompanyAccess,
 } from '../../../entities/company'
 import {
   Badge,
+  Card,
   Button,
   EmptyState,
   PageHeader,
+  PromptDialog,
   SegmentedTabs,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
   TablePagination,
-  Textarea,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  useSortState,
 } from '../../../shared/ui'
+import {
+  CareerUniversityRequired,
+  useCareerUniversity,
+} from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
 
 /** Фильтр очереди. 'ALL' — не статус, а «показать все», поэтому отдельным типом. */
 type StatusFilter = CompanyAccessStatus | 'ALL'
+
+// Ширины колонок: имя компании и решение важнее контактов, поэтому им отдано больше места.
+// Размеры страницы — общий для админских экранов набор из контракта.
+const PAGE_SIZES = ADMIN_PAGE_SIZES
+
+const COLS = ['26%', '22%', '28%', '10%', '14%'] as const
 
 /**
  * Карьерный центр вуза: очередь заявок компаний.
@@ -39,16 +62,23 @@ export function CareerCompaniesView() {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<StatusFilter>('REQUESTED')
   const [page, setPage] = useState(1)
-  const limit = 20
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
 
+  const { needsPick, universityId } = useCareerUniversity()
+  const { sort, toggle } = useSortState()
+  const params = {
+    page,
+    limit,
+    ...(status === 'ALL' ? {} : { status }),
+    ...(universityId ? { universityId } : {}),
+    ...(sort ? { sort: sort.key as CompanySort, order: sort.dir } : {}),
+  }
   const query = useQuery({
-    queryKey: companyKeys.universityAccess({
-      page,
-      limit,
-      ...(status === 'ALL' ? {} : { status }),
-    }),
-    queryFn: () =>
-      fetchUniversityCompanyAccess({ page, limit, ...(status === 'ALL' ? {} : { status }) }),
+    queryKey: companyKeys.universityAccess(params),
+    queryFn: () => fetchUniversityCompanyAccess(params),
+    enabled: !needsPick || !!universityId,
+    // Прошлая страница остаётся на экране, пока грузится новая.
+    placeholderData: keepPreviousData,
   })
 
   const decide = useMutation({
@@ -62,7 +92,26 @@ export function CareerCompaniesView() {
   })
 
   const rows = query.data?.items ?? []
+
+  // Новый фильтр или размер страницы — снова с первой: на прежней странице
+  // отфильтрованного списка может не быть строк вовсе.
+  const sortBy = (key: string): void => refilter(() => toggle(key))
+
+  function refilter(apply: () => void): void {
+    apply()
+    setPage(1)
+  }
   const total = query.data?.total ?? 0
+
+  // Заявка, по которой спрашиваем причину отказа или отзыва.
+  const [asking, setAsking] = useState<null | { id: string; status: 'REJECTED' | 'REVOKED' }>(null)
+
+  const statusLabel: Record<CompanyAccessStatus, string> = {
+    REQUESTED: t('statusRequested'),
+    APPROVED: t('statusApproved'),
+    REJECTED: t('statusRejected'),
+    REVOKED: t('statusRevoked'),
+  }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -86,19 +135,13 @@ export function CareerCompaniesView() {
         }
       />
 
-      {query.isLoading ? (
-        <ul className="flex flex-col gap-2" aria-busy>
-          {['58%', '44%', '66%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
-              <Skeleton className="h-4 rounded-md" style={{ width: w }} />
-            </li>
-          ))}
-        </ul>
+      {needsPick && !universityId ? (
+        <CareerUniversityRequired />
       ) : query.isError ? (
         // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
         // «пусто», выглядят как «данных нет» и прячут настоящую причину.
-        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
-      ) : rows.length === 0 ? (
+        <EmptyState title={tErr(toApiError(query.error).code)} description={tErr('retryHint')} />
+      ) : rows.length === 0 && !query.isLoading ? (
         <EmptyState
           icon={<Building2 className="size-6" aria-hidden />}
           title={t('noCompanies')}
@@ -106,19 +149,123 @@ export function CareerCompaniesView() {
         />
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
-            {rows.map((row) => (
-              <CompanyRow
-                key={row.id}
-                row={row}
-                busy={decide.isPending}
-                onDecide={(input) => decide.mutate({ id: row.id, input })}
-              />
-            ))}
-          </ul>
-          <TablePagination page={page} limit={limit} total={total} onPageChange={setPage} />
+          <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+            <Table fixed scrollBody fill cols={COLS}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead sortKey="name" sort={sort} onSort={sortBy}>
+                    {t('colCompany')}
+                  </TableHead>
+                  <TableHead className="hidden md:table-cell">{t('colContacts')}</TableHead>
+                  <TableHead className="hidden lg:table-cell">{t('colMessage')}</TableHead>
+                  <TableHead sortKey="status" sort={sort} onSort={sortBy}>
+                    {t('colStatus')}
+                  </TableHead>
+                  <TableHead className="text-right">{t('colActions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {query.isLoading && <TableSkeletonRows columns={5} />}
+                {rows.map((row) => (
+                  <TableRow key={row.id} className="hover:bg-muted/40">
+                    <TableCell className="font-medium">
+                      <TableText value={row.company.name} />
+                      {row.company.city && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {row.company.city}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {row.company.website ? (
+                        <a
+                          href={row.company.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+                        >
+                          <span className="truncate">{row.company.website}</span>
+                          <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+                        </a>
+                      ) : (
+                        <TableText value={null} />
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground lg:table-cell">
+                      {/* Сообщение компании и причина решения — про одно и то же обращение,
+                          поэтому в таблице делят колонку: что-то одно из них и заполнено. */}
+                      <TableText value={row.reason ?? row.message} />
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_TONE[row.status]}>{statusLabel[row.status]}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="flex justify-end gap-2">
+                        {row.status === 'REQUESTED' && (
+                          <>
+                            <Button
+                              size="sm"
+                              disabled={decide.isPending}
+                              onClick={() =>
+                                decide.mutate({ id: row.id, input: { status: 'APPROVED' } })
+                              }
+                            >
+                              {t('approve')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={decide.isPending}
+                              onClick={() => setAsking({ id: row.id, status: 'REJECTED' })}
+                            >
+                              {t('reject')}
+                            </Button>
+                          </>
+                        )}
+                        {row.status === 'APPROVED' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={decide.isPending}
+                            onClick={() => setAsking({ id: row.id, status: 'REVOKED' })}
+                          >
+                            {t('revoke')}
+                          </Button>
+                        )}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination
+              page={page}
+              limit={limit}
+              total={total}
+              onPageChange={setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={(n) => refilter(() => setLimit(n))}
+            />
+          </Card>
         </>
       )}
+
+      {/* Причина отказа и отзыва обязательна — её спрашиваем диалогом, а не разворачивая
+          строку таблицы: раскрытая форма внутри строки ломала бы колонки. */}
+      <PromptDialog
+        open={asking !== null}
+        title={t('decisionReason')}
+        placeholder={t('reasonPlaceholder')}
+        multiline
+        required
+        submitLabel={asking?.status === 'REVOKED' ? t('revoke') : t('reject')}
+        cancelLabel={t('cancel')}
+        onSubmit={(reason) => {
+          if (asking) decide.mutate({ id: asking.id, input: { status: asking.status, reason } })
+          setAsking(null)
+        }}
+        onClose={() => setAsking(null)}
+      />
     </div>
   )
 }
@@ -131,117 +278,4 @@ const STATUS_TONE: Record<
   APPROVED: 'secondary',
   REJECTED: 'destructive',
   REVOKED: 'destructive',
-}
-
-function CompanyRow({
-  row,
-  busy,
-  onDecide,
-}: {
-  row: UniversityCompanyAccess
-  busy: boolean
-  onDecide: (input: DecideCompanyAccessInput) => void
-}) {
-  const t = useTranslations('CareerAdmin')
-  // Форма отказа/отзыва раскрывается по кнопке: причина обязательна, и без неё запрос
-  // всё равно не пройдёт валидацию на сервере.
-  const [rejecting, setRejecting] = useState<null | 'REJECTED' | 'REVOKED'>(null)
-  const [reason, setReason] = useState('')
-
-  const label: Record<CompanyAccessStatus, string> = {
-    REQUESTED: t('statusRequested'),
-    APPROVED: t('statusApproved'),
-    REJECTED: t('statusRejected'),
-    REVOKED: t('statusRevoked'),
-  }
-
-  return (
-    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold">{row.company.name}</p>
-            <Badge variant={STATUS_TONE[row.status]}>{label[row.status]}</Badge>
-          </div>
-          {row.company.city && <p className="text-sm text-muted-foreground">{row.company.city}</p>}
-          {row.company.website && (
-            <a
-              href={row.company.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex w-fit items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
-            >
-              {row.company.website}
-              <ExternalLink className="size-3.5" aria-hidden />
-            </a>
-          )}
-          {row.message && (
-            <p className="mt-1 max-w-prose text-sm text-muted-foreground">{row.message}</p>
-          )}
-          {row.reason && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t('decisionReason')}: {row.reason}
-            </p>
-          )}
-        </div>
-
-        <div className="flex shrink-0 flex-wrap gap-2">
-          {row.status === 'REQUESTED' && (
-            <>
-              <Button size="sm" disabled={busy} onClick={() => onDecide({ status: 'APPROVED' })}>
-                {t('approve')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => setRejecting('REJECTED')}
-              >
-                {t('reject')}
-              </Button>
-            </>
-          )}
-          {row.status === 'APPROVED' && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setRejecting('REVOKED')}
-            >
-              {t('revoke')}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {rejecting && (
-        <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <Textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={3}
-            placeholder={t('reasonPlaceholder')}
-            aria-label={t('decisionReason')}
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={busy || reason.trim().length === 0}
-              onClick={() => {
-                onDecide({ status: rejecting, reason: reason.trim() })
-                setRejecting(null)
-                setReason('')
-              }}
-            >
-              {rejecting === 'REVOKED' ? t('revoke') : t('reject')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setRejecting(null)}>
-              {t('cancel')}
-            </Button>
-          </div>
-        </div>
-      )}
-    </li>
-  )
 }

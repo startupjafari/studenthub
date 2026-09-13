@@ -114,11 +114,17 @@ export const DocumentListQuerySchema = z
   .strict()
 export type DocumentListQueryInput = z.infer<typeof DocumentListQuerySchema>
 
+// Потолок файлов в одном запросе спец-доступа. Документ — это скан на несколько страниц,
+// а не медиатека; ограничение держит и размер аудит-записи, и число presigned-выдач.
+export const PLATFORM_ACCESS_FILES_MAX = 50
+
 // Спец-режим платформенного админа (задача 15.21): доступ к содержимому чужого документа
 // только с обязательной причиной; каждое обращение пишется в аудит и журнал документа.
+// Файлы запрашиваются пачкой: открытие карточки тянет превью всех сканов сразу, и по файлу
+// на запрос журнал распухал на N строк вместо одной записи об одном обращении.
 export const PlatformDocumentAccessSchema = z
   .object({
-    fileId: z.string().min(1),
+    fileIds: z.array(z.string().min(1)).min(1).max(PLATFORM_ACCESS_FILES_MAX),
     reason: z.string().min(5).max(500),
   })
   .strict()

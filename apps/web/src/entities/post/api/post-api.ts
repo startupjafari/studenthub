@@ -78,6 +78,13 @@ export async function pinPostRequest(id: string, pinned: boolean): Promise<FeedP
   return data
 }
 
+// Публикация черновика: DRAFT → PUBLISHED. Отложенные посты сюда не передаются —
+// их публикует крон в назначенное время.
+export async function publishPostRequest(id: string): Promise<FeedPost> {
+  const { data } = await api.post<FeedPost>(`/posts/${id}/publish`)
+  return data
+}
+
 export async function addReactionRequest(id: string, emoji: string): Promise<void> {
   await api.post(`/posts/${id}/reactions`, { emoji })
 }

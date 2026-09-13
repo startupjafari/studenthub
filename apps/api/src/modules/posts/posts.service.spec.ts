@@ -562,6 +562,35 @@ describe('PostsService — черновики и отложенная публи
     expect(base.AND).not.toContainEqual({ status: 'PUBLISHED' })
   })
 
+  it('publish: свой черновик → PUBLISHED с publishedAt', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst
+      .mockResolvedValueOnce({ id: 'p1', authorId: 'u1', status: 'DRAFT' })
+      .mockResolvedValue(postRow({ id: 'p1', authorId: 'u1' }))
+    await service.publish(viewer(Role.STUDENT, { sub: 'u1' }), 'p1', ctx)
+    const data = prisma.post.update.mock.calls[0][0].data
+    expect(data.status).toBe('PUBLISHED')
+    expect(data.publishedAt).toBeInstanceOf(Date)
+    expect(data.scheduledAt).toBeNull()
+  })
+
+  it('publish: чужой черновик → FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'other', status: 'DRAFT' })
+    await expect(
+      service.publish(viewer(Role.PLATFORM_ADMIN, { sub: 'u1' }), 'p1', ctx),
+    ).rejects.toThrow()
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
+  // Отложенному посту выставили время — досрочная публикация по кнопке противоречила бы ему.
+  it('publish: отложенный или уже опубликованный → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'u1', status: 'SCHEDULED' })
+    await expect(service.publish(viewer(Role.STUDENT, { sub: 'u1' }), 'p1', ctx)).rejects.toThrow()
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
   it('publishDueScheduled публикует созревшие отложенные', async () => {
     const { service, prisma } = setup()
     prisma.post.updateMany.mockResolvedValue({ count: 3 })

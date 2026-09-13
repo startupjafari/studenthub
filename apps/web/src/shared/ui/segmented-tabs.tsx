@@ -87,7 +87,10 @@ export function SegmentedTabs<T extends string>({
   useEffect(() => {
     if (!menuOpen) return
     function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setMenuOpen(false)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMenuOpen(false)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -127,7 +130,13 @@ export function SegmentedTabs<T extends string>({
             <>
               {/* Ловушка нажатий: список закрывается тапом мимо, без затемнения — он
                   поповер, а не модальный лист. */}
-              <div className="fixed inset-0 z-[199]" onClick={() => setMenuOpen(false)} />
+              {/* data-overlay — маркер для глобального Esc (shared/lib/use-escape-back):
+                  пока список открыт, Esc закрывает его, а не уводит назад. */}
+              <div
+                data-overlay
+                className="fixed inset-0 z-[199]"
+                onClick={() => setMenuOpen(false)}
+              />
               {/* Остров над нижней навигацией — то же место и тот же материал, что у меню
                   «Ещё». Слой как у `DropdownMenu` (§5.3): селектор открывается и из шапки
                   страницы, и из модалки. */}

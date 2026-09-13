@@ -645,34 +645,50 @@ export class DocumentsService {
   }
 
   /**
-   * Presigned-URL к файлу чужого документа в спец-режиме — ТОЛЬКО с причиной.
+   * Presigned-URL к файлам чужого документа в спец-режиме — ТОЛЬКО с причиной.
    * Пишет причину в журнал документа и аудит (никакого «тихого» доступа).
+   *
+   * Файлы берутся пачкой и дают РОВНО ОДНУ запись на обращение: карточка показывает превью
+   * всех сканов сразу, и выдача по файлу за запрос размазывала одно обращение админа на N
+   * строк журнала — читать такой аудит невозможно. Состав пачки не теряется: он уходит
+   * в metadata.fileIds.
    */
-  async platformFileUrl(
+  async platformFileUrls(
     actor: JwtPayload,
     id: string,
-    fileId: string,
+    fileIds: string[],
     reason: string,
-  ): Promise<string> {
+  ): Promise<Record<string, string>> {
     const doc = await this.prisma.document.findFirst({
       where: { id, deletedAt: null },
       select: { id: true },
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
-    const file = await this.prisma.file.findFirst({
-      where: { id: fileId, documentId: id },
+
+    // Дубли в запросе не должны множить выдачи presigned-ссылок.
+    const requested = [...new Set(fileIds)]
+    const files = await this.prisma.file.findMany({
+      where: { id: { in: requested }, documentId: id },
       select: { id: true },
+      take: requested.length,
     })
-    if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
-    await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, fileId, reason })
+    // Хотя бы один чужой/несуществующий файл — отказ целиком: частичный ответ скрыл бы
+    // от админа, что он смотрит не тот документ.
+    if (files.length !== requested.length) throw new AppException('NOT_FOUND', 'Файл не найден')
+
+    await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, fileIds: requested, reason })
     await this.audit.record({
       userId: actor.sub,
       action: 'DOCUMENT_PLATFORM_DOWNLOAD',
       entity: 'Document',
       entityId: id,
-      metadata: { fileId, reason },
+      metadata: { fileIds: requested, reason },
     })
-    return this.files.getPresignedUrl(fileId)
+
+    const urls = await Promise.all(
+      requested.map(async (fileId) => [fileId, await this.files.getPresignedUrl(fileId)] as const),
+    )
+    return Object.fromEntries(urls)
   }
 
   // ── Крон истечения (задача 15.19) ───────────────────────────────────────────
