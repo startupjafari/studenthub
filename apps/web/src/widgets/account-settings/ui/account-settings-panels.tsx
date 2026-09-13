@@ -86,6 +86,7 @@ import {
 import { useAppUpdate } from '../../../shared/lib'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
+import { syncSessionUser } from '../../../shared/session'
 import {
   promptPwaInstall,
   toApiError,
@@ -242,6 +243,8 @@ export function PersonalSection({ me }: { me: MeResponse }) {
     },
     onSuccess: (data) => {
       qc.setQueryData(userKeys.me(), data)
+      // Имя показывается и из стора сессии — обновляем вместе с кэшем `me`.
+      syncSessionUser(data)
       toast.success(tP('saved'))
     },
     onError: (e) => {

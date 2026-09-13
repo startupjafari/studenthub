@@ -4,8 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Flag, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
-import { deletePostRequest, pinPostRequest, postKeys, type FeedPost } from '../../../entities/post'
+import { Flag, MoreHorizontal, Pencil, Pin, PinOff, Send, Trash2 } from 'lucide-react'
+import {
+  deletePostRequest,
+  pinPostRequest,
+  publishPostRequest,
+  postKeys,
+  type FeedPost,
+} from '../../../entities/post'
 import { EditPostModal } from '../../../features/edit-post'
 import { ReportModal } from '../../../features/report-content'
 import { useConfirm } from '../../../shared/ui'
@@ -18,12 +24,15 @@ export function PostTileMenu({
   canModerate,
   canDelete,
   isMine,
+  onDeleted,
 }: {
   post: FeedPost
   canModerate: boolean
   canDelete: boolean
   /** Свой пост: на себя не жалуются. */
   isMine: boolean
+  /** Вызывается после удаления — лайтбоксу нужно закрыться, он показывает удалённый пост. */
+  onDeleted?: () => void
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
@@ -40,7 +49,10 @@ export function PostTileMenu({
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setOpen(false)
+      }
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
@@ -60,11 +72,23 @@ export function PostTileMenu({
     },
     onError: err,
   })
+  // Черновик — состояние в один конец, пока его нельзя отправить в ленту: статус задавался
+  // только при создании, а правка меняет лишь заголовок и текст.
+  const publishMut = useMutation({
+    mutationFn: () => publishPostRequest(post.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: postKeys.all })
+      toast.success(t('published'))
+      setOpen(false)
+    },
+    onError: err,
+  })
   const delMut = useMutation({
     mutationFn: () => deletePostRequest(post.id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       toast.success(t('deleted'))
+      onDeleted?.()
     },
     onError: err,
   })
@@ -103,6 +127,20 @@ export function PostTileMenu({
                 <Pin className="size-4 text-muted-foreground" aria-hidden />
               )}
               {post.pinnedAt ? t('unpin') : t('pin')}
+            </button>
+          )}
+          {/* Публикация — только своего черновика: у отложенного поста есть своё время,
+              и досрочная отправка противоречила бы выставленному расписанию. */}
+          {isMine && post.status === 'DRAFT' && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              disabled={publishMut.isPending}
+              onClick={() => publishMut.mutate()}
+            >
+              <Send className="size-4 text-muted-foreground" aria-hidden />
+              {t('publishPost')}
             </button>
           )}
           {isMine && (

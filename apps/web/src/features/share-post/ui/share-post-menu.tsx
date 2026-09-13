@@ -55,6 +55,7 @@ export function SharePostMenu({ postId, className }: { postId: string; className
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
+        e.preventDefault()
         e.stopPropagation()
         setOpen(false)
       }

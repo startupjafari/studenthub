@@ -311,6 +311,11 @@ model CareerApplication {
   @@index([studentId, status])
   @@index([companyId, status])
   @@index([vacancyId, status])
+  // Разрезы карьерного центра вуза: сводка и очередь фильтруют по вузу и статусу,
+  // ряд «отклики по неделям» — по вузу и дате. Без этих индексов метрики читали бы
+  // всю таблицу откликов платформы.
+  @@index([universityId, status])
+  @@index([universityId, createdAt])
   @@map("career_applications")
 }
 

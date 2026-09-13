@@ -40,11 +40,17 @@ const authSlice = createSlice({
     setAccessToken(state, action: PayloadAction<string>) {
       state.accessToken = action.payload
     },
+    // Профиль в сторе — зеркало серверного `me`, и его надо обновлять при правке профиля:
+    // иначе аватар и имя, взятые отсюда (композер комментариев, чат), остаются такими,
+    // какими были на момент входа, пока пользователь не перезагрузит страницу.
+    setSessionUser(state, action: PayloadAction<AuthUser>) {
+      state.user = action.payload
+    },
     clearAuth() {
       return initialState
     },
   },
 })
 
-export const { setAuth, setAccessToken, clearAuth } = authSlice.actions
+export const { setAuth, setAccessToken, setSessionUser, clearAuth } = authSlice.actions
 export const authReducer = authSlice.reducer

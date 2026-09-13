@@ -1,8 +1,14 @@
 import type { Role } from '@studenthub/shared-types'
-import { meRequest, refreshAccessToken } from '../api'
+import { meRequest, refreshAccessToken, type MeResponse } from '../api'
 import { store } from '../store/store'
-import { clearAuth, setAccessToken, setAuth } from '../store/auth-slice'
+import { clearAuth, setAccessToken, setAuth, setSessionUser } from '../store/auth-slice'
+import type { AuthUser } from '../store/auth-slice'
 import { logoutRequest } from '../api/auth-api'
+
+// Поля профиля, которые держит стор сессии (остальное читается из кэша `me`).
+function toSessionUser(me: MeResponse): AuthUser {
+  return { id: me.id, firstName: me.firstName, lastName: me.lastName, avatarUrl: me.avatarUrl }
+}
 
 // Устанавливает сессию по access-токену: кладёт токен, тянет профиль, наполняет Redux.
 export async function establishSession(accessToken: string): Promise<Role> {
@@ -10,7 +16,7 @@ export async function establishSession(accessToken: string): Promise<Role> {
   const me = await meRequest()
   store.dispatch(
     setAuth({
-      user: { id: me.id, firstName: me.firstName, lastName: me.lastName, avatarUrl: me.avatarUrl },
+      user: toSessionUser(me),
       role: me.role,
       universityId: me.universityId,
       facultyId: me.facultyId,
@@ -19,6 +25,15 @@ export async function establishSession(accessToken: string): Promise<Role> {
     }),
   )
   return me.role
+}
+
+/**
+ * Синхронизация профиля в сторе после правки `me` (аватар, имя). Стор наполняется один раз
+ * при входе, поэтому без этого вызова обновлённый аватар виден в профиле (он читает кэш
+ * React Query), но не там, где автор берётся из сессии.
+ */
+export function syncSessionUser(me: MeResponse): void {
+  store.dispatch(setSessionUser(toSessionUser(me)))
 }
 
 // Восстановление сессии после перезагрузки: refresh по httpOnly cookie → профиль.

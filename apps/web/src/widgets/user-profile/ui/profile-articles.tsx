@@ -425,7 +425,10 @@ function ArticleReader({
   // Закрытие по Esc + блокировка скролла фона (как в лайтбоксе поста).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => {

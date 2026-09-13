@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { io, type Socket } from 'socket.io-client'
 import { useQueryClient } from '@tanstack/react-query'
 import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
+import { refreshAccessToken } from '../api/instance'
 import { useAppSelector } from '../store/hooks'
 import { createLeaderElection } from './leader-election'
 import { createRealtimeBus } from './realtime-bus'
@@ -20,6 +21,13 @@ const RealtimeContext = createContext<RealtimeClient | null>(null)
 
 // Идентификатор вкладки: лидер по нему считает, сколько вкладок держат комнату чата.
 const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+
+// Восстановление сессии сокета после разрыва сервером (протухший токен в рукопожатии).
+// Не чаще раза в 5 секунд и не больше трёх попыток подряд: если и со свежим токеном
+// сервер рвёт связь, дело не в токене, и долбить /auth/refresh нельзя — каждый обмен
+// ротирует refresh-cookie, а реюз-детектор гасит всю сессию.
+const AUTH_RETRY_MS = 5_000
+const AUTH_RETRY_MAX = 3
 
 // Origin WS-сервера. Сокет всегда идёт ПРЯМО на api (авторизация токеном, не cookie),
 // даже когда HTTP проксируется через web (единый origin) — поэтому берём отдельный
@@ -116,10 +124,53 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       socketRef.current = socket
       // Ресинк вешаем до обёртки — она добавит свои служебные слушатели поверх.
       socket.on('connect', onConnect)
+
+      /**
+       * Сервер разорвал соединение сам — почти всегда это протухший access-токен в
+       * рукопожатии (realtime.gateway: не проверился JWT → `client.disconnect()`).
+       *
+       * Socket.IO при причине `io server disconnect` НЕ переподключается: считается, что
+       * отключил нас сервер и настаивать не надо. Для нас это означало тихо мёртвый
+       * сокет до перезагрузки страницы: HTTP продолжал работать (там свой refresh на 401),
+       * сообщения уходили в буфер сокета и не долетали никуда, а чат показывал их
+       * «отправляется» до таймаута и потом крестиком. Поэтому меняем токен на свежий и
+       * переподключаемся руками.
+       *
+       * Токен протухает и без разрывов — раз в 15 минут; пока сокет жив, его подменяет
+       * `auth:refresh` ниже, но у ЗАКРЫТОГО сокета обновлять нечего.
+       */
+      let authRetries = 0
+      let authRetryAt = 0
+      const reconnectWithFreshToken = (): void => {
+        const now = Date.now()
+        if (authRetries >= AUTH_RETRY_MAX || now - authRetryAt < AUTH_RETRY_MS) return
+        authRetries += 1
+        authRetryAt = now
+        void refreshAccessToken()
+          .then((token) => {
+            socket.auth = { token }
+            socket.connect()
+          })
+          // Обмен не удался — сессия кончилась совсем; выкидывать на /login отсюда не нужно,
+          // это сделает ближайший HTTP-запрос через общий перехватчик.
+          .catch(() => undefined)
+      }
+      const onServerDisconnect = (reason: Socket.DisconnectReason): void => {
+        if (reason === 'io server disconnect') reconnectWithFreshToken()
+      }
+      // Связь восстановилась — счётчик попыток обнуляем: следующий разрыв начинает всё заново.
+      const onAuthOk = (): void => {
+        authRetries = 0
+      }
+      socket.on('disconnect', onServerDisconnect)
+      socket.on('connect', onAuthOk)
+
       const leader = createLeaderClient(socket, bus, TAB_ID)
       setClient(leader)
       releaseRole = () => {
         socket.off('connect', onConnect)
+        socket.off('connect', onAuthOk)
+        socket.off('disconnect', onServerDisconnect)
         leader.dispose()
         socket.disconnect()
         socketRef.current = null

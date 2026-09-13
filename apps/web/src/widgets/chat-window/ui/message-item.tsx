@@ -66,10 +66,11 @@ export type MessageItemProps = {
   mine: boolean
   firstOfRun: boolean
   // Первое сообщение в списке — без верхнего отступа серии.
-  isFirstInList: boolean
-  // Разделитель дня перед сообщением.
+  /** Первое сообщение календарного дня — перед ним идёт пометка даты. */
   showDay: boolean
   dayText: string | null
+  isFirstInList: boolean
+  // Разделитель дня перед сообщением.
   // Разделитель «Непрочитанные» перед этим сообщением.
   isUnreadDivider: boolean
   highlighted: boolean
@@ -96,9 +97,9 @@ function MessageItemInner({
   m,
   mine,
   firstOfRun,
-  isFirstInList,
   showDay,
   dayText,
+  isFirstInList,
   isUnreadDivider,
   highlighted,
   selecting,
@@ -127,6 +128,8 @@ function MessageItemInner({
 
   return (
     <div>
+      {/* Пометка дня идёт в потоке ленты, а прилипший заголовок вверху подхватывает её,
+          когда она уезжает под верх (chat-window) — так дата видна и на месте, и всегда. */}
       {showDay && dayText && (
         <div className="my-2 flex justify-center">
           <span className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">

@@ -150,6 +150,7 @@ export function DictSingleSelect({
                   if (suggestions[0]) pick(suggestions[0])
                   else if (canAddCustom) pick(q)
                 } else if (e.key === 'Escape') {
+                  e.preventDefault()
                   setOpen(false)
                 }
               }}

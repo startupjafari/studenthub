@@ -70,7 +70,10 @@ export function ShareProfileButton({
       setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setOpen(false)
+      }
     }
     window.addEventListener('mousedown', onDown, true)
     window.addEventListener('scroll', place, true)

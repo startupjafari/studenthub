@@ -221,14 +221,16 @@ export async function fetchDocumentPlatform(id: string): Promise<DocumentDto> {
   return data
 }
 
-export async function platformDocumentFileUrl(
+// Ссылки берём пачкой: одно обращение админа = одна строка в журнале спец-доступа.
+// Запрос на файл давал по записи на каждое превью карточки.
+export async function platformDocumentFileUrls(
   id: string,
-  fileId: string,
+  fileIds: string[],
   reason: string,
-): Promise<string> {
-  const { data } = await api.post<{ url: string }>(`/documents/${id}/platform-access`, {
-    fileId,
-    reason,
-  })
-  return data.url
+): Promise<Record<string, string>> {
+  const { data } = await api.post<{ urls: Record<string, string> }>(
+    `/documents/${id}/platform-access`,
+    { fileIds, reason },
+  )
+  return data.urls
 }

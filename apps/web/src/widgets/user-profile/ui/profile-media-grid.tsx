@@ -461,7 +461,10 @@ function AlbumRowInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') onSubmit()
-          else if (e.key === 'Escape') onCancel()
+          else if (e.key === 'Escape') {
+            e.preventDefault()
+            onCancel()
+          }
         }}
         placeholder={placeholder}
         className="min-w-0 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"

@@ -426,6 +426,42 @@ export class PostsService {
     return this.getById(actor, id)
   }
 
+  /**
+   * Публикация черновика: DRAFT → PUBLISHED. Отдельный метод, а не поле в `update`, потому что
+   * правка текста и выход поста к читателям — разные события: их надо различать в аудите, и
+   * право на них не обязано совпадать.
+   *
+   * Отложенный пост сюда не попадает: у него есть свой срок и крон (`publishDueScheduled`),
+   * а досрочная публикация по кнопке «Опубликовать» противоречила бы выставленному времени.
+   */
+  async publish(actor: JwtPayload, id: string, ctx: RequestContext): Promise<PostRow> {
+    const post = await this.prisma.post.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, authorId: true, status: true },
+    })
+    if (!post) {
+      throw new AppException('NOT_FOUND', 'Пост не найден')
+    }
+    if (post.authorId !== actor.sub) {
+      throw new AppException('FORBIDDEN', 'Публиковать можно только свою публикацию')
+    }
+    if (post.status !== 'DRAFT') {
+      throw new AppException('BAD_REQUEST', 'Опубликовать можно только черновик')
+    }
+    await this.prisma.post.update({
+      where: { id },
+      data: { status: 'PUBLISHED', publishedAt: new Date(), scheduledAt: null },
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'post_published',
+      entity: 'Post',
+      entityId: id,
+      ...ctx,
+    })
+    return this.getById(actor, id)
+  }
+
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },

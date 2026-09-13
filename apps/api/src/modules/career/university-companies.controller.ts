@@ -55,7 +55,7 @@ export class UniversityCompaniesController {
     @Body() dto: DecideCompanyAccessDto,
     @Req() req: FastifyRequest,
   ) {
-    return this.companies.decideAccess(user, id, dto, this.ctx(req))
+    return this.companies.decideAccess(user, id, dto, this.ctx(req), dto.universityId)
   }
 
   private ctx(req: FastifyRequest): RequestContext {

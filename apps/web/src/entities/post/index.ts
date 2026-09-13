@@ -8,6 +8,7 @@ export {
   repostRequest,
   deletePostRequest,
   pinPostRequest,
+  publishPostRequest,
   addReactionRequest,
   removeReactionRequest,
   fetchComments,

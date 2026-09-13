@@ -12,11 +12,9 @@ import {
   Eye,
   Heart,
   MessageCircle,
-  MoreHorizontal,
   Pin,
   Repeat2,
   Smile,
-  Trash2,
   X,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
@@ -26,10 +24,8 @@ import {
   addReactionRequest,
   canRepost,
   deleteCommentRequest,
-  deletePostRequest,
   fetchComments,
   incrementPostView,
-  pinPostRequest,
   postKeys,
   removeReactionRequest,
   type FeedPost,
@@ -39,10 +35,11 @@ import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
-import { Avatar, AvatarFallback, AvatarImage, Markdown, useConfirm } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
+import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
@@ -112,8 +109,10 @@ export function PostLightbox({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowRight' && index < posts.length - 1) onIndex(index + 1)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      } else if (e.key === 'ArrowRight' && index < posts.length - 1) onIndex(index + 1)
       else if (e.key === 'ArrowLeft' && index > 0) onIndex(index - 1)
     }
     window.addEventListener('keydown', onKey)
@@ -205,7 +204,6 @@ function PostView({
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
-  const confirm = useConfirm()
   const me = useAppSelector((s) => s.auth.user)
   const myId = me?.id
   const myRole = useAppSelector((s) => s.auth.role)
@@ -230,27 +228,25 @@ function PostView({
   // «сначала новые / сначала старые», а не «сначала интересные».
   const [newestFirst, setNewestFirst] = useState(false)
   const [replyTo, setReplyTo] = useState<string | null>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   // Что набрано после «@» перед курсором. null — упоминание сейчас не пишут.
   const [mention, setMention] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
 
-  // Закрытие всплывающих окон по клику вне их области и по Esc (без закрытия при отводе мыши).
+  // Закрытие пикера эмодзи по клику вне его области и по Esc (без закрытия при отводе мыши).
+  // Меню поста закрывается само — оно живёт внутри PostTileMenu.
   useEffect(() => {
-    if (!menuOpen && !emojiOpen) return
+    if (!emojiOpen) return
     const onDown = (e: MouseEvent): void => {
       const target = e.target as Node
-      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false)
-      if (emojiOpen && emojiRef.current && !emojiRef.current.contains(target)) setEmojiOpen(false)
+      if (emojiRef.current && !emojiRef.current.contains(target)) setEmojiOpen(false)
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         // Esc закрывает сначала всплывающее окно, а не весь лайтбокс.
+        e.preventDefault()
         e.stopPropagation()
-        setMenuOpen(false)
         setEmojiOpen(false)
       }
     }
@@ -260,7 +256,7 @@ function PostView({
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
     }
-  }, [menuOpen, emojiOpen])
+  }, [emojiOpen])
 
   // Ответить: подставляем «@Имя » и ставим курсор после упоминания (текст печатается следом).
   // Кому отвечаем — показываем подписью над полем ввода. Раньше имя адресата
@@ -335,22 +331,6 @@ function PostView({
   const delCommentMut = useMutation({
     mutationFn: (commentId: string) => deleteCommentRequest(post.id, commentId),
     onSuccess: () => void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) }),
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  const delPostMut = useMutation({
-    mutationFn: () => deletePostRequest(post.id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: postKeys.all })
-      toast.success(t('deleted'))
-      onClose()
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  const pinMut = useMutation({
-    mutationFn: () => pinPostRequest(post.id, post.pinnedAt === null),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: postKeys.all }),
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
@@ -488,6 +468,10 @@ function PostView({
               )}
               {media.length > 1 && (
                 <>
+                  {/* Зона нажатия — вся высота кадра и полоса шире самого кружка: в галерее
+                      целятся не в иконку, а «в правый край», и промах по 32-пиксельной
+                      кнопке возвращал на зум вместо перелистывания. Кружок остаётся
+                      прежнего размера — растёт только область клика. */}
                   {mi > 0 && (
                     <button
                       type="button"
@@ -496,9 +480,11 @@ function PostView({
                         setMi(mi - 1)
                         setZoomed(false)
                       }}
-                      className="absolute left-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                      className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-start pl-2 sm:w-20 sm:pl-3"
                     >
-                      <ChevronLeft className="size-5" aria-hidden />
+                      <span className="flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors group-hover:bg-black/70">
+                        <ChevronLeft className="size-5" aria-hidden />
+                      </span>
                     </button>
                   )}
                   {mi < media.length - 1 && (
@@ -509,9 +495,11 @@ function PostView({
                         setMi(mi + 1)
                         setZoomed(false)
                       }}
-                      className="absolute right-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                      className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-end pr-2 sm:w-20 sm:pr-3"
                     >
-                      <ChevronRight className="size-5" aria-hidden />
+                      <span className="flex size-8 items-center justify-center rounded-full bg-black/50 text-white transition-colors group-hover:bg-black/70">
+                        <ChevronRight className="size-5" aria-hidden />
+                      </span>
                     </button>
                   )}
                   {/* Номер материала: «2 из 8» */}
@@ -558,62 +546,16 @@ function PostView({
               </p>
             </div>
             {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
-            {(canModerate || canDelete) && (
-              <div ref={menuRef} className="relative shrink-0">
-                <button
-                  type="button"
-                  aria-label={t('postActions')}
-                  aria-expanded={menuOpen}
-                  onClick={() => setMenuOpen((o) => !o)}
-                  className={cn(
-                    'flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-                    menuOpen && 'bg-muted text-foreground',
-                  )}
-                >
-                  <MoreHorizontal className="size-5" aria-hidden />
-                </button>
-                {menuOpen && (
-                  <div className="absolute right-0 top-full z-30 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-lg">
-                    {canModerate && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          pinMut.mutate()
-                        }}
-                        className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                      >
-                        <Pin
-                          className={cn(
-                            'size-4 shrink-0',
-                            post.pinnedAt && 'fill-current text-primary',
-                          )}
-                          aria-hidden
-                        />
-                        {post.pinnedAt ? t('unpin') : t('pin')}
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          void confirm({ title: t('deleteConfirm'), destructive: true }).then(
-                            (ok) => {
-                              if (ok) delPostMut.mutate()
-                            },
-                          )
-                        }}
-                        className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-muted"
-                      >
-                        <Trash2 className="size-4 shrink-0" aria-hidden />
-                        {t('delete')}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Одно меню на пост: то же, что на карточке и плитке. Собственный список
+                из «Закрепить» и «Удалить» отставал от него — в нём не было ни правки,
+                ни жалобы, ни публикации черновика. */}
+            <PostTileMenu
+              post={post}
+              canModerate={canModerate}
+              canDelete={canDelete}
+              isMine={post.authorId === myId}
+              onDeleted={onClose}
+            />
           </header>
 
           {/* Текст поста — обычным блоком под шапкой, а не первой строкой ленты
@@ -752,7 +694,11 @@ function PostView({
 
         {/* Ввод комментария: аватар · эмодзи · многострочное поле · «Опубликовать».
             Аватар слева, как во «ВКонтакте»: он показывает, от чьего имени уйдёт
-            реплика — в общих аккаунтах это не всегда очевидно. */}
+            реплика — в общих аккаунтах это не всегда очевидно.
+
+            Всё выровнено по нижней кромке (`items-end` + `self-end`): поле растёт вверх,
+            и при центрировании аватар с «Опубликовать» повисали посреди высокого поля,
+            не совпадая ни с одной строкой текста. */}
         <div
           className={cn(
             'relative flex items-end gap-2 px-4 py-2.5',
@@ -760,7 +706,7 @@ function PostView({
           )}
         >
           {me && (
-            <Avatar className="size-8 shrink-0 self-center max-sm:hidden">
+            <Avatar className="size-8 shrink-0 self-end max-sm:hidden">
               {me.avatarUrl && <AvatarImage src={me.avatarUrl} alt="" />}
               <AvatarFallback className="text-[10px]">{initials(me)}</AvatarFallback>
             </Avatar>
@@ -832,14 +778,14 @@ function PostView({
               }
             }}
             placeholder={replyTo ? t('replyPlaceholder') : t('commentPlaceholder')}
-            className="max-h-28 min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent py-1 text-sm leading-snug outline-none placeholder:text-muted-foreground"
+            className="max-h-28 min-h-8 min-w-0 flex-1 resize-none self-end bg-transparent py-1.5 text-sm leading-snug outline-none placeholder:text-muted-foreground"
           />
 
           <button
             type="button"
             onClick={() => addMut.mutate()}
             disabled={text.trim().length === 0 || addMut.isPending}
-            className="shrink-0 self-center text-sm font-semibold text-primary transition-opacity hover:opacity-80 disabled:opacity-40"
+            className="flex h-8 shrink-0 items-center self-end text-sm font-semibold text-primary transition-opacity hover:opacity-80 disabled:opacity-40"
           >
             {t('publish')}
           </button>

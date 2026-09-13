@@ -15,7 +15,12 @@ import { CommandPalette } from '../widgets/command-palette'
 // импорта. Событие прилетает сразу после загрузки — подписка из компонента настроек
 // его бы уже не застала (shared/lib/pwa-install.ts).
 import '../shared/lib/pwa-install'
-import { useChunkErrorRecovery, useKeyboardInset, useServiceWorkerUpdate } from '../shared/lib'
+import {
+  useChunkErrorRecovery,
+  useEscapeBack,
+  useKeyboardInset,
+  useServiceWorkerUpdate,
+} from '../shared/lib'
 
 interface AppProvidersProps {
   locale: string
@@ -65,5 +70,6 @@ function AppRuntime() {
   useServiceWorkerUpdate()
   useChunkErrorRecovery()
   useKeyboardInset()
+  useEscapeBack()
   return null
 }

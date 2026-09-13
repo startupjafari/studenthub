@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
 import {
   matchVacancy,
   type DecideVacancyInput,
@@ -12,6 +11,7 @@ import {
   type WorkFormat,
 } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
+import { resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
@@ -197,13 +197,11 @@ export class VacanciesService {
 
   /**
    * Вакансии, доступные студенту: опубликованные компаниями, которые допущены в ЕГО вуз,
-   * и одобренные этим вузом. Скоуп берётся из токена — вуз в запросе не передаётся.
+   * и одобренные этим вузом. Скоуп берётся из токена; платформенная роль своего вуза не
+   * имеет и указывает его параметром — иначе витрину ей просто не из чего собрать.
    */
   async search(viewer: JwtPayload, query: VacancySearchInput) {
-    const universityId = viewer.universityId
-    if (!universityId) {
-      throw new AppException('WRONG_SCOPE', 'Нет доступа к этой области данных')
-    }
+    const universityId = resolveUniversityScope(viewer, query.universityId)
 
     const where: Prisma.VacancyWhereInput = {
       deletedAt: null,
@@ -266,11 +264,8 @@ export class VacanciesService {
   }
 
   /** Одна вакансия студенту — с той же проверкой видимости, что и в списке. */
-  async byIdForStudent(viewer: JwtPayload, id: string) {
-    const universityId = viewer.universityId
-    if (!universityId) {
-      throw new AppException('WRONG_SCOPE', 'Нет доступа к этой области данных')
-    }
+  async byIdForStudent(viewer: JwtPayload, id: string, universityIdParam?: string) {
+    const universityId = resolveUniversityScope(viewer, universityIdParam)
 
     const vacancy = await this.prisma.vacancy.findFirst({
       where: {
@@ -295,8 +290,9 @@ export class VacanciesService {
     status: VacancyReviewStatus | undefined,
     page: number,
     limit: number,
+    universityIdParam?: string,
   ) {
-    const universityId = this.requireUniversity(viewer)
+    const universityId = resolveUniversityScope(viewer, universityIdParam)
     const where: Prisma.VacancyUniversityReviewWhereInput = {
       universityId,
       ...(status ? { status } : {}),
@@ -328,8 +324,9 @@ export class VacanciesService {
     reviewId: string,
     input: DecideVacancyInput,
     ctx: RequestContext,
+    universityIdParam?: string,
   ) {
-    const universityId = this.requireUniversity(viewer)
+    const universityId = resolveUniversityScope(viewer, universityIdParam)
     const review = await this.prisma.vacancyUniversityReview.findUnique({
       where: { id: reviewId },
       select: { id: true, universityId: true, vacancyId: true },
@@ -396,16 +393,6 @@ export class VacanciesService {
     })
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
     return vacancy
-  }
-
-  private requireUniversity(viewer: JwtPayload): string {
-    if (viewer.role === Role.PLATFORM_ADMIN && !viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Выберите университет')
-    }
-    if (!viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Нет доступа к этой области данных')
-    }
-    return viewer.universityId
   }
 
   private assertSalaryRange(input: { salaryMin?: number | null; salaryMax?: number | null }): void {
