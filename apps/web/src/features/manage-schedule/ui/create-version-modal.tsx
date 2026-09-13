@@ -5,8 +5,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { createScheduleRequest, scheduleKeys } from '../../../entities/schedule'
-import { Button, FormAlert, Input, Label, Modal } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Button, Input, Label, Modal } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 
 /**
  * Новая версия расписания группы.
@@ -27,12 +27,11 @@ export function CreateVersionModal({
   const t = useTranslations('Schedule')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('schedule-version')
   const [name, setName] = useState('')
 
   const createVersion = useMutation({
     mutationFn: () => createScheduleRequest({ groupId, name: name.trim() }),
-    onMutate: () => reset(),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       onCreated(created.id)
@@ -51,7 +50,6 @@ export function CreateVersionModal({
         }}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={error} />
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="v-name">{t('newContainerName')}</Label>
           <Input

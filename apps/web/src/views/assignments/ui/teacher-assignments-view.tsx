@@ -4,34 +4,36 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import {
-  CalendarClock,
-  ClipboardList,
-  Inbox,
-  MoreHorizontal,
-  Plus,
-  Send,
-  Trash2,
-  XCircle,
-} from 'lucide-react'
+import { ClipboardList, Inbox, MoreHorizontal, Plus, Send, Trash2, XCircle } from 'lucide-react'
+import type { AssignmentSort } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
   Card,
-  CardContent,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
   useConfirm,
+  usePagedSort,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
 import {
   assignmentKeys,
-  fetchAssignments,
+  fetchAssignmentsPaged,
   publishAssignmentRequest,
   closeAssignmentRequest,
   deleteAssignmentRequest,
@@ -47,8 +49,27 @@ const STATUS_BADGE: Record<AssignmentStatus, 'secondary' | 'success' | 'outline'
   CLOSED: 'outline',
 }
 
-// «Задания» преподавателя (задача 3): список своих дисциплин + создание/публикация.
-// Workspace проверки (задача 4) — отдельным экраном.
+// Задание · дисциплина · группа · срок · статус · действия.
+const COLS = ['30%', '20%', '12%', '12%', '14%', '3.5rem'] as const
+// На узком экране остаются задание, статус и действия: дисциплина, группа и срок —
+// уточнения, без них строка всё ещё отвечает «что это и опубликовано ли».
+const COLS_NARROW = ['60%', '0', '0', '0', '28%', '3.5rem'] as const
+const HIDE = {
+  subject: 'hidden lg:table-cell',
+  group: 'hidden xl:table-cell',
+  dueAt: 'hidden md:table-cell',
+}
+const SKELETON_COLS = 6
+const PAGE_SIZES = [20, 50, 100] as const
+
+/**
+ * «Задания» преподавателя (задача 3): свои дисциплины, создание и публикация.
+ * Workspace проверки (задача 4) — отдельный экран.
+ *
+ * Таблица, а не карточки: заданий за семестр десятки, и в списке их нельзя было ни
+ * упорядочить, ни пролистать. Страница и порядок считаются на сервере — сортировка
+ * в браузере переставляла бы только текущую страницу.
+ */
 export function TeacherAssignmentsView() {
   const t = useTranslations('Assignments')
   const tErr = useTranslations('Errors')
@@ -57,14 +78,14 @@ export function TeacherAssignmentsView() {
   const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
   const [gradingId, setGradingId] = useState<string | null>(null)
+  const paged = usePagedSort<AssignmentSort>()
 
-  const q = useQuery({ queryKey: assignmentKeys.list(), queryFn: () => fetchAssignments() })
+  const q = useQuery({
+    queryKey: assignmentKeys.listPaged(paged.query),
+    queryFn: () => fetchAssignmentsPaged(paged.query),
+  })
 
-  if (gradingId) {
-    return <GradingWorkspace assignmentId={gradingId} onBack={() => setGradingId(null)} />
-  }
-
-  const invalidate = () => qc.invalidateQueries({ queryKey: assignmentKeys.list() })
+  const invalidate = () => qc.invalidateQueries({ queryKey: assignmentKeys.all })
 
   const publish = useMutation({
     mutationFn: (id: string) => publishAssignmentRequest(id),
@@ -96,100 +117,153 @@ export function TeacherAssignmentsView() {
     if (ok) remove.mutate(a.id)
   }
 
+  // Ранний выход — ПОСЛЕ всех хуков. Раньше он стоял выше `useMutation`, и открытие
+  // проверки меняло число хуков между рендерами: React бросал исключение, экран уходил
+  // в общий error boundary («Что-то пошло не так»).
+  if (gradingId) {
+    return <GradingWorkspace assignmentId={gradingId} onBack={() => setGradingId(null)} />
+  }
+
+  const rows = q.data?.items ?? []
+  const total = q.data?.total ?? 0
+
   return (
+    // Сквозная flex-цепочка до таблицы: `fill` требует, чтобы каждый предок отдавал ей
+    // высоту, иначе прокручивается страница целиком, а не тело таблицы (§10.7).
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+          <Button size="md" className="gap-1.5" onClick={() => setCreating(true)}>
             <Plus className="size-4" aria-hidden />
             {t('newAssignment')}
           </Button>
         }
       />
 
-      {q.isLoading ? (
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      ) : q.isError ? (
+      {q.isError ? (
         <EmptyState
           icon={<Inbox />}
           title={t('loadError')}
           action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
         />
-      ) : (q.data ?? []).length === 0 ? (
+      ) : !q.isLoading && total === 0 ? (
         <EmptyState
           icon={<ClipboardList />}
           title={t('emptyTeacher')}
           description={t('emptyTeacherHint')}
         />
       ) : (
-        <ul className="flex flex-col gap-2">
-          {(q.data ?? []).map((a) => (
-            <li key={a.id}>
-              <Card>
-                <CardContent className="flex items-center gap-3 p-3.5">
-                  <button
-                    type="button"
-                    onClick={() => setGradingId(a.id)}
-                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <ClipboardList className="size-4" aria-hidden />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{a.title}</span>
-                      <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                        <span className="truncate">
-                          {a.course.subject.name} · {a.course.group.name}
-                        </span>
-                        {a.dueAt && (
-                          <span className="inline-flex items-center gap-1">
-                            <CalendarClock className="size-3" aria-hidden />
-                            {new Date(a.dueAt).toLocaleDateString(locale, {
-                              day: '2-digit',
-                              month: 'short',
-                            })}
-                          </span>
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="title" sort={paged.sort} onSort={paged.toggle}>
+                  {t('colTitle')}
+                </TableHead>
+                <TableHead
+                  sortKey="subject"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.subject}
+                >
+                  {t('colSubject')}
+                </TableHead>
+                <TableHead
+                  sortKey="group"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.group}
+                >
+                  {t('colGroup')}
+                </TableHead>
+                <TableHead
+                  sortKey="dueAt"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.dueAt}
+                >
+                  {t('colDue')}
+                </TableHead>
+                <TableHead sortKey="status" sort={paged.sort} onSort={paged.toggle}>
+                  {t('colStatus')}
+                </TableHead>
+                <TableHead className="text-right">{t('actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
+              {rows.map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell>
+                    {/* Строка ведёт в проверку — там сдачи, оценки и обратная связь. */}
+                    <button
+                      type="button"
+                      onClick={() => setGradingId(a.id)}
+                      className="w-full cursor-pointer text-left font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+                    >
+                      <TableText value={a.title} />
+                    </button>
+                  </TableCell>
+                  <TableCell className={cn(HIDE.subject, 'text-muted-foreground')}>
+                    <TableText value={a.course.subject.name} />
+                  </TableCell>
+                  <TableCell className={cn(HIDE.group, 'text-muted-foreground')}>
+                    <TableText value={a.course.group.name} />
+                  </TableCell>
+                  <TableCell className={cn(HIDE.dueAt, 'text-muted-foreground tabular-nums')}>
+                    {a.dueAt ? (
+                      new Date(a.dueAt).toLocaleDateString(locale, {
+                        day: '2-digit',
+                        month: 'short',
+                      })
+                    ) : (
+                      <TableEmpty />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_BADGE[a.status]}>{t(`astatus.${a.status}`)}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" icon aria-label={t('actions')}>
+                          <MoreHorizontal className="size-4" aria-hidden />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {a.status === 'DRAFT' && (
+                          <DropdownMenuItem onClick={() => publish.mutate(a.id)}>
+                            <Send aria-hidden />
+                            {t('publish')}
+                          </DropdownMenuItem>
                         )}
-                      </span>
-                    </span>
-                  </button>
-                  <Badge variant={STATUS_BADGE[a.status]} className="shrink-0">
-                    {t(`astatus.${a.status}`)}
-                  </Badge>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" icon aria-label={t('actions')}>
-                        <MoreHorizontal className="size-4" aria-hidden />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {a.status === 'DRAFT' && (
-                        <DropdownMenuItem onClick={() => publish.mutate(a.id)}>
-                          <Send aria-hidden />
-                          {t('publish')}
+                        {a.status === 'PUBLISHED' && (
+                          <DropdownMenuItem onClick={() => close.mutate(a.id)}>
+                            <XCircle aria-hidden />
+                            {t('close')}
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem variant="destructive" onClick={() => onDelete(a)}>
+                          <Trash2 aria-hidden />
+                          {t('delete')}
                         </DropdownMenuItem>
-                      )}
-                      {a.status === 'PUBLISHED' && (
-                        <DropdownMenuItem onClick={() => close.mutate(a.id)}>
-                          <XCircle aria-hidden />
-                          {t('close')}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem variant="destructive" onClick={() => onDelete(a)}>
-                        <Trash2 aria-hidden />
-                        {t('delete')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            page={paged.page}
+            total={total}
+            limit={paged.limit}
+            onPageChange={paged.setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={paged.setLimit}
+          />
+        </Card>
       )}
 
       {creating && <CreateAssignmentModal onClose={() => setCreating(false)} />}

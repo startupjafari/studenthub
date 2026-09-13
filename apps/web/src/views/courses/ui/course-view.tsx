@@ -183,7 +183,7 @@ export function CourseView({ subject }: CourseViewProps) {
 
   if (schedule.isLoading) {
     return (
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+      <div className="flex w-full flex-1 flex-col gap-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
@@ -191,7 +191,7 @@ export function CourseView({ subject }: CourseViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>

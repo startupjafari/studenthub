@@ -10,9 +10,10 @@ import {
   Query,
   Req,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
+import { Paginated } from '../../common/http/paginated'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
@@ -20,6 +21,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { ConsultationsService } from './consultations.service'
 import { CreateSlotDto } from './dto/create-slot.dto'
 import { BookSlotDto } from './dto/book-slot.dto'
+import { ConsultationMineQueryDto } from './dto/consultation-mine-query.dto'
 import { SlotListQueryDto } from './dto/slot-list-query.dto'
 
 const STUDENT_ROLES = [Role.STUDENT, Role.STAROSTA] as const
@@ -33,8 +35,10 @@ export class ConsultationsController {
 
   @Get('mine')
   @ApiOperation({ summary: 'Мои консультации (препод — слоты, студент — записи)' })
-  mine(@CurrentUser() user: CurrentUserData) {
-    return this.consultations.listMine(user)
+  @ApiResponse({ status: 200, description: 'Страница слотов + meta.total' })
+  async mine(@CurrentUser() user: CurrentUserData, @Query() query: ConsultationMineQueryDto) {
+    const { items, total } = await this.consultations.listMine(user, query)
+    return new Paginated(items, { total })
   }
 
   @Get('teachers')

@@ -18,6 +18,11 @@ import { PAIR_BADGE, PAIR_STATE_KEY } from './pair-visuals'
 
 interface NextPairCardProps {
   dayPair: DayPair | null
+  /**
+   * В этот день пар нет ВООБЩЕ — не «ближайшая уже прошла». Разные состояния:
+   * в воскресенье «занятия на сегодня завершены» — неправда, завершать было нечего.
+   */
+  dayEmpty?: boolean
   showTeacher?: boolean
   scheduleHref?: string
   // Быстрые действия (ссылки на существующие разделы).
@@ -28,6 +33,7 @@ interface NextPairCardProps {
 // «Сейчас идёт»; если на сегодня пар не осталось — осмысленный EmptyState.
 export function NextPairCard({
   dayPair,
+  dayEmpty = false,
   showTeacher = true,
   scheduleHref = '/schedule',
   quickLinks,
@@ -39,8 +45,12 @@ export function NextPairCard({
       <Card className="border-dashed">
         <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
           <CalendarCheck2 className="size-8 text-muted-foreground" aria-hidden />
-          <p className="font-heading text-base font-semibold">{t('noMorePairs')}</p>
-          <p className="max-w-sm text-sm text-muted-foreground">{t('noMorePairsHint')}</p>
+          <p className="font-heading text-base font-semibold">
+            {t(dayEmpty ? 'noPairsToday' : 'noMorePairs')}
+          </p>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            {t(dayEmpty ? 'noPairsTodayHint' : 'noMorePairsHint')}
+          </p>
         </CardContent>
       </Card>
     )

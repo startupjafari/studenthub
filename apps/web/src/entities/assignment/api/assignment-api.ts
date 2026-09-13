@@ -6,11 +6,14 @@ import type {
   SaveSubmissionDraftInput,
   UpdateAssignmentInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, getPaged, type Paged } from '../../../shared/api'
 import type { AssignmentItem, SubmissionItem } from '../model/types'
 
 export const assignmentKeys = {
+  reviewQueue: (limit: number) => ['assignments', 'review-queue', limit] as const,
   all: ['assignments'] as const,
+  listPaged: (filters: Partial<AssignmentListQueryInput>) =>
+    ['assignments', 'list-paged', filters] as const,
   list: (filters: Partial<AssignmentListQueryInput> = {}) =>
     ['assignments', 'list', filters] as const,
   detail: (id: string) => ['assignments', 'detail', id] as const,
@@ -24,6 +27,19 @@ export async function fetchAssignments(
     params: { page: 1, limit: 100, ...filters },
   })
   return data
+}
+
+/**
+ * Страница заданий с общим числом — для таблицы преподавателя.
+ *
+ * Отдельно от `fetchAssignments`: тот отдаёт массив и используется ещё на четырёх
+ * экранах (календарь, задачи, курс, список студента), которым ни `total`, ни
+ * сортировка не нужны. Менять его форму значило бы править их все ради одной таблицы.
+ */
+export async function fetchAssignmentsPaged(
+  query: Partial<AssignmentListQueryInput> = {},
+): Promise<Paged<AssignmentItem>> {
+  return getPaged<AssignmentItem>('/assignments', { page: 1, limit: 20, ...query })
 }
 
 export async function fetchAssignment(id: string): Promise<AssignmentItem> {
@@ -93,5 +109,22 @@ export async function saveSubmissionDraftRequest(
 
 export async function submitAssignmentRequest(assignmentId: string): Promise<SubmissionItem> {
   const { data } = await api.post<SubmissionItem>(`/assignments/${assignmentId}/submit`)
+  return data
+}
+
+/** Очередь проверки преподавателя: сколько работ ждёт оценки и по каким заданиям. */
+export interface ReviewQueue {
+  total: number
+  items: {
+    id: string
+    title: string
+    subject: string | null
+    dueAt: string | null
+    pending: number
+  }[]
+}
+
+export async function fetchReviewQueue(limit = 5): Promise<ReviewQueue> {
+  const { data } = await api.get<ReviewQueue>('/assignments/review-queue', { params: { limit } })
   return data
 }

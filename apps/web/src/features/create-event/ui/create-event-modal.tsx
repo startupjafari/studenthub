@@ -13,7 +13,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 import { createEventRequest, eventKeys } from '../../../entities/event'
 import { fetchGroups, groupKeys } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
@@ -22,7 +22,6 @@ import {
   Checkbox,
   DateTimePicker,
   FieldError,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -63,7 +62,7 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
   const t = useTranslations('Events')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('create-event')
   const role = useAppSelector((s) => s.auth.role)
   const audiences = role ? (UI_AUDIENCES[role] ?? []) : []
 
@@ -93,7 +92,6 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
 
   const mutation = useMutation({
     mutationFn: (input: CreateEventInput) => createEventRequest(input),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: eventKeys.all })
       toast.success(t('created'))
@@ -105,8 +103,6 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal onClose={onClose} title={t('newEvent')} size="lg">
       <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-4">
-        <FormAlert error={apiError} />
-
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ev-title">{t('eventTitle')}</Label>
           <Input id="ev-title" autoFocus {...form.register('title')} />

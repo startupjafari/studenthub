@@ -22,7 +22,14 @@ const CAREER_ROOT = '/career'
  * внутри доступны Tab'ом. Клик по логотипу тоже открывает карточку: на тач-экране
  * наведения нет.
  */
-export function ProductSwitcher({ homeHref }: { homeHref: string }) {
+export function ProductSwitcher({
+  homeHref,
+  careerHref = CAREER_ROOT,
+}: {
+  homeHref: string
+  /** Вход в «Карьеру» для текущей роли: у преподавателя это сразу «Вакансии». */
+  careerHref?: string
+}) {
   const t = useTranslations('Products')
   const pathname = usePathname()
   const onCareer = pathname === CAREER_ROOT || pathname.startsWith(`${CAREER_ROOT}/`)
@@ -61,7 +68,7 @@ export function ProductSwitcher({ homeHref }: { homeHref: string }) {
             active={!onCareer}
           />
           <ProductLink
-            href={CAREER_ROOT}
+            href={careerHref}
             icon={Briefcase}
             title={t('career.title')}
             subtitle={t('career.hint')}

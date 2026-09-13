@@ -77,7 +77,7 @@ export function ComplaintDetailModal({
 
   return (
     <Modal onClose={onClose} title={t('detailTitle')} size="lg">
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <header className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn(pill, PRIORITY_STYLE[priorityValue])}>

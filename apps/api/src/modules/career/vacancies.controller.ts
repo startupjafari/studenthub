@@ -40,6 +40,10 @@ export class VacanciesController {
     Role.STAROSTA,
     Role.TEACHER,
     Role.DEAN,
+    // Сотрудники вуза (§686 «студенту и сотрудникам вуза»): витрина стоит и в их
+    // навигации, а модерация вакансий без взгляда на готовую витрину слепа.
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
     // Платформенные роли смотрят витрину выбранного вуза (?universityId) — иначе раздел
     // «Вакансии» в карьерной навигации им показывался, но всегда отвечал отказом.
     Role.PLATFORM_ADMIN,
@@ -57,6 +61,8 @@ export class VacanciesController {
     Role.STAROSTA,
     Role.TEACHER,
     Role.DEAN,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
     Role.PLATFORM_ADMIN,
     Role.PLATFORM_MODERATOR,
   )
@@ -150,7 +156,13 @@ export class UniversityVacanciesController {
   constructor(private readonly vacancies: VacanciesService) {}
 
   @Get()
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+    Role.DEAN,
+  )
   @ApiOperation({ summary: 'Вакансии на модерации в своём университете' })
   queue(@CurrentUser() user: CurrentUserData, @Query() query: VacancyReviewQueueDto) {
     return this.vacancies.reviewQueue(
@@ -163,7 +175,12 @@ export class UniversityVacanciesController {
   }
 
   @Patch(':id')
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR)
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Решение по вакансии: показать студентам или отклонить' })
   decide(

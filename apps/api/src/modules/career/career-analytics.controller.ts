@@ -22,7 +22,15 @@ export class CareerAnalyticsController {
   ) {}
 
   @Get('university')
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    // Модератор платформы — те же разделы карьерного центра, что у модератора вуза,
+    // но в любом вузе: вуз выбирается параметром `?universityId` (PROJECT.md §678).
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+    Role.DEAN,
+  )
   @ApiOperation({ summary: 'Метрики карьерного модуля своего университета (только агрегаты)' })
   @ApiResponse({ status: 200, description: 'Сводка' })
   university(@CurrentUser() user: CurrentUserData, @Query() query: UniversityScopeDto) {
@@ -34,7 +42,15 @@ export class CareerAnalyticsController {
    * «сейчас», здесь разрезы за период — у них разная цена и разный срок жизни кэша.
    */
   @Get('university/report')
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    // Модератор платформы — те же разделы карьерного центра, что у модератора вуза,
+    // но в любом вузе: вуз выбирается параметром `?universityId` (PROJECT.md §678).
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+    Role.DEAN,
+  )
   @ApiOperation({ summary: 'Отчёт карьерного центра за период (только агрегаты)' })
   @ApiResponse({ status: 200, description: 'Отчёт' })
   universityReport(@CurrentUser() user: CurrentUserData, @Query() query: CareerReportQueryDto) {
@@ -42,7 +58,15 @@ export class CareerAnalyticsController {
   }
 
   @Get('university/report/export')
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    // Модератор платформы — те же разделы карьерного центра, что у модератора вуза,
+    // но в любом вузе: вуз выбирается параметром `?universityId` (PROJECT.md §678).
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+    Role.DEAN,
+  )
   @ApiOperation({ summary: 'Выгрузить отчёт карьерного центра (XLSX/CSV)' })
   @ApiResponse({ status: 200, description: 'Файл отчёта' })
   async exportUniversityReport(

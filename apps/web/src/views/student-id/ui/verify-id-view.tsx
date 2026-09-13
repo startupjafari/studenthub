@@ -57,7 +57,7 @@ export function VerifyIdView() {
       // Ширину и высоту не ограничиваем: чем крупнее кадр камеры, тем легче навести
       // на QR — на телефоне это вся область контента, на десктопе тоже.
       return (
-        <div className="flex min-h-0 w-full flex-1 flex-col">
+        <div className="flex w-full flex-1 flex-col">
           <QrScanner onToken={setScanned} />
         </div>
       )

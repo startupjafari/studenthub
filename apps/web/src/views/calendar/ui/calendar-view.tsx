@@ -17,6 +17,7 @@ import {
   Card,
   CardContent,
   EmptyState,
+  Modal,
   PageHeader,
   Select,
   SelectContent,
@@ -177,19 +178,17 @@ export function CalendarView() {
         <Agenda cells={cells} byDate={byDate} locale={locale} selected={selected} t={t} />
       )}
 
-      {/* На десктопе Месяц: под сеткой — повестка выбранного дня. */}
-      {isDesktop && effectiveView === 'month' && selected && (
-        <Card>
-          <CardContent className="p-4">
-            <DayList
-              date={selected}
-              items={byDate.get(selected) ?? []}
-              locale={locale}
-              t={t}
-              showDateHeader
-            />
-          </CardContent>
-        </Card>
+      {/* День выбранной даты — окном, а не панелью под сеткой. Панель появлялась ниже
+          календаря: на экране, где сетка месяца занимает высоту целиком, её не было
+          видно, и выбор даты выглядел как «ничего не произошло». Окно показывает день
+          сразу и не двигает сетку.
+
+          Закрытие сбрасывает выбор: `selected` заодно фильтрует повестку, и день,
+          оставшийся выбранным после закрытия, показал бы в ней одну строку вместо месяца. */}
+      {selected && (
+        <Modal onClose={() => setSelected(null)} title={dayTitle(selected, locale)} size="lg">
+          <DayList date={selected} items={byDate.get(selected) ?? []} locale={locale} t={t} />
+        </Modal>
       )}
     </div>
   )
@@ -233,16 +232,24 @@ function MonthGrid({
   t: T
 }) {
   return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="grid grid-cols-7 border-b border-border text-center text-xs font-medium text-muted-foreground">
+    // Сетка занимает всю свободную высоту, а не высоту содержимого: иначе под
+    // календарём оставался пустой хвост, и снизу воздуха было заметно больше, чем
+    // сверху, хотя отступы `main` одинаковые.
+    //
+    // `min-h-0` при этом НЕ нужен ни здесь, ни у корня страницы (§4): корень тянется
+    // `flex-1`, пока содержимое короче окна, и перестаёт, когда длиннее. Строки
+    // делят высоту поровну, но не уже 6rem — на низком окне сетка не сплющится в
+    // полоски, а честно уедет в прокрутку.
+    <Card className="flex flex-1 flex-col">
+      <CardContent className="flex min-w-0 flex-1 flex-col p-0">
+        <div className="grid shrink-0 grid-cols-7 border-b border-border text-center text-xs font-medium text-muted-foreground">
           {weekdayLabels.map((w) => (
             <div key={w} className="py-2 capitalize">
               {w}
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7">
+        <div className="grid flex-1 auto-rows-[minmax(6rem,1fr)] grid-cols-7">
           {cells.map((d) => {
             const ds = formatYmd(d)
             const items = byDate.get(ds) ?? []
@@ -255,7 +262,9 @@ function MonthGrid({
                 type="button"
                 onClick={() => onSelect(ds)}
                 className={cn(
-                  'flex min-h-24 flex-col gap-1 border-r border-b border-border p-1.5 text-left align-top last:border-r-0 focus-visible:z-10 focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
+                  // Минимум высоты задаёт дорожка строки (`auto-rows`), не клетка:
+                  // два источника расходились бы при правке.
+                  'flex flex-col gap-1 border-r border-b border-border p-1.5 text-left align-top last:border-r-0 focus-visible:z-10 focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none',
                   outside && 'bg-muted/30',
                   isSel && 'bg-primary/[0.06]',
                 )}
@@ -333,6 +342,15 @@ function Agenda({
   )
 }
 
+/** Подпись дня: «среда, 23 сентября». Одна на заголовок окна и на шапку списка. */
+function dayTitle(date: string, locale: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString(locale, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+}
+
 function DayList({
   date,
   items,
@@ -346,11 +364,7 @@ function DayList({
   t: T
   showDateHeader?: boolean
 }) {
-  const label = new Date(`${date}T00:00:00`).toLocaleDateString(locale, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  })
+  const label = dayTitle(date, locale)
   return (
     <div className="flex flex-col gap-2">
       {showDateHeader && (

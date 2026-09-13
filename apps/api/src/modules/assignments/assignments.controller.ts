@@ -12,7 +12,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -23,6 +23,7 @@ import { AssignmentsService } from './assignments.service'
 import { CreateAssignmentDto } from './dto/create-assignment.dto'
 import { UpdateAssignmentDto } from './dto/update-assignment.dto'
 import { AssignmentListQueryDto } from './dto/assignment-list-query.dto'
+import { ReviewQueueQueryDto } from './dto/review-queue-query.dto'
 import { SaveSubmissionDto } from './dto/save-submission.dto'
 
 const TEACH_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER] as const
@@ -40,6 +41,14 @@ export class AssignmentsController {
   })
   list(@CurrentUser() user: CurrentUserData, @Query() query: AssignmentListQueryDto) {
     return this.assignments.list(user, query)
+  }
+
+  @Get('review-queue')
+  @Roles(...TEACH_ROLES)
+  @ApiOperation({ summary: 'Очередь проверки: сколько работ сдано и по каким заданиям' })
+  @ApiResponse({ status: 200, description: '{ total, items[] }' })
+  reviewQueue(@CurrentUser() user: CurrentUserData, @Query() query: ReviewQueueQueryDto) {
+    return this.assignments.reviewQueue(user, query)
   }
 
   @Get(':id')
