@@ -1,27 +1,39 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Briefcase } from 'lucide-react'
+import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import type { VacancyReviewStatus } from '@studenthub/shared-schemas'
 import {
   decideVacancyReview,
   fetchVacancyReviewQueue,
   vacancyKeys,
-  type VacancyReviewRow,
 } from '../../../entities/vacancy'
 import {
   Badge,
+  Card,
   Button,
   EmptyState,
   PageHeader,
+  PromptDialog,
   SegmentedTabs,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
   TablePagination,
-  Textarea,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
 } from '../../../shared/ui'
+import {
+  CareerUniversityRequired,
+  useCareerUniversity,
+} from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
 
 type Filter = VacancyReviewStatus | 'ALL'
@@ -32,18 +44,33 @@ type Filter = VacancyReviewStatus | 'ALL'
  * Решение действует только на студентов ЭТОГО вуза: та же вакансия рассматривается
  * каждым допустившим компанию университетом отдельно.
  */
+// Ширины колонок: решение и название важнее описания, поэтому описание сжимается первым.
+// Размеры страницы — общий для админских экранов набор из контракта.
+const PAGE_SIZES = ADMIN_PAGE_SIZES
+
+const COLS = ['26%', '20%', '30%', '10%', '14%'] as const
+
 export function CareerVacancyReviewView() {
   const t = useTranslations('CareerAdmin')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<Filter>('PENDING')
   const [page, setPage] = useState(1)
-  const limit = 20
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
 
-  const params = { page, limit, ...(status === 'ALL' ? {} : { status }) }
+  const { needsPick, universityId } = useCareerUniversity()
+  const params = {
+    page,
+    limit,
+    ...(status === 'ALL' ? {} : { status }),
+    ...(universityId ? { universityId } : {}),
+  }
   const query = useQuery({
     queryKey: vacancyKeys.reviewQueue(params),
     queryFn: () => fetchVacancyReviewQueue(params),
+    enabled: !needsPick || !!universityId,
+    // Прошлая страница остаётся на экране, пока грузится новая.
+    placeholderData: keepPreviousData,
   })
 
   const decide = useMutation({
@@ -63,6 +90,22 @@ export function CareerVacancyReviewView() {
   })
 
   const rows = query.data?.items ?? []
+
+  // Новый фильтр или размер страницы — снова с первой: на прежней странице
+  // отфильтрованного списка может не быть строк вовсе.
+  function refilter(apply: () => void): void {
+    apply()
+    setPage(1)
+  }
+
+  // Заявка, по которой спрашиваем причину отказа.
+  const [asking, setAsking] = useState<string | null>(null)
+
+  const statusLabel: Record<VacancyReviewStatus, string> = {
+    PENDING: t('statusPending'),
+    APPROVED: t('statusApproved'),
+    REJECTED: t('statusRejected'),
+  }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -86,19 +129,13 @@ export function CareerVacancyReviewView() {
         }
       />
 
-      {query.isLoading ? (
-        <ul className="flex flex-col gap-2" aria-busy>
-          {['64%', '48%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
-              <Skeleton className="h-4 rounded-md" style={{ width: w }} />
-            </li>
-          ))}
-        </ul>
+      {needsPick && !universityId ? (
+        <CareerUniversityRequired />
       ) : query.isError ? (
         // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
         // «пусто», выглядят как «данных нет» и прячут настоящую причину.
-        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
-      ) : rows.length === 0 ? (
+        <EmptyState title={tErr(toApiError(query.error).code)} description={tErr('retryHint')} />
+      ) : rows.length === 0 && !query.isLoading ? (
         <EmptyState
           icon={<Briefcase className="size-6" aria-hidden />}
           title={t('noVacancies')}
@@ -106,108 +143,90 @@ export function CareerVacancyReviewView() {
         />
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
-            {rows.map((row) => (
-              <ReviewRow
-                key={row.id}
-                row={row}
-                busy={decide.isPending}
-                onDecide={(input) => decide.mutate({ id: row.id, ...input })}
-              />
-            ))}
-          </ul>
-          <TablePagination
-            page={page}
-            limit={limit}
-            total={query.data?.total ?? 0}
-            onPageChange={setPage}
-          />
+          <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+            <Table fixed scrollBody fill cols={COLS}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('colVacancy')}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t('colCompany')}</TableHead>
+                  <TableHead className="hidden lg:table-cell">{t('colDescription')}</TableHead>
+                  <TableHead>{t('colStatus')}</TableHead>
+                  <TableHead className="text-right">{t('colActions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {query.isLoading && <TableSkeletonRows columns={5} />}
+                {rows.map((row) => (
+                  <TableRow key={row.id} className="hover:bg-muted/40">
+                    <TableCell className="font-medium">
+                      <TableText value={row.vacancy.title} />
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground md:table-cell">
+                      <TableText value={row.vacancy.company.name} />
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground lg:table-cell">
+                      {/* Описание и причина отказа делят колонку: у решённой заявки важнее
+                          причина, у ожидающей её просто нет. */}
+                      <TableText value={row.reason ?? row.vacancy.description} />
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={row.status === 'APPROVED' ? 'secondary' : 'outline'}>
+                        {statusLabel[row.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {row.status === 'PENDING' && (
+                        <span className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            disabled={decide.isPending}
+                            onClick={() => decide.mutate({ id: row.id, status: 'APPROVED' })}
+                          >
+                            {t('approve')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={decide.isPending}
+                            onClick={() => setAsking(row.id)}
+                          >
+                            {t('reject')}
+                          </Button>
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination
+              page={page}
+              limit={limit}
+              total={query.data?.total ?? 0}
+              onPageChange={setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={(n) => refilter(() => setLimit(n))}
+            />
+          </Card>
         </>
       )}
+
+      {/* Причина отказа обязательна — спрашиваем диалогом, а не раскрытием строки:
+          форма внутри строки ломала бы колонки таблицы. */}
+      <PromptDialog
+        open={asking !== null}
+        title={t('decisionReason')}
+        placeholder={t('reasonPlaceholder')}
+        multiline
+        required
+        submitLabel={t('reject')}
+        cancelLabel={t('cancel')}
+        onSubmit={(reason) => {
+          if (asking) decide.mutate({ id: asking, status: 'REJECTED', reason })
+          setAsking(null)
+        }}
+        onClose={() => setAsking(null)}
+      />
     </div>
-  )
-}
-
-function ReviewRow({
-  row,
-  busy,
-  onDecide,
-}: {
-  row: VacancyReviewRow
-  busy: boolean
-  onDecide: (input: { status: 'APPROVED' | 'REJECTED'; reason?: string }) => void
-}) {
-  const t = useTranslations('CareerAdmin')
-  const [rejecting, setRejecting] = useState(false)
-  const [reason, setReason] = useState('')
-
-  const label: Record<VacancyReviewStatus, string> = {
-    PENDING: t('statusPending'),
-    APPROVED: t('statusApproved'),
-    REJECTED: t('statusRejected'),
-  }
-
-  return (
-    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold">{row.vacancy.title}</p>
-            <Badge variant={row.status === 'APPROVED' ? 'secondary' : 'outline'}>
-              {label[row.status]}
-            </Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">{row.vacancy.company.name}</p>
-          <p className="max-w-prose text-sm text-muted-foreground line-clamp-3">
-            {row.vacancy.description}
-          </p>
-          {row.reason && (
-            <p className="text-sm text-muted-foreground">
-              {t('decisionReason')}: {row.reason}
-            </p>
-          )}
-        </div>
-
-        {row.status === 'PENDING' && (
-          <div className="flex shrink-0 gap-2">
-            <Button size="sm" disabled={busy} onClick={() => onDecide({ status: 'APPROVED' })}>
-              {t('approve')}
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => setRejecting(true)}>
-              {t('reject')}
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {rejecting && (
-        <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <Textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={3}
-            placeholder={t('reasonPlaceholder')}
-            aria-label={t('decisionReason')}
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={busy || reason.trim().length === 0}
-              onClick={() => {
-                onDecide({ status: 'REJECTED', reason: reason.trim() })
-                setRejecting(false)
-                setReason('')
-              }}
-            >
-              {t('reject')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setRejecting(false)}>
-              {t('cancel')}
-            </Button>
-          </div>
-        </div>
-      )}
-    </li>
   )
 }

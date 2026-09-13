@@ -79,13 +79,16 @@ export function PostTile({
     }
   }
 
+  // Без `overflow-hidden` на карточке: он обрезал поповер «•••», который раскрывается вниз
+  // у самого низа плитки. Скругление, ради которого он стоял, перенесено на медиа-кнопку —
+  // её собственного `overflow-hidden` достаточно, чтобы обрезать картинку по верхним углам.
   return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
+    <article className="group flex flex-col rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
       <button
         type="button"
         onClick={onOpen}
         aria-label={t('openPost')}
-        className="relative block aspect-[4/3] w-full overflow-hidden bg-muted"
+        className="relative block aspect-[4/3] w-full overflow-hidden rounded-t-2xl bg-muted"
       >
         {first ? (
           <PostMediaView

@@ -59,7 +59,10 @@ export function RowContextMenu({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -99,6 +102,8 @@ export function RowContextMenu({
 
   return (
     <div
+      // Маркер для глобального Esc (shared/lib/use-escape-back).
+      data-overlay
       className="fixed inset-0 z-50 bg-overlay/40 duration-150 animate-in fade-in md:bg-transparent"
       role="menu"
       aria-label={ariaLabel}

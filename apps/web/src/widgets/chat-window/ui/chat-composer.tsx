@@ -87,6 +87,7 @@ function useHoverMenu(): {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
+        e.preventDefault()
         clear()
         setOpen(false)
       }
@@ -550,6 +551,7 @@ export function ChatComposer({
                         return true
                       }
                       if (e.key === 'Escape') {
+                        e.preventDefault()
                         onCloseMentions()
                         return true
                       }

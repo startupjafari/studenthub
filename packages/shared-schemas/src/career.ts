@@ -147,6 +147,8 @@ export const DecideCompanyAccessSchema = z
     reason: optionalText(1000),
     /** Срок действия допуска; не задан — бессрочно. */
     expiresAt: z.string().datetime().optional(),
+    /** Вуз, от имени которого принимается решение — только для платформенных ролей. */
+    universityId: z.string().min(1).optional(),
   })
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
     message: 'Укажите причину',
@@ -160,13 +162,39 @@ export const COMPANY_SORTS = ['name', 'createdAt', 'status'] as const
 export const CompanySortSchema = z.enum(COMPANY_SORTS)
 export type CompanySort = z.infer<typeof CompanySortSchema>
 
+/**
+ * Университет, в чьём scope выполняется запрос карьерного центра.
+ *
+ * Сотрудник вуза его не передаёт — он берётся из токена, и чужой вуз ему всё равно
+ * не отдадут. Параметр нужен платформенным ролям: своего вуза у них нет, а разделы
+ * карьерного центра (допуск компаний, модерация вакансий, метрики, события) без вуза
+ * бессмысленны — им нечего показывать. Отсюда селектор вуза в шапке.
+ */
+export const UniversityScopeSchema = z.object({
+  universityId: z.string().min(1).optional(),
+})
+
+/**
+ * Период аналитического отчёта карьеры.
+ * `year` — учебный год (с 1 сентября), а не календарный: отчётность вуза живёт по нему.
+ */
+export const CAREER_REPORT_PERIODS = ['month', 'quarter', 'year'] as const
+export const CareerReportPeriodSchema = z.enum(CAREER_REPORT_PERIODS)
+export type CareerReportPeriod = z.infer<typeof CareerReportPeriodSchema>
+
+/** Запрос отчёта: вуз (для платформенной роли) + период. */
+export const CareerReportQuerySchema = z
+  .object({ period: CareerReportPeriodSchema.default('quarter') })
+  .extend(UniversityScopeSchema.shape)
+export type CareerReportQueryInput = z.infer<typeof CareerReportQuerySchema>
+
 /** Список компаний для вуза: очередь заявок и уже допущенные. */
 export const CompanyListQuerySchema = OffsetPaginationSchema.extend({
   status: CompanyAccessStatusSchema.optional(),
   search: optionalText(120),
   sort: CompanySortSchema.default('createdAt'),
   order: SortOrderSchema.default('desc'),
-})
+}).extend(UniversityScopeSchema.shape)
 export type CompanyListQueryInput = z.infer<typeof CompanyListQuerySchema>
 
 // ── Карьерный профиль студента (18.B) ────────────────────────────────────────
@@ -340,6 +368,8 @@ export const DecideVacancySchema = z
   .object({
     status: z.enum(['APPROVED', 'REJECTED']),
     reason: optionalText(1000),
+    /** Вуз, от имени которого принимается решение — только для платформенных ролей. */
+    universityId: z.string().min(1).optional(),
   })
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
     message: 'Укажите причину',
@@ -350,7 +380,7 @@ export type DecideVacancyInput = z.infer<typeof DecideVacancySchema>
 /** Очередь модерации вакансий у вуза. Статусы свои — не путать с допуском компании. */
 export const VacancyReviewQueueSchema = OffsetPaginationSchema.extend({
   status: VacancyReviewStatusSchema.optional(),
-})
+}).extend(UniversityScopeSchema.shape)
 export type VacancyReviewQueueInput = z.infer<typeof VacancyReviewQueueSchema>
 
 export const VACANCY_SORTS = ['publishedAt', 'salary', 'deadline'] as const
@@ -368,7 +398,7 @@ export const VacancySearchSchema = OffsetPaginationSchema.extend({
   skills: z.array(z.string().trim().min(1).max(60)).max(10).optional(),
   sort: VacancySortSchema.default('publishedAt'),
   order: SortOrderSchema.default('desc'),
-})
+}).extend(UniversityScopeSchema.shape)
 export type VacancySearchInput = z.infer<typeof VacancySearchSchema>
 
 // ── Совпадение вакансии и профиля ────────────────────────────────────────────
@@ -558,5 +588,5 @@ export const CareerEventListQuerySchema = OffsetPaginationSchema.extend({
   kind: CareerEventKindSchema.optional(),
   /** Прошедшие мероприятия по умолчанию не показываем. */
   past: z.coerce.boolean().default(false),
-})
+}).extend(UniversityScopeSchema.shape)
 export type CareerEventListQueryInput = z.infer<typeof CareerEventListQuerySchema>

@@ -166,19 +166,20 @@ describe('DocumentsService', () => {
     expect(payload.type).toBe('SYSTEM')
   })
 
-  it('platformFileUrl: спец-режим требует причину — пишет журнал+аудит и выдаёт URL', async () => {
+  const platformActor: JwtPayload = {
+    sub: 'pa',
+    role: Role.PLATFORM_ADMIN,
+    universityId: null,
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('platformFileUrls: спец-режим требует причину — пишет журнал+аудит и выдаёт URL', async () => {
     const { service, prisma, files, audit } = setup()
     prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
-    prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
-    const platform: JwtPayload = {
-      sub: 'pa',
-      role: Role.PLATFORM_ADMIN,
-      universityId: null,
-      facultyId: null,
-      groupId: null,
-    }
-    const url = await service.platformFileUrl(platform, 'd1', 'f1', 'проверка жалобы #12')
-    expect(url).toBe('https://minio/signed')
+    prisma.file.findMany.mockResolvedValue([{ id: 'f1' }])
+    const urls = await service.platformFileUrls(platformActor, 'd1', ['f1'], 'проверка жалобы #12')
+    expect(urls).toEqual({ f1: 'https://minio/signed' })
     expect(files.getPresignedUrl).toHaveBeenCalledWith('f1')
     expect(prisma.documentEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -191,6 +192,40 @@ describe('DocumentsService', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'DOCUMENT_PLATFORM_DOWNLOAD', entityId: 'd1' }),
     )
+  })
+
+  // Суть батча: открытие карточки с четырьмя сканами — это ОДНО обращение, а не четыре строки
+  // журнала. Состав пачки при этом обязан сохраниться в metadata.
+  it('platformFileUrls: пачка файлов даёт ровно одну запись аудита со списком fileIds', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    prisma.file.findMany.mockResolvedValue([{ id: 'f1' }, { id: 'f2' }, { id: 'f3' }, { id: 'f4' }])
+    const urls = await service.platformFileUrls(
+      platformActor,
+      'd1',
+      ['f1', 'f2', 'f3', 'f4'],
+      'проверка жалобы #12',
+    )
+    expect(Object.keys(urls)).toEqual(['f1', 'f2', 'f3', 'f4'])
+    expect(audit.record).toHaveBeenCalledTimes(1)
+    expect(prisma.documentEvent.create).toHaveBeenCalledTimes(1)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DOCUMENT_PLATFORM_DOWNLOAD',
+        metadata: expect.objectContaining({ fileIds: ['f1', 'f2', 'f3', 'f4'] }),
+      }),
+    )
+  })
+
+  it('platformFileUrls: чужой файл в пачке — отказ целиком, без выдачи и записи', async () => {
+    const { service, prisma, files, audit } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    prisma.file.findMany.mockResolvedValue([{ id: 'f1' }])
+    await expect(
+      service.platformFileUrls(platformActor, 'd1', ['f1', 'alien'], 'проверка жалобы #12'),
+    ).rejects.toThrow()
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
   })
 
   it('remove: мягкое удаление + событие DELETE', async () => {
