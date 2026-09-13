@@ -133,6 +133,7 @@ export function DictMultiSelect({
             if (suggestions[0]) add(suggestions[0])
             else if (canAddCustom) add(q)
           } else if (e.key === 'Escape') {
+            e.preventDefault()
             setOpen(false)
           }
         }}

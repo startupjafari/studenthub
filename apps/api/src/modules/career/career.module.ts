@@ -16,6 +16,7 @@ import { ApplicationsController, EmployerApplicationsController } from './applic
 import { ResumeService } from './resume.service'
 import { ResumeController } from './resume.controller'
 import { CareerAnalyticsService } from './career-analytics.service'
+import { CareerReportService } from './career-report.service'
 import { CareerAnalyticsController } from './career-analytics.controller'
 import { CareerEventsService } from './career-events.service'
 import { CareerEventsController } from './career-events.controller'
@@ -45,6 +46,7 @@ import { CareerEventsController } from './career-events.controller'
     ApplicationsService,
     ResumeService,
     CareerAnalyticsService,
+    CareerReportService,
     CareerEventsService,
   ],
   // CareerAccessService понадобится всем будущим карьерным сервисам, которые читают

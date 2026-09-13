@@ -103,6 +103,19 @@ export class PostsController {
     return this.posts.update(user, id, dto, this.ctx(req))
   }
 
+  @Post(':id/publish')
+  @ApiOperation({ summary: 'Опубликовать свой черновик (DRAFT → PUBLISHED)' })
+  @ApiResponse({ status: 201, description: 'Пост опубликован' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — пост не черновик' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / не автор' })
+  publish(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.posts.publish(user, id, this.ctx(req))
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Удалить пост (автор или модератор scope)' })

@@ -208,14 +208,16 @@ export class DocumentsController {
   @Post(':id/platform-access')
   @Roles(Role.PLATFORM_ADMIN)
   @ApiOperation({
-    summary: 'Спец-режим: presigned-URL к файлу с обязательной причиной (аудит + журнал)',
+    summary: 'Спец-режим: presigned-URL к файлам с обязательной причиной (аудит + журнал)',
   })
-  platformFileUrl(
+  platformFileUrls(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Body() dto: PlatformAccessDto,
   ) {
-    return this.documents.platformFileUrl(user, id, dto.fileId, dto.reason).then((url) => ({ url }))
+    return this.documents
+      .platformFileUrls(user, id, dto.fileIds, dto.reason)
+      .then((urls) => ({ urls }))
   }
 
   @Delete(':id')

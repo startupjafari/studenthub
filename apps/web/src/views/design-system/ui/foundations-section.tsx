@@ -78,6 +78,7 @@ const LAYERS = [
   { z: 'z-[110]', role: 'поповер, открытый из модалки' },
   { z: 'z-[190]', role: 'Sheet' },
   { z: 'z-[200]', role: 'Select, DropdownMenu' },
+  { z: 'z-[250]', role: 'подтверждение (AlertDialog) — поверх поверхности, что его вызвала' },
   { z: 'z-[300]', role: 'Tooltip, командная палитра' },
 ]
 

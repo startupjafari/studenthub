@@ -1,25 +1,52 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { CalendarDays, MapPin, Users, Video } from 'lucide-react'
-import { CAREER_EVENT_KINDS, type CareerEventKind } from '@studenthub/shared-schemas'
+import {
+  ADMIN_PAGE_SIZES,
+  CAREER_EVENT_KINDS,
+  type CareerEventKind,
+} from '@studenthub/shared-schemas'
 import { careerEventKeys, fetchCareerEvents } from '../../../entities/career-event'
 import {
+  CareerUniversityRequired,
+  useCareerUniversity,
+} from '../../../features/career-university-scope'
+import { toApiError } from '../../../shared/lib'
+import {
   Badge,
-  Button,
+  Card,
   EmptyState,
   PageHeader,
   SegmentedTabs,
-  Skeleton,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
   TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
 } from '../../../shared/ui'
 
 /**
  * Карьерные мероприятия — те же события вуза с признаком карьерного типа. Отдельного
  * календаря нет намеренно: регистрация и напоминания живут в домене «События».
  */
+// Ширины колонок: название с описанием — главное, место и тип сжимаются первыми.
+// Размеры страницы — общий для админских экранов набор из контракта.
+const PAGE_SIZES = ADMIN_PAGE_SIZES
+
+const COLS = ['34%', '14%', '18%', '22%', '12%'] as const
+
 export function CareerEventsView() {
   const t = useTranslations('CareerEvents')
   const tErr = useTranslations('Errors')
@@ -27,12 +54,24 @@ export function CareerEventsView() {
   const [kind, setKind] = useState<CareerEventKind | null>(null)
   const [past, setPast] = useState(false)
   const [page, setPage] = useState(1)
-  const limit = 20
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
 
-  const params = { page, limit, past, ...(kind ? { kind } : {}) }
+  // Платформенная роль смотрит карьерный центр конкретного вуза — до выбора запрос
+  // ушёл бы в заведомый WRONG_SCOPE, поэтому он просто не стартует.
+  const { needsPick, universityId } = useCareerUniversity()
+  const params = {
+    page,
+    limit,
+    past,
+    ...(kind ? { kind } : {}),
+    ...(universityId ? { universityId } : {}),
+  }
   const query = useQuery({
     queryKey: careerEventKeys.list(params),
     queryFn: () => fetchCareerEvents(params),
+    enabled: !needsPick || !!universityId,
+    // Прошлая страница остаётся на экране, пока грузится новая.
+    placeholderData: keepPreviousData,
   })
 
   const kindLabel: Record<CareerEventKind, string> = {
@@ -44,6 +83,13 @@ export function CareerEventsView() {
   }
 
   const rows = query.data?.items ?? []
+
+  // Новый фильтр или размер страницы — снова с первой: на прежней странице
+  // отфильтрованного списка может не быть строк вовсе.
+  function refilter(apply: () => void): void {
+    apply()
+    setPage(1)
+  }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -58,43 +104,38 @@ export function CareerEventsView() {
               { value: 'past', label: t('past') },
             ]}
             value={past ? 'past' : 'upcoming'}
-            onChange={(v) => {
-              setPast(v === 'past')
-              setPage(1)
-            }}
+            onChange={(v) => refilter(() => setPast(v === 'past'))}
           />
+        }
+        actions={
+          <Select
+            value={kind ?? 'all'}
+            onValueChange={(v) =>
+              refilter(() => setKind(v === 'all' ? null : (v as CareerEventKind)))
+            }
+          >
+            <SelectTrigger size="md" className="w-52" aria-label={t('colKind')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('kindAll')}</SelectItem>
+              {CAREER_EVENT_KINDS.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {kindLabel[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         }
       />
 
-      <div className="flex flex-wrap gap-2">
-        {CAREER_EVENT_KINDS.map((value) => (
-          <Button
-            key={value}
-            size="sm"
-            variant={kind === value ? 'default' : 'outline'}
-            onClick={() => {
-              setKind(kind === value ? null : value)
-              setPage(1)
-            }}
-          >
-            {kindLabel[value]}
-          </Button>
-        ))}
-      </div>
-
-      {query.isLoading ? (
-        <ul className="flex flex-col gap-2" aria-busy>
-          {['66%', '50%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
-              <Skeleton className="h-4 rounded-md" style={{ width: w }} />
-            </li>
-          ))}
-        </ul>
+      {needsPick && !universityId ? (
+        <CareerUniversityRequired />
       ) : query.isError ? (
         // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
         // «пусто», выглядят как «данных нет» и прячут настоящую причину.
-        <EmptyState title={tErr('INTERNAL_ERROR')} description={tErr('retryHint')} />
-      ) : rows.length === 0 ? (
+        <EmptyState title={tErr(toApiError(query.error).code)} description={tErr('retryHint')} />
+      ) : rows.length === 0 && !query.isLoading ? (
         <EmptyState
           icon={<CalendarDays className="size-6" aria-hidden />}
           title={t('empty')}
@@ -102,59 +143,82 @@ export function CareerEventsView() {
         />
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
-            {rows.map((event) => (
-              <li
-                key={event.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4"
-              >
-                <div className="flex min-w-0 flex-col gap-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {event.careerKind && (
-                      <Badge variant="outline">{kindLabel[event.careerKind]}</Badge>
-                    )}
-                    <p className="font-semibold">{event.title}</p>
-                    {event.registered && <Badge variant="secondary">{t('registered')}</Badge>}
-                  </div>
-                  <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <CalendarDays className="size-3.5" aria-hidden />
+          <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+            <Table fixed scrollBody fill cols={COLS}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('colEvent')}</TableHead>
+                  <TableHead className="hidden sm:table-cell">{t('colKind')}</TableHead>
+                  <TableHead>{t('colWhen')}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t('colPlace')}</TableHead>
+                  <TableHead numeric>{t('colParticipants')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {query.isLoading && <TableSkeletonRows columns={5} />}
+                {rows.map((event) => (
+                  <TableRow key={event.id} className="hover:bg-muted/40">
+                    <TableCell className="font-medium">
+                      <span className="flex items-center gap-2">
+                        <TableText value={event.title} />
+                        {event.registered && (
+                          <Badge variant="secondary" className="shrink-0">
+                            {t('registered')}
+                          </Badge>
+                        )}
+                      </span>
+                      <span className="block truncate text-xs font-normal text-muted-foreground">
+                        {event.description}
+                      </span>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      {event.careerKind ? (
+                        <Badge variant="outline">{kindLabel[event.careerKind]}</Badge>
+                      ) : (
+                        <TableText value={null} />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
                       {format.dateTime(new Date(event.startsAt), {
                         day: 'numeric',
-                        month: 'long',
+                        month: 'short',
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
-                    </span>
-                    {event.isOnline ? (
-                      <span className="flex items-center gap-1">
-                        <Video className="size-3.5" aria-hidden />
-                        {t('online')}
-                      </span>
-                    ) : (
-                      event.location && (
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground md:table-cell">
+                      {/* Онлайн и адрес — одно и то же поле «где», просто разной природы. */}
+                      {event.isOnline ? (
                         <span className="flex items-center gap-1">
-                          <MapPin className="size-3.5" aria-hidden />
-                          {event.location}
+                          <Video className="size-3.5 shrink-0" aria-hidden />
+                          {t('online')}
                         </span>
-                      )
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Users className="size-3.5" aria-hidden />
-                      {event.participantsCount}
-                    </span>
-                  </p>
-                  <p className="max-w-prose text-sm text-muted-foreground">{event.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <TablePagination
-            page={page}
-            limit={limit}
-            total={query.data?.total ?? 0}
-            onPageChange={setPage}
-          />
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          {event.location && <MapPin className="size-3.5 shrink-0" aria-hidden />}
+                          <TableText value={event.location} />
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground tabular-nums">
+                      <span className="flex items-center justify-end gap-1">
+                        <Users className="size-3.5 shrink-0" aria-hidden />
+                        {event.participantsCount}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination
+              page={page}
+              limit={limit}
+              total={query.data?.total ?? 0}
+              onPageChange={setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={(n) => refilter(() => setLimit(n))}
+            />
+          </Card>
         </>
       )}
     </div>

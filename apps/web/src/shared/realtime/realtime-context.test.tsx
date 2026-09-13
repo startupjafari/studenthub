@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // vi.mock хойстится в начало файла — моки и общее состояние объявляем через vi.hoisted.
-const { socketMock, ioMock, state, invalidateMock } = vi.hoisted(() => {
+const { socketMock, ioMock, state, invalidateMock, refreshMock } = vi.hoisted(() => {
   const socketMock = {
     on: vi.fn(),
     off: vi.fn(),
@@ -11,6 +11,7 @@ const { socketMock, ioMock, state, invalidateMock } = vi.hoisted(() => {
     onAny: vi.fn(),
     offAny: vi.fn(),
     disconnect: vi.fn(),
+    connect: vi.fn(),
     connected: false,
     auth: {} as { token?: string },
   }
@@ -19,9 +20,12 @@ const { socketMock, ioMock, state, invalidateMock } = vi.hoisted(() => {
     ioMock: vi.fn((..._args: unknown[]) => socketMock),
     state: { token: null as string | null },
     invalidateMock: vi.fn(),
+    refreshMock: vi.fn(async () => 't2'),
   }
 })
 vi.mock('socket.io-client', () => ({ io: ioMock }))
+// Обмен refresh-токена: провайдер зовёт ту же общую функцию, что и перехватчик HTTP.
+vi.mock('../api/instance', () => ({ refreshAccessToken: refreshMock }))
 // Токен из Redux подменяем изменяемым state.token, чтобы гонять ротацию/логаут через rerender.
 vi.mock('../store/hooks', () => ({
   useAppSelector: (selector: (s: unknown) => unknown) =>
@@ -43,6 +47,8 @@ beforeEach(() => {
   socketMock.onAny.mockClear()
   socketMock.offAny.mockClear()
   socketMock.disconnect.mockClear()
+  socketMock.connect.mockClear()
+  refreshMock.mockClear()
   socketMock.connected = false
   socketMock.auth = {}
   ioMock.mockClear()
@@ -55,6 +61,52 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+/** Вызов обработчика, который провайдер повесил на событие сокета. */
+function fireSocket(event: string, ...args: unknown[]): void {
+  for (const call of socketMock.on.mock.calls) {
+    if (call[0] === event) (call[1] as (...a: unknown[]) => void)(...args)
+  }
+}
+
+describe('RealtimeProvider — разрыв сессии сервером', () => {
+  it('после «io server disconnect» берёт свежий токен и переподключается сам', async () => {
+    state.token = 't1'
+    render(<RealtimeProvider>x</RealtimeProvider>)
+
+    // Сервер рвёт связь, когда не проверился JWT рукопожатия. Socket.IO при этой причине
+    // не переподключается сам — без нашего вмешательства сокет остался бы мёртвым
+    // до перезагрузки страницы: сообщения чата уходили бы в никуда.
+    fireSocket('disconnect', 'io server disconnect')
+    await vi.waitFor(() => expect(socketMock.connect).toHaveBeenCalled())
+
+    expect(refreshMock).toHaveBeenCalledTimes(1)
+    expect(socketMock.auth).toEqual({ token: 't2' })
+  })
+
+  it('обычный обрыв связи не трогает токен — переподключение делает сам socket.io', () => {
+    state.token = 't1'
+    render(<RealtimeProvider>x</RealtimeProvider>)
+
+    fireSocket('disconnect', 'transport close')
+
+    expect(refreshMock).not.toHaveBeenCalled()
+    expect(socketMock.connect).not.toHaveBeenCalled()
+  })
+
+  it('не долбит обмен токена: повторные разрывы подряд дают одну попытку', async () => {
+    state.token = 't1'
+    render(<RealtimeProvider>x</RealtimeProvider>)
+
+    fireSocket('disconnect', 'io server disconnect')
+    fireSocket('disconnect', 'io server disconnect')
+    fireSocket('disconnect', 'io server disconnect')
+    await vi.waitFor(() => expect(socketMock.connect).toHaveBeenCalled())
+
+    // Каждый обмен ротирует refresh-cookie, а реюз-детектор гасит сессию целиком.
+    expect(refreshMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('RealtimeProvider — жизненный цикл соединения', () => {

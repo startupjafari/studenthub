@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { CareerEventListQueryInput } from '@studenthub/shared-schemas'
-import { AppException } from '../../common/exceptions/app.exception'
+import { resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -21,10 +21,7 @@ export class CareerEventsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(viewer: JwtPayload, query: CareerEventListQueryInput) {
-    const universityId = viewer.universityId
-    if (!universityId) {
-      throw new AppException('WRONG_SCOPE', 'Нет доступа к этой области данных')
-    }
+    const universityId = resolveUniversityScope(viewer, query.universityId)
 
     const where: Prisma.EventWhereInput = {
       careerKind: query.kind ?? { not: null },
