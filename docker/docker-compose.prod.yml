@@ -34,7 +34,8 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # Docker Hub `minio/minio` больше не публикуется — официальный источник quay.io.
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: always
     command: ['server', '/data', '--console-address', ':9001']
     environment:
