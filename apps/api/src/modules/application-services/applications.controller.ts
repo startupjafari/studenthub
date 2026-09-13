@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -10,7 +10,9 @@ import { ApplicationProcessService } from './application-process.service'
 import { CreateDraftDto } from './dto/create-draft.dto'
 import { UpdateDraftDto } from './dto/update-draft.dto'
 import { CancelApplicationDto } from './dto/cancel-application.dto'
+import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ApplicationQueryDto } from './dto/application-query.dto'
+import { RevokeCertificateDto } from './dto/revoke-certificate.dto'
 import { AttachDocumentDto } from './dto/attach-document.dto'
 import { RequestReplacementDto } from './dto/request-replacement.dto'
 import { AssignApplicationDto } from './dto/assign-application.dto'
@@ -29,6 +31,7 @@ export class ApplicationsController {
     private readonly applications: ApplicationsService,
     private readonly documents: ApplicationDocumentsService,
     private readonly process: ApplicationProcessService,
+    private readonly branding: ExportBrandingService,
   ) {}
 
   @Post()
@@ -203,6 +206,40 @@ export class ApplicationsController {
     @Body() dto: AddResultDto,
   ) {
     return this.process.addResult(user, id, dto)
+  }
+
+  /**
+   * Сформировать справку об обучении вместо загрузки готового файла (этап B7).
+   *
+   * Данные берутся из профиля студента, документ регистрируется в журнале выгрузок и
+   * получает код проверки. `locale` выбирает язык бланка, по умолчанию русский.
+   */
+  @Post(':id/results/certificate')
+  @ApiOperation({ summary: 'Сформировать и выдать справку об обучении (этап подготовки)' })
+  @ApiResponse({ status: 201, description: 'Справка выдана: документ и код проверки' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — не тот этап заявки' })
+  issueCertificate(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query('locale') locale: string | undefined,
+  ) {
+    return this.process.issueStudyCertificate(user, id, this.branding.resolveLocale(locale))
+  }
+
+  /**
+   * Отозвать выданную справку. Файл у студента остаётся — изъять бумагу нельзя, — но
+   * проверка по коду с этого момента показывает «документ отозван».
+   */
+  @Post(':id/results/certificate/revoke')
+  @ApiOperation({ summary: 'Отозвать выданную справку об обучении' })
+  @ApiResponse({ status: 201, description: 'Справка отозвана' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — действующей справки по заявке нет' })
+  revokeCertificate(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: RevokeCertificateDto,
+  ) {
+    return this.process.revokeStudyCertificate(user, id, dto.reason)
   }
 
   @Get(':id/results/:resultId/url')

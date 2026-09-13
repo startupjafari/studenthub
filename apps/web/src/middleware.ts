@@ -15,6 +15,9 @@ const PUBLIC_PATHS = [
   '/employer/verify',
   // Публичное резюме по ссылке: её открывает работодатель, у которого аккаунта нет.
   '/r/resume',
+  // Проверка выданного документа по коду из бланка: её открывает банк, работодатель,
+  // посольство — у них аккаунта нет и не будет.
+  '/verify',
 ]
 
 /**
@@ -24,7 +27,7 @@ const PUBLIC_PATHS = [
  * в другом аккаунте или в этом же. Редирект на home в этот момент означал бы, что письмо
  * «не работает», а адрес так и остался неподтверждённым.
  */
-const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = ['/employer/verify', '/r/resume']
+const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = ['/employer/verify', '/r/resume', '/verify']
 
 interface RoleCookie {
   role: Role
