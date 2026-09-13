@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Bell, LogOut, Search } from 'lucide-react'
+import { Bell, LogOut, Search, UserRound } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { useChatsUnread } from '../../../entities/chat'
@@ -174,14 +174,21 @@ export function AppSidebar({
             profileActive ? 'bg-primary/10' : 'hover:bg-muted',
           )}
         >
-          {me.isLoading ? (
-            // Понятный индикатор загрузки профиля: пульсирующие плейсхолдеры вместо «—».
+          {/* Пока профиля нет — плейсхолдеры. Условие не только по `isLoading`: запрос `me`
+              выключен, пока нет access-токена (восстановление сессии), и в этот момент
+              `isLoading` уже false, а данных ещё нет. Раньше туда попадала вторая ветка
+              и рисовала «·» из пустых инициалов и «—» вместо имени — выглядело как сбой. */}
+          {me.isLoading || !me.data ? (
             <div
               className="flex min-w-0 flex-1 items-center gap-3"
               aria-busy
               aria-label={tShell('loading')}
             >
-              <Skeleton className="size-9 shrink-0 rounded-full" />
+              {/* Аватар-заглушка — иконка пользователя: она сразу говорит, чьё это место,
+                  в отличие от пульсирующего круга или одинокой точки. */}
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <UserRound className="size-5" aria-hidden />
+              </span>
               <div className="min-w-0 flex-1 space-y-1.5">
                 <Skeleton className="h-3.5 w-28" />
                 <Skeleton className="h-3 w-16" />
@@ -194,16 +201,14 @@ export function AppSidebar({
               className="flex min-w-0 flex-1 items-center gap-3"
             >
               <Avatar className="size-9">
-                {me.data?.avatarUrl && <AvatarImage src={me.data.avatarUrl} alt="" />}
-                <AvatarFallback>{initials(me.data?.firstName, me.data?.lastName)}</AvatarFallback>
+                {me.data.avatarUrl && <AvatarImage src={me.data.avatarUrl} alt="" />}
+                <AvatarFallback>{initials(me.data.firstName, me.data.lastName)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
-                  {me.data ? `${me.data.firstName} ${me.data.lastName}` : '—'}
+                  {me.data.firstName} {me.data.lastName}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {me.data ? tRoles(me.data.role) : ''}
-                </p>
+                <p className="truncate text-xs text-muted-foreground">{tRoles(me.data.role)}</p>
               </div>
             </Link>
           )}

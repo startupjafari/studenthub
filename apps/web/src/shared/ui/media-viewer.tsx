@@ -90,8 +90,10 @@ export function MediaViewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      } else if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
       else if (e.key === 'ArrowRight' && index < items.length - 1) onIndexChange(index + 1)
     }
     document.addEventListener('keydown', onKey)
@@ -109,6 +111,9 @@ export function MediaViewer({
       // Dialog на время своей работы ставит body `pointer-events: none`, оставляя «живым»
       // только своё содержимое. Без этого поверх модалки картинка видна, но ни поворот,
       // ни скачивание, ни крестик не нажимаются.
+      // Маркер для глобального Esc (shared/lib/use-escape-back): пока слой открыт,
+      // Esc закрывает его, а не уводит на предыдущую страницу.
+      data-overlay
       className="pointer-events-auto fixed inset-0 z-[100] flex select-none flex-col bg-black/80"
       onClick={(e) => {
         e.stopPropagation()

@@ -266,6 +266,46 @@
   }
 }
 
+/* Экран статуса берёт высоту у места, где отрисован, а не у окна. Самостоятельной
+   страницей (404, offline, публичный профиль) он держит высоту окна; внутри оболочки
+   приложения растягивается на свободную высоту `main.sh-scroll`, у которого свои
+   отступы — жёсткий `100dvh` там давал прокрутку ровно на их величину. */
+.status-screen {
+  min-height: 100dvh;
+}
+
+.sh-scroll .status-screen {
+  min-height: 100%;
+  flex: 1 1 auto;
+  /* Внутри оболочки это панель уровня контента — со скруглением и контуром, как у
+     остальных поверхностей. На весь экран (404, offline) рамка по краям не нужна. */
+  border-radius: var(--radius-2xl, 1rem);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+/* Рядом с сайдбаром подпись продукта дублирует логотип в шапке оболочки. */
+.sh-scroll .status-brand {
+  display: none;
+}
+
+/* Внешнее кольцо ореола медленно дышит — единственное движение на статичном экране.
+   Декорация: для prefers-reduced-motion гасится вместе с появлением панели. */
+@keyframes status-halo {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.5;
+  }
+}
+
+.status-halo {
+  animation: status-halo 4s ease-in-out infinite;
+}
+
 /* Появление системных экранов статуса (403/404/ошибка). Классом, а не инлайн-стилем:
    инлайн не выключишь медиазапросом, а декоративная анимация обязана уважать
    prefers-reduced-motion. */
@@ -285,7 +325,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status-in {
+  .status-in,
+  .status-halo {
     animation: none;
   }
 }

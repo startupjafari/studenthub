@@ -12,6 +12,7 @@ import {
   type UpdateCompanyInput,
 } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
+import { resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { PasswordService } from '../../common/security/password.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -322,14 +323,15 @@ export class CompaniesService {
   // ── Сторона вуза: очередь заявок и решения ─────────────────────────────────
 
   /**
-   * Заявки компаний в вуз. Скоуп берётся ИЗ ТОКЕНА сотрудника, а не из query:
-   * иначе админ одного вуза читал бы очередь другого.
+   * Заявки компаний в вуз. У сотрудника скоуп берётся ИЗ ТОКЕНА, а не из query: иначе
+   * админ одного вуза читал бы очередь другого. Параметр действует только для
+   * платформенных ролей, у которых своего вуза нет (см. resolveUniversityScope).
    */
   async universityAccessList(
     viewer: JwtPayload,
-    query: { status?: CompanyAccessStatus; page: number; limit: number },
+    query: { status?: CompanyAccessStatus; page: number; limit: number; universityId?: string },
   ) {
-    const universityId = this.requireUniversity(viewer)
+    const universityId = resolveUniversityScope(viewer, query.universityId)
     const where: Prisma.CompanyUniversityAccessWhereInput = {
       universityId,
       ...(query.status ? { status: query.status } : {}),
@@ -376,8 +378,9 @@ export class CompaniesService {
     accessId: string,
     input: DecideCompanyAccessInput,
     ctx: RequestContext,
+    universityIdParam?: string,
   ) {
-    const universityId = this.requireUniversity(viewer)
+    const universityId = resolveUniversityScope(viewer, universityIdParam)
     const record = await this.prisma.companyUniversityAccess.findUnique({
       where: { id: accessId },
       select: { id: true, status: true, companyId: true, universityId: true },
@@ -469,13 +472,6 @@ export class CompaniesService {
     if (company.status === 'BLOCKED') {
       throw new AppException('FORBIDDEN', company.blockedReason ?? 'Компания заблокирована')
     }
-  }
-
-  private requireUniversity(viewer: JwtPayload): string {
-    if (!viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Нет доступа к этой области данных')
-    }
-    return viewer.universityId
   }
 
   /** Хэш токена подтверждения — в БД открытый токен не хранится (как refresh). */

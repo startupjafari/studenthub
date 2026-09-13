@@ -17,7 +17,7 @@ export {
   grantDocumentAccess,
   revokeDocumentAccess,
   fetchDocumentPlatform,
-  platformDocumentFileUrl,
+  platformDocumentFileUrls,
   type DocumentDto,
   type DocumentFile,
   type DocumentOverview,

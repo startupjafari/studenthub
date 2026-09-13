@@ -9,7 +9,7 @@ import { auditKeys, fetchAudit, type AuditLogItem } from '../../../entities/audi
 import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
 import {
   fetchDocumentPlatform,
-  platformDocumentFileUrl,
+  platformDocumentFileUrls,
   type DocumentDto,
 } from '../../../entities/document'
 import {
@@ -43,7 +43,7 @@ function errCode(e: unknown): string {
 
 // Минимальная длина причины — как в серверной схеме PlatformDocumentAccessSchema.
 const REASON_MIN = 5
-// Действия аудита, которые пишет спец-режим (documents.service: platformGet / platformFileUrl).
+// Действия аудита, которые пишет спец-режим (documents.service: platformGet / platformFileUrls).
 const LOG_ACTIONS = ['DOCUMENT_PLATFORM_DOWNLOAD', 'DOCUMENT_PLATFORM_VIEW'] as const
 const LOG_LIMIT = 20
 /**
@@ -111,7 +111,9 @@ export function PlatformDocumentsView() {
 
   const openMut = useMutation({
     mutationFn: (fileId: string) =>
-      platformDocumentFileUrl(request!.docId, fileId, request!.reason),
+      platformDocumentFileUrls(request!.docId, [fileId], request!.reason).then(
+        (urls) => urls[fileId],
+      ),
     onSuccess: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
     onError: onErr,
   })
@@ -148,7 +150,9 @@ export function PlatformDocumentsView() {
           request={request}
           openingFileId={openMut.isPending ? (openMut.variables ?? null) : null}
           onOpenFile={(fileId) => openMut.mutate(fileId)}
-          resolveUrl={(fileId) => platformDocumentFileUrl(request.docId, fileId, request.reason)}
+          resolveUrls={(fileIds) =>
+            platformDocumentFileUrls(request.docId, fileIds, request.reason)
+          }
           onBack={() => openForm(request)}
           onClose={() => setStage('none')}
         />
@@ -164,7 +168,7 @@ function DocumentModal({
   request,
   openingFileId,
   onOpenFile,
-  resolveUrl,
+  resolveUrls,
   onBack,
   onClose,
 }: {
@@ -172,7 +176,7 @@ function DocumentModal({
   request: AccessRequest
   openingFileId: string | null
   onOpenFile: (fileId: string) => void
-  resolveUrl: (fileId: string) => Promise<string>
+  resolveUrls: (fileIds: string[]) => Promise<Record<string, string>>
   onBack: () => void
   onClose: () => void
 }) {
@@ -183,25 +187,24 @@ function DocumentModal({
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
 
-  // Ссылки на превью тянем сразу при открытии карточки. Каждая выдача пишется в аудит —
-  // это ровно то, о чём предупреждает баннер в форме запроса: доступ к содержимому
-  // фиксируется вместе с причиной.
+  // Ссылки на превью тянем сразу при открытии карточки — ОДНИМ запросом на все сканы.
+  // Выдача пишется в аудит: это ровно то, о чём предупреждает баннер в форме запроса —
+  // доступ к содержимому фиксируется вместе с причиной. Запрос на файл размазывал одно
+  // обращение на N строк журнала.
   useEffect(() => {
+    const fileIds = media.map((f) => f.id)
+    if (fileIds.length === 0) return
     let alive = true
-    void Promise.all(
-      media.map((f) =>
-        resolveUrl(f.id).then(
-          (url) => [f.id, url] as const,
-          () => null,
-        ),
-      ),
-    ).then((pairs) => {
-      if (alive) setUrls(Object.fromEntries(pairs.filter((p): p is [string, string] => p !== null)))
-    })
+    void resolveUrls(fileIds).then(
+      (map) => {
+        if (alive) setUrls(map)
+      },
+      () => {},
+    )
     return () => {
       alive = false
     }
-    // Только на смену документа: media/resolveUrl пересоздаются каждый рендер, и в
+    // Только на смену документа: media/resolveUrls пересоздаются каждый рендер, и в
     // зависимостях они дали бы бесконечный цикл запросов — а каждый пишет в аудит.
   }, [doc.id])
 
