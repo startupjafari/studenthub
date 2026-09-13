@@ -1,5 +1,5 @@
 import type Redis from 'ioredis'
-import { PlatformAnalyticsService } from './platform-analytics.service'
+import { PlatformAnalyticsService, countDaysByWeekday } from './platform-analytics.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 
 // Сырой SQL проверен отдельно на реальной схеме (запросы исполняются). Здесь —
@@ -150,6 +150,54 @@ describe('PlatformAnalyticsService.activityHeatmap', () => {
     const res = await service.activityHeatmap({ from: FROM, to: TO })
     expect(res.max).toBe(0)
     expect(res.cells.flat().every((v) => v === 0)).toBe(true)
+  })
+
+  it('без зоны в запросе раскладка идёт по UTC', async () => {
+    const { service } = setup([])
+    const res = await service.activityHeatmap({ from: FROM, to: TO })
+    expect(res.tz).toBe('UTC')
+  })
+
+  it('зона попадает в SQL и в ключ кэша — иначе Алматы читал бы UTC-картину', async () => {
+    const { service, queryRaw, redis } = setup([])
+
+    await service.activityHeatmap({ from: FROM, to: TO, tz: 'Asia/Almaty' })
+
+    // $queryRaw получает шаблонную строку: зона приходит подставляемым значением,
+    // а не куском SQL (BACKEND_RULES §14.4 — конкатенации в запросе нет).
+    expect(queryRaw.mock.calls[0]?.slice(1)).toContain('Asia/Almaty')
+    expect(redis.get.mock.calls[0]?.[0]).toContain('tz=Asia/Almaty')
+  })
+
+  it('считает даты каждого дня недели — делитель для будней и выходных', async () => {
+    const { service } = setup([])
+    const res = await service.activityHeatmap({ from: FROM, to: TO })
+    // [1 авг 2026 00:00, 5 авг 00:00) — суббота, воскресенье, понедельник, вторник.
+    expect(res.days).toEqual([1, 1, 0, 0, 0, 1, 1])
+  })
+})
+
+describe('countDaysByWeekday', () => {
+  it('правый край исключающий: полночь не добавляет лишних суток', () => {
+    // [1 авг, 3 авг 00:00) — это суббота и воскресенье, но не понедельник.
+    const days = countDaysByWeekday(
+      new Date('2026-08-01T00:00:00.000Z'),
+      new Date('2026-08-03T00:00:00.000Z'),
+      'UTC',
+    )
+    expect(days).toEqual([0, 0, 0, 0, 0, 1, 1])
+  })
+
+  it('даты берутся в зоне читателя, а не в UTC', () => {
+    // 2026-08-02 20:00 UTC — это уже 3 августа (понедельник) в Алматы (UTC+5).
+    const from = new Date('2026-08-02T20:00:00.000Z')
+    const to = new Date('2026-08-02T21:00:00.000Z')
+    expect(countDaysByWeekday(from, to, 'UTC')).toEqual([0, 0, 0, 0, 0, 0, 1])
+    expect(countDaysByWeekday(from, to, 'Asia/Almaty')).toEqual([1, 0, 0, 0, 0, 0, 0])
+  })
+
+  it('вывернутый период даёт нули, а не бесконечный цикл', () => {
+    expect(countDaysByWeekday(TO, FROM, 'UTC')).toEqual([0, 0, 0, 0, 0, 0, 0])
   })
 })
 

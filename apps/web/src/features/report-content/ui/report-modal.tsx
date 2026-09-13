@@ -6,8 +6,8 @@ import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import type { ComplaintTargetTypeValue } from '@studenthub/shared-schemas'
 import { createComplaintRequest } from '../../../entities/complaint'
-import { Button, FormAlert, Label, Modal, Textarea } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Button, Label, Modal, Textarea } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 /**
@@ -34,7 +34,7 @@ export function ReportModal({
 }) {
   const t = useTranslations('Report')
   const tCommon = useTranslations('Common')
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('report')
   const [reason, setReason] = useState<(typeof REASONS)[number] | null>(null)
   const [details, setDetails] = useState('')
 
@@ -45,7 +45,6 @@ export function ReportModal({
         targetId,
         reason: [t(`reason_${reason}`), details.trim()].filter(Boolean).join('. '),
       }),
-    onMutate: () => reset(),
     onSuccess: () => {
       toast.success(t('sent'))
       onClose()
@@ -62,8 +61,6 @@ export function ReportModal({
         }}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={error} />
-
         {preview && (
           <p className="line-clamp-3 rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
             {preview}

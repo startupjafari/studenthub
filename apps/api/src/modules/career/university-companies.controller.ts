@@ -34,7 +34,15 @@ export class UniversityCompaniesController {
   constructor(private readonly companies: CompaniesService) {}
 
   @Get()
-  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
+  // Чтение очереди — всем, кто ведёт карьерный центр. Решение (PATCH ниже) остаётся
+  // за администраторами: у модератора вуза его тоже нет (PROJECT.md §682).
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+    Role.DEAN,
+  )
   @ApiOperation({ summary: 'Заявки и допуски компаний своего университета' })
   @ApiResponse({ status: 200, description: 'Страница заявок' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE' })

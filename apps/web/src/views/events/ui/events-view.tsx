@@ -50,7 +50,11 @@ export function EventsView() {
   const items = events.data ?? []
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    // Без `min-h-0` (§4): сетка карточек длиннее экрана, и с ним корень сжимался до
+    // высоты `main` — хвост списка уходил за его нижний отступ, последняя карточка
+    // упиралась в край окна. Собственной прокрутки внутри тут нет: `overflow-hidden`
+    // в файле — это скругление карточки события, а не скролл-контейнер.
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
         // Разделы и создание — в шапке. Форма создания занимала первый экран целиком,

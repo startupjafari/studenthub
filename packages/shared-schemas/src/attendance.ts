@@ -62,3 +62,23 @@ export const AttendanceSummaryQuerySchema = z
   })
   .strict()
 export type AttendanceSummaryQueryInput = z.infer<typeof AttendanceSummaryQuerySchema>
+
+/**
+ * Какие из перечисленных пар уже отмечены на дату. Нужен дашборду преподавателя:
+ * пары на сегодня он уже получил из `/me/today`, и остаётся один вопрос — по каким
+ * журнал заполнен. Список идентификаторов приходит от клиента, а не вычисляется на
+ * сервере, чтобы не тянуть расписание с его чётностью и заменами во второй раз.
+ */
+export const AttendanceMarkedQuerySchema = z
+  .object({
+    date: ymd,
+    // Запятыми: пар в дне единицы, повторять `?pairIds=` семь раз незачем.
+    // Потолок на всякий случай — запрос не должен превращаться в выгрузку.
+    pairIds: z
+      .string()
+      .min(1)
+      .transform((v) => v.split(',').filter(Boolean))
+      .pipe(z.array(z.string().min(1)).min(1).max(20)),
+  })
+  .strict()
+export type AttendanceMarkedQueryInput = z.infer<typeof AttendanceMarkedQuerySchema>

@@ -22,6 +22,9 @@ const SPARK_DAYS = 14
 /** Потолок на список вузов в разрезе размеров. */
 const UNIVERSITIES_LIMIT = 200
 const DEFAULT_TOP_ACTIONS = 8
+/** Зона раскладки часов, если клиент свою не прислал. */
+const DEFAULT_TIME_ZONE = 'UTC'
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /** Группы ролей для ряда «рост пользователей»: 8 ролей в легенду не влезают. */
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
@@ -52,6 +55,27 @@ interface RangeInput {
   from?: Date
   to?: Date
   interval?: PlatformInterval
+}
+
+interface ActivityInput extends RangeInput {
+  /** Зона, в которой раскладываются часы. IANA-имя, по умолчанию UTC. */
+  tz?: string
+}
+
+export interface ActivityGrid {
+  from: string
+  to: string
+  /** Зона раскладки — эхом, чтобы подпись оси не расходилась с данными. */
+  tz: string
+  /** cells[dow][hour], dow: 0 = понедельник. */
+  cells: number[][]
+  /**
+   * Сколько КАЛЕНДАРНЫХ дат каждого дня недели попало в период. Без этого
+   * будни и выходные не сравнить: в 30-дневном окне понедельников пять, а суббот
+   * четыре, и «в субботу событий меньше» означало бы лишь «суббот было меньше».
+   */
+  days: number[]
+  max: number
 }
 
 interface ResolvedRange {
@@ -352,20 +376,29 @@ export class PlatformAnalyticsService {
 
   /**
    * Активность по дням недели и часам (7×24) — когда платформа под нагрузкой.
-   * Время в UTC: у вузов свои таймзоны, единого «локального часа» у платформы нет.
+   *
+   * Часы раскладываются в зоне читателя (`tz`, по умолчанию UTC): единого «локального
+   * часа» у платформы нет — у вузов свои зоны, — но и UTC-раскладка не читается:
+   * «пик в 18» для Алматы означает 23:00, то есть рабочий день выглядит ночным.
+   *
+   * Вместе с сеткой отдаём `days` — число календарных дат каждого дня недели в
+   * периоде. Это делитель, без которого дашборд сравнивал бы размер группы дней,
+   * а не время активности.
    */
-  activityHeatmap(input: RangeInput): Promise<{
-    from: string
-    to: string
-    /** cells[dow][hour], dow: 0 = понедельник. */
-    cells: number[][]
-    max: number
-  }> {
+  activityHeatmap(input: ActivityInput): Promise<ActivityGrid> {
     const range = resolveRange(input)
-    return this.cached('activity-heatmap', range, async () => {
+    const tz = input.tz ?? DEFAULT_TIME_ZONE
+    return this.cached('activity-heatmap', { ...range, tz }, async () => {
+      // created_at — TIMESTAMP без зоны, в нём лежит UTC. Чтобы разложить события по
+      // местным часам, зону сначала объявляют (AT TIME ZONE 'UTC' → timestamptz), и
+      // только потом переводят в зону читателя. Один AT TIME ZONE сделал бы обратное:
+      // объявил бы UTC-время местным.
+      //
+      // Границы периода при этом остаются прежними: `from`/`to` — абсолютные моменты,
+      // зона на отбор строк не влияет, только на раскладку по dow/hour.
       const rows = await this.prisma.$queryRaw<{ dow: number; hour: number; count: bigint }[]>`
-        SELECT EXTRACT(ISODOW FROM created_at)::int AS dow,
-               EXTRACT(HOUR FROM created_at)::int AS hour,
+        SELECT EXTRACT(ISODOW FROM (created_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::int AS dow,
+               EXTRACT(HOUR FROM (created_at AT TIME ZONE 'UTC') AT TIME ZONE ${tz})::int AS hour,
                COUNT(*) AS count
           FROM audit_logs
          WHERE created_at >= ${range.from} AND created_at < ${range.to}
@@ -381,7 +414,14 @@ export class PlatformAnalyticsService {
         day[row.hour] = value
         if (value > max) max = value
       }
-      return { from: range.from.toISOString(), to: range.to.toISOString(), cells, max }
+      return {
+        from: range.from.toISOString(),
+        to: range.to.toISOString(),
+        tz,
+        cells,
+        days: countDaysByWeekday(range.from, range.to, tz),
+        max,
+      }
     })
   }
 
@@ -572,6 +612,48 @@ function advance(date: Date, interval: PlatformInterval): Date {
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1))
   }
   return shiftDays(date, interval === 'week' ? 7 : 1)
+}
+
+/**
+ * Сколько календарных дат каждого дня недели попало в полуинтервал [from, to)
+ * в зоне `tz`. Нужно, чтобы сравнивать будни с выходными: без делителя ряд
+ * показывает не «когда активнее», а «каких дней в окне было больше».
+ *
+ * Считается по календарным ДАТАМ, а не по часам: переход на летнее время делает
+ * сутки в 23 или 25 часов, но дат от этого не прибавляется и не убавляется.
+ * Границы берутся форматтером зоны, дальше даты перебираются в UTC-пространстве —
+ * там сутки ровно 24 часа и арифметика точна.
+ */
+export function countDaysByWeekday(from: Date, to: Date, tz: string): number[] {
+  const days = Array.from({ length: 7 }, () => 0)
+  if (!(to > from)) return days
+  // en-CA даёт ISO-порядок YYYY-MM-DD — его можно разобрать без разбора частей.
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  // Правый край полуинтервала исключающий: последняя дата периода — та, в которую
+  // попала последняя его миллисекунда, иначе полночь добавляла бы лишние сутки.
+  const first = utcDate(fmt.format(from))
+  const last = utcDate(fmt.format(new Date(to.getTime() - 1)))
+  if (first === null || last === null) return days
+  // Потолок — тот же, что у корзин: клиент может прислать `from` за 1970 год.
+  const MAX_DAYS = 1000
+  for (let cursor = first, i = 0; cursor <= last && i < MAX_DAYS; cursor += DAY_MS, i += 1) {
+    // getUTCDay(): 0 = воскресенье; в сетке 0 = понедельник.
+    const dow = (new Date(cursor).getUTCDay() + 6) % 7
+    days[dow] = (days[dow] ?? 0) + 1
+  }
+  return days
+}
+
+/** «2026-08-14» → полночь этой даты в UTC. null — формат не разобран. */
+function utcDate(iso: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return null
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
 }
 
 /** Спарклайн: ровно `days` значений, дни без событий — нули. */

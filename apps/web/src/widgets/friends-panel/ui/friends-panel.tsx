@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { UserPlus, Users } from 'lucide-react'
@@ -13,6 +12,9 @@ import {
   type FriendUser,
 } from '../../../entities/friendship'
 import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   Button,
   Card,
   CardAction,
@@ -39,33 +41,33 @@ function initials(u: FriendUser): string {
   return ((u.lastName[0] ?? '') + (u.firstName[0] ?? '')).toUpperCase()
 }
 
-// Квадратный аватар со ссылкой в профиль. `size` задаёт сторону в px для next/image:
-// картинки аватаров приходят из MinIO, оптимизатор для них отключён (unoptimized).
+/**
+ * Аватар друга. Avatar из системы, а не голый `<Image>`: он показывает заглушку с
+ * инициалами и когда ссылки нет, и когда картинка НЕ ЗАГРУЗИЛАСЬ — протухшая
+ * presigned-ссылка или недоступный MinIO. У `<Image>` второй случай давал иконку
+ * «битая картинка»: в сетке лиц это выглядело поломкой приложения, а не отсутствием
+ * фотографии, и вдобавок ломало квадрат ячейки.
+ *
+ * `className` задаёт форму и размер (круг в списке заявок, квадрат в сетке), поэтому
+ * заглушка скругляется по родителю (`rounded-[inherit]`), а не своим `rounded-full`.
+ */
 function FriendAvatar({
   user,
-  size,
   className,
+  textClassName,
 }: {
   user: FriendUser
-  size: number
   className: string
+  /** Кегль инициалов: у заглушки свой `text-sm`, наследованием его не перебить. */
+  textClassName: string
 }) {
-  const src = user.avatarThumbUrl ?? user.avatarUrl
-  return src ? (
-    <Image
-      src={src}
-      alt=""
-      width={size}
-      height={size}
-      unoptimized
-      className={`${className} object-cover`}
-    />
-  ) : (
-    <span
-      className={`${className} flex items-center justify-center bg-primary/10 font-semibold text-primary`}
-    >
-      {initials(user) || '#'}
-    </span>
+  return (
+    <Avatar className={className}>
+      <AvatarImage src={user.avatarThumbUrl ?? user.avatarUrl ?? undefined} alt="" />
+      <AvatarFallback className={`rounded-[inherit] font-semibold ${textClassName}`}>
+        {initials(user) || '#'}
+      </AvatarFallback>
+    </Avatar>
   )
 }
 
@@ -109,16 +111,31 @@ export function FriendsPanel() {
     <>
       {incomingCount > 0 && (
         <Card>
+          {/* Счётчик — в строке заголовка, а переход к полному списку — в слоте действий
+              справа. Раньше «показать всех» стояла под списком: до неё нужно было
+              проскроллить карточку целиком, то есть управление оказывалось дальше, чем
+              то, чем оно управляет. Заголовок при этом обрезается (`truncate`), а не
+              выталкивает кнопку: в колонке 20rem длинный перевод её бы уронил. */}
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <UserPlus className="size-4 text-primary" aria-hidden />
-              {t('requestsTitle')}
-            </CardTitle>
-            <CardAction>
-              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+            <CardTitle className="flex min-w-0 items-center gap-2">
+              <UserPlus className="size-4 shrink-0 text-primary" aria-hidden />
+              <span className="truncate">{t('requestsTitle')}</span>
+              <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
                 {incomingCount}
               </span>
-            </CardAction>
+            </CardTitle>
+            {incomingCount > REQUESTS_PREVIEW && (
+              <CardAction>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto px-0"
+                  onClick={() => setModal('incoming')}
+                >
+                  {t('showAll')}
+                </Button>
+              </CardAction>
+            )}
           </CardHeader>
           <CardContent>
             {/* Счётчик уже пришёл, а список ещё нет: показываем ровно столько заготовок,
@@ -135,12 +152,12 @@ export function FriendsPanel() {
                 <li key={r.friendshipId} className="flex flex-col gap-2">
                   <Link
                     href={`/profile/${r.user.id}`}
-                    className="flex min-w-0 items-center gap-2.5 hover:underline"
+                    className="flex min-w-0 items-center gap-2 hover:underline"
                   >
                     <FriendAvatar
                       user={r.user}
-                      size={40}
-                      className="size-10 shrink-0 rounded-full text-xs"
+                      className="size-10 shrink-0 rounded-full"
+                      textClassName="text-xs"
                     />
                     <span className="min-w-0 truncate text-sm font-medium">{fullName(r.user)}</span>
                   </Link>
@@ -170,16 +187,6 @@ export function FriendsPanel() {
                 </li>
               ))}
             </ul>
-            {incomingCount > REQUESTS_PREVIEW && (
-              <Button
-                variant="link"
-                size="sm"
-                className="mt-2 h-auto px-0"
-                onClick={() => setModal('incoming')}
-              >
-                {t('showAll')}
-              </Button>
-            )}
           </CardContent>
         </Card>
       )}
@@ -187,13 +194,25 @@ export function FriendsPanel() {
       {friendsCount > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="size-4 text-primary" aria-hidden />
-              {t('title')}
+            <CardTitle className="flex min-w-0 items-center gap-2">
+              <Users className="size-4 shrink-0 text-primary" aria-hidden />
+              <span className="truncate">{t('title')}</span>
+              <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                {friendsCount}
+              </span>
             </CardTitle>
-            <CardAction>
-              <span className="text-sm text-muted-foreground tabular-nums">{friendsCount}</span>
-            </CardAction>
+            {friendsCount > FRIENDS_PREVIEW && (
+              <CardAction>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto px-0"
+                  onClick={() => setModal('friends')}
+                >
+                  {t('showAll')}
+                </Button>
+              </CardAction>
+            )}
           </CardHeader>
           <CardContent>
             {/* Сетка 3×2 квадратами — как блок друзей во ВК: за один взгляд видно лица,
@@ -214,8 +233,11 @@ export function FriendsPanel() {
                   >
                     <FriendAvatar
                       user={f.user}
-                      size={96}
-                      className="aspect-square w-full rounded-xl text-base"
+                      // `size-auto` первым: у Avatar в базе `size-9`, и он задаёт
+                      // ВЫСОТУ — одним `w-full` его не перебить, ячейка осталась бы
+                      // полосой 36px. Дальше высоту даёт aspect-square.
+                      className="size-auto aspect-square w-full rounded-xl"
+                      textClassName="text-base"
                     />
                     <span className="truncate text-center text-xs hover:underline">
                       {f.user.firstName}
@@ -224,16 +246,6 @@ export function FriendsPanel() {
                 </li>
               ))}
             </ul>
-            {friendsCount > FRIENDS_PREVIEW && (
-              <Button
-                variant="link"
-                size="sm"
-                className="mt-2 h-auto px-0"
-                onClick={() => setModal('friends')}
-              >
-                {t('showAll')}
-              </Button>
-            )}
           </CardContent>
         </Card>
       )}
