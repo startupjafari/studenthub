@@ -55,6 +55,7 @@ const RU: ExportLabels = {
     certificate: 'Справка об обучении',
     users: 'Список пользователей',
     chat: 'Экспорт переписки',
+    'career-report': 'Отчёт карьерного центра',
   },
 }
 
@@ -77,6 +78,7 @@ const KK: ExportLabels = {
     certificate: 'Оқу туралы анықтама',
     users: 'Пайдаланушылар тізімі',
     chat: 'Хат алмасу экспорты',
+    'career-report': 'Карьера орталығының есебі',
   },
 }
 
@@ -97,6 +99,7 @@ const EN: ExportLabels = {
     certificate: 'Certificate of enrolment',
     users: 'User list',
     chat: 'Chat export',
+    'career-report': 'Career centre report',
   },
 }
 

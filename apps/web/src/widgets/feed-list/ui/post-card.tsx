@@ -114,7 +114,10 @@ export function PostCard({
   return (
     <article
       className={cn(
-        'flex flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10',
+        // Без `overflow-hidden`: он обрезал поповер «•••» у невысокой карточки — меню
+        // раскрывается вниз из шапки и у короткого текстового поста не помещается.
+        // Медиа лежит в середине карточки и скруглённых углов не касается.
+        'flex flex-col rounded-2xl bg-card ring-1 ring-foreground/10',
         post.pinnedAt && 'ring-primary/40',
       )}
     >

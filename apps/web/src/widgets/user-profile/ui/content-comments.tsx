@@ -110,6 +110,7 @@ export function ContentComments({
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault()
         e.stopPropagation()
         setEmojiOpen(false)
       }
@@ -185,7 +186,9 @@ export function ContentComments({
         </ul>
       )}
 
-      {/* Поле ввода — плоское, как в посте: эмодзи · многострочное поле · «Опубликовать» */}
+      {/* Поле ввода — плоское, как в посте: эмодзи · многострочное поле · «Опубликовать».
+          Выравнивание по нижней кромке: поле растёт вверх, и центрированные кнопки
+          повисали бы посреди высокого поля, не совпадая ни с одной строкой текста. */}
       <div className="relative mt-2 flex items-end gap-2 border-t border-border pt-2.5">
         <div ref={emojiRef} className="relative shrink-0">
           <button
@@ -228,14 +231,14 @@ export function ContentComments({
             }
           }}
           placeholder={t('commentPlaceholder')}
-          className="max-h-28 min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent py-1 text-sm leading-snug outline-none placeholder:text-muted-foreground"
+          className="max-h-28 min-h-8 min-w-0 flex-1 resize-none self-end bg-transparent py-1.5 text-sm leading-snug outline-none placeholder:text-muted-foreground"
         />
 
         <button
           type="button"
           onClick={() => addMut.mutate()}
           disabled={text.trim().length === 0 || addMut.isPending}
-          className="shrink-0 self-center text-sm font-semibold text-primary transition-opacity hover:opacity-80 disabled:opacity-40"
+          className="flex h-8 shrink-0 items-center self-end text-sm font-semibold text-primary transition-opacity hover:opacity-80 disabled:opacity-40"
         >
           {t('publish')}
         </button>

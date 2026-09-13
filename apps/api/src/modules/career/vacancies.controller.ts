@@ -24,6 +24,7 @@ import { VacancySearchDto } from './dto/vacancy-search.dto'
 import { DecideVacancyDto } from './dto/decide-vacancy.dto'
 import { CompanyListQueryDto } from './dto/company-list-query.dto'
 import { VacancyReviewQueueDto } from './dto/vacancy-review-queue.dto'
+import { UniversityScopeDto } from './dto/university-scope.dto'
 
 @ApiTags('Карьера — вакансии')
 @ApiBearerAuth()
@@ -34,7 +35,16 @@ export class VacanciesController {
   // ── Студент ────────────────────────────────────────────────────────────────
 
   @Get()
-  @Roles(Role.STUDENT, Role.STAROSTA, Role.TEACHER, Role.DEAN)
+  @Roles(
+    Role.STUDENT,
+    Role.STAROSTA,
+    Role.TEACHER,
+    Role.DEAN,
+    // Платформенные роли смотрят витрину выбранного вуза (?universityId) — иначе раздел
+    // «Вакансии» в карьерной навигации им показывался, но всегда отвечал отказом.
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+  )
   @ApiOperation({ summary: 'Вакансии, одобренные вашим университетом, с процентом совпадения' })
   @ApiResponse({ status: 200, description: 'Страница вакансий' })
   search(@CurrentUser() user: CurrentUserData, @Query() query: VacancySearchDto) {
@@ -42,11 +52,22 @@ export class VacanciesController {
   }
 
   @Get(':id')
-  @Roles(Role.STUDENT, Role.STAROSTA, Role.TEACHER, Role.DEAN)
+  @Roles(
+    Role.STUDENT,
+    Role.STAROSTA,
+    Role.TEACHER,
+    Role.DEAN,
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+  )
   @ApiOperation({ summary: 'Карточка вакансии' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — вакансия недоступна вашему вузу' })
-  byId(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.vacancies.byIdForStudent(user, id)
+  byId(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: UniversityScopeDto,
+  ) {
+    return this.vacancies.byIdForStudent(user, id, query.universityId)
   }
 }
 
@@ -132,7 +153,13 @@ export class UniversityVacanciesController {
   @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR, Role.DEAN)
   @ApiOperation({ summary: 'Вакансии на модерации в своём университете' })
   queue(@CurrentUser() user: CurrentUserData, @Query() query: VacancyReviewQueueDto) {
-    return this.vacancies.reviewQueue(user, query.status, query.page, query.limit)
+    return this.vacancies.reviewQueue(
+      user,
+      query.status,
+      query.page,
+      query.limit,
+      query.universityId,
+    )
   }
 
   @Patch(':id')
@@ -145,7 +172,7 @@ export class UniversityVacanciesController {
     @Body() dto: DecideVacancyDto,
     @Req() req: FastifyRequest,
   ) {
-    return this.vacancies.decide(user, id, dto, this.ctx(req))
+    return this.vacancies.decide(user, id, dto, this.ctx(req), dto.universityId)
   }
 
   private ctx(req: FastifyRequest): RequestContext {

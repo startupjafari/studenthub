@@ -26,6 +26,7 @@ import { Button, Card, CardContent, CardHeader, Skeleton, useConfirm } from '../
 import { cn } from '../../../shared/lib/utils'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { useSheetDragClose } from '../../../shared/lib'
+import { syncSessionUser } from '../../../shared/session'
 import { AccountSettingsPanels } from '../../account-settings'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import {
@@ -211,6 +212,9 @@ function ProfileHeader({
     mutationFn: (f: File) => uploadAvatarRequest(f),
     onSuccess: (data) => {
       qc.setQueryData(userKeys.me(), data)
+      // Стор сессии — второй потребитель аватара: без этого композер комментариев
+      // и чат до перезагрузки рисовали бы прежнюю картинку.
+      syncSessionUser(data)
       setCropFile(null)
       toast.success(t('avatarUpdated'))
     },
@@ -240,6 +244,7 @@ function ProfileHeader({
     mutationFn: removeAvatarRequest,
     onSuccess: (data) => {
       qc.setQueryData(userKeys.me(), data)
+      syncSessionUser(data)
       toast.success(t('avatarRemoved'))
     },
     onError: (e) => toast.error(tErr(errCode(e))),
@@ -488,7 +493,10 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
       setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setOpen(false)
+      }
     }
     // Скроллом НЕ закрываем (иначе на мобильном лист «прыгает» при малейшем скролле); только репозиция.
     window.addEventListener('mousedown', onPointerDown, true)
