@@ -24,7 +24,13 @@ import {
   EmptyState,
   Input,
   Label,
+  Modal,
   PageHeader,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Skeleton,
   Stepper,
   Textarea,
@@ -48,16 +54,25 @@ export function CreateWizard({
   onDone,
   onCancel,
   initialDraftId,
+  asModal = false,
 }: {
   onDone: (id: string) => void
   onCancel: () => void
   initialDraftId?: string
+  /**
+   * Показать мастер модальным окном поверх списка заявок, а не отдельным экраном.
+   * Список при этом остаётся на месте: закрыл окно — и ты там же, где был, без
+   * перерисовки таблицы и потери вкладки.
+   */
+  asModal?: boolean
 }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const qc = useQueryClient()
 
   const [step, setStep] = useState<Step>('catalog')
+  // Категория выбирается отдельно от услуги: список услуг второго селекта — её услуги.
+  const [categoryId, setCategoryId] = useState<string | null>(null)
   const [serviceId, setServiceId] = useState<string | null>(null)
   const [draftId, setDraftId] = useState<string | null>(null)
   const [deliveryType, setDeliveryType] = useState<DeliveryType | null>(null)
@@ -123,6 +138,13 @@ export function CreateWizard({
   })
   const attachedDocs = draftDetailQ.data?.documents ?? []
 
+  const categories = catalogQ.data ?? []
+  // Услуги выбранной категории — источник второго селекта.
+  const categoryServices = useMemo(
+    () => categories.find((c) => c.id === categoryId)?.services ?? [],
+    [categories, categoryId],
+  )
+
   const deliveryOptions = useMemo(
     () => (service ? allowedDeliveryTypes(service.deliveryModes) : []),
     [service],
@@ -171,7 +193,7 @@ export function CreateWizard({
   // Режим правки черновика: пока подгружается — скелетон.
   if (initialDraftId && !seeded) {
     return (
-      <Page onClose={onCancel}>
+      <Page onClose={onCancel} modal={asModal}>
         <SkeletonList />
       </Page>
     )
@@ -180,40 +202,71 @@ export function CreateWizard({
   // ── Каталог ────────────────────────────────────────────────────────────────
   if (step === 'catalog') {
     return (
-      <Page title={t('catalogTitle')} onClose={onCancel}>
+      <Page title={t('catalogTitle')} onClose={onCancel} modal={asModal}>
         {catalogQ.isLoading ? (
           <SkeletonList />
         ) : catalogQ.isError ? (
           <ErrorState onRetry={() => catalogQ.refetch()} />
-        ) : !catalogQ.data?.length ? (
+        ) : !categories.length ? (
           <EmptyState icon={<FileText className="size-6" aria-hidden />} title={t('noServices')} />
         ) : (
+          // Два списка вместо плитки со всеми услугами сразу: категорий у вуза до десятка,
+          // услуг в каждой — столько же, и общий список заставлял искать нужную глазами.
+          // Сначала сужаем до категории, потом выбираем услугу внутри неё.
           <div className="flex flex-col gap-4">
-            {catalogQ.data.map((cat) => (
-              <section key={cat.id} className="flex flex-col gap-2">
-                <h3 className="px-1 text-sm font-semibold text-muted-foreground">
-                  {pickLocale(cat as unknown as Record<string, unknown>, 'name', locale)}
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {cat.services.map((s) => (
-                    <Card
-                      key={s.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setServiceId(s.id)
-                        setStep('info')
-                      }}
-                      className="cursor-pointer p-4 transition-colors outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/30"
-                    >
-                      <span className="font-medium">
-                        {pickLocale(s as unknown as Record<string, unknown>, 'name', locale)}
-                      </span>
-                    </Card>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="application-category">{t('categoryLabel')}</Label>
+              <Select
+                value={categoryId ?? ''}
+                onValueChange={(v) => {
+                  setCategoryId(v)
+                  // Услуга из прежней категории в новом списке отсутствует — сбрасываем,
+                  // иначе кнопка «Далее» увела бы на услугу, которой в списке не видно.
+                  setServiceId(null)
+                }}
+              >
+                <SelectTrigger id="application-category" className="w-full">
+                  <SelectValue placeholder={t('categoryPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {pickLocale(cat as unknown as Record<string, unknown>, 'name', locale)}
+                    </SelectItem>
                   ))}
-                </div>
-              </section>
-            ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="application-service">{t('serviceLabel')}</Label>
+              <Select
+                value={serviceId ?? ''}
+                onValueChange={setServiceId}
+                disabled={categoryServices.length === 0}
+              >
+                <SelectTrigger id="application-service" className="w-full">
+                  <SelectValue placeholder={t('servicePlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {categoryServices.map((srv) => (
+                    <SelectItem key={srv.id} value={srv.id}>
+                      {pickLocale(srv as unknown as Record<string, unknown>, 'name', locale)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex sm:justify-end">
+              <Button
+                className="w-full sm:w-auto"
+                disabled={!serviceId}
+                onClick={() => setStep('info')}
+              >
+                {t('nextBtn')}
+              </Button>
+            </div>
           </div>
         )}
       </Page>
@@ -231,6 +284,7 @@ export function CreateWizard({
         backLabel={t('backBtn')}
         onClose={onCancel}
         stepper={stepperNode}
+        modal={asModal}
       >
         {serviceQ.isLoading || !service ? (
           <SkeletonList />
@@ -256,6 +310,7 @@ export function CreateWizard({
         backLabel={t('backBtn')}
         onClose={onCancel}
         stepper={stepperNode}
+        modal={asModal}
       >
         <div className="flex flex-col gap-6">
           <fieldset className="flex flex-col gap-2">
@@ -293,10 +348,10 @@ export function CreateWizard({
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full sm:w-auto"
               loading={saveMut.isPending}
               onClick={() =>
                 saveMut.mutate(undefined, {
@@ -310,7 +365,11 @@ export function CreateWizard({
             >
               {t('saveDraft')}
             </Button>
-            <Button className="w-full" disabled={missingRequired} onClick={() => setStep('docs')}>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={missingRequired}
+              onClick={() => setStep('docs')}
+            >
               {t('nextBtn')}
             </Button>
           </div>
@@ -328,6 +387,7 @@ export function CreateWizard({
         backLabel={t('backBtn')}
         onClose={onCancel}
         stepper={stepperNode}
+        modal={asModal}
       >
         <div className="flex flex-col gap-4">
           {service.requirements.length === 0 ? (
@@ -342,13 +402,15 @@ export function CreateWizard({
               onChanged={() => void draftDetailQ.refetch()}
             />
           )}
-          <Button
-            className="w-full"
-            disabled={requiredDocsMissing}
-            onClick={() => setStep('review')}
-          >
-            {t('nextBtn')}
-          </Button>
+          <div className="flex sm:justify-end">
+            <Button
+              className="w-full sm:w-auto"
+              disabled={requiredDocsMissing}
+              onClick={() => setStep('review')}
+            >
+              {t('nextBtn')}
+            </Button>
+          </div>
         </div>
       </Page>
     )
@@ -363,6 +425,7 @@ export function CreateWizard({
         backLabel={t('backBtn')}
         onClose={onCancel}
         stepper={stepperNode}
+        modal={asModal}
       >
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3 p-4">
@@ -385,13 +448,15 @@ export function CreateWizard({
               )
             })}
           </Card>
-          <Button
-            className="w-full"
-            loading={submitMut.isPending}
-            onClick={() => submitMut.mutate()}
-          >
-            {t('submitApplication')}
-          </Button>
+          <div className="flex sm:justify-end">
+            <Button
+              className="w-full sm:w-auto"
+              loading={submitMut.isPending}
+              onClick={() => submitMut.mutate()}
+            >
+              {t('submitApplication')}
+            </Button>
+          </div>
         </div>
       </Page>
     )
@@ -401,12 +466,14 @@ export function CreateWizard({
 }
 
 // ── Вспомогательные ───────────────────────────────────────────────────────────
-// Полноэкранная страница шага мастера: системная шапка (назад + заголовок) + контент.
+// Шаг мастера: модальное окно (`modal`) либо полноэкранная страница — системная шапка
+// (назад + заголовок) и контент.
 function Page({
   title,
   onBack,
   onClose,
   stepper,
+  modal = false,
   children,
 }: {
   title?: React.ReactNode
@@ -414,14 +481,43 @@ function Page({
   onClose?: () => void
   backLabel?: string
   stepper?: React.ReactNode
+  /** Шаг рисуется как модальное окно (см. `CreateWizard asModal`). */
+  modal?: boolean
   children: React.ReactNode
 }) {
   const t = useTranslations('Applications')
+
+  if (modal) {
+    return (
+      // Высота — по содержимому (`height` окна по умолчанию `auto`): у шагов мастера она
+      // разная, и общая фиксированная оставляла бы под короткой формой пустой экран.
+      // Крестик закрывает мастер, стрелка «назад» — шаг назад; на первом шаге её нет.
+      <Modal
+        onClose={onClose ?? (() => undefined)}
+        title={title}
+        onBack={onBack}
+        backLabel={t('backBtn')}
+        size="2xl"
+      >
+        <div className="flex flex-col gap-4">
+          {stepper}
+          {children}
+        </div>
+      </Modal>
+    )
+  }
+
   return (
     <div className="flex w-full flex-col gap-4">
       <PageHeader title={title} onBack={onBack ?? onClose} backLabel={t('backBtn')} />
-      {stepper}
-      {children}
+      {/* Шаги мастера — колонка по центру, а не во всю ширину контента: поля ввода и
+          радиокнопки на мониторе растягивались на полтора метра, и подпись оказывалась
+          в одном конце строки, а значение в другом. На телефоне ограничение не мешает —
+          колонка и так уже экрана. */}
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+        {stepper}
+        {children}
+      </div>
     </div>
   )
 }

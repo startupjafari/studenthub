@@ -5,7 +5,6 @@ import {
   BookOpen,
   BriefcaseBusiness,
   Building2,
-  CalendarCheck,
   CalendarClock,
   CalendarDays,
   CalendarRange,
@@ -65,7 +64,6 @@ export type NavVariant =
 // Навигация студенческого дашборда (docs/PROJECT.md §12).
 // Профиль — плашка пользователя внизу сайдбара (см. AppSidebar), не пункт навигации.
 export const STUDENT_NAV: NavItem[] = [
-  { key: 'today', href: '/today', icon: CalendarCheck, group: 'main' },
   { key: 'feed', href: '/', icon: Home, group: 'main' },
   { key: 'schedule', href: '/schedule', icon: CalendarDays, group: 'main' },
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
@@ -205,7 +203,6 @@ export const TEACHER_NAV: NavItem[] = [
 // раньше просто дублировали студенческие view — теперь ведём на общие студенческие роуты.
 export const STAROSTA_NAV: NavItem[] = [
   ...STUDENT_NAV,
-  { key: 'dashboard', href: '/starosta', icon: LayoutDashboard, exact: true, group: 'starosta' },
   { key: 'myGroup', href: '/starosta/group', icon: Users, group: 'starosta' },
   { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap, group: 'starosta' },
   {

@@ -15,13 +15,13 @@ export function OwnGroupView({
 }) {
   const t = useTranslations('People')
   const groupId = useAppSelector((s) => s.auth.groupId)
-  // Без `min-h-0`: экран прокручивается целиком, внутреннего скролл-контейнера тут нет.
-  // С `min-h-0` колонка ужималась до высоты `main`, а карточки с `overflow-hidden`
-  // резали содержимое — оно уходило за нижнюю границу без всякой прокрутки.
+  // `min-h-0 flex-1` — цепочка до `main` для режима `fill` таблицы: список занимает всю
+  // высоту области контента, а прокручивается тело таблицы, а не страница целиком. Так
+  // же устроены остальные экраны со списками (очередь деканата, заявки студента).
   return (
-    <div className="flex w-full flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t(titleKey)} />
-      <GroupMembers groupId={groupId} studentsOnly={studentsOnly} />
+      <GroupMembers groupId={groupId} studentsOnly={studentsOnly} fill />
     </div>
   )
 }

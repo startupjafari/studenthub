@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { GraduationCap, Inbox, Milestone, TrendingUp } from 'lucide-react'
@@ -9,13 +9,23 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
   EmptyState,
   MetricTile,
+  Modal,
   PageHeader,
   Progress,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
 import { useRealtimeEnvelope } from '../../../shared/realtime'
 
@@ -32,10 +42,28 @@ function toneClass(pct: number): string {
   return pct >= 75 ? 'bg-success' : pct >= 50 ? 'bg-warning' : 'bg-destructive'
 }
 
-// «Оценки» студента (задача 8): карточки дисциплин + общий балл. Только опубликованные оценки.
+// Тот же порог цветом текста: в таблице полоса прогресса на каждой строке была бы шумом.
+function textToneClass(pct: number): string {
+  return pct >= 75 ? 'text-success' : pct >= 50 ? 'text-warning' : 'text-destructive'
+}
+
+// Дисциплина · кредиты · работ · результат.
+const COLS = ['46%', '8rem', '7rem', '9rem'] as const
+// До `md` остаются дисциплина и результат — по ним оценки и смотрят.
+const COLS_NARROW = ['62%', '0', '0', '38%'] as const
+const HIDE = {
+  credits: 'hidden md:table-cell',
+  works: 'hidden lg:table-cell',
+} as const
+// Порядок классов = порядок колонок: скелетон прячет те же, что и шапка.
+const SKELETON_COLS = [undefined, HIDE.credits, HIDE.works, undefined]
+
+// «Оценки» студента (задача 8): сводка плитками, таблица дисциплин с сортировкой на
+// клиенте и разбор по работам в модальном окне — как на «Учебном плане» и «Заявках».
 export function StudentGradesView() {
   const t = useTranslations('Grades')
   const qc = useQueryClient()
+  const [openId, setOpenId] = useState<string | null>(null)
   const q = useQuery({ queryKey: gradebookKeys.me(), queryFn: () => fetchMyGrades() })
 
   // Realtime: преподаватель опубликовал колонку с моей оценкой → обновляем «Оценки» без опроса.
@@ -43,8 +71,9 @@ export function StudentGradesView() {
     void qc.invalidateQueries({ queryKey: gradebookKeys.me() })
   })
 
+  const courses = useMemo(() => q.data ?? [], [q.data])
+
   const overall = useMemo(() => {
-    const courses = q.data ?? []
     let weightSum = 0
     let acc = 0
     for (const c of courses) {
@@ -55,111 +84,199 @@ export function StudentGradesView() {
       weightSum += w
     }
     return weightSum === 0 ? null : Math.round(acc / weightSum)
-  }, [q.data])
+  }, [courses])
 
   const totalCredits = useMemo(
-    () =>
-      (q.data ?? []).reduce((n, c) => n + (coursePercent(c) !== null ? (c.credits ?? 0) : 0), 0),
-    [q.data],
+    () => courses.reduce((n, c) => n + (coursePercent(c) !== null ? (c.credits ?? 0) : 0), 0),
+    [courses],
   )
 
+  // Сортировка клиентская: журнал приходит одним запросом, серверу пересортировывать нечего.
+  const sortValue = useCallback((c: MyGradesCourse, key: string) => {
+    switch (key) {
+      case 'credits':
+        return c.credits
+      case 'works':
+        return c.columns.length
+      case 'pct':
+        return coursePercent(c)
+      default:
+        return c.subject.name
+    }
+  }, [])
+  // Без начальной сортировки: порядок задаёт сервер.
+  const { rows, sort, toggle } = useTableSort(courses, sortValue)
+
+  const openCourse = courses.find((c) => c.courseId === openId) ?? null
+
   return (
-    <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader title={t('title')} />
+    <>
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('title')} />
 
-      {q.isLoading ? (
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
-        </div>
-      ) : q.isError ? (
-        <EmptyState
-          icon={<Inbox />}
-          title={t('loadError')}
-          action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
-        />
-      ) : (q.data ?? []).length === 0 ? (
-        <EmptyState icon={<GraduationCap />} title={t('empty')} description={t('emptyHint')} />
-      ) : (
-        <>
-          {/* Сводка — теми же плитками, что в академическом профиле и на дашбордах:
-              шкала одна на всю платформу, а не своя на каждом экране. */}
-          {overall !== null && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <MetricTile
-                index={0}
-                icon={TrendingUp}
-                label={t('overall')}
-                value={`${overall}%`}
-                progress={overall}
-                progressTone={toneClass(overall)}
-              />
-              {totalCredits > 0 && (
+        {q.isError ? (
+          <EmptyState
+            icon={<Inbox />}
+            title={t('loadError')}
+            action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
+          />
+        ) : !q.isLoading && courses.length === 0 ? (
+          <EmptyState icon={<GraduationCap />} title={t('empty')} description={t('emptyHint')} />
+        ) : (
+          <>
+            {/* Сводка — теми же плитками, что в академическом профиле и на дашбордах:
+                шкала одна на всю платформу, а не своя на каждом экране. */}
+            {overall !== null && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <MetricTile
-                  index={1}
-                  icon={Milestone}
-                  tone="text-warning"
-                  label={t('credits')}
-                  value={totalCredits}
+                  index={0}
+                  icon={TrendingUp}
+                  label={t('overall')}
+                  value={`${overall}%`}
+                  progress={overall}
+                  progressTone={toneClass(overall)}
                 />
-              )}
-            </div>
-          )}
+                {totalCredits > 0 && (
+                  <MetricTile
+                    index={1}
+                    icon={Milestone}
+                    tone="text-warning"
+                    label={t('credits')}
+                    value={totalCredits}
+                  />
+                )}
+              </div>
+            )}
 
-          <div className="flex flex-col gap-3">
-            {(q.data ?? []).map((c) => {
-              const pct = coursePercent(c)
-              return (
-                <Card key={c.courseId}>
-                  <CardContent className="flex flex-col gap-3 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate font-heading text-base font-semibold">
-                          {c.subject.name}
-                        </h3>
-                        {c.credits != null && (
-                          <span className="text-xs text-muted-foreground">
-                            {t('creditsN', { n: c.credits })}
-                          </span>
-                        )}
-                      </div>
-                      {pct !== null ? (
-                        <span className="shrink-0 font-heading text-lg font-semibold tabular-nums">
-                          {pct}%
-                        </span>
-                      ) : (
-                        <Badge variant="secondary" className="shrink-0">
-                          {t('noGrades')}
-                        </Badge>
-                      )}
-                    </div>
+            {/* `gap-0 py-0`: собственные отступы карточки дали бы полосу над шапкой
+                таблицы и просвет под последней строкой. */}
+            <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+              <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead sortKey="subject" sort={sort} onSort={toggle}>
+                      {t('colSubject')}
+                    </TableHead>
+                    <TableHead
+                      numeric
+                      sortKey="credits"
+                      sort={sort}
+                      onSort={toggle}
+                      className={HIDE.credits}
+                    >
+                      {t('colCredits')}
+                    </TableHead>
+                    <TableHead
+                      numeric
+                      sortKey="works"
+                      sort={sort}
+                      onSort={toggle}
+                      className={HIDE.works}
+                    >
+                      {t('colWorks')}
+                    </TableHead>
+                    <TableHead numeric sortKey="pct" sort={sort} onSort={toggle}>
+                      {t('colResult')}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
+                  {rows.map((c) => {
+                    const pct = coursePercent(c)
+                    return (
+                      <TableRow
+                        key={c.courseId}
+                        tabIndex={0}
+                        aria-haspopup="dialog"
+                        onClick={() => setOpenId(c.courseId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setOpenId(c.courseId)
+                          }
+                        }}
+                        className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                      >
+                        <TableCell className="font-medium">
+                          <TableText value={c.subject.name} />
+                        </TableCell>
+                        <TableCell className={cn(HIDE.credits, 'text-right tabular-nums')}>
+                          {c.credits ?? <TableEmpty />}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            HIDE.works,
+                            'text-right text-muted-foreground tabular-nums',
+                          )}
+                        >
+                          {c.columns.length}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">
+                          {pct !== null ? (
+                            <span className={textToneClass(pct)}>{pct}%</span>
+                          ) : (
+                            <Badge variant="secondary">{t('noGrades')}</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </Card>
+          </>
+        )}
+      </div>
 
-                    {pct !== null && <Progress value={pct} indicatorClassName={toneClass(pct)} />}
+      {/* Разбор по работам — в окне: в строке таблицы ему места нет, а разворачивать
+          список прямо в ней значило бы ломать сетку колонок. */}
+      {openCourse && (
+        <Modal onClose={() => setOpenId(null)} title={openCourse.subject.name} size="lg">
+          <CourseBreakdown course={openCourse} t={t} />
+        </Modal>
+      )}
+    </>
+  )
+}
 
-                    {c.columns.length > 0 && (
-                      <ul className="flex flex-col divide-y divide-border">
-                        {c.columns.map((col) => (
-                          <li
-                            key={col.id}
-                            className="flex items-center justify-between gap-3 py-1.5"
-                          >
-                            <span className="min-w-0 flex-1 truncate text-sm">{col.title}</span>
-                            <span className="shrink-0 text-sm font-medium tabular-nums">
-                              {col.score != null ? col.score : '—'}
-                              {col.maxScore != null && (
-                                <span className="text-muted-foreground"> / {col.maxScore}</span>
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-        </>
+function CourseBreakdown({
+  course: c,
+  t,
+}: {
+  course: MyGradesCourse
+  t: ReturnType<typeof useTranslations>
+}) {
+  const pct = coursePercent(c)
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">
+          {c.credits != null ? t('creditsN', { n: c.credits }) : ''}
+        </span>
+        {pct !== null ? (
+          <span className="font-heading text-lg font-semibold tabular-nums">{pct}%</span>
+        ) : (
+          <Badge variant="secondary">{t('noGrades')}</Badge>
+        )}
+      </div>
+
+      {pct !== null && <Progress value={pct} indicatorClassName={toneClass(pct)} />}
+
+      {c.columns.length > 0 && (
+        <ul className="flex flex-col divide-y divide-border">
+          {c.columns.map((col) => (
+            <li key={col.id} className="flex items-center justify-between gap-3 py-2">
+              <span className="min-w-0 flex-1 truncate text-sm">{col.title}</span>
+              <span className="shrink-0 text-sm font-medium tabular-nums">
+                {col.score != null ? col.score : '—'}
+                {col.maxScore != null && (
+                  <span className="text-muted-foreground"> / {col.maxScore}</span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )
