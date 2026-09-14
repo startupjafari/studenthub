@@ -1,27 +1,43 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import {
+  ArrowRight,
   Briefcase,
   Building2,
+  CalendarClock,
   ClipboardCheck,
   Clock,
+  FileText,
+  Handshake,
   KeyRound,
+  MapPin,
   Search,
+  Send,
   TimerReset,
+  Video,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import {
   careerEventKeys,
+  fetchCareerEvents,
   fetchUniversityCareerAnalytics,
   FUNNEL_STAGES,
+  type CareerEvent,
   type UniversityCareerAnalytics,
 } from '../../../entities/career-event'
+import {
+  applicationKeys,
+  fetchMyApplications,
+  type StudentApplication,
+} from '../../../entities/career-application'
+import { searchVacancies, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import { fetchResumeSettings, resumeKeys } from '../../../entities/resume'
 import {
   CareerUniversityPicker,
   useCareerUniversity,
@@ -30,6 +46,8 @@ import { careerHomeFor } from '../../../widgets/app-shell'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
 import {
+  Badge,
+  Button,
   EmptyState,
   MetricTile,
   PageHeader,
@@ -491,16 +509,246 @@ function SkillBar({ share, color }: { share: number | null; color: string }) {
 }
 
 /** Витрина соискателя (студент, староста) — разделы поиска работы появятся отдельной задачей. */
+/**
+ * Обзор соискателя: что происходит с откликами, куда смотреть дальше.
+ *
+ * Здесь тоже стояла заглушка «модуль в разработке» — при том что студенту уже открыты
+ * вакансии, отклики, карьерный профиль, резюме и мероприятия. Обзор отвечает на три
+ * вопроса: как идут мои отклики, что нового на витрине и куда сходить.
+ *
+ * Данные — те же эндпоинты, что у соответствующих разделов, поэтому переход из обзора
+ * в раздел открывает уже прогретый кэш.
+ */
 function SeekerOverview() {
   const t = useTranslations('Products')
+  const tHome = useTranslations('CareerHome')
+  const tApp = useTranslations('CareerApplications')
+
+  // limit=100: сводка считается по всем откликам, а не по первой странице. Больше сотни
+  // активных откликов у студента — случай, которого не бывает; список здесь не рисуем.
+  const APPS = { page: 1, limit: 100 } as const
+  const VACANCIES = { page: 1, limit: 5 } as const
+  const EVENTS = { page: 1, limit: 3 } as const
+
+  const appsQ = useQuery({
+    queryKey: applicationKeys.mine(APPS),
+    queryFn: () => fetchMyApplications(APPS),
+  })
+  const vacQ = useQuery({
+    queryKey: vacancyKeys.search(VACANCIES),
+    queryFn: () => searchVacancies(VACANCIES),
+  })
+  const eventsQ = useQuery({
+    queryKey: careerEventKeys.list(EVENTS),
+    queryFn: () => fetchCareerEvents(EVENTS),
+  })
+  const resumeQ = useQuery({
+    queryKey: resumeKeys.mine(),
+    queryFn: fetchResumeSettings,
+    retry: false,
+  })
+
+  const stats = useMemo(() => {
+    const items = appsQ.data?.items ?? []
+    const isActive = (a: StudentApplication): boolean =>
+      a.status !== 'REJECTED' && a.status !== 'WITHDRAWN' && a.status !== 'HIRED'
+    return {
+      active: items.filter(isActive).length,
+      interview: items.filter((a) => a.status === 'INTERVIEW' || a.status === 'OFFER').length,
+      hired: items.filter((a) => a.status === 'HIRED').length,
+    }
+  }, [appsQ.data])
+
+  const resume = resumeQ.data
+
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('career.title')} subtitle={t('career.hint')} />
-      <EmptyState
-        icon={<Briefcase className="size-6" aria-hidden />}
-        title={t('career.soonTitle')}
-        description={t('career.soonText')}
-      />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <MetricTile
+          index={0}
+          icon={Send}
+          label={tHome('statsActive')}
+          value={appsQ.isLoading ? null : stats.active}
+        />
+        <MetricTile
+          index={1}
+          icon={ClipboardCheck}
+          tone="text-info"
+          label={tHome('statsInterview')}
+          value={appsQ.isLoading ? null : stats.interview}
+        />
+        <MetricTile
+          index={2}
+          icon={Handshake}
+          tone="text-success"
+          label={tHome('statsHired')}
+          value={appsQ.isLoading ? null : stats.hired}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionPanel
+          title={tHome('freshVacancies')}
+          subtitle={tHome('freshVacanciesHint')}
+          actions={
+            <Button asChild variant="ghost" size="sm" className="gap-1">
+              <Link href="/career/vacancies">
+                {tHome('openAll')}
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            </Button>
+          }
+        >
+          {vacQ.isLoading ? (
+            <Skeleton className="h-32 w-full rounded-lg" />
+          ) : (vacQ.data?.items.length ?? 0) === 0 ? (
+            <EmptyState title={tHome('noVacancies')} className="border-0 p-6" />
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {(vacQ.data?.items ?? []).map((v) => (
+                <VacancyRow key={v.id} vacancy={v} />
+              ))}
+            </ul>
+          )}
+        </SectionPanel>
+
+        <SectionPanel
+          title={tHome('upcomingEvents')}
+          subtitle={tHome('upcomingEventsHint')}
+          actions={
+            <Button asChild variant="ghost" size="sm" className="gap-1">
+              <Link href="/career/events">
+                {tHome('openAll')}
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            </Button>
+          }
+        >
+          {eventsQ.isLoading ? (
+            <Skeleton className="h-32 w-full rounded-lg" />
+          ) : (eventsQ.data?.items.length ?? 0) === 0 ? (
+            <EmptyState title={tHome('noEvents')} className="border-0 p-6" />
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {(eventsQ.data?.items ?? []).map((e) => (
+                <CareerEventRow key={e.id} event={e} />
+              ))}
+            </ul>
+          )}
+        </SectionPanel>
+      </div>
+
+      {/* Резюме: единственное состояние, которое студент не видит нигде на обзоре, —
+          включена ли публичная ссылка. Оно же чаще всего и нужно перед откликом. */}
+      {resume && (
+        <SectionPanel
+          title={tHome('resumeTitle')}
+          subtitle={resume.title}
+          actions={
+            <Button asChild variant="ghost" size="sm" className="gap-1">
+              <Link href="/career/resume">
+                {tHome('openAll')}
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            </Button>
+          }
+        >
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <Badge variant={resume.published ? 'success' : 'secondary'}>
+              {resume.published ? tHome('resumePublic') : tHome('resumePrivate')}
+            </Badge>
+          </div>
+        </SectionPanel>
+      )}
+
+      {/* Последние отклики не дублируем списком: их статусы уже сведены в плитках выше,
+          а сам список — отдельный раздел со своей таблицей. */}
+      {appsQ.data && appsQ.data.items.length === 0 && (
+        <EmptyState
+          icon={<Briefcase className="size-6" aria-hidden />}
+          title={tApp('empty')}
+          description={tApp('emptyHint')}
+          action={
+            <Button asChild>
+              <Link href="/career/vacancies">{tHome('freshVacancies')}</Link>
+            </Button>
+          }
+        />
+      )}
     </div>
+  )
+}
+
+function VacancyRow({ vacancy: v }: { vacancy: Vacancy }) {
+  const t = useTranslations('Vacancies')
+  return (
+    <li>
+      {/* Ведём в раздел, а не в карточку: отдельной страницы вакансии нет — список
+          открывает её у себя, и ссылка с `?open=` просто потерялась бы. */}
+      <Link
+        href="/career/vacancies"
+        className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-muted/50"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Briefcase className="size-4" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{v.title}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {v.company.name}
+            {v.city ? ` · ${v.city}` : ''}
+          </span>
+        </span>
+        {v.match && (
+          <Badge variant="secondary" className="shrink-0">
+            {v.match.score}% {t('match')}
+          </Badge>
+        )}
+      </Link>
+    </li>
+  )
+}
+
+function CareerEventRow({ event: e }: { event: CareerEvent }) {
+  const t = useTranslations('CareerEvents')
+  const format = useFormatter()
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-border p-2.5">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <CalendarClock className="size-4" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{e.title}</span>
+        <span className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+          {format.dateTime(new Date(e.startsAt), {
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+          {e.isOnline ? (
+            <span className="inline-flex items-center gap-1 text-info">
+              <Video className="size-3" aria-hidden />
+              {t('online')}
+            </span>
+          ) : (
+            e.location && (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <MapPin className="size-3 shrink-0" aria-hidden />
+                <span className="truncate">{e.location}</span>
+              </span>
+            )
+          )}
+        </span>
+      </span>
+      {e.registered && (
+        <Badge variant="success" className="shrink-0">
+          {t('registered')}
+        </Badge>
+      )}
+    </li>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { GraduationCap, Inbox, Milestone, TrendingUp } from 'lucide-react'
@@ -8,14 +8,21 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   EmptyState,
   MetricTile,
   PageHeader,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { courseKeys, fetchCourses, type CourseItem } from '../../../entities/course'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
 
@@ -48,9 +55,22 @@ function statusOf(course: CourseItem, pct: number | null): PlanStatus {
 
 interface PlanCourse {
   course: CourseItem
+  /** Подпись семестра: в таблице она колонка, а не заголовок секции. */
+  term: string
+  /** Номер семестра — порядок строк по умолчанию и ключ сортировки колонки. */
+  termOrder: number
   pct: number | null
   status: PlanStatus
 }
+
+// Дисциплина · семестр · кредиты · результат · статус.
+const COLS = ['34%', '20%', '7rem', '7rem', '10rem'] as const
+// До `md` остаются дисциплина, результат и статус — по ним план и читают.
+const COLS_NARROW = ['46%', '0', '0', '22%', '32%'] as const
+const HIDE = {
+  term: 'hidden md:table-cell',
+  credits: 'hidden md:table-cell',
+} as const
 
 // «Учебный план» студента (задача 13): дисциплины по семестрам, статусы, прогресс по кредитам.
 export function StudyPlanView() {
@@ -67,20 +87,21 @@ export function StudyPlanView() {
     const gradeByCourse = new Map((grades.data ?? []).map((g) => [g.courseId, g]))
     const plan: PlanCourse[] = list.map((course) => {
       const pct = gradePercent(gradeByCourse.get(course.id))
-      return { course, pct, status: statusOf(course, pct) }
+      return {
+        course,
+        term: course.term?.name ?? t('noTerm'),
+        termOrder: course.term?.number ?? 9999,
+        pct,
+        status: statusOf(course, pct),
+      }
     })
 
-    // Группировка по семестру.
-    const groups = new Map<string, { label: string; order: number; items: PlanCourse[] }>()
-    for (const p of plan) {
-      const term = p.course.term
-      const key = term?.id ?? 'none'
-      const label = term?.name ?? t('noTerm')
-      const order = term?.number ?? 9999
-      if (!groups.has(key)) groups.set(key, { label, order, items: [] })
-      groups.get(key)!.items.push(p)
-    }
-    const sortedGroups = [...groups.values()].sort((a, b) => a.order - b.order)
+    // Порядок строк по умолчанию — по семестрам, как были секции: пока читатель не
+    // нажал заголовок, план идёт в учебной последовательности, а не вперемешку.
+    const rows = [...plan].sort(
+      (a, b) =>
+        a.termOrder - b.termOrder || a.course.subject.name.localeCompare(b.course.subject.name),
+    )
 
     let totalCredits = 0
     let doneCredits = 0
@@ -91,11 +112,33 @@ export function StudyPlanView() {
     }
     const progress = totalCredits === 0 ? 0 : Math.round((doneCredits / totalCredits) * 100)
 
-    return { groups: sortedGroups, totalCredits, doneCredits, progress }
+    return { rows, totalCredits, doneCredits, progress }
   }, [courses.data, grades.data, t])
 
+  // Сортировка клиентская: весь план приходит одним запросом, сервер здесь ни при чём.
+  // Статус сравниваем по переводу — алфавит языка интерфейса, а не порядок значений.
+  const sortValue = useCallback(
+    (p: PlanCourse, key: string) => {
+      switch (key) {
+        case 'term':
+          return p.termOrder
+        case 'credits':
+          return p.course.credits
+        case 'pct':
+          return p.pct
+        case 'status':
+          return t(`status.${p.status}`)
+        default:
+          return p.course.subject.name
+      }
+    },
+    [t],
+  )
+  // Без начальной сортировки: строки идут в учебном порядке, пока не нажат заголовок.
+  const { rows, sort, toggle } = useTableSort(model.rows, sortValue)
+
   return (
-    <div className="flex w-full flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('title')} />
 
       {courses.isLoading ? (
@@ -132,39 +175,58 @@ export function StudyPlanView() {
             />
           </div>
 
-          {model.groups.map((g) => (
-            <Card key={g.label}>
-              <CardHeader>
-                <CardTitle className="text-base">{g.label}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="flex flex-col divide-y divide-border">
-                  {g.items.map((p) => (
-                    <li key={p.course.id} className="flex items-center gap-3 py-2">
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {p.course.subject.name}
-                        </span>
-                        {p.course.credits != null && (
-                          <span className="text-xs text-muted-foreground">
-                            {t('creditsN', { n: p.course.credits })}
-                          </span>
-                        )}
-                      </span>
-                      {p.pct !== null && (
-                        <span className="shrink-0 text-sm font-medium tabular-nums text-muted-foreground">
-                          {p.pct}%
-                        </span>
-                      )}
-                      <Badge variant={STATUS_BADGE[p.status]} className="shrink-0">
-                        {t(`status.${p.status}`)}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ))}
+          {/* Таблица вместо карточек-семестров: семестр стал колонкой, и план целиком
+              можно пересортировать — по результату, кредитам или статусу. */}
+          <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+            <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead sortKey="subject" sort={sort} onSort={toggle}>
+                    {t('colSubject')}
+                  </TableHead>
+                  <TableHead sortKey="term" sort={sort} onSort={toggle} className={HIDE.term}>
+                    {t('colTerm')}
+                  </TableHead>
+                  <TableHead
+                    numeric
+                    sortKey="credits"
+                    sort={sort}
+                    onSort={toggle}
+                    className={HIDE.credits}
+                  >
+                    {t('colCredits')}
+                  </TableHead>
+                  <TableHead numeric sortKey="pct" sort={sort} onSort={toggle}>
+                    {t('colResult')}
+                  </TableHead>
+                  <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                    {t('colStatus')}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((p) => (
+                  <TableRow key={p.course.id}>
+                    <TableCell className="font-medium">
+                      <TableText value={p.course.subject.name} />
+                    </TableCell>
+                    <TableCell className={cn(HIDE.term, 'text-muted-foreground')}>
+                      <TableText value={p.term} />
+                    </TableCell>
+                    <TableCell className={cn(HIDE.credits, 'text-right tabular-nums')}>
+                      {p.course.credits ?? <TableEmpty />}
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {p.pct !== null ? `${p.pct}%` : <TableEmpty />}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_BADGE[p.status]}>{t(`status.${p.status}`)}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
         </>
       )}
     </div>

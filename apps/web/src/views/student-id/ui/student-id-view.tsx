@@ -25,11 +25,11 @@ export function StudentIdView() {
   })
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {q.isLoading ? (
-        <Skeleton className="h-96 w-full rounded-2xl" />
+        <Skeleton className="h-96 w-full rounded-2xl lg:h-[26rem]" />
       ) : q.isError || !q.data ? (
         <EmptyState
           icon={<Inbox />}
@@ -62,8 +62,9 @@ function QrPanel({ qr, updatedAt }: { qr: string; updatedAt: number }) {
   const remaining = useCountdown(updatedAt, REFRESH_SECONDS)
 
   return (
-    <div className="relative z-30 flex flex-col items-center gap-2 border-t border-border p-5">
-      {/* Компактный QR, тап — крупнее (модалка). */}
+    <div className="relative z-30 flex flex-col items-center justify-center gap-2 border-t border-border p-5 lg:h-full lg:border-t-0 lg:border-l">
+      {/* QR крупный — его показывают с экрана телефона сотруднику; тап открывает
+          модалку на весь экран, когда света мало и камера не ловит. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -73,9 +74,9 @@ function QrPanel({ qr, updatedAt }: { qr: string; updatedAt: number }) {
         <img
           src={qr}
           alt={t('qrAlt')}
-          width={144}
-          height={144}
-          className="aspect-square w-36 rounded-xl border border-border bg-white p-2 transition group-hover:opacity-90"
+          width={288}
+          height={288}
+          className="aspect-square w-72 max-w-full rounded-xl border border-border bg-white p-3 transition group-hover:opacity-90"
         />
         <span className="absolute right-1.5 bottom-1.5 rounded-md bg-foreground/70 p-1 text-background">
           <Maximize2 className="size-3.5" aria-hidden />
@@ -95,7 +96,7 @@ function QrPanel({ qr, updatedAt }: { qr: string; updatedAt: number }) {
             <img
               src={qr}
               alt={t('qrAlt')}
-              className="aspect-square w-full max-w-xs rounded-xl border border-border bg-white p-3"
+              className="aspect-square w-full max-w-sm rounded-xl border border-border bg-white p-3"
             />
             <p className="text-center text-xs text-muted-foreground">{t('qrHint')}</p>
           </div>

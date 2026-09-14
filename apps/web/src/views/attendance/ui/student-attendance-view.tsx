@@ -1,5 +1,6 @@
 'use client'
 
+import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarCheck2, CalendarDays, Check, Clock, FileCheck2, Inbox, X } from 'lucide-react'
@@ -11,9 +12,31 @@ import {
   PageHeader,
   SectionPanel,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
-import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
+import { cn } from '../../../shared/lib/utils'
+import {
+  attendanceKeys,
+  fetchMyAttendance,
+  type AttendanceRecord,
+} from '../../../entities/attendance'
 import { ATT_BADGE, ATT_KEY } from '../lib/status-visuals'
+
+// Дата · время · дисциплина · отметка · примечание.
+const COLS = ['7rem', '6rem', '34%', '10rem', '24%'] as const
+// До `md` остаются дата, дисциплина и отметка — по ним отметки и проверяют.
+const COLS_NARROW = ['6rem', '0', '46%', '34%', '0'] as const
+const HIDE = {
+  time: 'hidden md:table-cell',
+  note: 'hidden lg:table-cell',
+} as const
 
 // «Посещаемость» студента: общий процент + разбивка + последние занятия.
 export function StudentAttendanceView() {
@@ -21,11 +44,33 @@ export function StudentAttendanceView() {
   const locale = useLocale()
   const q = useQuery({ queryKey: attendanceKeys.me(), queryFn: () => fetchMyAttendance() })
 
-  // Без `min-h-0`: экран прокручивается целиком, внутреннего скролл-контейнера тут нет.
-  // С `min-h-0` колонка ужималась до высоты `main`, а карточки с `overflow-hidden`
-  // резали содержимое — список уходил за нижнюю границу без всякой прокрутки.
+  // Сортировка клиентская: сводка приходит одним запросом вместе с отметками — серверу
+  // пересортировывать нечего. Статус сравниваем по переводу, а не по значению enum.
+  const sortValue = useCallback(
+    (r: AttendanceRecord, key: string) => {
+      switch (key) {
+        case 'time':
+          return r.pair.startTime
+        case 'subject':
+          return r.pair.subject
+        case 'status':
+          return t(ATT_KEY[r.status])
+        case 'note':
+          return r.note
+        default:
+          return r.date
+      }
+    },
+    [t],
+  )
+  // Без начальной сортировки: отметки приходят свежими сверху — так их и читают.
+  const { rows, sort, toggle } = useTableSort(q.data?.records ?? [], sortValue)
+
+  // `min-h-0 flex-1` — цепочка до `main` для режима `fill` таблицы: панель с отметками
+  // доходит до низа области контента, а прокручивается тело таблицы, а не страница
+  // целиком (как на «Учебном плане» и в очереди деканата).
   return (
-    <div className="flex w-full flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader title={t('myTitle')} />
 
       {q.isLoading ? (
@@ -96,28 +141,60 @@ export function StudentAttendanceView() {
               />
             </div>
 
-            <SectionPanel title={t('recent')} subtitle={t('recentHint')}>
-              <ul className="flex flex-col gap-1.5">
-                {q.data.records.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex items-center gap-3 rounded-lg border border-border p-2.5"
-                  >
-                    <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {new Date(`${r.date.slice(0, 10)}T00:00:00`).toLocaleDateString(locale, {
-                        day: '2-digit',
-                        month: 'short',
-                      })}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {r.pair.subject}
-                    </span>
-                    <Badge variant={ATT_BADGE[r.status]} className="shrink-0">
-                      {t(ATT_KEY[r.status])}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
+            {/* `p-0` у тела: таблица рисует свои отступы сама, иначе между линией шапки
+                панели и шапкой таблицы остаётся полоса. `min-h-0 flex-1` у панели и её
+                тела — продолжение той же цепочки, без неё таблице некуда растягиваться. */}
+            <SectionPanel
+              title={t('recent')}
+              subtitle={t('recentHint')}
+              className="min-h-0 flex-1"
+              bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+            >
+              <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead sortKey="date" sort={sort} onSort={toggle}>
+                      {t('date')}
+                    </TableHead>
+                    <TableHead sortKey="time" sort={sort} onSort={toggle} className={HIDE.time}>
+                      {t('colTime')}
+                    </TableHead>
+                    <TableHead sortKey="subject" sort={sort} onSort={toggle}>
+                      {t('colSubject')}
+                    </TableHead>
+                    <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                      {t('colMark')}
+                    </TableHead>
+                    <TableHead sortKey="note" sort={sort} onSort={toggle} className={HIDE.note}>
+                      {t('colNote')}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="text-muted-foreground tabular-nums">
+                        {new Date(`${r.date.slice(0, 10)}T00:00:00`).toLocaleDateString(locale, {
+                          day: '2-digit',
+                          month: 'short',
+                        })}
+                      </TableCell>
+                      <TableCell className={cn(HIDE.time, 'text-muted-foreground tabular-nums')}>
+                        {r.pair.startTime}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <TableText value={r.pair.subject} />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={ATT_BADGE[r.status]}>{t(ATT_KEY[r.status])}</Badge>
+                      </TableCell>
+                      <TableCell className={cn(HIDE.note, 'text-muted-foreground')}>
+                        <TableText value={r.note} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </SectionPanel>
           </>
         )

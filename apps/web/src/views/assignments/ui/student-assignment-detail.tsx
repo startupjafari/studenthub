@@ -11,6 +11,7 @@ import {
   CardContent,
   Input,
   Label,
+  Modal,
   PageHeader,
   Skeleton,
   Textarea,
@@ -33,9 +34,14 @@ import {
 interface Props {
   id: string
   onBack: () => void
+  /**
+   * Показать задание модальным окном поверх списка, а не отдельным экраном: список
+   * остаётся под ним — закрыл окно и оказался на той же вкладке с той же прокруткой.
+   */
+  asModal?: boolean
 }
 
-export function StudentAssignmentDetail({ id, onBack }: Props) {
+export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) {
   const t = useTranslations('Assignments')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
@@ -91,12 +97,20 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
   })
 
   if (q.isLoading || !a) {
-    return (
-      <div className="flex w-full flex-1 flex-col gap-4">
+    const loading = (
+      <>
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
+      </>
     )
+    if (asModal) {
+      return (
+        <Modal onClose={onBack} title={t('title')} size="2xl">
+          <div className="flex flex-col gap-4">{loading}</div>
+        </Modal>
+      )
+    }
+    return <div className="flex w-full flex-1 flex-col gap-4">{loading}</div>
   }
 
   const st = studentStatus(a)
@@ -105,17 +119,9 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
   const showLink = a.submissionType === 'LINK' || a.submissionType === 'MIXED'
   const sub = a.mySubmission
 
-  return (
-    <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader
-        title={a.title}
-        subtitle={a.course.subject.name}
-        onBack={onBack}
-        backLabel={t('back')}
-        actions={<Badge variant={STUDENT_STATUS_BADGE[st]}>{t(STUDENT_STATUS_KEY[st])}</Badge>}
-      />
-
-      <Card>
+  const body = (
+    <>
+      <Card className="py-0">
         <CardContent className="flex flex-col gap-3 p-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
@@ -141,7 +147,7 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
 
       {/* Результат проверки */}
       {sub?.status === 'GRADED' && (
-        <Card className="ring-1 ring-success/30">
+        <Card className="py-0 ring-1 ring-success/30">
           <CardContent className="flex flex-col gap-2 p-4">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="size-5 text-success" aria-hidden />
@@ -155,7 +161,7 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
         </Card>
       )}
       {sub?.status === 'RETURNED' && sub.feedback && (
-        <Card className="ring-1 ring-warning/40">
+        <Card className="py-0 ring-1 ring-warning/40">
           <CardContent className="flex flex-col gap-1.5 p-4">
             <span className="text-sm font-medium text-warning-foreground dark:text-warning">
               {t('needsFix')}
@@ -166,7 +172,7 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
       )}
 
       {/* Форма сдачи / просмотр отправленного */}
-      <Card>
+      <Card className="py-0">
         <CardContent className="flex flex-col gap-4 p-4">
           <h3 className="font-heading text-sm font-semibold">{t('yourWork')}</h3>
           {showText && (
@@ -244,6 +250,35 @@ export function StudentAssignmentDetail({ id, onBack }: Props) {
           )}
         </CardContent>
       </Card>
+    </>
+  )
+
+  // В окне заголовок и закрытие рисует сама оболочка — второй шапки внутри не нужно,
+  // статус переезжает в первую карточку.
+  if (asModal) {
+    return (
+      <Modal onClose={onBack} title={a.title} size="2xl">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">{a.course.subject.name}</span>
+            <Badge variant={STUDENT_STATUS_BADGE[st]}>{t(STUDENT_STATUS_KEY[st])}</Badge>
+          </div>
+          {body}
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <div className="flex w-full flex-1 flex-col gap-4">
+      <PageHeader
+        title={a.title}
+        subtitle={a.course.subject.name}
+        onBack={onBack}
+        backLabel={t('back')}
+        actions={<Badge variant={STUDENT_STATUS_BADGE[st]}>{t(STUDENT_STATUS_KEY[st])}</Badge>}
+      />
+      {body}
     </div>
   )
 }
