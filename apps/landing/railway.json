@@ -5,7 +5,7 @@
     "dockerfilePath": "apps/landing/Dockerfile"
   },
   "deploy": {
-    "startCommand": "node apps/landing/server.js",
+    "startCommand": "HOSTNAME=0.0.0.0 node apps/landing/server.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
