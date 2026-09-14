@@ -71,10 +71,27 @@ services:
     depends_on: [api]
     expose: ['3000']
 
+  # Публичный сайт. От платформы не зависит вовсе — ни общего кода, ни общих данных
+  # (docs/LANDING.md): если web лежит, лендинг продолжает отдаваться, а его редиректы на
+  # платформу просто ведут в недоступный сервис. Поэтому depends_on здесь нет.
+  #
+  # NEXT_PUBLIC_* инлайнятся на этапе build, значит каждая правка адресов требует
+  # пересборки образа, а не рестарта контейнера.
+  landing:
+    build:
+      context: ..
+      dockerfile: apps/landing/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_SALES_EMAIL: ${NEXT_PUBLIC_SALES_EMAIL}
+    restart: always
+    expose: ['3000']
+
   nginx:
     image: nginx:alpine
     restart: always
-    depends_on: [web, api]
+    depends_on: [web, api, landing]
     ports:
       - '80:80'
       - '443:443'
