@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { Building2, Check, GraduationCap, Shield, ShieldCheck, UserCog, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Dictionary } from '../content'
+import { AnimatePresence, motion, SPRING, SWAP, useReducedMotion } from './motion'
 import { Reveal, Section, SectionHeading } from './primitives'
 import { AppMock } from './scenes/app-mock'
 
@@ -38,6 +39,7 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
 export function Roles({ dict }: { dict: Dictionary }) {
   const t = dict.roles
   const [activeIndex, setActiveIndex] = useState(0)
+  const calm = useReducedMotion()
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const active = t.tabs[activeIndex] ?? t.tabs[0]
@@ -65,20 +67,20 @@ export function Roles({ dict }: { dict: Dictionary }) {
 
       <Reveal className="flex flex-col gap-[clamp(1.75rem,3vw,2.5rem)]">
         {/*
-          Ряд вкладок — такой же, как в платформе (apps/web/src/shared/ui/segmented-tabs.tsx):
-          дорожка с рамкой и приглушённым фоном, активная вкладка подсвечена `primary/10`,
-          а не залита сплошным синим.
-
           Восемь ролей в строку не помещаются нигде, кроме широкого десктопа, поэтому ряд
           прокручивается сам, а затухание у краёв сообщает, что вкладки продолжаются.
           Горизонтальной прокрутки страницы при этом не появляется — едет только ряд.
+
+          Дорожки с рамкой вокруг ряда больше нет: подложку носит сама активная вкладка и
+          переезжает вместе с выбором (layoutId). Рамка вокруг всего ряда рядом с едущей
+          плашкой превращалась во вторую рамку и спорила с ней.
         */}
-        <div className="sh-fade-x -mx-1 overflow-x-auto px-1 pb-1">
+        <div className="sh-fade-x -mx-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div
             role="tablist"
             aria-label={t.title}
             onKeyDown={handleKeyDown}
-            className="flex w-max items-center gap-1 rounded-2xl border border-border bg-muted/50 p-1 lg:rounded-xl"
+            className="flex w-max items-center gap-2"
           >
             {t.tabs.map((tab, index) => {
               const selected = index === activeIndex
@@ -97,15 +99,30 @@ export function Roles({ dict }: { dict: Dictionary }) {
                   tabIndex={selected ? 0 : -1}
                   onClick={() => setActiveIndex(index)}
                   className={[
-                    'flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-medium whitespace-nowrap',
-                    'outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:min-h-9 lg:rounded-lg lg:px-3',
+                    'relative flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-medium whitespace-nowrap',
+                    'outline-none focus-visible:ring-4 focus-visible:ring-ring/25',
                     selected
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground',
+                      ? 'text-primary-foreground'
+                      : 'border border-hairline bg-surface text-muted-foreground hover:text-foreground',
                   ].join(' ')}
                 >
-                  <Icon className="size-4 shrink-0" aria-hidden />
-                  {tab.title}
+                  {/*
+                    Общий layoutId: плашка не гаснет под старой вкладкой и не зажигается
+                    под новой, а переезжает — видно, куда именно переключился выбор.
+                  */}
+                  {selected &&
+                    (calm ? (
+                      <span aria-hidden className="absolute inset-0 rounded-full bg-primary" />
+                    ) : (
+                      <motion.span
+                        layoutId="role-pill"
+                        aria-hidden
+                        transition={SPRING}
+                        className="sh-glow absolute inset-0 rounded-full bg-primary"
+                      />
+                    ))}
+                  <Icon className="relative size-4 shrink-0" aria-hidden />
+                  <span className="relative">{tab.title}</span>
                 </button>
               )
             })}
@@ -123,37 +140,56 @@ export function Roles({ dict }: { dict: Dictionary }) {
           aria-labelledby={`role-tab-${active.id}`}
           className="grid items-start gap-[clamp(1.75rem,3vw,3rem)] lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]"
         >
-          <div key={active.id} className="sh-swap flex flex-col gap-4">
-            <h3 className="text-xl font-semibold">{active.title}</h3>
-            {/* Описание — нейтральным серым. Акцентный синий на абзаце читается как
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={active.id}
+              initial={calm ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={calm ? undefined : { opacity: 0, y: -10 }}
+              transition={SWAP}
+              className="flex flex-col gap-5 rounded-3xl border border-hairline bg-surface p-6 sm:p-7"
+            >
+              <h3 className="font-display text-xl font-semibold tracking-[-0.02em]">
+                {active.title}
+              </h3>
+              {/* Описание — нейтральным серым. Акцентный синий на абзаце читается как
                 ссылка; акцент в этом блоке принадлежит заголовку и активной вкладке. */}
-            <p className="text-sm leading-relaxed text-foreground/70">{active.text}</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">{active.text}</p>
 
-            {/* Права: одно предложение выше их не передаёт, а вузу важно именно это. */}
-            <ul className="flex flex-col gap-2">
-              {active.rights.map((right) => (
-                <li key={right} className="flex items-start gap-2.5 text-sm">
-                  <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/12">
-                    <Check className="size-2.5 text-primary" aria-hidden />
-                  </span>
-                  <span className="text-foreground/80">{right}</span>
-                </li>
-              ))}
-            </ul>
+              {/* Права: одно предложение выше их не передаёт, а вузу важно именно это. */}
+              <ul className="flex flex-col gap-3">
+                {active.rights.map((right) => (
+                  <li key={right} className="flex items-start gap-3 text-sm">
+                    <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border border-success/25 bg-success/10">
+                      <Check className="size-3 text-success" aria-hidden />
+                    </span>
+                    <span className="text-foreground/85">{right}</span>
+                  </li>
+                ))}
+              </ul>
 
-            {/* Область данных как её видит бэкенд — моноширинным и мелко. */}
-            {/* На 320 px строка области данных длиннее колонки — прокручивается сама,
-                а не распирает раскладку. */}
-            <code className="max-w-full overflow-x-auto rounded-md border border-border bg-muted/60 px-2.5 py-1.5 font-mono text-[0.7rem] whitespace-nowrap text-foreground/70">
-              {active.scope}
-            </code>
-          </div>
+              {/* Область данных как её видит бэкенд — моноширинным и мелко.
+                  На 320 px строка длиннее колонки: прокручивается сама, а не распирает
+                  раскладку. */}
+              <code className="max-w-full overflow-x-auto rounded-xl border border-hairline bg-background/60 px-3.5 py-2.5 font-mono text-[0.7rem] whitespace-nowrap text-muted-foreground">
+                {active.scope}
+              </code>
+            </motion.div>
+          </AnimatePresence>
 
-          {/* key пересоздаёт макет: каскад строк проигрывается один раз, и без
+          {/* key пересоздаёт макет: каскад строк внутри проигрывается один раз, и без
               пересоздания при следующих переключениях содержимое просто подменялось бы. */}
-          <div key={`mock-${active.id}`} className="sh-swap">
-            <AppMock role={active} appName={dict.scenes.appName} />
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={`mock-${active.id}`}
+              initial={calm ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={calm ? undefined : { opacity: 0, y: -10 }}
+              transition={SWAP}
+            >
+              <AppMock role={active} appName={dict.scenes.appName} />
+            </motion.div>
+          </AnimatePresence>
         </div>
       </Reveal>
     </Section>

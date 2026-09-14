@@ -3,11 +3,15 @@
 import { useEffect } from 'react'
 
 /**
- * Поведение страницы: появление блоков, индикатор прокрутки, реакция шапки, счётчики.
+ * Поведение страницы: реакция шапки на прокрутку и счётчики.
  *
- * Один компонент на весь сайт, без разметки — он только навешивает наблюдателей. Так
- * механизм появления ровно один: иначе каждая секция заводила бы свой IntersectionObserver
- * и свой порог, и блоки начали бы всплывать вразнобой.
+ * Один компонент на весь сайт, без разметки — он только навешивает наблюдателей.
+ *
+ * Появление блоков отсюда ушло: им занимается Framer Motion (`Reveal` в ui/motion.tsx),
+ * и держать рядом второй механизм на `data-reveal` значило бы иметь два разных порога
+ * срабатывания и две кривые на одной странице. Здесь осталось то, что к анимации
+ * компонентов отношения не имеет: полоса прогресса документа, поведение шапки и счётчики,
+ * которые меняют текст узла, а не его стиль.
  *
  * Устройство повторяет редизайн Seven Hills (index.html в корне репозитория) — у команды
  * уже есть работающий язык движения, и второй заводить незачем.
@@ -19,28 +23,6 @@ export function SiteMotion() {
   useEffect(() => {
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const cleanups: (() => void)[] = []
-
-    /* --- появление блоков ------------------------------------------------ */
-    const revealables = document.querySelectorAll<HTMLElement>('[data-reveal]')
-
-    if (calm || !('IntersectionObserver' in window)) {
-      revealables.forEach((el) => el.classList.add('in'))
-    } else {
-      const io = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (!entry.isIntersecting) return
-            entry.target.classList.add('in')
-            // Появление одноразовое: блок, который уплыл и приплыл обратно, не должен
-            // проявляться заново — это выглядит как сбой, а не как приём.
-            io.unobserve(entry.target)
-          })
-        },
-        { rootMargin: '0px 0px -6% 0px', threshold: 0 },
-      )
-      revealables.forEach((el) => io.observe(el))
-      cleanups.push(() => io.disconnect())
-    }
 
     /* --- счётчики -------------------------------------------------------- */
     const counters = document.querySelectorAll<HTMLElement>('[data-count]')
@@ -89,8 +71,7 @@ export function SiteMotion() {
       counters.forEach(runCounter)
     }
 
-    /* --- прокрутка: индикатор и шапка ------------------------------------ */
-    const bar = document.querySelector<HTMLElement>('.sh-progress-bar')
+    /* --- прокрутка: поведение шапки --------------------------------------- */
     const header = document.querySelector<HTMLElement>('.sh-header')
 
     /*
@@ -113,11 +94,6 @@ export function SiteMotion() {
 
     const onScroll = () => {
       const y = window.scrollY
-
-      if (bar) {
-        const height = document.documentElement.scrollHeight - window.innerHeight
-        bar.style.transform = `scaleX(${height > 0 ? y / height : 0})`
-      }
 
       if (header) {
         if (!stuck && y > STUCK_ON) {
@@ -166,9 +142,4 @@ export function SiteMotion() {
   }, [])
 
   return null
-}
-
-/** Полоса прогресса прокрутки. Рисуется в разметке, двигается из SiteMotion. */
-export function ProgressBar() {
-  return <div className="sh-progress-bar" aria-hidden />
 }
