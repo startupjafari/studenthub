@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import {
@@ -19,27 +20,15 @@ import {
   X,
 } from 'lucide-react'
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
   Badge,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
   Button,
   Card,
   CardContent,
   EmptyState,
   MetricTile,
   PageHeader,
+  SegmentedTabs,
   Skeleton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from '../../../shared/ui'
 import { nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
@@ -50,7 +39,8 @@ import {
   fetchMaterialFileUrl,
   type Material,
 } from '../../../entities/material'
-import { groupKeys, fetchGroupMembers } from '../../../entities/group'
+import { GroupMembers } from '../../../widgets/group-members'
+import { cn } from '../../../shared/lib/utils'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import {
   assignmentKeys,
@@ -83,6 +73,40 @@ const ASG_STATUS_VARIANT: Record<
   OVERDUE: 'destructive',
 }
 
+// Разделы дисциплины. Живут в шапке страницы (SegmentedTabs), как на остальных экранах
+// со вкладками: очередь деканата, заявки, экзамены.
+type TabId =
+  | 'overview'
+  | 'schedule'
+  | 'assignments'
+  | 'materials'
+  | 'grades'
+  | 'attendance'
+  | 'chat'
+  | 'participants'
+const TAB_ORDER: TabId[] = [
+  'overview',
+  'schedule',
+  'assignments',
+  'materials',
+  'grades',
+  'attendance',
+  'chat',
+  'participants',
+]
+// Явная карта подписей, а не собранный ключ `tab.${id}`: построенный ключ не видит ни
+// компилятор, ни тест словарей (FRONTEND_RULES §10).
+const TAB_LABEL: Record<TabId, string> = {
+  overview: 'tab.overview',
+  schedule: 'tab.schedule',
+  assignments: 'tab.assignments',
+  materials: 'tab.materials',
+  grades: 'tab.grades',
+  attendance: 'tab.attendance',
+  chat: 'tab.chat',
+  participants: 'tab.participants',
+}
+
 // Название дня недели по ISO dow (1..7). 2024-01-01 — понедельник.
 function weekdayName(dow: number, locale: string): string {
   return new Date(2024, 0, dow).toLocaleDateString(locale, { weekday: 'short' })
@@ -99,15 +123,12 @@ export function CourseView({ subject }: CourseViewProps) {
   const tA = useTranslations('Assignments')
   const tAtt = useTranslations('Attendance')
   const locale = useLocale()
+  const router = useRouter()
   const groupId = useAppSelector((s) => s.auth.groupId)
+  const [tab, setTab] = useState<TabId>('overview')
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
   const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
-  const members = useQuery({
-    queryKey: groupKeys.members(groupId ?? ''),
-    queryFn: () => fetchGroupMembers(groupId as string),
-    enabled: !!groupId,
-  })
   const apiCourses = useQuery({
     queryKey: courseKeys.list(),
     queryFn: () => fetchCourses(),
@@ -191,38 +212,32 @@ export function CourseView({ subject }: CourseViewProps) {
   }
 
   return (
-    <div className="flex w-full flex-1 flex-col gap-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/courses">{t('title')}</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{subject}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    // `min-h-0` только на вкладке участников: там таблица растягивается на всю высоту и
+    // прокручивается сама (`GroupMembers fill`). Остальным вкладкам он вреден — их
+    // содержимое длиннее экрана и прокручивается страницей, а с `min-h-0` колонка
+    // ужалась бы до высоты `main` и хвост уехал бы за нижнюю границу.
+    <div className={cn('flex w-full flex-1 flex-col gap-4', tab === 'participants' && 'min-h-0')}>
+      <PageHeader
+        title={subject}
+        // Возврат к списку дисциплин — стрелкой в шапке, как на других вложенных
+        // экранах (заявка, задание): крошки над шапкой дублировали заголовок и
+        // уезжали под верхний край.
+        onBack={() => router.push('/courses')}
+        backLabel={t('title')}
+        tabs={
+          <SegmentedTabs
+            aria-label={subject}
+            value={tab}
+            onChange={setTab}
+            items={TAB_ORDER.map((id) => ({ value: id, label: t(TAB_LABEL[id]) }))}
+          />
+        }
+      />
 
-      <PageHeader title={subject} />
-
-      <Tabs defaultValue="overview">
-        {/* Обёртки-скроллера вокруг списка нет: `TabsList` прокручивается сам (и только
-            тогда тянется мышью и затухает у краёв — shared/lib/use-scroll-row). */}
-        <TabsList>
-          <TabsTrigger value="overview">{t('tab.overview')}</TabsTrigger>
-          <TabsTrigger value="schedule">{t('tab.schedule')}</TabsTrigger>
-          <TabsTrigger value="assignments">{t('tab.assignments')}</TabsTrigger>
-          <TabsTrigger value="materials">{t('tab.materials')}</TabsTrigger>
-          <TabsTrigger value="grades">{t('tab.grades')}</TabsTrigger>
-          <TabsTrigger value="attendance">{t('tab.attendance')}</TabsTrigger>
-          <TabsTrigger value="chat">{t('tab.chat')}</TabsTrigger>
-          <TabsTrigger value="participants">{t('tab.participants')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview">
+      {tab === 'overview' && (
+        <>
           <div className="flex flex-col gap-4">
-            <Card>
+            <Card className="py-0">
               <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-3">
                 <Info label={t('teacher')}>
                   {summary && summary.teachers.length > 0 ? (
@@ -273,7 +288,7 @@ export function CourseView({ subject }: CourseViewProps) {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="py-0">
               <CardContent className="p-4">
                 <h3 className="mb-3 font-heading text-sm font-semibold">{t('recentMaterials')}</h3>
                 {subjectMaterials.length === 0 ? (
@@ -288,9 +303,11 @@ export function CourseView({ subject }: CourseViewProps) {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="materials">
+      {tab === 'materials' && (
+        <>
           {subjectMaterials.length === 0 ? (
             <EmptyState
               icon={<FileText />}
@@ -298,7 +315,7 @@ export function CourseView({ subject }: CourseViewProps) {
               description={t('noMaterialsHint')}
             />
           ) : (
-            <Card>
+            <Card className="py-0">
               <CardContent className="p-4">
                 <ul className="flex flex-col gap-1.5">
                   {subjectMaterials.map((m) => (
@@ -308,13 +325,15 @@ export function CourseView({ subject }: CourseViewProps) {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="schedule">
+      {tab === 'schedule' && (
+        <>
           {subjectPairs.length === 0 ? (
             <EmptyState icon={<Clock />} title={t('noPairs')} />
           ) : (
-            <Card>
+            <Card className="py-0">
               <CardContent className="p-2">
                 <ul className="divide-y divide-border">
                   {subjectPairs.map((p) => (
@@ -345,9 +364,11 @@ export function CourseView({ subject }: CourseViewProps) {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="assignments">
+      {tab === 'assignments' && (
+        <>
           {!courseId ? (
             <EmptyState
               icon={<FileText />}
@@ -359,7 +380,7 @@ export function CourseView({ subject }: CourseViewProps) {
           ) : (assignments.data ?? []).length === 0 ? (
             <EmptyState icon={<FileText />} title={t('noAssignments')} />
           ) : (
-            <Card>
+            <Card className="py-0">
               <CardContent className="p-2">
                 <ul className="divide-y divide-border">
                   {(assignments.data ?? []).map((a) => {
@@ -398,13 +419,15 @@ export function CourseView({ subject }: CourseViewProps) {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="grades">
+      {tab === 'grades' && (
+        <>
           {!gradesCourse || gradesCourse.columns.length === 0 ? (
             <EmptyState icon={<FileText />} title={t('noGrades')} />
           ) : (
-            <Card>
+            <Card className="py-0">
               <CardContent className="flex flex-col gap-3 p-4">
                 {gradesAverage != null && (
                   <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
@@ -430,9 +453,11 @@ export function CourseView({ subject }: CourseViewProps) {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="attendance">
+      {tab === 'attendance' && (
+        <>
           {subjectAttendance.length === 0 ? (
             <EmptyState icon={<Clock />} title={t('noAttendanceData')} />
           ) : (
@@ -482,7 +507,7 @@ export function CourseView({ subject }: CourseViewProps) {
                   value={attStats.excused}
                 />
               </div>
-              <Card>
+              <Card className="py-0">
                 <CardContent className="p-2">
                   <ul className="divide-y divide-border">
                     {subjectAttendance.map((r) => (
@@ -513,9 +538,11 @@ export function CourseView({ subject }: CourseViewProps) {
               </Card>
             </div>
           )}
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="chat">
+      {tab === 'chat' && (
+        <>
           <EmptyState
             icon={<MessagesSquare />}
             title={t('chatTitle')}
@@ -529,39 +556,13 @@ export function CourseView({ subject }: CourseViewProps) {
               </Button>
             }
           />
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="participants">
-          {!groupId ? (
-            <EmptyState icon={<User />} title={t('noGroup')} />
-          ) : members.isLoading ? (
-            <Skeleton className="h-40 w-full rounded-xl" />
-          ) : (members.data ?? []).length === 0 ? (
-            <EmptyState icon={<User />} title={t('noParticipants')} />
-          ) : (
-            <Card>
-              <CardContent className="p-2">
-                <ul className="divide-y divide-border">
-                  {(members.data ?? []).map((mem) => (
-                    <li key={mem.id} className="flex items-center gap-3 p-2.5">
-                      <Avatar>
-                        <AvatarImage src={mem.avatarUrl ?? undefined} alt="" />
-                        <AvatarFallback>
-                          {mem.firstName[0]}
-                          {mem.lastName[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {mem.firstName} {mem.lastName}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* Участники — тот же виджет, что на экранах «Моя группа» и «Одногруппники»:
+          таблица с сортировкой по участнику и роли, ссылки на профили. Свой список
+          дублировал его вёрстку и не показывал роль. */}
+      {tab === 'participants' && <GroupMembers groupId={groupId} fill />}
     </div>
   )
 }
@@ -601,8 +602,11 @@ function MaterialRow({
   }
 
   return (
-    <li className="flex flex-col gap-1.5 rounded-lg border border-border p-2.5">
-      <div className="flex items-start gap-2">
+    // Одна строка: слева — что за материал, справа — чем его открыть. Раньше кнопки
+    // стояли под названием с отступом слева, и строка выглядела ступенькой, а правая
+    // половина карточки пустовала. На узком экране кнопки переносятся под текст.
+    <li className="flex flex-col gap-2 rounded-lg border border-border p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <div className="flex min-w-0 items-start gap-2">
         <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{material.title}</p>
@@ -612,7 +616,7 @@ function MaterialRow({
         </div>
       </div>
       {(material.media.length > 0 || material.url) && (
-        <div className="flex flex-wrap gap-1.5 pl-6">
+        <div className="flex flex-wrap gap-1.5 pl-6 sm:shrink-0 sm:justify-end sm:pl-0">
           {material.url && (
             <Button asChild variant="outline" size="sm" className="gap-1">
               <a href={material.url} target="_blank" rel="noopener noreferrer">

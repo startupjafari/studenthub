@@ -4,7 +4,6 @@ import {
   BarChart3,
   BookOpen,
   Building2,
-  CalendarCheck,
   CalendarDays,
   CalendarRange,
   ClipboardCheck,
@@ -32,7 +31,6 @@ export interface QuickAction {
 }
 
 const STUDENT: QuickAction[] = [
-  { navKey: 'today', href: '/today', icon: CalendarCheck },
   { navKey: 'schedule', href: '/schedule', icon: CalendarDays },
   { navKey: 'courses', href: '/courses', icon: BookOpen },
   { navKey: 'assignments', href: '/assignments', icon: ClipboardList },

@@ -37,6 +37,13 @@ const CARD_SELECT = {
   academicStatus: true,
   educationLevel: true,
   studyForm: true,
+  // Специальность, финансирование и общежитие: реквизиты бумажного билета, по которым
+  // сотрудник на вахте и в деканате опознаёт студента. Карту видит либо сам студент,
+  // либо сотрудник своего вуза (scope проверяется ниже) — наружу они не уходят.
+  specialty: true,
+  fundingType: true,
+  dormitory: true,
+  birthDate: true,
   course: true,
   enrollmentYear: true,
   graduationYear: true,
@@ -115,6 +122,12 @@ export class StudentIdService {
       academicStatus: user.academicStatus,
       educationLevel: user.educationLevel,
       studyForm: user.studyForm,
+      specialty: user.specialty,
+      fundingType: user.fundingType,
+      dormitory: user.dormitory,
+      // Дата рождения — ISO-строка: на карте показывается только день, но формат даты
+      // выбирает клиент по своей локали.
+      birthDate: user.birthDate?.toISOString() ?? null,
       course: user.course,
       enrollmentYear: user.enrollmentYear,
       graduationYear: user.graduationYear,

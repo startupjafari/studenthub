@@ -10,6 +10,11 @@ export interface StudentIdCard {
   academicStatus: string | null
   educationLevel: string | null
   studyForm: string | null
+  specialty: string | null
+  fundingType: string | null
+  dormitory: string | null
+  // ISO-строка: формат даты выбирает клиент по локали.
+  birthDate: string | null
   course: number | null
   enrollmentYear: number | null
   graduationYear: number | null
