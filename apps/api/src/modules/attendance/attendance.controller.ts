@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Query, Req } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -7,6 +7,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { AttendanceService } from './attendance.service'
+import { AttendanceMarkedQueryDto } from './dto/attendance-marked-query.dto'
 import { AttendanceRosterQueryDto } from './dto/attendance-roster-query.dto'
 import { MarkAttendanceDto } from './dto/mark-attendance.dto'
 import { AttendanceSummaryQueryDto } from './dto/attendance-summary-query.dto'
@@ -27,6 +28,14 @@ export class AttendanceController {
   @ApiOperation({ summary: 'Ростер занятия (студенты + отметки) для преподавателя' })
   roster(@CurrentUser() user: CurrentUserData, @Query() query: AttendanceRosterQueryDto) {
     return this.attendance.roster(user, query)
+  }
+
+  @Get('marked')
+  @Roles(...MARK_ROLES)
+  @ApiOperation({ summary: 'Какие из переданных пар уже отмечены на дату (для дашборда)' })
+  @ApiResponse({ status: 200, description: '{ marked: pairId[] }' })
+  marked(@Query() query: AttendanceMarkedQueryDto) {
+    return this.attendance.marked(query)
   }
 
   @Put()

@@ -43,19 +43,24 @@ export function AttendanceQrModal({ pairId, date, onClose }: Props) {
   }, [q.data, qc, pairId, date])
 
   return (
-    <Modal onClose={onClose} title={t('qrTitle')}>
-      <div className="flex flex-col items-center gap-4">
-        <p className="text-center text-sm text-muted-foreground">{t('qrHint')}</p>
+    // `size="md"`: по умолчанию окно 42rem, а содержимого в нём — код 16rem и строка
+    // текста. Код висел посреди пустого поля, а кнопка растягивалась на всю ширину,
+    // и ни один край не совпадал ни с одним другим.
+    <Modal onClose={onClose} title={t('qrTitle')} size="md">
+      {/* Всё в колонке ШИРИНОЙ С КОД: подпись, сам код, строка обновления и кнопка
+          выровнены по одним краям — сравнивать нечего, потому что ширина одна. */}
+      <div className="mx-auto flex w-full max-w-64 flex-col items-center gap-4">
+        <p className="text-center text-sm text-balance text-muted-foreground">{t('qrHint')}</p>
 
         {q.isLoading || !q.data ? (
-          <Skeleton className="aspect-square w-full max-w-64 rounded-xl" />
+          <Skeleton className="aspect-square w-full rounded-xl" />
         ) : (
           <img
             src={q.data.qr}
             alt={t('qrTitle')}
             width={256}
             height={256}
-            className="aspect-square w-full max-w-64 rounded-xl border border-border bg-white p-2"
+            className="aspect-square w-full rounded-xl border border-border bg-white p-2"
           />
         )}
 

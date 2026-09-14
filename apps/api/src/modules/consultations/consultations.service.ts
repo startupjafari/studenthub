@@ -4,6 +4,7 @@ import { Role } from '@studenthub/shared-types'
 import type { BookSlotInput, CreateSlotInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
+import type { ConsultationMineQueryInput } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
 import { QueueService } from '../../common/queue/queue.service'
 import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
@@ -73,17 +74,34 @@ export class ConsultationsService {
     await this.record(actor, 'consultation_slot_deleted', id, ctx)
   }
 
-  /** Мои консультации: преподаватель — свои слоты; студент — свои записи. */
-  listMine(viewer: JwtPayload) {
-    const where: Prisma.ConsultationSlotWhereInput = STUDENT_ROLES.includes(viewer.role)
+  /**
+   * Мои консультации: преподаватель — свои слоты; студент — свои записи.
+   *
+   * Страница и сортировка считаются ЗДЕСЬ, а не в браузере: клиент получает одну
+   * страницу, и сортировка на ней переставляла бы только её — верхние строки списка
+   * при этом оставались бы прежними. Поле сортировки приходит enum'ом, в `orderBy`
+   * произвольное имя не попадает.
+   */
+  async listMine(viewer: JwtPayload, query: ConsultationMineQueryInput) {
+    const base: Prisma.ConsultationSlotWhereInput = STUDENT_ROLES.includes(viewer.role)
       ? { studentId: viewer.sub, status: 'BOOKED' }
       : { teacherId: viewer.sub }
-    return this.prisma.consultationSlot.findMany({
-      where,
-      select: SLOT_SELECT,
-      orderBy: { startsAt: 'asc' },
-      take: 200,
-    })
+    // `from` сужает выборку, а не подменяет её: дашборду нужны ближайшие слоты,
+    // разделу «Консультации» — все.
+    const where: Prisma.ConsultationSlotWhereInput = query.from
+      ? { AND: [base, { startsAt: { gte: new Date(query.from) } }] }
+      : base
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.consultationSlot.findMany({
+        where,
+        select: SLOT_SELECT,
+        orderBy: slotOrderBy(query.sort, query.order),
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.consultationSlot.count({ where }),
+    ])
+    return { items, total }
   }
 
   /** Преподаватели с открытыми слотами (для выбора студентом) — в пределах вуза. */
@@ -277,4 +295,27 @@ export class ConsultationsService {
       ...ctx,
     })
   }
+}
+
+/**
+ * Порядок строк таблицы. Сортировка по студенту — по фамилии и имени: у слота есть
+ * только связь, а сортировать по `studentId` значило бы упорядочить по случайному uuid.
+ * Свободные слоты (связи нет вовсе) Prisma сама уводит в конец.
+ *
+ * Вторым ключом всегда идёт `startsAt`: без него строки с одинаковым статусом
+ * возвращались бы в непредсказуемом порядке, и страницы могли бы перемешиваться.
+ */
+export function slotOrderBy(
+  sort: ConsultationMineQueryInput['sort'],
+  order: ConsultationMineQueryInput['order'],
+): Prisma.ConsultationSlotOrderByWithRelationInput[] {
+  if (sort === 'status') return [{ status: order }, { startsAt: 'asc' }]
+  if (sort === 'student') {
+    return [
+      { student: { lastName: order } },
+      { student: { firstName: order } },
+      { startsAt: 'asc' },
+    ]
+  }
+  return [{ startsAt: order }]
 }

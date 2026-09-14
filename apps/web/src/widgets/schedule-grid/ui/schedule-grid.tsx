@@ -18,7 +18,7 @@ import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
 import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { PairDetailSheet } from './pair-detail-sheet'
+import { PairDetailModal } from './pair-detail-modal'
 
 interface ScheduleGridProps {
   // Доп. фильтры сверх ролевого scope (группа/преподаватель/аудитория) — для декана/админа/преподавателя.
@@ -28,7 +28,8 @@ interface ScheduleGridProps {
 type ParityMode = 'AUTO' | 'ODD' | 'EVEN'
 const PARITY_MODES: ParityMode[] = ['AUTO', 'ODD', 'EVEN']
 
-const HOUR_PX = 56 // высота одного часа в сетке
+/** Минимальная высота часа в сетке: ниже пары схлопываются в нечитаемые полоски. */
+const HOUR_PX = 56
 const DEFAULT_START_MIN = 8 * 60 // 08:00
 const DEFAULT_END_MIN = 20 * 60 // 20:00
 
@@ -147,7 +148,19 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     for (let m = gridStart; m <= gridEnd; m += 60) out.push(m)
     return out
   }, [gridStart, gridEnd])
-  const gridHeight = ((gridEnd - gridStart) / 60) * HOUR_PX
+  // Позиции внутри сетки считаются В ДОЛЯХ ОТ ОКНА (`gridSpan`), а не в пикселях: так
+  // сетка растягивается на всю свободную высоту страницы, и под ней не остаётся пустого
+  // хвоста, из-за которого снизу воздуха было больше, чем сверху.
+  //
+  // `HOUR_PX` при этом не исчез, а стал МИНИМУМОМ: час не может стать уже 56px, иначе
+  // на низком окне пары схлопываются в нечитаемые полоски. Когда свободной высоты меньше
+  // минимума, сетка прокручивается внутри своей рамки — у контейнера уже есть `overflow`
+  // ради горизонтальной прокрутки, и вертикальная включается там же. Карточка при этом
+  // всегда занимает всю высоту, поэтому отступ снизу равен отступу сверху на любом окне.
+  const gridSpan = gridEnd - gridStart
+  const gridMinHeight = (gridSpan / 60) * HOUR_PX
+  /** Доля от окна сетки в процентах — для `top` абсолютных слоёв. */
+  const pct = (minute: number): string => `${((minute - gridStart) / gridSpan) * 100}%`
 
   const today = new Date()
   const todayIdx = weekDates.findIndex((d) => d.toDateString() === today.toDateString())
@@ -156,7 +169,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
   const weekLabel = `${weekDates[0]!.toLocaleDateString(locale, { day: 'numeric', month: 'short' })} – ${weekDates[6]!.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-1 flex-col gap-3">
       {/* Панель: навигация по неделям + чётность + таймзона */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1">
@@ -230,14 +243,14 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
         <div
           ref={gridScroll.ref}
           className={cn(
-            'overflow-x-auto rounded-2xl border border-border',
+            'flex flex-1 flex-col overflow-x-auto rounded-2xl border border-border',
             gridScroll.overflowing && 'cursor-grab',
             gridScroll.dragging && 'cursor-grabbing select-none',
           )}
         >
-          <div className="min-w-[52rem]">
+          <div className="flex min-w-[52rem] flex-1 flex-col">
             {/* Заголовки дней */}
-            <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-muted/30">
+            <div className="grid shrink-0 grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-muted/30">
               <div className="border-r border-border" />
               {weekDates.map((d, i) => {
                 const isToday = i === todayIdx
@@ -259,14 +272,17 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
             </div>
 
             {/* Сетка часов + колонки дней */}
-            <div className="grid grid-cols-[3.5rem_repeat(7,1fr)]">
+            <div
+              className="grid flex-1 grid-cols-[3.5rem_repeat(7,1fr)]"
+              style={{ minHeight: gridMinHeight }}
+            >
               {/* Ось времени */}
-              <div className="relative border-r border-border" style={{ height: gridHeight }}>
+              <div className="relative border-r border-border">
                 {hours.map((m) => (
                   <div
                     key={m}
                     className="absolute -translate-y-1/2 pr-2 text-right text-[0.7rem] text-muted-foreground"
-                    style={{ top: ((m - gridStart) / 60) * HOUR_PX, right: 0 }}
+                    style={{ top: pct(m), right: 0 }}
                   >
                     {minToLabel(m)}
                   </div>
@@ -300,21 +316,20 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                       'relative border-r border-border last:border-r-0',
                       dayIdx === todayIdx && 'bg-primary/[0.04]',
                     )}
-                    style={{ height: gridHeight }}
                   >
                     {/* Часовые линии */}
                     {hours.map((m) => (
                       <div
                         key={m}
                         className="absolute inset-x-0 border-t border-border/50"
-                        style={{ top: ((m - gridStart) / 60) * HOUR_PX }}
+                        style={{ top: pct(m) }}
                       />
                     ))}
                     {/* Линия «сейчас» */}
                     {dayIdx === todayIdx && nowMin >= gridStart && nowMin <= gridEnd && (
                       <div
                         className="absolute inset-x-0 z-20 border-t-2 border-destructive"
-                        style={{ top: ((nowMin - gridStart) / 60) * HOUR_PX }}
+                        style={{ top: pct(nowMin) }}
                       >
                         <span className="absolute -left-1 -top-1 size-2 rounded-full bg-destructive" />
                       </div>
@@ -323,11 +338,12 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                     {dayPairs.map((p) => {
                       const pos = placements.get(p.id) ?? { col: 0, cols: 1 }
                       return (
-                        <PairDetailSheet
+                        <PairDetailModal
                           key={p.id}
                           pair={p}
                           change={changeMap.get(`${p.id}|${dateStr}`)}
                           gridStart={gridStart}
+                          gridSpan={gridSpan}
                           date={dateStr}
                           col={pos.col}
                           cols={pos.cols}

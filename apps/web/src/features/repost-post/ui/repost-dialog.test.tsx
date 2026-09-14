@@ -7,8 +7,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Role } from '@studenthub/shared-types'
 
 // next-intl → ключ как есть; тосты глушим (Toaster в тесте не смонтирован).
+// `dismiss` обязателен: серверную ошибку окно показывает тостом (useErrorToast),
+// и при размонтировании хук гасит его по id — без заглушки падал бы teardown теста.
 vi.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() } }))
 
 // Мутация бьёт по сети — глушим сам запрос, проверяем ПЕРЕДАННОЕ ТЕЛО.
 vi.mock('../../../entities/post/api/post-api', async (orig) => {

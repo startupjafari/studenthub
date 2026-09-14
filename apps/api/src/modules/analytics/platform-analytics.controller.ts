@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { PlatformAnalyticsService } from './platform-analytics.service'
+import { PlatformActivityQueryDto } from './dto/platform-activity-query.dto'
 import { PlatformRangeQueryDto } from './dto/platform-range-query.dto'
 import { PlatformTopActionsQueryDto } from './dto/platform-top-actions-query.dto'
 
@@ -67,8 +68,14 @@ export class PlatformAnalyticsController {
 
   @Get('activity-heatmap')
   @Roles(...PLATFORM_ROLES)
-  @ApiOperation({ summary: 'Активность по дням недели и часам (UTC), 7×24' })
-  activityHeatmap(@Query() query: PlatformRangeQueryDto) {
+  @ApiOperation({
+    summary: 'Активность по дням недели и часам, 7×24 + число дат каждого дня недели',
+    description:
+      'Часы раскладываются в зоне `tz` (IANA-имя, по умолчанию UTC). ' +
+      '`days[dow]` — сколько календарных дат этого дня недели попало в период: ' +
+      'делитель для сравнения будней с выходными.',
+  })
+  activityHeatmap(@Query() query: PlatformActivityQueryDto) {
     return this.analytics.activityHeatmap(query)
   }
 

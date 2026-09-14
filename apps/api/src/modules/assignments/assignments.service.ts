@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
   AssignmentListQueryInput,
+  ReviewQueueQueryInput,
   CreateAssignmentInput,
   GradeSubmissionInput,
   ReturnSubmissionInput,
@@ -75,6 +76,68 @@ export class AssignmentsService {
     private readonly queue: QueueService,
   ) {}
 
+  /**
+   * Очередь проверки: сколько работ сдано и ждёт оценки, и по каким заданиям.
+   *
+   * Счётчик считается ЗДЕСЬ, потому что список заданий его не содержит: чтобы узнать
+   * число сданных работ, клиенту пришлось бы запрашивать сабмиты каждого задания по
+   * очереди. У декана такой показатель уже есть в аналитике факультета — это он же,
+   * но в scope преподавателя.
+   *
+   * Scope тот же, что у списка заданий (`scopeWhere`), никаких отдельных правил:
+   * преподаватель видит работы только по своим курсам.
+   */
+  async reviewQueue(viewer: JwtPayload, query: ReviewQueueQueryInput) {
+    const where: Prisma.SubmissionWhereInput = {
+      status: 'SUBMITTED',
+      assignment: { is: this.scopeWhere(viewer) },
+    }
+    const [total, grouped] = await this.prisma.$transaction([
+      this.prisma.submission.count({ where }),
+      this.prisma.submission.groupBy({
+        by: ['assignmentId'],
+        where,
+        // `_count: true` даёт число строк в группе одним полем; форма `{ _all: true }`
+        // возвращает объект со всеми колонками и типизируется хуже, а нужна одна цифра.
+        _count: true,
+        orderBy: { _count: { assignmentId: 'desc' } },
+        take: query.limit,
+      }),
+    ])
+    if (grouped.length === 0) return { total, items: [] }
+
+    // Названия отдельным запросом: groupBy не умеет тянуть поля связи, а без названия
+    // строка панели («12 работ») не говорит, что именно проверять.
+    const assignments = await this.prisma.assignment.findMany({
+      where: { id: { in: grouped.map((g) => g.assignmentId) } },
+      select: {
+        id: true,
+        title: true,
+        dueAt: true,
+        course: { select: { subject: { select: { name: true } } } },
+      },
+    })
+    const byId = new Map(assignments.map((a) => [a.id, a]))
+    return {
+      total,
+      // Порядок сохраняем от groupBy (больше всего несделанного — сверху).
+      items: grouped.flatMap((g) => {
+        const a = byId.get(g.assignmentId)
+        return a
+          ? [
+              {
+                id: a.id,
+                title: a.title,
+                subject: a.course?.subject?.name ?? null,
+                dueAt: a.dueAt,
+                pending: g._count,
+              },
+            ]
+          : []
+      }),
+    }
+  }
+
   // ── Assignments (чтение) ─────────────────────────────────────────────────
 
   async list(viewer: JwtPayload, query: AssignmentListQueryInput) {
@@ -97,7 +160,7 @@ export class AssignmentsService {
       this.prisma.assignment.findMany({
         where,
         select: withMine ? this.selectWithMine(viewer.sub) : ASSIGNMENT_SELECT,
-        orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+        orderBy: assignmentOrderBy(query.sort, query.order),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -573,4 +636,28 @@ export class AssignmentsService {
   ): Promise<void> {
     await this.audit.record({ userId: actor.sub, action, entity: 'Assignment', entityId, ...ctx })
   }
+}
+
+/**
+ * Порядок списка заданий.
+ *
+ * Без явной сортировки — прежний порядок «ближайший срок сверху»: это то, что нужно
+ * и студенту в ленте задач, и преподавателю при первом открытии.
+ *
+ * Вторым ключом всегда `createdAt`: заданий с одинаковым сроком или статусом много,
+ * и без него СУБД вправе вернуть их в любом порядке — строки перемешивались бы между
+ * страницами. Предмет и группа — поля связи, сортировать по `courseId` (uuid) значило
+ * бы упорядочить по случайному значению.
+ */
+export function assignmentOrderBy(
+  sort: AssignmentListQueryInput['sort'],
+  order: AssignmentListQueryInput['order'],
+): Prisma.AssignmentOrderByWithRelationInput[] {
+  const dir = order ?? 'asc'
+  if (sort === 'title') return [{ title: dir }, { createdAt: 'desc' }]
+  if (sort === 'status') return [{ status: dir }, { createdAt: 'desc' }]
+  if (sort === 'dueAt') return [{ dueAt: dir }, { createdAt: 'desc' }]
+  if (sort === 'subject') return [{ course: { subject: { name: dir } } }, { createdAt: 'desc' }]
+  if (sort === 'group') return [{ course: { group: { name: dir } } }, { createdAt: 'desc' }]
+  return [{ dueAt: 'asc' }, { createdAt: 'desc' }]
 }

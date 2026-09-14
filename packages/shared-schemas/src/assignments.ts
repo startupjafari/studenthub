@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Задания (docs/ACADEMIC_CORE.md, задача 3). Статусы/типы — строки (SSOT здесь).
 
@@ -53,11 +53,22 @@ export const UpdateAssignmentSchema = z
   .strict()
 export type UpdateAssignmentInput = z.infer<typeof UpdateAssignmentSchema>
 
+/**
+ * Колонки, по которым можно упорядочить список заданий. Enum, а не строка: в `orderBy`
+ * уходит только то, что таблица показывает колонкой (см. pagination.ts).
+ */
+export const ASSIGNMENT_SORTS = ['title', 'subject', 'group', 'dueAt', 'status'] as const
+export const AssignmentSortSchema = z.enum(ASSIGNMENT_SORTS)
+export type AssignmentSort = z.infer<typeof AssignmentSortSchema>
+
 export const AssignmentListQuerySchema = OffsetPaginationSchema.extend({
   courseId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
   status: AssignmentStatusSchema.optional(),
   mine: z.coerce.boolean().optional(),
+  // Необязательные: без них остаётся прежний порядок «ближайший срок сверху».
+  sort: AssignmentSortSchema.optional(),
+  order: SortOrderSchema.optional(),
 })
 export type AssignmentListQueryInput = z.infer<typeof AssignmentListQuerySchema>
 
@@ -86,3 +97,16 @@ export const ReturnSubmissionSchema = z
   })
   .strict()
 export type ReturnSubmissionInput = z.infer<typeof ReturnSubmissionSchema>
+
+/**
+ * Очередь проверки преподавателя: сколько работ сдано и ждёт оценки. У декана такой
+ * показатель уже есть в аналитике факультета, у преподавателя своего агрегата не было,
+ * а список заданий счётчика сданных работ не отдаёт.
+ */
+export const ReviewQueueQuerySchema = z
+  .object({
+    // Сколько заданий показать в панели дашборда; общее число приходит отдельно.
+    limit: z.coerce.number().int().positive().max(20).default(5),
+  })
+  .strict()
+export type ReviewQueueQueryInput = z.infer<typeof ReviewQueueQuerySchema>

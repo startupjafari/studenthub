@@ -31,7 +31,7 @@ export function EmployerHomeView() {
   const unverified = company.data?.status === 'PENDING_EMAIL'
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={company.data?.name ?? t('title')} subtitle={t('subtitle')} />
 
       {blocked && (

@@ -22,6 +22,7 @@ export class CareerEventsController {
     Role.UNIVERSITY_ADMIN,
     Role.UNIVERSITY_MODERATOR,
     Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
   )
   @ApiOperation({ summary: 'Карьерные мероприятия своего университета' })
   @ApiResponse({ status: 200, description: 'Страница мероприятий' })

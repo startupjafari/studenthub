@@ -4,7 +4,15 @@ import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
-import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+} from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
@@ -14,26 +22,30 @@ import { TodayTimeline } from './today-timeline'
 import { AttentionList } from './attention-list'
 import { RecentChanges } from './recent-changes'
 
-const TEACHER_QUICK_LINKS = [
-  { key: 'quick.materials', href: '/teacher/materials' },
-  { key: 'quick.groupChat', href: '/teacher/chats' },
+// Быстрые действия героя — только существующие разделы (без мёртвых ссылок).
+const STUDENT_QUICK_LINKS = [
+  { key: 'quick.groupChat', href: '/chats' },
+  { key: 'quick.events', href: '/events' },
 ]
 
-// Экран «Сегодня» преподавателя: занятия на сегодня (свои пары), timeline,
-// ближайшие события и последние изменения. Проверка работ/журнал появятся с
-// доменом заданий (следующие фазы) — здесь используем существующие данные.
-export function TeacherToday() {
+// Экран «Сегодня» студента: следующая пара, timeline дня, «требует внимания»
+// (заявки + события) и последние важные изменения. Всё — из существующих API.
+export function StudentToday() {
   const t = useTranslations('Today')
   const locale = useLocale()
 
-  // Один BFF-запрос вместо четырёх доменных (docs/UNIFIED_UX.md PR-1). Форма — по роли на бэке.
   const qc = useQueryClient()
+
+  // Один BFF-запрос вместо шести доменных (docs/UNIFIED_UX.md PR-1). Форма — по роли на бэке.
   const today = useQuery({ queryKey: meKeys.today(), queryFn: fetchMeToday })
 
-  // Realtime: изменение расписания незаметно обновляет «Сегодня» (без опроса).
+  // Realtime: изменение расписания приходит по WS — обновляем «Сегодня» незаметно, без опроса.
+  // Подписываемся только на schedule:changed (самое время-чувствительное для таймлайна);
+  // на каждый notification:new НЕ рефетчим агрегат — колокольчик обновляется сам.
   useRealtimeEvent('schedule:changed', () => {
     void qc.invalidateQueries({ queryKey: meKeys.today() })
   })
+
   const now = useMemo(() => nowInTz(today.data?.timezone ?? null), [today.data?.timezone])
   const parity = useMemo(() => isoWeekParity(), [])
 
@@ -42,16 +54,17 @@ export function TeacherToday() {
     [today.data?.pairs, today.data?.scheduleChanges, now, parity],
   )
   const upcoming = useMemo(() => nextPair(dayPairs, now), [dayPairs, now])
+
   const attention = useMemo(
     () =>
       buildAttention({
-        applications: [],
+        applications: today.data?.applications ?? [],
         events: today.data?.events ?? [],
-        assignments: [],
+        assignments: today.data?.assignments ?? [],
         todayDate: now.date,
         locale,
       }),
-    [today.data?.events, now.date, locale],
+    [today.data?.applications, today.data?.events, today.data?.assignments, now.date, locale],
   )
 
   const greetingDate = useMemo(
@@ -61,16 +74,16 @@ export function TeacherToday() {
 
   if (today.isLoading) {
     return (
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+      <div className="flex w-full flex-1 flex-col gap-4">
         <PageHeader title={t('title')} subtitle={greetingDate} />
-        <Skeleton className="h-40 w-full rounded-xl" />
+        <TodaySkeleton />
       </div>
     )
   }
 
   if (today.isError) {
     return (
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+      <div className="flex w-full flex-1 flex-col gap-4">
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <EmptyState
           icon={<Inbox />}
@@ -87,16 +100,38 @@ export function TeacherToday() {
         <PageHeader title={t('title')} subtitle={greetingDate} />
         <NextPairCard
           dayPair={upcoming}
-          showTeacher={false}
-          scheduleHref="/teacher/schedule"
-          quickLinks={TEACHER_QUICK_LINKS}
+          dayEmpty={dayPairs.length === 0}
+          quickLinks={STUDENT_QUICK_LINKS}
         />
         <AttentionList items={attention} />
       </section>
       <aside className="flex flex-col gap-4">
-        <TodayTimeline dayPairs={dayPairs} showTeacher={false} />
+        <TodayTimeline dayPairs={dayPairs} />
         <RecentChanges notifications={today.data?.notifications ?? []} />
       </aside>
+    </div>
+  )
+}
+
+function TodaySkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="flex flex-col gap-4">
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-40" />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Skeleton className="h-12 w-full rounded-lg" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </CardContent>
+        </Card>
+      </div>
+      <div className="flex flex-col gap-4">
+        <Skeleton className="h-56 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
     </div>
   )
 }

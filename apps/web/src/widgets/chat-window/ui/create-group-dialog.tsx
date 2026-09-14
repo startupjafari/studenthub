@@ -7,8 +7,8 @@ import { toast } from 'sonner'
 import { X } from 'lucide-react'
 import { chatKeys, createChatRequest } from '../../../entities/chat'
 import { UserPicker, type PickedUser } from '../../../entities/user'
-import { Button, FormAlert, Input, Modal } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Button, Input, Modal } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 
 // Диалог создания собственной группы (Ф9+): название + мультивыбор участников (приглашение сразу).
 export function CreateGroupDialog({
@@ -22,7 +22,7 @@ export function CreateGroupDialog({
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
   const [members, setMembers] = useState<PickedUser[]>([])
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('create-group')
 
   const create = useMutation({
     mutationFn: () =>
@@ -31,7 +31,6 @@ export function CreateGroupDialog({
         title: title.trim(),
         memberIds: members.map((m) => m.id),
       }),
-    onMutate: () => resetApiError(),
     onSuccess: (chat) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
       toast.success(t('groupCreated'))
@@ -45,8 +44,6 @@ export function CreateGroupDialog({
   return (
     <Modal onClose={onClose} title={t('newGroup')} size="lg">
       <div className="flex flex-col gap-3">
-        <FormAlert error={apiError} />
-
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}

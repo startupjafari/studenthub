@@ -74,6 +74,11 @@ export function CareerVacancyReviewView() {
   })
 
   const decide = useMutation({
+    // Вуз, от имени которого принимается решение. Платформенной роли он в токене не
+    // достаётся, а выбирается один раз на «Обзоре» и живёт в адресе страницы — в
+    // ЗАПРОСАХ он уходит параметром, в РЕШЕНИЯХ полем тела (PROJECT.md §678). Без него
+    // список грузился, но «Одобрить» отвечал 403 «Выберите университет».
+    // Сотрудник вуза шлёт undefined: его вуз берётся из токена, и подменить его нельзя.
     mutationFn: ({
       id,
       ...input
@@ -81,7 +86,7 @@ export function CareerVacancyReviewView() {
       id: string
       status: 'APPROVED' | 'REJECTED'
       reason?: string
-    }) => decideVacancyReview(id, input),
+    }) => decideVacancyReview(id, { ...input, ...(universityId ? { universityId } : {}) }),
     onSuccess: async () => {
       toast.success(t('decisionSaved'))
       await queryClient.invalidateQueries({ queryKey: vacancyKeys.all })
