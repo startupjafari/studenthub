@@ -8,8 +8,26 @@
  * лендинга всё равно статические (SSG): динамических данных на них нет.
  */
 
+/**
+ * Приводит адрес из переменной окружения к виду, пригодному для `destination` редиректа.
+ *
+ * Повторяет `normalizeOrigin` из src/config/site.ts — конфиг Next выполняется до сборки
+ * приложения и импортировать TypeScript из него нельзя. Дубль маленький и намеренный;
+ * при правке одного нужно править и второй.
+ *
+ * Без схемы редирект не просто некрасив — он не работает: Next отвечает 500 на каждый
+ * такой путь. А по этим путям идут напечатанные QR-наклейки над дверями аудиторий.
+ */
+function normalizeOrigin(value, fallback) {
+  const raw = value?.trim()
+  if (!raw) return fallback
+
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  return withScheme.replace(/\/+$/, '')
+}
+
 /** Платформа: на неё уходят и кнопки «Войти», и редиректы со старых публичных путей. */
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+const APP_URL = normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL, 'http://localhost:3000')
 
 /**
  * Корневые сегменты, принадлежащие платформе. Список сверен с `apps/web/src/app/**` и
