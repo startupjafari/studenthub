@@ -9,6 +9,11 @@ import { useRef, type PointerEvent, type ReactNode } from 'react'
  * напрямую через ref, без состояния React, — иначе каждое движение мыши перерисовывало бы
  * дерево. Сами правила .mesh-* лежат в globals.css.
  *
+ * Панель больше не заливается синим. Раньше первый экран был отдельным цветным блоком, и
+ * страница начиналась со шва: синее полотно, дальше ровный фон. Теперь сетка лежит прямо
+ * на земле документа поверх общей подсветки — бренд остался, шов ушёл. Из-за этого точки
+ * и берут цвет из --foreground: на белом полотне светлой темы белые точки были не видны.
+ *
  * Это единственный клиентский компонент первого экрана: остальное — статическая разметка.
  */
 export function MeshBackdrop({ children }: { children: ReactNode }) {
@@ -37,15 +42,11 @@ export function MeshBackdrop({ children }: { children: ReactNode }) {
       ref={ref}
       onPointerMove={handleMove}
       onPointerLeave={handleLeave}
-      className="relative isolate overflow-hidden bg-primary text-primary-foreground"
+      className="relative isolate overflow-hidden"
     >
       <div aria-hidden className="mesh-base pointer-events-none absolute inset-0" />
       <div aria-hidden className="mesh-glow pointer-events-none absolute inset-0" />
       <div aria-hidden className="mesh-halo pointer-events-none absolute inset-0" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent"
-      />
       <div className="relative">{children}</div>
     </div>
   )
