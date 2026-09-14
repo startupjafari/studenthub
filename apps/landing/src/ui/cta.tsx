@@ -1,7 +1,6 @@
 import { SALES_EMAIL } from '../config/site'
 import type { Dictionary } from '../content'
 import { Container, LinkButton, Reveal } from './primitives'
-import { MeshBackdrop } from './mesh-backdrop'
 
 /**
  * Заявка на демонстрацию.
@@ -11,42 +10,53 @@ import { MeshBackdrop } from './mesh-backdrop'
  * данных — четыре решения, каждое за человеком (стоп-точки AGENTS.md). Они вынесены в
  * отдельный PR, и лендинг не ждёт их в ящике: почтовая ссылка лид не теряет.
  *
- * Полоса брендовая — та же меш-сетка, что на первом экране. Страница получает рамку:
- * открывается и закрывается одним и тем же фоном, а светлые секции между ними читаются
- * как единый разворот. Заодно это восстанавливает чередование полос — иначе «Вопросы»
- * и призыв шли бы двумя светлыми подряд.
+ * Раньше призыв занимал полосу во всю ширину с меш-сеткой и держал рамку страницы вместе
+ * с первым экраном. Рамка больше не нужна: фон теперь один на весь документ, и полоса
+ * цвета во всю ширину читалась бы как чужой блок. Осталась карточка — единственное синее
+ * пятно на странице, и оно там, где от человека ждут действия.
  */
 export function Cta({ dict }: { dict: Dictionary }) {
   const t = dict.cta
   const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(t.mailSubject)}`
 
   return (
-    <MeshBackdrop>
-      <Container className="py-[clamp(4rem,9vw,8.25rem)]">
-        <Reveal className="mx-auto flex max-w-2xl flex-col items-center gap-5 text-center">
-          <h2 className="text-[clamp(1.65rem,3vw,2.5rem)] leading-[1.12] font-semibold tracking-tight text-balance">
-            {t.title}
-          </h2>
-          <p className="text-[clamp(1rem,1.4vw,1.125rem)] leading-relaxed text-primary-foreground/85">
-            {t.text}
-          </p>
-          <LinkButton
-            href={mailto}
-            external
-            variant="secondary"
-            className="mt-1 border-transparent bg-primary-foreground text-primary hover:opacity-90"
-          >
-            {t.button}
-          </LinkButton>
-          <a
-            href={mailto}
-            rel="noopener"
-            className="text-sm text-primary-foreground/70 underline underline-offset-4 hover:text-primary-foreground"
-          >
-            {SALES_EMAIL}
-          </a>
+    <section id="cta" className="scroll-mt-24 pb-[clamp(4rem,8vw,7rem)]">
+      <Container>
+        <Reveal>
+          <div className="sh-cta relative isolate overflow-hidden rounded-[1.75rem] px-6 py-12 sm:px-12 sm:py-16">
+            <span aria-hidden className="sh-cta__dots" />
+
+            <div className="relative flex max-w-xl flex-col items-start gap-5">
+              <h2 className="font-display text-[clamp(1.7rem,3.2vw,2.6rem)] leading-[1.06] font-semibold tracking-[-0.03em] text-balance text-white">
+                {t.title}
+              </h2>
+              <p className="text-[clamp(0.975rem,1.3vw,1.1rem)] leading-relaxed text-white/85">
+                {t.text}
+              </p>
+
+              <div className="mt-2 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+                {/* Инверсная кнопка: на брендовом полотне белая плашка — самый заметный
+                    элемент, и это правильный порядок, тут её и нажимают. */}
+                <LinkButton
+                  href={mailto}
+                  external
+                  variant="secondary"
+                  className="border-transparent bg-white text-primary shadow-none hover:bg-white/90"
+                >
+                  {t.button}
+                </LinkButton>
+                <a
+                  href={mailto}
+                  rel="noopener"
+                  className="font-mono text-sm text-white/85 underline underline-offset-4 hover:text-white"
+                >
+                  {SALES_EMAIL}
+                </a>
+              </div>
+            </div>
+          </div>
         </Reveal>
       </Container>
-    </MeshBackdrop>
+    </section>
   )
 }

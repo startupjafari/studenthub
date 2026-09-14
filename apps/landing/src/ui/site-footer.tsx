@@ -9,7 +9,7 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
   const year = new Date().getFullYear()
 
   return (
-    <footer className="border-t border-border bg-muted/40 py-12">
+    <footer className="border-t border-hairline py-14">
       <Container className="flex flex-col gap-8">
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-start">
           <div className="flex max-w-sm flex-col gap-3">
