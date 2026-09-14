@@ -43,6 +43,7 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 # Непривилегированный пользователь: контейнеру, который раздаёт статику, root не нужен.
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
@@ -54,4 +55,14 @@ COPY --from=build --chown=nextjs:nodejs /repo/apps/landing/public ./apps/landing
 
 USER nextjs
 EXPOSE 3000
-CMD ["node", "apps/landing/server.js"]
+
+# HOSTNAME присваивается прямо в команде, а не только через ENV выше.
+#
+# Next в режиме standalone берёт адрес бинда из `process.env.HOSTNAME || '0.0.0.0'`.
+# Хостинги кладут в эту переменную имя контейнера, и сервер пытается резолвить его как
+# адрес: `EAI_AGAIN getaddrinfo studenthub-landing-production`, процесс падает с кодом 1.
+# Снаружи это «Application failed to respond» с 502 — контейнер есть, слушателя нет.
+#
+# ENV в образе тут не спасает: переменная окружения сервиса его перекрывает. Присваивание
+# перед командой — перекрывает уже она, и поведение перестаёт зависеть от хостинга.
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 node apps/landing/server.js"]
