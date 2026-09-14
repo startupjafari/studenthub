@@ -20,18 +20,31 @@ import {
   STUDENT_CANCELLABLE_STATUSES,
   type ApplicationServiceStatus,
 } from '@studenthub/shared-schemas'
-import { Button, Card, PageHeader, Skeleton, EmptyState, useConfirm } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
+import {
+  Button,
+  Card,
+  Modal,
+  PageHeader,
+  Skeleton,
+  EmptyState,
+  useConfirm,
+} from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
 
 export function ApplicationDetail({
   id,
   onBack,
   onContinueDraft,
+  asModal = false,
 }: {
   id: string
   onBack: () => void
   onContinueDraft: (id: string) => void
+  /**
+   * Показать заявку модальным окном поверх списка, а не отдельным экраном: список
+   * остаётся под ним — закрыл окно и оказался на той же вкладке с той же прокруткой.
+   */
+  asModal?: boolean
 }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
@@ -85,14 +98,12 @@ export function ApplicationDetail({
   const cancellable = app ? STUDENT_CANCELLABLE_STATUSES.includes(app.status) : false
   const isDraft = app?.status === 'DRAFT'
 
-  return (
-    <div className="flex w-full flex-col gap-4">
-      <PageHeader title={serviceName || t('title')} onBack={onBack} backLabel={t('backBtn')} />
-
+  const body = (
+    <>
       {q.isLoading ? (
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-40 w-full rounded-xl" />
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-56 w-full rounded-xl" />
         </div>
       ) : q.isError || !app ? (
         <EmptyState
@@ -105,35 +116,37 @@ export function ApplicationDetail({
           }
         />
       ) : (
-        <>
-          <Card className="flex flex-col gap-4 p-5">
+        // Одна колонка сверху вниз — как в остальных модальных окнах (обработка заявки
+        // сотрудником, окно поста): сводка, потом то, что с заявкой происходит, потом
+        // действия и история. Двухколоночная раскладка внутри окна дробила и без того
+        // узкую ширину, а на телефоне всё равно разворачивалась в тот же столбик.
+        <div className="flex flex-col gap-4">
+          <Card className="flex flex-col gap-3 p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-sm text-muted-foreground">
                 {app.number ?? t('status2_DRAFT')}
               </span>
               <ApplicationStatusBadge status={app.status} />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {app.deliveryType && (
-                <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
-              )}
-              {app.submittedAt && (
+            {app.deliveryType && (
+              <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
+            )}
+            {app.submittedAt && (
+              <Row
+                label={t('submittedAtLabel')}
+                value={new Date(app.submittedAt).toLocaleString(locale)}
+              />
+            )}
+            {app.dueAt &&
+              !['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED'].includes(app.status) && (
                 <Row
-                  label={t('submittedAtLabel')}
-                  value={new Date(app.submittedAt).toLocaleString(locale)}
+                  label={t('expectedReady')}
+                  value={new Date(app.dueAt).toLocaleString(locale)}
                 />
               )}
-              {app.dueAt &&
-                !['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED'].includes(app.status) && (
-                  <Row
-                    label={t('expectedReady')}
-                    value={new Date(app.dueAt).toLocaleString(locale)}
-                  />
-                )}
-              {app.status === 'REJECTED' && app.rejectionReason && (
-                <Row label={t('status2_REJECTED')} value={app.rejectionReason} />
-              )}
-            </div>
+            {app.status === 'REJECTED' && app.rejectionReason && (
+              <Row label={t('status2_REJECTED')} value={app.rejectionReason} />
+            )}
           </Card>
 
           {app.status === 'NEEDS_CORRECTION' && (
@@ -167,70 +180,89 @@ export function ApplicationDetail({
               </Card>
             )}
 
-          {/* Документы и История — рядом на широких экранах, стопкой на узких */}
-          <div className={cn('grid gap-4', docs.length > 0 && 'lg:grid-cols-2')}>
-            {docs.length > 0 && (
-              <Card className="flex flex-col gap-3 p-4">
-                <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
-                <DocumentChecklist
-                  appId={app.id}
-                  requirements={docs.map((d) => ({
-                    id: d.requirement.id,
-                    documentType: null,
-                    titleRu: d.requirement.titleRu,
-                    titleKk: d.requirement.titleKk,
-                    titleEn: d.requirement.titleEn,
-                    required: d.requirement.required,
-                  }))}
-                  documents={docs}
-                  editable={editableDocs}
-                  locale={locale}
-                  onChanged={() => void q.refetch()}
-                />
-              </Card>
-            )}
-
+          {docs.length > 0 && (
             <Card className="flex flex-col gap-3 p-4">
-              <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
-              <Timeline events={app.events} />
+              <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
+              <DocumentChecklist
+                appId={app.id}
+                requirements={docs.map((d) => ({
+                  id: d.requirement.id,
+                  documentType: null,
+                  titleRu: d.requirement.titleRu,
+                  titleKk: d.requirement.titleKk,
+                  titleEn: d.requirement.titleEn,
+                  required: d.requirement.required,
+                }))}
+                documents={docs}
+                editable={editableDocs}
+                locale={locale}
+                onChanged={() => void q.refetch()}
+              />
             </Card>
-          </div>
+          )}
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            {isDraft && (
-              <Button className="w-full sm:w-auto" onClick={() => onContinueDraft(app.id)}>
-                {t('continueDraft')}
-              </Button>
-            )}
-            {editableDocs && !replacementPending && (
-              <Button
-                className="w-full sm:w-auto"
-                loading={resubmitMut.isPending}
-                onClick={() => resubmitMut.mutate()}
-              >
-                {t('resubmit')}
-              </Button>
-            )}
-            {cancellable && (
-              <Button
-                variant="outline"
-                className="w-full text-destructive hover:text-destructive sm:w-auto"
-                loading={cancelMut.isPending}
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: t('cancelApplication'),
-                    description: t('cancelConfirm'),
-                    destructive: true,
-                  })
-                  if (ok) cancelMut.mutate()
-                }}
-              >
-                {t('cancelApplication')}
-              </Button>
-            )}
-          </div>
-        </>
+          <Card className="flex flex-col gap-3 p-4">
+            <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
+            <Timeline events={app.events} />
+          </Card>
+          {/* Действия — под историей, в подвале окна: «Отозвать» слева, основное
+              действие справа, как в диалогах с подтверждением. На телефоне столбиком,
+              и основная кнопка сверху — до неё не надо тянуться через весь экран. */}
+          {(isDraft || (editableDocs && !replacementPending) || cancellable) && (
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+              {cancellable && (
+                <Button
+                  variant="outline"
+                  className="w-full text-destructive hover:text-destructive sm:w-auto"
+                  loading={cancelMut.isPending}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: t('cancelApplication'),
+                      description: t('cancelConfirm'),
+                      destructive: true,
+                    })
+                    if (ok) cancelMut.mutate()
+                  }}
+                >
+                  {t('cancelApplication')}
+                </Button>
+              )}
+              <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row">
+                {isDraft && (
+                  <Button className="w-full sm:w-auto" onClick={() => onContinueDraft(app.id)}>
+                    {t('continueDraft')}
+                  </Button>
+                )}
+                {editableDocs && !replacementPending && (
+                  <Button
+                    className="w-full sm:w-auto"
+                    loading={resubmitMut.isPending}
+                    onClick={() => resubmitMut.mutate()}
+                  >
+                    {t('resubmit')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       )}
+    </>
+  )
+
+  // В окне заголовок и «назад» рисует сама оболочка окна — второй шапки внутри не нужно.
+  if (asModal) {
+    return (
+      <Modal onClose={onBack} title={serviceName || t('title')} size="2xl">
+        <div className="flex flex-col gap-4">{body}</div>
+      </Modal>
+    )
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-4">
+      <PageHeader title={serviceName || t('title')} onBack={onBack} backLabel={t('backBtn')} />
+      {body}
     </div>
   )
 }
