@@ -2,40 +2,80 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Dictionary } from '../content'
-import { Reveal, Section, SectionHeading } from './primitives'
+import {
+  AnimatePresence,
+  motion,
+  SPRING,
+  SWAP,
+  useMotionValueEvent,
+  useReducedMotion,
+  useScroll,
+} from './motion'
+import { Container, SectionHeading } from './primitives'
 import { Scene } from './scenes'
 
-/** Сколько держится момент, пока день идёт сам. */
+/** Сколько держится момент, пока день идёт сам (только там, где им не управляет прокрутка). */
 const AUTOPLAY_MS = 5500
 
 /**
  * Сюжет «Один день студента» — пять моментов на шкале времени.
  *
- * День идёт сам, пока секция в кадре: момент сменяется каждые 5,5 секунды. Наведение или
- * фокус ставят его на паузу — человек читает, и уводить содержимое из-под курсора нельзя.
- * Клик по метке выбирает момент вручную и останавливает автопоказ насовсем: дальше он
- * ведёт сам.
+ * Момент выбирает прокрутка, а не нажатие: секция закрепляется на экране, и пока человек
+ * листает, день идёт вперёд сам. Так сюжет читается в том же движении, которым читают всю
+ * страницу, — отдельного действия от человека не требуется.
  *
- * Раскладка компактная, без липкого экрана: сюжет должен читаться одним взглядом —
- * шкала, момент и телефон рядом, а не разнесённые на высоту экрана.
+ * Но только на широком экране. На телефоне заголовок, текст и аппарат в один экран не
+ * помещаются никогда, а закреплённая секция с обрезанным содержимым — худший из вариантов:
+ * там остаётся компактная раскладка с автопоказом и выбором по метке.
+ *
+ * Нажатие работает в обоих режимах. В режиме прокрутки метка не переключает кадр напрямую,
+ * а прокручивает страницу к нужному участку: иначе состояние разъехалось бы с положением
+ * страницы и следующее же движение колеса вернуло бы кадр обратно.
  */
 export function Day({ dict }: { dict: Dictionary }) {
   const t = dict.day
   const total = t.frames.length
 
   const [activeIndex, setActiveIndex] = useState(0)
+  const [scrollDriven, setScrollDriven] = useState(false)
   const [inView, setInView] = useState(false)
   const [paused, setPaused] = useState(false)
   const [manual, setManual] = useState(false)
 
-  const sectionRef = useRef<HTMLDivElement>(null)
+  const calm = useReducedMotion()
+  const trackRef = useRef<HTMLElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
-  // Автопоказ идёт, только пока секция на экране: иначе день промотается целиком, пока
-  // человек читает другую часть страницы, и к моменту прихода сюда всё уже кончилось.
+  // Режим решает ширина, а не устройство: дело в том, помещается ли кадр в экран целиком.
   useEffect(() => {
-    const el = sectionRef.current
-    if (!el) return
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const apply = () => setScrollDriven(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+
+  /*
+    Прогресс закреплённого участка: 0 — секция только встала на экран, 1 — уходит.
+    Дорожка делится на равные полосы по числу моментов, поэтому каждый держится одинаково.
+  */
+  const { scrollYProgress } = useScroll({
+    target: trackRef,
+    offset: ['start start', 'end end'],
+  })
+
+  useMotionValueEvent(scrollYProgress, 'change', (progress) => {
+    if (!scrollDriven) return
+    const next = Math.min(total - 1, Math.max(0, Math.floor(progress * total)))
+    setActiveIndex((prev) => (prev === next ? prev : next))
+  })
+
+  // Автопоказ идёт, только пока секция на экране, и только там, где кадром не управляет
+  // прокрутка: иначе таймер и колесо спорили бы за один и тот же индекс.
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el || scrollDriven) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
     const observer = new IntersectionObserver(
@@ -44,16 +84,28 @@ export function Day({ dict }: { dict: Dictionary }) {
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+  }, [scrollDriven])
 
   useEffect(() => {
-    if (!inView || paused || manual) return
+    if (scrollDriven || !inView || paused || manual) return
     const id = setInterval(() => setActiveIndex((i) => (i + 1) % total), AUTOPLAY_MS)
     return () => clearInterval(id)
-  }, [inView, paused, manual, total])
+  }, [scrollDriven, inView, paused, manual, total])
 
-  /** Ручной выбор момента. После него автопоказ не возвращается. */
+  /** Выбор момента меткой. В режиме прокрутки ведёт страницу, а не переставляет состояние. */
   function select(index: number) {
+    const track = trackRef.current
+    if (scrollDriven && track) {
+      const start = window.scrollY + track.getBoundingClientRect().top
+      const distance = track.offsetHeight - window.innerHeight
+      // Середина полосы, а не её начало: у края округление вернуло бы соседний кадр.
+      const progress = (index + 0.5) / total
+      window.scrollTo({
+        top: start + distance * progress,
+        behavior: calm ? 'auto' : 'smooth',
+      })
+      return
+    }
     setManual(true)
     setActiveIndex(index)
   }
@@ -75,49 +127,56 @@ export function Day({ dict }: { dict: Dictionary }) {
   if (!active) return null
 
   /*
-    Геометрия шкалы: метки стоят в сетке равных колонок, поэтому центр каждой — на
-    (i + 0.5) / N ширины. Линия идёт от центра первой метки до центра последней, а не от
-    края до края: при `justify-between` её концы торчали из-под крайних точек.
+    Геометрия шкалы. Метки стоят в равных колонках и прижаты к левому краю своей колонки,
+    поэтому первая совпадает с левым краем заголовка секции, а шаг между ними одинаковый.
+    Раньше содержимое колонок центрировалось: шаг был ровный, но вся шкала оказывалась
+    вдвинутой внутрь на половину колонки и не сходилась ни с чем на странице.
+
+    Линия идёт от центра первой точки до центра последней: 0.4375rem — половина точки
+    (size-3.5), а ширина — все колонки, кроме последней.
   */
-  const half = 100 / total / 2
-  const trackWidth = 100 - 2 * half
+  const trackWidth = 100 - 100 / total
   const filled = total > 1 ? (activeIndex / (total - 1)) * trackWidth : 0
 
   return (
-    <Section id="product" className="bg-muted/40">
-      <SectionHeading title={t.title} subtitle={t.subtitle} />
+    <section id="product" ref={trackRef} className="relative scroll-mt-24 lg:h-[340vh]">
+      <div
+        ref={stageRef}
+        // Пауза на наведении и на фокусе: и мышь, и клавиатура означают, что человек
+        // сейчас читает именно здесь. В режиме прокрутки автопоказа нет, и пауза не нужна.
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+        onFocusCapture={() => setPaused(true)}
+        onBlurCapture={() => setPaused(false)}
+        className="py-[clamp(5rem,9vw,9rem)] lg:sticky lg:top-0 lg:flex lg:min-h-dvh lg:flex-col lg:justify-center lg:py-10"
+      >
+        {/*
+          На широком экране — две колонки, а не стопка. В закреплённом кадре высота
+          обязана быть `max(текст, аппарат)`, а не их суммой: стопкой сцена выходила на
+          1071 px против 900 px экрана, и телефон обрезался нижней кромкой.
+        */}
+        <Container className="flex flex-col gap-10 lg:grid lg:grid-cols-[minmax(0,1fr)_16.5rem] lg:grid-rows-[auto_auto_1fr] lg:items-start lg:gap-x-[clamp(2rem,4vw,4rem)]">
+          <div className="lg:col-span-2">
+            <SectionHeading title={t.title} subtitle={t.subtitle} />
+          </div>
 
-      <Reveal>
-        <div
-          ref={sectionRef}
-          // Пауза на наведении и на фокусе внутри блока: и мышь, и клавиатура означают,
-          // что человек сейчас читает именно здесь.
-          onMouseEnter={() => setPaused(true)}
-          onMouseLeave={() => setPaused(false)}
-          onFocusCapture={() => setPaused(true)}
-          onBlurCapture={() => setPaused(false)}
-          className="flex flex-col gap-[clamp(1.75rem,3vw,2.75rem)]"
-        >
           {/*
             Шкала времени. На узком экране прокручивается вбок, потому что пять меток с
             подписями в строку не помещаются никогда: `min-w` держит шаг колонки, а
             горизонтальная прокрутка страницы при этом не появляется — едет сам ряд.
           */}
-          <div className="sh-fade-x -mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:overflow-visible sm:px-0 sm:[mask-image:none]">
-            {/* 26rem — пять колонок по ~83 px: столько нужно, чтобы «Уведомление» и
-                «Аудитория» не переносились. На 320 px ряд прокручивается вбок, и
-                затухание у края показывает, что моменты продолжаются. */}
+          <div className="sh-fade-x sh-fade-x--sm-only -mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0 lg:col-start-1 lg:row-start-2 [&::-webkit-scrollbar]:hidden">
             <div className="relative min-w-[26rem] sm:min-w-0">
               <div
-                className="absolute top-[0.4375rem] h-px bg-border"
-                style={{ left: `${half}%`, width: `${trackWidth}%` }}
+                className="absolute top-[0.4375rem] left-[0.4375rem] h-px bg-hairline"
+                style={{ width: `${trackWidth}%` }}
                 aria-hidden
               />
               {/* Заполненная часть доезжает до активной метки — по ней видно, сколько
                   дня уже прошло. */}
               <div
-                className="absolute top-[0.4375rem] h-px bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
-                style={{ left: `${half}%`, width: `${filled}%` }}
+                className="absolute top-[0.4375rem] left-[0.4375rem] h-px bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                style={{ width: `${filled}%` }}
                 aria-hidden
               />
 
@@ -144,7 +203,7 @@ export function Day({ dict }: { dict: Dictionary }) {
                       aria-controls="day-panel"
                       tabIndex={selected ? 0 : -1}
                       onClick={() => select(index)}
-                      className="group flex flex-col items-center gap-2 rounded-lg px-1 py-1 outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+                      className="group flex min-h-11 flex-col items-start gap-2 rounded-xl pr-3 pb-2 text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/25"
                     >
                       <span
                         className={[
@@ -153,12 +212,25 @@ export function Day({ dict }: { dict: Dictionary }) {
                             ? 'border-primary'
                             : passed
                               ? 'border-primary/50'
-                              : 'border-border group-hover:border-ring',
+                              : 'border-hairline group-hover:border-primary/50',
                         ].join(' ')}
                       >
                         {/* Пульс у активной точки: она и есть «сейчас» в этом дне. */}
                         {selected && (
                           <span className="sh-ping absolute inset-0 rounded-full bg-primary" />
+                        )}
+                        {/*
+                          Кольцо с общим layoutId: при смене момента Framer Motion считает
+                          его тем же элементом и физически переносит между метками. Так
+                          видно, что выбор переехал, а не мигнул в другом месте.
+                        */}
+                        {selected && !calm && (
+                          <motion.span
+                            layoutId="day-dot-ring"
+                            transition={SPRING}
+                            aria-hidden
+                            className="absolute -inset-1.5 rounded-full border border-primary/45"
+                          />
                         )}
                         <span
                           className={[
@@ -167,14 +239,14 @@ export function Day({ dict }: { dict: Dictionary }) {
                               ? 'bg-primary'
                               : passed
                                 ? 'bg-primary/50'
-                                : 'bg-transparent group-hover:bg-ring/40',
+                                : 'bg-transparent group-hover:bg-primary/40',
                           ].join(' ')}
                         />
                       </span>
 
                       <span
                         className={[
-                          'text-xs font-semibold tabular-nums transition-colors',
+                          'font-mono text-xs font-semibold tabular-nums transition-colors',
                           selected ? 'text-primary' : 'text-foreground/70',
                         ].join(' ')}
                       >
@@ -202,21 +274,31 @@ export function Day({ dict }: { dict: Dictionary }) {
             id="day-panel"
             role="tabpanel"
             aria-labelledby={`day-tab-${activeIndex}`}
-            className="grid items-center gap-[clamp(2rem,4vw,3.5rem)] lg:grid-cols-[1fr_auto]"
+            className="lg:col-start-1 lg:row-start-3"
           >
-            {/* Вертикальная линия слева связывает кадр с активной точкой шкалы: без неё
-                текст и шкала читаются как два независимых блока. */}
-            <div
-              key={activeIndex}
-              className="sh-scene-in flex flex-col gap-3 border-l-2 border-primary/40 pl-5"
-            >
-              <span className="text-sm font-semibold text-primary tabular-nums">{active.time}</span>
-              <h3 className="text-[clamp(1.25rem,2.2vw,1.75rem)] leading-tight font-semibold">
-                {active.title}
-              </h3>
-              <p className="max-w-xl leading-relaxed text-foreground/70">{active.text}</p>
-            </div>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activeIndex}
+                initial={calm ? false : { opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={calm ? undefined : { opacity: 0, y: -12 }}
+                transition={SWAP}
+                className="flex flex-col gap-4 border-l border-primary/40 pl-6"
+              >
+                <span className="font-mono text-sm font-medium text-primary tabular-nums">
+                  {active.time}
+                </span>
+                <h3 className="font-display text-[clamp(1.35rem,2.4vw,1.9rem)] leading-tight font-semibold tracking-[-0.02em]">
+                  {active.title}
+                </h3>
+                <p className="max-w-[52ch] leading-relaxed text-muted-foreground">{active.text}</p>
+              </motion.div>
+            </AnimatePresence>
+          </div>
 
+          {/* Аппарат вне панели кадра: это иллюстрация, и в сетке он занимает вторую
+              колонку целиком — обе строки, от шкалы до текста. */}
+          <div className="lg:col-start-2 lg:row-span-2 lg:row-start-2 lg:self-center">
             {/* Свечение за телефоном: без него аппарат висит на плоском фоне, как
                 вырезанный. Радиальный градиент даёт ему подложку, не добавляя рамки.
 
@@ -226,13 +308,24 @@ export function Day({ dict }: { dict: Dictionary }) {
             <div className="relative flex min-w-0 justify-center">
               <span
                 aria-hidden
-                className="pointer-events-none absolute top-1/2 left-1/2 size-[26rem] max-w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_18%,transparent)_0%,transparent_70%)]"
+                className="pointer-events-none absolute top-1/2 left-1/2 size-[26rem] max-w-full -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,color-mix(in_oklab,var(--primary)_18%,transparent)_0%,transparent_70%)]"
               />
-              <Scene key={active.scene} scene={active.scene} dict={dict} time={active.time} />
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={active.scene}
+                  className="w-full"
+                  initial={calm ? false : { opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={calm ? undefined : { opacity: 0, y: -10 }}
+                  transition={SWAP}
+                >
+                  <Scene scene={active.scene} dict={dict} time={active.time} />
+                </motion.div>
+              </AnimatePresence>
             </div>
           </div>
-        </div>
-      </Reveal>
-    </Section>
+        </Container>
+      </div>
+    </section>
   )
 }
