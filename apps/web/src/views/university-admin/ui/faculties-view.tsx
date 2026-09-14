@@ -36,7 +36,7 @@ export function FacultiesAdminView() {
   })
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('facultiesTitle')}
         actions={

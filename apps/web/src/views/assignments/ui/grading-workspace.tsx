@@ -1,35 +1,37 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { toast } from 'sonner'
-import { ArrowLeft, CheckCircle2, ClipboardCheck, Inbox, Link2, RotateCcw } from 'lucide-react'
+import { Inbox } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
   Badge,
   Button,
   Card,
-  CardContent,
   EmptyState,
-  Input,
-  Label,
   PageHeader,
-  Skeleton,
-  Textarea,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { toApiError, useMediaQuery } from '../../../shared/lib'
 import {
   assignmentKeys,
   fetchAssignment,
   fetchSubmissions,
-  gradeSubmissionRequest,
-  returnSubmissionRequest,
   type SubmissionItem,
   type SubmissionStatus,
 } from '../../../entities/assignment'
+import { GradeSubmissionModal } from './grade-submission-modal'
 
 interface Props {
   assignmentId: string
@@ -43,11 +45,27 @@ const SUB_BADGE: Record<SubmissionStatus, 'secondary' | 'info' | 'success' | 'wa
   RETURNED: 'warning',
 }
 
-// Workspace проверки (задача 4). Desktop — split-view (список сдач | работа + оценка),
-// mobile — последовательно (список → работа/оценка с кнопкой «назад»).
+// Порядок статусов для сортировки: сначала то, что ждёт преподавателя.
+const SUB_ORDER: SubmissionStatus[] = ['SUBMITTED', 'RETURNED', 'DRAFT', 'GRADED']
+
+// Студент забирает остаток ширины: остальные колонки — короткие и предсказуемые.
+const COLS = ['auto', '11rem', '7rem', '11rem', '6rem', '9rem'] as const
+// Узкий экран: попытка и время сдачи скрыты — на строке остаются имя, статус, балл
+// и кнопка проверки, то есть «кто, в каком состоянии и что с этим делать».
+const COLS_NARROW = ['auto', '8rem', '0', '0', '4.5rem', '7rem'] as const
+const HIDE = { attempt: 'hidden lg:table-cell', submitted: 'hidden md:table-cell' } as const
+const SKELETON_COLS = [undefined, undefined, HIDE.attempt, HIDE.submitted, undefined, undefined]
+
+/**
+ * Проверка задания (задача 4): таблица сдач, оценка — в модальном окне.
+ *
+ * Очередь при этом сохраняется: после «Поставить балл» окно само переходит к следующей
+ * работе со статусом «На проверке» в том порядке, в каком таблица отсортирована сейчас.
+ * Кончились — окно закрывается, и видно всю таблицу с новыми баллами.
+ */
 export function GradingWorkspace({ assignmentId, onBack }: Props) {
   const t = useTranslations('Assignments')
-  const isDesktop = useMediaQuery('(min-width: 1024px)')
+  const locale = useLocale()
 
   const assignment = useQuery({
     queryKey: assignmentKeys.detail(assignmentId),
@@ -58,19 +76,33 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
     queryFn: () => fetchSubmissions(assignmentId),
   })
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
   const list = useMemo(() => subs.data ?? [], [subs.data])
-  const selected = list.find((s) => s.id === selectedId) ?? null
 
-  // Автовыбор первой работы на десктопе.
-  useEffect(() => {
-    if (isDesktop && !selectedId && list.length > 0) setSelectedId(list[0]!.id)
-  }, [isDesktop, selectedId, list])
+  // Сортировки по умолчанию нет: сервер отдаёт сдачи в своём порядке, и стрелка в шапке
+  // означала бы выбор, которого не делали. Сортировка клиентская — сдачи приходят одним
+  // ответом целиком, страниц у них нет.
+  const {
+    rows: sorted,
+    sort,
+    toggle,
+  } = useTableSort<SubmissionItem>(list, (s, key) => {
+    if (key === 'student') return `${s.student.lastName} ${s.student.firstName}`
+    if (key === 'status') return SUB_ORDER.indexOf(s.status)
+    if (key === 'attempt') return s.attemptNumber
+    if (key === 'submitted') return s.submittedAt
+    if (key === 'score') return s.score
+    return null
+  })
 
-  function selectNext(afterId: string) {
-    const idx = list.findIndex((s) => s.id === afterId)
-    const next = list.slice(idx + 1).find((s) => s.status === 'SUBMITTED')
-    setSelectedId(next?.id ?? (isDesktop ? afterId : null))
+  const open = sorted.find((s) => s.id === openId) ?? null
+
+  // Следующая непроверенная работа после только что оценённой — в том порядке, который
+  // преподаватель видит на экране. Больше таких нет — окно закрывается.
+  function goNext(afterId: string) {
+    const idx = sorted.findIndex((s) => s.id === afterId)
+    const next = sorted.slice(idx + 1).find((s) => s.status === 'SUBMITTED')
+    setOpenId(next?.id ?? null)
   }
 
   const header = (
@@ -86,291 +118,129 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
     />
   )
 
-  if (subs.isLoading) {
-    return (
-      <div className="flex w-full flex-col gap-4">
-        {header}
-        <Skeleton className="h-80 w-full rounded-xl" />
-      </div>
-    )
-  }
+  return (
+    // Сквозная flex-цепочка до таблицы: `fill` требует, чтобы каждый предок отдавал ей
+    // высоту, иначе прокручивается страница целиком, а не тело таблицы (§10.7).
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+      {header}
 
-  if (list.length === 0) {
-    return (
-      <div className="flex w-full flex-col gap-4">
-        {header}
+      {!subs.isLoading && list.length === 0 ? (
         <EmptyState
           icon={<Inbox />}
           title={t('noSubmissions')}
           description={t('noSubmissionsHint')}
         />
-      </div>
-    )
-  }
-
-  const listPanel = (
-    <SubmissionsList items={list} selectedId={selectedId} onSelect={setSelectedId} t={t} />
-  )
-
-  const detailPanel = selected ? (
-    <GradePanel
-      key={selected.id}
-      assignmentId={assignmentId}
-      maxScore={assignment.data?.maxScore ?? null}
-      submission={selected}
-      onGraded={() => selectNext(selected.id)}
-      onBackToList={isDesktop ? undefined : () => setSelectedId(null)}
-      t={t}
-    />
-  ) : null
-
-  // Mobile: список ИЛИ выбранная работа.
-  if (!isDesktop) {
-    return (
-      <div className="flex w-full flex-col gap-4">
-        {header}
-        {selected ? detailPanel : listPanel}
-      </div>
-    )
-  }
-
-  // Desktop: split-view.
-  return (
-    <div className="flex w-full flex-col gap-4">
-      {header}
-      <div className="grid grid-cols-[18rem_minmax(0,1fr)] gap-4">
-        {listPanel}
-        <div className="min-w-0">{detailPanel}</div>
-      </div>
-    </div>
-  )
-}
-
-function SubmissionsList({
-  items,
-  selectedId,
-  onSelect,
-  t,
-}: {
-  items: SubmissionItem[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-  t: ReturnType<typeof useTranslations>
-}) {
-  return (
-    <Card>
-      <CardContent className="p-2">
-        <ul className="flex flex-col gap-1">
-          {items.map((s) => (
-            <li key={s.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(s.id)}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
-                  selectedId === s.id ? 'bg-primary/[0.08]' : 'hover:bg-muted/50',
-                )}
-              >
-                <Avatar className="size-8">
-                  <AvatarFallback>
-                    {s.student.firstName[0]}
-                    {s.student.lastName[0]}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {s.student.firstName} {s.student.lastName}
-                </span>
-                {s.status === 'GRADED' && s.score != null ? (
-                  <span className="shrink-0 text-xs font-semibold text-success tabular-nums">
-                    {s.score}
-                  </span>
-                ) : (
-                  <Badge variant={SUB_BADGE[s.status]} className="shrink-0">
-                    {t(`sub.${s.status}`)}
-                  </Badge>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
-  )
-}
-
-function GradePanel({
-  assignmentId,
-  maxScore,
-  submission,
-  onGraded,
-  onBackToList,
-  t,
-}: {
-  assignmentId: string
-  maxScore: number | null
-  submission: SubmissionItem
-  onGraded: () => void
-  onBackToList?: () => void
-  t: ReturnType<typeof useTranslations>
-}) {
-  const tErr = useTranslations('Errors')
-  const locale = useLocale()
-  const qc = useQueryClient()
-  const [score, setScore] = useState(submission.score != null ? String(submission.score) : '')
-  const [feedback, setFeedback] = useState(submission.feedback ?? '')
-
-  const invalidate = () =>
-    qc.invalidateQueries({ queryKey: assignmentKeys.submissions(assignmentId) })
-  const gradable = submission.status === 'SUBMITTED'
-
-  const grade = useMutation({
-    mutationFn: () =>
-      gradeSubmissionRequest(submission.id, {
-        score: Number(score),
-        ...(feedback.trim() ? { feedback: feedback.trim() } : {}),
-      }),
-    onSuccess: () => {
-      invalidate()
-      toast.success(t('graded'))
-      onGraded()
-    },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
-  })
-  const back = useMutation({
-    mutationFn: () => returnSubmissionRequest(submission.id, { feedback: feedback.trim() }),
-    onSuccess: () => {
-      invalidate()
-      toast.success(t('returned'))
-      onGraded()
-    },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
-  })
-
-  function onGrade() {
-    if (score === '' || Number.isNaN(Number(score))) {
-      toast.error(t('scoreRequired'))
-      return
-    }
-    grade.mutate()
-  }
-  function onReturn() {
-    if (!feedback.trim()) {
-      toast.error(t('feedbackRequired'))
-      return
-    }
-    back.mutate()
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      {onBackToList && (
-        <Button variant="ghost" size="sm" className="w-fit gap-1.5" onClick={onBackToList}>
-          <ArrowLeft className="size-4" aria-hidden />
-          {t('toList')}
-        </Button>
+      ) : (
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
+            <TableHeader>
+              <TableRow>
+                <TableHead sortKey="student" sort={sort} onSort={toggle}>
+                  {t('colStudent')}
+                </TableHead>
+                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                  {t('colStatus')}
+                </TableHead>
+                <TableHead
+                  numeric
+                  sortKey="attempt"
+                  sort={sort}
+                  onSort={toggle}
+                  className={HIDE.attempt}
+                >
+                  {t('colAttempt')}
+                </TableHead>
+                <TableHead
+                  sortKey="submitted"
+                  sort={sort}
+                  onSort={toggle}
+                  className={HIDE.submitted}
+                >
+                  {t('colSubmitted')}
+                </TableHead>
+                <TableHead numeric sortKey="score" sort={sort} onSort={toggle}>
+                  {t('score')}
+                </TableHead>
+                <TableHead>
+                  <span className="sr-only">{t('actions')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {subs.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
+              {sorted.map((s) => (
+                <TableRow
+                  key={s.id}
+                  onClick={() => setOpenId(s.id)}
+                  className="cursor-pointer hover:bg-muted/40"
+                >
+                  <TableCell className="font-medium">
+                    <span className="flex min-w-0 items-center gap-3">
+                      <Avatar className="size-8 shrink-0">
+                        <AvatarFallback>
+                          {s.student.firstName[0]}
+                          {s.student.lastName[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <TableText value={`${s.student.lastName} ${s.student.firstName}`} />
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={SUB_BADGE[s.status]} className="max-w-full truncate">
+                      {t(`sub.${s.status}`)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className={cn(HIDE.attempt, 'text-right tabular-nums')}>
+                    {s.attemptNumber}
+                  </TableCell>
+                  <TableCell className={cn(HIDE.submitted, 'text-muted-foreground')}>
+                    {s.submittedAt ? (
+                      new Date(s.submittedAt).toLocaleString(locale, {
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    ) : (
+                      <TableEmpty />
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">
+                    {s.score ?? <TableEmpty />}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(ev) => {
+                        // Строка открывает то же окно — клик по кнопке не должен
+                        // сработать дважды.
+                        ev.stopPropagation()
+                        setOpenId(s.id)
+                      }}
+                    >
+                      {t('review')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
-      <Card>
-        <CardContent className="flex flex-col gap-3 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-heading text-sm font-semibold">
-              {submission.student.firstName} {submission.student.lastName}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {t('attempt', { n: submission.attemptNumber })}
-              {submission.submittedAt
-                ? ` · ${new Date(submission.submittedAt).toLocaleString(locale, {
-                    day: '2-digit',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}`
-                : ''}
-            </span>
-          </div>
-          {submission.text ? (
-            <p className="text-sm whitespace-pre-wrap">{submission.text}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('noText')}</p>
-          )}
-          {submission.linkUrl && (
-            <a
-              href={submission.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-sm break-all text-primary hover:underline"
-            >
-              <Link2 className="size-4 shrink-0" aria-hidden />
-              {submission.linkUrl}
-            </a>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="flex flex-col gap-4 p-4">
-          <h3 className="flex items-center gap-2 font-heading text-sm font-semibold">
-            <ClipboardCheck className="size-4 text-primary" aria-hidden />
-            {t('gradePanel')}
-          </h3>
-
-          {!gradable && submission.status === 'GRADED' && (
-            <div className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm text-success">
-              <CheckCircle2 className="size-4" aria-hidden />
-              {t('alreadyGraded', { score: submission.score ?? 0 })}
-            </div>
-          )}
-          {!gradable && submission.status === 'RETURNED' && (
-            <div className="rounded-lg bg-warning/10 p-3 text-sm text-warning-foreground dark:text-warning">
-              {t('alreadyReturned')}
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="grade-score">
-              {t('score')}
-              {maxScore != null ? ` / ${maxScore}` : ''}
-            </Label>
-            <Input
-              id="grade-score"
-              type="number"
-              value={score}
-              onChange={(e) => setScore(e.target.value)}
-              disabled={!gradable}
-              max={maxScore ?? undefined}
-              className="w-32"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="grade-feedback">{t('feedback')}</Label>
-            <Textarea
-              id="grade-feedback"
-              rows={4}
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              disabled={!gradable}
-            />
-          </div>
-
-          {gradable && (
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                variant="outline"
-                className="gap-1.5"
-                onClick={onReturn}
-                loading={back.isPending}
-              >
-                <RotateCcw className="size-4" aria-hidden />
-                {t('returnForFix')}
-              </Button>
-              <Button className="gap-1.5" onClick={onGrade} loading={grade.isPending}>
-                <CheckCircle2 className="size-4" aria-hidden />
-                {t('publishGrade')}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {open && (
+        // `key` по сдаче: окно переходит к следующей работе на месте, и без него в полях
+        // остались бы балл и комментарий предыдущей (состояние формы не сбрасывается).
+        <GradeSubmissionModal
+          key={open.id}
+          assignmentId={assignmentId}
+          maxScore={assignment.data?.maxScore ?? null}
+          submission={open}
+          onClose={() => setOpenId(null)}
+          onGraded={() => goNext(open.id)}
+        />
+      )}
     </div>
   )
 }

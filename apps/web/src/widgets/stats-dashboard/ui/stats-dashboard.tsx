@@ -1,8 +1,9 @@
 'use client'
 
+import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { useFormatter, useTranslations } from 'next-intl'
+import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import {
   AlertTriangle,
   BookOpen,
@@ -30,8 +31,16 @@ import {
   universityAnalyticsKeys,
 } from '../../../entities/analytics'
 import { Badge, EmptyState, MetricTile, Progress, SectionPanel, Skeleton } from '../../../shared/ui'
-import { ActivityGrid, useChartTheme, type ChartSeries } from '../../../shared/ui/chart'
-import { ChartLegend } from '../../platform-dashboard/ui/primitives'
+import {
+  ChartLegend,
+  DAY_GROUPS,
+  HOUR_LABELS,
+  averageDay,
+  useChartTheme,
+  useSeriesToggle,
+  weekdayAverages,
+  type ChartSeries,
+} from '../../../shared/ui/chart'
 
 // Тяжёлый recharts — только на клиенте, со скелетоном (docs/FRONTEND_RULES.md §4, §11).
 // Опции у каждого вызова свои: SWC-трансформ next/dynamic читает их статически и
@@ -172,7 +181,11 @@ export function StatsDashboard() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <AttendanceBreakdownPanel />
-        <SectionPanel title={t('attendanceByGroup')} subtitle={t('attendanceByGroupHint')}>
+        <SectionPanel
+          title={t('attendanceByGroup')}
+          subtitle={t('attendanceByGroupHint')}
+          bodyClassName={FILL_BODY}
+        >
           {analyticsLoading ? (
             <Skeleton className="h-64 w-full" />
           ) : worst.length === 0 ? (
@@ -202,7 +215,7 @@ export function StatsDashboard() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <InvitesFunnelPanel />
-        <SectionPanel title={t('atRiskTitle')} subtitle={t('atRiskHint')}>
+        <SectionPanel title={t('atRiskTitle')} subtitle={t('atRiskHint')} bodyClassName={FILL_BODY}>
           {analyticsLoading ? (
             <Skeleton className="h-64 w-full" />
           ) : atRisk.length === 0 ? (
@@ -223,6 +236,25 @@ export function StatsDashboard() {
     </div>
   )
 }
+
+/**
+ * Тело панели растягивается на всю карточку. В сетке из двух колонок карточки
+ * равняются по высокой, и заглушка «данных нет» иначе висела бы прижатой к шапке,
+ * а под ней оставалось полкарточки пустоты. С растянутым телом `Empty` центрируется
+ * (`m-auto`) в том самом пустом месте. На содержимое это не влияет: список и полотно
+ * графика в колонке-флексе встают так же, как в обычном блоке.
+ */
+const FILL_BODY = 'flex flex-1 flex-col'
+
+/**
+ * Делитель средних суток для расписания: сетка покрывает ОДНУ неделю, поэтому каждый
+ * день недели в ней ровно один. У журнала событий на месте этих единиц стоит число
+ * календарных дат, и его считает сервер (shared/ui/chart/day-profile.ts).
+ */
+const SCHEDULE_WEEK = [1, 1, 1, 1, 1, 1, 1]
+
+/** Подписи дней недели в порядке сетки (0 = понедельник), ключи словаря Stats. */
+const WEEKDAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 
 // ── Панели ───────────────────────────────────────────────────────────────────
 
@@ -254,7 +286,7 @@ function AttendanceTrendPanel() {
   }))
 
   return (
-    <SectionPanel title={t('trendTitle')} subtitle={t('trendHint')}>
+    <SectionPanel title={t('trendTitle')} subtitle={t('trendHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : series.length === 0 ? (
@@ -303,7 +335,11 @@ function AttendanceBreakdownPanel() {
   ]
 
   return (
-    <SectionPanel title={t('breakdownTitle')} subtitle={t('breakdownHint')}>
+    <SectionPanel
+      title={t('breakdownTitle')}
+      subtitle={t('breakdownHint')}
+      bodyClassName={FILL_BODY}
+    >
       {q.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : items.length === 0 ? (
@@ -327,12 +363,63 @@ function AttendanceBreakdownPanel() {
   )
 }
 
-/** 3. Хватает ли помещений: сетка «день недели × час начала пары». */
+/**
+ * 3. Хватает ли помещений: сколько пар идёт одновременно в каждый час.
+ *
+ * Раньше здесь стояла теплокарта 7×24, и она не отвечала на свой же вопрос: занятость
+ * почти вся лежала в одном шаге шкалы, поэтому поле выглядело однотонным, число
+ * показывалось только по наведению, а на широкой карточке клетки расходились в
+ * столбики точек. Величина теперь закодирована положением по оси, а не оттенком:
+ * профиль суток виден без наведения, пики читаются цифрами.
+ *
+ * Будни и выходные — отдельными рядами: у расписания это две разные формы, а не шум.
+ * Значения — среднее за один такой день (будней пять, выходных два), иначе ряд
+ * сравнивал бы размер группы дней, а не плотность занятий.
+ */
 function RoomLoadPanel() {
   const t = useTranslations('Stats')
+  const locale = useLocale()
   const { palette } = useChartTheme()
+  const { hidden, toggle, focus, setFocus } = useSeriesToggle()
   const q = useQuery({ queryKey: universityAnalyticsKeys.roomLoad(), queryFn: fetchRoomLoad })
-  const dayLabels = [t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat'), t('sun')]
+
+  // Сетка расписания — одна неделя, поэтому делитель по единице на день недели:
+  // каждый понедельник в ней ровно один (shared/ui/chart/day-profile.ts).
+  const gridData = useMemo(
+    () => (q.data ? { cells: q.data.grid, days: SCHEDULE_WEEK } : undefined),
+    [q.data],
+  )
+  const weekdays = useMemo(() => weekdayAverages(gridData), [gridData])
+
+  // Пар в час — величина мелкая и дробная: округление до целого превратило бы
+  // половину ряда в нули, поэтому точность выбирается по величине.
+  const nf = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        maximumFractionDigits: Math.max(...weekdays, 0) < 10 ? 1 : 0,
+      }),
+    [locale, weekdays],
+  )
+
+  const series = useMemo(
+    () =>
+      DAY_GROUPS.map((group, i) => {
+        const { days, hours } = averageDay(gridData, group.dows)
+        return {
+          key: group.key,
+          label: t(`series_${group.key}`),
+          // Цвет по индексу ключа, а не по позиции в выборке: выключенный ряд не
+          // перекрашивает оставшийся.
+          color: palette.series[i] ?? palette.series[0],
+          hidden: hidden.has(group.key),
+          values: hours,
+          // Выходные без единой пары — обычное расписание, а не «нет данных»: ряд
+          // по нулю ничего не сообщает и только делит масштаб пополам.
+          empty: days === 0 || hours.every((v) => v === 0),
+        }
+      }).filter((s) => !s.empty),
+    [gridData, hidden, palette, t],
+  )
 
   return (
     <SectionPanel
@@ -340,21 +427,51 @@ function RoomLoadPanel() {
       subtitle={
         q.data ? t('roomLoadHintWithPeak', { peak: q.data.peak, rooms: q.data.rooms }) : t('roomLoadHint') // prettier-ignore
       }
+      bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : !q.data || q.data.peak === 0 ? (
         <Empty text={t('noSchedule')} />
       ) : (
-        <ActivityGrid
-          ariaLabel={t('roomLoadTitle')}
-          cells={q.data.grid}
-          max={q.data.peak}
-          palette={palette}
-          dayLabels={dayLabels}
-          cellTitle={(day, hour, value) => t('roomLoadCell', { day, hour, value })}
-          scale={{ less: t('scaleLess'), more: t('scaleMore') }}
-        />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div>
+            <ChartLegend
+              className="mb-3"
+              hidden={hidden}
+              onToggle={toggle}
+              onFocusChange={setFocus}
+              items={series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+                line: true,
+                value: nf.format(s.values.reduce((a, b) => a + b, 0)),
+              }))}
+            />
+            {/* Без `syncId`: по X часы суток, а не даты — курсор временных панелей
+                встал бы здесь в чужую координату. */}
+            <LineChart
+              ariaLabel={t('roomLoadTitle')}
+              labels={HOUR_LABELS}
+              palette={palette}
+              series={series}
+              height={240}
+              focus={focus}
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-2">
+            <p className="text-xs text-muted-foreground">{t('roomLoadByWeekday')}</p>
+            <BarChart
+              ariaLabel={t('roomLoadByWeekday')}
+              palette={palette}
+              height={7 * 30 + 24}
+              labels={WEEKDAY_KEYS.map((k) => t(k))}
+              values={weekdays}
+              valueLabel={(v) => nf.format(v)}
+            />
+          </div>
+        </div>
       )}
     </SectionPanel>
   )
@@ -377,7 +494,11 @@ function ExamResultsPanel() {
   ]
 
   return (
-    <SectionPanel title={t('examResultsTitle')} subtitle={t('examResultsHint')}>
+    <SectionPanel
+      title={t('examResultsTitle')}
+      subtitle={t('examResultsHint')}
+      bodyClassName={FILL_BODY}
+    >
       {q.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : items.length === 0 ? (
@@ -420,7 +541,7 @@ function ApplicationsFlowPanel() {
   const empty = points.every((p) => p.submitted === 0 && p.closed === 0)
 
   return (
-    <SectionPanel title={t('appsFlowTitle')} subtitle={t('appsFlowHint')}>
+    <SectionPanel title={t('appsFlowTitle')} subtitle={t('appsFlowHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : empty ? (
@@ -459,7 +580,7 @@ function InvitesFunnelPanel() {
   const d = q.data
 
   return (
-    <SectionPanel title={t('invitesTitle')} subtitle={t('invitesHint')}>
+    <SectionPanel title={t('invitesTitle')} subtitle={t('invitesHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
         <Skeleton className="h-40 w-full" />
       ) : !d || d.total === 0 ? (
@@ -499,8 +620,11 @@ function FunnelRow({ label, value }: { label: string; value: number }) {
   )
 }
 
+// `m-auto` центрирует заглушку в свободном месте растянутого тела панели (FILL_BODY):
+// в колонке-флексе автоотступы съедают его поровну сверху и снизу. Там, где тело не
+// растянуто, вертикальные автоотступы дают ноль — остаётся прежний вид.
 function Empty({ text }: { text: string }) {
-  return <p className="py-8 text-center text-sm text-muted-foreground">{text}</p>
+  return <p className="m-auto py-8 text-center text-sm text-muted-foreground">{text}</p>
 }
 
 function lastValue(points: { value: number }[]): number {

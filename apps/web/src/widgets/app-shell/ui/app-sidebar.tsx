@@ -13,6 +13,7 @@ import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
 import { ROLE_HOME } from '../../../shared/config'
 import { ProductSwitcher } from './product-switcher'
+import { careerHomeFor } from '../model/nav'
 import type { NavItem } from '../model/nav'
 
 function isActive(item: NavItem, pathname: string): boolean {
@@ -96,7 +97,10 @@ export function AppSidebar({
           <div className="flex h-16 items-center gap-2 px-6">
             {/* Логотип — он же переключатель продуктов (учёба / Карьера), раскрывается
                 по наведению. Отдельного пункта в навигации у Карьеры нет. */}
-            <ProductSwitcher homeHref={me.data ? ROLE_HOME[me.data.role] : '/'} />
+            <ProductSwitcher
+              homeHref={me.data ? ROLE_HOME[me.data.role] : '/'}
+              careerHref={careerHomeFor(me.data?.role)}
+            />
             {/* Поиск (Command Palette) — Ctrl/Cmd+K или клик. */}
             <button
               type="button"

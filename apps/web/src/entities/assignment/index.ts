@@ -1,6 +1,8 @@
 export {
   assignmentKeys,
   fetchAssignments,
+  fetchAssignmentsPaged,
+  fetchReviewQueue,
   fetchAssignment,
   fetchSubmissions,
   createAssignmentRequest,
@@ -13,6 +15,7 @@ export {
   saveSubmissionDraftRequest,
   submitAssignmentRequest,
 } from './api/assignment-api'
+export type { ReviewQueue } from './api/assignment-api'
 export type {
   AssignmentItem,
   SubmissionItem,

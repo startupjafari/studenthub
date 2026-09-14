@@ -1,9 +1,11 @@
 'use client'
 
+import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
-import { BookOpen, FileClock, GraduationCap, Inbox, Percent, Users } from 'lucide-react'
+import { useLocale, useTranslations } from 'next-intl'
+import { ArrowRight, BookOpen, FileClock, GraduationCap, Inbox, Percent, Users } from 'lucide-react'
 import {
   Button,
   EmptyState,
@@ -19,6 +21,7 @@ import {
   fetchFacultyOverview,
 } from '../../../entities/analytics'
 import { applicationKeys, fetchQueueStats } from '../../../entities/application-service'
+import { DeanTodayBlock } from '../../../widgets/today'
 
 // Тяжёлый recharts — только на клиенте, со скелетоном (FRONTEND_RULES §4, §11).
 // Опции у вызова свои: SWC-трансформ next/dynamic читает их статически и принимает
@@ -42,12 +45,27 @@ const WORST_GROUPS = 12
  * Данные — только те, что доступны декану: /analytics/faculty, /analytics/at-risk и
  * статистика очереди заявок. Графики вуза (тренды, нагрузка аудиторий) закрыты ролью
  * UNIVERSITY_ADMIN, и обходить это ради красивого дашборда нельзя.
+ *
+ * Экран читается сверху вниз как рабочий день: сначала операционный блок «сегодня»
+ * (DeanTodayBlock) — что горит прямо сейчас, — потом показатели факультета и разрезы.
+ * Отдельного пункта «Сегодня» в навигации больше нет: два соседних раздела заставляли
+ * выбирать между «что сегодня не так» и «как дела на факультете» до того, как станет
+ * понятно, куда смотреть.
  */
 export function DeanDashboard() {
   const t = useTranslations('Dashboard')
   const tNav = useTranslations('Nav')
   const tErr = useTranslations('Errors')
+  const tToday = useTranslations('Today')
+  const locale = useLocale()
   const { palette } = useChartTheme()
+
+  // Дата в подзаголовке — от блока дня: экран начинается с «сегодня», и читатель
+  // должен видеть, о каком дне речь, не доскроллив до расписания.
+  const greetingDate = useMemo(
+    () => new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' }),
+    [locale],
+  )
 
   const overview = useQuery({
     queryKey: analyticsKeys.faculty(undefined),
@@ -93,8 +111,8 @@ export function DeanDashboard() {
 
   if (overview.isError) {
     return (
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
-        <PageHeader title={tNav('dashboard')} />
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
         <EmptyState
           icon={<Inbox className="size-6" aria-hidden />}
           title={tErr('INTERNAL_ERROR')}
@@ -105,9 +123,19 @@ export function DeanDashboard() {
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
-      <PageHeader title={tNav('dashboard')} />
+    // Без `min-h-0`: с ним корень имел право сжаться ниже содержимого до высоты `main`,
+    // и панели внутри сжимались следом — у `Card` стоит `overflow-hidden`, а он отменяет
+    // автоминимум флекс-элемента (`min-height: auto` перестаёт защищать содержимое).
+    // Графики при этом не уменьшались, а ОБРЕЗАЛИСЬ: панель «Посещаемость по группам»
+    // показывала полторы полосы вместо двенадцати. Раньше страница почти умещалась в
+    // экран и сжатия не было видно; блок дня сверху сделал его заметным.
+    <div className="flex w-full flex-1 flex-col gap-4">
+      <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
 
+      <DeanTodayBlock />
+
+      {/* Ниже — факультет в целом, а не сегодняшний день: показатели за семестр и
+          разрезы, по которым решают, куда идти дальше. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricTile
           index={0}
@@ -192,7 +220,20 @@ export function DeanDashboard() {
           )}
         </SectionPanel>
 
-        <SectionPanel title={t('chartQueue')} subtitle={t('chartQueueHint')}>
+        <SectionPanel
+          title={t('chartQueue')}
+          subtitle={t('chartQueueHint')}
+          // Кнопка пришла из панели очереди блока «Сегодня»: сам разрез здесь
+          // подробнее (пять состояний против трёх), а переход в очередь нужен и тут.
+          actions={
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Link href="/dean/applications">
+                {tToday('openQueue')}
+                <ArrowRight className="size-4" aria-hidden />
+              </Link>
+            </Button>
+          }
+        >
           {queue.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : queueValues.every((v) => v === 0) ? (

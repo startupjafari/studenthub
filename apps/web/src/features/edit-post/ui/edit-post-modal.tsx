@@ -5,8 +5,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { postKeys, updatePostRequest, type FeedPost } from '../../../entities/post'
-import { Button, FieldError, FormAlert, Input, Modal, RichTextField } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Button, FieldError, Input, Modal, RichTextField } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 
 /**
  * Правка своей публикации: заголовок и текст.
@@ -23,7 +23,7 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
   const t = useTranslations('Feed')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('edit-post')
 
   const [title, setTitle] = useState(post.title ?? '')
   const [content, setContent] = useState(post.content)
@@ -31,7 +31,6 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
   const save = useMutation({
     mutationFn: () =>
       updatePostRequest(post.id, { title: title.trim() || null, content: content.trim() }),
-    onMutate: () => reset(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       toast.success(t('postUpdated'))
@@ -56,8 +55,6 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
         }}
         className="flex flex-col gap-3 sm:px-2"
       >
-        <FormAlert error={error} />
-
         {/* Заголовок и текст — один блок с общей рамкой, как в окне создания. */}
         <div className="flex flex-col rounded-xl border border-input bg-background transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15 dark:bg-input/30">
           <Input

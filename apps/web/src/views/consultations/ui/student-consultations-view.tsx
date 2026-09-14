@@ -37,6 +37,9 @@ function slotTime(locale: string, s: ConsultationSlot): string {
 }
 
 // «Консультации» студента (задача 15): мои записи + запись к преподавателю.
+/** Свои записи: одна страница, по времени — сортировать и листать студенту нечего. */
+const MY_BOOKINGS_QUERY = { page: 1, limit: 100, sort: 'startsAt', order: 'asc' } as const
+
 export function StudentConsultationsView() {
   const t = useTranslations('Consultations')
   const tErr = useTranslations('Errors')
@@ -45,9 +48,11 @@ export function StudentConsultationsView() {
   const [teacher, setTeacher] = useState<{ id: string; name: string } | null>(null)
   const [bookSlot, setBookSlot] = useState<ConsultationSlot | null>(null)
 
+  // Записей у студента единицы, поэтому берём одну страницу с запасом и показываем
+  // списком: пагинация и сортировка нужны преподавателю, у которого слотов сотни.
   const mine = useQuery({
-    queryKey: consultationKeys.mine(),
-    queryFn: () => fetchMyConsultations(),
+    queryKey: consultationKeys.mine(MY_BOOKINGS_QUERY),
+    queryFn: () => fetchMyConsultations(MY_BOOKINGS_QUERY),
   })
   const teachers = useQuery({
     queryKey: consultationKeys.teachers(),
@@ -144,11 +149,11 @@ export function StudentConsultationsView() {
         <CardContent>
           {mine.isLoading ? (
             <Skeleton className="h-16 w-full rounded-lg" />
-          ) : (mine.data ?? []).length === 0 ? (
+          ) : (mine.data?.items ?? []).length === 0 ? (
             <EmptyState title={t('noBookings')} className="border-0 p-6" />
           ) : (
             <ul className="flex flex-col gap-2">
-              {(mine.data ?? []).map((s) => (
+              {(mine.data?.items ?? []).map((s) => (
                 <li
                   key={s.id}
                   className="flex items-center gap-3 rounded-lg border border-border p-2.5"

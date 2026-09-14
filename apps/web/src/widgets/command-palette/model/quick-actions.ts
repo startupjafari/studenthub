@@ -44,7 +44,7 @@ const STUDENT: QuickAction[] = [
 ]
 
 const TEACHER: QuickAction[] = [
-  { navKey: 'today', href: '/teacher/today', icon: CalendarCheck },
+  { navKey: 'dashboard', href: '/teacher', icon: LayoutDashboard },
   { navKey: 'schedule', href: '/teacher/schedule', icon: CalendarDays },
   { navKey: 'assignments', href: '/teacher/assignments', icon: ClipboardList },
   { navKey: 'gradebook', href: '/teacher/gradebook', icon: Table2 },
@@ -54,7 +54,7 @@ const TEACHER: QuickAction[] = [
 ]
 
 const DEAN: QuickAction[] = [
-  { navKey: 'today', href: '/dean/today', icon: CalendarCheck },
+  { navKey: 'dashboard', href: '/dean', icon: LayoutDashboard },
   { navKey: 'analytics', href: '/dean/analytics', icon: BarChart3 },
   { navKey: 'courses', href: '/dean/courses', icon: BookOpen },
   { navKey: 'exams', href: '/dean/exams', icon: Award },

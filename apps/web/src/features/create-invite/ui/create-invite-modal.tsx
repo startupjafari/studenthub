@@ -12,7 +12,6 @@ import { CreateInviteSchema, type CreateInviteInput } from '@studenthub/shared-s
 import {
   Button,
   FieldError,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -22,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
-import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { fetchGroups, groupKeys } from '../../../entities/group'
@@ -52,7 +51,7 @@ export function CreateInviteModal({ onClose }: Props) {
   const tCommon = useTranslations('Common')
   const tRoles = useTranslations('Roles')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('create-invite')
   const [created, setCreated] = useState<CreatedInvite | null>(null)
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
@@ -76,7 +75,6 @@ export function CreateInviteModal({ onClose }: Props) {
 
   const createMut = useMutation({
     mutationFn: createInviteRequest,
-    onMutate: () => resetApiError(),
     onSuccess: (invite) => {
       setCreated(invite)
       void qc.invalidateQueries({ queryKey: inviteKeys.all })
@@ -142,8 +140,6 @@ export function CreateInviteModal({ onClose }: Props) {
   return (
     <Modal onClose={onClose} title={t('createTitle')} size="md">
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
-        <FormAlert error={apiError} />
-
         <div className="flex flex-col gap-1.5">
           <Label>{t('roleLabel')}</Label>
           <Controller

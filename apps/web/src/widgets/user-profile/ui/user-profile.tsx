@@ -22,7 +22,17 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { MeResponse } from '../../../shared/api'
-import { Button, Card, CardContent, CardHeader, Skeleton, useConfirm } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { useSheetDragClose } from '../../../shared/lib'
@@ -360,20 +370,18 @@ function ProfileHeader({
             (align-items: stretch) и «+» (left-85%) уезжает вправо; на sm+ (ряд) — обычное выравнивание. */}
         <div className="relative -mt-12 shrink-0 self-start sm:-mt-14 sm:self-auto lg:-mt-20">
           <div className="group relative size-24 sm:size-28 lg:size-36">
-            {me.avatarUrl ? (
-              <Image
-                src={me.avatarThumbUrl ?? me.avatarUrl}
+            {/* Avatar из системы: заглушка появляется и без ссылки, и когда картинка
+                не загрузилась (протухшая ссылка, недоступный MinIO). Голый <Image>
+                во втором случае показывал иконку «битая картинка» на месте лица. */}
+            <Avatar className="size-full border-4 border-background">
+              <AvatarImage
+                src={me.avatarThumbUrl ?? me.avatarUrl ?? undefined}
                 alt={fullNameOf(me)}
-                width={128}
-                height={128}
-                unoptimized
-                className="size-full rounded-full border-4 border-background object-cover"
               />
-            ) : (
-              <div className="flex size-full items-center justify-center rounded-full border-4 border-background bg-primary text-3xl font-semibold text-primary-foreground lg:text-4xl">
+              <AvatarFallback className="bg-primary text-3xl font-semibold text-primary-foreground lg:text-4xl">
                 {initialsOf(me) || '#'}
-              </div>
-            )}
+              </AvatarFallback>
+            </Avatar>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}

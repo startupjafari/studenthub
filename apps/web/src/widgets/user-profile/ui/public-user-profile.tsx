@@ -17,7 +17,15 @@ import {
   UserRoundX,
   UserRoundPlus,
 } from 'lucide-react'
-import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Card,
+  CardContent,
+  Skeleton,
+} from '../../../shared/ui'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
 import { createChatRequest } from '../../../entities/chat'
@@ -178,20 +186,18 @@ export function PublicUserProfile({ userId }: { userId: string }) {
         <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-end sm:gap-4 sm:px-6">
           <div className="-mt-14 shrink-0 sm:-mt-16">
             <div className="relative size-28 sm:size-32">
-              {u.avatarUrl ? (
-                <Image
-                  src={u.avatarThumbUrl ?? u.avatarUrl}
+              {/* Avatar из системы: заглушка появляется и без ссылки, и когда картинка
+                  не загрузилась (протухшая ссылка, недоступный MinIO). Голый <Image>
+                  во втором случае показывал иконку «битая картинка» на месте лица. */}
+              <Avatar className="size-full border-4 border-background">
+                <AvatarImage
+                  src={u.avatarThumbUrl ?? u.avatarUrl ?? undefined}
                   alt={fullNameOf(u)}
-                  width={128}
-                  height={128}
-                  unoptimized
-                  className="size-full rounded-full border-4 border-background object-cover"
                 />
-              ) : (
-                <div className="flex size-full items-center justify-center rounded-full border-4 border-background bg-primary text-3xl font-semibold text-primary-foreground">
+                <AvatarFallback className="bg-primary text-3xl font-semibold text-primary-foreground">
                   {initialsOf(u) || '#'}
-                </div>
-              )}
+                </AvatarFallback>
+              </Avatar>
               <span className="absolute left-[85%] top-[15%] z-10 -translate-x-1/2 -translate-y-1/2">
                 <StatusDot online={online} />
               </span>

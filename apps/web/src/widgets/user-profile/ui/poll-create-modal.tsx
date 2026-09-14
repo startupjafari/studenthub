@@ -10,7 +10,6 @@ import { createPoll, pollKeys, updatePoll, type PollView } from '../../../entiti
 import {
   Button,
   Checkbox,
-  FormAlert,
   DateTimePicker,
   Input,
   Label,
@@ -20,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
-import { localId, useFormAlert } from '../../../shared/lib'
+import { localId, useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
 
@@ -35,7 +34,7 @@ interface Props {
 export function PollCreateModal({ userId, initial, onClose }: Props) {
   const t = useTranslations('Profile')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('poll')
 
   const [question, setQuestion] = useState(initial?.question ?? '')
   // id у варианта, а не key={i}: удаление идёт по индексу, и React переиспользовал бы
@@ -77,7 +76,6 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
       }
       return initial ? updatePoll(initial.id, input) : createPoll(input)
     },
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: pollKeys.byUser(userId) })
       toast.success(t('saved'))
@@ -106,7 +104,6 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
 
   return (
     <ContentModal title={initial ? t('editPoll') : t('addPoll')} onClose={onClose} size="lg">
-      <FormAlert error={apiError} />
       {/* Вопрос */}
       <div className="flex flex-col gap-2">
         <Label htmlFor="poll-q">{t('pollQuestion')}</Label>

@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { Repeat2 } from 'lucide-react'
 import { RepostSchema, type RepostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 import {
   FACULTY_PICKER_ROLES,
   GROUP_PICKER_ROLES,
@@ -23,7 +23,6 @@ import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   Button,
-  FormAlert,
   Label,
   Modal,
   Select,
@@ -44,7 +43,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
   const tCommon = useTranslations('Common')
   const tPeople = useTranslations('People')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('repost')
   const role = useAppSelector((s) => s.auth.role)
   const [target, setTarget] = useState<PickedUser | null>(null)
   const [missing, setMissing] = useState<Missing>(null)
@@ -74,7 +73,6 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
 
   const mutation = useMutation({
     mutationFn: (input: RepostInput) => repostRequest(post.id, input),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       toast.success(t('reposted'))
@@ -109,8 +107,6 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
         }}
         className="flex flex-col gap-4 px-4 py-4"
       >
-        <FormAlert error={apiError} />
-
         {/* Цитата оригинала — что именно репостится */}
         <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
           <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
