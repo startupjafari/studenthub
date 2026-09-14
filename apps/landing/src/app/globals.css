@@ -1,0 +1,845 @@
+@import 'tailwindcss';
+
+/*
+  Токены бренда StudentHub.
+
+  Это ОСОЗНАННАЯ КОПИЯ значений из apps/web/src/app/globals.css, а не импорт: лендинг
+  изолирован от платформы по коду (docs/LANDING.md). Копируются только цвета, радиус и
+  шрифт — то, что делает сайт и продукт одним брендом.
+
+  Копия расходится с оригиналом в двух местах, и оба намеренные:
+   1. Тёмная тема здесь — по системной настройке (prefers-color-scheme), а не по классу
+      .dark: на публичном сайте нет ни next-themes, ни переключателя, ни сессии, где
+      хранить выбор.
+   2. Взят не весь набор: sidebar-* и chart-* описывают навигацию приложения и графики —
+      на лендинге таких поверхностей нет.
+
+  Если значения здесь и в платформе разъедутся, это увидит фабрика снимков (§4 концепции):
+  свежие скриншоты продукта просто перестанут совпадать по цвету с окружающей страницей.
+*/
+
+@theme inline {
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+}
+
+:root {
+  /* Образовательная синяя палитра (дизайн-система StudentHub, светлая тема). */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.546 0.215 262.9);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.967 0.003 264.5);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.967 0.003 264.5);
+  --muted-foreground: oklch(0.545 0.023 264.4);
+  --accent: oklch(0.967 0.003 264.5);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.928 0.006 264.5);
+  --ring: oklch(0.546 0.215 262.9);
+  --success: oklch(0.522 0.114 162.5);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.543 0.119 70.1);
+  --warning-foreground: oklch(0.145 0 0);
+  --destructive: oklch(0.561 0.208 25.3);
+  --radius: 0.625rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.177 0.009 264.3);
+    --foreground: oklch(0.967 0.003 264.5);
+    --card: oklch(0.214 0.019 266.1);
+    --card-foreground: oklch(0.967 0.003 264.5);
+    --popover: oklch(0.214 0.019 266.1);
+    --popover-foreground: oklch(0.967 0.003 264.5);
+    --primary: oklch(0.573 0.188 259.8);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.261 0.024 267.1);
+    --secondary-foreground: oklch(0.967 0.003 264.5);
+    --muted: oklch(0.261 0.024 267.1);
+    --muted-foreground: oklch(0.714 0.019 261.3);
+    --accent: oklch(0.261 0.024 267.1);
+    --accent-foreground: oklch(0.967 0.003 264.5);
+    --border: oklch(0.278 0.026 267.5);
+    --ring: oklch(0.573 0.188 259.8);
+    --success: oklch(0.696 0.149 162.5);
+    --success-foreground: oklch(0.145 0 0);
+    --warning: oklch(0.769 0.165 70.1);
+    --warning-foreground: oklch(0.145 0 0);
+    --destructive: oklch(0.711 0.166 22.2);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    /* Inter меняет пропорции вместе с кеглем — ось opsz подключена в layout.tsx. */
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Плавная прокрутка по якорям меню — но не у тех, кто просил меньше движения. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /*
+    Палец на всём, что нажимается. Браузер сам ставит указатель только ссылкам с href,
+    а кнопкам и вкладкам — нет; в результате половина интерактива выглядела неактивной.
+    Заодно единый переход цвета: дублировать transition-colors на каждой кнопке не нужно.
+  */
+  button,
+  a,
+  summary,
+  [role='tab'],
+  [role='button'] {
+    cursor: pointer;
+    transition:
+      color 0.15s var(--ease),
+      background-color 0.15s var(--ease),
+      border-color 0.15s var(--ease),
+      opacity 0.15s var(--ease);
+  }
+
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+}
+
+/*
+  Фирменная меш-сетка. Копия правил с брендовой панели входа
+  (apps/web/src/app/globals.css, .mesh-base / .mesh-glow / .mesh-halo): точки подсвечиваются
+  вокруг курсора, позиция мыши приходит в --mx/--my.
+
+  Это CSS, а не импорт компонента: узнаваемость бренда переносится, изоляция не нарушается.
+*/
+.mesh-base {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(255, 255, 255, 0.13) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+}
+
+.mesh-glow {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.9) 1px, transparent 0);
+  background-size: 24px 24px;
+  --mesh-mask: radial-gradient(
+    240px circle at var(--mx, -9999px) var(--my, -9999px),
+    #000 0%,
+    rgba(0, 0, 0, 0.35) 45%,
+    transparent 72%
+  );
+  -webkit-mask-image: var(--mesh-mask);
+  mask-image: var(--mesh-mask);
+  transition: opacity 0.35s ease;
+}
+
+.mesh-halo {
+  background: radial-gradient(
+    220px circle at var(--mx, -9999px) var(--my, -9999px),
+    rgba(255, 255, 255, 0.14),
+    transparent 65%
+  );
+}
+
+/*
+  Петля первого экрана: за восемь секунд в телефоне проигрывается один сюжет —
+  приходит уведомление о переносе пары, и карточка расписания меняет аудиторию.
+
+  Это ИЛЛЮСТРАЦИЯ, а не компонент платформы: лендинг изолирован по коду, а рисовать
+  «почти настоящий» интерфейс смысла нет — настоящий человек увидит ниже, на снимках.
+  Поэтому и анимация здесь чистым CSS: ни состояния, ни таймеров, ни гидрации.
+
+  Все кадры — только transform и opacity: раскладку движение не двигает.
+*/
+@keyframes sh-notif {
+  0%,
+  22% {
+    opacity: 0;
+    transform: translateY(-120%);
+  }
+  30%,
+  60% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: translateY(-120%);
+  }
+}
+
+@keyframes sh-room-old {
+  0%,
+  62% {
+    opacity: 1;
+  }
+  70%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes sh-room-new {
+  0%,
+  62% {
+    opacity: 0;
+  }
+  70%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes sh-pair-flash {
+  0%,
+  62% {
+    background-color: transparent;
+  }
+  72% {
+    background-color: color-mix(in oklab, var(--primary) 12%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.sh-loop-notif {
+  animation: sh-notif 8s ease-in-out infinite;
+}
+.sh-loop-room-old {
+  animation: sh-room-old 8s ease-in-out infinite;
+}
+.sh-loop-room-new {
+  animation: sh-room-new 8s ease-in-out infinite;
+}
+.sh-loop-flash {
+  animation: sh-pair-flash 8s ease-in-out infinite;
+}
+
+/*
+  Тем, кто просил меньше движения, показываем сразу конечное состояние сюжета:
+  пара уже перенесена, уведомление убрано. Смысл кадра сохраняется без анимации.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .sh-loop-notif,
+  .sh-loop-room-old,
+  .sh-loop-room-new,
+  .sh-loop-flash {
+    animation: none;
+  }
+  .sh-loop-notif,
+  .sh-loop-room-old {
+    opacity: 0;
+  }
+  .sh-loop-room-new {
+    opacity: 1;
+  }
+}
+
+/* =========================================================================
+   Сцены «Одного дня»
+
+   Скриншотов на лендинге нет: вместо них — нарисованные сцены, которые играют
+   короткий сюжет. Так страница показывает не «как выглядит экран», а что
+   происходит, и при этом ничего не весит и не устаревает вместе с интерфейсом.
+
+   Всё движение — transform, opacity и фоновые позиции; раскладку оно не двигает.
+   Каждая анимация проигрывается один раз (forwards) и начинается заново при
+   смене сцены — компонент пересоздаётся по key.
+   ========================================================================= */
+
+/* Вход сцены: лёгкий подъём с проявлением. */
+@keyframes sh-scene-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.sh-scene-in {
+  animation: sh-scene-in 0.26s ease-out both;
+}
+
+/* Строки списка въезжают по очереди — задержка задаётся инлайново через --i. */
+@keyframes sh-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.sh-row-in {
+  animation: sh-row-in 0.3s ease-out both;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+
+/* Маркер «сейчас» в расписании: спускается к текущей паре и замирает. */
+@keyframes sh-now-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.sh-now-drop {
+  animation: sh-now-drop 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.25s;
+}
+
+/* Заявка: полоса прогресса дотягивается до текущего шага. */
+@keyframes sh-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.sh-progress {
+  transform-origin: left center;
+  animation: sh-progress 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.3s;
+}
+
+/* Шаги степпера загораются один за другим вслед за полосой. */
+@keyframes sh-step-on {
+  from {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.sh-step-on {
+  animation: sh-step-on 0.3s ease-out both;
+  animation-delay: calc(0.35s + var(--i, 0) * 0.26s);
+}
+
+/* Сканирующая линия в окне QR (копия приёма с экрана сканера платформы). */
+@keyframes sh-scan {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  12%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(var(--sh-scan-range, 132px));
+    opacity: 0;
+  }
+}
+.sh-scan {
+  animation: sh-scan 1.9s ease-in-out infinite;
+}
+
+/* Карточка помещения выезжает после «скана». */
+.sh-after-scan {
+  animation: sh-scene-in 0.4s ease-out both;
+  animation-delay: 0.9s;
+}
+
+/*
+  Голографический блик студенческого — копия правил из платформы, где он служит
+  анти-подделочной мерой: на скриншоте блик застывает, у живой карты бежит.
+*/
+@keyframes sh-holo-sheen {
+  0% {
+    background-position:
+      180% 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      -80% 0,
+      0 0;
+  }
+}
+.sh-holo {
+  background-image:
+    linear-gradient(
+      115deg,
+      transparent 34%,
+      rgba(255, 255, 255, 0.5) 46%,
+      rgba(255, 255, 255, 0.12) 54%,
+      transparent 66%
+    ),
+    conic-gradient(
+      from 210deg at 30% 20%,
+      rgba(56, 189, 248, 0.1),
+      rgba(168, 85, 247, 0.1),
+      rgba(236, 72, 153, 0.1),
+      rgba(250, 204, 21, 0.1),
+      rgba(56, 189, 248, 0.1)
+    );
+  background-size:
+    260% 100%,
+    100% 100%;
+  background-repeat: no-repeat;
+  animation: sh-holo-sheen 5s linear infinite;
+  mix-blend-mode: soft-light;
+}
+
+/* Мягкая пульсация вокруг активного элемента — только там, где она несёт смысл. */
+@keyframes sh-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+.sh-ping {
+  animation: sh-ping 2s ease-out infinite;
+}
+
+/*
+  Просили меньше движения — показываем конечное состояние каждой сцены сразу.
+  Смысл кадра от этого не теряется: сюжет и так дублируется текстом рядом.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .sh-scene-in,
+  .sh-row-in,
+  .sh-now-drop,
+  .sh-step-on,
+  .sh-after-scan {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .sh-progress {
+    animation: none;
+    transform: scaleX(1);
+  }
+  .sh-scan,
+  .sh-ping {
+    animation: none;
+    opacity: 0;
+  }
+  .sh-holo {
+    animation: none;
+    background-position:
+      60% 0,
+      0 0;
+  }
+}
+
+/* =========================================================================
+   Слой движения страницы
+
+   Один механизм появления на весь сайт, один индикатор прокрутки, одна
+   реакция шапки. Приём взят из редизайна Seven Hills (index.html в корне
+   репозитория): там это работает, и разводить второй язык движения на
+   соседнем сайте той же команды незачем.
+
+   Правило то же, что в продукте: анимация объясняет, откуда взялся элемент,
+   и не привлекает внимания сама.
+   ========================================================================= */
+
+:root {
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --- Появление при прокрутке (единственный стиль на весь сайт) ---------- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  /*
+    0.45s вместо прежних 0.8: длинное появление на слабом устройстве успевает наложиться
+    на следующее, и кадры начинают проседать. Короткое читается так же, а нагрузка ниже.
+  */
+  transition:
+    opacity 0.45s var(--ease-out),
+    transform 0.45s var(--ease-out);
+  /* Каскад внутри группы: порядковый номер приходит инлайном в --d. */
+  transition-delay: calc(var(--d, 0) * 45ms);
+  /* Композитор знает заранее, что меняется, и не пересобирает слой на каждом кадре. */
+  will-change: opacity, transform;
+}
+[data-reveal].in {
+  /* Подсказку снимаем сразу после появления: постоянный will-change держит слой в
+     памяти и на слабых устройствах делает хуже, чем его отсутствие. */
+  will-change: auto;
+}
+[data-reveal].in {
+  opacity: 1;
+  transform: none;
+}
+
+/* --- Построчный вход заголовка ------------------------------------------ */
+.reveal-line {
+  display: block;
+  overflow: hidden;
+}
+.reveal-line > span {
+  display: block;
+  transform: translateY(101%);
+  animation: sh-rise-in 0.6s var(--ease-out) forwards;
+}
+.reveal-line:nth-child(1) > span {
+  animation-delay: 0.06s;
+}
+.reveal-line:nth-child(2) > span {
+  animation-delay: 0.14s;
+}
+.reveal-line:nth-child(3) > span {
+  animation-delay: 0.22s;
+}
+@keyframes sh-rise-in {
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Мягкий вход для подзаголовка и кнопок — следом за строками заголовка. */
+@keyframes sh-soft-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.sh-soft-up {
+  opacity: 0;
+  animation: sh-soft-up 0.55s var(--ease-out) forwards;
+  animation-delay: var(--delay, 0.35s);
+}
+
+/* --- Индикатор прокрутки ------------------------------------------------ */
+.sh-progress-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 90;
+  height: 2px;
+  background: var(--primary);
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
+}
+
+/* --- Уважение к настройкам движения ------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .reveal-line > span {
+    transform: none;
+    animation: none;
+  }
+  .sh-soft-up {
+    opacity: 1;
+    animation: none;
+  }
+  .sh-header.is-hidden {
+    transform: none;
+  }
+}
+
+/* --- Отклик на наведение ------------------------------------------------ */
+
+/*
+  Карточка приподнимается под курсором. Только transform и тень: анимировать отступы
+  или размеры нельзя — это двигало бы соседей по сетке.
+
+  Эффект висит на .sh-lift, а не на каждой карточке своим набором классов, — иначе
+  подъём в разных секциях неизбежно разъезжается по высоте и скорости.
+*/
+.sh-lift {
+  transition:
+    transform 0.2s var(--ease-out),
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease-out);
+}
+@media (hover: hover) {
+  .sh-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.45);
+  }
+}
+.sh-lift:focus-within {
+  transform: translateY(-3px);
+}
+
+/* Кнопка отзывается мягче карточки: она и так меньше, и подъём на ней заметнее. */
+@media (hover: hover) {
+  .sh-press:hover {
+    transform: translateY(-1px);
+  }
+}
+.sh-press {
+  transition: transform 0.2s var(--ease-out);
+}
+.sh-press:active {
+  transform: translateY(0) scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-lift,
+  .sh-press {
+    transition: none;
+  }
+  .sh-lift:hover,
+  .sh-lift:focus-within,
+  .sh-press:hover,
+  .sh-press:active {
+    transform: none;
+  }
+}
+
+/* --- Раскрытие вопроса -------------------------------------------------- */
+
+/*
+  <details> открывается мгновенно: высота содержимого браузеру заранее неизвестна, и
+  анимировать `height: auto` нельзя. Приём с `grid-template-rows: 0fr → 1fr` обходит это
+  без единой строки JavaScript — тот же способ, что в редизайне Seven Hills (index.html).
+
+  Раскрытие остаётся нативным: работает без скриптов, Ctrl+F находит текст внутри
+  закрытого блока, скринридеры знают элемент без aria-атрибутов.
+*/
+.sh-acc__body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s var(--ease-out);
+}
+details[open] .sh-acc__body {
+  grid-template-rows: 1fr;
+}
+
+/* Дочерний элемент обязан уметь сжиматься в ноль — иначе строка грида не схлопнется. */
+.sh-acc__body > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Текст проявляется чуть позже самой шторки, иначе он «моргает» в момент схлопывания. */
+.sh-acc__inner {
+  opacity: 0;
+  transition: opacity 0.25s var(--ease);
+}
+details[open] .sh-acc__inner {
+  opacity: 1;
+  transition-delay: 0.12s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-acc__body,
+  .sh-acc__inner {
+    transition: none;
+  }
+}
+
+/* --- Dynamic Island: живая активность ----------------------------------- */
+
+/*
+  Остров показывает то же, что показывал бы на аппарате: слева значок приложения,
+  справа — эквалайзер. Полосы пляшут бесконечно, каждая со своей задержкой (--i),
+  иначе они двигаются синхронно и читаются как один мигающий блок.
+
+  Анимируется только scaleY: высота полосы менялась бы с перекомпоновкой соседей.
+*/
+@keyframes sh-eq {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.sh-eq-bar {
+  transform-origin: center bottom;
+  animation: sh-eq 0.9s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 130ms);
+}
+
+/* Мягкое дыхание значка — тот же ритм, что у полос, но вдвое медленнее. */
+@keyframes sh-island-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.sh-island-mark {
+  animation: sh-island-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-eq-bar {
+    animation: none;
+    transform: scaleY(0.65);
+  }
+  .sh-island-mark {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* --- Смена макета роли -------------------------------------------------- */
+
+/*
+  Кросс-фейд со сдвигом: мгновенная подмена содержимого читается как сбой, а не как
+  переключение. Восемь пикселей — ровно столько, чтобы глаз заметил движение и не
+  отвлёкся на него.
+*/
+@keyframes sh-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.sh-swap {
+  animation: sh-swap-in 0.24s var(--ease-out) both;
+}
+
+/*
+  Затухание у краёв прокручиваемого ряда: без него на телефоне непонятно, что вкладки
+  продолжаются за границей экрана. Маска рисуется только пока ряд действительно
+  прокручивается — на широком экране класс не навешивается.
+*/
+.sh-fade-x {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 1.25rem,
+    #000 calc(100% - 1.25rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 1.25rem,
+    #000 calc(100% - 1.25rem),
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-swap {
+    animation: none;
+  }
+}
+
+/* --- Шапка: сжатие при прокрутке ---------------------------------------- */
+
+/*
+  Шапка закреплена `fixed`, а не `sticky`, и это принципиально.
+
+  Sticky-элемент остаётся в потоке и занимает свою высоту. Стоило шапке сжаться при
+  прокрутке, весь контент под ней подскакивал вверх на разницу высот; страница при этом
+  проезжала мимо порога, по которому сжатие включается, класс снимался, высота
+  возвращалась — и всё повторялось по кругу. Отсюда и дрожание.
+
+  Fixed из потока выключен: изменение его высоты не двигает ничего, и цикл разрывается.
+  Плату за это берёт на себя первый экран — у него свой верхний отступ под шапку.
+*/
+.sh-header {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  transition:
+    box-shadow 0.3s var(--ease),
+    background-color 0.3s var(--ease),
+    transform 0.3s var(--ease);
+}
+.sh-header__bar {
+  height: 4.5rem;
+  transition: height 0.35s var(--ease-out);
+}
+.sh-header.is-stuck .sh-header__bar {
+  height: 3.5rem;
+}
+.sh-header.is-stuck {
+  box-shadow: 0 8px 24px -16px rgb(0 0 0 / 0.55);
+}
+.sh-header.is-hidden {
+  transform: translateY(-100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-header,
+  .sh-header__bar {
+    transition: none;
+  }
+  .sh-header.is-hidden {
+    transform: none;
+  }
+}

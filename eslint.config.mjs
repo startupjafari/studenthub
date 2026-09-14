@@ -69,8 +69,13 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   {
-    // Node-скрипты (seed и пр.): console/process разрешены.
-    files: ['prisma/**/*.mjs', 'scripts/**/*.mjs', 'apps/web/e2e/**/*.mjs'],
+    // Node-скрипты (seed, фабрика снимков лендинга и пр.): console/process разрешены.
+    files: [
+      'prisma/**/*.mjs',
+      'scripts/**/*.mjs',
+      'apps/web/e2e/**/*.mjs',
+      'apps/landing/scripts/**/*.mjs',
+    ],
     languageOptions: {
       globals: {
         console: 'readonly',
@@ -92,6 +97,32 @@ export default tseslint.config(
     files: ['**/*.config.mjs', '**/*.config.js'],
     languageOptions: {
       globals: { process: 'readonly', URL: 'readonly', __dirname: 'readonly', console: 'readonly' },
+    },
+  },
+  {
+    // Лендинг (apps/landing) изолирован от платформы: ни кода, ни контрактов.
+    //
+    // Это не стилистическое пожелание, а несущее решение (docs/LANDING.md): публичный сайт
+    // должен собираться, деплоиться и меняться, не имея возможности задеть apps/web. Правило
+    // без сторожа держится ровно до первого «да тут же всего один импорт», поэтому граница
+    // стоит линтером и падает в CI.
+    //
+    // Запрещены и workspace-пакеты: контракт API — тоже связанность. Лендинг не ходит в API
+    // ничем, кроме формы заявки, а её схема описывается у него своя.
+    files: ['apps/landing/**/*.{ts,tsx,mjs}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/web/src/**', '../../web/**', '@studenthub/*'],
+              message:
+                'Лендинг изолирован от платформы: импорт кода и контрактов apps/web запрещён. Нужное — продублировать у себя. См. docs/LANDING.md.',
+            },
+          ],
+        },
+      ],
     },
   },
   prettier,
