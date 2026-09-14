@@ -42,6 +42,18 @@ const nextConfig = {
   // Страницы лендинга неизменяемы между сборками — сжатие тут выигрывает у всего остального.
   compress: true,
 
+  // Минимальный self-contained сервер для production-образа (apps/landing/Dockerfile):
+  // Next кладёт в .next/standalone только то, что действительно нужно на проде.
+  output: 'standalone',
+
+  // Монорепо: трейсинг зависимостей считается от корня воркспейса, иначе standalone
+  // не находит node_modules, поднятые pnpm на уровень выше приложения.
+  outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
+
+  // Линтинг — отдельным шагом (корневой ESLint и CI), не во время next build: иначе
+  // одна и та же проверка гоняется дважды и удлиняет сборку образа.
+  eslint: { ignoreDuringBuilds: true },
+
   async redirects() {
     return PLATFORM_SEGMENTS.flatMap((segment) => [
       {
