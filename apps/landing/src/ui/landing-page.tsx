@@ -12,7 +12,7 @@ import { Faq } from './faq'
 import { Cta } from './cta'
 import { SiteFooter } from './site-footer'
 import { StructuredData } from './structured-data'
-import { ProgressBar, SiteMotion } from './site-motion'
+import { SiteMotion } from './site-motion'
 
 /**
  * Композиция страницы. Одна и та же для всех языков — различается только словарь.
@@ -28,8 +28,7 @@ export function LandingPage({ locale }: { locale: Locale }) {
   return (
     <>
       <StructuredData dict={dict} locale={locale} />
-      <ProgressBar />
-      {/* Один наблюдатель на страницу: появление блоков, счётчики, индикатор, шапка. */}
+      {/* Один наблюдатель на страницу: счётчики и поведение шапки. */}
       <SiteMotion />
       <SiteHeader dict={dict} locale={locale} />
       <main>

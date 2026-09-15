@@ -61,7 +61,7 @@ export function LanguageMenu({ current }: { current: Locale }) {
       {open && (
         <div
           role="menu"
-          className="sh-swap absolute top-full right-0 z-50 mt-1.5 flex min-w-40 flex-col rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+          className="sh-swap absolute top-full right-0 z-50 mt-1.5 flex min-w-40 flex-col rounded-xl border border-hairline bg-popover p-1 text-popover-foreground shadow-xl"
         >
           {LOCALES.map((locale) => {
             const isCurrent = locale === current

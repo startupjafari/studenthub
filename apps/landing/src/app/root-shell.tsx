@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 // Ось opsz, а не только wght: Inter меняет пропорции и трекинг вместе с кеглем.
 // Тот же пакет и тот же приём, что в платформе, — шрифт локальный, без Google Fonts.
 import '@fontsource-variable/inter/opsz.css'
+// Дисплейная гарнитура заголовков. Ось wght — у Onest она единственная переменная.
+import '@fontsource-variable/onest/wght.css'
 import type { Locale } from '../config/site'
 import './globals.css'
 
