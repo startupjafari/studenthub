@@ -215,7 +215,27 @@ RolesGuard     (@Roles(Role.DEAN, Role.UNIVERSITY_ADMIN))
 ScopeGuard     (universityId / facultyId / groupId из токена = scope ресурса)
 ```
 
-- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()` — их полный список: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/register-by-invite`, `POST /auth/logout`, `GET /invites/:token/preview`, `GET /health`, `GET /` (корневой пинг). Расширение списка требует явного согласования.
+- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 15 маршрутов**, сверен с кодом 2026-09-15; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
+
+  | Маршрут | Почему публичный | Где обосновано |
+  |---|---|---|
+  | `POST /auth/login` | вход | §6.1 |
+  | `POST /auth/login/2fa` | второй шаг входа: пользователь ещё не аутентифицирован | `PROJECT.md` §Auth |
+  | `POST /auth/refresh` | обмен по refresh-cookie | §6.2 |
+  | `POST /auth/logout` | выход обязан работать при истёкшем access (см. ниже) | §6.1 |
+  | `POST /auth/register-by-invite` | регистрация по инвайту | §7 |
+  | `POST /auth/qr/create` | QR-сессию создаёт неавторизованный десктоп | `PROJECT.md` §Вход по QR |
+  | `POST /auth/qr/claim` | сессию забирает тот же десктоп по `claimSecret` | `PROJECT.md` §Вход по QR |
+  | `GET /invites/:token/preview` | превью инвайта до регистрации | §7 |
+  | `GET /health` | проба | §6.1 |
+  | `GET /` | статический пинг `{ name, version }` | §6.1 |
+  | `GET /verify/:code` | проверка подлинности печатного документа посторонним | `PROJECT.md` §Выгрузки |
+  | `GET /career/resume/public/:slug` | резюме по ссылке, публикацию включает сам студент | `PROJECT.md` §Резюме |
+  | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
+  | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
+  | `POST /ops/hooks/:source` | внешние сервисы не умеют наш JWT; защита — подпись | `TELEGRAM_BOT.md` §5 |
+
+  `POST /auth/qr/approve` в списке **нет намеренно**: подтверждение входа делает уже залогиненный телефон, и этот маршрут закрыт. `claimSecret` в QR-код не попадает, поэтому публичность `qr/claim` не даёт забрать чужую сессию.
   - `POST /auth/logout` публичный намеренно: выход должен работать при истёкшем access-токене (иначе пользователь не сможет разлогиниться и очистить cookie). Безопасен — инвалидирует ТОЛЬКО сессию из refresh-cookie самого вызывающего; CSRF гасится `SameSite=Lax` (cookie не уходит на cross-site POST). Проверено аудитом §13.5.
   - `GET /` — статический пинг `{ name, version }`, без данных.
 - Эндпоинт без `@Roles()` доступен всем аутентифицированным. Если это не так — `@Roles()` обязателен.
