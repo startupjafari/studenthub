@@ -18,7 +18,7 @@ export interface StudentApplication {
     employmentType: EmploymentType
     workFormat: WorkFormat
     city: string | null
-    company: { id: string; name: string; logoUrl: string | null }
+    company: { id: string; name: string; logoUrl: string | null; website: string | null }
   }
 }
 

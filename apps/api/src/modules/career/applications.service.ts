@@ -31,7 +31,11 @@ const STUDENT_SELECT = {
       employmentType: true,
       workFormat: true,
       city: true,
-      company: { select: { id: true, name: true, logoUrl: true } },
+      // website — связь с работодателем вне платформы. Она обязана пережить отзыв допуска
+      // вузом: вакансия с витрины уходит, но человек, уже пославший отклик и, возможно,
+      // дошедший до интервью, не должен терять контакт компании (решение по Ф18).
+      // Выборка откликов студента намеренно НЕ фильтруется по решениям вуза.
+      company: { select: { id: true, name: true, logoUrl: true, website: true } },
     },
   },
 } satisfies Prisma.CareerApplicationSelect
