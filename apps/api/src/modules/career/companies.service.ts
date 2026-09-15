@@ -25,6 +25,13 @@ import { CareerAccessService } from './career-access.service'
 /** Срок жизни ссылки подтверждения email. Сутки: письмо могут открыть на следующий день. */
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Причина, которая проставляется решениям по вакансиям, погашенным отзывом допуска.
+ * Компания видит её на своём экране вакансий и понимает, почему вакансия исчезла из вуза,
+ * — иначе это выглядит как самопроизвольный отказ модератора.
+ */
+const REVOKED_REVIEW_REASON = 'Университет отозвал допуск компании'
+
 export interface RequestContext {
   ip?: string
   userAgent?: string
@@ -398,16 +405,44 @@ export class CompaniesService {
       throw new AppException('CONFLICT', `Переход ${from} → ${input.status} недопустим`)
     }
 
-    await this.prisma.companyUniversityAccess.update({
-      where: { id: record.id },
-      data: {
-        status: input.status,
-        reason: input.reason,
-        decidedById: viewer.sub,
-        decidedAt: new Date(),
-        expiresAt:
-          input.status === 'APPROVED' && input.expiresAt ? new Date(input.expiresAt) : null,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyUniversityAccess.update({
+        where: { id: record.id },
+        data: {
+          status: input.status,
+          reason: input.reason,
+          decidedById: viewer.sub,
+          decidedAt: new Date(),
+          expiresAt:
+            input.status === 'APPROVED' && input.expiresAt ? new Date(input.expiresAt) : null,
+        },
+      })
+
+      // Отзыв допуска закрывает вакансии компании В ЭТОМ вузе. Видимость витрины считается
+      // по решению вуза (VacancyUniversityReview), а не по допуску, поэтому без этого шага
+      // отозванная компания продолжала бы показывать студентам ранее одобренные вакансии.
+      //
+      // Гасим и PENDING: вуз, отозвавший допуск, не должен дальше модерировать эти вакансии.
+      // Вузы, где допуск остался, не затрагиваются — решение всегда на пару «вакансия ↔ вуз».
+      //
+      // Своего статуса REVOKED у решения нет намеренно: это контракт с фронтом (стоп-точка
+      // AGENTS.md §3). REJECTED с явной причиной читается так же и корректно переигрывается —
+      // вернут допуск, компания опубликует заново, вуз рассмотрит с чистого листа.
+      if (input.status === 'REVOKED') {
+        await tx.vacancyUniversityReview.updateMany({
+          where: {
+            universityId,
+            vacancy: { companyId: record.companyId },
+            status: { in: ['PENDING', 'APPROVED'] },
+          },
+          data: {
+            status: 'REJECTED',
+            reason: REVOKED_REVIEW_REASON,
+            decidedById: viewer.sub,
+            decidedAt: new Date(),
+          },
+        })
+      }
     })
 
     // Кэш допусков обязан сброситься сразу: отзыв, действующий через минуту, — инцидент.
