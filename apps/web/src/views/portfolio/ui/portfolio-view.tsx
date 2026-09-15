@@ -19,7 +19,6 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -31,6 +30,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import {
   deletePortfolioItem,
   fetchMyPortfolio,
@@ -70,15 +70,12 @@ export function PortfolioView() {
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
-  // Группировка записей по виду, в фиксированном порядке секций.
-  const byKind = useMemo(() => {
-    const map = new Map<PortfolioKind, PortfolioItem[]>()
-    for (const item of q.data ?? []) {
-      const list = map.get(item.kind) ?? []
-      list.push(item)
-      map.set(item.kind, list)
-    }
-    return map
+  // Заголовков секций больше нет — записи идут одной сеткой плиток, как события.
+  // Порядок сохраняем прежний, по видам: одинаковые записи стоят рядом, а сам вид
+  // теперь виден на карточке (иконка и подпись), а не только в шапке секции.
+  const items = useMemo(() => {
+    const order = (k: PortfolioKind): number => PORTFOLIO_KINDS.indexOf(k)
+    return [...(q.data ?? [])].sort((a, b) => order(a.kind) - order(b.kind))
   }, [q.data])
 
   async function onDelete(item: PortfolioItem) {
@@ -91,7 +88,7 @@ export function PortfolioView() {
     if (ok) remove.mutate(item.id)
   }
 
-  const isEmpty = (q.data ?? []).length === 0
+  const isEmpty = items.length === 0
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -107,9 +104,10 @@ export function PortfolioView() {
       />
 
       {q.isLoading ? (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <Skeleton className="h-48 w-full rounded-xl" />
+          <Skeleton className="h-48 w-full rounded-xl" />
+          <Skeleton className="h-48 w-full rounded-xl" />
         </div>
       ) : q.isError ? (
         <EmptyState
@@ -125,42 +123,19 @@ export function PortfolioView() {
           action={<Button onClick={() => setModal({ mode: 'create' })}>{t('addItem')}</Button>}
         />
       ) : (
-        <div className="flex flex-col gap-8">
-          {PORTFOLIO_KINDS.filter((k) => byKind.has(k)).map((kind) => {
-            const Icon = KIND_ICON[kind]
-            return (
-              <section key={kind} className="flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                    <Icon className="size-4" aria-hidden />
-                    {t(kindKey(kind))}
-                  </h2>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1 text-muted-foreground"
-                    onClick={() => setModal({ mode: 'create', kind })}
-                  >
-                    <Plus className="size-3.5" aria-hidden />
-                    {t('add')}
-                  </Button>
-                </div>
-                <ul className="flex flex-col gap-2">
-                  {byKind.get(kind)!.map((item) => (
-                    <li key={item.id}>
-                      <ItemCard
-                        item={item}
-                        locale={locale}
-                        onEdit={() => setModal({ mode: 'edit', item })}
-                        onDelete={() => onDelete(item)}
-                        t={t}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )
-          })}
+        // Плитками, а не списком во всю ширину: у записи портфолио мало текста, и
+        // растянутая на весь экран строка оставляла справа пустоту в пол-экрана.
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => (
+            <ItemCard
+              key={item.id}
+              item={item}
+              locale={locale}
+              onEdit={() => setModal({ mode: 'edit', item })}
+              onDelete={() => onDelete(item)}
+              t={t}
+            />
+          ))}
         </div>
       )}
 
@@ -197,59 +172,98 @@ function ItemCard({
   t: ReturnType<typeof useTranslations>
 }) {
   const VisIcon = VIS_ICON[item.visibility]
+  const KindIcon = KIND_ICON[item.kind]
   const period = formatPeriod(item, locale, t('present'))
+
   return (
-    <Card>
-      <CardContent className="flex items-start gap-3 p-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold">{item.title}</h3>
+    <Card className="group/item relative gap-0 overflow-hidden py-0 transition-shadow hover:ring-ring/50">
+      {/* Полоса-акцент сверху, как у карточки события: у приватной записи она приглушена —
+          «только я» видно по краю карточки, не вчитываясь в бейдж. */}
+      <span
+        aria-hidden
+        className={cn(
+          'block h-1 w-full',
+          item.visibility === 'PRIVATE' ? 'bg-muted-foreground/30' : 'bg-primary',
+        )}
+      />
+
+      <div className="flex items-start gap-3 p-4">
+        {/* Иконка вида записи: заголовков секций больше нет, и вид читается отсюда. */}
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <KindIcon className="size-5" aria-hidden />
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-start gap-2">
+            <h3 className="min-w-0 flex-1 text-sm leading-snug font-semibold">{item.title}</h3>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  aria-label={t('actions')}
+                  // Появляется по наведению и по фокусу: постоянное меню в углу каждой
+                  // плитки — самый заметный элемент сетки, а нужно оно редко.
+                  className="-mt-1 -mr-1 shrink-0 text-muted-foreground opacity-0 transition-opacity group-focus-within/item:opacity-100 group-hover/item:opacity-100 focus-visible:opacity-100"
+                >
+                  <MoreHorizontal className="size-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onEdit}>
+                  <Pencil aria-hidden />
+                  {t('edit')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                  <Trash2 aria-hidden />
+                  {t('delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {item.organization && (
+            <p className="text-xs text-muted-foreground">{item.organization}</p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Вид записи — первым бейджем: заголовков секций нет, и категория должна
+                читаться на самой карточке, а не только по иконке слева. */}
+            <Badge className="gap-1">
+              <KindIcon className="size-3" aria-hidden />
+              {t(kindKey(item.kind))}
+            </Badge>
             <Badge variant="secondary" className="gap-1">
               <VisIcon className="size-3" aria-hidden />
               {t(visibilityKey(item.visibility))}
             </Badge>
+            {period && <Badge variant="outline">{period}</Badge>}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-            {item.organization && <span>{item.organization}</span>}
-            {item.organization && period && <span aria-hidden>·</span>}
-            {period && <span>{period}</span>}
-          </div>
-          {item.description && (
-            <p className="mt-1.5 whitespace-pre-line text-sm text-muted-foreground">
-              {item.description}
-            </p>
-          )}
-          {item.url && (
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              <ExternalLink className="size-3" aria-hidden />
+        </div>
+      </div>
+
+      {item.description && (
+        <p className="line-clamp-3 px-4 text-sm whitespace-pre-line text-muted-foreground">
+          {item.description}
+        </p>
+      )}
+
+      {/* Подвал прижат к низу: в сетке карточки разной высоты, и кнопки должны стоять
+          на одной линии. Ссылка — кнопкой во всю ширину, как «Записаться» у события:
+          это единственное действие карточки, и попадать по мелкой строке текста
+          (особенно пальцем) неудобно. */}
+      {item.url && (
+        <div className="mt-auto p-4 pt-3">
+          <Button asChild variant="outline" size="sm" className="w-full">
+            <a href={item.url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-3.5" aria-hidden />
               {t('openLink')}
             </a>
-          )}
+          </Button>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" icon aria-label={t('actions')}>
-              <MoreHorizontal className="size-4" aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onEdit}>
-              <Pencil aria-hidden />
-              {t('edit')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 aria-hidden />
-              {t('delete')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </CardContent>
+      )}
     </Card>
   )
 }

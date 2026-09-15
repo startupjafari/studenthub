@@ -7,21 +7,44 @@
   изолирован от платформы по коду (docs/LANDING.md). Копируются только цвета, радиус и
   шрифт — то, что делает сайт и продукт одним брендом.
 
-  Копия расходится с оригиналом в двух местах, и оба намеренные:
+  Копия расходится с оригиналом в трёх местах, и все три намеренные:
    1. Тёмная тема здесь — по системной настройке (prefers-color-scheme), а не по классу
       .dark: на публичном сайте нет ни next-themes, ни переключателя, ни сессии, где
       хранить выбор.
    2. Взят не весь набор: sidebar-* и chart-* описывают навигацию приложения и графики —
       на лендинге таких поверхностей нет.
+   3. Земля тёмной темы глубже продуктовой, добавлены поверхности лендинга (--surface,
+      --hairline, --glow) и дисплейная гарнитура. Причина в жанре: приложение — рабочая
+      поверхность с плотным интерфейсом, лендинг — брендовая, и её несущий приём это
+      воздух над тёмной землёй. --primary при этом совпадает точка в точку, и именно он
+      отвечает за узнаваемость.
 
-  Если значения здесь и в платформе разъедутся, это увидит фабрика снимков (§4 концепции):
-  свежие скриншоты продукта просто перестанут совпадать по цвету с окружающей страницей.
+  Если разъедется что-то ещё, это увидит фабрика снимков (§4 концепции): свежие скриншоты
+  продукта перестанут совпадать по цвету с окружающей страницей. Для снимков держите фоном
+  --card, а не --background: карточка осталась близкой к продуктовой.
 */
 
 @theme inline {
   --font-sans:
     'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
     Arial, sans-serif;
+
+  /*
+    Дисплейная гарнитура заголовков и логотипа. Inter остаётся текстовой: он сделан для
+    интерфейса и на крупном кегле звучит нейтрально, а лендинг читают, а не работают в нём.
+
+    Onest, а не любой другой гротеск: рынок — вузы Казахстана и СНГ, то есть почти весь
+    читаемый текст кириллический, а Onest рисовался с кириллицей сразу, а не получил её
+    вдогонку. Шрифты вроде Schibsted Grotesk или Geist на такой странице дают молчаливый
+    откат на запасной: латиница берётся из них, кириллица — из Inter, и разницы не видно
+    нигде, кроме логотипа и цифр.
+  */
+  --font-display: 'Onest Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  /* Время пар, номера заявок, scope в токене. Системный моноширинный: заводить ради
+     четырёх подписей ещё один пакет шрифта — не та цена. */
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -41,6 +64,9 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-hairline: var(--hairline);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-destructive: var(--destructive);
@@ -54,22 +80,25 @@
 }
 
 :root {
-  /* Образовательная синяя палитра (дизайн-система StudentHub, светлая тема). */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /*
+    Светлая тема. Нейтрали не серые: и фон, и текст уведены в синий вслед за --primary —
+    чистый серый рядом с насыщенным синим читается как неподобранный.
+  */
+  --background: oklch(0.989 0.003 264.5);
+  --foreground: oklch(0.175 0.014 264.5);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.175 0.014 264.5);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.175 0.014 264.5);
   --primary: oklch(0.546 0.215 262.9);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.967 0.003 264.5);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.967 0.003 264.5);
-  --muted-foreground: oklch(0.545 0.023 264.4);
-  --accent: oklch(0.967 0.003 264.5);
-  --accent-foreground: oklch(0.205 0 0);
-  --border: oklch(0.928 0.006 264.5);
+  --secondary: oklch(0.965 0.004 264.5);
+  --secondary-foreground: oklch(0.205 0.01 264.5);
+  --muted: oklch(0.965 0.004 264.5);
+  --muted-foreground: oklch(0.548 0.024 264.4);
+  --accent: oklch(0.965 0.004 264.5);
+  --accent-foreground: oklch(0.205 0.01 264.5);
+  --border: oklch(0.924 0.006 264.5);
   --ring: oklch(0.546 0.215 262.9);
   --success: oklch(0.522 0.114 162.5);
   --success-foreground: oklch(1 0 0);
@@ -77,31 +106,49 @@
   --warning-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.561 0.208 25.3);
   --radius: 0.625rem;
+
+  /* Поверхности лендинга. Карточка здесь — не плотная плашка, а подложка в два процента
+     белого на тёмном и в три процента чернил на светлом: отделяет, но не обводит. */
+  --surface: oklch(0.175 0.014 264.5 / 0.03);
+  --surface-strong: oklch(0.175 0.014 264.5 / 0.05);
+  --hairline: oklch(0.175 0.014 264.5 / 0.1);
+  --glow: oklch(0.546 0.215 262.9 / 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.177 0.009 264.3);
-    --foreground: oklch(0.967 0.003 264.5);
-    --card: oklch(0.214 0.019 266.1);
-    --card-foreground: oklch(0.967 0.003 264.5);
-    --popover: oklch(0.214 0.019 266.1);
-    --popover-foreground: oklch(0.967 0.003 264.5);
+    /*
+      Тёмная тема ведущая: лендинг задуман тёмным, светлая — корректная вторая раскладка.
+      Земля глубже продуктовой (0.129 против 0.177): в приложении фон держит плотный
+      интерфейс и не должен проваливаться, а здесь по нему разлита одна мягкая синяя
+      подсветка, и на светлой земле она не читается вовсе.
+    */
+    --background: oklch(0.129 0.018 264.5);
+    --foreground: oklch(0.936 0.008 264.5);
+    --card: oklch(0.171 0.016 264.5);
+    --card-foreground: oklch(0.936 0.008 264.5);
+    --popover: oklch(0.186 0.017 264.5);
+    --popover-foreground: oklch(0.936 0.008 264.5);
     --primary: oklch(0.573 0.188 259.8);
     --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.261 0.024 267.1);
-    --secondary-foreground: oklch(0.967 0.003 264.5);
-    --muted: oklch(0.261 0.024 267.1);
-    --muted-foreground: oklch(0.714 0.019 261.3);
-    --accent: oklch(0.261 0.024 267.1);
-    --accent-foreground: oklch(0.967 0.003 264.5);
-    --border: oklch(0.278 0.026 267.5);
+    --secondary: oklch(0.208 0.015 264.5);
+    --secondary-foreground: oklch(0.936 0.008 264.5);
+    --muted: oklch(0.208 0.015 264.5);
+    --muted-foreground: oklch(0.588 0.028 262);
+    --accent: oklch(0.208 0.015 264.5);
+    --accent-foreground: oklch(0.936 0.008 264.5);
+    --border: oklch(0.262 0.014 264.5);
     --ring: oklch(0.573 0.188 259.8);
     --success: oklch(0.696 0.149 162.5);
     --success-foreground: oklch(0.145 0 0);
     --warning: oklch(0.769 0.165 70.1);
     --warning-foreground: oklch(0.145 0 0);
     --destructive: oklch(0.711 0.166 22.2);
+
+    --surface: oklch(1 0 0 / 0.022);
+    --surface-strong: oklch(1 0 0 / 0.045);
+    --hairline: oklch(1 0 0 / 0.09);
+    --glow: oklch(0.573 0.188 259.8 / 0.2);
   }
 }
 
@@ -148,6 +195,163 @@
   [aria-disabled='true'] {
     cursor: not-allowed;
   }
+
+  /*
+    Полоса прокрутки. Осознанная копия правил платформы (apps/web/src/app/globals.css,
+    @layer base) — сайт и продукт должны прокручиваться одинаково, это часть того же
+    впечатления, что цвет и шрифт.
+
+    Именно в @layer base, а не вне слоёв: утилиты, которые прячут полосу у горизонтальных
+    лент вкладок, лежат в слое utilities и обязаны перебивать общее правило. Нестилизованное
+    правило вне слоёв выиграло бы у них по каскаду.
+  */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    /* Отступ рисуем прозрачной рамкой с background-clip: своих полей у полосы нет,
+       а ползунок вплотную к краю выглядит грубо. */
+    background-color: var(--border);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+/*
+  Градиентная заливка заголовков. Работает от токенов, поэтому живёт в обеих темах:
+  в тёмной строка уходит от белого к приглушённому, в светлой — от чернил к тому же
+  приглушённому.
+
+  Цвет задан дважды не по недосмотру: `color: transparent` без работающего
+  background-clip оставил бы вместо заголовка пустое место, и страница выглядела бы
+  сломанной. Поэтому обычный цвет — база, а заливка включается только там, где она
+  поддержана.
+*/
+.sh-title {
+  color: var(--foreground);
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .sh-title {
+    background: linear-gradient(
+      102deg,
+      var(--foreground) 0%,
+      color-mix(in oklab, var(--foreground) 76%, var(--muted-foreground)) 50%,
+      color-mix(in oklab, var(--foreground) 42%, var(--muted-foreground)) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/*
+  Акцентная строка заголовка — единственное место, где брендовый синий попадает в текст.
+  Уходит от цвета текста к --primary, а не залит им целиком: сплошной синий на крупном
+  кегле спорит с кнопкой, и читатель перестаёт понимать, куда нажимать.
+*/
+.sh-title-accent {
+  color: var(--primary);
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .sh-title-accent {
+    background: linear-gradient(
+      102deg,
+      var(--foreground) 0%,
+      color-mix(in oklab, var(--primary) 55%, var(--foreground)) 46%,
+      var(--primary) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/*
+  Карточка призыва — единственное сплошное брендовое пятно на странице. Точечный узор
+  взят с меш-сетки первого экрана и погашен маской в один угол: полное поле точек на
+  таком насыщенном фоне рябит и мешает читать заголовок.
+*/
+.sh-cta {
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--primary) 88%, black) 0%,
+    var(--primary) 46%,
+    color-mix(in oklab, var(--primary) 74%, oklch(0.5 0.22 292)) 100%
+  );
+  box-shadow: 0 2.5rem 5rem -2.5rem color-mix(in oklab, var(--primary) 80%, transparent);
+}
+
+.sh-cta__dots {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  background-image: radial-gradient(circle at 1px 1px, #fff 1px, transparent 0);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(76% 120% at 90% 8%, #000, transparent 70%);
+  mask-image: radial-gradient(76% 120% at 90% 8%, #000, transparent 70%);
+}
+
+/* Свечение под главной кнопкой: цвет берётся из --primary, а не прописан отдельно, —
+   иначе при смене брендового синего свечение осталось бы старым. */
+.sh-glow {
+  box-shadow: 0 1rem 2.5rem -0.875rem color-mix(in oklab, var(--primary) 70%, transparent);
+}
+
+/*
+  Фон всей страницы: одна мягкая подсветка сверху и тонкая сетка, которая быстро гаснет.
+
+  Раньше брендовый фон был только у первого экрана (синяя панель), а дальше шла ровная
+  заливка. Теперь подсветка одна на документ и не привязана к секции: страница читается
+  как один лист, а не как склейка полос с разными фонами.
+
+  Слой `fixed` с z-index -1 — он не участвует в потоке и не перерисовывается при
+  прокрутке. Обе подложки берут цвет из токенов, поэтому в светлой теме сетка становится
+  чернильной, а не остаётся белой поверх белого.
+*/
+.sh-veil {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.sh-veil::before {
+  content: '';
+  position: absolute;
+  inset: -20% -20% auto -20%;
+  height: 48rem;
+  background: radial-gradient(42rem 24rem at 50% 0%, var(--glow), transparent 66%);
+}
+
+.sh-veil::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--hairline) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--hairline) 1px, transparent 1px);
+  background-size: 5.5rem 5.5rem;
+  /* Сетка нужна как фактура у верхней кромки, а не как разлиновка всей страницы. */
+  -webkit-mask-image: radial-gradient(100% 62% at 50% 0%, #000 6%, transparent 68%);
+  mask-image: radial-gradient(100% 62% at 50% 0%, #000 6%, transparent 68%);
+  opacity: 0.55;
 }
 
 /*
@@ -156,18 +360,25 @@
   вокруг курсора, позиция мыши приходит в --mx/--my.
 
   Это CSS, а не импорт компонента: узнаваемость бренда переносится, изоляция не нарушается.
+
+  Цвет точек берётся из токенов, а не задан белым: панель больше не синяя, и на светлой
+  теме белые точки на белом фоне исчезали бы вовсе.
 */
 .mesh-base {
   background-image: radial-gradient(
     circle at 1px 1px,
-    rgba(255, 255, 255, 0.13) 1px,
+    color-mix(in oklab, var(--foreground) 14%, transparent) 1px,
     transparent 0
   );
   background-size: 24px 24px;
 }
 
 .mesh-glow {
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.9) 1px, transparent 0);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--primary) 85%, transparent) 1px,
+    transparent 0
+  );
   background-size: 24px 24px;
   --mesh-mask: radial-gradient(
     240px circle at var(--mx, -9999px) var(--my, -9999px),
@@ -183,7 +394,7 @@
 .mesh-halo {
   background: radial-gradient(
     220px circle at var(--mx, -9999px) var(--my, -9999px),
-    rgba(255, 255, 255, 0.14),
+    color-mix(in oklab, var(--primary) 12%, transparent),
     transparent 65%
   );
 }
@@ -507,31 +718,9 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* --- Появление при прокрутке (единственный стиль на весь сайт) ---------- */
-[data-reveal] {
-  opacity: 0;
-  transform: translateY(14px);
-  /*
-    0.45s вместо прежних 0.8: длинное появление на слабом устройстве успевает наложиться
-    на следующее, и кадры начинают проседать. Короткое читается так же, а нагрузка ниже.
-  */
-  transition:
-    opacity 0.45s var(--ease-out),
-    transform 0.45s var(--ease-out);
-  /* Каскад внутри группы: порядковый номер приходит инлайном в --d. */
-  transition-delay: calc(var(--d, 0) * 45ms);
-  /* Композитор знает заранее, что меняется, и не пересобирает слой на каждом кадре. */
-  will-change: opacity, transform;
-}
-[data-reveal].in {
-  /* Подсказку снимаем сразу после появления: постоянный will-change держит слой в
-     памяти и на слабых устройствах делает хуже, чем его отсутствие. */
-  will-change: auto;
-}
-[data-reveal].in {
-  opacity: 1;
-  transform: none;
-}
+/* Появление блоков при прокрутке переехало в Framer Motion (ui/motion.tsx, Reveal):
+   там же живут кривая и шаг каскада. Здесь осталось движение, которое должно идти до
+   гидрации, — вход первого экрана. */
 
 /* --- Построчный вход заголовка ------------------------------------------ */
 .reveal-line {
@@ -575,25 +764,8 @@
   animation-delay: var(--delay, 0.35s);
 }
 
-/* --- Индикатор прокрутки ------------------------------------------------ */
-.sh-progress-bar {
-  position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 90;
-  height: 2px;
-  background: var(--primary);
-  transform: scaleX(0);
-  transform-origin: left center;
-  will-change: transform;
-}
-
 /* --- Уважение к настройкам движения ------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  [data-reveal] {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
   .reveal-line > span {
     transform: none;
     animation: none;
@@ -607,56 +779,9 @@
   }
 }
 
-/* --- Отклик на наведение ------------------------------------------------ */
-
-/*
-  Карточка приподнимается под курсором. Только transform и тень: анимировать отступы
-  или размеры нельзя — это двигало бы соседей по сетке.
-
-  Эффект висит на .sh-lift, а не на каждой карточке своим набором классов, — иначе
-  подъём в разных секциях неизбежно разъезжается по высоте и скорости.
-*/
-.sh-lift {
-  transition:
-    transform 0.2s var(--ease-out),
-    border-color 0.2s var(--ease),
-    box-shadow 0.2s var(--ease-out);
-}
-@media (hover: hover) {
-  .sh-lift:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.45);
-  }
-}
-.sh-lift:focus-within {
-  transform: translateY(-3px);
-}
-
-/* Кнопка отзывается мягче карточки: она и так меньше, и подъём на ней заметнее. */
-@media (hover: hover) {
-  .sh-press:hover {
-    transform: translateY(-1px);
-  }
-}
-.sh-press {
-  transition: transform 0.2s var(--ease-out);
-}
-.sh-press:active {
-  transform: translateY(0) scale(0.985);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sh-lift,
-  .sh-press {
-    transition: none;
-  }
-  .sh-lift:hover,
-  .sh-lift:focus-within,
-  .sh-press:hover,
-  .sh-press:active {
-    transform: none;
-  }
-}
+/* Подъём карточки под курсором и отклик кнопки на нажатие переехали в Framer Motion
+   (ui/motion.tsx: Lift и TapLink). Один источник отклика на весь сайт — иначе подъём
+   в разных секциях неизбежно разъезжается по высоте и скорости. */
 
 /* --- Раскрытие вопроса -------------------------------------------------- */
 
@@ -790,6 +915,21 @@ details[open] .sh-acc__inner {
     #000 calc(100% - 1.25rem),
     transparent 100%
   );
+}
+
+/*
+  Затухание нужно только там, где ряд реально едет вбок. У шкалы дня это лишь узкий
+  экран: с 40rem метки помещаются целиком, а маска съедала бы первую — она прижата к
+  левому краю и попадает ровно под градиент.
+
+  Отдельным классом, а не утилитой `sm:[mask-image:none]`: .sh-fade-x объявлен вне слоёв
+  и по каскаду выигрывает у любой утилиты из @layer utilities, сколько её ни пиши.
+*/
+@media (min-width: 40rem) {
+  .sh-fade-x--sm-only {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

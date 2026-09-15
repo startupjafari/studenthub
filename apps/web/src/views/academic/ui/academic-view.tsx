@@ -1,23 +1,39 @@
 'use client'
 
 import { useMemo } from 'react'
-import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   Award,
-  BookOpen,
+  Check,
   ClipboardCheck,
+  Clock,
+  FileCheck2,
   GraduationCap,
   Milestone,
+  Send,
   TrendingUp,
-  type LucideIcon,
+  TriangleAlert,
+  X,
 } from 'lucide-react'
-import { MetricTile, PageHeader, Skeleton } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
+import { EmptyState, MetricTile, PageHeader, SectionPanel, Skeleton } from '../../../shared/ui'
+import { useChartTheme } from '../../../shared/ui/chart'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
 import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
+import { examKeys, fetchExams } from '../../../entities/exam'
+import {
+  assignmentKeys,
+  fetchAssignments,
+  studentAssignmentStatus,
+} from '../../../entities/assignment'
+
+// Тяжёлый recharts — только на клиенте, со скелетоном (FRONTEND_RULES §4, §11).
+const BarChart = dynamic(() => import('../../../shared/ui/chart/bar-chart'), {
+  ssr: false,
+  loading: () => <Skeleton className="h-64 w-full" />,
+})
 
 // Процент по дисциплине: среднее (score/maxScore) по колонкам с баллом.
 function coursePercent(c: MyGradesCourse): number | null {
@@ -37,9 +53,19 @@ function toneClass(pct: number): string {
 export function AcademicView() {
   const t = useTranslations('Academic')
 
+  const { palette } = useChartTheme()
+
   const meQ = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const gradesQ = useQuery({ queryKey: gradebookKeys.me(), queryFn: () => fetchMyGrades() })
   const attQ = useQuery({ queryKey: attendanceKeys.me(), queryFn: () => fetchMyAttendance() })
+  // Сессия и задания — те же эндпоинты, что и на своих экранах; здесь из них нужны
+  // только счётчики, и сводку они не блокируют (в `loading` не участвуют).
+  const examsQ = useQuery({ queryKey: examKeys.list(), queryFn: () => fetchExams(), retry: false })
+  const asgQ = useQuery({
+    queryKey: assignmentKeys.list(),
+    queryFn: () => fetchAssignments(),
+    retry: false,
+  })
 
   const gpa = useMemo(() => {
     const courses = gradesQ.data ?? []
@@ -69,7 +95,28 @@ export function AcademicView() {
     [gradesQ.data],
   )
 
-  const rate = attQ.data?.rate ?? null
+  // Проценты по дисциплинам для графика: худшие сверху — туда и надо смотреть.
+  const bySubject = useMemo(() => {
+    const rows = (gradesQ.data ?? [])
+      .map((c) => ({ label: c.subject.name, value: coursePercent(c) }))
+      .filter((r): r is { label: string; value: number } => r.value !== null)
+    return rows.sort((a, b) => a.value - b.value)
+  }, [gradesQ.data])
+
+  const session = useMemo(() => {
+    const exams = examsQ.data ?? []
+    const now = Date.now()
+    const statuses = (asgQ.data ?? []).map((a) => studentAssignmentStatus(a))
+    return {
+      examsPassed: exams.filter((e) => e.myResult?.status === 'PASSED').length,
+      examsUpcoming: exams.filter((e) => new Date(e.date).getTime() >= now).length,
+      submitted: statuses.filter((st) => st === 'SUBMITTED').length,
+      overdue: statuses.filter((st) => st === 'OVERDUE').length,
+    }
+  }, [examsQ.data, asgQ.data])
+
+  const att = attQ.data
+  const rate = att?.rate ?? null
   const loading = meQ.isLoading || gradesQ.isLoading || attQ.isLoading
 
   return (
@@ -123,35 +170,99 @@ export function AcademicView() {
             />
           </div>
 
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-muted-foreground">{t('sections')}</h2>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <QuickLink href="/grades" icon={GraduationCap} label={t('linkGrades')} />
-              <QuickLink href="/attendance" icon={ClipboardCheck} label={t('linkAttendance')} />
-              <QuickLink href="/study-plan" icon={Milestone} label={t('linkStudyPlan')} />
-              <QuickLink href="/exams" icon={Award} label={t('linkExams')} />
-              <QuickLink href="/courses" icon={BookOpen} label={t('linkCourses')} />
+          {/* Успеваемость по дисциплинам: средний процент каждой — видно, где проседает,
+              не заходя в журнал оценок. */}
+          <SectionPanel title={t('bySubject')} subtitle={t('bySubjectHint')}>
+            {bySubject.length === 0 ? (
+              <EmptyState title={t('noGrades')} className="border-0 p-6" />
+            ) : (
+              <BarChart
+                ariaLabel={t('bySubject')}
+                palette={palette}
+                height={Math.max(180, bySubject.length * 30 + 40)}
+                labels={bySubject.map((r) => r.label)}
+                values={bySubject.map((r) => r.value)}
+                seriesName={t('percentShort')}
+                valueLabel={(v) => `${v}%`}
+              />
+            )}
+          </SectionPanel>
+
+          {/* Разбивка посещаемости: плитка выше отвечает «сколько», эти четыре числа —
+              «из чего процент сложился». */}
+          {att && (
+            <SectionPanel
+              title={t('attendanceBreakdown')}
+              subtitle={t('attendanceBreakdownHint')}
+              bodyClassName="p-3"
+            >
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <MetricTile
+                  index={0}
+                  icon={Check}
+                  tone="text-success"
+                  label={t('present')}
+                  value={att.present}
+                />
+                <MetricTile
+                  index={1}
+                  icon={Clock}
+                  tone="text-warning"
+                  label={t('late')}
+                  value={att.late}
+                />
+                <MetricTile
+                  index={2}
+                  icon={X}
+                  tone="text-destructive"
+                  label={t('absent')}
+                  value={att.absent}
+                />
+                <MetricTile
+                  index={3}
+                  icon={FileCheck2}
+                  tone="text-info"
+                  label={t('excused')}
+                  value={att.excused}
+                />
+              </div>
+            </SectionPanel>
+          )}
+
+          {/* Сессия и задания: что закрыто и что ещё висит. */}
+          <SectionPanel title={t('sessionTitle')} subtitle={t('sessionHint')} bodyClassName="p-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <MetricTile
+                index={0}
+                icon={Award}
+                tone="text-success"
+                label={t('examsPassed')}
+                value={session.examsPassed}
+              />
+              <MetricTile
+                index={1}
+                icon={GraduationCap}
+                tone="text-info"
+                label={t('examsUpcoming')}
+                value={session.examsUpcoming}
+              />
+              <MetricTile
+                index={2}
+                icon={Send}
+                label={t('assignmentsSubmitted')}
+                value={session.submitted}
+              />
+              <MetricTile
+                index={3}
+                icon={TriangleAlert}
+                tone="text-destructive"
+                label={t('assignmentsOverdue')}
+                value={session.overdue}
+              />
             </div>
-          </section>
+          </SectionPanel>
         </>
       )}
     </div>
-  )
-}
-
-function QuickLink({ href, icon: Icon, label }: { href: string; icon: LucideIcon; label: string }) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        'flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 text-sm font-medium transition-colors',
-        'hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
-      )}
-    >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-        <Icon className="size-4" aria-hidden />
-      </span>
-      {label}
-    </Link>
   )
 }
