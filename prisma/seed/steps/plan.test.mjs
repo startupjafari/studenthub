@@ -58,3 +58,59 @@ describe('planUniversity', () => {
     assert.ok(plan.roomCount >= 12)
   })
 })
+
+// Профиль test: состав задан ТЗ поимённо, и план обязан попадать в него точно —
+// «примерно 1450» здесь недостаточно, числа проверяются приёмкой.
+describe('planUniversity — заданный состав (профиль test)', () => {
+  const FIXED = {
+    studentsMin: 1450,
+    studentsMax: 1450,
+    faculties: 2,
+    teachers: 24,
+    groupSize: 25,
+  }
+
+  it('даёт ровно 1450 учащихся, 2 факультета, 58 групп и 24 преподавателя', () => {
+    const plan = planUniversity(1, universityRandom(1), FIXED)
+    assert.equal(plan.students, 1450)
+    assert.equal(plan.faculties.length, 2)
+    assert.equal(plan.groupCount, 58)
+    assert.equal(
+      plan.faculties.reduce((sum, f) => sum + f.teacherCount, 0),
+      24,
+    )
+  })
+
+  it('раскладывает группы и преподавателей по факультетам поровну', () => {
+    const plan = planUniversity(1, universityRandom(1), FIXED)
+    assert.deepEqual(
+      plan.faculties.map((f) => f.groups.length),
+      [29, 29],
+    )
+    assert.deepEqual(
+      plan.faculties.map((f) => f.teacherCount),
+      [12, 12],
+    )
+  })
+
+  it('остаток преподавателей отдаёт первым факультетам, сумма сходится', () => {
+    const plan = planUniversity(1, universityRandom(1), { ...FIXED, teachers: 25 })
+    assert.deepEqual(
+      plan.faculties.map((f) => f.teacherCount),
+      [13, 12],
+    )
+  })
+
+  it('каждая группа ровно по groupSize — «распределить поровну» из ТЗ', () => {
+    const plan = planUniversity(1, universityRandom(1), FIXED)
+    for (const faculty of plan.faculties) {
+      for (const group of faculty.groups) assert.equal(group.students, 25)
+    }
+  })
+
+  it('без заданного состава считает по формулам — старые профили не затронуты', () => {
+    const plan = planUniversity(1, universityRandom(1), { studentsMin: 1450, studentsMax: 1450 })
+    assert.equal(plan.faculties.length, 6)
+    assert.ok(plan.faculties.every((f) => f.teacherCount >= 5))
+  })
+})
