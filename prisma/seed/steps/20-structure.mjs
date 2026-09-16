@@ -30,12 +30,24 @@ const SERVICE_ROOMS = [
 
 // План вуза по числу студентов. Отдельная функция, потому что её же использует
 // прогресс-бар (нужно знать объём заранее) и тесты плана масштаба.
-export function planUniversity(index, random, { studentsMin, studentsMax }) {
+export function planUniversity(index, random, config) {
+  const { studentsMin, studentsMax } = config
+  // Жёсткий состав (профиль test): факультеты, преподаватели и размер группы заданы
+  // поимённо. null — считать по формулам ниже, как у demo/small/full.
+  const fixedFaculties = config.faculties ?? null
+  const fixedTeachers = config.teachers ?? null
+  const groupSize = config.groupSize ?? GROUP_SIZE
+
   const students = random.randInt(studentsMin, studentsMax)
   // Факультетов от 4 до 7: у маленького вуза их меньше, у большого больше.
-  const facultyCount = Math.min(7, Math.max(4, Math.round(students / 260)))
+  const facultyCount = fixedFaculties ?? Math.min(7, Math.max(4, Math.round(students / 260)))
   const faculties = facultiesFor(index, facultyCount)
-  const groupCount = Math.max(faculties.length * ENROLLMENT_YEARS.length, Math.ceil(students / GROUP_SIZE)) // prettier-ignore
+  // При заданном составе число групп считается ТОЛЬКО от студентов: нижняя граница
+  // «по группе на каждый год набора каждого факультета» здесь навязала бы лишние
+  // группы, а с ними и лишних учащихся сверх заказанных 1450.
+  const groupCount = fixedFaculties
+    ? Math.ceil(students / groupSize)
+    : Math.max(faculties.length * ENROLLMENT_YEARS.length, Math.ceil(students / groupSize))
 
   // Группы раскладываем по факультетам как можно ровнее, внутри факультета — по годам
   // набора: иначе на четвёртом курсе не оказалось бы ни одной группы.
@@ -45,17 +57,28 @@ export function planUniversity(index, random, { studentsMin, studentsMax }) {
     const withinFaculty = Math.floor(g / faculties.length)
     const year = ENROLLMENT_YEARS[withinFaculty % ENROLLMENT_YEARS.length]
     const number = Math.floor(withinFaculty / ENROLLMENT_YEARS.length) + 1
-    plan[facIndex].groups.push({ year, number, students: GROUP_SIZE })
+    plan[facIndex].groups.push({ year, number, students: groupSize })
   }
 
-  // Преподавателей — из нагрузки: 6 дисциплин на группу, до 6 курсов на преподавателя.
-  for (const faculty of plan) {
-    faculty.teacherCount = Math.max(5, Math.ceil((faculty.groups.length * 6) / 6))
+  if (fixedTeachers === null) {
+    // Преподавателей — из нагрузки: 6 дисциплин на группу, до 6 курсов на преподавателя.
+    for (const faculty of plan) {
+      faculty.teacherCount = Math.max(5, Math.ceil((faculty.groups.length * 6) / 6))
+    }
+  } else {
+    // Заданное число раскладываем по факультетам ровно, остаток — первым факультетам
+    // (24 на 2 → 12 и 12; 25 на 2 → 13 и 12). Сумма обязана сойтись с заказанной:
+    // «24 преподавателя» — это про весь вуз, а не про каждый факультет.
+    const base = Math.floor(fixedTeachers / plan.length)
+    const extra = fixedTeachers % plan.length
+    for (const [i, faculty] of plan.entries()) {
+      faculty.teacherCount = base + (i < extra ? 1 : 0)
+    }
   }
 
   return {
     index,
-    students: groupCount * GROUP_SIZE,
+    students: groupCount * groupSize,
     faculties: plan,
     groupCount,
     roomCount: Math.max(12, Math.ceil(groupCount / 2)),
