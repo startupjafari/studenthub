@@ -164,9 +164,13 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               {t('writeMessage')}
             </Button>
           )}
-          {me.data && me.data.id !== u.id && u.access !== 'limited' && (
-            <FriendButton userId={u.id} />
-          )}
+          {/* Кнопка дружбы доступна и на «визитке» закрытого профиля (access === 'limited').
+              Дружба — штатный способ ОТКРЫТЬ такой профиль: принятая заявка поднимает доступ
+              до full (users.service: resolveAccessWithFriendship). Скрывать кнопку именно там,
+              где она нужна, значило запереть связь в замкнутом круге — профиль закрыт, потому
+              что вы не друзья, а подружиться нельзя, потому что профиль закрыт.
+              Ограничений по ролям нет ни здесь, ни на бэке: заявку шлёт и принимает любая роль. */}
+          {me.data && me.data.id !== u.id && <FriendButton userId={u.id} />}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
         </div>
         <div className="relative h-36 w-full overflow-hidden sm:h-44">
