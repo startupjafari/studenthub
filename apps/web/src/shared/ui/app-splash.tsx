@@ -1,7 +1,7 @@
 import { GraduationCap } from 'lucide-react'
 
 /**
- * Заставка запуска: тёмное полотно с логотипом, сквозь которое приложение «проваливается».
+ * Заставка запуска: тёмное полотно с логотипом, вокруг иконки один раз обходит тонкая дуга.
  *
  * Серверный компонент и чистый CSS, без единой строки JS — это не украшение, а условие
  * работы. Заставка обязана быть в разметке ПЕРВОЙ отрисовки: смонтируй её из React после
@@ -11,7 +11,9 @@ import { GraduationCap } from 'lucide-react'
  * Оттуда же второе следствие: уйти она тоже обязана без JS. Весь уход — CSS-анимация с
  * `forwards` (globals.css, секция «Заставка запуска»), поэтому упавший или отключённый
  * скрипт не оставит приложение под непрозрачным полотном. По той же причине на полотне
- * `pointer-events: none` — оно не перехватывает нажатия даже в свой короткий век.
+ * `pointer-events: none` — оно не перехватывает нажатия даже в свой короткий век, и
+ * медленная загрузка ничем не хуже быстрой: полотно уходит по своему расписанию, а не
+ * ждёт готовности приложения.
  *
  * Цвета заданы литералами в CSS, а не токенами: заставка тёмная в обеих темах. Заодно она
  * закрывает собой момент, когда next-themes ещё не проставил класс на <html>, — вспышки
@@ -22,12 +24,37 @@ export function AppSplash() {
     // aria-hidden: для скринридера здесь нет содержания — логотип не сообщает ничего,
     // чего не скажет заголовок документа, а перехватывать фокус заставке нечем.
     <div className="sh-splash fixed inset-0 z-[400] flex items-center justify-center" aria-hidden>
-      <div className="sh-splash-mark flex items-center gap-3">
-        <GraduationCap className="sh-splash-icon size-10 shrink-0 sm:size-12" aria-hidden />
+      <div className="sh-splash-mark flex items-center gap-4 sm:gap-5">
+        {/* Обойма вокруг иконки: дуга и pulse позиционируются от неё, поэтому размер
+            обоймы равен размеру иконки, а кольца выходят за её края через inset. Зазор
+            в связке (gap-4/5, а не gap-3) — под это кольцо: на gap-3 дуга и разошедшийся
+            pulse задевали букву «S». Размеры иконки и слова при этом не тронуты. */}
+        <span className="relative inline-flex size-10 shrink-0 sm:size-12">
+          <GraduationCap className="sh-splash-icon size-full" aria-hidden />
+          {/* inset -16% = кольцо в 132% от иконки, центрированное без transform: он
+              остаётся свободен под анимацию pulse. */}
+          <svg
+            className="sh-splash-ring absolute inset-[-16%]"
+            viewBox="0 0 100 100"
+            fill="none"
+            aria-hidden
+          >
+            {/* Две окружности вместо filter: широкий полупрозрачный след даёт мягкое
+                свечение, не заставляя браузер держать blur-слой (DESIGN_SYSTEM §7). */}
+            <circle className="sh-splash-arc-glow" cx="50" cy="50" r="46" />
+            <circle className="sh-splash-arc" cx="50" cy="50" r="46" />
+          </svg>
+          <span className="sh-splash-pulse absolute inset-[-16%] rounded-full" />
+        </span>
         {/* Название продукта, а не переводимая строка: тот же логотип, что в шапке
             оболочки и на экранах входа, только крупнее. */}
         <span className="text-3xl font-bold tracking-tight sm:text-4xl">StudentHub</span>
       </div>
+      {/* Подпись внизу — тоже не переводимая строка: имя, марка и год одинаковы во всех
+          локалях. Своей анимации нет; уходит вместе с полотном. */}
+      <p className="sh-splash-footer absolute inset-x-0 text-center text-xs">
+        © StudentHub 2026 · Мехман Джафари
+      </p>
     </div>
   )
 }
