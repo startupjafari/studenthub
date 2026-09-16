@@ -496,6 +496,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 - Ветки: `feat/<scope>-<описание>`, `fix/...`, `refactor/...`, `chore/...`, `hotfix/...`. Прямые коммиты в `main` и `develop` запрещены.
 - Conventional Commits, scope обязателен для `feat` и `fix`: `feat(auth): регистрация по инвайту`.
 - PR ≤ ~400 строк изменений, минимум 1 approve, зелёный CI.
+- Агент коммитит локально на каждом завершённом шаге, сообщения коммитов — по-русски; `push`, PR и мёрж — только по просьбе человека (`AGENTS.md`).
 
 ---
 
