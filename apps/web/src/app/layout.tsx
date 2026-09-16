@@ -5,6 +5,7 @@ import { getLocale, getMessages, getTimeZone } from 'next-intl/server'
 // загрузки, включается одной строкой; без неё font-optical-sizing в globals.css ни на что
 // не влияет, потому что оси в шрифте просто нет.
 import '@fontsource-variable/inter/opsz.css'
+import { AppSplash } from '../shared/ui'
 import { AppProviders } from './providers'
 import './globals.css'
 
@@ -50,8 +51,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     // suppressHydrationWarning — next-themes выставляет класс темы на <html> до гидрации.
     <html lang={locale} suppressHydrationWarning>
       <body>
+        {/* Первым узлом body и вне провайдеров: заставка должна попасть в первую отрисовку,
+            до гидратации, — иначе она накрыла бы уже показанное приложение. Уходит сама,
+            анимацией (globals.css, «Заставка запуска»). */}
+        <AppSplash />
         <AppProviders locale={locale} messages={messages} timeZone={timeZone}>
-          {children}
+          {/* Обёртка нужна анимации запуска: приложение проявляется под уходящим полотном.
+              Держит только содержимое страниц — полотно осталось снаружи, а тосты и палитра
+              команд рендерятся провайдерами рядом. Своих стилей раскладки у неё нет: цепочка
+              высот не меняется, анимируется одна прозрачность (globals.css, `.sh-boot`). */}
+          <div className="sh-boot">{children}</div>
         </AppProviders>
       </body>
     </html>
