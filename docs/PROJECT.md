@@ -1226,6 +1226,8 @@ Conventional Commits, scope обязателен для `feat` и `fix`:
 
 PR: ≤ ~400 строк изменений, минимум 1 approve, зелёный CI, squash merge. Чеклист PR — в `BACKEND_RULES §17` / `FRONTEND_RULES §14`.
 
+Агент коммитит локально на каждом завершённом шаге, сообщения коммитов пишет по-русски и не делает `push`, PR и мёрж без явной просьбы человека — см. `AGENTS.md`.
+
 Именование: файлы `kebab-case` · переменные и функции `camelCase` · классы, типы, enum `PascalCase` · константы `UPPER_SNAKE_CASE` · таблицы `snake_case` через `@@map`.
 
 Prettier: без точек с запятой, одинарные кавычки, `trailingComma: all`, `printWidth: 100`, `tabWidth: 2`.
