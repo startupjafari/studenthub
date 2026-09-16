@@ -30,6 +30,7 @@
     "db:seed:test": "node --max-old-space-size=4096 prisma/seed-test.mjs",
     "db:seed:media": "SEED_ONLY=media node prisma/seed.mjs",
     "db:seed:kato": "SEED_ONLY=kato node prisma/seed.mjs",
+    "db:reset:admin": "node prisma/reset-to-admin.mjs",
     "test:seed": "node --test prisma/seed/"
   },
   "lint-staged": {
