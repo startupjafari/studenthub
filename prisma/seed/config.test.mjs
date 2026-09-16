@@ -108,3 +108,63 @@ describe('конфигурация сида', () => {
     )
   })
 })
+
+describe('профиль test (стенд по ТЗ)', () => {
+  it('задаёт состав поимённо и выключает демо-вуз', () => {
+    const c = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'test' }, loadConfig)
+    assert.equal(c.universities, 1)
+    assert.equal(c.studentsMin, 1450)
+    assert.equal(c.studentsMax, 1450)
+    assert.equal(c.faculties, 2)
+    assert.equal(c.teachers, 24)
+    assert.equal(c.groupSize, 25)
+    assert.equal(c.platformModerators, 2)
+    // Демо-вуз «Алатау» здесь не заливается: требование ТЗ — ровно один университет.
+    assert.equal(c.demoUniversity, false)
+    // Пул нужен и при пустой галерее: из него идут аватары, обложки и картинки постов.
+    assert.equal(c.photos, 200)
+    assert.equal(c.videos, 50)
+    // Личная галерея пустая (решение пользователя): 100 фото на каждого стоили бы
+    // ~29 ГБ в MinIO — 29 из 30 ГБ всего стенда.
+    assert.equal(c.photosPerUser, 0)
+    assert.equal(c.videosPerUser, 0)
+  })
+
+  it('галерею можно включить ручкой, не трогая остальной состав', () => {
+    const c = withEnv(
+      { DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_PHOTOS_PER_USER: '30', SEED_VIDEOS_PER_USER: '1' }, // prettier-ignore
+      loadConfig,
+    )
+    assert.equal(c.photosPerUser, 30)
+    assert.equal(c.videosPerUser, 1)
+    assert.equal(c.studentsMin, 1450)
+  })
+
+  it('остальные профили состав не задают и демо-вуз оставляют', () => {
+    for (const scale of ['demo', 'small', 'full']) {
+      const c = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: scale }, loadConfig)
+      assert.equal(c.faculties, null, `${scale}: факультеты должны считаться формулой`)
+      assert.equal(c.teachers, null, `${scale}: преподаватели — по нагрузке`)
+      assert.equal(c.demoUniversity, true, `${scale}: демо-вуз остаётся`)
+      assert.equal(c.photosPerUser, 0, `${scale}: личная галерея выключена`)
+    }
+  })
+
+  it('факультет без единой группы отвергается до записи в БД', () => {
+    assert.throws(
+      () =>
+        withEnv(
+          { DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_STUDENTS_MIN: '25', SEED_STUDENTS_MAX: '25' }, // prettier-ignore
+          loadConfig,
+        ),
+      /Факультет без групп недопустим/,
+    )
+  })
+
+  it('преподавателей не может быть меньше, чем факультетов', () => {
+    assert.throws(
+      () => withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_TEACHERS: '1' }, loadConfig),
+      /меньше числа факультетов/,
+    )
+  })
+})
