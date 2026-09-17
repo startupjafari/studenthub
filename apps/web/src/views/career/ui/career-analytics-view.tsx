@@ -112,7 +112,9 @@ export function CareerAnalyticsView() {
 
   if (query.isError) {
     return (
-      <div className="flex w-full flex-col gap-4">
+      // Как и в ветке выбора вуза выше: плашка — единственное содержимое, колонка
+      // должна отдать ей всю свободную высоту.
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
         {header}
         <EmptyState title={tErr(toApiError(query.error).code)} description={tErr('retryHint')} />
       </div>
