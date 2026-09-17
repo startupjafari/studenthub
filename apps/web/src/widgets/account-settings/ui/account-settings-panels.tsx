@@ -21,6 +21,7 @@ import {
   Palette,
   RefreshCw,
   ShieldAlert,
+  Sparkles,
   Sun,
   ShieldCheck,
   Smartphone,
@@ -36,6 +37,7 @@ import {
   type ChangePasswordInput,
   type ProfileVisibilityValue,
 } from '@studenthub/shared-schemas'
+import { RELEASE_NOTES, ReleaseNoteModal, latestNote } from '../../../entities/release'
 import type { MeResponse } from '../../../shared/api'
 import { setup2faRequest, enable2faRequest, disable2faRequest } from '../../../shared/api'
 import {
@@ -868,6 +870,31 @@ function VersionRow() {
   )
 }
 
+/**
+ * «Что нового» по требованию. Окно после обновления показывается один раз и закрывается
+ * кнопкой — вернуться к тексту было больше негде, а именно в нём написано, куда переехал
+ * раздел. Здесь же открывается последняя нота, независимо от того, читал её человек или нет.
+ */
+function WhatsNewRow() {
+  const tS = useTranslations('Settings')
+  const [open, setOpen] = useState(false)
+  const note = latestNote(RELEASE_NOTES)
+
+  if (!note) return null
+
+  return (
+    <>
+      <SettingRow title={tS('whatsNewTitle')} desc={tS('whatsNewDesc', { version: note.version })}>
+        <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+          <Sparkles className="size-4" aria-hidden />
+          {tS('whatsNewOpen')}
+        </Button>
+      </SettingRow>
+      {open && <ReleaseNoteModal note={note} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
 function AppSection() {
   const tS = useTranslations('Settings')
   const { status, platform } = usePwaInstall()
@@ -907,6 +934,8 @@ function AppSection() {
       </SettingRow>
 
       <VersionRow />
+
+      <WhatsNewRow />
 
       {how && (
         <Modal onClose={() => setHow(false)} title={tS('installHowTitle')} size="md">

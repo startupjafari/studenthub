@@ -2260,7 +2260,10 @@
     "versionDesc": "Currently running {version}",
     "versionCheck": "Check for updates",
     "versionApply": "Update",
-    "versionUpToDate": "Up to date"
+    "versionUpToDate": "Up to date",
+    "whatsNewTitle": "What's new",
+    "whatsNewDesc": "What changed in version {version}",
+    "whatsNewOpen": "Open"
   },
   "Offline": {
     "title": "You are offline",

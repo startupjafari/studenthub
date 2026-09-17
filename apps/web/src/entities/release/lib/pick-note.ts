@@ -14,6 +14,12 @@ export interface ReleaseDecision {
   action: 'show' | 'acknowledge'
 }
 
+/** Самая новая нота вообще — её открывает пункт «Что нового» в настройках. */
+export function latestNote(notes: ReleaseNote[]): ReleaseNote | null {
+  if (notes.length === 0) return null
+  return notes.reduce((latest, n) => (isNewerVersion(n.version, latest.version) ? n : latest))
+}
+
 /** Последняя нота, у которой включён показ окна. История длиннее — она для changelog. */
 export function latestModalNote(notes: ReleaseNote[]): ReleaseNote | null {
   const shown = notes.filter((n) => n.showModal)
