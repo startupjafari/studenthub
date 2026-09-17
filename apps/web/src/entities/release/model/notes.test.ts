@@ -50,7 +50,7 @@ describe('релизные ноты', () => {
         )
         content.sections.forEach((section, i) => {
           expect(section.items.length, `${n.version}/${locale}: блок ${i + 1}`).toBe(
-            ru.sections[i].items.length,
+            ru.sections[i]?.items.length,
           )
         })
       }
