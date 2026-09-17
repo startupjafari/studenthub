@@ -787,7 +787,7 @@ model DocumentEvent {   // пер-документ/пер-запрос журн�
 
 ```
 1. pnpm --filter api prisma db seed
-   → PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)
+   → PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (локально; в проде — SEED_PASSWORD)
    → dev-инвайт для UNIVERSITY_ADMIN
 2. Войти как PLATFORM_ADMIN → создать реальный университет
 3. Выдать инвайт UNIVERSITY_ADMIN → зарегистрировать администратора вуза

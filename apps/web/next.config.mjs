@@ -115,6 +115,75 @@ const buildId = (
   `dev-${Date.now().toString(36)}`
 ).slice(0, 12)
 
+/**
+ * Заголовки безопасности для всех страниц приложения.
+ *
+ * Helmet на API закрывает только ответы API — на страницы Next он не распространяется,
+ * и до этого платформа отдавалась вообще без защитных заголовков: её можно было положить
+ * в <iframe> на чужом домене (кликджекинг на подтверждении входа по QR и на любом
+ * необратимом действии), а против XSS не было второго рубежа.
+ *
+ * Источники берём из тех же NEXT_PUBLIC_*, по которым приложение ходит в рантайме:
+ * API, WebSocket и MinIO живут на отдельных origin'ах и в dev, и на Railway, поэтому
+ * прибить их к 'self' нельзя — CSP молча оборвал бы загрузку данных и аватаров.
+ */
+function securityHeaders() {
+  const isDev = process.env.NODE_ENV === 'development'
+
+  /** origin из переменной окружения; пустая/битая — молча пропускаем. */
+  const origin = (value) => {
+    if (!value) return null
+    try {
+      return new URL(value).origin
+    } catch {
+      return null
+    }
+  }
+
+  const api = origin(process.env.NEXT_PUBLIC_API_URL)
+  const ws = origin(process.env.NEXT_PUBLIC_WS_URL)
+  const minio = origin(process.env.NEXT_PUBLIC_MINIO_URL)
+  const wsScheme = ws ? ws.replace(/^http/, 'ws') : null
+
+  const uniq = (list) => [...new Set(list.filter(Boolean))].join(' ')
+
+  const csp = [
+    "default-src 'self'",
+    // Next отдаёт инлайновый бутстрап без nonce, а dev-режим вдобавок требует eval.
+    // Директива остаётся слабой осознанно: ужесточение требует nonce-пайплайна и
+    // отдельной задачи. Ценность этого CSP — в директивах ниже, они работают уже сейчас.
+    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+    "style-src 'self' 'unsafe-inline'",
+    // `https:` в этих трёх директивах — намеренное послабление, а не недосмотр.
+    // Картинки и загрузка идут по presigned-ссылкам, адрес которых выдаёт API из своего
+    // MINIO_PUBLIC_ENDPOINT: разойдись он с NEXT_PUBLIC_MINIO_URL — и CSP молча погасил бы
+    // все аватары и прямую загрузку файлов, а в консоли осталось бы одно «Refused to
+    // connect». Цена послабления мала: script-src здесь всё равно с 'unsafe-inline', то
+    // есть от XSS защищают не эти директивы, а object-src/base-uri/form-action ниже.
+    // Явные origin'ы оставлены документацией: по ним видно, куда ходит приложение.
+    uniq(['img-src', "'self'", 'data:', 'blob:', 'https:', minio, api]),
+    uniq(['media-src', "'self'", 'blob:', 'https:', minio, api]),
+    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio]),
+    "font-src 'self' data:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    // Главное здесь: приложение нельзя встроить во фрейм на чужом домене.
+    "frame-ancestors 'none'",
+  ].join('; ')
+
+  return [
+    { key: 'Content-Security-Policy', value: csp },
+    // Дубль frame-ancestors для браузеров, которые его не поддерживают.
+    { key: 'X-Frame-Options', value: 'DENY' },
+    { key: 'X-Content-Type-Options', value: 'nosniff' },
+    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+    // Камера нужна сканеру QR (вход по QR, отметка посещаемости) — на своём origin.
+    { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
+  ]
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -156,6 +225,7 @@ const nextConfig = {
         source: '/manifest.webmanifest',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' }],
       },
+      { source: '/:path*', headers: securityHeaders() },
     ]
   },
 

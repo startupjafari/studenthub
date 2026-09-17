@@ -3,9 +3,12 @@ import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
+import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
+import { RealtimeGateway } from '../../common/realtime'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -15,6 +18,11 @@ import { TwoFactorService } from './two-factor.service'
 import { parseDurationMs } from './auth.constants'
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient
+
+// Время жизни промежуточного токена 2FA. Двумя формами: одна для jwt.sign, вторая для
+// TTL пометки в Redis — они обязаны совпадать, иначе пометка переживёт токен или наоборот.
+const TWO_FACTOR_CHALLENGE_TTL = '5m'
+const TWO_FACTOR_CHALLENGE_TTL_SECONDS = 5 * 60
 
 export interface RequestContext {
   ip?: string
@@ -52,12 +60,19 @@ export class AuthService {
     @Inject(forwardRef(() => UserService)) private readonly users: UserService,
     private readonly invites: InviteService,
     private readonly twoFactor: TwoFactorService,
+    private readonly realtime: RealtimeGateway,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
   async validateUser(identifier: string, password: string): Promise<JwtPayload> {
     const user = await this.users.findByLoginIdentifierForAuth(identifier)
-    const passwordOk = user ? await this.passwords.compare(password, user.passwordHash) : false
+    // Несуществующий пользователь тоже стоит одного bcrypt: без холостого сравнения ответ
+    // приходит на ~250 мс быстрее, и по времени перебирается, какие адреса и логины на
+    // платформе заведены. Сообщение об ошибке одинаковое — время должно быть таким же.
+    const passwordOk = user
+      ? await this.passwords.compare(password, user.passwordHash)
+      : await this.passwords.compareWithDummy(password)
     if (!user || !passwordOk) {
       throw new AppException('UNAUTHORIZED', 'Неверный email или пароль')
     }
@@ -159,7 +174,7 @@ export class AuthService {
     code: string,
     ctx: RequestContext,
   ): Promise<SessionResult> {
-    const userId = this.verifyTwoFactorChallenge(challengeToken)
+    const { userId, jti } = this.verifyTwoFactorChallenge(challengeToken)
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec || !rec.twoFactorEnabled) {
       throw new AppException('UNAUTHORIZED', 'Сессия входа недействительна')
@@ -171,26 +186,70 @@ export class AuthService {
     if (!ok) {
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
+    // Гасим challenge ИМЕННО здесь — после верного кода, а не до проверки: опечатка в
+    // шестизначном коде дело обычное, и сжигать за неё весь вход (вплоть до повторного
+    // ввода пароля) незачем. Повторные попытки ограничивает throttle на эндпоинте.
+    await this.consumeChallengeId(jti)
     const session = await this.issueSession(this.toPayload(rec), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
   }
 
   // Короткоживущий (5 мин) промежуточный токен между шагом 1 и 2. Подписан access-секретом,
-  // но помечен typ='TWO_FACTOR' — JwtStrategy отвергает такие как access-токены.
+  // но помечен typ='TWO_FACTOR' — JwtStrategy и RealtimeGateway отвергают такие как access-токены.
+  // jti нужен, чтобы токен был ОДНОРАЗОВЫМ: см. verifyTwoFactorChallenge.
   private signTwoFactorChallenge(userId: string): string {
-    return this.jwt.sign({ sub: userId, typ: 'TWO_FACTOR' }, { expiresIn: '5m' })
+    return this.jwt.sign(
+      { sub: userId, typ: 'TWO_FACTOR', jti: randomUUID() },
+      { expiresIn: TWO_FACTOR_CHALLENGE_TTL },
+    )
   }
 
-  private verifyTwoFactorChallenge(token: string): string {
+  private verifyTwoFactorChallenge(token: string): { userId: string; jti?: string } {
     try {
-      const payload = this.jwt.verify<{ sub?: string; typ?: string }>(token)
+      const payload = this.jwt.verify<{ sub?: string; typ?: string; jti?: string }>(token)
       if (payload.typ !== 'TWO_FACTOR' || !payload.sub) {
         throw new Error('invalid challenge')
       }
-      return payload.sub
+      return { userId: payload.sub, jti: payload.jti }
     } catch {
       throw new AppException('UNAUTHORIZED', 'Сессия входа истекла — войдите заново')
+    }
+  }
+
+  /**
+   * Гасит jti challenge-токена: один токен — один обмен на сессию.
+   *
+   * Без этого токен оставался действительным все пять минут и его можно было обменять
+   * на сессию повторно — например, из перехваченного ответа первого шага или из истории
+   * запросов. Пометка ставится через SET NX: гонка двух параллельных обменов разрешается
+   * в Redis, а не в коде.
+   *
+   * Redis недоступен — пропускаем проверку с предупреждением: ронять вход по второму
+   * фактору из-за сбоя кэша нельзя, а пароль на первом шаге уже проверен.
+   */
+  private async consumeChallengeId(jti: string | undefined): Promise<void> {
+    // Токен, выданный до появления jti (обновление на лету), — пропускаем: за пять минут
+    // все такие истекут сами.
+    if (!jti) return
+    let fresh: 'OK' | null
+    try {
+      fresh = await this.redis.set(
+        `2fa:challenge:${jti}`,
+        '1',
+        'EX',
+        TWO_FACTOR_CHALLENGE_TTL_SECONDS,
+        'NX',
+      )
+    } catch (error) {
+      this.logger.warn(
+        { err: error },
+        'Redis недоступен — одноразовость challenge-токена 2FA не проверена',
+      )
+      return
+    }
+    if (fresh === null) {
+      throw new AppException('UNAUTHORIZED', 'Этот код входа уже использован — войдите заново')
     }
   }
 
@@ -295,6 +354,11 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     })
+    // Refresh-цепочки погашены, но открытый WS живёт сам по себе: его пускали по access-токену,
+    // и до истечения токена заблокированный (или скомпрометированный) пользователь продолжал
+    // бы получать уведомления и сообщения. Рвём соединения сразу — клиент попробует
+    // переподключиться со свежим токеном и не сможет.
+    this.realtime.disconnectUser(userId)
   }
 
   // --- приватные ---

@@ -23,6 +23,7 @@ import bcrypt from 'bcrypt'
 import { loadConfig } from './seed/config.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
+import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
@@ -58,7 +59,10 @@ const TWO_FACTOR_RESET = {
   twoFactorBackupCodes: [],
 }
 
-const PASSWORD = 'Admin1234!'
+// Тот же резолвер, что и в основном сиде: на проде без SEED_PASSWORD пароль генерируется,
+// а не берётся из репозитория (seed/lib/seed-password.mjs).
+const seedPassword = resolveSeedPassword()
+const PASSWORD = seedPassword.password
 const CITY = 'Алматы'
 
 // Зерно своё, не пересекается с основным сидом (20260812) и генератором вузов:
@@ -187,7 +191,8 @@ async function main() {
 /** Итог прогона: что и под чем открывать. Без этого стендом нельзя пользоваться. */
 async function report(platform) {
   const byRole = await prisma.user.groupBy({ by: ['role'], _count: { id: true } })
-  console.log('\nСтенд готов. Пароль у всех: ' + PASSWORD)
+  console.log('\nСтенд готов.')
+  reportSeedPassword(seedPassword)
   for (const account of platform) {
     console.log(`  ${account.role}: ${account.email}`)
   }

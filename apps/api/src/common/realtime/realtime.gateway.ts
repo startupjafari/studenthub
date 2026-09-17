@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
 import {
   ConnectedSocket,
@@ -12,6 +13,8 @@ import {
 import type { Server, Socket } from 'socket.io'
 import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import type { JwtPayload } from '../auth/jwt-payload.type'
+import { TWO_FACTOR_REQUIRED_ROLES } from '../guards/two-factor.guard'
+import type { EnvVars } from '../../config/env.schema'
 import { PrismaService } from '../prisma/prisma.service'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
@@ -31,6 +34,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   constructor(
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService<EnvVars, true>,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -41,6 +45,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     try {
       const payload = await this.jwt.verifyAsync<JwtPayload>(token)
+      if (!this.isUsableAccessToken(payload)) {
+        client.disconnect()
+        return
+      }
       client.data.userId = payload.sub
       client.data.role = payload.role
       client.data.universityId = payload.universityId ?? null
@@ -115,11 +123,50 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (typeof token !== 'string' || token.length === 0) return
     try {
       const p = await this.jwt.verifyAsync<JwtPayload>(token)
+      // Те же требования, что и в handshake: промежуточный токен 2FA и непройденный
+      // второй фактор не должны продлевать уже открытое соединение.
+      if (!this.isUsableAccessToken(p)) {
+        client.disconnect()
+        return
+      }
       client.data.userId = p.sub
       client.data.role = p.role
     } catch {
       this.logger.debug(`WS auth:refresh отклонён (невалидный токен) socket=${client.id}`)
     }
+  }
+
+  /**
+   * Годится ли проверенный по подписи токен для доступа к реальному времени.
+   *
+   * Подписи мало: этим же секретом подписан промежуточный challenge-токен первого шага
+   * входа (AuthService.signTwoFactorChallenge, `typ='TWO_FACTOR'`). По HTTP его отвергает
+   * JwtStrategy.validate, и без такой же проверки здесь пароля было бы достаточно, чтобы
+   * открыть WS и получать уведомления и сообщения жертвы, не зная её второго фактора.
+   *
+   * Тем же барьером закрываем и форс 2FA: TwoFactorGuard — HTTP-guard, к handshake он не
+   * применяется, и привилегированная роль, которой HTTP отвечает TWO_FACTOR_SETUP_REQUIRED,
+   * подключалась бы по WS свободно.
+   */
+  private isUsableAccessToken(payload: JwtPayload & { typ?: string }): boolean {
+    if (payload.typ) {
+      this.logger.warn(`WS отклонён: токен типа ${payload.typ} не является access-токеном`)
+      return false
+    }
+    if (!this.config.get('TWO_FACTOR_ENFORCE', { infer: true })) return true
+    if (!TWO_FACTOR_REQUIRED_ROLES.includes(payload.role) || payload.tfa === true) return true
+    this.logger.warn(`WS отклонён: роль ${payload.role} без включённой 2FA (user=${payload.sub})`)
+    return false
+  }
+
+  /**
+   * Рвёт все живые соединения пользователя. Вызывается там же, где гасятся сессии:
+   * выход, блокировка, смена пароля, удаление. Без этого access-токен умирал за 15 минут,
+   * а открытый сокет продолжал получать события — то есть «выйти со всех устройств»
+   * не выключало ровно тот канал, по которому идут сообщения и уведомления.
+   */
+  disconnectUser(userId: string): void {
+    this.server?.in(`user:${userId}`).disconnectSockets(true)
   }
 
   private extractToken(client: Socket): string | null {
