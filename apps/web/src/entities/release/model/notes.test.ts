@@ -1,29 +1,12 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RELEASE_NOTES } from './notes'
 
-// Страж релизного регламента (docs/RELEASE.md). release-please бампит версию в
-// package.json автоматически, а текст «Что нового» пишет человек — и именно он забывается
-// последним, уже после мёржа. Тогда релиз уезжает на прод, а окно показывает прошлый
-// выпуск, и никто этого не замечает: ошибки нет, просто тишина.
-//
-// Поэтому: версия из package.json обязана иметь запись здесь. Релизный PR остаётся
-// красным, пока её не добавили.
-
-const ROOT = path.join(__dirname, '..', '..', '..', '..', '..', '..')
-const rootVersion = (
-  JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as { version: string }
-).version
+// Ноту читают трое: приложение (окно «Что нового»), страж CI на PR в main и workflow,
+// который собирает описание GitHub Release. Здесь проверяется, что файл пригоден для всех
+// троих. Сам факт «для следующего релиза текст написан» проверяет не тест, а
+// `scripts/release.mjs check-unreleased`: ему нужны теги репозитория, которых у vitest нет.
 
 describe('релизные ноты', () => {
-  it('у текущей версии из package.json есть запись', () => {
-    const versions = RELEASE_NOTES.map((n) => n.version)
-    expect(versions, `нет ноты для версии ${rootVersion} — добавьте её в notes.ts`).toContain(
-      rootVersion,
-    )
-  })
-
   it('версии уникальны и в формате SemVer', () => {
     const versions = RELEASE_NOTES.map((n) => n.version)
     expect(new Set(versions).size).toBe(versions.length)
