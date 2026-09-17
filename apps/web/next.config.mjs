@@ -154,9 +154,16 @@ function securityHeaders() {
     // отдельной задачи. Ценность этого CSP — в директивах ниже, они работают уже сейчас.
     `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
-    uniq(['img-src', "'self'", 'data:', 'blob:', minio, api]),
-    uniq(['media-src', "'self'", 'blob:', minio, api]),
-    uniq(['connect-src', "'self'", api, ws, wsScheme, minio]),
+    // `https:` в этих трёх директивах — намеренное послабление, а не недосмотр.
+    // Картинки и загрузка идут по presigned-ссылкам, адрес которых выдаёт API из своего
+    // MINIO_PUBLIC_ENDPOINT: разойдись он с NEXT_PUBLIC_MINIO_URL — и CSP молча погасил бы
+    // все аватары и прямую загрузку файлов, а в консоли осталось бы одно «Refused to
+    // connect». Цена послабления мала: script-src здесь всё равно с 'unsafe-inline', то
+    // есть от XSS защищают не эти директивы, а object-src/base-uri/form-action ниже.
+    // Явные origin'ы оставлены документацией: по ним видно, куда ходит приложение.
+    uniq(['img-src', "'self'", 'data:', 'blob:', 'https:', minio, api]),
+    uniq(['media-src', "'self'", 'blob:', 'https:', minio, api]),
+    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio]),
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "object-src 'none'",
