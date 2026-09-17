@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
+import { RealtimeGateway } from '../../common/realtime'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -52,6 +53,7 @@ export class AuthService {
     @Inject(forwardRef(() => UserService)) private readonly users: UserService,
     private readonly invites: InviteService,
     private readonly twoFactor: TwoFactorService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -295,6 +297,11 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     })
+    // Refresh-цепочки погашены, но открытый WS живёт сам по себе: его пускали по access-токену,
+    // и до истечения токена заблокированный (или скомпрометированный) пользователь продолжал
+    // бы получать уведомления и сообщения. Рвём соединения сразу — клиент попробует
+    // переподключиться со свежим токеном и не сможет.
+    this.realtime.disconnectUser(userId)
   }
 
   // --- приватные ---
