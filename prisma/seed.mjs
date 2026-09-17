@@ -11,6 +11,7 @@ import { loadConfig } from './seed/config.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
 import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
+import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
 import { seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
@@ -141,7 +142,12 @@ async function main() {
 
   // Один bcrypt-хэш на всех сид-пользователей. Это не оптимизация, а условие
   // выполнимости: 125 000 хэшей с cost=12 — это часы работы CPU.
-  const passwordHash = await bcrypt.hash('Admin1234!', 12)
+  //
+  // Сам пароль — не константа: сид это штатный путь бутстрапа прода, и зашитый в
+  // репозиторий `Admin1234!` означал бы известный всем пароль платформенного админа на
+  // живом стенде (см. seed/lib/seed-password.mjs).
+  const seedPassword = resolveSeedPassword()
+  const passwordHash = await bcrypt.hash(seedPassword.password, 12)
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
@@ -217,8 +223,8 @@ async function main() {
     },
   })
 
-  // Dev-пользователи по всем ролям (кроме PLATFORM_ADMIN — он выше). Все с паролем
-  // Admin1234!, привязаны к демо-скоупу. Идемпотентно (upsert по email, update:{} —
+  // Dev-пользователи по всем ролям (кроме PLATFORM_ADMIN — он выше). Пароль общий
+  // (resolveSeedPassword), привязаны к демо-скоупу. Идемпотентно (upsert по email, update:{} —
   // повторный запуск не трогает пароль/профиль). Только для dev/демо — в проде сменить/удалить.
   const scope = {
     university: { universityId: SEED_UNIVERSITY_ID },
@@ -1268,8 +1274,9 @@ async function main() {
   progress.addRows(Object.values(counts).reduce((a, b) => a + b, 0))
 
   console.log('Seed готов:')
-  console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
-  console.log('  Именованные роли (пароль у всех Admin1234!):')
+  console.log('  PLATFORM_ADMIN: admin@studenthub.app  (сменить пароль сразу)')
+  reportSeedPassword(seedPassword)
+  console.log('  Именованные роли (пароль тот же):')
   for (const [role, email] of devUsers) {
     console.log(`    ${role}: ${email}`)
   }
