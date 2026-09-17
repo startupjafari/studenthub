@@ -3563,5 +3563,9 @@
     "issuedAt": "Issued on",
     "revokedAt": "Revoked on",
     "privacyHint": "This page confirms only that the document was issued. Its contents and full personal data are not disclosed."
+  },
+  "WhatsNew": {
+    "title": "What's new",
+    "gotIt": "Got it"
   }
 }
