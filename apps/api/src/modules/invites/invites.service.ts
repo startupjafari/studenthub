@@ -18,6 +18,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { hashInviteToken, inviteTokenLookups } from './invite-token'
 import { Paginated } from '../../common/http/paginated'
 import { QueueService, QUEUES, EMAIL_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -89,7 +90,8 @@ export class InviteService {
 
     const invite = await this.prisma.invite.create({
       data: {
-        token,
+        // В базу идёт ХЭШ; сырой токен возвращается вызывающему и уходит в письмо.
+        token: hashInviteToken(token),
         role: input.role,
         email: input.email,
         universityId: scope.universityId,
@@ -125,8 +127,9 @@ export class InviteService {
       await this.enqueueInviteEmail(input.email, token, invite.role, expiresAt)
     }
 
-    // Токен возвращается ТОЛЬКО здесь — создателю в момент выдачи (§11.9).
-    return invite
+    // Токен возвращается ТОЛЬКО здесь — создателю в момент выдачи (§11.9). Подменяем на
+    // сырой: в `invite.token` из базы лежит хэш, по нему зарегистрироваться нельзя.
+    return { ...invite, token }
   }
 
   /**
@@ -156,7 +159,9 @@ export class InviteService {
             timeStyle: 'short',
           }).format(expiresAt),
         },
-        { jobId: `invite:${token}` },
+        // jobId — по хэшу: идемпотентность та же (хэш детерминирован), а сырой токен не
+        // оседает в Redis именем задачи, которое переживает саму отправку.
+        { jobId: `invite:${hashInviteToken(token)}` },
       )
     } catch (err) {
       this.logger.warn(
@@ -269,7 +274,7 @@ export class InviteService {
       try {
         await this.prisma.invite.create({
           data: {
-            token,
+            token: hashInviteToken(token),
             role,
             email,
             universityId: scope.universityId,
@@ -361,8 +366,8 @@ export class InviteService {
 
   /** Публичный preview по токену. Не раскрывает email получателя и создателя (§7). */
   async preview(token: string) {
-    const invite = await this.prisma.invite.findUnique({
-      where: { token },
+    const invite = await this.prisma.invite.findFirst({
+      where: { token: { in: inviteTokenLookups(token) } },
       select: {
         role: true,
         status: true,
@@ -458,12 +463,16 @@ export class InviteService {
    */
   async claimInvite(tx: Prisma.TransactionClient, token: string) {
     const now = new Date()
+    const lookups = inviteTokenLookups(token)
     const claim = await tx.invite.updateMany({
-      where: { token, status: InviteStatus.PENDING, expiresAt: { gt: now } },
+      where: { token: { in: lookups }, status: InviteStatus.PENDING, expiresAt: { gt: now } },
       data: { status: InviteStatus.USED, usedAt: now },
     })
     if (claim.count === 0) {
-      const existing = await tx.invite.findUnique({ where: { token }, select: { status: true } })
+      const existing = await tx.invite.findFirst({
+        where: { token: { in: lookups } },
+        select: { status: true },
+      })
       if (!existing) {
         throw new AppException('NOT_FOUND', 'Инвайт не найден')
       }
@@ -475,7 +484,7 @@ export class InviteService {
       }
       throw new AppException('INVITE_EXPIRED', 'Срок инвайта истёк')
     }
-    return tx.invite.findUniqueOrThrow({ where: { token } })
+    return tx.invite.findFirstOrThrow({ where: { token: { in: lookups } } })
   }
 
   /** Привязывает созданного пользователя к использованному инвайту (аудит). */

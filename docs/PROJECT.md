@@ -1053,13 +1053,13 @@ pnpm dev        # turbo поднимает api:3001 и web:3000
 
 | # | Объект | Значение |
 |---|---|---|
-| 1 | `PLATFORM_ADMIN` | `admin@studenthub.app` / `Admin1234!` — **сменить сразу** |
+| 1 | `PLATFORM_ADMIN` | `admin@studenthub.app`; пароль — `SEED_PASSWORD`, локально по умолчанию `Admin1234!`. Против удалённой базы (`SEED_ALLOW_REMOTE=1`) без `SEED_PASSWORD` генерируется случайный и печатается в выводе прогона один раз — **сменить сразу** |
 | 2 | Демо-университет | `seed-university-001`, Университет «Алатау» (АУ), Алматы (КАТО `750000000`) |
 | 3 | Факультеты | 5, первый — `seed-faculty-001` «Факультет информационных технологий» |
 | 4 | Группы | 15, демо-группа `seed-group-001` «ИТ-23-1» |
 | 5 | Dev-инвайт `UNIVERSITY_ADMIN` | `http://localhost:3000/register?token=seed-invite-university-admin-token` |
 | 6 | Аудитории | 101, 102, Лаборатория A + 18 аудиторий 200–217 |
-| 7 | Аккаунты остальных ролей | `platform-moderator@`, `university-admin@`, `university-moderator@`, `dean@`, `teacher@`, `starosta@`, `student@studenthub.app` — пароль у всех `Admin1234!` |
+| 7 | Аккаунты остальных ролей | `platform-moderator@`, `university-admin@`, `university-moderator@`, `dean@`, `teacher@`, `starosta@`, `student@studenthub.app` — пароль тот же, что у `PLATFORM_ADMIN` |
 | 8 | Академика демо-вуза | 90 курсов, 90 пар, 6.5 тыс. оценок, 13 тыс. отметок посещаемости, 2.2 тыс. результатов экзаменов |
 | 9 | Справочник КАТО | 16 205 записей (первый шаг прогона) |
 
@@ -1150,7 +1150,7 @@ SEED_MEDIA_REFRESH=1 …                  # заново обойти Викис
 строк, и на его id ссылается этот раздел, dev-инвайт и e2e. Проще не звать его вовсе и
 собрать стенд из тех же шагов — шаги переиспользуются один в один.
 
-Вход: пароль у всех `Admin1234!`, платформенные — `admin@studenthub.app`,
+Вход: пароль у всех общий (см. §14, `SEED_PASSWORD`), платформенные — `admin@studenthub.app`,
 `moderator1@`, `moderator2@studenthub.app`; вузовские — `admin@u001.edu.kz`,
 `moderator.0@u001.edu.kz`, `dean.<код>@u001.edu.kz` и т. д. (итог прогона печатает список).
 Named-аккаунтов вида `dean@studenthub.app` здесь нет — они принадлежат демо-вузу.
