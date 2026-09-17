@@ -610,6 +610,18 @@ export class UserService {
     return { universityId: viewer.universityId ?? '__none__' }
   }
 
+  /**
+   * Дата регистрации. Нужна модулю releases: релиз, вышедший до появления аккаунта,
+   * новому человеку не показывают (ReleasesService.state).
+   */
+  async registeredAt(userId: string): Promise<Date | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId },
+      select: { createdAt: true },
+    })
+    return user?.createdAt ?? null
+  }
+
   /** ФИО пользователя одной строкой: в JWT имён нет, а шапке файла и журналу они нужны. */
   async fullName(userId: string): Promise<string> {
     const user = await this.prisma.user.findFirst({

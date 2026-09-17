@@ -1,0 +1,88 @@
+name: Migrate (Railway)
+
+# Применение миграций к проду. Отдельно от деплоя и только руками.
+#
+# Почему не в CMD контейнера: api может подняться в нескольких экземплярах и перезапускается
+# по restartPolicy — миграции побежали бы параллельно и на каждом рестарте. Dockerfile это
+# фиксирует явно («Миграции применяются отдельным шагом (migrate deploy) до старта»).
+#
+# Почему с раннера, а не с ноутбука: у Railway закрыт прямой доступ к Postgres из части
+# сетей, у GitHub-раннера egress открыт — тот же приём, что в workflow `Seed (Railway)`.
+#
+# Порядок в релизе: сначала `status` (посмотреть, что не применено и какой SQL уедет),
+# потом `deploy`, и только затем — мёрж в main, с которого Railway соберёт новый код.
+# Обратной операции нет: `prisma migrate` не откатывает. Поэтому в релиз идут только
+# аддитивные миграции, а удаление колонок — отдельным, следующим релизом (docs/RELEASE.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'status — только показать неприменённые миграции и SQL; deploy — применить'
+        type: choice
+        default: status
+        options:
+          - status
+          - deploy
+
+concurrency:
+  group: migrate-railway
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: ${{ inputs.mode }}
+    runs-on: ubuntu-latest
+    # Секрет prod-БД живёт в окружении, чтобы его можно было закрыть ревью и правилами.
+    environment: production
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+
+    steps:
+      - name: Guard — секрет задан
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      # Что в БД уже применено, а что нет. Шаг не падает на «есть неприменённые»:
+      # это и есть ожидаемое состояние перед релизом.
+      - name: Статус миграций
+        run: pnpm db:status || true
+
+      # SQL, который отделяет прод от схемы в репозитории — глазами, до применения
+      # (BACKEND_RULES §5.2). В режиме status на этом всё и заканчивается.
+      - name: SQL к применению
+        run: |
+          pnpm exec prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema \
+            --script
+
+      - name: Применить миграции (db:deploy)
+        if: ${{ inputs.mode == 'deploy' }}
+        run: pnpm db:deploy
+
+      - name: Статус после применения
+        if: ${{ inputs.mode == 'deploy' }}
+        run: pnpm db:status

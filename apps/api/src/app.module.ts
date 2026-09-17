@@ -62,6 +62,7 @@ import { HealthModule } from './modules/health/health.module'
 // только заглушку порта — ни воркера, ни фоновых запросов.
 import { OpsNotifyModule } from './modules/ops-notify/ops-notify.module'
 import { MeModule } from './modules/me/me.module'
+import { ReleasesModule } from './modules/releases/releases.module'
 import { AppController } from './app.controller'
 
 @Module({
@@ -142,6 +143,7 @@ import { AppController } from './app.controller'
     CleanupModule,
     HealthModule,
     MeModule,
+    ReleasesModule,
     OpsNotifyModule.register(),
   ],
   controllers: [AppController],
