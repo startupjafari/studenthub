@@ -2,10 +2,14 @@ import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'
+import type Redis from 'ioredis'
 import { SentryModule } from '@sentry/nestjs/setup'
 import { validateEnv } from './config/env.schema'
 import { CommonModule } from './common/common.module'
 import { PrismaModule } from './common/prisma/prisma.module'
+import { REDIS_CLIENT } from './common/redis/redis.constants'
+import { ResilientThrottlerStorage } from './common/security/resilient-throttler.storage'
 import { RedisModule } from './common/redis/redis.module'
 // Счётчик ответов по статусам — им пользуются глобальные фильтр/интерцептор и ops-notify.
 import { MonitoringModule } from './common/monitoring/monitoring.module'
@@ -72,7 +76,24 @@ import { AppController } from './app.controller'
     // Ошибки отправляет НЕ этот модуль, а HttpExceptionFilter (см. common/filters).
     SentryModule.forRoot(),
     // Глобальный rate limit по умолчанию 100/мин (§6.3); точечные лимиты — через @Throttle.
-    ThrottlerModule.forRoot({ throttlers: [{ ttl: 60_000, limit: 100 }] }),
+    //
+    // Счётчики — в Redis, а не в памяти процесса: при нескольких инстансах api лимит
+    // «5 попыток входа за 15 минут» иначе превращается в «5 × число инстансов», потому что
+    // балансировщик разносит попытки и каждый процесс считает свои.
+    //
+    // Клиент переиспользуем общий (REDIS_CLIENT), второе соединение тут ни к чему.
+    // Обёртка ResilientThrottlerStorage не даёт недоступному Redis уронить приём запросов
+    // целиком — см. комментарий в самом классе.
+    ThrottlerModule.forRootAsync({
+      // RedisModule глобальный, но импорт указан явно: фабрика обязана получить готовый
+      // REDIS_CLIENT, а не зависеть от порядка разбора графа модулей.
+      imports: [RedisModule],
+      inject: [REDIS_CLIENT],
+      useFactory: (redis: Redis) => ({
+        throttlers: [{ ttl: 60_000, limit: 100 }],
+        storage: new ResilientThrottlerStorage(new ThrottlerStorageRedisService(redis)),
+      }),
+    }),
     CommonModule,
     PrismaModule,
     RedisModule,

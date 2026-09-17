@@ -98,6 +98,26 @@ const nextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // Лендинг не запрашивает ни камеру, ни геолокацию, ни микрофон.
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Страницы статические, внешних источников нет — CSP тут может быть жёстким.
+          // `unsafe-inline` для скриптов нужен бутстрапу Next и разметке JSON-LD
+          // (src/ui/structured-data.tsx), `frame-ancestors` закрывает встраивание:
+          // на лендинге есть кнопки «Войти», ведущие на платформу.
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data:",
+              "font-src 'self' data:",
+              "connect-src 'self'",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'none'",
+            ].join('; '),
+          },
+          { key: 'X-Frame-Options', value: 'DENY' },
         ],
       },
     ]
