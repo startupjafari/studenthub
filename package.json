@@ -65,6 +65,21 @@
       "@prisma/engines",
       "bcrypt",
       "prisma"
-    ]
+    ],
+    "overrides": {
+      "fast-uri@^3": "^3.1.6",
+      "fast-uri@^4": "^4.1.3",
+      "find-my-way": "^9.7.0",
+      "js-yaml@^4": "^4.3.2",
+      "brace-expansion@^1": "^1.1.18",
+      "brace-expansion@^2": "^2.1.4",
+      "serialize-javascript": "^7.0.3",
+      "deepmerge-ts": "^8.0.0",
+      "js-yaml@^5": "^5.2.2",
+      "postcss": "^8.5.18",
+      "nanoid@^3": "^3.3.18",
+      "@fastify/static": "^10.1.1",
+      "brace-expansion@^5": "^5.0.9"
+    }
   }
 }
