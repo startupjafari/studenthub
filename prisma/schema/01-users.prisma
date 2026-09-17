@@ -97,6 +97,9 @@ model User {
   notificationSettings NotificationSettings?
   pushSubscriptions    PushSubscription[]
 
+  // Релизы: до какой версии «Что нового» человек дочитал (28-releases.prisma).
+  releaseView ReleaseView?
+
   // Расписание (Ф6): пары, которые ведёт преподаватель; изменения расписания, где он замена/автор.
   pairsTaught            Pair[]           @relation("PairTeacher")
   scheduleChangesAsNew   ScheduleChange[] @relation("ScheduleChangeNewTeacher")
