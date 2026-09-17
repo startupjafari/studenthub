@@ -219,7 +219,8 @@ export function UniversityModeratorDashboard() {
 
   if (pending.isError) {
     return (
-      <div className="flex w-full flex-col gap-4">
+      // Плашка ошибки — всё содержимое страницы: тянем колонку на высоту `main`.
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
         <PageHeader title={tNav('dashboard')} subtitle={t('dashSubtitle')} />
         <EmptyState
           icon={<ShieldAlert className="size-6" aria-hidden />}
