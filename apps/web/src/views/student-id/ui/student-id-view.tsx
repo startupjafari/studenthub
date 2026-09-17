@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Inbox, Maximize2, RefreshCw } from 'lucide-react'
 import { Button, EmptyState, Modal, PageHeader, Skeleton } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { fetchMyStudentId, studentIdKeys } from '../../../entities/student-id'
 import { StudentIdCardFace } from './student-id-card'
 
@@ -24,8 +25,13 @@ export function StudentIdView() {
     refetchInterval: REFRESH_SECONDS * 1000,
   })
 
+  // Плашка ошибки — единственное содержимое страницы, и колонка должна отдать ей всю
+  // высоту `main`. Карточке и скелету `flex-1` не нужен: у них своя высота, а в
+  // растянутой колонке они бы ещё и сжимались на низких экранах (§4).
+  const placeholder = !q.isLoading && (q.isError || !q.data)
+
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className={cn('flex w-full flex-col gap-6', placeholder && 'min-h-0 flex-1')}>
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {q.isLoading ? (

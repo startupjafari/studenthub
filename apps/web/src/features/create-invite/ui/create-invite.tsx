@@ -114,7 +114,10 @@ export function CreateInvite() {
 
   if (invitable.length === 0 && !me.isLoading) {
     return (
-      <div className="flex flex-col gap-6">
+      // Плашка — всё содержимое страницы, поэтому колонка забирает высоту `main`
+      // (§4): без `flex-1` состояние прижималось полоской к шапке, а под ним
+      // оставался пустой экран.
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-6">
         <PageHeader title={t('title')} />
         <EmptyState title={t('cannotInvite')} />
       </div>
