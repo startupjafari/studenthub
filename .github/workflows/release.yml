@@ -1,0 +1,57 @@
+name: Release
+
+# Срабатывает, когда человек опубликовал релиз в интерфейсе GitHub (Releases → Draft a new
+# release → тег vX.Y.Z на main). Всё остальное собирается здесь:
+#
+#   1. сверяем, что для этой версии написана нота «Что нового» (иначе пользователи не
+#      узнают, что изменилось, — а узнать потом уже неоткуда: нота едет в бандле);
+#   2. если тело релиза пустое, заполняем его — человеческий текст ноты плюс
+#      conventional-коммиты с прошлого тега, сгруппированные по типам.
+#
+# Написанное руками описание не трогаем: пустое тело — это «собери сам», непустое — «я уже
+# написал». Кнопка GitHub «Generate release notes» тоже считается написанным вручную.
+#
+# Деплой сюда не входит: Railway выкатывает по push в main, то есть раньше этого workflow.
+# Тег — человеческое имя для того, что уже уехало.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  notes:
+    name: описание релиза
+    runs-on: ubuntu-latest
+
+    steps:
+      # fetch-depth: 0 — нужны и теги, и история: описание строится по диапазону
+      # «предыдущий тег → этот».
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Для версии есть нота «Что нового»
+        run: node scripts/release.mjs verify "${{ github.event.release.tag_name }}"
+
+      - name: Собрать описание релиза
+        if: ${{ !github.event.release.body }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/release.mjs body "${{ github.event.release.tag_name }}" > release-body.md
+          gh release edit "${{ github.event.release.tag_name }}" --notes-file release-body.md

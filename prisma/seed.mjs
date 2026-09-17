@@ -11,8 +11,10 @@ import { loadConfig } from './seed/config.mjs'
 import { makeRandom } from './seed/lib/rng.mjs'
 import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
+import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
 import { seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
+import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
@@ -140,7 +142,12 @@ async function main() {
 
   // Один bcrypt-хэш на всех сид-пользователей. Это не оптимизация, а условие
   // выполнимости: 125 000 хэшей с cost=12 — это часы работы CPU.
-  const passwordHash = await bcrypt.hash('Admin1234!', 12)
+  //
+  // Сам пароль — не константа: сид это штатный путь бутстрапа прода, и зашитый в
+  // репозиторий `Admin1234!` означал бы известный всем пароль платформенного админа на
+  // живом стенде (см. seed/lib/seed-password.mjs).
+  const seedPassword = resolveSeedPassword()
+  const passwordHash = await bcrypt.hash(seedPassword.password, 12)
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
@@ -216,8 +223,8 @@ async function main() {
     },
   })
 
-  // Dev-пользователи по всем ролям (кроме PLATFORM_ADMIN — он выше). Все с паролем
-  // Admin1234!, привязаны к демо-скоупу. Идемпотентно (upsert по email, update:{} —
+  // Dev-пользователи по всем ролям (кроме PLATFORM_ADMIN — он выше). Пароль общий
+  // (resolveSeedPassword), привязаны к демо-скоупу. Идемпотентно (upsert по email, update:{} —
   // повторный запуск не трогает пароль/профиль). Только для dev/демо — в проде сменить/удалить.
   const scope = {
     university: { universityId: SEED_UNIVERSITY_ID },
@@ -365,152 +372,10 @@ async function main() {
     },
   })
 
-  // ── Каталог услуг (переработка «Заявок»): категории + базовые глобальные услуги ──
-  // Идемпотентно по фиксированным id. Глобальные шаблоны (universityId = null) видны всем вузам.
-  const categories = [
-    ['ACADEMIC', 'Учебные', 'Оқу', 'Academic', 1],
-    ['CERTIFICATES', 'Справки', 'Анықтамалар', 'Certificates', 2],
-    ['FINANCIAL', 'Финансы', 'Қаржы', 'Financial', 3],
-    ['MILITARY', 'Воинский учёт', 'Әскери есеп', 'Military', 4],
-    ['DORMITORY', 'Общежитие', 'Жатақхана', 'Dormitory', 5],
-    ['PERSONAL_DATA', 'Личные данные', 'Жеке деректер', 'Personal data', 6],
-    ['TECHNICAL', 'Технические', 'Техникалық', 'Technical', 7],
-    ['OTHER', 'Прочее', 'Басқа', 'Other', 8],
-  ]
-  const catId = {}
-  for (const [code, nameRu, nameKk, nameEn, sortOrder] of categories) {
-    const id = `seed-appcat-${code.toLowerCase()}`
-    catId[code] = id
-    await prisma.applicationCategory.upsert({
-      where: { id },
-      update: { nameRu, nameKk, nameEn, sortOrder },
-      create: { id, code, nameRu, nameKk, nameEn, sortOrder },
-    })
-  }
-
-  // Услуга + её требования (документы) + поля формы. slaHours — простой SLA.
-  const services = [
-    {
-      code: 'study-certificate',
-      category: 'CERTIFICATES',
-      nameRu: 'Справка с места обучения',
-      nameKk: 'Оқу орнынан анықтама',
-      nameEn: 'Certificate of study',
-      descriptionRu: 'Справка, подтверждающая обучение в университете.',
-      slaHours: 8,
-      deliveryModes: ['ELECTRONIC', 'PAPER'],
-      requirements: [
-        ['id-card', 'ID_CARD', 'Удостоверение личности', 'Жеке куәлік', 'ID card', true],
-      ],
-      formFields: [
-        {
-          code: 'purpose',
-          type: 'TEXT',
-          labelRu: 'Место требования',
-          labelKk: 'Талап ету орны',
-          labelEn: 'Place of demand',
-          required: false,
-        },
-      ],
-    },
-    {
-      code: 'transcript',
-      category: 'ACADEMIC',
-      nameRu: 'Транскрипт',
-      nameKk: 'Транскрипт',
-      nameEn: 'Transcript',
-      descriptionRu: 'Выписка об академической успеваемости.',
-      slaHours: 48,
-      deliveryModes: ['ELECTRONIC', 'PAPER'],
-      requirements: [
-        ['id-card', 'ID_CARD', 'Удостоверение личности', 'Жеке куәлік', 'ID card', true],
-      ],
-      formFields: [],
-    },
-    {
-      code: 'academic-leave',
-      category: 'ACADEMIC',
-      nameRu: 'Академический отпуск',
-      nameKk: 'Академиялық демалыс',
-      nameEn: 'Academic leave',
-      descriptionRu: 'Оформление академического отпуска.',
-      slaHours: 120,
-      deliveryModes: ['PAPER'],
-      requiresPickup: true,
-      requirements: [
-        ['statement', 'STATEMENT', 'Заявление', 'Өтініш', 'Statement', true],
-        ['medical', 'MEDICAL', 'Медицинское заключение', 'Медициналық қорытынды', 'Medical report', true], // prettier-ignore
-        ['id-card', 'ID_CARD', 'Удостоверение личности', 'Жеке куәлік', 'ID card', true],
-      ],
-      formFields: [
-        {
-          code: 'reason',
-          type: 'TEXTAREA',
-          labelRu: 'Причина',
-          labelKk: 'Себебі',
-          labelEn: 'Reason',
-          required: true,
-        },
-      ],
-    },
-  ]
-  for (const [i, s] of services.entries()) {
-    const id = `seed-appsvc-${s.code}`
-    await prisma.applicationService.upsert({
-      where: { id },
-      update: { nameRu: s.nameRu, nameKk: s.nameKk, nameEn: s.nameEn, sortOrder: i + 1 },
-      create: {
-        id,
-        categoryId: catId[s.category],
-        code: s.code,
-        nameRu: s.nameRu,
-        nameKk: s.nameKk,
-        nameEn: s.nameEn,
-        descriptionRu: s.descriptionRu,
-        slaHours: s.slaHours,
-        deliveryModes: s.deliveryModes,
-        requiresPickup: s.requiresPickup ?? false,
-        sortOrder: i + 1,
-      },
-    })
-    for (const [j, r] of (s.requirements ?? []).entries()) {
-      const [rcode, docType, titleRu, titleKk, titleEn, required] = r
-      const rid = `seed-appreq-${s.code}-${rcode}`
-      await prisma.serviceRequirement.upsert({
-        where: { id: rid },
-        update: { titleRu, titleKk, titleEn, required, sortOrder: j + 1 },
-        create: {
-          id: rid,
-          serviceId: id,
-          code: rcode,
-          documentType: docType,
-          titleRu,
-          titleKk,
-          titleEn,
-          required,
-          sortOrder: j + 1,
-        },
-      })
-    }
-    for (const [j, f] of (s.formFields ?? []).entries()) {
-      const fid = `seed-appfld-${s.code}-${f.code}`
-      await prisma.serviceFormField.upsert({
-        where: { id: fid },
-        update: { labelRu: f.labelRu, labelKk: f.labelKk, labelEn: f.labelEn, sortOrder: j + 1 },
-        create: {
-          id: fid,
-          serviceId: id,
-          code: f.code,
-          type: f.type,
-          labelRu: f.labelRu,
-          labelKk: f.labelKk,
-          labelEn: f.labelEn,
-          required: f.required ?? false,
-          sortOrder: j + 1,
-        },
-      })
-    }
-  }
+  // ── Каталог услуг (справочник платформы) ────────────────────────────────────
+  // Категории и глобальные шаблоны услуг (universityId = null). Вынесен в отдельный
+  // шаг: он нужен и профилю test, где демо-вуза нет (prisma/seed/steps/05-service-catalog.mjs).
+  await seedServiceCatalog(prisma)
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  БОЛЬШОЙ РЕАЛИСТИЧНЫЙ SEED: университет «Алатау» — 5 факультетов, 15 групп,
@@ -1409,8 +1274,9 @@ async function main() {
   progress.addRows(Object.values(counts).reduce((a, b) => a + b, 0))
 
   console.log('Seed готов:')
-  console.log('  PLATFORM_ADMIN: admin@studenthub.app / Admin1234!  (сменить сразу)')
-  console.log('  Именованные роли (пароль у всех Admin1234!):')
+  console.log('  PLATFORM_ADMIN: admin@studenthub.app  (сменить пароль сразу)')
+  reportSeedPassword(seedPassword)
+  console.log('  Именованные роли (пароль тот же):')
   for (const [role, email] of devUsers) {
     console.log(`    ${role}: ${email}`)
   }

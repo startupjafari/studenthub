@@ -11,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { Throttle } from '@nestjs/throttler'
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import type { FileBucketKind } from '@studenthub/shared-schemas'
 import type { FastifyRequest } from 'fastify'
@@ -64,6 +65,12 @@ export class FilesController {
   }
 
   @Post('presign')
+  // Подписанная ссылка не ограничивает размер объекта: MinIO примет по ней сколько угодно,
+  // а лимит категории проверяется только на `confirm` — то есть загрузку, которую никто не
+  // подтвердил, до ночной cleanOrphanFiles оплачивает хранилище. Пока размер не ограничен
+  // самой подписью, потолок ставим на выдачу ссылок: 60 в минуту с запасом покрывают
+  // реальную загрузку альбома и делают бессмысленным залив мусора пачками.
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Ссылка для прямой загрузки файла больше порога буферной (шаг 1 из 3)',
   })

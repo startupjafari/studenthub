@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { ShieldCheck } from 'lucide-react'
 import { Button, CodeInput, Label } from '../../../shared/ui'
 import { setup2faRequest, enable2faRequest } from '../../../shared/api'
+import { endSession } from '../../../shared/session'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -21,6 +22,7 @@ const TOTP_LENGTH = 6
 export function SetupTwoFactorGate() {
   const tS = useTranslations('Settings')
   const tG = useTranslations('SetupTwoFactor')
+  const tA = useTranslations('Auth')
   const tErr = useTranslations('Errors')
   const [setup, setSetup] = useState<{ qr: string; secret: string } | null>(null)
   const [code, setCode] = useState('')
@@ -33,6 +35,16 @@ export function SetupTwoFactorGate() {
   const setupMut = useMutation({
     mutationFn: setup2faRequest,
     onSuccess: (data) => setSetup({ qr: data.qr, secret: data.secret }),
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  // Выход со страницы форса. Именно выход, а не ссылка на /login: пока cookie сессии живы,
+  // middleware уводит с /login на home роли, а там первый же запрос ловит 403
+  // TWO_FACTOR_SETUP_REQUIRED и возвращает сюда — экран без этой кнопки был тупиком.
+  // logout чистит и refresh, и sh_role (@Public на бэке, форс 2FA его не режет).
+  const logoutMut = useMutation({
+    mutationFn: endSession,
+    onSuccess: () => window.location.assign('/login'),
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
@@ -121,6 +133,11 @@ export function SetupTwoFactorGate() {
         >
           {tS('twoFactorConfirm')}
         </Button>
+        <BackToLogin
+          label={tA('twoFactorBack')}
+          pending={logoutMut.isPending}
+          onClick={() => logoutMut.mutate()}
+        />
       </div>
     )
   }
@@ -132,7 +149,37 @@ export function SetupTwoFactorGate() {
       <Button type="button" loading={setupMut.isPending} onClick={() => setupMut.mutate()}>
         {tS('twoFactorSetup')}
       </Button>
+      <BackToLogin
+        label={tA('twoFactorBack')}
+        pending={logoutMut.isPending}
+        onClick={() => logoutMut.mutate()}
+      />
     </div>
+  )
+}
+
+// Тот же вид, что у «Назад ко входу» на шаге 2FA при входе (login-form): приглушённая
+// ссылка-кнопка под основным действием — уход отсюда не должен конкурировать с настройкой.
+// На шаге backup-кодов её намеренно нет: коды показываются один раз, и выход в этот
+// момент означал бы их потерю.
+function BackToLogin({
+  label,
+  pending,
+  onClick,
+}: {
+  label: string
+  pending: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      className="cursor-pointer rounded text-sm font-medium text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-default disabled:opacity-60"
+    >
+      {label}
+    </button>
   )
 }
 

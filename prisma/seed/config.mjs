@@ -18,6 +18,42 @@ const PROFILES = {
   demo: { universities: 0, students: [340, 380], label: 'демо (текущий объём)' },
   small: { universities: 5, students: [200, 400], label: 'малый (мультивузовость)' },
   full: { universities: 100, students: [700, 1700], label: 'полный' },
+  // test: стенд с ЗАДАННЫМ поимённо составом (ТЗ) — 1 вуз, 2 факультета, 2 декана,
+  // 24 преподавателя, 1450 учащихся (из них 58 старост — по одному на группу).
+  //
+  // Демо-вуз «Алатау» здесь выключен: требование «1 университет» означает ровно один,
+  // а не «один сгенерированный рядом с демонстрационным». Поэтому named-аккаунты вроде
+  // dean@studenthub.app в этом профиле не создаются — вход под ролями идёт под
+  // сгенерированными адресами, их печатает итог прогона.
+  //
+  // Состав задан жёстко (fixed), а не выведен из числа студентов: формулы планировщика
+  // дали бы 6 факультетов и 58 преподавателей на 1450 студентов.
+  test: {
+    universities: 1,
+    students: [1450, 1450],
+    label: 'тестовый стенд (1 вуз, 1450 учащихся)',
+    fixed: {
+      demoUniversity: false,
+      platformModerators: 2,
+      faculties: 2,
+      teachers: 24,
+      groupSize: 25,
+      // Пул медиа меньше полного (1000/150): стенду хватает, качается быстрее. Пул нужен
+      // и при пустой галерее — из него идут аватары, обложки профилей и картинки постов.
+      photos: 200,
+      videos: 50,
+      // Личная галерея (вкладки «Фото» и «Видео» в профиле) — ПУСТАЯ по решению
+      // пользователя от 2026-09-16. Причина в цене: File уникален по (bucket, key), то
+      // есть карточка галереи — отдельный объект в MinIO, а не ссылка на пул. Сто фото
+      // на каждого из 1509 пользователей — это 150 тыс. объектов и ~29 ГБ, то есть 29 из
+      // 30 ГБ всего стенда ради содержимого двух вкладок.
+      //
+      // Механизм не удалён, а выключен: включается на любом объёме без пересборки
+      // остального — SEED_PHOTOS_PER_USER=30 SEED_VIDEOS_PER_USER=1 (см. 57-user-media.mjs).
+      photosPerUser: 0,
+      videosPerUser: 0,
+    },
+  },
 }
 
 function num(name, fallback) {
@@ -65,10 +101,23 @@ export function loadConfig() {
   }
 
   const universities = num('SEED_UNIVERSITIES', profile.universities)
+  // Поимённо заданный состав профиля. У demo/small/full его нет: там структура вуза
+  // выводится из числа студентов, и это осознанно — 100 разных вузов не должны быть
+  // одинаковыми. Пустой объект вместо undefined, чтобы ниже не городить проверки.
+  const fixed = profile.fixed ?? {}
   const config = {
     scale: scaleName,
     scaleLabel: profile.label,
     universities,
+    // Заливать ли демо-вуз «Алатау» с named-аккаунтами (dean@studenthub.app и прочими).
+    // Выключается только профилем test: там университет обязан быть ровно один.
+    demoUniversity: bool('SEED_DEMO_UNIVERSITY', fixed.demoUniversity ?? true),
+    // Модераторов платформы. Их создаёт основной сид, а не генератор вузов.
+    platformModerators: num('SEED_PLATFORM_MODERATORS', fixed.platformModerators ?? 1),
+    // Жёсткий состав вуза. null — считать по формулам планировщика (20-structure.mjs).
+    faculties: num('SEED_FACULTIES', fixed.faculties ?? null),
+    teachers: num('SEED_TEACHERS', fixed.teachers ?? null),
+    groupSize: num('SEED_GROUP_SIZE', fixed.groupSize ?? 25),
     studentsMin: num('SEED_STUDENTS_MIN', profile.students[0]),
     studentsMax: num('SEED_STUDENTS_MAX', profile.students[1]),
     // Диапазон вузов для догенерации порциями: SEED_FROM=20 SEED_TO=40.
@@ -94,8 +143,21 @@ export function loadConfig() {
     // Фото — 1000 уникальных (требование задачи). Видео — «сколько есть, но все
     // разные»: без API-ключа тысячу уникальных роликов не собрать, поэтому здесь
     // потолок, а фактическое число зависит от доступности источников.
-    photos: num('SEED_PHOTOS', 1000),
-    videos: num('SEED_VIDEOS', 150),
+    photos: num('SEED_PHOTOS', fixed.photos ?? 1000),
+    videos: num('SEED_VIDEOS', fixed.videos ?? 150),
+    // ── Личная галерея пользователя (профиль test) ────────────────────────────
+    // Сколько фото и видео получает КАЖДЫЙ пользователь в свои альбомы. Ноль —
+    // шаг выключен (demo/small/full: там альбомы наполняются срезом общего пула).
+    //
+    // Цена здесь не в строках, а в хранилище: File уникален по (bucket, key), то есть
+    // одна карточка галереи = отдельный объект в MinIO. 100 фото × 1481 пользователь —
+    // это ~148 тыс. объектов и ~13 ГБ; видео тяжелее фото в 38 раз, поэтому их 3, а не
+    // 100 (20 видео на каждого дали бы ~107 ГБ — решение пользователя от 2026-09-16).
+    photosPerUser: num('SEED_PHOTOS_PER_USER', fixed.photosPerUser ?? 0),
+    videosPerUser: num('SEED_VIDEOS_PER_USER', fixed.videosPerUser ?? 0),
+    // Параллельных копий в MinIO. Выше, чем SEED_CONCURRENCY у вузов: copyObject — это
+    // ожидание ответа хранилища, а не нагрузка на пул соединений Prisma.
+    mediaConcurrency: num('SEED_MEDIA_CONCURRENCY', 16),
     // ── Контент на пользователя ───────────────────────────────────────────────
     // Объём здесь определяет почти весь размер БД: 60 постов × 130 тыс.
     // пользователей — это 7.8 млн постов, а опросы с вариантами и голосами дают
@@ -130,6 +192,38 @@ export function loadConfig() {
 
   if (config.studentsMin > config.studentsMax) {
     throw new Error('SEED_STUDENTS_MIN больше SEED_STUDENTS_MAX')
+  }
+  if (config.groupSize < 1) throw new Error('SEED_GROUP_SIZE должен быть положительным')
+  if (config.faculties !== null && config.faculties < 1) {
+    throw new Error('SEED_FACULTIES должен быть положительным')
+  }
+  // При заданном составе число групп считается только от студентов (20-structure.mjs),
+  // поэтому факультетов не должно быть больше, чем групп: факультет без единой группы
+  // роняет шаг людей на инвайтах (`faculty.groups[0]`), и по сообщению Prisma причину
+  // не угадать. Проверяем здесь — до первой записи в БД.
+  if (config.faculties !== null) {
+    const groups = Math.ceil(config.studentsMin / config.groupSize)
+    if (groups < config.faculties) {
+      throw new Error(
+        `Студентов (${config.studentsMin}) хватает только на ${groups} групп(ы) по ` +
+          `${config.groupSize}, а факультетов ${config.faculties}. Факультет без групп ` +
+          'недопустим: увеличьте SEED_STUDENTS_MIN или уменьшите SEED_FACULTIES.',
+      )
+    }
+  }
+  // Преподавателей не меньше, чем факультетов: декан деканом, а курсы факультета
+  // должен вести хотя бы один преподаватель этого факультета.
+  if (config.teachers !== null && config.teachers < (config.faculties ?? 1)) {
+    throw new Error(
+      `SEED_TEACHERS=${config.teachers} меньше числа факультетов (${config.faculties ?? 1})`,
+    )
+  }
+  for (const [name, value] of [
+    ['SEED_PHOTOS_PER_USER', config.photosPerUser],
+    ['SEED_VIDEOS_PER_USER', config.videosPerUser],
+    ['SEED_PLATFORM_MODERATORS', config.platformModerators],
+  ]) {
+    if (value < 0) throw new Error(`${name} отрицательный`)
   }
   for (const [name, range] of [
     ['SEED_POSTS', config.postsPerUser],

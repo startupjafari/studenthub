@@ -2,6 +2,7 @@ import { InviteStatus } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { InviteService } from './invites.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { hashInviteToken } from './invite-token'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
@@ -12,6 +13,9 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 interface PrismaMock {
   invite: {
     create: jest.Mock
+    // findFirst, а не findUnique: поиск идёт по двум значениям сразу — хэшу и (переходно)
+    // самому токену, см. invite-token.ts.
+    findFirst: jest.Mock
     findUnique: jest.Mock
     update: jest.Mock
   }
@@ -28,7 +32,12 @@ const deanA: JwtPayload = {
 
 function setup() {
   const prisma: PrismaMock = {
-    invite: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    invite: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
@@ -74,24 +83,41 @@ describe('InviteService', () => {
       expect(prisma.invite.create).not.toHaveBeenCalled()
     })
 
-    it('с email ставит письмо-приглашение в очередь email (jobId по токену)', async () => {
+    it('с email ставит письмо-приглашение в очередь email (jobId по хэшу токена)', async () => {
       const { service, prisma, queue } = setup()
       prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.STUDENT })
 
-      await service.create(
+      const res = await service.create(
         deanA,
         { role: Role.STUDENT, groupId: 'grp-1', email: 'stud@demo.kz' },
         ctx,
       )
 
-      const generatedToken = prisma.invite.create.mock.calls[0][0].data.token
       expect(queue.enqueue).toHaveBeenCalledTimes(1)
       const [queueName, jobName, payload, opts] = queue.enqueue.mock.calls[0]
       expect(queueName).toBe('email')
       expect(jobName).toBe('send-invite')
       expect(payload).toMatchObject({ to: 'stud@demo.kz', roleLabel: 'Студент' })
-      expect(payload.inviteUrl).toBe(`http://localhost:3000/register?token=${generatedToken}`)
-      expect(opts).toEqual({ jobId: `invite:${generatedToken}` })
+      // В ссылку идёт СЫРОЙ токен (иначе по ней не зарегистрироваться), в jobId — хэш.
+      expect(payload.inviteUrl).toBe(`http://localhost:3000/register?token=${res.token}`)
+      expect(opts).toEqual({ jobId: `invite:${hashInviteToken(res.token)}` })
+    })
+
+    // Токен — это право завести учётку с заданной ролью. В базе он лежать открытым
+    // не должен: чтение бэкапа или реплики иначе равно возможности зарегистрироваться
+    // по чужому приглашению, в том числе деканом.
+    it('в базу пишется хэш, а наружу отдаётся сырой токен', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'СЮДА-ПОПАЛ-ХЭШ' })
+
+      const res = await service.create(deanA, { role: Role.STAROSTA, groupId: 'grp-1' }, ctx)
+
+      const stored = prisma.invite.create.mock.calls[0][0].data.token
+      expect(stored).toBe(hashInviteToken(res.token))
+      expect(stored).not.toBe(res.token)
+      // 64 hex-символа sha256 — а не UUID.
+      expect(stored).toMatch(/^[0-9a-f]{64}$/)
+      expect(res.token).toMatch(/^[0-9a-f-]{36}$/)
     })
 
     it('без email письмо в очередь не ставится', async () => {
@@ -129,13 +155,13 @@ describe('InviteService', () => {
 
     it('не найден → NOT_FOUND', async () => {
       const { service, prisma } = setup()
-      prisma.invite.findUnique.mockResolvedValue(null)
+      prisma.invite.findFirst.mockResolvedValue(null)
       await expect(service.preview('x')).rejects.toMatchObject({ code: 'NOT_FOUND' })
     })
 
     it('USED → INVITE_USED', async () => {
       const { service, prisma } = setup()
-      prisma.invite.findUnique.mockResolvedValue({
+      prisma.invite.findFirst.mockResolvedValue({
         ...base,
         status: InviteStatus.USED,
         expiresAt: new Date(Date.now() + HOUR),
@@ -145,7 +171,7 @@ describe('InviteService', () => {
 
     it('REVOKED → INVITE_REVOKED', async () => {
       const { service, prisma } = setup()
-      prisma.invite.findUnique.mockResolvedValue({
+      prisma.invite.findFirst.mockResolvedValue({
         ...base,
         status: InviteStatus.REVOKED,
         expiresAt: new Date(Date.now() + HOUR),
@@ -155,7 +181,7 @@ describe('InviteService', () => {
 
     it('PENDING но просрочен → INVITE_EXPIRED', async () => {
       const { service, prisma } = setup()
-      prisma.invite.findUnique.mockResolvedValue({
+      prisma.invite.findFirst.mockResolvedValue({
         ...base,
         status: InviteStatus.PENDING,
         expiresAt: new Date(Date.now() - HOUR),
@@ -166,7 +192,7 @@ describe('InviteService', () => {
     it('валидный PENDING → данные без email/создателя', async () => {
       const { service, prisma } = setup()
       const expiresAt = new Date(Date.now() + HOUR)
-      prisma.invite.findUnique.mockResolvedValue({
+      prisma.invite.findFirst.mockResolvedValue({
         ...base,
         status: InviteStatus.PENDING,
         expiresAt,
@@ -188,7 +214,7 @@ describe('InviteService', () => {
 
     it('у инвайта есть email → emailRequired = false, адрес не раскрывается', async () => {
       const { service, prisma } = setup()
-      prisma.invite.findUnique.mockResolvedValue({
+      prisma.invite.findFirst.mockResolvedValue({
         ...base,
         email: 'student@uni.kz',
         status: InviteStatus.PENDING,

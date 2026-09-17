@@ -2260,7 +2260,10 @@
     "versionDesc": "Сейчас установлена {version}",
     "versionCheck": "Проверить обновление",
     "versionApply": "Обновить",
-    "versionUpToDate": "Последняя версия"
+    "versionUpToDate": "Последняя версия",
+    "whatsNewTitle": "Что нового",
+    "whatsNewDesc": "Что изменилось в версии {version}",
+    "whatsNewOpen": "Открыть"
   },
   "Offline": {
     "title": "Нет соединения",
@@ -3563,5 +3566,9 @@
     "issuedAt": "Дата выдачи",
     "revokedAt": "Дата отзыва",
     "privacyHint": "Страница подтверждает только факт выдачи. Содержание документа и полные персональные данные не раскрываются."
+  },
+  "WhatsNew": {
+    "title": "Что нового",
+    "gotIt": "Понятно"
   }
 }

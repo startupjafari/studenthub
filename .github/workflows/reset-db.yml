@@ -1,0 +1,115 @@
+name: Reset DB (Railway)
+
+# РУЧНОЙ полный сброс прод-БД: все таблицы пустые, остаётся один PLATFORM_ADMIN.
+#
+# Зачем: перед реальным запуском нужно убрать демо-данные сида (тысячи пользователей
+# с паролем Admin1234!), не трогая схему. Скрипт делает TRUNCATE, а не `migrate reset`,
+# поэтому журнал миграций цел и повторный db:deploy не требуется.
+#
+# ЭТО НЕОБРАТИМО. Запускается только вручную и только если в поле подтверждения
+# набрано RESET. Слепок БД Railway перед прогоном — на совести запускающего:
+# Railway → Postgres → Backups.
+#
+# Требуется секрет репозитория DATABASE_PUBLIC_URL (как у workflow «Seed (Railway)»).
+# Пароль администратора: секрет RESET_ADMIN_PASSWORD, если он задан; иначе скрипт
+# сгенерирует пароль и напечатает его в лог прогона.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Наберите RESET — иначе прогон откажется работать'
+        type: string
+        required: true
+      admin_email:
+        description: 'E-mail администратора платформы'
+        type: string
+        default: admin@studenthub.app
+      run_migrations:
+        description: 'Применить миграции (db:deploy) перед сбросом'
+        type: boolean
+        default: true
+      run_seed_kato:
+        description: 'Залить справочник КАТО после сброса (без него пустой селект «Город»)'
+        type: boolean
+        default: true
+
+# Сброс и seed не должны идти одновременно по одной БД.
+concurrency:
+  group: db-write-railway
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: reset → один администратор
+    runs-on: ubuntu-latest
+    # Окружение production: секрет прод-БД можно закрыть ревьюером/правилами.
+    environment: production
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+
+    steps:
+      # Подтверждение проверяем ДО checkout: неверный ввод не должен ничего запускать.
+      - name: Guard — подтверждение и секрет
+        run: |
+          if [ "${{ inputs.confirm }}" != "RESET" ]; then
+            echo "::error::Подтверждение не совпало: ожидалось RESET." >&2
+            exit 1
+          fi
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      # По умолчанию включено: на пустой БД (или после новых миграций) TRUNCATE нечего
+      # делать, пока таблиц нет. На уже развёрнутой БД шаг просто ничего не меняет.
+      - name: Apply migrations (db:deploy)
+        if: ${{ inputs.run_migrations }}
+        run: pnpm db:deploy
+
+      - name: Reset (db:reset:admin)
+        env:
+          RESET_CONFIRM: RESET
+          # БД Railway не localhost — гард скрипта снимается осознанно здесь.
+          RESET_ALLOW_REMOTE: '1'
+          RESET_ADMIN_EMAIL: ${{ inputs.admin_email }}
+          RESET_ADMIN_PASSWORD: ${{ secrets.RESET_ADMIN_PASSWORD }}
+        run: pnpm db:reset:admin
+
+      # КАТО — не демо-данные, а часть развёртывания: `University.city` хранит 9-значный
+      # код, и без справочника его не во что резолвить. Сидер идемпотентен.
+      - name: Seed КАТО (db:seed:kato)
+        if: ${{ inputs.run_seed_kato }}
+        run: pnpm db:seed:kato
+
+      - name: Итог
+        run: |
+          {
+            echo "### Сброс БД выполнен"
+            echo ""
+            echo "В базе остался один пользователь — PLATFORM_ADMIN \`${{ inputs.admin_email }}\`."
+            if [ -n "${{ secrets.RESET_ADMIN_PASSWORD }}" ]; then
+              echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
+            else
+              echo "Пароль сгенерирован и напечатан в логе шага «Reset (db:reset:admin)» — сохраните его и смените после входа."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

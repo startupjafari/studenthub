@@ -2260,7 +2260,10 @@
     "versionDesc": "Қазір {version} орнатылған",
     "versionCheck": "Жаңартуды тексеру",
     "versionApply": "Жаңарту",
-    "versionUpToDate": "Соңғы нұсқа"
+    "versionUpToDate": "Соңғы нұсқа",
+    "whatsNewTitle": "Не жаңалық",
+    "whatsNewDesc": "{version} нұсқасында не өзгерді",
+    "whatsNewOpen": "Ашу"
   },
   "Offline": {
     "title": "Байланыс жоқ",
@@ -3563,5 +3566,9 @@
     "issuedAt": "Берілген күні",
     "revokedAt": "Кері қайтарылған күні",
     "privacyHint": "Бет тек беру фактісін растайды. Құжат мазмұны мен толық жеке деректер ашылмайды."
+  },
+  "WhatsNew": {
+    "title": "Не жаңалық",
+    "gotIt": "Түсінікті"
   }
 }

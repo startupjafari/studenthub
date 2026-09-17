@@ -1,9 +1,16 @@
 name: CI
 
-# Временно: проверки гоняем только при push/merge в develop (не на каждый PR/фича-ветку).
+# Проверки гоняем на интеграционных ветках, а не на каждой фича-ветке:
+#   push develop — обычный цикл разработки;
+#   pull_request main — релизный PR `develop → main`. Без него в прод уезжал бы мёрж,
+#     который никто не проверял: Railway деплоит по push в main, и красный прогон
+#     после факта уже ничего не останавливает;
+#   push main — страховка на случай правки в main мимо PR (hotfix, правка через web-UI).
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -125,3 +132,26 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # Нота «Что нового» пишется до мёржа в main: она едет в бандле вместе с кодом, который
+  # описывает, и после выпуска её уже не подложить. Проверка — только на релизном PR.
+  release-note:
+    name: нота «Что нового»
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # fetch-depth: 0 — нужны теги: «выпущена ли уже эта версия» выясняется по ним.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Для следующего релиза текст написан
+        run: node scripts/release.mjs check-unreleased

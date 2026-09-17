@@ -9,6 +9,13 @@ import type { RequestContext } from '../auth/auth.service'
 
 const SPECIALTY_SELECT = { id: true, name: true } satisfies Prisma.SpecialtySelect
 
+/**
+ * Потолок выборки справочника специальностей вуза. Столько их не бывает даже у крупного
+ * университета — ограничение страхует от промаха в фильтре, а не режет реальные данные
+ * (`findMany` без `take` запрещён, BACKEND_RULES §5.3/§18.8).
+ */
+const SPECIALTY_LIST_LIMIT = 500
+
 @Injectable()
 export class SpecialtiesService {
   constructor(
@@ -23,6 +30,7 @@ export class SpecialtiesService {
       where: { universityId: viewer.universityId },
       orderBy: { name: 'asc' },
       select: SPECIALTY_SELECT,
+      take: SPECIALTY_LIST_LIMIT,
     })
   }
 
