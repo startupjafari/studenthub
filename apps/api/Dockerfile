@@ -14,6 +14,8 @@ COPY packages/shared-types/package.json packages/shared-types/
 COPY packages/shared-schemas/package.json packages/shared-schemas/
 COPY packages/shared-utils/package.json packages/shared-utils/
 COPY packages/shared-config/package.json packages/shared-config/
+# Сборке нужен доступ не только к реестру npm, но и к cdn.sheetjs.com: xlsx ставится
+# тарболлом оттуда (в npm лежит только уязвимая 0.18.5 — см. src/modules/invites/bulk-parse.ts).
 RUN pnpm install --frozen-lockfile
 
 # ── build: генерация Prisma Client + сборка shared → api ──
