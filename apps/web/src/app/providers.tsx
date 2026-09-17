@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { Provider as ReduxProvider } from 'react-redux'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
@@ -21,6 +22,13 @@ import {
   useKeyboardInset,
   useServiceWorkerUpdate,
 } from '../shared/lib'
+
+// Окно «Что нового» отдельным чанком: тексты релизов растут с каждым выпуском, а нужны
+// они раз в релиз и только тем, кто ещё не читал. ssr: false — окно зависит от состояния
+// сессии, на сервере его рисовать не в чем.
+const WhatsNewDialog = dynamic(() => import('../widgets/whats-new').then((m) => m.WhatsNewDialog), {
+  ssr: false,
+})
 
 interface AppProvidersProps {
   locale: string
@@ -51,6 +59,7 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
                 <ConfirmProvider>
                   {children}
                   <CommandPalette />
+                  <WhatsNewDialog />
                   {/* Toaster внутри ThemeProvider — тосты следуют выбранной теме (useTheme). */}
                   <Toaster />
                 </ConfirmProvider>
