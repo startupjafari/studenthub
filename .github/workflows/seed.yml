@@ -1,63 +1,188 @@
 name: Seed (Railway)
 
-# Разовый РУЧНОЙ прогон миграций + seed против БД Railway.
-# Нужен, когда с локальной машины БД недоступна (фильтр исходящих портов и т.п.):
-# у GitHub-раннера открытый egress, он достаёт публичный proxy Postgres.
+# РУЧНОЙ прогон миграций + seed против БД Railway, с настройкой состава из интерфейса
+# Actions. Нужен потому, что с локальной машины прод-БД обычно недоступна (фильтр
+# исходящих портов), а у GitHub-раннера открытый egress до публичного proxy Postgres.
 #
-# ВНИМАНИЕ: seed создаёт демо-пользователей. Пароль берётся из секрета SEED_PASSWORD;
-# если он не задан, сид (NODE_ENV=production) генерирует случайный и печатает его в лог
-# ОДИН раз — восстановить его потом будет неоткуда, в базе только bcrypt-хэш.
-# Запускать осознанно; аккаунты после развёртывания сменить/удалить.
+# ПОРЯДОК ВАЖЕН: сид не чистит базу, он доливает. Заливать поверх уже залитого стенда
+# бессмысленно — получается каша из двух наборов данных. Поэтому сброс живёт здесь же
+# режимом `reset+seed`, а не отдельной кнопкой, которую надо не забыть нажать раньше.
+# Отдельный workflow «Reset DB (Railway)» остаётся для сброса без сида.
 #
-# Требуется секрет репозитория DATABASE_PUBLIC_URL = значение DATABASE_PUBLIC_URL
-# из сервиса Postgres в Railway (Settings → Secrets and variables → Actions).
-# Необязательный секрет SEED_PASSWORD — пароль демо-аккаунтов; без него он случайный.
+# МЕДИА НЕ ЗАЛИВАЕТСЯ (решение владельца 17.09.2026): `SEED_MEDIA=0` жёстко в шаге, и
+# `extra` не даёт его переопределить. Следствие: на стенде не будет аватаров, обложек,
+# картинок в постах и вложений в чатах — записей File просто не создаётся.
+#
+# Секреты: DATABASE_PUBLIC_URL (обязательный, из сервиса Postgres в Railway),
+# SEED_PASSWORD (пароль сид-аккаунтов; без него сид сгенерирует случайный и напечатает
+# его в лог ОДИН раз), RESET_ADMIN_PASSWORD (пароль админа после сброса).
 
 on:
   workflow_dispatch:
     inputs:
-      run_migrations:
-        description: 'Применить миграции (db:deploy) перед seed'
-        type: boolean
-        default: true
-      run_seed:
-        description: 'Запустить seed (db:seed)'
-        type: boolean
-        default: true
-      scale:
-        description: 'Масштаб сида: demo (только демо-вуз) / small (5 вузов) / full (100 вузов, ~22 млн строк!)'
+      mode:
+        description: 'Режим: seed (долить) / reset+seed (сначала очистить базу)'
         type: choice
-        default: demo
+        default: seed
+        options:
+          - seed
+          - reset+seed
+      confirm:
+        description: 'Для reset+seed наберите RESET — иначе прогон откажется работать'
+        type: string
+        default: ''
+      scale:
+        description: 'Масштаб: demo (демо-вуз) / small (5) / full (100) / kz (130 реальных вузов РК) / test (стенд по ТЗ)'
+        type: choice
+        default: kz
         options:
           - demo
           - small
           - full
-      run_seed_kato:
-        description: 'Залить справочник КАТО (db:seed:kato)'
-        type: boolean
-        default: true
+          - kz
+          - test
+      universities:
+        description: 'Сколько вузов (пусто = из профиля; kz = 130)'
+        type: string
+        default: ''
+      students:
+        description: 'Студентов на вуз: «500-1400» или одно число (пусто = из профиля)'
+        type: string
+        default: ''
+      range:
+        description: 'Диапазон вузов порциями: «1-30» (пусто = все)'
+        type: string
+        default: ''
+      content:
+        description: 'Контент на пользователя: full (как заказано, ~74 млн строк) / moderate (~25 млн) / minimal (~20 млн)'
+        type: choice
+        default: moderate
+        options:
+          - full
+          - moderate
+          - minimal
+      concurrency:
+        description: 'Вузов параллельно (больше 8 упирается в пул Prisma)'
+        type: choice
+        default: '4'
+        options: ['2', '4', '6', '8']
+      extra:
+        description: 'Прочие ручки: «SEED_TEACHERS=24 SEED_GROUP_SIZE=25»'
+        type: string
+        default: ''
 
+# Одна группа со сбросом: сид и TRUNCATE не должны идти одновременно по одной БД.
 concurrency:
-  group: seed-railway
+  group: db-write-railway
   cancel-in-progress: false
 
 jobs:
   seed:
-    name: migrate · seed
+    name: migrate · ${{ inputs.mode }} · ${{ inputs.scale }}
     runs-on: ubuntu-latest
-    # Отдельное окружение — чтобы секрет prod-БД можно было ограничить ревью/правилами.
+    # Отдельное окружение — чтобы секрет прод-БД можно было ограничить ревью/правилами.
     environment: production
+    # Профиль kz — это десятки миллионов строк и около часа; остальным столько не нужно.
+    timeout-minutes: ${{ (inputs.scale == 'kz' || inputs.scale == 'full') && 300 || 60 }}
 
     env:
       DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
 
     steps:
-      - name: Guard — секрет задан
+      # Всё, что можно проверить до checkout, проверяется до него: неверный ввод не должен
+      # тратить пять минут на установку зависимостей, чтобы упасть на первом же шаге.
+      # Входные строки приходят через env, а не подстановкой в текст скрипта: иначе
+      # значение вида `; rm -rf /` исполнилось бы шеллом раннера.
+      - name: Guard — подтверждение, секреты, разбор параметров
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+          SCALE: ${{ inputs.scale }}
+          UNIS: ${{ inputs.universities }}
+          STUDENTS: ${{ inputs.students }}
+          RANGE: ${{ inputs.range }}
+          CONTENT: ${{ inputs.content }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          EXTRA: ${{ inputs.extra }}
         run: |
+          set -euo pipefail
+
           if [ -z "${DATABASE_URL}" ]; then
             echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
             exit 1
           fi
+
+          if [ "$MODE" = "reset+seed" ] && [ "$CONFIRM" != "RESET" ]; then
+            echo "::error::Режим reset+seed удаляет ВСЕ данные. Подтверждение не совпало: ожидалось RESET." >&2
+            exit 1
+          fi
+
+          {
+            echo "SEED_SCALE=$SCALE"
+            echo "SEED_CONCURRENCY=$CONCURRENCY"
+          } >> "$GITHUB_ENV"
+
+          if [ -n "$UNIS" ]; then
+            [[ "$UNIS" =~ ^[0-9]+$ ]] || { echo "::error::universities: ожидалось число, получено «$UNIS»." >&2; exit 1; }
+            echo "SEED_UNIVERSITIES=$UNIS" >> "$GITHUB_ENV"
+          fi
+
+          # «500-1400» → диапазон, «900» → фиксированное число.
+          if [ -n "$STUDENTS" ]; then
+            if [[ "$STUDENTS" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+              MIN="${BASH_REMATCH[1]}"; MAX="${BASH_REMATCH[2]}"
+            elif [[ "$STUDENTS" =~ ^[0-9]+$ ]]; then
+              MIN="$STUDENTS"; MAX="$STUDENTS"
+            else
+              echo "::error::students: ожидалось «500-1400» или число, получено «$STUDENTS»." >&2; exit 1
+            fi
+            [ "$MIN" -le "$MAX" ] || { echo "::error::students: минимум больше максимума." >&2; exit 1; }
+            echo "SEED_STUDENTS_MIN=$MIN" >> "$GITHUB_ENV"
+            echo "SEED_STUDENTS_MAX=$MAX" >> "$GITHUB_ENV"
+          fi
+
+          if [ -n "$RANGE" ]; then
+            [[ "$RANGE" =~ ^([0-9]+)-([0-9]+)$ ]] || { echo "::error::range: ожидалось «1-30», получено «$RANGE»." >&2; exit 1; }
+            echo "SEED_FROM=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+            echo "SEED_TO=${BASH_REMATCH[2]}" >> "$GITHUB_ENV"
+          fi
+
+          # Контент на пользователя — главный множитель объёма БД: на дефолтах это 74% всех
+          # строк (посты, статьи, опросы с вариантами и голосами). Стенду для работы с
+          # учебными данными столько не нужно, поэтому по умолчанию здесь moderate.
+          case "$CONTENT" in
+            full) : ;;
+            moderate)
+              {
+                echo "SEED_POSTS_MIN=2";  echo "SEED_POSTS_MAX=10"
+                echo "SEED_ARTICLES_MIN=0"; echo "SEED_ARTICLES_MAX=3"
+                echo "SEED_POLLS_MIN=0";  echo "SEED_POLLS_MAX=5"
+              } >> "$GITHUB_ENV" ;;
+            minimal)
+              {
+                echo "SEED_POSTS_MIN=0";  echo "SEED_POSTS_MAX=3"
+                echo "SEED_ARTICLES_MIN=0"; echo "SEED_ARTICLES_MAX=1"
+                echo "SEED_POLLS_MIN=0";  echo "SEED_POLLS_MAX=1"
+              } >> "$GITHUB_ENV" ;;
+            *) echo "::error::content: неизвестное значение «$CONTENT»." >&2; exit 1 ;;
+          esac
+
+          # Отдушина для остальных тридцати ручек сида. Строгий фильтр: только SEED_*, только
+          # безопасные символы в значении, и SEED_MEDIA не переопределить — медиа в этом
+          # workflow не заливается, а падать на нём через сорок минут прогона незачем.
+          if [ -n "$EXTRA" ]; then
+            for TOKEN in $EXTRA; do
+              [[ "$TOKEN" =~ ^SEED_[A-Z_]+=[A-Za-z0-9_,.-]*$ ]] || { echo "::error::extra: «$TOKEN» не похоже на SEED_KEY=value." >&2; exit 1; }
+              case "$TOKEN" in
+                SEED_MEDIA=*|SEED_PHOTOS*=*|SEED_VIDEOS*=*)
+                  echo "::error::extra: медиа в этом workflow не заливается, «$TOKEN» отклонён." >&2; exit 1 ;;
+              esac
+              echo "$TOKEN" >> "$GITHUB_ENV"
+            done
+          fi
+
+          echo "Режим: $MODE · масштаб: $SCALE · контент: $CONTENT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,29 +202,88 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm db:generate
 
+      # Без флага: на развёрнутой БД это одна строка «No pending migrations», а забытые
+      # миграции ломают сид на первом же запросе. Слот во входных параметрах дороже.
       - name: Apply migrations (db:deploy)
-        if: ${{ inputs.run_migrations }}
         run: pnpm db:deploy
 
-      # Масштаб по умолчанию demo. full — это ~22 млн строк и десятки минут: на Railway
-      # такой прогон осознанно разрешается флагом SEED_ALLOW_REMOTE (гард в
-      # prisma/seed/config.mjs не даст залить это в удалённую БД случайно).
-      # Медиа выключено: качать в MinIO Railway полгигабайта с раннера — отдельная задача.
-      - name: Seed (db:seed)
-        if: ${{ inputs.run_seed }}
+      # Сброс перед сидом: TRUNCATE всех таблиц, кроме журнала миграций, и один
+      # PLATFORM_ADMIN. Маркеры готовности вузов лежат в AuditLog и уходят вместе с ним —
+      # значит следующий шаг гарантированно генерирует всё заново, а не «догоняет».
+      - name: Reset (db:reset:admin)
+        if: ${{ inputs.mode == 'reset+seed' }}
         env:
-          SEED_SCALE: ${{ inputs.scale }}
+          RESET_CONFIRM: RESET
+          # БД Railway не localhost — гард скрипта снимается осознанно здесь.
+          RESET_ALLOW_REMOTE: '1'
+          RESET_ADMIN_EMAIL: ${{ vars.RESET_ADMIN_EMAIL || 'admin@studenthub.app' }}
+          RESET_ADMIN_PASSWORD: ${{ secrets.RESET_ADMIN_PASSWORD }}
+        run: pnpm db:reset:admin
+
+      # Профиль test — отдельная точка входа, а не значение SEED_SCALE: он требует ровно
+      # один вуз, а основной сид безусловно заливает рядом демо-вуз «Алатау».
+      # Справочник КАТО заливается первым шагом внутри обеих команд, отдельного флага нет:
+      # без него `University.city` не во что резолвить и селект «Город» пуст.
+      - name: Seed
+        env:
           SEED_ALLOW_REMOTE: '1'
           SEED_MEDIA: '0'
-          # SEED_ALLOW_REMOTE=1 выше означает удалённую базу — при пустом SEED_PASSWORD
-          # сид сгенерирует случайный пароль вместо dev-умолчания из репозитория.
+          # SEED_ALLOW_REMOTE=1 означает удалённую базу — при пустом SEED_PASSWORD сид
+          # сгенерирует случайный пароль вместо dev-умолчания из репозитория.
           SEED_PASSWORD: ${{ secrets.SEED_PASSWORD }}
-        run: pnpm db:seed
+          SCALE: ${{ inputs.scale }}
+        run: |
+          if [ "$SCALE" = "test" ]; then
+            pnpm db:seed:test
+          else
+            pnpm db:seed
+          fi
 
-      # Справочник КАТО — отдельным шагом и отдельным флагом: он не демо-данные, а
-      # обязательная часть развёртывания. Без него `University.city` не во что резолвить
-      # и селект «Город» отдаёт пустой список. Сидер идемпотентен (ON CONFLICT DO UPDATE),
-      # так что повторный прогон безопасен.
-      - name: Seed КАТО (db:seed:kato)
-        if: ${{ inputs.run_seed_kato }}
-        run: pnpm db:seed:kato
+      # Что в итоге в базе — цифрами, а не «прогон зелёный». Считается по факту, из той же
+      # базы: расхождение с ожиданием видно сразу, не дожидаясь входа в интерфейс.
+      - name: Итог
+        if: ${{ success() }}
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          SCALE: ${{ inputs.scale }}
+          CONTENT: ${{ inputs.content }}
+        run: |
+          node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const [users, unis, faculties, groups] = await Promise.all([
+                p.user.count(), p.university.count(), p.faculty.count(), p.group.count(),
+              ]);
+              const roles = await p.user.groupBy({ by: ['role'], _count: true });
+              const rows = await p.\$queryRawUnsafe(
+                \"SELECT sum(n_live_tup)::bigint AS rows FROM pg_stat_user_tables WHERE schemaname='public'\"
+              );
+              const size = await p.\$queryRawUnsafe(
+                'SELECT pg_size_pretty(pg_database_size(current_database())) AS size'
+              );
+              const nf = (n) => Number(n).toLocaleString('ru-RU');
+              const lines = [
+                '### Сид выполнен',
+                '',
+                '| | |',
+                '|---|---|',
+                '| Режим | \`' + process.env.MODE + '\` |',
+                '| Масштаб | \`' + process.env.SCALE + '\` · контент \`' + process.env.CONTENT + '\` · медиа выключено |',
+                '| Вузы | ' + nf(unis) + ' |',
+                '| Факультеты · группы | ' + nf(faculties) + ' · ' + nf(groups) + ' |',
+                '| Пользователи | ' + nf(users) + ' |',
+                '| Строк в БД | ' + nf(rows[0].rows) + ' |',
+                '| Размер БД | ' + size[0].size + ' |',
+                '',
+                '#### По ролям',
+                '',
+                ...roles.map((r) => '- ' + r.role + ': ' + nf(r._count)),
+                '',
+                'Дашборд платформы кэшируется в Redis на 5 минут — свежие цифры там появятся с задержкой.',
+              ];
+              require('node:fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+              await p.\$disconnect();
+            })().catch((e) => { console.error(e.message); process.exit(0); });
+          "

@@ -18,8 +18,18 @@ import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
+import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
+
+// DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
+// подхватывает только Prisma CLI через prisma.config.ts (те же строки есть в
+// prisma/seed-test.mjs и prisma/reset-to-admin.mjs). Без них `pnpm db:seed` на не-demo
+// масштабе падал на гарде «нелокальная БД» — пустой URL локальным не считается, — а на
+// demo доходил до первого запроса и падал уже в Prisma.
+// Уже заданное окружение приоритетнее: на CI переменные приходят снаружи.
+const env = loadEnv()
+if (!process.env.DATABASE_URL && env.DATABASE_URL) process.env.DATABASE_URL = env.DATABASE_URL
 
 const prisma = new PrismaClient()
 const config = loadConfig()
