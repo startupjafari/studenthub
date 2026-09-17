@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "studenthub",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": false,
+      "bump-patch-for-minor-pre-major": false,
+      "draft": false,
+      "prerelease": false,
+      "include-v-in-tag": true,
+      "include-component-in-tag": false,
+      "pull-request-title-pattern": "chore(release): v${version}",
+      "pull-request-header": "Релизный PR. Перед мёржем: добавить запись о версии в `apps/web/src/entities/release/model/notes.ts` (текст «Что нового» для пользователей) — без неё падает `release-notes.test.ts`. Регламент: `docs/RELEASE.md`.",
+      "changelog-sections": [
+        { "type": "feat", "section": "Новое" },
+        { "type": "fix", "section": "Исправления" },
+        { "type": "perf", "section": "Производительность" },
+        { "type": "refactor", "section": "Рефакторинг" },
+        { "type": "revert", "section": "Откаты" },
+        { "type": "docs", "section": "Документация", "hidden": true },
+        { "type": "chore", "section": "Прочее", "hidden": true },
+        { "type": "test", "section": "Тесты", "hidden": true },
+        { "type": "build", "section": "Сборка", "hidden": true },
+        { "type": "ci", "section": "CI", "hidden": true },
+        { "type": "style", "section": "Стиль", "hidden": true }
+      ]
+    }
+  }
+}
