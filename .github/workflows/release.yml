@@ -1,36 +1,57 @@
 name: Release
 
-# Выпуск версии. release-please читает conventional-коммиты в `main` и держит открытым
-# «релизный PR»: в нём обновлённый CHANGELOG.md и новая версия в package.json. Мёрж этого
-# PR = тег `vX.Y.Z` + GitHub Release.
+# Срабатывает, когда человек опубликовал релиз в интерфейсе GitHub (Releases → Draft a new
+# release → тег vX.Y.Z на main). Всё остальное собирается здесь:
 #
-# Что этот workflow НЕ делает: он не деплоит и не применяет миграции. Прод едет по push в
-# `main` (Railway), миграции — workflow `Migrate (Railway)`. Тег здесь — человеческое имя
-# для того, что уже уехало, и ключ, по которому Sentry и ops-бот связывают ошибку с релизом.
+#   1. сверяем, что для этой версии написана нота «Что нового» (иначе пользователи не
+#      узнают, что изменилось, — а узнать потом уже неоткуда: нота едет в бандле);
+#   2. если тело релиза пустое, заполняем его — человеческий текст ноты плюс
+#      conventional-коммиты с прошлого тега, сгруппированные по типам.
 #
-# Версия из этого PR обязана иметь запись в `apps/web/src/entities/release/model/notes.ts` —
-# иначе падает `release-notes.test.ts` и релизный PR остаётся красным. Это намеренно:
-# релиз без текста «Что нового» пользователю не показать (docs/RELEASE.md).
+# Написанное руками описание не трогаем: пустое тело — это «собери сам», непустое — «я уже
+# написал». Кнопка GitHub «Generate release notes» тоже считается написанным вручную.
+#
+# Деплой сюда не входит: Railway выкатывает по push в main, то есть раньше этого workflow.
+# Тег — человеческое имя для того, что уже уехало.
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
-  group: release-please
+  group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
-  release-please:
-    name: релизный PR · тег
+  notes:
+    name: описание релиза
     runs-on: ubuntu-latest
+
     steps:
-      - name: Release Please
-        uses: googleapis/release-please-action@v4
+      # fetch-depth: 0 — нужны и теги, и история: описание строится по диапазону
+      # «предыдущий тег → этот».
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Для версии есть нота «Что нового»
+        run: node scripts/release.mjs verify "${{ github.event.release.tag_name }}"
+
+      - name: Собрать описание релиза
+        if: ${{ !github.event.release.body }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/release.mjs body "${{ github.event.release.tag_name }}" > release-body.md
+          gh release edit "${{ github.event.release.tag_name }}" --notes-file release-body.md

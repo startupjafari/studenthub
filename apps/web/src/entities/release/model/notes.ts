@@ -1,111 +1,17 @@
 import type { ReleaseNote } from './types'
+import notes from './notes.json'
 
 /**
- * История релизов, новые сверху. Одна запись = одна версия из `package.json` и тега.
+ * История релизов, новые сверху. Одна запись = одна версия и один тег `vX.Y.Z`.
  *
- * Запись добавляет человек в релизном PR (docs/RELEASE.md): changelog собирается из
- * conventional-коммитов автоматически, но «что уехало» и «что это меняет для студента» —
- * разные тексты, и второй из первого не выводится. Версия без записи роняет
- * `release-notes.test.ts` — это и есть напоминание.
+ * Данные вынесены в JSON рядом (`notes.json`), потому что их читает не только приложение:
+ * тот же файл разбирают CI (страж «для этого релиза текст написан») и workflow, который
+ * собирает описание GitHub Release. Node не умеет импортировать `.ts` без сборки, а
+ * второго источника правды у релизных текстов быть не должно.
+ *
+ * Запись добавляет человек ДО мёржа в `main` (docs/RELEASE.md): нота едет в бандле вместе
+ * с кодом, который описывает. Changelog собирается из conventional-коммитов сам, но
+ * «что уехало» и «что это меняет для студента» — разные тексты, и второй из первого
+ * не выводится.
  */
-export const RELEASE_NOTES: ReleaseNote[] = [
-  {
-    version: '1.0.0',
-    date: '2026-09-17',
-    showModal: true,
-    content: {
-      ru: {
-        title: 'StudentHub 1.0 — учёба, расписание и документы в одном месте',
-        intro:
-          'Первый публичный выпуск. Дальше в этом окне будет коротко о том, что изменилось с прошлого раза — читать changelog не придётся.',
-        sections: [
-          {
-            items: [
-              {
-                icon: '📅',
-                title: 'Расписание с заменами',
-                text: 'Пары недели, чётность, переносы и замены. Изменение приходит уведомлением, а не слухом из чата группы.',
-              },
-              {
-                icon: '💬',
-                title: 'Чаты групп и личные',
-                text: 'Файлы, голосовые, ответы и реакции. Сообщения доходят мгновенно — без обновления страницы.',
-              },
-              {
-                icon: '📝',
-                title: 'Заявки в деканат',
-                text: 'Справки и заявления подаются из приложения, статус виден на каждом шаге.',
-              },
-            ],
-          },
-          {
-            heading: 'Ещё в этом релизе',
-            items: [
-              {
-                icon: '📁',
-                title: 'Документы и портфолио',
-                text: 'Личные документы хранятся в закрытом разделе; доступ вузу выдаётся по запросу и отзывается.',
-              },
-              {
-                icon: '🎓',
-                title: 'Учебные материалы и задания',
-                text: 'Материалы курса, сдача работ и оценки — в одном разделе с расписанием.',
-              },
-              {
-                icon: '📱',
-                title: 'Работает как приложение',
-                text: 'Установите StudentHub на домашний экран: офлайн-расписание и push-уведомления.',
-              },
-            ],
-          },
-        ],
-      },
-      en: {
-        title: 'StudentHub 1.0 — classes, schedule and documents in one place',
-        intro:
-          'The first public release. From now on this window will briefly cover what changed since last time, so you never have to read a changelog.',
-        sections: [
-          {
-            items: [
-              {
-                icon: '📅',
-                title: 'Schedule with substitutions',
-                text: 'Weekly classes, odd/even weeks, reschedules and substitutions. Changes arrive as a notification.',
-              },
-              {
-                icon: '💬',
-                title: 'Group and direct chats',
-                text: 'Files, voice messages, replies and reactions — delivered instantly.',
-              },
-              {
-                icon: '📝',
-                title: "Dean's office requests",
-                text: 'Certificates and applications are submitted in the app, with the status visible at every step.',
-              },
-            ],
-          },
-          {
-            heading: 'Also in this release',
-            items: [
-              {
-                icon: '📁',
-                title: 'Documents and portfolio',
-                text: 'Personal documents stay in a private section; access for the university is granted on request and can be revoked.',
-              },
-              {
-                icon: '🎓',
-                title: 'Course materials and assignments',
-                text: 'Materials, submissions and grades live next to the schedule.',
-              },
-              {
-                icon: '📱',
-                title: 'Works like an app',
-                text: 'Install StudentHub on your home screen for the offline schedule and push notifications.',
-              },
-            ],
-          },
-        ],
-      },
-    },
-  },
-]
+export const RELEASE_NOTES = notes as ReleaseNote[]
