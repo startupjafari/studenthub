@@ -8,6 +8,7 @@ export type {
 } from './model/types'
 export type { ReleaseSeen, ReleaseState } from './model/state'
 export { releaseKeys, fetchReleaseState, markReleaseSeen } from './api/releases-api'
-export { pickReleaseNote, latestModalNote, type ReleaseDecision } from './lib/pick-note'
+export { pickReleaseNote, latestModalNote, latestNote, type ReleaseDecision } from './lib/pick-note'
 export { compareVersions, isNewerVersion } from './lib/compare-versions'
 export { noteContent } from './lib/note-content'
+export { ReleaseNoteModal, type ReleaseNoteModalProps } from './ui/release-note-modal'
