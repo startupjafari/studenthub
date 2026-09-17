@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerStorage } from '@nestjs/throttler'
 import cookie from '@fastify/cookie'
 import request from 'supertest'
 import { AppModule } from '../src/app.module'
+import { throttlerStorageStub } from './throttler-storage.stub'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
 
@@ -21,6 +22,9 @@ describe('Complaints (e2e) — доступ к чату по жалобе (Ф11.
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
+      // Счётчики rate limit — в Redis (ResilientThrottlerStorage), внутренней Map больше нет.
+      .overrideProvider(ThrottlerStorage)
+      .useValue(throttlerStorageStub)
       .compile()
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
@@ -39,7 +43,6 @@ describe('Complaints (e2e) — доступ к чату по жалобе (Ф11.
   })
 
   beforeEach(async () => {
-    ;(app.get(ThrottlerStorage) as unknown as { storage: Map<string, unknown> }).storage.clear()
     await prisma.$executeRawUnsafe(
       'TRUNCATE TABLE complaints, audit_logs, message_reactions, messages, chat_members, chats, refresh_tokens, users, universities RESTART IDENTITY CASCADE',
     )

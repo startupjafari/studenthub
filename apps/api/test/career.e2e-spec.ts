@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerStorage } from '@nestjs/throttler'
 import cookie from '@fastify/cookie'
 import request from 'supertest'
 import { AppModule } from '../src/app.module'
+import { throttlerStorageStub } from './throttler-storage.stub'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
 import { QueueService } from '../src/common/queue'
@@ -42,19 +43,9 @@ describe('Career (e2e) — сквозной поток работодателя 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
-      // Хранилище throttler'а подменяем на безтаймерное. Штатное на каждый инкремент
-      // заводит setTimeout, который позже читает запись из Map; чистка Map между
-      // тестами роняла этот таймер уже после самого теста — TypeError прилетал в
-      // случайный следующий тест и выглядел как его падение.
+      // Хранилище throttler'а — общая заглушка (throttler-storage.stub.ts).
       .overrideProvider(ThrottlerStorage)
-      .useValue({
-        increment: async () => ({
-          totalHits: 1,
-          timeToExpire: 60,
-          isBlocked: false,
-          timeToBlockExpire: 0,
-        }),
-      })
+      .useValue(throttlerStorageStub)
       // Очередь подменяем целиком: письмо подтверждения нужно прочитать, а не отправить,
       // и e2e не должен зависеть от живого SMTP.
       .overrideProvider(QueueService)

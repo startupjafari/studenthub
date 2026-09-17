@@ -5,6 +5,7 @@ import cookie from '@fastify/cookie'
 import request from 'supertest'
 import { authenticator } from 'otplib'
 import { AppModule } from '../src/app.module'
+import { throttlerStorageStub } from './throttler-storage.stub'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
 
@@ -32,6 +33,9 @@ describe('Auth (e2e)', () => {
       // Rate limit отключаем в e2e, иначе повторные логины упрутся в 5/15мин.
       .overrideGuard(ThrottlerGuard)
       .useValue({ canActivate: () => true })
+      // Счётчики rate limit — в Redis (ResilientThrottlerStorage), внутренней Map больше нет.
+      .overrideProvider(ThrottlerStorage)
+      .useValue(throttlerStorageStub)
       .compile()
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
@@ -49,9 +53,6 @@ describe('Auth (e2e)', () => {
   })
 
   beforeEach(async () => {
-    // Сброс счётчиков rate-limit между тестами: overrideGuard(ThrottlerGuard) не отключает
-    // подсчёт по IP, а 2FA-сценарии делают несколько логинов — иначе упираемся в 5/15мин.
-    ;(app.get(ThrottlerStorage) as unknown as { storage: Map<string, unknown> }).storage.clear()
     await prisma.$executeRawUnsafe(
       'TRUNCATE TABLE audit_logs, refresh_tokens, invites, files, groups, rooms, faculties, universities, users RESTART IDENTITY CASCADE',
     )
