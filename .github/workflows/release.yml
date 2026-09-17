@@ -1,0 +1,36 @@
+name: Release
+
+# Выпуск версии. release-please читает conventional-коммиты в `main` и держит открытым
+# «релизный PR»: в нём обновлённый CHANGELOG.md и новая версия в package.json. Мёрж этого
+# PR = тег `vX.Y.Z` + GitHub Release.
+#
+# Что этот workflow НЕ делает: он не деплоит и не применяет миграции. Прод едет по push в
+# `main` (Railway), миграции — workflow `Migrate (Railway)`. Тег здесь — человеческое имя
+# для того, что уже уехало, и ключ, по которому Sentry и ops-бот связывают ошибку с релизом.
+#
+# Версия из этого PR обязана иметь запись в `apps/web/src/entities/release/model/notes.ts` —
+# иначе падает `release-notes.test.ts` и релизный PR остаётся красным. Это намеренно:
+# релиз без текста «Что нового» пользователю не показать (docs/RELEASE.md).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: релизный PR · тег
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release Please
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
