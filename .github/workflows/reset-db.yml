@@ -111,5 +111,7 @@ jobs:
               echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
             else
               echo "Пароль сгенерирован и напечатан в логе шага «Reset (db:reset:admin)» — сохраните его и смените после входа."
+              echo ""
+              echo "Он остаётся в логе этого прогона: после входа и смены пароля лог можно удалить (Actions → прогон → Delete run)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
