@@ -699,6 +699,8 @@ Excel: книга из двух листов — **«Данные» первым
 
 `GET /career/analytics/university/report/export?format=xlsx|csv&locale=` — тот же отчёт файлом через общий `ExportBrandingService` (`ExportKind = 'career-report'`): лист «Данные» в виде «раздел · показатель · значение · справочно», лист «Инфо» с происхождением, запись в `AuditLog` и в реестр выгрузок.
 
+**Релизы** (окно «Что нового», `docs/RELEASE.md`) — `GET /releases/me` (до какой версии пользователь дочитал: `{ version, seenAt, accountCreatedAt }`) · `POST /releases/seen` (`{ version }` — отметить прочитанным). Обе доступны любой аутентифицированной роли, `userId` берётся из JWT. Модель `ReleaseView` (`userId` — первичный ключ, `version`, `seenAt`): одна строка на пользователя, тексты релизов в БД не хранятся — они лежат в бандле web (`entities/release/model/notes.ts`), иначе нота обгоняла бы сборку у установленного PWA. Сравнение версий и решение «показывать/промолчать» — на клиенте; сервер отметку не оспаривает.
+
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
 Пагинация: списки контента и сообщений — cursor (`?cursor=&limit=`, `limit ≤ 50`); административные таблицы — offset (`?page=&limit=`, `limit ≤ 100`).
@@ -1225,6 +1227,8 @@ Conventional Commits, scope обязателен для `feat` и `fix`:
 `feat(auth): регистрация по инвайту` · `fix(schedule): корректный расчёт чётности недели` · `perf(feed): cursor-пагинация`.
 
 PR: ≤ ~400 строк изменений, минимум 1 approve, зелёный CI, squash merge. Чеклист PR — в `BACKEND_RULES §17` / `FRONTEND_RULES §14`.
+
+Исключение — релизный PR `develop → main`: он вливается **merge-коммитом**. Squash склеил бы все коммиты релиза в один, и changelog, который release-please собирает из conventional-коммитов, вышел бы из одной строки. Порядок выпуска, ноты «Что нового» и откат — `docs/RELEASE.md`.
 
 Именование: файлы `kebab-case` · переменные и функции `camelCase` · классы, типы, enum `PascalCase` · константы `UPPER_SNAKE_CASE` · таблицы `snake_case` через `@@map`.
 
