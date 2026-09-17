@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Send } from 'lucide-react'
+import { ExternalLink, Send } from 'lucide-react'
 import { isApplicationFinal } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
@@ -117,6 +117,20 @@ function ApplicationRow({
           <p className="font-semibold">{application.vacancy.title}</p>
         </div>
         <p className="text-sm text-muted-foreground">{application.vacancy.company.name}</p>
+        {/* Связь с работодателем вне платформы. Остаётся доступной, даже когда вуз отозвал
+            допуск компании и вакансия ушла с витрины: отклик уже подан, и обрывать контакт
+            на середине переписки нельзя (решение по Ф18). */}
+        {application.vacancy.company.website && (
+          <a
+            href={application.vacancy.company.website}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
+          >
+            <span className="truncate">{application.vacancy.company.website}</span>
+            <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+          </a>
+        )}
       </div>
 
       {!isApplicationFinal(application.status) && (

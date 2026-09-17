@@ -110,6 +110,10 @@ export class AssignmentsService {
     // строка панели («12 работ») не говорит, что именно проверять.
     const assignments = await this.prisma.assignment.findMany({
       where: { id: { in: grouped.map((g) => g.assignmentId) } },
+      // Ровно столько, сколько групп вернул groupBy выше (он сам ограничен query.limit):
+      // выборка и так конечна, но `findMany` без `take` запрещён (BACKEND_RULES §5.3/§18.8),
+      // и явный потолок избавляет читающего от обратной трассировки до groupBy.
+      take: grouped.length,
       select: {
         id: true,
         title: true,

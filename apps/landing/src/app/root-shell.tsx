@@ -5,6 +5,7 @@ import '@fontsource-variable/inter/opsz.css'
 // Дисплейная гарнитура заголовков. Ось wght — у Onest она единственная переменная.
 import '@fontsource-variable/onest/wght.css'
 import type { Locale } from '../config/site'
+import { Splash } from '../ui/splash'
 import './globals.css'
 
 /**
@@ -21,7 +22,14 @@ import './globals.css'
 export function RootShell({ lang, children }: { lang: Locale; children: ReactNode }) {
   return (
     <html lang={lang}>
-      <body>{children}</body>
+      <body>
+        {/* Первым узлом body: заставка должна попасть в первую отрисовку, иначе накрыла бы
+            уже показанную страницу. Уходит сама, анимацией (globals.css, «Заставка запуска»).
+            Обёртка `.sh-boot` даёт странице проявиться под уходящим полотном — полотно при
+            этом остаётся снаружи неё и в проявлении не участвует. */}
+        <Splash />
+        <div className="sh-boot">{children}</div>
+      </body>
     </html>
   )
 }

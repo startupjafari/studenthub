@@ -21,6 +21,10 @@ function setup() {
     },
     user: { create: jest.fn().mockResolvedValue({ id: 'u-new' }) },
     companyMember: { create: jest.fn() },
+    // Решение по заявке тоже идёт транзакцией: отзыв допуска обязан погасить решения
+    // по вакансиям этого вуза тем же атомарным шагом.
+    companyUniversityAccess: { update: jest.fn() },
+    vacancyUniversityReview: { updateMany: jest.fn() },
   }
   const prisma = {
     user: { findUnique: jest.fn().mockResolvedValue(null) },
@@ -282,6 +286,45 @@ describe('CompaniesService — решение вуза', () => {
     await service.decideAccess(staff(), 'a-1', { status: 'REVOKED', reason: 'нарушение' }, ctx)
 
     expect(access.invalidate).toHaveBeenCalledWith('co-1')
+  })
+
+  it('отзыв гасит решения по вакансиям компании В ЭТОМ вузе', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.companyUniversityAccess.findUnique.mockResolvedValue({
+      id: 'a-1',
+      status: 'APPROVED',
+      companyId: 'co-1',
+      universityId: 'uni-1',
+    })
+
+    await service.decideAccess(staff(), 'a-1', { status: 'REVOKED', reason: 'нарушение' }, ctx)
+
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledTimes(1)
+    const args = tx.vacancyUniversityReview.updateMany.mock.calls[0][0]
+    // Только этот вуз и только эта компания: у решения всегда пара «вакансия ↔ вуз».
+    expect(args.where).toMatchObject({
+      universityId: 'uni-1',
+      vacancy: { companyId: 'co-1' },
+      status: { in: ['PENDING', 'APPROVED'] },
+    })
+    expect(args.data).toMatchObject({ status: 'REJECTED', decidedById: 'admin-1' })
+    expect(args.data.reason).toContain('отозвал допуск')
+  })
+
+  it('одобрение и отказ решений по вакансиям не трогают', async () => {
+    for (const status of ['APPROVED', 'REJECTED'] as const) {
+      const { service, prisma, tx } = setup()
+      prisma.companyUniversityAccess.findUnique.mockResolvedValue({
+        id: 'a-1',
+        status: 'REQUESTED',
+        companyId: 'co-1',
+        universityId: 'uni-1',
+      })
+
+      await service.decideAccess(staff(), 'a-1', { status, reason: 'причина' }, ctx)
+
+      expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+    }
   })
 
   it('сотрудник без вуза в токене получает WRONG_SCOPE', async () => {

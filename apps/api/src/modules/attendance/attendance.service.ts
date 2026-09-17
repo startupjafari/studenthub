@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Role } from '@studenthub/shared-types'
@@ -293,9 +294,27 @@ export class AttendanceService {
 
   // ── QR token (stateless, HMAC) ──────────────────────────────────────────────
 
+  /**
+   * Ключ подписи QR-токенов посещаемости.
+   *
+   * Выводится из JWT_ACCESS_SECRET, но НЕ равен ему: одним и тем же ключом подписывать
+   * сессии и одноразовые QR-ссылки — значит связать две несвязанные системы. Ротация
+   * доступа сломала бы развешанные QR, а утечка ключа одной подсистемы сразу отдавала бы
+   * вторую. Разделение доменов делает sha256 с меткой назначения — отдельной переменной
+   * окружения при этом не появляется, деплой менять не нужно.
+   *
+   * Смена ключа обесценивает уже выданные QR: они живут минутами (токен пары), так что
+   * на практике это незаметно.
+   */
   private secret(): string {
-    return this.config.get('JWT_ACCESS_SECRET', { infer: true })
+    this.qrSecret ??= createHash('sha256')
+      .update(`${this.config.get('JWT_ACCESS_SECRET', { infer: true })}:attendance-qr:v1`)
+      .digest('hex')
+    return this.qrSecret
   }
+
+  /** Кэш выведенного ключа: sha256 дешёвый, но считать его на каждый скан незачем. */
+  private qrSecret: string | null = null
 
   private verifyQrToken(token: string): QrPayload {
     const res = verifyToken<QrPayload>(token, this.secret(), Date.now())
