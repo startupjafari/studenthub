@@ -31,7 +31,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import type { CreateChatPollInput } from '@studenthub/shared-schemas'
+import { CHAT_FOLDER_LIMITS, type CreateChatPollInput } from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
@@ -556,12 +556,40 @@ export function ChatWindow() {
     onSuccess: invalidateFolders,
     onError: folderError,
   })
+  // Правка папки применяется к кэшу сразу: галочку в меню строки жмут и смотрят на неё же,
+  // и ожидание ответа читалось бы как «не нажалось». Ответ сервера всё равно перезапросим.
   const updateFolder = useMutation({
     mutationFn: ({ id, ...input }: { id: string; name?: string; chatIds?: string[] }) =>
       updateChatFolderRequest(id, input),
-    onSuccess: invalidateFolders,
-    onError: folderError,
+    onMutate: async ({ id, ...input }) => {
+      await qc.cancelQueries({ queryKey: chatKeys.folders() })
+      const previous = qc.getQueryData<ChatFolder[]>(chatKeys.folders())
+      qc.setQueryData<ChatFolder[]>(chatKeys.folders(), (old) =>
+        old?.map((f) => (f.id === id ? { ...f, ...input } : f)),
+      )
+      return { previous }
+    },
+    onError: (e, _input, ctx) => {
+      if (ctx?.previous) qc.setQueryData(chatKeys.folders(), ctx.previous)
+      folderError(e)
+    },
+    onSettled: invalidateFolders,
   })
+
+  // Переключить чат в папке из меню строки: состав папки уходит целиком, как его и ждёт API.
+  const toggleChatFolder = (folderId: string, chatId: string): void => {
+    const folder = folderList.find((f) => f.id === folderId)
+    if (!folder) return
+    const inside = folder.chatIds.includes(chatId)
+    if (!inside && folder.chatIds.length >= CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER) {
+      toast.error(t('foldersLimitChats', { max: CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER }))
+      return
+    }
+    updateFolder.mutate({
+      id: folderId,
+      chatIds: inside ? folder.chatIds.filter((id) => id !== chatId) : [...folder.chatIds, chatId],
+    })
+  }
   const deleteFolder = useMutation({
     mutationFn: deleteChatFolderRequest,
     onSuccess: invalidateFolders,
@@ -2193,6 +2221,7 @@ export function ChatWindow() {
       onBack={() => router.back()}
       folders={folderList}
       onManageFolders={() => setFoldersOpen(true)}
+      onToggleChatFolder={(folderId, chat) => toggleChatFolder(folderId, chat.id)}
       newChatOpen={newChatOpen}
       onToggleNewChat={() => setNewChatOpen((v) => !v)}
       onCloseNewChat={() => setNewChatOpen(false)}

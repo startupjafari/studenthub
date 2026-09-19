@@ -1844,6 +1844,8 @@
     "foldersPickChats": "Қалтадағы чаттар: {count}",
     "foldersChatCount": "{count, plural, one {# чат} other {# чат}}",
     "foldersLimit": "{max} қалтадан көп қолданылмайды",
+    "folderAdd": "Қалтаға қосу",
+    "foldersLimitChats": "Қалтада {max} чаттан артық болмайды",
     "pollNeedTwoOptions": "Кемінде екі нұсқа қажет",
     "noChatsHint": "Жазысуды бастаңыз: жоғарыдағы іздеу арқылы университетіңізден адам табыңыз.",
     "willRequest": "Сұраныс",
