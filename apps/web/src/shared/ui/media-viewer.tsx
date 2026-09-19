@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, X } from 'lucide-react'
-import { useBackClose, useBodyScrollLock, usePinchZoom } from '../lib'
+import { useBackClose, useBodyScrollLock, useMediaGestures } from '../lib'
+import { VideoPlayer } from './video-player'
 
 export interface MediaViewerItem {
   mime: string
@@ -13,8 +14,9 @@ export interface MediaViewerItem {
 
 // Единый полноэкранный просмотрщик фото/видео (стиль чата): тёмный оверлей, медиа по центру,
 // навигация ◀▶, поворот, скачивание, счётчик N/M. Закрытие по фону/Esc/крестику.
-// Снимок приближается щипком двумя пальцами и двойным тапом, увеличенный — возится пальцем
-// (shared/lib/use-pinch-zoom). У видео жест выключен: касания нужны его собственным контролам.
+// Жесты (shared/lib/use-media-gestures): щипок и двойной тап приближают снимок, увеличенный
+// возится пальцем, свайп поперёк листает. Видео играет наш VideoPlayer, а не системный
+// плеер телефона; зум ему выключен — касания нужны контролам.
 // Универсальный: URL текущего элемента резолвит вызывающий (src), слоты topLeft/caption/trailing
 // позволяют доклеить контекст (отправитель, подпись, меню действий) — используется и в чате, и в профиле.
 export function MediaViewer({
@@ -62,14 +64,21 @@ export function MediaViewer({
   const isVideo = !!cur?.mime.startsWith('video/')
   // Слой зума живёт над медиа, поэтому поворот и вписывание снимка остаются его
   // собственной трансформацией и с жестом не конфликтуют.
-  const zoom = usePinchZoom({ content: mediaRef, disabled: isVideo })
-  const boxRef = zoom.surfaceRef
-  const resetZoom = zoom.reset
+  const gestures = useMediaGestures({
+    content: mediaRef,
+    zoomDisabled: isVideo,
+    canPage: (direction) => (direction === 1 ? index < items.length - 1 : index > 0),
+    onPage: (direction) => onIndexChange(index + direction),
+  })
+  const boxRef = gestures.surfaceRef
+  const resetGestures = gestures.reset
 
   useEffect(() => setRotation(0), [index])
 
-  // Новый снимок и поворот показываем в исходном масштабе: границы хода у них свои.
-  useEffect(() => resetZoom(), [resetZoom, index, rotation, src])
+  // Новый кадр и поворот показываем в исходном масштабе: границы хода у них свои. `src` в
+  // зависимостях не нужен — от подгрузки URL масштаб не меняется, а сброс посреди въезда
+  // нового кадра оборвал бы его.
+  useEffect(() => resetGestures(), [resetGestures, index, rotation])
 
   const measureFit = useCallback((): void => {
     const box = boxRef.current
@@ -184,21 +193,19 @@ export function MediaViewer({
           className="flex h-full min-h-0 w-full touch-none items-center justify-center"
         >
           <div
-            ref={zoom.layerRef}
+            ref={gestures.layerRef}
             className="flex h-full w-full items-center justify-center will-change-transform"
           >
             {!src ? (
               <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
             ) : isVideo ? (
-              <video
-                ref={setMedia}
+              <VideoPlayer
                 src={src}
-                controls
                 autoPlay
-                style={transform}
+                onVideoRef={setMedia}
                 onLoadedMetadata={measureFit}
-                className="h-full max-h-full w-auto max-w-full rounded-lg object-contain transition-transform"
-                onClick={(e) => e.stopPropagation()}
+                videoStyle={transform}
+                videoClassName="rounded-lg transition-transform"
               />
             ) : (
               <img
