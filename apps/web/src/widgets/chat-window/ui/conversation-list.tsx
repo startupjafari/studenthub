@@ -11,7 +11,9 @@ import {
   Bookmark,
   Check,
   CheckCheck,
+  Folder,
   FolderCog,
+  FolderPlus,
   Loader2,
   MessagesSquare,
   Pin,
@@ -97,6 +99,8 @@ export type ConversationListProps = {
   // Пользовательские папки (§2) и вход в их настройку — данные и мутации живут в родителе.
   folders: ChatFolder[]
   onManageFolders: () => void
+  // Положить чат в папку или вынуть его оттуда — прямо из меню строки, без диалога.
+  onToggleChatFolder: (folderId: string, chat: ChatListItem) => void
   onDeleteChat: (c: ChatListItem) => void
 }
 
@@ -142,6 +146,7 @@ export function ConversationList({
   onDeleteChat,
   folders,
   onManageFolders,
+  onToggleChatFolder,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
   const tRoles = useTranslations('Roles')
@@ -784,6 +789,37 @@ export function ConversationList({
               icon: menuChat.muted ? Bell : BellOff,
               label: menuChat.muted ? t('unmute') : t('mute'),
               onClick: () => onToggleMute(menuChat),
+            },
+            {
+              key: 'folders',
+              icon: FolderPlus,
+              label: t('folderAdd'),
+              // Папок ещё нет — вести в пустой список некуда, открываем их настройку.
+              ...(folders.length === 0
+                ? { onClick: onManageFolders }
+                : {
+                    items: [
+                      ...[...folders]
+                        .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+                        .map((f) => ({
+                          key: `folder-${f.id}`,
+                          icon: Folder,
+                          label: f.name,
+                          // Галочка = чат уже в папке; повторное нажатие вынимает его.
+                          checked: f.chatIds.includes(menuChat.id),
+                          // Меню остаётся открытым: папок обычно несколько, и после
+                          // каждого нажатия заново вызывать его было бы мучением.
+                          keepOpen: true,
+                          onClick: () => onToggleChatFolder(f.id, menuChat),
+                        })),
+                      {
+                        key: 'folders-manage',
+                        icon: FolderCog,
+                        label: t('foldersManage'),
+                        onClick: onManageFolders,
+                      },
+                    ],
+                  }),
             },
             {
               key: 'archive',

@@ -1844,6 +1844,8 @@
     "foldersPickChats": "Chats in folder: {count}",
     "foldersChatCount": "{count, plural, one {# chat} other {# chats}}",
     "foldersLimit": "More than {max} folders is not supported",
+    "folderAdd": "Add to folder",
+    "foldersLimitChats": "A folder holds up to {max} chats",
     "pollNeedTwoOptions": "At least two options are required",
     "noChatsHint": "Start a conversation: find someone at your university via the search above.",
     "willRequest": "Request",
