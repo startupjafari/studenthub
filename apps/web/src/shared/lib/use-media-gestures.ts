@@ -9,20 +9,28 @@ import {
   velocityFrom,
 } from './spring'
 
-// Жест «приблизить двумя пальцами» для полноэкранного просмотрщика.
+// Жесты полноэкранного просмотрщика: приблизить щипком и пролистать свайпом.
 //
-// Физика — apple-design §2–§6, §9:
+// Физика — apple-design §2–§7, §9:
 //  · слежение 1:1: точка снимка, за которую схватили, остаётся под пальцами всю дорогу —
-//    поэтому зум «тянется» из места щипка, а не из центра экрана;
-//  · за пределами хода (меньше 1:1, больше предела, край снимка) — резина, а не стена;
-//  · отпустили — пружина возвращает в границы, подхватывая скорость пальца, так что шва
-//    между жестом и доводкой нет;
-//  · доводку можно поймать пальцем в любой момент и продолжить жест оттуда.
+//    поэтому зум «тянется» из места щипка, а не из центра экрана, а кадр при листании
+//    едет ровно за пальцем;
+//  · за пределами хода (меньше 1:1, больше предела, край снимка, крайний кадр) — резина,
+//    а не стена;
+//  · листать или вернуть решается по СПРОЕЦИРОВАННОЙ точке остановки: короткий резкий
+//    флик листает, вялое перетаскивание на ту же дистанцию — нет;
+//  · кадр уходит в ту сторону, куда его толкнули, а новый приходит с противоположной —
+//    путь туда и обратно симметричен (§7);
+//  · любую доводку можно поймать пальцем и продолжить жест оттуда.
+//
+// Какой это жест, решается один раз в начале: два пальца — зум; один палец по увеличенному
+// снимку — панорамирование; один палец поперёк по вписанному — листание. Вертикаль
+// просмотрщику не принадлежит.
 //
 // Два элемента: `surfaceRef` — область, которая ловит касания и задаёт видимое окно;
 // `layerRef` — слой внутри неё, к которому применяется `translate + scale`. Слой обёрнут
 // вокруг медиа, поэтому собственные трансформации снимка (поворот, вписывание) остаются
-// нетронутыми — зум просто накладывается сверху.
+// нетронутыми — жест просто накладывается сверху.
 //
 // touchmove держим отдельным нативным слушателем с `{ passive: false }` ради preventDefault:
 // без него жест параллельно уходит в страницу (iOS pull-to-refresh), а `gesturestart` —
@@ -36,26 +44,39 @@ const DOUBLE_TAP_MS = 300
 const DOUBLE_TAP_SLOP = 30
 /** Гистерезис: движение короче этого — тап, а не жест (§10). */
 const MOVE_SLOP = 6
-/** Масштаб возвращается в границы без перелёта; панорамирование брошено пальцем — с лёгким (§4). */
+/** Доля ширины экрана, за которой отпускание листает (по спроецированной точке). */
+const PAGE_FRACTION = 0.3
+/** Насколько горизонталь должна перевешивать вертикаль, чтобы жест считался листанием. */
+const PAGE_BIAS = 1.2
+/** Масштаб возвращается в границы без перелёта; брошенный пальцем кадр — с лёгким (§4). */
 const SCALE_DAMPING = 1
 const SCALE_RESPONSE = 0.35
 const PAN_DAMPING = 0.85
 const PAN_RESPONSE = 0.4
+
+/** Жест не начинается на этой разметке: у контролов плеера свои касания. */
+const SKIP_ATTR = 'data-gesture-skip'
+
+type Mode = 'idle' | 'zoom' | 'page' | 'none'
 
 interface Point {
   x: number
   y: number
 }
 
-export interface PinchZoomOptions {
+export interface MediaGesturesOptions {
   /** Само медиа: по его размеру считаются границы панорамирования. */
   content: RefObject<HTMLElement | null>
-  /** Выключить жест (видео: щипок отобрал бы касания у собственных контролов плеера). */
-  disabled?: boolean
+  /** Выключить зум (видео: щипок отобрал бы касания у контролов плеера). Листание остаётся. */
+  zoomDisabled?: boolean
   maxScale?: number
+  /** Есть ли сосед в эту сторону: `1` — следующий, `-1` — предыдущий. */
+  canPage?: (direction: 1 | -1) => boolean
+  /** Пролистать. Вызывается, когда уходящий кадр доехал до края. */
+  onPage?: (direction: 1 | -1) => void
 }
 
-export interface PinchZoomController {
+export interface MediaGesturesController {
   /** На область жеста — она же видимое окно, за границы которого снимок не уезжает. */
   surfaceRef: RefObject<HTMLDivElement | null>
   /** На слой вокруг медиа — его двигаем и масштабируем. */
@@ -66,20 +87,28 @@ export interface PinchZoomController {
 
 const distance = (a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y)
 
-export function usePinchZoom({
+export function useMediaGestures({
   content,
-  disabled = false,
+  zoomDisabled = false,
   maxScale = MAX_SCALE,
-}: PinchZoomOptions): PinchZoomController {
+  canPage,
+  onPage,
+}: MediaGesturesOptions): MediaGesturesController {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const layerRef = useRef<HTMLDivElement | null>(null)
   // Сброс приходит из эффекта, но вызывают его снаружи — прокладка, чтобы возвращаемая
   // функция не менялась между рендерами.
   const resetRef = useRef<() => void>(() => {})
+  // Листание через ref, а не через зависимости эффекта: колбэки меняются на каждой смене
+  // кадра, а пересоздание слушателей посреди жеста обрывало бы доводку.
+  const canPageRef = useRef(canPage)
+  const onPageRef = useRef(onPage)
+  canPageRef.current = canPage
+  onPageRef.current = onPage
 
   useEffect(() => {
     const surface = surfaceRef.current
-    if (!surface || disabled) return
+    if (!surface) return
 
     // Единственная правда о положении снимка: и жест, и пружины пишут сюда.
     let sc = 1
@@ -111,6 +140,10 @@ export function usePinchZoom({
       onChange: (v) => {
         px = v
         draw()
+      },
+      onRest: () => {
+        if (pendingPage) finishPage()
+        else entering = false
       },
     })
     const panY = createSpring({
@@ -173,7 +206,11 @@ export function usePinchZoom({
       return { x: clientX - (r.left + r.width / 2), y: clientY - (r.top + r.height / 2) }
     }
 
+    const width = (): number => surface.clientWidth || 1
+    const canGo = (direction: 1 | -1): boolean => canPageRef.current?.(direction) ?? false
+
     const points = new Map<number, Point>()
+    let mode: Mode = 'idle'
     let startScale = 1
     let startDist = 0
     let startPoint: Point = { x: 0, y: 0 }
@@ -186,6 +223,10 @@ export function usePinchZoom({
     let swallowClick = false
     let lastTapTime = 0
     let lastTapPoint: Point = { x: 0, y: 0 }
+    /** Куда листаем, пока уходящий кадр едет к краю. */
+    let pendingPage: 1 | -1 | null = null
+    /** Новый кадр въезжает — сброс снаружи в это время только сбил бы его. */
+    let entering = false
 
     const active = (): Point[] => [...points.values()].slice(0, 2)
 
@@ -207,18 +248,25 @@ export function usePinchZoom({
       const time = performance.now()
       historyX = [{ position: p.x, time }]
       historyY = [{ position: p.y, time }]
+      if (list.length > 1) mode = zoomDisabled ? 'none' : 'zoom'
+      else if (sc > 1) mode = 'zoom'
     }
 
     const onPointerDown = (e: PointerEvent): void => {
       if (e.pointerType === 'mouse' && e.button !== 0) return
-      // Снимок едет — перехватываем его на текущем месте: доводка прерываема (§3).
+      if ((e.target as Element | null)?.closest?.(`[${SKIP_ATTR}]`)) return
+      // Кадр едет — перехватываем его на текущем месте: доводка прерываема (§3). Уже
+      // начатое листание при этом отменяется: палец снова главный.
       scale.stop()
       panX.stop()
       panY.stop()
+      pendingPage = null
+      entering = false
       sc = scale.value
       px = panX.value
       py = panY.value
       if (points.size === 0) {
+        mode = 'idle'
         moved = false
         pinched = false
         measure()
@@ -232,21 +280,7 @@ export function usePinchZoom({
       if (!points.has(e.pointerId)) return
       points.set(e.pointerId, { x: e.clientX, y: e.clientY })
       const list = active()
-      const pinching = list.length > 1
-      // Одним пальцем возить нечего, пока снимок вписан в экран.
-      if (!pinching && sc <= 1) return
-      if (pinching) pinched = true
-
       const p = local(center(list).x, center(list).y)
-      const s =
-        pinching && startDist > 0
-          ? softScale((startScale * distance(list[0]!, list[1]!)) / startDist)
-          : sc
-      const bound = limit(s)
-      const x = soft(p.x - anchor.x * s, bound.x, surface.clientWidth)
-      const y = soft(p.y - anchor.y * s, bound.y, surface.clientHeight)
-
-      if (!moved && distance(p, startPoint) > MOVE_SLOP) moved = true
       const time = performance.now()
       historyX.push({ position: p.x, time })
       historyY.push({ position: p.y, time })
@@ -254,10 +288,82 @@ export function usePinchZoom({
         historyX.shift()
         historyY.shift()
       }
+      if (!moved && distance(p, startPoint) > MOVE_SLOP) moved = true
+
+      // Намерение распознаём с первого движения и дальше не пересматриваем: иначе кадр
+      // на полпути превращался бы то в листание, то в прокрутку.
+      if (mode === 'idle') {
+        const dx = Math.abs(p.x - startPoint.x)
+        const dy = Math.abs(p.y - startPoint.y)
+        if (dx < MOVE_SLOP && dy < MOVE_SLOP) return
+        mode = dx > dy * PAGE_BIAS ? 'page' : 'none'
+      }
+      if (mode === 'none') return
+
+      if (mode === 'page') {
+        const dx = p.x - startPoint.x
+        // За крайним кадром ничего нет — резина вместо стены (§9).
+        const x = canGo(dx < 0 ? 1 : -1) ? dx : Math.sign(dx) * rubberband(Math.abs(dx), width())
+        apply(1, x, 0)
+        return
+      }
+
+      const pinching = list.length > 1
+      if (pinching) pinched = true
+      const s =
+        pinching && startDist > 0
+          ? softScale((startScale * distance(list[0]!, list[1]!)) / startDist)
+          : sc
+      const bound = limit(s)
+      const x = soft(p.x - anchor.x * s, bound.x, surface.clientWidth)
+      const y = soft(p.y - anchor.y * s, bound.y, surface.clientHeight)
       apply(s, x, y)
     }
 
-    const settle = (): void => {
+    // Кадр доехал до края — меняем его и вводим новый с противоположной стороны. Смена
+    // именно здесь, а не в момент отпускания: иначе новый снимок появлялся бы поверх
+    // уезжающего старого.
+    const finishPage = (): void => {
+      const direction = pendingPage
+      if (!direction) return
+      pendingPage = null
+      entering = true
+      onPageRef.current?.(direction)
+      apply(1, direction * width(), 0)
+      if (prefersReducedMotion()) {
+        apply(1, 0, 0)
+        entering = false
+        return
+      }
+      panX.to(0)
+    }
+
+    const settlePage = (): void => {
+      const w = width()
+      const v = velocityFrom(historyX)
+      // Куда кадр доехал бы сам (§6): маленький резкий флик листает, долгое вялое
+      // перетаскивание на ту же дистанцию — нет.
+      const projected = px + projectMomentum(v)
+      const direction: 1 | -1 | 0 =
+        projected <= -w * PAGE_FRACTION ? 1 : projected >= w * PAGE_FRACTION ? -1 : 0
+
+      if (direction !== 0 && canGo(direction)) {
+        pendingPage = direction
+        if (prefersReducedMotion()) {
+          finishPage()
+          return
+        }
+        panX.to(-direction * w, v)
+        return
+      }
+      if (prefersReducedMotion()) {
+        apply(1, 0, 0)
+        return
+      }
+      panX.to(0, v)
+    }
+
+    const settleZoom = (): void => {
       const target = Math.min(maxScale, Math.max(1, sc))
       const bound = limit(target)
       // Брошенный пальцем снимок доезжает сам (§6) — но только если это было чистое
@@ -296,7 +402,7 @@ export function usePinchZoom({
     /** Тап по снимку: второй подряд — приблизить/вернуть. Тап по пустому полю не наш. */
     const onTap = (e: PointerEvent): void => {
       const el = content.current
-      if (!el) return
+      if (!el || zoomDisabled) return
       const r = el.getBoundingClientRect()
       const inside =
         e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
@@ -322,12 +428,16 @@ export function usePinchZoom({
         grab()
         return
       }
-      if (moved) settle()
-      else onTap(e)
+      if (!moved) {
+        onTap(e)
+        return
+      }
+      if (mode === 'page') settlePage()
+      else if (mode === 'zoom') settleZoom()
     }
 
-    // Жест не должен превращаться в клик: иначе отпускание после панорамирования закрывало
-    // бы просмотрщик (клик по фону = закрыть).
+    // Жест не должен превращаться в клик: иначе отпускание после листания или
+    // панорамирования закрывало бы просмотрщик (клик по фону = закрыть).
     const onClickCapture = (e: MouseEvent): void => {
       if (!moved && !swallowClick) return
       moved = false
@@ -345,10 +455,13 @@ export function usePinchZoom({
     const blockNativeZoom = (e: Event): void => e.preventDefault()
 
     const reset = (): void => {
+      if (entering) return
       points.clear()
+      mode = 'idle'
       moved = false
       pinched = false
       swallowClick = false
+      pendingPage = null
       scale.stop()
       panX.stop()
       panY.stop()
@@ -378,7 +491,7 @@ export function usePinchZoom({
       surface.removeEventListener('gesturestart', blockNativeZoom)
       surface.removeEventListener('gesturechange', blockNativeZoom)
     }
-  }, [content, disabled, maxScale])
+  }, [content, zoomDisabled, maxScale])
 
   const reset = useCallback((): void => resetRef.current(), [])
 
