@@ -44,6 +44,13 @@ export interface SpringHandle {
   /** Мгновенно поставить значение и погасить движение (перехват пальцем). */
   set(value: number): void
   /**
+   * Сменить характер пружины на лету. Один и тот же узел иногда едет по-разному: кадр
+   * просмотрщика листается решительно и быстро, а тот же кадр возится пальцем мягко и с
+   * инерцией. Значение и скорость при этом не трогаем — смена характера посреди движения
+   * не должна его рвать.
+   */
+  configure(tuning: { damping?: number; response?: number }): void
+  /**
    * Перенацелить пружину. Скорость по умолчанию сохраняется — это и есть отсутствие
    * «кирпичной стены» при развороте жеста; передайте `velocity`, чтобы подхватить скорость
    * пальца в момент отпускания (§5).
@@ -57,13 +64,18 @@ export interface SpringHandle {
  * на расстояние рассинхронизируется, когда по X и Y разные скорости (§3).
  */
 export function createSpring(options: SpringOptions): SpringHandle {
-  const damping = options.damping ?? 1
-  const response = options.response ?? 0.4
+  let stiffness = 0
+  let friction = 0
   // Перевод «затухание + отзывчивость» в коэффициенты уравнения (масса принята за 1):
   // собственная частота ω = 2π / T, жёсткость = ω², сопротивление = 2ζω.
-  const omega = (2 * Math.PI) / response
-  const stiffness = omega * omega
-  const friction = 2 * damping * omega
+  const tune = (damping: number, response: number): void => {
+    const omega = (2 * Math.PI) / response
+    stiffness = omega * omega
+    friction = 2 * damping * omega
+  }
+  let damping = options.damping ?? 1
+  let response = options.response ?? 0.4
+  tune(damping, response)
 
   let value = options.from
   let velocity = 0
@@ -117,6 +129,11 @@ export function createSpring(options: SpringOptions): SpringHandle {
     },
     get animating() {
       return frame !== null
+    },
+    configure(tuning: { damping?: number; response?: number }) {
+      damping = tuning.damping ?? damping
+      response = tuning.response ?? response
+      tune(damping, response)
     },
     set(next: number) {
       if (frame !== null) cancelAnimationFrame(frame)
