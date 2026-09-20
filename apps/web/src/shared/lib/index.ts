@@ -13,6 +13,11 @@ export { useBodyScrollLock } from './use-body-scroll-lock'
 export { hapticTick, hapticCommit } from './haptics'
 export { useSheetDragClose } from './use-sheet-drag-close'
 export { useSwipeRows, type SwipeRowsController, type SwipeSide } from './use-swipe-row'
+export {
+  useMediaGestures,
+  type MediaGesturesController,
+  type MediaGesturesOptions,
+} from './use-media-gestures'
 export { useScrollRow, type ScrollRowController } from './use-scroll-row'
 export { useCountUp } from './use-count-up'
 export {
