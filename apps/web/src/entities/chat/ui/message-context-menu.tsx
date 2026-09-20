@@ -85,7 +85,9 @@ function ReactionsRow({
       className={cn(
         'overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         pill
-          ? 'max-w-full rounded-full border border-border bg-popover/95 px-1.5 py-1 shadow-xl backdrop-blur-md'
+          ? // Без своего backdrop-blur: размытие даёт затемнение под пилюлей, а второй фильтр
+            // поверх первого на телефоне стоит кадров.
+            'max-w-full rounded-full border border-border bg-popover px-1.5 py-1 shadow-xl'
           : 'border-b border-border px-2 py-2',
         row.overflowing && 'cursor-grab',
         row.dragging && 'cursor-grabbing select-none',
