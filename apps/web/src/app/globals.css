@@ -612,7 +612,11 @@ summary {
   [data-bubble] *,
   /* Строки списков с тем же жестом: чаты и уведомления. */
   [data-long-press],
-  [data-long-press] * {
+  [data-long-press] *,
+  /* Само меню: оно всплывает под пальцем, который всё ещё держат, и без этого iOS
+     принимался выделять текст того пункта, что оказался под ним. */
+  [role='menu'],
+  [role='menu'] * {
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
