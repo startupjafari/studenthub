@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, X } from 'lucide-react'
-import { useBackClose, useBodyScrollLock } from '../lib'
+import { useBackClose, useBodyScrollLock, useMediaGestures } from '../lib'
+import { VideoPlayer } from './video-player'
 
 export interface MediaViewerItem {
   mime: string
@@ -13,6 +14,9 @@ export interface MediaViewerItem {
 
 // Единый полноэкранный просмотрщик фото/видео (стиль чата): тёмный оверлей, медиа по центру,
 // навигация ◀▶, поворот, скачивание, счётчик N/M. Закрытие по фону/Esc/крестику.
+// Жесты (shared/lib/use-media-gestures): щипок и двойной тап приближают снимок, увеличенный
+// возится пальцем, свайп поперёк листает. Видео играет наш VideoPlayer, а не системный
+// плеер телефона; зум ему выключен — касания нужны контролам.
 // Универсальный: URL текущего элемента резолвит вызывающий (src), слоты topLeft/caption/trailing
 // позволяют доклеить контекст (отправитель, подпись, меню действий) — используется и в чате, и в профиле.
 export function MediaViewer({
@@ -50,7 +54,6 @@ export function MediaViewer({
   // выше области просмотра и края уезжают под `overflow-hidden`. Считаем, во сколько раз
   // ужать, чтобы повёрнутый прямоугольник влез целиком.
   const [fit, setFit] = useState(1)
-  const boxRef = useRef<HTMLDivElement>(null)
   // Callback-ref, а не объектный: один ref на <img> и <video> объектным пришлось бы
   // типизировать пересечением их интерфейсов — ложью, которую TS пропускает по случайности.
   const mediaRef = useRef<HTMLElement | null>(null)
@@ -58,8 +61,24 @@ export function MediaViewer({
     mediaRef.current = el
   }, [])
   const cur = items[index]
+  const isVideo = !!cur?.mime.startsWith('video/')
+  // Слой зума живёт над медиа, поэтому поворот и вписывание снимка остаются его
+  // собственной трансформацией и с жестом не конфликтуют.
+  const gestures = useMediaGestures({
+    content: mediaRef,
+    zoomDisabled: isVideo,
+    canPage: (direction) => (direction === 1 ? index < items.length - 1 : index > 0),
+    onPage: (direction) => onIndexChange(index + direction),
+  })
+  const boxRef = gestures.surfaceRef
+  const resetGestures = gestures.reset
 
   useEffect(() => setRotation(0), [index])
+
+  // Новый кадр и поворот показываем в исходном масштабе: границы хода у них свои. `src` в
+  // зависимостях не нужен — от подгрузки URL масштаб не меняется, а сброс посреди въезда
+  // нового кадра оборвал бы его.
+  useEffect(() => resetGestures(), [resetGestures, index, rotation])
 
   const measureFit = useCallback((): void => {
     const box = boxRef.current
@@ -78,7 +97,7 @@ export function MediaViewer({
     // Повёрнутый прямоугольник меняет стороны местами: ширина меряется высотой.
     // Больше единицы не увеличиваем — растянутый снимок хуже вписанного.
     setFit(Math.min(1, box.clientWidth / h, box.clientHeight / w))
-  }, [rotation])
+  }, [boxRef, rotation])
 
   // Пересчёт при повороте, смене элемента и изменении окна. `src` в зависимостях не
   // случайно: пока картинка не загрузилась, мерить нечего — есть ещё onLoad ниже.
@@ -101,7 +120,6 @@ export function MediaViewer({
   }, [index, items.length, onClose, onIndexChange])
 
   if (!cur || typeof document === 'undefined') return null
-  const isVideo = cur.mime.startsWith('video/')
   const transform = { transform: `rotate(${rotation}deg) scale(${fit})` }
   const dl = downloadUrl ?? src
 
@@ -170,32 +188,38 @@ export function MediaViewer({
 
         {/* Обёртка без отступов: по ней меряем свободное место под повёрнутый снимок —
             у родителя они есть, и мерить по нему значило бы разрешить вылезти на них. */}
-        <div ref={boxRef} className="flex h-full min-h-0 w-full items-center justify-center">
-          {!src ? (
-            <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
-          ) : isVideo ? (
-            <video
-              ref={setMedia}
-              src={src}
-              controls
-              autoPlay
-              style={transform}
-              onLoadedMetadata={measureFit}
-              className="h-full max-h-full w-auto max-w-full rounded-lg object-contain transition-transform"
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <img
-              ref={setMedia}
-              src={src}
-              alt={cur.name ?? ''}
-              draggable={false}
-              style={transform}
-              onLoad={measureFit}
-              className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
-              onClick={(e) => e.stopPropagation()}
-            />
-          )}
+        <div
+          ref={boxRef}
+          className="flex h-full min-h-0 w-full touch-none items-center justify-center"
+        >
+          <div
+            ref={gestures.layerRef}
+            className="flex h-full w-full items-center justify-center will-change-transform"
+          >
+            {!src ? (
+              <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
+            ) : isVideo ? (
+              <VideoPlayer
+                src={src}
+                autoPlay
+                onVideoRef={setMedia}
+                onLoadedMetadata={measureFit}
+                videoStyle={transform}
+                videoClassName="rounded-lg transition-transform"
+              />
+            ) : (
+              <img
+                ref={setMedia}
+                src={src}
+                alt={cur.name ?? ''}
+                draggable={false}
+                style={transform}
+                onLoad={measureFit}
+                className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+          </div>
         </div>
 
         {items.length > 1 && index < items.length - 1 && (
