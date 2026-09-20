@@ -109,9 +109,10 @@ export function AnchoredMenuLayer({
   // Сдвиг снимка от исходного места: элемент у края экрана уезжает, освобождая место
   // действиям, — но уезжает плавно, а не телепортируется.
   const [lift, setLift] = useState(0)
-  // Первый кадр раскладка встаёт как есть; переезды (раскрытый вложенный список меняет высоту
-  // карточки) уже едут переходом. Без флага блоки приезжали бы из-за экрана.
-  const [ready, setReady] = useState(false)
+  // Первая раскладка встаёт как есть, переезды (раскрытый вложенный список меняет высоту
+  // карточки) — переходом. Флаг поднимается кадром позже первой раскладки: включи переход
+  // сразу — и блоки приезжали бы из-за экрана, с того места, где их измеряли.
+  const [settled, setSettled] = useState(false)
 
   const anchorTop = anchor?.rect.top ?? fallbackY
   const anchorHeight = anchor?.rect.height ?? 0
@@ -153,9 +154,10 @@ export function AnchoredMenuLayer({
   }, [anchorTop, anchorHeight])
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => setReady(true))
+    if (!place || settled) return
+    const id = requestAnimationFrame(() => setSettled(true))
     return () => cancelAnimationFrame(id)
-  }, [])
+  }, [place, settled])
 
   useEffect(() => {
     if (!place) return
@@ -170,8 +172,14 @@ export function AnchoredMenuLayer({
     return () => cancelAnimationFrame(id)
   }, [place, anchorTop])
 
-  const move = ready && !prefersReducedMotion()
-  const enter = closing ? 'animate-out fade-out zoom-out-95' : 'animate-in fade-in zoom-in-95'
+  const move = settled && !prefersReducedMotion()
+  // Появление начинаем ТОЛЬКО когда известно место: иначе анимация успевала проиграться,
+  // пока блок ещё стоял за экраном, и меню «возникало» после затемнения, без перехода.
+  const enter = !place
+    ? 'invisible'
+    : closing
+      ? 'animate-out fade-out zoom-out-95'
+      : 'animate-in fade-in zoom-in-95'
 
   return (
     <div className="absolute inset-0 md:hidden">
@@ -201,7 +209,7 @@ export function AnchoredMenuLayer({
         <div
           ref={aboveRef}
           style={{
-            top: place?.aboveTop ?? -9999,
+            top: place?.aboveTop ?? 0,
             transition: move ? 'top 200ms ease-out' : undefined,
           }}
           className={cn(
@@ -212,7 +220,7 @@ export function AnchoredMenuLayer({
           <div
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'pointer-events-auto max-w-full duration-200',
+              'pointer-events-auto max-w-full duration-150',
               enter,
               align === 'end' ? 'origin-bottom-right' : 'origin-bottom-left',
             )}
@@ -224,7 +232,7 @@ export function AnchoredMenuLayer({
       <div
         ref={cardRef}
         style={{
-          top: place?.cardTop ?? -9999,
+          top: place?.cardTop ?? 0,
           transition: move ? 'top 200ms ease-out' : undefined,
         }}
         className={cn(
@@ -235,7 +243,9 @@ export function AnchoredMenuLayer({
         <div
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            'pointer-events-auto max-h-[80dvh] w-60 max-w-full overflow-y-auto overscroll-contain rounded-2xl border border-border bg-popover/95 shadow-xl backdrop-blur-md duration-200',
+            // Без своего backdrop-blur: размытие уже даёт затемнение под карточкой, а второй
+            // фильтр поверх первого на телефоне стоит кадров — меню появлялось с задержкой.
+            'pointer-events-auto max-h-[80dvh] w-60 max-w-full overflow-y-auto overscroll-contain rounded-2xl border border-border bg-popover shadow-xl duration-150',
             enter,
             align === 'end' ? 'origin-top-right' : 'origin-top-left',
           )}
