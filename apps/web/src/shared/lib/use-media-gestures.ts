@@ -53,6 +53,14 @@ const SCALE_DAMPING = 1
 const SCALE_RESPONSE = 0.35
 const PAN_DAMPING = 0.85
 const PAN_RESPONSE = 0.4
+/**
+ * Листание — отдельный характер той же пружины: без перелёта и заметно быстрее возни
+ * пальцем. Кадр уходит к краю, и только на его покое подставляется следующий, поэтому с
+ * мягкой панорамной настройкой (0.4 с) один свайп занимал почти секунду — палец давно
+ * отпустили, а просмотрщик всё ещё «думает».
+ */
+const PAGE_DAMPING = 1
+const PAGE_RESPONSE = 0.22
 
 /** Жест не начинается на этой разметке: у контролов плеера свои касания. */
 const SKIP_ATTR = 'data-gesture-skip'
@@ -155,6 +163,15 @@ export function useMediaGestures({
         draw()
       },
     })
+
+    /** Переключить характер горизонтальной пружины: листание — резкое, всё прочее — мягкое. */
+    const tunePan = (paging: boolean): void => {
+      panX.configure(
+        paging
+          ? { damping: PAGE_DAMPING, response: PAGE_RESPONSE }
+          : { damping: PAN_DAMPING, response: PAN_RESPONSE },
+      )
+    }
 
     const apply = (s: number, x: number, y: number): void => {
       scale.set(s)
@@ -353,6 +370,7 @@ export function useMediaGestures({
           finishPage()
           return
         }
+        tunePan(true)
         panX.to(-direction * w, v)
         return
       }
@@ -360,6 +378,8 @@ export function useMediaGestures({
         apply(1, 0, 0)
         return
       }
+      // Не долистали — кадр возвращается на место своим обычным, мягким ходом.
+      tunePan(false)
       panX.to(0, v)
     }
 
@@ -378,6 +398,7 @@ export function useMediaGestures({
         return
       }
       scale.to(target)
+      tunePan(false)
       // Скорость пальца становится начальной скоростью пружины — шва не остаётся (§5).
       panX.to(x, vx)
       panY.to(y, vy)
@@ -395,6 +416,7 @@ export function useMediaGestures({
         return
       }
       scale.to(target)
+      tunePan(false)
       panX.to(x)
       panY.to(y)
     }
