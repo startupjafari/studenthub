@@ -3,8 +3,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react'
 import { useBodyScrollLock } from '../lib/use-body-scroll-lock'
-import { useSheetDragClose } from '../lib/use-sheet-drag-close'
+import { useDismissAnimation } from '../lib/use-dismiss-animation'
 import { cn } from '../lib/utils'
+import { AnchoredMenuLayer, MENU_EXIT_MS, type MenuAnchor } from './anchored-menu'
 
 export interface RowContextMenuItem {
   key: string
@@ -26,13 +27,17 @@ export interface RowContextMenuItem {
  * Раньше и в чатах, и в уведомлениях их прятала кнопка «три точки», всплывавшая по
  * наведению поверх правого края строки: она наезжала на время и счётчик непрочитанных,
  * а на тач-экране не появлялась вовсе. Правый клик — тот же контракт, что у меню
- * сообщения (`entities/chat/message-context-menu`): меню у точки на десктопе, нижний
- * лист на телефоне.
+ * сообщения (`entities/chat/message-context-menu`): меню у точки на десктопе, меню у самой
+ * строки на телефоне.
+ *
+ * На телефоне строка поднимается снимком над размытым фоном, а действия растут прямо под ней
+ * (`AnchoredMenuLayer`) — как в Telegram. Нижний лист, который был здесь раньше, отрывал
+ * действия от строки: в длинном списке к моменту открытия листа было уже не видно, какой
+ * именно чат сейчас удаляют.
  *
  * Строку, к которой относится меню, вызывающий экран обязан подсветить на всё время его
- * жизни — иначе в длинном списке непонятно, над чем сейчас действие. Подсветка снаружи,
- * а не здесь: меню не знает, как выглядит строка и что у неё уже за фон (активная,
- * непрочитанная).
+ * жизни — по той же причине. Подсветка снаружи, а не здесь: меню не знает, как выглядит
+ * строка и что у неё уже за фон (активная, непрочитанная).
  *
  * Вложенный список (`items`) раскрывается на месте — тем же полотном, с заголовком-возвратом,
  * а не вылетающей вбок панелью: на телефоне лететь некуда, а два разных поведения на ПК и на
@@ -41,12 +46,15 @@ export interface RowContextMenuItem {
 export function RowContextMenu({
   x,
   y,
+  anchor,
   items,
   ariaLabel,
   onClose,
 }: {
   x: number
   y: number
+  /** Строка под пальцем — есть только у долгого нажатия (тач). */
+  anchor?: MenuAnchor | null
   items: RowContextMenuItem[]
   ariaLabel: string
   onClose: () => void
@@ -57,6 +65,8 @@ export function RowContextMenu({
   // приходит заново на каждый рендер родителя, и по ключу галочки внутри обновляются
   // сразу после действия, не закрывая меню.
   const [openKey, setOpenKey] = useState<string | null>(null)
+  // Меню не исчезает кадром: сначала уход, потом размонтирование родителем.
+  const { closing, dismiss } = useDismissAnimation(onClose, MENU_EXIT_MS)
 
   // Меню не вылезает за вьюпорт: у нижних строк длинного списка точка нажатия близка
   // к нижнему краю, и без сдвига половина пунктов оказалась бы за экраном.
@@ -77,14 +87,13 @@ export function RowContextMenu({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        dismiss()
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [dismiss])
 
-  const sheetRef = useSheetDragClose<HTMLDivElement>(onClose)
   useBodyScrollLock()
 
   const run = (it: RowContextMenuItem) => () => {
@@ -93,25 +102,25 @@ export function RowContextMenu({
       return
     }
     it.onClick?.()
-    if (!it.keepOpen) onClose()
+    if (!it.keepOpen) dismiss()
   }
 
   const open = openKey ? items.find((it) => it.key === openKey) : undefined
   const shown = open?.items ?? items
 
-  const list = (variant: 'menu' | 'sheet'): React.ReactNode => (
+  const list = (variant: 'menu' | 'card'): React.ReactNode => (
     <>
       {open && (
         <button
           type="button"
           onClick={() => setOpenKey(null)}
           className={cn(
-            'flex w-full cursor-pointer items-center border-b border-border text-left font-medium text-foreground transition-colors hover:bg-muted',
-            variant === 'sheet' ? 'gap-3 px-4 py-3 text-base' : 'gap-2 px-3 py-2 text-sm',
+            'flex w-full cursor-pointer items-center border-b border-border text-left font-medium text-foreground transition-colors hover:bg-muted active:bg-muted',
+            variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
           )}
         >
           <ChevronLeft
-            className={cn('shrink-0 opacity-80', variant === 'sheet' ? 'size-5' : 'size-4')}
+            className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
             aria-hidden
           />
           <span className="truncate">{open.label}</span>
@@ -128,13 +137,13 @@ export function RowContextMenu({
             aria-haspopup={it.items ? 'menu' : undefined}
             onClick={run(it)}
             className={cn(
-              'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted',
-              variant === 'sheet' ? 'gap-3 px-4 py-3 text-base' : 'gap-2 px-3 py-2 text-sm',
+              'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
+              variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
               it.danger ? 'text-destructive' : 'text-foreground',
             )}
           >
             <Icon
-              className={cn('shrink-0 opacity-80', variant === 'sheet' ? 'size-5' : 'size-4')}
+              className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
               aria-hidden
             />
             <span className="truncate">{it.label}</span>
@@ -152,14 +161,18 @@ export function RowContextMenu({
     <div
       // Маркер для глобального Esc (shared/lib/use-escape-back).
       data-overlay
-      className="fixed inset-0 z-50 bg-overlay/40 duration-150 animate-in fade-in md:bg-transparent"
+      className={cn(
+        'fixed inset-0 z-50 bg-overlay/40 backdrop-blur-sm duration-150 md:bg-transparent md:backdrop-blur-none',
+        // Во время ухода слой уже не ловит нажатия: второй тап по пункту ничего не повторит.
+        closing ? 'pointer-events-none animate-out fade-out' : 'animate-in fade-in',
+      )}
       role="menu"
       aria-label={ariaLabel}
-      onClick={onClose}
+      onClick={dismiss}
       onContextMenu={(e) => {
         // Второй правый клик закрывает меню, а не открывает системное поверх него.
         e.preventDefault()
-        onClose()
+        dismiss()
       }}
     >
       {/* ПК: меню у точки нажатия. */}
@@ -167,23 +180,24 @@ export function RowContextMenu({
         ref={ref}
         style={{ left: pos.left, top: pos.top }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute hidden max-h-[70vh] w-56 overflow-y-auto rounded-2xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 md:block"
+        className={cn(
+          'absolute hidden max-h-[70vh] w-56 overflow-y-auto rounded-2xl border border-border bg-popover py-1 shadow-lg duration-150 md:block',
+          closing ? 'animate-out fade-out zoom-out-95' : 'animate-in fade-in zoom-in-95',
+        )}
       >
         {list('menu')}
       </div>
 
-      {/* Телефон: нижний лист, закрывается свайпом вниз — как меню сообщения. */}
-      <div
-        ref={sheetRef}
-        onClick={(e) => e.stopPropagation()}
-        className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
-      >
-        <div
-          className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
-          aria-hidden
-        />
-        <div className="py-1">{list('sheet')}</div>
-      </div>
+      {/* Телефон: строка поднимается снимком, действия растут под ней. */}
+      <AnchoredMenuLayer
+        anchor={anchor}
+        fallbackY={y}
+        align="start"
+        closing={closing}
+        onBackdropTap={dismiss}
+        snapshotClassName="rounded-2xl shadow-xl"
+        card={<div className="py-1">{list('card')}</div>}
+      />
     </div>
   )
 }

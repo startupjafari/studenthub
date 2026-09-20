@@ -308,10 +308,31 @@ export function ChatWindow() {
   // Свайп-действия на строке списка чатов (мобильный): вправо — «Прочитать · Закрепить»,
   // влево — «Без звука · Архив · Удалить». Жест и его физика — общий хук shared/lib
   // (та же механика у списка уведомлений).
+  // Долгое нажатие по строке открывает её меню. Жест — в том же хуке, что и свайп (он один
+  // видит движение пальца и умеет отменять удержание), а меню — состояние списка, поэтому хук
+  // зовёт обработчик через ref, который список туда кладёт.
+  const rowLongPressRef = useRef<((id: string, el: HTMLElement) => void) | null>(null)
   const chatRows = useSwipeRows({
     leftWidth: 2 * ROW_BTN_W, // Прочитать + Закрепить
     rightWidth: 3 * ROW_BTN_W, // Без звука + Архив + Удалить
+    onLongPress: (id, el) => rowLongPressRef.current?.(id, el),
   })
+
+  // Возврат из чата к списку: панель списка не монтируется заново (она всегда в дереве),
+  // поэтому «появление» ей даём флагом — на время анимации, а потом снимаем, иначе список
+  // въезжал бы при каждой перерисовке.
+  const [listReturning, setListReturning] = useState(false)
+  const prevActiveId = useRef(activeId)
+  useEffect(() => {
+    const had = prevActiveId.current
+    prevActiveId.current = activeId
+    // Только переход «чат был → чата нет»: при первом открытии экрана списку ехать неоткуда.
+    if (activeId || !had) return
+    setListReturning(true)
+    const timer = window.setTimeout(() => setListReturning(false), 320)
+    return () => window.clearTimeout(timer)
+  }, [activeId])
+
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
@@ -2285,8 +2306,11 @@ export function ChatWindow() {
       chatsLoading={chats.isLoading}
       myId={myId}
       locale={locale}
+      returning={listReturning}
       swiped={chatRows.swiped}
       swipedFlagRef={chatRows.swipedFlagRef}
+      longPressedRef={chatRows.longPressedRef}
+      longPressRef={rowLongPressRef}
       rowElsRef={chatRows.rowElsRef}
       onRowTouchStart={chatRows.onRowTouchStart}
       onRowTouchMove={chatRows.onRowTouchMove}
@@ -2326,7 +2350,7 @@ export function ChatWindow() {
           >
             {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
             {selectMode && (
-              <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+              <header className="flex items-center gap-1 border-b border-border px-2 py-3 duration-200 animate-in fade-in slide-in-from-top-2">
                 <button
                   type="button"
                   aria-label={t('cancel')}
@@ -2990,7 +3014,7 @@ export function ChatWindow() {
                   type="button"
                   onClick={scrollToBottom}
                   aria-label={t('scrollToBottom')}
-                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform hover:bg-muted active:scale-95"
+                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 animate-in fade-in zoom-in-90 hover:bg-muted active:scale-95"
                   style={{ bottom: composerH + 12 }}
                 >
                   <ChevronDown className="size-5" aria-hidden />
