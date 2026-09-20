@@ -37,6 +37,8 @@ import {
   RowContextMenu,
   SegmentedTabs,
   Skeleton,
+  captureAnchor,
+  type MenuAnchor,
   type SegmentedTabItem,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -85,8 +87,22 @@ export type ConversationListProps = {
   chatsLoading: boolean
   myId: string | undefined
   locale: string
+  /**
+   * Список только что вернули на экран (закрыли чат). Секунда на анимацию возврата — и флаг
+   * снимают: список смонтирован всегда, поэтому «появление» здесь не монтирование, а
+   * одноразово навешенный класс.
+   */
+  returning: boolean
   swiped: { id: string; side: 'left' | 'right' } | null
   swipedFlagRef: RefObject<boolean>
+  /** Долгое нажатие уже отработало — системное `contextmenu` поверх него игнорируем. */
+  longPressedRef: RefObject<boolean>
+  /**
+   * Сюда список кладёт свой обработчик долгого нажатия: жест живёт в `useSwipeRows` у родителя,
+   * а меню строки — состояние списка. Ref вместо пропса-колбэка, потому что связь обратная:
+   * не родитель зовёт список, а список даёт родителю, что позвать.
+   */
+  longPressRef: RefObject<((id: string, el: HTMLElement) => void) | null>
   rowElsRef: RefObject<Map<string, HTMLElement>>
   onRowTouchStart: (e: React.TouchEvent<HTMLElement>, id: string) => void
   onRowTouchMove: (e: React.TouchEvent<HTMLElement>) => void
@@ -132,8 +148,11 @@ export function ConversationList({
   chatsLoading,
   myId,
   locale,
+  returning,
   swiped,
   swipedFlagRef,
+  longPressedRef,
+  longPressRef,
   rowElsRef,
   onRowTouchStart,
   onRowTouchMove,
@@ -156,10 +175,19 @@ export function ConversationList({
   const searchRef = useRef<HTMLInputElement>(null)
   // Открытое меню действий строки: id чата + точка нажатия. Одно на список — двух сразу
   // не бывает, и по id же подсвечивается строка, к которой меню относится.
-  const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [rowMenu, setRowMenu] = useState<{
+    id: string
+    x: number
+    y: number
+    // Строка под пальцем: на телефоне меню строится вокруг её снимка.
+    anchor?: MenuAnchor
+  } | null>(null)
   const openRowMenu = (e: React.MouseEvent<HTMLElement>, id: string): void => {
     e.preventDefault()
     e.stopPropagation()
+    // Android шлёт `contextmenu` поверх нашего долгого нажатия — второе открытие потеряло бы
+    // якорь строки и дёрнуло меню к точке касания.
+    if (longPressedRef.current) return
     // Клавиша «контекстное меню» (и Shift+F10) шлёт то же событие с координатами 0,0 —
     // там меню оказалось бы в углу экрана, а не у строки. Берём её прямоугольник.
     const box = e.currentTarget.getBoundingClientRect()
@@ -169,6 +197,11 @@ export function ConversationList({
       x: keyboard ? box.left + 24 : e.clientX,
       y: keyboard ? box.bottom : e.clientY,
     })
+  }
+  // Долгое нажатие (тач): меню у самой строки, со снимком её самой над затемнением.
+  longPressRef.current = (id, el) => {
+    const box = el.getBoundingClientRect()
+    setRowMenu({ id, x: box.left + 24, y: box.bottom, anchor: captureAnchor(el) })
   }
   const menuChat = rowMenu ? chats.find((c) => c.id === rowMenu.id) : undefined
 
@@ -211,6 +244,10 @@ export function ConversationList({
               'w-full shrink-0 flex-col border-r border-border md:flex md:w-80 lg:hidden',
               activeId ? 'hidden md:flex' : 'flex',
             ),
+        // Возврат из чата: список въезжает слева — обратный ход тому, как чат выезжал справа.
+        // Только на узких экранах: на десктопе список и так на месте, ему ехать неоткуда.
+        returning &&
+          'max-md:duration-300 max-md:animate-in max-md:fade-in max-md:slide-in-from-left-4',
       )}
     >
       <div className="flex flex-col gap-2 border-b border-border p-3">
@@ -662,6 +699,9 @@ export function ConversationList({
                 </div>
                 <button
                   type="button"
+                  // Метка для правила в globals.css: удержание открывает меню, а не системное
+                  // выделение текста строки.
+                  data-long-press=""
                   ref={(el) => {
                     if (el) rowElsRef.current.set(c.id, el)
                     else rowElsRef.current.delete(c.id)
@@ -681,7 +721,7 @@ export function ConversationList({
                   onTouchMove={onRowTouchMove}
                   onTouchEnd={(e) => onRowTouchEnd(e, c.id)}
                   className={cn(
-                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors hover:bg-muted/50',
+                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors duration-150 hover:bg-muted/50 active:bg-muted/70',
                     activeId === c.id ? 'bg-primary/10' : '',
                     // Строка, над которой открыто меню, выделена всё время его жизни:
                     // список длинный, курсор уезжает к пунктам меню, и без метки
@@ -765,6 +805,7 @@ export function ConversationList({
         <RowContextMenu
           x={rowMenu.x}
           y={rowMenu.y}
+          anchor={rowMenu.anchor}
           ariaLabel={t('chatActions')}
           onClose={() => setRowMenu(null)}
           items={[
