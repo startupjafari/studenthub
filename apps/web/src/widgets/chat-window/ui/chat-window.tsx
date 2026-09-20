@@ -79,6 +79,7 @@ import {
   type ChatMemberInfo,
   type ChatMessage,
   type MessageAttachment,
+  type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import { ChatDetailsPanel } from './chat-details-panel'
@@ -271,6 +272,8 @@ export function ChatWindow() {
     // Выделение снимаем при ОТКРЫТИИ меню: клик по пункту «Ответить» его уже сбросит,
     // и читать window.getSelection() позже поздно.
     selection: string | null
+    // Пузырь под пальцем — только у долгого нажатия: на телефоне меню строится вокруг него.
+    anchor?: MessageMenuAnchor
   } | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
@@ -1774,7 +1777,22 @@ export function ChatWindow() {
       if (!s) return
       s.longFired = true
       resetBubble(s.bubble, true)
-      setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
+      // Геометрию снимаем ПОСЛЕ сброса сдвига: меню строится вокруг пузыря на его законном
+      // месте, а не там, куда его успел утащить начатый свайп.
+      const r = s.bubble?.getBoundingClientRect()
+      setMenu({
+        message: m,
+        x,
+        y,
+        selection: selectionWithin(m.id),
+        anchor:
+          s.bubble && r
+            ? {
+                node: s.bubble,
+                rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+              }
+            : undefined,
+      })
       hapticTick()
     }, LONG_PRESS_MS)
     msgTouch.current = {
@@ -1838,6 +1856,18 @@ export function ChatWindow() {
     // Свайп вправо дальше порога (и это не было долгим нажатием) → ответ на сообщение.
     if (!s.longFired && s.swiping && dx > SWIPE_REPLY_PX) setReplyTo(s.m)
     msgTouch.current = null
+  }
+
+  /**
+   * Открыть меню от указателя (правый клик на ПК, кнопка-шеврон). Долгое нажатие сюда не
+   * ходит: у него есть якорь-пузырь, и меню оно ставит само.
+   *
+   * Android поверх нашего долгого нажатия шлёт ещё и `contextmenu` — без этой заглушки второе
+   * открытие затирало бы якорь, и меню прыгало бы к точке касания без снимка сообщения.
+   */
+  function openMenuAt(m: ChatMessage, x: number, y: number): void {
+    if (msgTouch.current?.longFired) return
+    setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
   }
 
   // Единая навигация по закреплённым (клик по бару и стрелки ◀▶ используют её — без рассинхрона).
@@ -2161,6 +2191,7 @@ export function ChatWindow() {
     startReply,
     selection: selectionWithin,
     setMenu,
+    openMenuAt,
     setForwardMsg,
     focusMessage,
     copyText,
@@ -2177,6 +2208,7 @@ export function ChatWindow() {
     startReply,
     selection: selectionWithin,
     setMenu,
+    openMenuAt,
     setForwardMsg,
     focusMessage,
     copyText,
@@ -2191,13 +2223,7 @@ export function ChatWindow() {
   const messageActions = useMemo<MessageActions>(
     () => ({
       reply: (m) => msgHandlersRef.current.startReply(m, msgHandlersRef.current.selection(m.id)),
-      openMenu: (m, x, y) =>
-        msgHandlersRef.current.setMenu({
-          message: m,
-          x,
-          y,
-          selection: msgHandlersRef.current.selection(m.id),
-        }),
+      openMenu: (m, x, y) => msgHandlersRef.current.openMenuAt(m, x, y),
       focus: (id) => msgHandlersRef.current.focusMessage(id),
       copy: (m) => msgHandlersRef.current.copyText(m),
       forward: (m) => msgHandlersRef.current.setForwardMsg(m),
@@ -3119,6 +3145,7 @@ export function ChatWindow() {
           mine={menu.message.senderId === myId}
           x={menu.x}
           y={menu.y}
+          anchor={menu.anchor}
           onClose={() => setMenu(null)}
           actions={{
             onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
