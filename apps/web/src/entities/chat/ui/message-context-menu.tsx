@@ -18,7 +18,12 @@ import {
 import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { EmojiPicker } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useSheetDragClose, useBodyScrollLock, useScrollRow } from '../../../shared/lib'
+import {
+  useSheetDragClose,
+  useBodyScrollLock,
+  useScrollRow,
+  prefersReducedMotion,
+} from '../../../shared/lib'
 import type { ChatMessage } from '../model/types'
 
 export interface MessageMenuActions {
@@ -33,6 +38,16 @@ export interface MessageMenuActions {
   onSelect: () => void
 }
 
+/**
+ * Пузырь, из которого выросло меню (долгое нажатие на телефоне). Меню поднимает его
+ * снимок над затемнением и раскладывает вокруг него реакции и действия, поэтому ему нужны
+ * и живой узел (для клона), и его экранная геометрия на момент нажатия.
+ */
+export interface MessageMenuAnchor {
+  node: HTMLElement
+  rect: { top: number; left: number; width: number; height: number }
+}
+
 interface ActionDef {
   key: string
   label: string
@@ -41,10 +56,16 @@ interface ActionDef {
   danger?: boolean
 }
 
+/** Отступ от краёв экрана и зазор между блоками мобильной раскладки. */
+const EDGE = 12
+const GAP = 8
+/** Ниже этого снимок пузыря не ужимаем — он становится прокручиваемым. */
+const MIN_BUBBLE = 96
+
 /**
  * Ряд быстрых реакций. Отдельный компонент, а не функция, возвращающая разметку, ровно
  * из-за прокрутки: `useScrollRow` держит ОДИН узел, а рядов на экране два — компактный
- * в десктопном меню и крупный в нижнем листе. Оба монтируются всегда (прячет их
+ * в десктопном меню и пилюля над пузырём на телефоне. Оба монтируются всегда (прячет их
  * медиазапрос, а не условие), и общий контроллер доставался тому, кто смонтировался
  * последним, — мобильному. На ПК ряд из-за этого не тянулся мышью, не крутился колесом
  * и не затухал у краёв: вся механика висела на невидимом соседе.
@@ -53,28 +74,32 @@ interface ActionDef {
  * прокрутку, когда нет — иначе крайние обрезались бы без возможности до них добраться.
  */
 function ReactionsRow({
-  big = false,
+  variant = 'menu',
   onReact,
   onOpenPicker,
   pickerLabel,
 }: {
-  /** Крупный вариант для нижнего листа: цель под палец, а не под курсор. */
-  big?: boolean
+  /** `pill` — отдельная плашка над пузырём (телефон), цели под палец; `menu` — строка в меню ПК. */
+  variant?: 'menu' | 'pill'
   onReact: (emoji: string) => void
   onOpenPicker: () => void
   pickerLabel: string
 }) {
   const row = useScrollRow<HTMLDivElement>()
+  const pill = variant === 'pill'
   const btn = cn(
     'flex shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 hover:bg-muted active:scale-95',
-    big ? 'size-11' : 'size-10',
+    pill ? 'size-11' : 'size-10',
   )
 
   return (
     <div
       ref={row.ref}
       className={cn(
-        'overflow-x-auto border-b border-border px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        'overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        pill
+          ? 'max-w-full rounded-full border border-border bg-popover/95 px-1.5 py-1 shadow-xl backdrop-blur-md'
+          : 'border-b border-border px-2 py-2',
         row.overflowing && 'cursor-grab',
         row.dragging && 'cursor-grabbing select-none',
       )}
@@ -86,7 +111,7 @@ function ReactionsRow({
             <span
               className={cn(
                 'flex items-center justify-center overflow-hidden leading-none',
-                big ? 'text-2xl' : 'text-[22px]',
+                pill ? 'text-2xl' : 'text-[22px]',
               )}
             >
               {emoji}
@@ -100,21 +125,95 @@ function ReactionsRow({
           onClick={onOpenPicker}
           className={cn(btn, 'text-muted-foreground')}
         >
-          <SmilePlus className={big ? 'size-6' : 'size-5'} aria-hidden />
+          <SmilePlus className={pill ? 'size-6' : 'size-5'} aria-hidden />
         </button>
       </div>
     </div>
   )
 }
 
+/**
+ * Снимок пузыря над затемнением: клон живого узла, а не пересборка разметки.
+ *
+ * Клон, потому что пузырь — это уже отрисованное сообщение со всем, что в нём бывает
+ * (вложения, цитата, опрос, реакции), и повторять эту сборку вторым кодом значит гарантированно
+ * разойтись с оригиналом. Клон инертен: обработчики React на него не переносятся, а hover-кнопка
+ * «Ответить» внутри остаётся невидимой — её показывает `group-hover`, а группы-родителя здесь нет.
+ */
+function BubbleSnapshot({ node }: { node: HTMLElement }) {
+  const host = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const el = host.current
+    if (!el) return
+    const clone = node.cloneNode(true) as HTMLElement
+    // Ширину задаёт снимок (она измерена у оригинала): `max-w-[75%]` внутри клона считался бы
+    // от ширины оверлея, и пузырь стал бы шире, чем был под пальцем.
+    clone.style.maxWidth = 'none'
+    clone.style.width = '100%'
+    clone.style.transform = ''
+    clone.removeAttribute('id')
+    el.replaceChildren(clone)
+  }, [node])
+
+  return <div ref={host} aria-hidden />
+}
+
+/**
+ * Нижний лист с полным emoji-пикером (телефон). Отдельный компонент, потому что
+ * `useSheetDragClose` вешает жест на узел в момент монтирования: живя в родителе, хук получал
+ * бы ref листа, которого тогда ещё нет, — и свайп вниз перестал бы его закрывать.
+ */
+function EmojiPickerSheet({
+  searchPlaceholder,
+  onPick,
+  onClose,
+}: {
+  searchPlaceholder: string
+  onPick: (emoji: string) => void
+  onClose: () => void
+}) {
+  const ref = useSheetDragClose<HTMLDivElement>(onClose)
+
+  return (
+    <div
+      ref={ref}
+      onClick={(e) => e.stopPropagation()}
+      className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
+    >
+      <div
+        className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
+        aria-hidden
+      />
+      <div className="p-2">
+        <EmojiPicker className="w-full" searchPlaceholder={searchPlaceholder} onPick={onPick} />
+      </div>
+    </div>
+  )
+}
+
+/** Раскладка мобильного меню: куда встали снимок пузыря, пилюля реакций и карточка действий. */
+interface Placement {
+  bubbleTop: number
+  bubbleHeight: number
+  pillTop: number
+  cardTop: number
+}
+
 // Блок взаимодействия с сообщением (Telegram-стиль): затемнение фона + быстрый ряд реакций и действия.
-// Десктоп — компактное меню у точки (правый клик/шеврон). Мобильный — нижний лист (bottom sheet)
-// с крупными целями и safe-area, открывается долгим нажатием.
+// Десктоп — компактное меню у точки (правый клик/шеврон).
+//
+// Телефон — не нижний лист, а меню у самого пузыря: фон размывается, снимок сообщения остаётся
+// чётким на своём месте, над ним всплывает пилюля реакций, под ним — карточка действий. Нижний
+// лист отрывал действия от сообщения (палец на одном краю экрана, сообщение на другом) и закрывал
+// собой переписку; здесь связь «что именно я держу» не теряется. Лист остался ровно под полным
+// emoji-пикером: там нужен весь экран, и он не привязан к месту нажатия.
 export function MessageContextMenu({
   message,
   mine,
   x,
   y,
+  anchor,
   onClose,
   actions,
 }: {
@@ -122,6 +221,8 @@ export function MessageContextMenu({
   mine: boolean
   x: number
   y: number
+  /** Пузырь под пальцем — есть только у долгого нажатия (тач). */
+  anchor?: MessageMenuAnchor | null
   onClose: () => void
   actions: MessageMenuActions
 }) {
@@ -131,7 +232,7 @@ export function MessageContextMenu({
   // §11: полный emoji-picker для реакции (по «+» в ряду быстрых реакций).
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  // Десктопное меню удерживаем в пределах вьюпорта (на мобильном оно скрыто — лист внизу).
+  // Десктопное меню удерживаем в пределах вьюпорта (на мобильном оно скрыто — меню у пузыря).
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
@@ -154,11 +255,56 @@ export function MessageContextMenu({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Свайп вниз закрывает нижний лист (Telegram-стиль). Жест — через общий хук: touchmove вешается
-  // не-passive и делает preventDefault во время драга, поэтому страница под шторкой не скроллится
-  // и не срабатывает iOS pull-to-refresh (один жест — только шторке).
-  const sheetRef = useSheetDragClose<HTMLDivElement>(onClose)
   useBodyScrollLock()
+
+  // ── Мобильная раскладка вокруг пузыря ───────────────────────────────────────
+  const pillRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState<Placement | null>(null)
+  // Сдвиг снимка от исходного места: сообщение у края экрана уезжает, освобождая место
+  // реакциям и действиям, — но уезжает плавно, а не телепортируется.
+  const [lift, setLift] = useState(0)
+
+  const anchorTop = anchor?.rect.top ?? y
+  const anchorHeight = anchor?.rect.height ?? 0
+
+  useLayoutEffect(() => {
+    if (pickerOpen) return
+    const pill = pillRef.current
+    const card = cardRef.current
+    if (!pill || !card) return
+    const pillH = pill.offsetHeight
+    const cardH = card.offsetHeight
+    // На ПК мобильный слой скрыт (display:none) — мерить нечего, раскладка не нужна.
+    if (!pillH || !cardH) return
+
+    const vh = window.innerHeight
+    const free = vh - 2 * EDGE - pillH - cardH - 2 * GAP
+    const bubbleHeight = Math.min(anchorHeight, Math.max(free, MIN_BUBBLE))
+    const minTop = EDGE + pillH + GAP
+    const maxTop = Math.max(minTop, vh - EDGE - cardH - GAP - bubbleHeight)
+    const bubbleTop = Math.min(Math.max(anchorTop, minTop), maxTop)
+
+    setPlace({
+      bubbleTop,
+      bubbleHeight,
+      pillTop: bubbleTop - GAP - pillH,
+      cardTop: bubbleTop + bubbleHeight + GAP,
+    })
+  }, [anchorTop, anchorHeight, pickerOpen])
+
+  useEffect(() => {
+    if (!place) return
+    const delta = place.bubbleTop - anchorTop
+    if (delta === 0 || prefersReducedMotion()) {
+      setLift(delta)
+      return
+    }
+    // Кадр задержки обязателен: если поставить конечное значение в том же кадре, что и
+    // начальное, браузеру не между чем интерполировать — переход просто не запустится.
+    const id = requestAnimationFrame(() => setLift(delta))
+    return () => cancelAnimationFrame(id)
+  }, [place, anchorTop])
 
   const run = (fn: () => void) => () => {
     fn()
@@ -193,35 +339,43 @@ export function MessageContextMenu({
       : []),
   ]
 
-  const actionsList = (variant: 'menu' | 'sheet'): React.ReactNode => (
-    <div className={variant === 'sheet' ? 'py-1' : 'py-1'}>
+  const actionsList = (variant: 'menu' | 'card'): React.ReactNode => (
+    <div className="py-1">
       {items.map((it) => {
         const Icon = it.icon
         return (
           <button
             key={it.key}
             type="button"
+            role="menuitem"
             onClick={run(it.onClick)}
             className={cn(
-              'flex w-full items-center text-left transition-colors hover:bg-muted',
-              variant === 'sheet' ? 'gap-3 px-4 py-3 text-base' : 'gap-2 px-3 py-2 text-sm',
+              'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted',
+              variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
               it.danger ? 'text-destructive' : 'text-foreground',
             )}
           >
             <Icon
-              className={cn('shrink-0 opacity-80', variant === 'sheet' ? 'size-5' : 'size-4')}
+              className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
               aria-hidden
             />
-            {it.label}
+            <span className="truncate">{it.label}</span>
           </button>
         )
       })}
     </div>
   )
 
+  const reactAndClose = (emoji: string): void => {
+    actions.onReact(emoji)
+    onClose()
+  }
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-overlay/40 duration-150 animate-in fade-in md:bg-transparent"
+      // Маркер для глобального Esc (shared/lib/use-escape-back).
+      data-overlay
+      className="fixed inset-0 z-50 bg-overlay/40 backdrop-blur-sm duration-150 animate-in fade-in md:bg-transparent md:backdrop-blur-none"
       role="menu"
       aria-label={t('messageActions')}
       onClick={onClose}
@@ -239,20 +393,11 @@ export function MessageContextMenu({
         )}
       >
         {pickerOpen ? (
-          <EmojiPicker
-            searchPlaceholder={t('emojiSearch')}
-            onPick={(emoji) => {
-              actions.onReact(emoji)
-              onClose()
-            }}
-          />
+          <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={reactAndClose} />
         ) : (
           <>
             <ReactionsRow
-              onReact={(emoji) => {
-                actions.onReact(emoji)
-                onClose()
-              }}
+              onReact={reactAndClose}
               onOpenPicker={() => setPickerOpen(true)}
               pickerLabel={t('emoji')}
             />
@@ -261,42 +406,77 @@ export function MessageContextMenu({
         )}
       </div>
 
-      {/* Мобильный: нижний лист. Тянется/закрывается свайпом вниз. */}
-      <div
-        ref={sheetRef}
-        onClick={(e) => e.stopPropagation()}
-        className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
-      >
-        <div
-          className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
-          aria-hidden
+      {/* Телефон: реакции и действия у самого пузыря; полный пикер — нижним листом. */}
+      {pickerOpen ? (
+        <EmojiPickerSheet
+          searchPlaceholder={t('emojiSearch')}
+          onPick={reactAndClose}
+          onClose={onClose}
         />
-        {pickerOpen ? (
-          <div className="p-2">
-            <EmojiPicker
-              className="w-full"
-              searchPlaceholder={t('emojiSearch')}
-              onPick={(emoji) => {
-                actions.onReact(emoji)
-                onClose()
+      ) : (
+        <div className="absolute inset-0 md:hidden">
+          {anchor && (
+            <div
+              className="absolute overflow-y-auto overscroll-contain touch-pan-y"
+              style={{
+                left: anchor.rect.left,
+                top: anchor.rect.top,
+                width: anchor.rect.width,
+                maxHeight: place?.bubbleHeight,
+                transform: lift ? `translateY(${lift}px)` : undefined,
+                transition: prefersReducedMotion()
+                  ? undefined
+                  : 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
               }}
-            />
+            >
+              <BubbleSnapshot node={anchor.node} />
+            </div>
+          )}
+          {/* Обёртки во всю ширину только позиционируют — тап мимо плашки должен закрывать меню,
+              поэтому события ловит не обёртка, а сама плашка. */}
+          <div
+            ref={pillRef}
+            style={{ top: place?.pillTop ?? -9999 }}
+            className={cn(
+              'pointer-events-none absolute inset-x-3 flex',
+              mine ? 'justify-end' : 'justify-start',
+            )}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                'pointer-events-auto max-w-full duration-200 animate-in fade-in zoom-in-95',
+                mine ? 'origin-bottom-right' : 'origin-bottom-left',
+              )}
+            >
+              <ReactionsRow
+                variant="pill"
+                onReact={reactAndClose}
+                onOpenPicker={() => setPickerOpen(true)}
+                pickerLabel={t('emoji')}
+              />
+            </div>
           </div>
-        ) : (
-          <>
-            <ReactionsRow
-              big
-              onReact={(emoji) => {
-                actions.onReact(emoji)
-                onClose()
-              }}
-              onOpenPicker={() => setPickerOpen(true)}
-              pickerLabel={t('emoji')}
-            />
-            {actionsList('sheet')}
-          </>
-        )}
-      </div>
+          <div
+            ref={cardRef}
+            style={{ top: place?.cardTop ?? -9999 }}
+            className={cn(
+              'pointer-events-none absolute inset-x-3 flex',
+              mine ? 'justify-end' : 'justify-start',
+            )}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                'pointer-events-auto w-60 max-w-full overflow-hidden rounded-2xl border border-border bg-popover/95 shadow-xl backdrop-blur-md duration-200 animate-in fade-in zoom-in-95',
+                mine ? 'origin-top-right' : 'origin-top-left',
+              )}
+            >
+              {actionsList('card')}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
