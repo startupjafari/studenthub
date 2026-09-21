@@ -16,6 +16,20 @@ export default defineConfig({
     // Тоннель приходит именно с чужим хостом, поэтому домены тоннелей перечислены явно.
     // Точка в начале разрешает поддомены: у бесплатных тоннелей имя каждый раз новое.
     // Здесь только dev-сервер; прод раздаётся статикой, и этой настройки там нет.
-    allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok-free.dev', '.loca.lt'],
+    allowedHosts: [
+      '.trycloudflare.com',
+      '.ngrok-free.app',
+      '.ngrok-free.dev',
+      '.loca.lt',
+      // pinggy и dev tunnels VS Code — ssh/https через 443. В сетях, где закрыт исходящий
+      // 7844, cloudflared не поднимается вовсе, и рабочими остаются только они.
+      '.pinggy.link',
+      '.pinggy-free.link',
+      '.pinggy.net',
+      '.pinggy.online',
+      '.devtunnels.ms',
+      '.serveousercontent.com',
+      '.lhr.life',
+    ],
   },
 })
