@@ -90,9 +90,19 @@ export async function resolveComplaint(
   id: string,
   action: ResolveAction,
   comment?: string,
+  applyToDuplicates?: boolean,
 ): Promise<Complaint> {
   return apiPatch<Complaint>(`/complaints/${id}/resolve`, {
     action,
     ...(comment ? { comment } : {}),
+    ...(applyToDuplicates ? { applyToDuplicates: true } : {}),
   })
+}
+
+/**
+ * Вернуть жалобу в очередь. Побочные действия решения не отменяются: снятый контент не
+ * возвращается, блокировка снимается отдельно, в разделе «Люди».
+ */
+export async function reopenComplaint(id: string): Promise<Complaint> {
+  return apiPatch<Complaint>(`/complaints/${id}/reopen`, {})
 }

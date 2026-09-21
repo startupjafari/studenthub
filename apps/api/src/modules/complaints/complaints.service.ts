@@ -223,6 +223,83 @@ export class ComplaintsService {
       },
       { jobId: `complaint-resolved:${id}` },
     )
+
+    if (input.applyToDuplicates) await this.closeDuplicates(actor, complaint, status, id, ctx)
+    return updated
+  }
+
+  /**
+   * Закрыть остальные необработанные жалобы на ту же цель тем же статусом.
+   *
+   * Побочное действие (снять контент, заблокировать) здесь НЕ повторяется — оно уже
+   * выполнено для первой жалобы. Второе удаление того же поста было бы безобидным, а вот
+   * вторая блокировка того же человека записала бы в журнал события, которых не было.
+   */
+  private async closeDuplicates(
+    actor: JwtPayload,
+    complaint: { targetType: ComplaintTargetType; targetId: string },
+    status: ComplaintStatus,
+    exceptId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const where = {
+      id: { not: exceptId },
+      targetType: complaint.targetType,
+      targetId: complaint.targetId,
+      status: { in: [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING] },
+      // Чужой scope не трогаем: модератор вуза не должен закрывать жалобы другого вуза
+      // только потому, что цель у них общая.
+      ...this.scopeWhere(actor),
+    }
+    const { count } = await this.prisma.complaint.updateMany({
+      where,
+      data: { status, resolvedById: actor.sub, resolvedAt: new Date() },
+    })
+    if (count === 0) return
+
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_duplicates_closed',
+      entity: 'Complaint',
+      entityId: exceptId,
+      metadata: { count, targetType: complaint.targetType, targetId: complaint.targetId },
+      ...ctx,
+    })
+  }
+
+  /**
+   * Вернуть жалобу в очередь. Ошибка модератора до этого исправлялась только правкой в БД.
+   *
+   * Побочные действия решения НЕ отменяются: снятый контент не возвращается, а блокировка
+   * снимается отдельно, в разделе «Люди». Возврат в очередь означает «решение было
+   * неверным, нужен новый разбор», а не «ничего не было».
+   */
+  async reopen(actor: JwtPayload, id: string, ctx: RequestContext) {
+    const complaint = await this.findScoped(actor, id)
+    if (
+      complaint.status !== ComplaintStatus.RESOLVED &&
+      complaint.status !== ComplaintStatus.DISMISSED
+    ) {
+      throw new AppException('CONFLICT', 'Жалоба и так в очереди')
+    }
+
+    const updated = await this.prisma.complaint.update({
+      where: { id },
+      data: {
+        status: ComplaintStatus.PENDING,
+        resolvedById: null,
+        resolvedAt: null,
+        resolution: null,
+      },
+      select: COMPLAINT_SELECT,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_reopened',
+      entity: 'Complaint',
+      entityId: id,
+      ...ctx,
+    })
     return updated
   }
 

@@ -36,6 +36,7 @@ const LOCK_TTL_MS = {
   cleanAuditLogs: 30 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
   sendDailyDigest: 10 * 60 * 1000,
+  alertQueueBacklog: 10 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -43,6 +44,15 @@ const AUDIT_RETENTION_DAYS = 90
 const ORPHAN_SAFETY_MINUTES = 60
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+// Сигнал о накоплении очереди жалоб.
+//
+// Порог и пауза подобраны так, чтобы уведомление означало «очередь вышла из-под контроля»,
+// а не «пришло ещё три жалобы». Сигналить на каждый час превышения бессмысленно: разгрести
+// два десятка жалоб за час нельзя, и пять одинаковых сообщений подряд учат их не читать.
+const QUEUE_BACKLOG_THRESHOLD = 20
+const QUEUE_BACKLOG_SILENCE_SEC = 6 * 60 * 60
+const QUEUE_BACKLOG_KEY = 'platform:queue-backlog-alerted'
 
 // Итог ночной уборки сирот живёт двое суток: сводка читает его раз в день, и пропуск
 // одного запуска не должен превращаться в пустую строку навсегда.
@@ -248,6 +258,36 @@ export class CleanupService {
     )
     this.logger.log(`sendDailyDigest: жалоб ${complaints}, обращений ${tickets}`)
     return 1
+  }
+
+  // Очередь жалоб выросла сверх порога. Ежечасно, с паузой между сигналами.
+  @Cron('15 * * * *', { name: 'alertQueueBacklog' })
+  async alertQueueBacklog(): Promise<number | null> {
+    return this.locks.run('alertQueueBacklog', LOCK_TTL_MS.alertQueueBacklog, () =>
+      this.alertQueueBacklogTask(),
+    )
+  }
+
+  private async alertQueueBacklogTask(): Promise<number> {
+    const pending = await this.prisma.complaint.count({
+      where: { status: { in: ['PENDING', 'REVIEWING'] } },
+    })
+    if (pending < QUEUE_BACKLOG_THRESHOLD) {
+      // Очередь разгребли — снимаем паузу, чтобы следующий всплеск не пропустить.
+      await this.redis.del(QUEUE_BACKLOG_KEY).catch(() => undefined)
+      return 0
+    }
+
+    // SET NX: между инстансами побеждает один, и повторного сигнала не будет даже если
+    // задача каким-то образом выполнится дважды.
+    const first = await this.redis
+      .set(QUEUE_BACKLOG_KEY, String(pending), 'EX', QUEUE_BACKLOG_SILENCE_SEC, 'NX')
+      .catch(() => null)
+    if (first === null) return 0
+
+    await this.telegram.notifyStaff('complaint', `В очереди накопилось жалоб: ${pending}`)
+    this.logger.log(`alertQueueBacklog: жалоб ${pending}`)
+    return pending
   }
 
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   fetchComplaint,
   fetchComplaintMessages,
+  reopenComplaint,
   resolveComplaint,
   type Complaint,
   type ComplaintMessage,
@@ -41,6 +42,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   const [state, setState] = useState<State>({ status: 'loading' })
   const [context, setContext] = useState<ComplaintMessage[] | 'error' | null>(null)
   const [comment, setComment] = useState('')
+  const [applyAll, setApplyAll] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -78,7 +80,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       setBusy(true)
       setError(null)
       try {
-        await resolveComplaint(id, action, comment.trim() || undefined)
+        await resolveComplaint(id, action, comment.trim() || undefined, applyAll)
         haptic.success()
         // Возвращаемся в очередь: разобранной жалобы в ней уже нет, и оставаться
         // на карточке, которая больше ничего не ждёт, незачем.
@@ -91,8 +93,23 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         setBusy(false)
       }
     },
-    [busy, comment, id, onBack],
+    [applyAll, busy, comment, id, onBack],
   )
+
+  const reopen = useCallback(async () => {
+    if (!(await confirmAction(t('complaintReopenConfirm')))) return
+    setBusy(true)
+    setError(null)
+    try {
+      await reopenComplaint(id)
+      haptic.success()
+      onBack()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('complaintReopenError'))
+    } finally {
+      setBusy(false)
+    }
+  }, [id, onBack])
 
   if (state.status === 'loading') {
     return (
@@ -177,48 +194,84 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         </section>
       )}
 
-      <section className="card">
-        <h2>{t('complaintDecision')}</h2>
-        {/* Комментарий необязателен, но уходит в журнал вместе с решением: через месяц
+      {/* Разобранную жалобу решать нечем — её можно только вернуть в очередь. */}
+      {complaint.status !== 'PENDING' && complaint.status !== 'REVIEWING' && (
+        <section className="card">
+          <h2>{t('complaintDecision')}</h2>
+          <p className="hint">
+            {complaint.resolvedAt
+              ? t('complaintResolvedAt', { when: formatDateTime(complaint.resolvedAt) })
+              : ''}
+          </p>
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void reopen()}
+          >
+            {t('complaintReopen')}
+          </button>
+        </section>
+      )}
+
+      {(complaint.status === 'PENDING' || complaint.status === 'REVIEWING') && (
+        <section className="card">
+          <h2>{t('complaintDecision')}</h2>
+          {/* Комментарий необязателен, но уходит в журнал вместе с решением: через месяц
             «почему заблокировали» отвечается только им. */}
-        <textarea
-          className="field"
-          rows={2}
-          maxLength={2000}
-          placeholder={t('complaintNotePlaceholder')}
-          aria-label={t('complaintNoteLabel')}
-          value={comment}
-          onChange={(event) => setComment(event.target.value)}
-        />
-        {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
+          <textarea
+            className="field"
+            rows={2}
+            maxLength={2000}
+            placeholder={t('complaintNotePlaceholder')}
+            aria-label={t('complaintNoteLabel')}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
             и кнопку здесь просто не рисуем, чтобы не предлагать заведомый отказ. */}
-        {!isUser && (
+          {!isUser && (
+            <button
+              type="button"
+              className="fallback-submit danger"
+              disabled={busy}
+              onClick={() => void decide('DELETE_CONTENT', t('complaintConfirmDelete'))}
+            >
+              {t('complaintDeleteContent')}
+            </button>
+          )}
           <button
             type="button"
             className="fallback-submit danger"
             disabled={busy}
-            onClick={() => void decide('DELETE_CONTENT', t('complaintConfirmDelete'))}
+            onClick={() => void decide('BLOCK_USER', t('complaintConfirmBlock'))}
           >
-            {t('complaintDeleteContent')}
+            {t('complaintBlockUser')}
           </button>
-        )}
-        <button
-          type="button"
-          className="fallback-submit danger"
-          disabled={busy}
-          onClick={() => void decide('BLOCK_USER', t('complaintConfirmBlock'))}
-        >
-          {t('complaintBlockUser')}
-        </button>
-        <button
-          type="button"
-          className="fallback-submit"
-          disabled={busy}
-          onClick={() => void decide('DISMISS', t('complaintConfirmDismiss'))}
-        >
-          {t('complaintDismiss')}
-        </button>
-      </section>
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void decide('DISMISS', t('complaintConfirmDismiss'))}
+          >
+            {t('complaintDismiss')}
+          </button>
+
+          {/* Десять жалоб на один пост — обычное дело. Побочное действие при этом
+            выполнится один раз, остальные жалобы просто получат тот же статус. */}
+          {complaint.targetReports > 1 && (
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={applyAll}
+              disabled={busy}
+              onClick={() => setApplyAll((value) => !value)}
+            >
+              {t('complaintApplyAll', { count: complaint.targetReports })}
+            </button>
+          )}
+        </section>
+      )}
     </div>
   )
 }
