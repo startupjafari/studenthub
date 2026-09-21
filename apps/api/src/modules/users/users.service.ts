@@ -1458,20 +1458,6 @@ export class UserService {
         return 'UNIVERSITY'
     }
   }
-  /**
-   * Активность за период — агрегат для админ-сводки.
-   *
-   * «Активные» — те, у кого `lastSeenAt` обновлялся в окне; «новые» — созданные в окне.
-   * Оба числа считаются `count`, без выгрузки пользователей (§7.4.4), и наружу уходят
-   * именно числами: читателю сводки незачем знать, кто именно заходил.
-   */
-  async activityStats(since: Date): Promise<{ active: number; registered: number }> {
-    const [active, registered] = await Promise.all([
-      this.prisma.user.count({ where: { deletedAt: null, lastSeenAt: { gte: since } } }),
-      this.prisma.user.count({ where: { deletedAt: null, createdAt: { gte: since } } }),
-    ])
-    return { active, registered }
-  }
 }
 
 /**

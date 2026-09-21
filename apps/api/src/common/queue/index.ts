@@ -1,6 +1,6 @@
 export { QueueModule } from './queue.module'
 export { QueueService } from './queue.service'
-export type { JobMeta, JobPayload, EnqueueOptions, QueueCounts } from './queue.service'
+export type { JobMeta, JobPayload, EnqueueOptions } from './queue.service'
 export {
   QUEUES,
   QUEUE_NAMES,

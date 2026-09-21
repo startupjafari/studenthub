@@ -1,15 +1,10 @@
 import { Global, Module } from '@nestjs/common'
-import { HttpStatusCounter } from './http-status.counter'
 
-// Наблюдаемость, которой пользуются глобальные фильтр и интерцептор.
+// Модуль наблюдаемости. Сейчас провайдеров нет: Sentry подключается в main.ts, а
+// CronMonitorService живёт в CleanupModule — ему нужен SchedulerRegistry оттуда.
 //
-// Отдельный @Global-модуль, а не провайдер внутри CommonModule: тащить CommonModule с его
-// APP_FILTER/APP_INTERCEPTOR в чужие импорты ради одного класса — плохой обмен.
-// `CronMonitorService` сюда не переезжает: ему нужен SchedulerRegistry, а тот живёт
-// вместе с ScheduleModule в CleanupModule.
+// Модуль оставлен точкой роста: следующий общий наблюдатель регистрируется здесь,
+// а не расползается по CommonModule с его APP_FILTER/APP_INTERCEPTOR.
 @Global()
-@Module({
-  providers: [HttpStatusCounter],
-  exports: [HttpStatusCounter],
-})
+@Module({})
 export class MonitoringModule {}
