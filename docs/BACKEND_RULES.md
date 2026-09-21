@@ -233,7 +233,6 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `GET /career/resume/public/:slug` | резюме по ссылке, публикацию включает сам студент | `PROJECT.md` §Резюме |
   | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
   | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
-  | `POST /ops/hooks/:source` | внешние сервисы не умеют наш JWT; защита — подпись | `TELEGRAM_BOT.md` §5 |
   | `POST /mini/session` | Telegram открывает мини-апп без нашего JWT; защита — подпись initData | `PROJECT.md` §Мини-апп |
   | `POST /mini/link` | то же, плюс одноразовый код, выданный в вебе | `PROJECT.md` §Мини-апп |
 
