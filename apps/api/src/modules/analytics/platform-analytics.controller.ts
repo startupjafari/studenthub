@@ -78,6 +78,9 @@ export class PlatformAnalyticsController {
 
   @Get('activity-heatmap')
   @Roles(...PLATFORM_ROLES)
+  // Открыта мини-аппу: карта отвечает на «когда платформу нельзя останавливать», а решение
+  // о техработах принимают ровно с телефона — рядом с рычагом, который их включает.
+  @MiniAllowed()
   @ApiOperation({
     summary: 'Активность по дням недели и часам, 7×24 + число дат каждого дня недели',
     description:

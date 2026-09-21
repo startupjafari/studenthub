@@ -46,8 +46,9 @@ export async function fetchOverview(): Promise<PlatformOverview> {
  * Дополнительные разрезы. Тянутся отдельно и по отказу молчат: сводка обязана
  * показаться, даже если один из агрегатов не посчитался.
  *
- * Тепловой карты активности 7×24 здесь нет намеренно, хотя ручка существует: на экране
- * шириной с ладонь она превращается в картинку, по которой ничего не решить.
+ * Тепловая карта 7×24 тоже здесь: на ладони она читается только как силуэт — где темно,
+ * там людей нет, — и ровно на этот вопрос («когда платформу можно останавливать») её и
+ * смотрят с телефона. Цифры по часам остаются в вебе.
  */
 export async function fetchInvitesFunnel(): Promise<InvitesFunnel> {
   return apiGet<InvitesFunnel>('/analytics/platform/invites-funnel')
@@ -114,4 +115,21 @@ export async function fetchHealth(): Promise<HealthReport> {
   }
 
   return { database: read('database'), redis: read('redis'), minio: read('minio') }
+}
+
+/**
+ * Активность по дням недели и часам. `cells[dow][hour]` — события журнала, `max` — самая
+ * горячая клетка: по ней и красится сетка, иначе в тихую неделю карта была бы пустой.
+ * Зона считается на сервере; спрашиваем ту, в которой живёт телефон.
+ */
+export interface ActivityGrid {
+  cells: number[][]
+  max: number
+  tz: string
+}
+
+export async function fetchActivity(): Promise<ActivityGrid> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const params = tz ? `?tz=${encodeURIComponent(tz)}` : ''
+  return apiGet<ActivityGrid>(`/analytics/platform/activity-heatmap${params}`)
 }

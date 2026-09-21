@@ -131,15 +131,22 @@ export const BANNER_AUDIENCES = [
   },
 ] as const
 
+/**
+ * Повесить или снять баннер. `custom` — свой текст вместо заготовки; сервер требует все
+ * три языка, и это не придирка: строка на двух языках из трёх — дыра в интерфейсе у тех,
+ * кому не повезло с локалью.
+ */
 export async function setBanner(
   minutes: number | null,
   preset?: (typeof BANNER_PRESETS)[number],
   roles: string[] = [],
+  custom?: LocalizedText,
+  level: 'INFO' | 'WARNING' = 'INFO',
 ): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/banner', {
     minutes,
-    level: preset?.level ?? 'INFO',
-    text: preset?.text ?? null,
+    level: custom ? level : (preset?.level ?? 'INFO'),
+    text: custom ?? preset?.text ?? null,
     roles,
   })
 }
