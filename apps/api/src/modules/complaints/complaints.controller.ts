@@ -13,6 +13,7 @@ import { ComplaintsService } from './complaints.service'
 import { CreateComplaintDto } from './dto/create-complaint.dto'
 import { ResolveComplaintDto } from './dto/resolve-complaint.dto'
 import { ComplaintListQueryDto } from './dto/complaint-list-query.dto'
+import { ComplaintFromSupportDto } from './dto/complaint-from-support.dto'
 
 // Обрабатывают жалобы модераторы/админы (docs/PROJECT.md §2.2).
 const MODERATOR_ROLES = [
@@ -41,6 +42,28 @@ export class ComplaintsController {
     @Req() req: FastifyRequest,
   ) {
     return this.complaints.create(user, dto, this.ctx(req))
+  }
+
+  /**
+   * Жалоба из обращения в поддержку. Объявлен ДО `@Get(':id')`-соседей не по случайности:
+   * маршрут отдельный, потому что автором жалобы остаётся автор обращения, а подаёт её
+   * поддержка — обычный `POST /complaints` такого не умеет и уметь не должен.
+   */
+  @Post('from-support')
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @MiniAllowed()
+  @ApiOperation({
+    summary: 'Завести жалобу по обращению в поддержку (автор жалобы — автор обращения)',
+  })
+  @ApiResponse({ status: 201, description: 'Жалоба создана' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — у обращения нет автора' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — обращение или человек не найдены' })
+  fromSupport(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: ComplaintFromSupportDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.complaints.createFromSupport(user, dto.chatId, dto.targetId, this.ctx(req))
   }
 
   @Get()

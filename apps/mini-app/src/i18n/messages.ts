@@ -329,6 +329,12 @@ const ru = {
   peopleConfirmBlockFor: 'Заблокировать {name} на {days} дн.?',
   personBlockedUntil: 'Заблокирован до {when}',
   personWarnings: 'Предупреждений: {count}',
+  supportToComplaint: 'Завести жалобу',
+  supportComplaintTarget: 'На кого жалуются',
+  supportComplaintHint: 'Начните вводить фамилию — жалобу подаст автор обращения, не вы.',
+  supportComplaintConfirm: 'Завести жалобу на {name} от имени автора обращения?',
+  supportComplaintCreated: 'Жалоба в очереди модерации',
+  supportComplaintError: 'Не удалось завести жалобу',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -646,6 +652,12 @@ const kk: Record<MessageKey, string> = {
   peopleConfirmBlockFor: '{name} {days} күнге бұғатталсын ба?',
   personBlockedUntil: '{when} дейін бұғатталған',
   personWarnings: 'Ескертулер: {count}',
+  supportToComplaint: 'Шағым ашу',
+  supportComplaintTarget: 'Кімге шағымданады',
+  supportComplaintHint: 'Тегін тере бастаңыз — шағымды өтініш авторы береді, сіз емес.',
+  supportComplaintConfirm: '{name} туралы шағым өтініш авторының атынан ашылсын ба?',
+  supportComplaintCreated: 'Шағым модерация кезегінде',
+  supportComplaintError: 'Шағым ашу мүмкін болмады',
 }
 
 const en: Record<MessageKey, string> = {
@@ -960,6 +972,12 @@ const en: Record<MessageKey, string> = {
   peopleConfirmBlockFor: 'Block {name} for {days} days?',
   personBlockedUntil: 'Blocked until {when}',
   personWarnings: 'Warnings: {count}',
+  supportToComplaint: 'File a complaint',
+  supportComplaintTarget: 'Who the complaint is about',
+  supportComplaintHint: 'Start typing a surname — the ticket author files it, not you.',
+  supportComplaintConfirm: 'File a complaint about {name} on behalf of the ticket author?',
+  supportComplaintCreated: 'The complaint is in the moderation queue',
+  supportComplaintError: 'Could not file the complaint',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }
