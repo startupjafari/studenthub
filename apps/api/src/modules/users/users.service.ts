@@ -1395,6 +1395,35 @@ export class UserService {
     })
   }
 
+  /**
+   * Завершить все сессии пользователя, не отбирая у него доступ.
+   *
+   * Угнанный аккаунт до этого останавливали блокировкой целиком — то есть наказывали
+   * пострадавшего. Сброс сессий выгоняет чужого и оставляет хозяину возможность войти
+   * заново, сменив пароль.
+   */
+  async revokeSessions(viewer: JwtPayload, userId: string): Promise<void> {
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, universityId: true },
+    })
+    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+
+    const isPlatform =
+      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!isPlatform && target.universityId !== viewer.universityId) {
+      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
+    }
+
+    await this.authService.revokeAllUserSessions(userId)
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'user_sessions_revoked',
+      entity: 'User',
+      entityId: userId,
+    })
+  }
+
   /** Создание пользователя при регистрации по инвайту (в транзакции AuthService). */
   async createInvitedUser(
     tx: PrismaTx,

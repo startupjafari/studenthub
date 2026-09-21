@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   fetchInvites,
   revokeInvite,
+  revokeSessions,
   searchPeople,
   setBlocked,
   type Invite,
@@ -75,6 +76,22 @@ export function PeopleScreen() {
             }
           : prev,
       )
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
+    } finally {
+      setBusy(null)
+    }
+  }, [])
+
+  const endSessions = useCallback(async (person: Person) => {
+    const name = `${person.lastName} ${person.firstName}`
+    if (!(await confirmAction(t('peopleConfirmLogout', { name })))) return
+    setBusy(person.id)
+    setError(null)
+    try {
+      await revokeSessions(person.id)
+      haptic.success()
+      setError(t('peopleLoggedOut'))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('peopleActionError'))
     } finally {
@@ -160,14 +177,26 @@ export function PeopleScreen() {
                 <span className="hint">{person.email}</span>
                 {person.isBlocked && <span className="hint hint-danger">{t('peopleBlocked')}</span>}
               </span>
-              <button
-                type="button"
-                className={person.isBlocked ? 'chip' : 'chip danger-chip'}
-                disabled={busy === person.id}
-                onClick={() => void toggleAccess(person)}
-              >
-                {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
-              </button>
+              <span className="chips">
+                {/* Сброс сессий выгоняет чужого, оставляя доступ хозяину: блокировка
+                    в случае угнанного аккаунта наказала бы пострадавшего. */}
+                <button
+                  type="button"
+                  className="chip"
+                  disabled={busy === person.id}
+                  onClick={() => void endSessions(person)}
+                >
+                  {t('peopleLogout')}
+                </button>
+                <button
+                  type="button"
+                  className={person.isBlocked ? 'chip' : 'chip danger-chip'}
+                  disabled={busy === person.id}
+                  onClick={() => void toggleAccess(person)}
+                >
+                  {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
+                </button>
+              </span>
             </div>
           ))}
         </section>

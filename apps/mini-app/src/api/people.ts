@@ -42,6 +42,11 @@ export async function setBlocked(id: string, blocked: boolean): Promise<void> {
   await apiPatch<null>(`/users/${id}/${blocked ? 'block' : 'unblock'}`, {})
 }
 
+/** Выгнать чужого, не отбирая доступ у хозяина: блокировка наказала бы пострадавшего. */
+export async function revokeSessions(id: string): Promise<void> {
+  await apiPatch<null>(`/users/${id}/logout`, {})
+}
+
 export async function fetchInvites(): Promise<{ items: Invite[]; total: number }> {
   return apiGetPaged<Invite>('/invites?page=1&limit=20')
 }

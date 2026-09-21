@@ -133,6 +133,7 @@ export class ComplaintsService {
   async list(viewer: JwtPayload, query: ComplaintListQueryInput): Promise<Paginated<ComplaintRow>> {
     const where: Prisma.ComplaintWhereInput = {
       ...this.scopeWhere(viewer),
+      ...(query.targetId ? { targetId: query.targetId } : {}),
       ...(query.status ? { status: query.status as ComplaintStatus } : {}),
       ...(query.priority ? { priority: query.priority as ComplaintPriority } : {}),
     }

@@ -198,6 +198,22 @@ export class UsersController {
     return null
   }
 
+  @Patch(':id/logout')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @MiniAllowed()
+  // Угнанный аккаунт до этого останавливали только блокировкой целиком — то есть
+  // наказывали пострадавшего. Сброс сессий выгоняет чужого, оставляя доступ хозяину.
+  @ApiOperation({ summary: 'Завершить все сессии пользователя (в своём scope)' })
+  async logout(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
+    await this.users.revokeSessions(user, id)
+    return null
+  }
+
   @Patch(':id/unblock')
   @Roles(
     Role.PLATFORM_ADMIN,

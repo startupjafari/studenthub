@@ -9,6 +9,7 @@ import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { QueueService } from '../../common/queue'
 import { PlatformService } from './platform.service'
 import { SetMaintenanceDto } from './dto/set-maintenance.dto'
 import { SetBannerDto } from './dto/set-banner.dto'
@@ -26,7 +27,10 @@ import { SetNotificationsDto } from './dto/set-notifications.dto'
 @MaintenanceExempt()
 @Controller('platform')
 export class PlatformController {
-  constructor(private readonly platform: PlatformService) {}
+  constructor(
+    private readonly platform: PlatformService,
+    private readonly queue: QueueService,
+  ) {}
 
   // Читают все, включая неаутентифицированных: страница логина тоже обязана показать режим
   // техработ — иначе человек будет биться в форму, которая всё равно не пустит. Наружу
@@ -37,6 +41,17 @@ export class PlatformController {
   @ApiResponse({ status: 200, description: 'Действующее состояние платформы' })
   state() {
     return this.platform.publicState()
+  }
+
+  @Get('queues')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @MiniAllowed()
+  // Растущее «в ожидании» означает, что воркер не справляется; ненулевое «упало» — что
+  // часть работы потеряна молча. Оба числа иначе видны только в логах.
+  @ApiOperation({ summary: 'Размеры очередей: сколько задач ждёт и сколько упало' })
+  queues() {
+    return this.queue.counts()
   }
 
   @Patch('maintenance')

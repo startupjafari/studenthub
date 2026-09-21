@@ -47,6 +47,28 @@ export class QueueService {
    * Ставит job в очередь. Для идемпотентности передавайте детерминированный `jobId`
    * в опциях — BullMQ отбросит дубликат с тем же id.
    */
+  /**
+   * Размеры очередей. Возвращён вместе с экраном, который его читает, — метод с тем же
+   * именем однажды уже удаляли как мёртвый код именно потому, что читателя у него не было.
+   *
+   * Интересуют два числа: `waiting` — сколько задач стоит, `failed` — сколько упало.
+   * Растущее первое означает, что воркер не справляется; ненулевое второе — что часть
+   * работы потеряна молча.
+   */
+  async counts(): Promise<{ name: string; waiting: number; failed: number }[]> {
+    const names = Object.keys(this.queues) as QueueName[]
+    return Promise.all(
+      names.map(async (name) => {
+        const queue = this.queues[name]
+        const [waiting, failed] = await Promise.all([
+          queue.getWaitingCount(),
+          queue.getFailedCount(),
+        ])
+        return { name, waiting, failed }
+      }),
+    )
+  }
+
   async enqueue<T extends object>(
     queue: QueueName,
     jobName: string,

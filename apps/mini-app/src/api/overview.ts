@@ -58,6 +58,17 @@ export async function fetchUniversitySizes(): Promise<UniversitySize[]> {
   return page.items ?? []
 }
 
+export interface QueueCount {
+  name: string
+  waiting: number
+  failed: number
+}
+
+/** Размеры очередей: растущее «ждёт» — воркер не справляется, «упало» — работа потеряна. */
+export async function fetchQueues(): Promise<QueueCount[]> {
+  return apiGet<QueueCount[]>('/platform/queues')
+}
+
 export async function fetchTopActions(): Promise<TopAction[]> {
   const page = await apiGet<{ items?: TopAction[] }>('/analytics/platform/top-actions')
   return page.items ?? []
