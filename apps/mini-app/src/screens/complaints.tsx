@@ -8,6 +8,7 @@ import {
 import { ComplaintScreen } from './complaint'
 import { haptic } from '../telegram/webapp'
 import { t } from '../i18n'
+import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
 import { dayLabel, formatAge, formatShortTime } from '../lib/format'
 
 // Очередь модерации — то, ради чего мини-апп существует: разобрать жалобу с телефона,
@@ -64,6 +65,10 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
     void load()
   }, [load])
 
+  // Потянуть вниз — перезапросить очередь: до этого она обновлялась только повторным
+  // открытием приложения.
+  const { pull, ready } = usePullToRefresh(load)
+
   if (openId !== null) {
     return (
       <ComplaintScreen
@@ -77,7 +82,8 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   }
 
   return (
-    <div className="screen">
+    <div className="screen" style={{ paddingTop: pull }}>
+      {pull > 0 && <p className="pull-hint">{ready ? '↻' : '↓'}</p>}
       <header className="screen-head">
         <h1>{t('complaintsTitle')}</h1>
         <p className="hint">

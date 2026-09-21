@@ -263,6 +263,10 @@ const ru = {
     'Здравствуйте! Чтобы разобраться, нужны подробности: что вы делали и что произошло. Если можно — приложите снимок экрана.',
   supportTplDoneText:
     'Здравствуйте! Проблема решена. Если повторится — напишите сюда же, обращение откроется снова.',
+  fontTitle: 'Размер текста',
+  fontHint: 'Телефон в руке на ходу — не то же, что монитор на столе.',
+  fontNormal: 'Обычный',
+  fontLarge: 'Крупный',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -515,6 +519,10 @@ const kk: Record<MessageKey, string> = {
     'Сәлеметсіз бе! Түсіну үшін толығырақ керек: не істедіңіз және не болды. Мүмкін болса, экран суретін жіберіңіз.',
   supportTplDoneText:
     'Сәлеметсіз бе! Мәселе шешілді. Қайталанса — осында жазыңыз, өтініш қайта ашылады.',
+  fontTitle: 'Мәтін өлшемі',
+  fontHint: 'Жүріп бара жатқандағы телефон — үстелдегі монитор емес.',
+  fontNormal: 'Қалыпты',
+  fontLarge: 'Ірі',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -765,6 +773,10 @@ const en: Record<MessageKey, string> = {
     'Hi! To look into this we need details: what you were doing and what happened. A screenshot helps if you can send one.',
   supportTplDoneText:
     'Hi! The issue is resolved. If it comes back, write here — the request reopens.',
+  fontTitle: 'Text size',
+  fontHint: 'A phone in your hand on the move is not a monitor on a desk.',
+  fontNormal: 'Normal',
+  fontLarge: 'Large',
   aboutVersion: 'Build {version}',
 }
 
