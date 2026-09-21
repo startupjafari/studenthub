@@ -3587,5 +3587,11 @@
   "WhatsNew": {
     "title": "Что нового",
     "gotIt": "Понятно"
+  },
+  "Platform": {
+    "maintenanceTitle": "Идут технические работы",
+    "maintenanceFallback": "Платформа ненадолго остановлена — мы вернёмся, как только закончим.",
+    "maintenanceUntil": "Ожидаемое окончание",
+    "maintenanceStaffNotice": "Режим техработ включён до {until}. Остальные видят заглушку."
   }
 }

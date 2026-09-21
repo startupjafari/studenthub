@@ -6,6 +6,7 @@ import { getLocale, getMessages, getTimeZone } from 'next-intl/server'
 // не влияет, потому что оси в шрифте просто нет.
 import '@fontsource-variable/inter/opsz.css'
 import { AppSplash } from '../shared/ui'
+import { PlatformGate } from '../widgets/platform-gate'
 import { AppProviders } from './providers'
 import './globals.css'
 
@@ -60,7 +61,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               Держит только содержимое страниц — полотно осталось снаружи, а тосты и палитра
               команд рендерятся провайдерами рядом. Своих стилей раскладки у неё нет: цепочка
               высот не меняется, анимируется одна прозрачность (globals.css, `.sh-boot`). */}
-          <div className="sh-boot">{children}</div>
+          {/* PlatformGate внутри обёртки, а не снаружи: объявление проявляется вместе с
+              приложением, а заглушка техработ — под уходящим полотном, без вспышки. */}
+          <div className="sh-boot">
+            <PlatformGate>{children}</PlatformGate>
+          </div>
         </AppProviders>
       </body>
     </html>
