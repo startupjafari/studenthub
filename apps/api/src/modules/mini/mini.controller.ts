@@ -1,7 +1,8 @@
-import { Body, Controller, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Post, Req } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
+import type { FastifyRequest } from 'fastify'
 import { Public } from '../../common/decorators/public.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -35,6 +36,25 @@ export class MiniController {
   @ApiResponse({ status: 201, description: 'Код выдан, живёт 5 минут' })
   linkCode(@CurrentUser() user: CurrentUserData) {
     return this.mini.issueLinkCode(user.sub, user.role)
+  }
+
+  @Get('link')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @ApiOperation({ summary: 'Состояние привязки Telegram: к какому аккаунту и когда открывали' })
+  linkStatus(@CurrentUser() user: CurrentUserData) {
+    return this.mini.linkStatus(user.sub)
+  }
+
+  // Единственный способ отобрать доступ у потерянного телефона. Живёт рядом с выдачей
+  // кода и требует тех же прав: отзывает человек свою привязку, из веба, где уже вошёл.
+  @Delete('link')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @ApiOperation({ summary: 'Отозвать привязку Telegram' })
+  @ApiResponse({ status: 200, description: '{ revoked } — false, если привязки не было' })
+  revoke(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest) {
+    return this.mini.revoke(user.sub, { ip: req.ip, userAgent: req.headers['user-agent'] })
   }
 
   @Public()

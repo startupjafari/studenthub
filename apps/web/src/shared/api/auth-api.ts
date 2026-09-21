@@ -144,6 +144,25 @@ export async function miniLinkCodeRequest(): Promise<MiniLinkCodeResponse> {
   return data
 }
 
+/** Состояние привязки Telegram. `username` — только для показа: в Telegram он меняется. */
+export interface MiniLinkStatus {
+  linked: boolean
+  username: string | null
+  linkedAt: string | null
+  lastSeenAt: string | null
+}
+
+export async function miniLinkStatusRequest(): Promise<MiniLinkStatus> {
+  const { data } = await api.get<MiniLinkStatus>('/mini/link')
+  return data
+}
+
+/** Отзыв привязки — единственный способ отобрать доступ у потерянного телефона. */
+export async function miniLinkRevokeRequest(): Promise<{ revoked: boolean }> {
+  const { data } = await api.delete<{ revoked: boolean }>('/mini/link')
+  return data
+}
+
 // ── Вход по QR ───────────────────────────────────────────────────────────────
 export interface QrCreateResponse {
   qrId: string

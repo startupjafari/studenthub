@@ -20,6 +20,9 @@ export {
   type LoginResult,
   type TwoFactorSetupResponse,
   miniLinkCodeRequest,
+  miniLinkStatusRequest,
+  miniLinkRevokeRequest,
+  type MiniLinkStatus,
   type MiniLinkCodeResponse,
 } from './auth-api'
 export { uploadFileRequest, type UploadedFile } from './files-api'

@@ -6,6 +6,7 @@ import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
 import { MINI_LINK_CODE_LENGTH } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
+import type { RequestContext } from '../auth/auth.service'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -198,6 +199,59 @@ export class MiniService {
       role: user.role as Role,
       twoFactorEnabled: user.twoFactorEnabled,
     })
+  }
+
+  /**
+   * Состояние привязки для веба: к какому Telegram привязан аккаунт и когда им пользовались.
+   *
+   * `username` здесь только для показа — он в Telegram меняется и переиспользуется, и
+   * искать по нему нельзя (см. 29-telegram.prisma). Но узнать «это точно мой телефон»
+   * человек может только по нему.
+   */
+  async linkStatus(userId: string): Promise<{
+    linked: boolean
+    username: string | null
+    linkedAt: Date | null
+    lastSeenAt: Date | null
+  }> {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { userId },
+      select: { username: true, linkedAt: true, lastSeenAt: true, revokedAt: true },
+    })
+    if (!account || account.revokedAt) {
+      return { linked: false, username: null, linkedAt: null, lastSeenAt: null }
+    }
+    return {
+      linked: true,
+      username: account.username,
+      linkedAt: account.linkedAt,
+      lastSeenAt: account.lastSeenAt,
+    }
+  }
+
+  /**
+   * Отозвать привязку. Единственный способ отобрать доступ у потерянного телефона:
+   * токен мини-аппа живёт в памяти 15 минут и не отзывается сам, а следующая сессия по
+   * отозванной привязке уже не выдаётся.
+   *
+   * Строка остаётся с проставленным `revokedAt`, а не удаляется: перепривязка должна быть
+   * осознанным действием, и история «этот Telegram здесь уже был» для этого нужна.
+   */
+  async revoke(userId: string, ctx: RequestContext = {}): Promise<{ revoked: boolean }> {
+    const { count } = await this.prisma.telegramAccount.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    if (count === 0) return { revoked: false }
+
+    await this.audit.record({
+      userId,
+      action: 'mini.link.revoke',
+      entity: 'TelegramAccount',
+      entityId: userId,
+      ...ctx,
+    })
+    return { revoked: true }
   }
 
   private issueSession(user: {
