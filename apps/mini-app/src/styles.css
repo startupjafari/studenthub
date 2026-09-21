@@ -44,9 +44,9 @@ body {
 
 .content {
   flex: 1;
-  /* Запас снизу — под таббар и «шторку» жестов iPhone; MainButton Telegram рисует сам
-     под областью приложения и высоту не отнимает. */
-  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  /* Запас снизу — под «шторку» жестов iPhone; MainButton Telegram рисует сам под областью
+     приложения и высоту не отнимает. */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
 }
 
 .back-fallback {
@@ -215,38 +215,85 @@ body {
   font-size: 12px;
 }
 
-.tabbar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  background: var(--tg-theme-section-bg-color);
-  border-top: 1px solid var(--tg-theme-section-separator-color);
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-.tab {
+/* Шаги привязки: нумерация нужна — порядок действий тут не переставить. */
+.steps {
+  margin: 0;
+  padding-left: 18px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 4px;
+  gap: 6px;
+  font-size: 14px;
+}
+
+/* Код набирают с экрана другого устройства: крупно, моноширинно, с разрядкой. */
+.code-input {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: var(--radius);
+  background: var(--tg-theme-section-bg-color);
+  color: var(--tg-theme-text-color);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  letter-spacing: 0.35em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.code-input:focus {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: -1px;
+}
+
+/*
+ * Запасная кнопка подтверждения — для браузера и для клиентов, где MainButton недоступен.
+ * В Telegram она дублирует главную кнопку внизу, и это осознанно: лучше две кнопки, чем
+ * экран, который нечем подтвердить.
+ */
+.fallback-submit {
+  width: 100%;
+  padding: 13px;
   border: 0;
-  background: none;
-  color: var(--tg-theme-hint-color);
+  border-radius: var(--radius);
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
   font: inherit;
-  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
-.tab-active {
-  color: var(--tg-theme-link-color);
+/* Скелетон вместо спиннера: высота строк известна, список не прыгает при загрузке. */
+.skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--tg-theme-secondary-bg-color);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
-.tab-icon {
-  font-size: 18px;
-  line-height: 1;
+.skeleton-title {
+  width: 45%;
+  height: 14px;
+}
+
+.skeleton-line {
+  width: 75%;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Уважение к настройке системы: мигающий плейсхолдер — тоже анимация. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }
