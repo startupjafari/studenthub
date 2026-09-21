@@ -77,6 +77,21 @@ export const ResolveComplaintSchema = z
   .strict()
 export type ResolveComplaintInput = z.infer<typeof ResolveComplaintSchema>
 
+/**
+ * Тело `POST /complaints/from-support`: обращение и человек, на которого жалуются.
+ *
+ * Тип цели здесь не спрашивается: через поддержку жалуются на людей. На конкретный пост
+ * или сообщение есть кнопка рядом с самим постом, и она приносит targetId, которого
+ * в переписке с поддержкой всё равно нет.
+ */
+export const ComplaintFromSupportSchema = z
+  .object({
+    chatId: z.string().min(1),
+    targetId: z.string().min(1),
+  })
+  .strict()
+export type ComplaintFromSupportInput = z.infer<typeof ComplaintFromSupportSchema>
+
 /** Тело `PATCH /users/:id/block`: срок и код 2FA — оба необязательны. */
 export const BlockUserSchema = z
   .object({

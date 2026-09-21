@@ -1,4 +1,4 @@
-import { apiGetPaged, apiGet, apiPatch } from './client'
+import { apiGetPaged, apiGet, apiPatch, apiPost } from './client'
 
 // Жалобы: типы повторяют ответ `GET /complaints` (COMPLAINT_SELECT на бэкенде).
 //
@@ -137,4 +137,19 @@ export async function resolveComplaint(
  */
 export async function reopenComplaint(id: string): Promise<Complaint> {
   return apiPatch<Complaint>(`/complaints/${id}/reopen`, {})
+}
+
+/**
+ * Завести жалобу по обращению в поддержку.
+ *
+ * Люди жалуются на других людей через поддержку: адрес известен, а кнопку «пожаловаться»
+ * рядом с обидчиком ещё надо найти. До этой ручки путь кончался тупиком — поддержка
+ * читала жалобу, а передать её модерации было нечем. Автором жалобы сервер делает автора
+ * обращения, а не модератора: жаловался он.
+ */
+export async function createComplaintFromSupport(
+  chatId: string,
+  targetId: string,
+): Promise<Complaint> {
+  return apiPost<Complaint>('/complaints/from-support', { chatId, targetId })
 }

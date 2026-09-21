@@ -114,17 +114,97 @@ export class ComplaintsService {
       metadata: { targetType: input.targetType, targetId: input.targetId },
       ...ctx,
     })
-    // Срочные — в Telegram команде платформы: жалоба на человека или на личные сообщения
-    // означает, что кто-то страдает прямо сейчас, и ждать, пока модератор сам откроет
-    // очередь, не стоит. Обычные и несрочные ждут в очереди — иначе уведомления
-    // обесценятся, и первыми перестанут читать как раз срочные.
-    if (complaint.priority === ComplaintPriority.HIGH) {
-      await this.telegram.notifyStaff(
-        'complaint',
-        `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
-        `complaint_${complaint.id}`,
-      )
+    await this.announceIfUrgent(complaint)
+    return complaint
+  }
+
+  /**
+   * Срочные — в Telegram команде платформы: жалоба на человека или на личные сообщения
+   * означает, что кто-то страдает прямо сейчас, и ждать, пока модератор сам откроет
+   * очередь, не стоит. Обычные и несрочные ждут в очереди — иначе уведомления
+   * обесценятся, и первыми перестанут читать как раз срочные.
+   */
+  private async announceIfUrgent(complaint: ComplaintRow): Promise<void> {
+    if (complaint.priority !== ComplaintPriority.HIGH) return
+    await this.telegram.notifyStaff(
+      'complaint',
+      `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
+      `complaint_${complaint.id}`,
+    )
+  }
+
+  /**
+   * Завести жалобу по обращению в поддержку (пункт 34 каталога мини-аппа).
+   *
+   * Люди жалуются на других людей через поддержку — это самый естественный путь: адрес
+   * известен, а кнопку «пожаловаться» рядом с обидчиком ещё надо найти. До этого путь
+   * кончался тупиком: поддержка читала жалобу, а передать её модерации было нечем, кроме
+   * пересказа своими словами в третьей системе.
+   *
+   * Автором жалобы остаётся автор обращения, а не модератор: жаловался он, и очередь
+   * должна показывать именно это — иначе по статистике окажется, что половину жалоб на
+   * платформе подаёт поддержка. Текст берётся из первого сообщения: это его собственные
+   * слова, а не их пересказ.
+   */
+  async createFromSupport(
+    actor: JwtPayload,
+    chatId: string,
+    targetUserId: string,
+    ctx: RequestContext,
+  ): Promise<ComplaintRow> {
+    const ticket = await this.prisma.chat.findFirst({
+      where: { id: chatId, type: 'SUPPORT_PLATFORM' },
+      select: {
+        id: true,
+        members: { select: { user: { select: { id: true, role: true } } } },
+        messages: {
+          where: { deletedAt: null },
+          orderBy: { seq: Prisma.SortOrder.asc },
+          take: 1,
+          select: { content: true },
+        },
+      },
+    })
+    if (!ticket) throw new AppException('NOT_FOUND', 'Обращение не найдено')
+
+    const author = ticket.members.find(
+      (member) =>
+        member.user.role !== Role.PLATFORM_ADMIN && member.user.role !== Role.PLATFORM_MODERATOR,
+    )?.user
+    if (!author) throw new AppException('BAD_REQUEST', 'У обращения нет автора')
+    if (author.id === targetUserId) {
+      throw new AppException('BAD_REQUEST', 'Нельзя пожаловаться на самого себя')
     }
+
+    // Цель проверяем тем же способом, что и обычную жалобу: несуществующий или чужой
+    // человек отсеивается здесь, а не в очереди у модератора.
+    const target = await this.getTarget(ComplaintTargetType.USER, targetUserId)
+    const firstMessage = ticket.messages[0]?.content?.trim()
+    const reason = firstMessage
+      ? firstMessage.slice(0, 2000)
+      : 'Жалоба передана из обращения в поддержку'
+
+    const complaint = await this.prisma.complaint.create({
+      data: {
+        reporterId: author.id,
+        targetType: ComplaintTargetType.USER,
+        targetId: targetUserId,
+        reason,
+        priority: complaintPriorityFor('USER') as ComplaintPriority,
+        universityId: target.universityId,
+      },
+      select: COMPLAINT_SELECT,
+    })
+
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_from_support',
+      entity: 'Complaint',
+      entityId: complaint.id,
+      metadata: { chatId, targetId: targetUserId },
+      ...ctx,
+    })
+    await this.announceIfUrgent(complaint)
     return complaint
   }
 

@@ -12,6 +12,8 @@ import {
   type SupportTicket,
 } from '../api/support'
 import { ApiError } from '../api/client'
+import { createComplaintFromSupport } from '../api/complaints'
+import { searchPeople, type Person } from '../api/people'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
@@ -28,6 +30,9 @@ type Tab = 'open' | 'mine' | 'closed'
 
 // Вкладка задаёт сразу две вещи: какие обращения показывать и чьи. «Мои» — то, что
 // человек взял на себя; без них все видят всё и никто ни за что не отвечает.
+// Та же задержка поиска, что в разделе «Люди»: без неё каждая буква уходит в сеть.
+const PERSON_SEARCH_DELAY_MS = 350
+
 const TAB_QUERY: Record<Tab, { status: 'open' | 'closed'; assignee: QueueScope }> = {
   open: { status: 'open', assignee: 'any' },
   mine: { status: 'open', assignee: 'mine' },
@@ -239,6 +244,38 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     }
   }, [id])
 
+  // Перевод обращения в жалобу. Человека выбирают поиском прямо здесь: имя обидчика
+  // лежит в тексте обращения, и заставлять модератора уходить в раздел «Люди», запоминать
+  // фамилию и возвращаться — ровно тот тупик, ради которого это и делалось.
+  const [target, setTarget] = useState<{ query: string; found: Person[] } | null>(null)
+
+  useEffect(() => {
+    if (target === null || target.query.trim().length < 2) return
+    const timer = setTimeout(() => {
+      void searchPeople(target.query)
+        .then((page) => setTarget((prev) => (prev ? { ...prev, found: page.items } : prev)))
+        .catch(() => undefined)
+    }, PERSON_SEARCH_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [target])
+
+  const fileComplaint = useCallback(
+    async (person: Person) => {
+      const name = `${person.lastName} ${person.firstName}`
+      if (!(await confirmAction(t('supportComplaintConfirm', { name })))) return
+      setError(null)
+      try {
+        await createComplaintFromSupport(id, person.id)
+        haptic.success()
+        setTarget(null)
+        setError(t('supportComplaintCreated'))
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : t('supportComplaintError'))
+      }
+    },
+    [id],
+  )
+
   const escalate = useCallback(async () => {
     if (!(await confirmAction(t('supportEscalateConfirm')))) return
     setError(null)
@@ -381,12 +418,56 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
             >
               {t('supportEscalate')}
             </button>
+            {/* Жалоба из обращения: автором сервер сделает автора обращения, а не
+                поддержку — жаловался он, и в очереди должно быть видно именно это. */}
+            <button
+              type="button"
+              className="fallback-submit"
+              disabled={busy}
+              onClick={() => {
+                haptic.tap()
+                setTarget((prev) => (prev ? null : { query: '', found: [] }))
+              }}
+            >
+              {t('supportToComplaint')}
+            </button>
             <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
               {t('supportClose')}
             </button>
           </>
         )}
       </section>
+
+      {target !== null && (
+        <section className="card">
+          <h2>{t('supportComplaintTarget')}</h2>
+          <input
+            className="field"
+            placeholder={t('peopleSearchPlaceholder')}
+            aria-label={t('supportComplaintTarget')}
+            autoCapitalize="off"
+            autoCorrect="off"
+            value={target.query}
+            onChange={(event) => setTarget({ query: event.target.value, found: target.found })}
+          />
+          {target.found.length === 0 && <p className="hint">{t('supportComplaintHint')}</p>}
+          {target.found.map((person) => (
+            <button
+              key={person.id}
+              type="button"
+              className="row"
+              onClick={() => void fileComplaint(person)}
+            >
+              <span className="row-body">
+                <b>
+                  {person.lastName} {person.firstName}
+                </b>
+                <span className="hint">{person.email}</span>
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
     </div>
   )
 }

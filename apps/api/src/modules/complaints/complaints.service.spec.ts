@@ -28,6 +28,7 @@ function setup() {
       updateMany: jest.fn(),
     },
     user: { findFirst: jest.fn() },
+    chat: { findFirst: jest.fn() },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
@@ -462,5 +463,66 @@ describe('ComplaintsService.reopen', () => {
     await expect(service.reopen(user(Role.PLATFORM_ADMIN), 'c-1', ctx)).rejects.toMatchObject({
       code: 'CONFLICT',
     })
+  })
+})
+
+// ── Жалоба из обращения в поддержку (пункт 34) ──────────────────────────────
+describe('ComplaintsService.createFromSupport', () => {
+  const staff = user(Role.PLATFORM_ADMIN)
+
+  function ticket(over: Record<string, unknown> = {}) {
+    return {
+      id: 'chat1',
+      members: [
+        { user: { id: 'author1', role: Role.STUDENT } },
+        { user: { id: 'mod1', role: Role.PLATFORM_MODERATOR } },
+      ],
+      messages: [{ content: 'Иванов пишет мне угрозы' }],
+      ...over,
+    }
+  }
+
+  // Жаловался автор обращения. Если записать жалобу на поддержку, окажется, что половину
+  // жалоб на платформе подаёт она сама.
+  it('автором жалобы остаётся автор обращения, а не модератор', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket())
+    prisma.user.findFirst.mockResolvedValue({ id: 'target1', universityId: 'uni1' })
+    prisma.complaint.create.mockResolvedValue(complaint({ targetType: 'USER' }))
+
+    await service.createFromSupport(staff, 'chat1', 'target1', ctx)
+    expect(prisma.complaint.create.mock.calls[0][0].data).toMatchObject({
+      reporterId: 'author1',
+      targetType: 'USER',
+      targetId: 'target1',
+    })
+  })
+
+  // Текст жалобы — собственные слова человека, а не пересказ поддержки.
+  it('берёт текст из первого сообщения обращения', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket())
+    prisma.user.findFirst.mockResolvedValue({ id: 'target1', universityId: 'uni1' })
+    prisma.complaint.create.mockResolvedValue(complaint())
+
+    await service.createFromSupport(staff, 'chat1', 'target1', ctx)
+    expect(prisma.complaint.create.mock.calls[0][0].data.reason).toBe('Иванов пишет мне угрозы')
+  })
+
+  it('обращение без автора → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(
+      ticket({ members: [{ user: { id: 'mod1', role: Role.PLATFORM_ADMIN } }] }),
+    )
+    const err = await service.createFromSupport(staff, 'chat1', 'target1', ctx).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  it('жалоба на самого автора → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket())
+    const err = await service.createFromSupport(staff, 'chat1', 'author1', ctx).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
   })
 })
