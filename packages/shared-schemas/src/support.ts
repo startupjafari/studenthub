@@ -52,6 +52,10 @@ export const SetSupportTagsSchema = z
   .strict()
 export type SetSupportTagsInput = z.infer<typeof SetSupportTagsSchema>
 
+/** Тело `POST /support/:id/merge`: обращение, в которое склеиваем. */
+export const MergeSupportSchema = z.object({ intoId: z.string().min(1) }).strict()
+export type MergeSupportInput = z.infer<typeof MergeSupportSchema>
+
 export const SupportQueueQuerySchema = z.object({
   /** По умолчанию открытые: очередь — это то, что ждёт ответа. */
   status: z.enum(['open', 'closed']).default('open'),

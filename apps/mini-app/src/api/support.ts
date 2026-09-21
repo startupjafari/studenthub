@@ -103,10 +103,26 @@ export async function assignTicket(
  * открывается и по ссылке из уведомления — а там очереди, откуда взять автора, нет.
  * Сообщения приходят свежими сверху; экран разворачивает их сам.
  */
-export async function fetchSupportThread(
-  id: string,
-): Promise<{ ticket: SupportTicket; messages: SupportMessage[] }> {
-  return apiGet<{ ticket: SupportTicket; messages: SupportMessage[] }>(`/support/${id}`)
+export interface SupportThread {
+  ticket: SupportTicket
+  messages: SupportMessage[]
+  /** Сколько веток склеено сюда: их переписка уже внутри `messages`. */
+  mergedCount: number
+  /** Другие обращения того же человека — то, с чем эту ветку можно склеить. */
+  siblings: { id: string; createdAt: string; closed: boolean }[]
+}
+
+export async function fetchSupportThread(id: string): Promise<SupportThread> {
+  return apiGet<SupportThread>(`/support/${id}`)
+}
+
+/**
+ * Склеить обращение с другим обращением того же человека. Сообщения не переносятся —
+ * ветка закрывается, а её переписка читается вместе с целевой: разговор виден целиком,
+ * и ничья история при этом не переписана.
+ */
+export async function mergeTicket(id: string, intoId: string): Promise<{ mergedInto: string }> {
+  return apiPost<{ mergedInto: string }>(`/support/${id}/merge`, { intoId })
 }
 
 export async function replyToTicket(id: string, text: string): Promise<SupportMessage> {
