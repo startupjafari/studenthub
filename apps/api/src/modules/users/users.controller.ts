@@ -223,11 +223,11 @@ export class UsersController {
   async block(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
-    @Body() dto: BlockUserDto,
+    @Body() dto: BlockUserDto | undefined,
   ): Promise<null> {
     // Со сроком блокировка снимется сама, без него — бессрочная, как была. Считаем срок
     // от момента блокировки: «на три дня», выданное вечером, кончается вечером через три дня.
-    const until = dto.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
+    const until = dto?.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
     await this.users.setBlocked(user, id, true, until)
     return null
   }

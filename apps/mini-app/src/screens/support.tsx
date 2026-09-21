@@ -248,16 +248,19 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   // лежит в тексте обращения, и заставлять модератора уходить в раздел «Люди», запоминать
   // фамилию и возвращаться — ровно тот тупик, ради которого это и делалось.
   const [target, setTarget] = useState<{ query: string; found: Person[] } | null>(null)
+  // Зависимость — строка запроса, а не сам объект: результат поиска кладётся в тот же
+  // объект, и эффект, завязанный на него, перезапускал бы поиск от собственного ответа.
+  const targetQuery = target?.query ?? null
 
   useEffect(() => {
-    if (target === null || target.query.trim().length < 2) return
+    if (targetQuery === null || targetQuery.trim().length < 2) return
     const timer = setTimeout(() => {
-      void searchPeople(target.query)
+      void searchPeople(targetQuery)
         .then((page) => setTarget((prev) => (prev ? { ...prev, found: page.items } : prev)))
         .catch(() => undefined)
     }, PERSON_SEARCH_DELAY_MS)
     return () => clearTimeout(timer)
-  }, [target])
+  }, [targetQuery])
 
   const fileComplaint = useCallback(
     async (person: Person) => {

@@ -92,13 +92,20 @@ export const ComplaintFromSupportSchema = z
   .strict()
 export type ComplaintFromSupportInput = z.infer<typeof ComplaintFromSupportSchema>
 
-/** Тело `PATCH /users/:id/block`: срок и код 2FA — оба необязательны. */
+/**
+ * Тело `PATCH /users/:id/block`: срок и код 2FA — оба необязательны.
+ *
+ * `.default({})` не украшение: веб блокирует запросом вообще без тела (кода он не
+ * спрашивает — человек прошёл пароль и 2FA в той же сессии), и схема без дефолта
+ * отвечала бы ему 400 на «Заблокировать».
+ */
 export const BlockUserSchema = z
   .object({
     blockDays: z.number().int().min(1).max(365).optional(),
     code: z.string().trim().min(6).max(16).optional(),
   })
   .strict()
+  .default({})
 export type BlockUserInput = z.infer<typeof BlockUserSchema>
 
 // Колонки таблицы жалоб, по которым разрешена сортировка.
