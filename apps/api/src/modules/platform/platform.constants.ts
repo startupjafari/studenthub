@@ -12,7 +12,21 @@
 
 export const PLATFORM_STATE = Symbol('PLATFORM_STATE')
 
+export interface NotificationPolicy {
+  /** Часы тишины по времени сервера; null — тишины нет. */
+  quietFrom: number | null
+  quietTo: number | null
+  /** Виды уведомлений, которые не слать. */
+  muted: string[]
+  /** Дежурный: когда задан, уведомления уходят только ему. */
+  dutyUserId: string | null
+  /** Час ежедневной сводки по времени сервера; null — сводку не слать. */
+  digestHour: number | null
+}
+
 export interface PlatformStateReader {
   /** Идут ли техработы прямо сейчас. */
   maintenanceActive(now?: Date): Promise<boolean>
+  /** Кого и когда уведомлять. Читается перед каждой отправкой в Telegram. */
+  notificationPolicy(): Promise<NotificationPolicy>
 }

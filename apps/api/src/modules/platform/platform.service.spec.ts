@@ -22,6 +22,11 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
     bannerLevel: null,
     disabledSections: [],
     announcedVersion: null,
+    quietFrom: null,
+    quietTo: null,
+    mutedNotifications: [],
+    dutyUserId: null,
+    digestHour: null,
     updatedById: null,
     updatedAt: NOW,
     ...patch,
@@ -63,6 +68,13 @@ describe('PlatformService.publicState', () => {
     const { service } = setup(null)
 
     await expect(service.publicState(NOW)).resolves.toEqual({
+      notifications: {
+        quietFrom: null,
+        quietTo: null,
+        muted: [],
+        dutyUserId: null,
+        digestHour: null,
+      },
       maintenance: null,
       banner: null,
       disabledSections: [],
@@ -281,6 +293,13 @@ describe('PlatformService — отказ чтения состояния', () =>
     prisma.platformState.findUnique.mockRejectedValue(new Error('connection refused'))
 
     await expect(service.publicState(NOW)).resolves.toEqual({
+      notifications: {
+        quietFrom: null,
+        quietTo: null,
+        muted: [],
+        dutyUserId: null,
+        digestHour: null,
+      },
       maintenance: null,
       banner: null,
       disabledSections: [],

@@ -85,7 +85,7 @@ export class SupportService {
     // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
     // уведомление о той же ветке ничего не добавляет.
     if (!existing) {
-      await this.telegram.notifyStaff('Новое обращение в поддержку', `support_${chatId}`)
+      await this.telegram.notifyStaff('ticket', 'Новое обращение в поддержку', `support_${chatId}`)
     }
     return { id: chatId, created: existing === null }
   }
@@ -173,7 +173,7 @@ export class SupportService {
     // сама себя. Без этого человек, дописавший в открытое обращение, ждал молча, а
     // узнавали о нём, только зайдя в очередь.
     if (!STAFF_ROLES.includes(viewer.role)) {
-      await this.telegram.notifyStaff('Ответ в обращении поддержки', `support_${chatId}`)
+      await this.telegram.notifyStaff('reply', 'Ответ в обращении поддержки', `support_${chatId}`)
     }
     return message
   }

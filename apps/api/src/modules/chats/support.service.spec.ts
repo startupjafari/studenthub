@@ -178,6 +178,7 @@ describe('SupportService — уведомление команды', () => {
     await service.open(who(Role.STUDENT), { text: 'не приходит письмо на почту' })
 
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'ticket',
       'Новое обращение в поддержку',
       'support_ticket-1',
     )
@@ -201,6 +202,7 @@ describe('SupportService.reply — кого будить', () => {
     await service.reply(who(Role.STUDENT), 'ticket-1', { text: 'всё ещё не работает' })
 
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'reply',
       'Ответ в обращении поддержки',
       'support_ticket-1',
     )

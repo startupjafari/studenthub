@@ -41,6 +41,9 @@ describe('словари локализации', () => {
     'maintenanceMinutes',
     'overviewTitle',
     'sectionPortfolio',
+    // Диапазоны времени — цифры, а не слова: переводить в них нечего.
+    'notifQuietNight',
+    'notifQuietEvening',
   ])
 
   it.each(LOCALES.filter((loc) => loc !== 'ru'))('в языке %s нет копий русского текста', (loc) => {

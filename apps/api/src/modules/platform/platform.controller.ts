@@ -14,6 +14,7 @@ import { SetMaintenanceDto } from './dto/set-maintenance.dto'
 import { SetBannerDto } from './dto/set-banner.dto'
 import { SetSectionsDto } from './dto/set-sections.dto'
 import { AnnounceReleaseDto } from './dto/announce-release.dto'
+import { SetNotificationsDto } from './dto/set-notifications.dto'
 
 // Состояние платформы: читают все, меняет только платформенный администратор.
 //
@@ -83,6 +84,19 @@ export class PlatformController {
     @Req() req: FastifyRequest,
   ) {
     return this.platform.setSections(user.sub, dto, this.ctx(req))
+  }
+
+  @Patch('notifications')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Уведомления команде: тихие часы, дежурный, виды, час сводки' })
+  setNotifications(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: SetNotificationsDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.platform.setNotifications(user.sub, dto, this.ctx(req))
   }
 
   @Patch('release')

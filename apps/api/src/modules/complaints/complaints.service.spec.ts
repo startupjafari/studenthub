@@ -323,6 +323,7 @@ describe('ComplaintsService.create — уведомление команды п�
     )
 
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'complaint',
       'Срочная жалоба на пользователя',
       'complaint_c-1',
     )
