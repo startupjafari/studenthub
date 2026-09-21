@@ -78,6 +78,22 @@ export interface PublicPlatformState {
 /** Что вообще можно записать: id, автор и время правки ставит сам сервис. */
 type StatePatch = Partial<Omit<PlatformState, 'id' | 'updatedById' | 'updatedAt'>>
 
+/**
+ * Окно отката. Полчаса — это «я только что промахнулся»; всё, что старше, было решением,
+ * и возвращать его молча одной кнопкой значило бы менять состояние платформы задним числом.
+ */
+const UNDO_WINDOW_MS = 30 * 60 * 1000
+
+/** Даты в журнале лежат строками ISO: поднимаем их обратно, остальное отдаём как есть. */
+function revivePatch(before: Record<string, unknown>): StatePatch {
+  const patch: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(before)) {
+    const isDateField = key.endsWith('At') || key.endsWith('Until') || key.endsWith('From')
+    patch[key] = isDateField && typeof value === 'string' ? new Date(value) : value
+  }
+  return patch as StatePatch
+}
+
 const EMPTY: PublicPlatformState = {
   notifications: { quietFrom: null, quietTo: null, muted: [], dutyUserId: null, digestHour: null },
   maintenance: null,
@@ -162,7 +178,7 @@ export class PlatformService {
     // Срок окончания считается от НАЧАЛА окна, а не от «сейчас»: иначе плановые работы,
     // назначенные на вечер, кончались бы через час после нажатия кнопки.
     const until = input.minutes === null ? null : minutesFromNow(startsIn + input.minutes)
-    const state = await this.write(userId, {
+    const { state, before } = await this.write(userId, {
       maintenanceFrom: from,
       maintenanceUntil: until,
       maintenanceMessageRu: input.message?.ru ?? null,
@@ -176,13 +192,16 @@ export class PlatformService {
       entity: 'PlatformState',
       // Текст объявления в журнал не пишем: он и так виден всем, а место в метаданных
       // нужнее сроку — по нему потом считают длительность простоя.
-      metadata: until
-        ? {
-            until: until.toISOString(),
-            minutes: input.minutes,
-            ...(from ? { from: from.toISOString() } : {}),
-          }
-        : {},
+      metadata: {
+        before,
+        ...(until
+          ? {
+              until: until.toISOString(),
+              minutes: input.minutes,
+              ...(from ? { from: from.toISOString() } : {}),
+            }
+          : {}),
+      },
       ...ctx,
     })
     return state
@@ -199,7 +218,7 @@ export class PlatformService {
       throw new AppException('VALIDATION_ERROR', 'Баннеру нужен текст')
     }
 
-    const state = await this.write(userId, {
+    const { state, before } = await this.write(userId, {
       bannerUntil: until,
       bannerLevel: until ? input.level : null,
       bannerRoles: until ? (input.roles ?? []) : [],
@@ -213,7 +232,7 @@ export class PlatformService {
       userId,
       action: until ? 'platform.banner.on' : 'platform.banner.off',
       entity: 'PlatformState',
-      metadata: until ? { until: until.toISOString(), level: input.level } : {},
+      metadata: { before, ...(until ? { until: until.toISOString(), level: input.level } : {}) },
       ...ctx,
     })
     return state
@@ -225,12 +244,12 @@ export class PlatformService {
     input: SetSectionsInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
-    const state = await this.write(userId, { disabledSections: input.disabled })
+    const { state, before } = await this.write(userId, { disabledSections: input.disabled })
     await this.audit.record({
       userId,
       action: 'platform.sections.set',
       entity: 'PlatformState',
-      metadata: { disabled: input.disabled },
+      metadata: { before, disabled: input.disabled },
       ...ctx,
     })
     return state
@@ -283,13 +302,65 @@ export class PlatformService {
     }))
   }
 
+  /**
+   * Вернуть как было — откат последнего изменения рычагов.
+   *
+   * Ошибочное переключение — самый частый способ навредить с телефона: чипы стоят рядом,
+   * палец один. До этой кнопки «верни как было» означало вспомнить прежнее состояние и
+   * набрать его руками, а прежнее состояние нигде не показано.
+   *
+   * Откатывается ровно то, что трогало последнее действие: снимок в журнале содержит
+   * только переписанные поля, и возврат баннера не снимет техработы, включённые в ту же
+   * минуту кем-то другим. Запись об откате сама несёт снимок — второе нажатие вернёт всё
+   * обратно, и это честно называется «верни как было» дважды.
+   *
+   * Два ограничения. Срок: старше получаса — уже не промах, а решение, и тихо менять
+   * состояние платформы под этим предлогом нельзя. И направление: включить техработы
+   * откатом нельзя — включение спрашивает код 2FA, и обход этого требования кнопкой без
+   * кода сделал бы защиту декоративной.
+   */
+  async undoLast(userId: string, ctx: RequestContext = {}): Promise<PublicPlatformState> {
+    const entry = await this.prisma.auditLog.findFirst({
+      where: { action: { startsWith: 'platform.' } },
+      orderBy: { createdAt: 'desc' },
+      select: { action: true, metadata: true, createdAt: true },
+    })
+    const before = (entry?.metadata as { before?: Record<string, unknown> } | null)?.before
+    if (!entry || !before || Object.keys(before).length === 0) {
+      throw new AppException('NOT_FOUND', 'Отменять нечего')
+    }
+    if (Date.now() - entry.createdAt.getTime() > UNDO_WINDOW_MS) {
+      throw new AppException('CONFLICT', 'Изменение старше получаса — отмените его обычной кнопкой')
+    }
+
+    const patch = revivePatch(before)
+    const until = patch.maintenanceUntil
+    if (until instanceof Date && until.getTime() > Date.now()) {
+      throw new AppException(
+        'CONFLICT',
+        'Техработы включаются только своей кнопкой — она спросит код',
+      )
+    }
+
+    const { state } = await this.write(userId, patch)
+    await this.audit.record({
+      userId,
+      action: 'platform.state.undo',
+      entity: 'PlatformState',
+      // Снимок отката — тоже снимок: второе нажатие вернёт то, что было до отмены.
+      metadata: { of: entry.action, at: entry.createdAt.toISOString(), before },
+      ...ctx,
+    })
+    return state
+  }
+
   /** Настройки уведомлений команде: тишина, дежурный, что слать, час сводки. */
   async setNotifications(
     userId: string,
     input: SetNotificationsInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
-    const state = await this.write(userId, {
+    const { state, before } = await this.write(userId, {
       quietFrom: input.quietFrom,
       quietTo: input.quietTo,
       mutedNotifications: input.muted,
@@ -301,6 +372,7 @@ export class PlatformService {
       action: 'platform.notifications.set',
       entity: 'PlatformState',
       metadata: {
+        before,
         quietFrom: input.quietFrom,
         quietTo: input.quietTo,
         muted: input.muted,
@@ -318,12 +390,12 @@ export class PlatformService {
     input: AnnounceReleaseInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
-    const state = await this.write(userId, { announcedVersion: input.version })
+    const { state, before } = await this.write(userId, { announcedVersion: input.version })
     await this.audit.record({
       userId,
       action: 'platform.release.announce',
       entity: 'PlatformState',
-      metadata: { version: input.version },
+      metadata: { before, version: input.version },
       ...ctx,
     })
     return state
@@ -333,7 +405,14 @@ export class PlatformService {
    * Запись строки-синглтона и сброс кэша. Сброс — сразу после записи и до ответа: человек,
    * нажавший тумблер, обязан увидеть результат при первом же обновлении, а не через минуту.
    */
-  private async write(userId: string, data: StatePatch): Promise<PublicPlatformState> {
+  private async write(
+    userId: string,
+    data: StatePatch,
+  ): Promise<{ state: PublicPlatformState; before: Record<string, unknown> }> {
+    // Снимок ровно тех полей, которые сейчас перепишем: он уходит в журнал и делает
+    // возможной кнопку «верни как было». Снимать состояние целиком незачем — откат
+    // баннера не должен трогать техработы, включённые в ту же минуту кем-то другим.
+    const before = await this.snapshot(Object.keys(data))
     const row = await this.prisma.platformState.upsert({
       where: { id: SINGLETON_ID },
       create: { id: SINGLETON_ID, ...data, updatedById: userId },
@@ -343,7 +422,21 @@ export class PlatformService {
     // И местную память тоже: инстанс, принявший команду, обязан подчиниться ей сразу, а не
     // через пять секунд — иначе админ увидит «включено», а следующий его же запрос пройдёт.
     this.memo = null
-    return project(row, new Date())
+    return { state: project(row, new Date()), before }
+  }
+
+  /** Текущие значения перечисленных полей. Нет строки — откатывать будет не к чему. */
+  private async snapshot(keys: string[]): Promise<Record<string, unknown>> {
+    const row = await this.read().catch(() => null)
+    if (!row) return {}
+    const source = row as unknown as Record<string, unknown>
+    const before: Record<string, unknown> = {}
+    for (const key of keys) {
+      const value = source[key]
+      // В журнал уходит JSON: даты — строками, иначе обратно они не поднимутся.
+      before[key] = value instanceof Date ? value.toISOString() : (value ?? null)
+    }
+    return before
   }
 
   /**

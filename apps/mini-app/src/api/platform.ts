@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from './client'
+import { apiGet, apiPatch, apiPost } from './client'
 import type { MessageKey } from '../i18n'
 
 // Рычаги управления вебом. Типы повторяют ответ `GET /platform/state`.
@@ -155,4 +155,15 @@ export async function announceRelease(version: string | null): Promise<PlatformS
 /** Настройки уведомлений команде. Отправляются целиком: это состояние, а не команда. */
 export async function setNotifications(input: NotificationSettings): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/notifications', input)
+}
+
+/**
+ * Верни как было — откат последнего переключения рычагов.
+ *
+ * Чипы стоят рядом, палец один, и промах по экрану меняет то, что видят все. Сервер
+ * откатывает только последнее изменение и только моложе получаса; включить техработы
+ * откатом нельзя — на это есть своя кнопка, и она спрашивает код.
+ */
+export async function undoLastChange(): Promise<PlatformState> {
+  return apiPost<PlatformState>('/platform/undo', {})
 }
