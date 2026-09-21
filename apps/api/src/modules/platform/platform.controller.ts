@@ -16,6 +16,7 @@ import { SetBannerDto } from './dto/set-banner.dto'
 import { SetSectionsDto } from './dto/set-sections.dto'
 import { AnnounceReleaseDto } from './dto/announce-release.dto'
 import { SetNotificationsDto } from './dto/set-notifications.dto'
+import { SetDutyDto } from './dto/set-duty.dto'
 
 // Состояние платформы: читают все, меняет только платформенный администратор.
 //
@@ -148,6 +149,32 @@ export class PlatformController {
     @Req() req: FastifyRequest,
   ) {
     return this.platform.announceRelease(user.sub, dto, this.ctx(req))
+  }
+
+  /**
+   * Очередь дежурств. Отдельно от публичного `GET /platform/state`: список всей команды —
+   * это данные о команде, и посетителю сайта их знать незачем.
+   */
+  @Get('duty')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Кто дежурит и в каком порядке меняются' })
+  duty() {
+    return this.platform.duty()
+  }
+
+  @Patch('duty')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Задать очередь дежурств (по понедельникам переходит к следующему)' })
+  setDuty(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: SetDutyDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.platform.setDuty(user.sub, dto.rotation, this.ctx(req))
   }
 
   /**

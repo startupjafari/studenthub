@@ -29,6 +29,7 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
     quietTo: null,
     mutedNotifications: [],
     dutyUserId: null,
+    dutyRotation: [],
     digestHour: null,
     updatedById: null,
     updatedAt: NOW,
@@ -478,5 +479,43 @@ describe('PlatformService.undoLast', () => {
     )
     const err = await service.undoLast('admin').catch((e) => e)
     expect(err.code).toBe('CONFLICT')
+  })
+})
+
+// ── Очередь дежурств (пункт 90) ─────────────────────────────────────────────
+describe('PlatformService — дежурство по очереди', () => {
+  it('первый в списке становится дежурным сразу: очередь не должна ждать неделю', async () => {
+    const { service, updates } = setup(row())
+    await service.setDuty('admin', ['a', 'b', 'c'])
+    expect(updates.at(-1)).toMatchObject({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] })
+  })
+
+  // Назначенного руками дежурного расписание не снимает: его ставили осознанно.
+  it('не отбирает дежурство у назначенного руками', async () => {
+    const { service, updates } = setup(row({ dutyUserId: 'z' }))
+    await service.setDuty('admin', ['a', 'b'])
+    expect(updates.at(-1)?.dutyUserId).toBe('z')
+  })
+
+  it('передаёт дежурство следующему по списку', async () => {
+    const { service, updates } = setup(row({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] }))
+    await expect(service.rotateDuty()).resolves.toBe('b')
+    expect(updates.at(-1)?.dutyUserId).toBe('b')
+  })
+
+  it('с конца списка возвращается к началу', async () => {
+    const { service } = setup(row({ dutyUserId: 'c', dutyRotation: ['a', 'b', 'c'] }))
+    await expect(service.rotateDuty()).resolves.toBe('a')
+  })
+
+  // Дежурный не из очереди — его назначили руками на выходные; начинаем круг сначала.
+  it('дежурный вне списка → первый из очереди', async () => {
+    const { service } = setup(row({ dutyUserId: 'z', dutyRotation: ['a', 'b'] }))
+    await expect(service.rotateDuty()).resolves.toBe('a')
+  })
+
+  it('очередь короче двух — передавать некому', async () => {
+    const { service } = setup(row({ dutyUserId: 'a', dutyRotation: ['a'] }))
+    await expect(service.rotateDuty()).resolves.toBeNull()
   })
 })

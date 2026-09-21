@@ -45,6 +45,7 @@ function makeService() {
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
+    rotateDuty: jest.fn(async () => null) as Mock,
     notificationPolicy: jest.fn(async () => ({
       quietFrom: null,
       quietTo: null,
@@ -324,5 +325,16 @@ describe('CleanupService.liftExpiredBlocks', () => {
         }),
       }),
     )
+  })
+})
+
+describe('CleanupService.rotateDuty', () => {
+  // Крон только зовёт владельца состояния: логика очереди живёт в PlatformService, и
+  // дублировать её в планировщике значило бы завести второе место, где она разъедется.
+  it('передаёт дежурство через состояние платформы', async () => {
+    const c = makeService()
+    c.platform.rotateDuty.mockResolvedValue('user-2')
+    await expect(c.service.rotateDuty()).resolves.toBe('user-2')
+    expect(c.platform.rotateDuty).toHaveBeenCalled()
   })
 })

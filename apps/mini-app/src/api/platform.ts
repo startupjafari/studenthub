@@ -167,3 +167,38 @@ export async function setNotifications(input: NotificationSettings): Promise<Pla
 export async function undoLastChange(): Promise<PlatformState> {
   return apiPost<PlatformState>('/platform/undo', {})
 }
+
+/**
+ * Кто из команды привязал Telegram. Пул для очереди дежурств: дежурить может только тот,
+ * кому бот в принципе может написать.
+ */
+export interface TeamLink {
+  userId: string
+  name: string
+  role: string
+  username: string | null
+  linkedAt: string
+  lastSeenAt: string | null
+}
+
+export async function fetchTeam(): Promise<TeamLink[]> {
+  return apiGet<TeamLink[]>('/mini/links')
+}
+
+/** Очередь дежурств: кто сейчас и в каком порядке меняются. */
+export interface Duty {
+  dutyUserId: string | null
+  rotation: string[]
+}
+
+export async function fetchDuty(): Promise<Duty> {
+  return apiGet<Duty>('/platform/duty')
+}
+
+/**
+ * Задать очередь. Порядок — тот, в котором люди отмечены: дежурство передаётся
+ * следующему по списку каждый понедельник.
+ */
+export async function setDuty(rotation: string[]): Promise<Duty> {
+  return apiPatch<Duty>('/platform/duty', { rotation })
+}

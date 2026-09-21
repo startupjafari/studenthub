@@ -118,3 +118,14 @@ export const SetNotificationsSchema = z.object({
   digestHour: hour.nullable(),
 })
 export type SetNotificationsInput = z.infer<typeof SetNotificationsSchema>
+
+/**
+ * Очередь дежурств: id людей по порядку. Десяти хватает любой команде платформы, а
+ * очередь длиннее означала бы, что до второго круга человек дойдёт через четверть года.
+ */
+export const SetDutySchema = z
+  .object({
+    rotation: z.array(z.string().uuid()).max(10),
+  })
+  .strict()
+export type SetDutyInput = z.infer<typeof SetDutySchema>

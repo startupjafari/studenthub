@@ -12,6 +12,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import type { NotificationPolicy } from './platform.constants'
+import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID } from './platform.constants'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { TwoFactorService } from '../auth/two-factor.service'
 import type { RequestContext } from '../auth/auth.service'
@@ -19,8 +20,8 @@ import type { RequestContext } from '../auth/auth.service'
 // Состояние платформы: рычаги, которыми админ управляет вебом без деплоя.
 // Модель и мотивация полей — prisma/schema/30-platform.prisma.
 
-const SINGLETON_ID = 'singleton'
-const CACHE_KEY = 'platform:state'
+const SINGLETON_ID = PLATFORM_STATE_ID
+const CACHE_KEY = PLATFORM_STATE_CACHE_KEY
 
 // Состояние спрашивает каждая загрузка страницы каждого пользователя, поэтому оно
 // кэшируется. Запись кэш сбрасывает — значит 60 секунд это не задержка появления
@@ -300,6 +301,73 @@ export class PlatformService {
       at: row.createdAt,
       by: row.userId ? (byId.get(row.userId) ?? null) : null,
     }))
+  }
+
+  /**
+   * Очередь дежурств: кто дежурит сейчас и в каком порядке меняются.
+   *
+   * Отдельно от публичного `GET /platform/state`: там нет ничего о людях, кроме id
+   * дежурного, а список всей команды — это уже данные о команде, и посетителю сайта их
+   * знать незачем.
+   */
+  async duty(): Promise<{ dutyUserId: string | null; rotation: string[] }> {
+    const row = await this.read()
+    return { dutyUserId: row?.dutyUserId ?? null, rotation: row?.dutyRotation ?? [] }
+  }
+
+  /**
+   * Задать очередь. Пустой список выключает ротацию, дежурного при этом не трогаем: он
+   * мог быть назначен руками, и молча снимать его вместе с расписанием — не то, о чём
+   * просили. Первым дежурным ставим первого в списке, если дежурного ещё нет: очередь,
+   * которая начнёт работать только через неделю, выглядит как сломанная.
+   */
+  async setDuty(
+    userId: string,
+    rotation: string[],
+    ctx: RequestContext = {},
+  ): Promise<{ dutyUserId: string | null; rotation: string[] }> {
+    const unique = [...new Set(rotation)]
+    const current = await this.read()
+    const duty = current?.dutyUserId ?? unique[0] ?? null
+
+    const { state: _state, before } = await this.write(userId, {
+      dutyRotation: unique,
+      dutyUserId: duty,
+    })
+    void _state
+    await this.audit.record({
+      userId,
+      action: 'platform.duty.set',
+      entity: 'PlatformState',
+      metadata: { before, size: unique.length },
+      ...ctx,
+    })
+    return { dutyUserId: duty, rotation: unique }
+  }
+
+  /**
+   * Передать дежурство следующему. Зовётся кроном по понедельникам.
+   *
+   * Позиция ищется по текущему дежурному, а не хранится числом: номер смены пришлось бы
+   * чинить руками каждый раз, когда список правят, а по имени всё сходится само. Дежурный
+   * не из списка (назначили руками на выходные) — начинаем с начала.
+   */
+  async rotateDuty(now: Date = new Date()): Promise<string | null> {
+    const row = await this.read()
+    const rotation = row?.dutyRotation ?? []
+    if (rotation.length < 2) return null
+
+    const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
+    const next = rotation[(index + 1) % rotation.length]
+    if (next === row?.dutyUserId) return null
+
+    await this.write(row?.updatedById ?? next, { dutyUserId: next })
+    await this.audit.record({
+      action: 'platform.duty.rotate',
+      entity: 'PlatformState',
+      metadata: { to: next, at: now.toISOString() },
+    })
+    return next
   }
 
   /**
