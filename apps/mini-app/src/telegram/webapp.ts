@@ -103,3 +103,19 @@ export function confirmAction(message: string): Promise<boolean> {
   if (!tg || !isTelegram()) return Promise.resolve(window.confirm(message))
   return new Promise((resolve) => tg.showConfirm(message, resolve))
 }
+
+/**
+ * Параметр запуска (`?startapp=` в ссылке из уведомления): `complaint_<id>` или
+ * `support_<id>`. Именно ради него уведомление вообще имеет кнопку — иначе человек,
+ * которому написали «срочная жалоба», всё равно искал бы её в очереди руками.
+ */
+export function startParam(): { kind: 'complaint' | 'support'; id: string } | null {
+  const raw = webApp()?.initDataUnsafe?.start_param
+  if (!raw) return null
+  const at = raw.indexOf('_')
+  if (at <= 0) return null
+  const kind = raw.slice(0, at)
+  const id = raw.slice(at + 1)
+  if (id.length === 0) return null
+  return kind === 'complaint' || kind === 'support' ? { kind, id } : null
+}

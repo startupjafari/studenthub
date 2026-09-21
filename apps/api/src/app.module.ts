@@ -17,6 +17,7 @@ import { QueueModule } from './common/queue/queue.module'
 import { RealtimeModule } from './common/realtime/realtime.module'
 import { MinioModule } from './common/minio/minio.module'
 import { AuditModule } from './common/audit/audit.module'
+import { TelegramModule } from './common/telegram/telegram.module'
 import { ExportBrandingModule } from './common/export/export-branding.module'
 import { SecurityModule } from './common/security/security.module'
 import { AuthModule } from './modules/auth/auth.module'
@@ -102,6 +103,7 @@ import { AppController } from './app.controller'
     RealtimeModule,
     MinioModule,
     AuditModule,
+    TelegramModule,
     ExportBrandingModule,
     SecurityModule,
     AuthModule,

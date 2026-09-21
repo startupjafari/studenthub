@@ -1632,7 +1632,7 @@
     "typeGroupOfficial": "Group chat",
     "typeFaculty": "Faculty chat",
     "typeDean": "Dean's office",
-    "typeSupport": "Support",
+    "typeSupport": "University help (shared chat)",
     "typeSubject": "Subject",
     "newChat": "New chat",
     "attachment": "Attachment",
@@ -1818,7 +1818,7 @@
     "tagSubject": "Subject",
     "tagFaculty": "Faculty",
     "tagDean": "Dean’s office",
-    "tagSupport": "Support",
+    "tagSupport": "University help",
     "tagEvent": "Event",
     "searchAll": "Search chats, messages and people",
     "clearSearch": "Clear",
@@ -1890,7 +1890,9 @@
     "playbackSpeed": "Speed",
     "play": "Play",
     "pause": "Pause",
-    "chatActions": "Chat actions"
+    "chatActions": "Chat actions",
+    "typeSupportPlatform": "StudentHub support",
+    "tagSupportPlatform": "Support"
   },
   "Events": {
     "title": "Events",
@@ -2280,7 +2282,8 @@
     "versionUpToDate": "Up to date",
     "whatsNewTitle": "What's new",
     "whatsNewDesc": "What changed in version {version}",
-    "whatsNewOpen": "Open"
+    "whatsNewOpen": "Open",
+    "navSupport": "Support"
   },
   "Offline": {
     "title": "You are offline",
@@ -3595,5 +3598,14 @@
     "maintenanceStaffNotice": "Maintenance mode is on until {until}. Everyone else sees the stub.",
     "sectionOffTitle": "This section is temporarily closed",
     "sectionOffText": "We turned it off briefly to fix it. Everything else works as usual."
+  },
+  "Support": {
+    "title": "Contact support",
+    "description": "A private thread with the StudentHub team — only you and support can see it",
+    "placeholder": "What happened? Describe it in as much detail as you can: what you were doing and what went wrong.",
+    "answerWhere": "The reply arrives in Chats, where you can also send a screenshot or a file.",
+    "send": "Send",
+    "sent": "Your message was sent",
+    "appended": "Added to your open request"
   }
 }

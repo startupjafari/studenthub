@@ -1,4 +1,4 @@
-import { apiGetPaged } from './client'
+import { apiGetPaged, apiGet, apiPatch } from './client'
 
 // Жалобы: типы повторяют ответ `GET /complaints` (COMPLAINT_SELECT на бэкенде).
 //
@@ -33,4 +33,23 @@ export interface ComplaintPage {
  */
 export async function fetchOpenComplaints(limit = 30): Promise<ComplaintPage> {
   return apiGetPaged<Complaint>(`/complaints?status=PENDING&page=1&limit=${limit}`)
+}
+
+/** Одна жалоба целиком — для карточки разбора. */
+export async function fetchComplaint(id: string): Promise<Complaint> {
+  return apiGet<Complaint>(`/complaints/${id}`)
+}
+
+/**
+ * Решение по жалобе.
+ *
+ * DELETE_CONTENT — снять контент, BLOCK_USER — заблокировать автора, DISMISS — отклонить
+ * жалобу. Набор задаёт сервер (ResolveComplaintSchema); для жалобы на пользователя
+ * удаление контента недопустимо, и об этом отвечает он же — клиент это не дублирует,
+ * иначе два правила разъехались бы.
+ */
+export type ResolveAction = 'DELETE_CONTENT' | 'BLOCK_USER' | 'DISMISS'
+
+export async function resolveComplaint(id: string, action: ResolveAction): Promise<Complaint> {
+  return apiPatch<Complaint>(`/complaints/${id}/resolve`, { action })
 }

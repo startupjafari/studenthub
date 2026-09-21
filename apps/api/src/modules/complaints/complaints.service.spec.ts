@@ -4,6 +4,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { UserService } from '../users/users.service'
+import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
 
@@ -32,13 +33,15 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const users = { setBlocked: jest.fn().mockResolvedValue(undefined) }
+  const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     users as unknown as UserService,
+    telegram as unknown as TelegramNotifyService,
   )
-  return { service, prisma, audit, queue, users }
+  return { service, prisma, audit, queue, users, telegram }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -298,5 +301,49 @@ describe('ComplaintsService.getMessageContext (11.5)', () => {
     expect(prisma.message.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { chatId: 'chat1' } }),
     )
+  })
+})
+
+describe('ComplaintsService.create — уведомление команды платформы', () => {
+  // Жалоба на человека и на личные сообщения = кто-то страдает прямо сейчас,
+  // и ждать, пока модератор сам откроет очередь, не стоит.
+  it('сообщает в Telegram о срочной жалобе', async () => {
+    const { service, prisma, telegram } = setup()
+    prisma.complaint.create.mockResolvedValue({
+      id: 'c-1',
+      priority: 'HIGH',
+      targetType: 'USER',
+    })
+    prisma.user.findFirst.mockResolvedValue({ id: 'u2', universityId: 'uni-1' })
+
+    await service.create(
+      user(Role.STUDENT),
+      { targetType: 'USER', targetId: 'u2', reason: 'травля' },
+      ctx,
+    )
+
+    expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'Срочная жалоба на пользователя',
+      'complaint_c-1',
+    )
+  })
+
+  // Иначе уведомления обесценятся, и первыми перестанут читать как раз срочные.
+  it('о несрочной жалобе молчит — она ждёт в очереди', async () => {
+    const { service, prisma, telegram } = setup()
+    prisma.complaint.create.mockResolvedValue({
+      id: 'c-2',
+      priority: 'MEDIUM',
+      targetType: 'POST',
+    })
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', universityId: 'uni-1' })
+
+    await service.create(
+      user(Role.STUDENT),
+      { targetType: 'POST', targetId: 'p1', reason: 'спам' },
+      ctx,
+    )
+
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
   })
 })

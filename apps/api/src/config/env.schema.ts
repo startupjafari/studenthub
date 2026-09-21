@@ -125,6 +125,13 @@ export const envSchema = z.object({
    */
   TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
 
+  /**
+   * Адрес мини-аппа — для кнопки в уведомлении, открывающей нужную карточку сразу.
+   * Не задан — уведомления уходят без кнопки: текст полезен и сам по себе, а ссылка,
+   * ведущая в никуда, хуже её отсутствия.
+   */
+  MINI_APP_URL: optionalEnv(z.string().url()),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
