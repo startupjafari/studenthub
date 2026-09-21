@@ -119,6 +119,15 @@ export class ComplaintsController {
     return this.complaints.resolve(user, id, dto, this.ctx(req))
   }
 
+  @Patch(':id/take')
+  @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Взять жалобу в разбор (квитирование; перехватить чужую нельзя)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — уже разбирают или уже разобрана' })
+  take(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.complaints.take(user, id)
+  }
+
   @Patch(':id/reopen')
   @Roles(...MODERATOR_ROLES)
   @MiniAllowed()

@@ -137,8 +137,9 @@ model User {
   eventParticipations EventParticipant[]
 
   // Жалобы (Ф11): поданные и разрешённые пользователем.
-  complaintsReported Complaint[] @relation("ComplaintReporter")
-  complaintsResolved Complaint[] @relation("ComplaintResolver")
+  complaintsReported  Complaint[] @relation("ComplaintReporter")
+  complaintsResolved  Complaint[] @relation("ComplaintResolver")
+  complaintsReviewing Complaint[] @relation("ComplaintReviewer")
 
   // Предупреждения модерации: полученные и вынесенные.
   warnings       ModerationWarning[] @relation("WarnedUser")

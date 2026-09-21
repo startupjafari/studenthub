@@ -32,6 +32,7 @@ const COMPLAINT_SELECT = {
   createdAt: true,
   reporter: USER_MINI,
   resolvedBy: USER_MINI,
+  reviewingBy: USER_MINI,
 } satisfies Prisma.ComplaintSelect
 
 type ComplaintRow = Prisma.ComplaintGetPayload<{ select: typeof COMPLAINT_SELECT }>
@@ -130,7 +131,47 @@ export class ComplaintsService {
       'complaint',
       `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
       `complaint_${complaint.id}`,
+      new Date(),
+      false,
+      // Кнопка квитирования прямо в уведомлении: открывать приложение, чтобы сказать
+      // «беру», — три лишних шага в момент, когда важна секунда.
+      { kind: 'complaint', id: complaint.id },
     )
+  }
+
+  /**
+   * Взять жалобу в разбор — квитирование.
+   *
+   * Уведомление о срочной жалобе уходит всей команде, и без отметки «я взял» двое
+   * открывают одно и то же, а третья жалоба не достаётся никому: каждый решает, что её
+   * взял другой. Нажимают эту кнопку прямо в Telegram, не открывая мини-апп.
+   *
+   * Перехватить чужое нельзя: условие `reviewingById: null` стоит в самом запросе, и два
+   * одновременных «беру» не победят оба. Уже разобранная жалоба в разбор не берётся —
+   * брать нечего.
+   */
+  async take(actor: JwtPayload, id: string): Promise<{ takenBy: string }> {
+    const complaint = await this.findScoped(actor, id)
+    if (
+      complaint.status === ComplaintStatus.RESOLVED ||
+      complaint.status === ComplaintStatus.DISMISSED
+    ) {
+      throw new AppException('CONFLICT', 'Жалоба уже разобрана')
+    }
+
+    const { count } = await this.prisma.complaint.updateMany({
+      where: { id, reviewingById: null },
+      data: { reviewingById: actor.sub, status: ComplaintStatus.REVIEWING },
+    })
+    if (count === 0) throw new AppException('CONFLICT', 'Жалобу уже разбирает другой человек')
+
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_taken',
+      entity: 'Complaint',
+      entityId: id,
+    })
+    return { takenBy: actor.sub }
   }
 
   /**
@@ -391,6 +432,9 @@ export class ComplaintsService {
         status: ComplaintStatus.PENDING,
         resolvedById: null,
         resolvedAt: null,
+        // Возврат в очередь снимает и «кто взял»: жалоба снова ничья, иначе она висела бы
+        // за человеком, который её уже закрыл.
+        reviewingById: null,
         resolution: null,
       },
       select: COMPLAINT_SELECT,

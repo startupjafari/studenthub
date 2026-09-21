@@ -301,6 +301,9 @@ const ru = {
   aboutVersion: 'Сборка {version}',
 
   // ── Карточка человека ──────────────────────────────────────────────────
+  complaintTake: 'Беру в работу',
+  complaintTakenBy: 'Разбирает {name}',
+  complaintTakeError: 'Не удалось взять жалобу',
   complaintOffender: 'Нарушитель',
   supportAuthorTitle: 'Кто спрашивает',
   complaintsMedian: 'Медиана разбора {value}',
@@ -675,6 +678,9 @@ const kk: Record<MessageKey, string> = {
   aboutVersion: 'Жинақ {version}',
 
   // ── Адам картасы ───────────────────────────────────────────────────────
+  complaintTake: 'Жұмысқа аламын',
+  complaintTakenBy: '{name} қарап жатыр',
+  complaintTakeError: 'Шағымды алу мүмкін болмады',
   complaintOffender: 'Бұзушы',
   supportAuthorTitle: 'Кім сұрап отыр',
   complaintsMedian: 'Талдау медианасы {value}',
@@ -1046,6 +1052,9 @@ const en: Record<MessageKey, string> = {
   aboutVersion: 'Build {version}',
 
   // ── Person card ────────────────────────────────────────────────────────
+  complaintTake: 'I will take it',
+  complaintTakenBy: '{name} is handling it',
+  complaintTakeError: 'Could not take the complaint',
   complaintOffender: 'Offender',
   supportAuthorTitle: 'Who is asking',
   complaintsMedian: 'Median time to resolve {value}',

@@ -4,6 +4,7 @@ import {
   fetchComplaintMessages,
   reopenComplaint,
   resolveComplaint,
+  takeComplaint,
   type ComplaintCard,
   type ComplaintMessage,
   type ResolveAction,
@@ -260,6 +261,33 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       {(complaint.status === 'PENDING' || complaint.status === 'REVIEWING') && (
         <section className="card">
           <h2>{t('complaintDecision')}</h2>
+          {/* Квитирование. То же самое делает кнопка под уведомлением в Telegram: без
+            отметки «я взял» двое открывают одну жалобу, а третью не берёт никто. */}
+          {complaint.reviewingBy ? (
+            <p className="hint">
+              {t('complaintTakenBy', {
+                name: `${complaint.reviewingBy.lastName} ${complaint.reviewingBy.firstName}`,
+              })}
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="chip"
+              disabled={busy}
+              onClick={() => {
+                void takeComplaint(id)
+                  .then(() => {
+                    haptic.success()
+                    void load()
+                  })
+                  .catch((err: unknown) =>
+                    setError(err instanceof ApiError ? err.message : t('complaintTakeError')),
+                  )
+              }}
+            >
+              {t('complaintTake')}
+            </button>
+          )}
           {/* Комментарий необязателен, но уходит в журнал вместе с решением: через месяц
             «почему заблокировали» отвечается только им. */}
           <textarea

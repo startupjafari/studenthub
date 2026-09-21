@@ -87,7 +87,16 @@ export class SupportService {
     // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
     // уведомление о той же ветке ничего не добавляет.
     if (!existing) {
-      await this.telegram.notifyStaff('ticket', 'Новое обращение в поддержку', `support_${chatId}`)
+      await this.telegram.notifyStaff(
+        'ticket',
+        'Новое обращение в поддержку',
+        `support_${chatId}`,
+        new Date(),
+        false,
+        // «Беру в работу» прямо под уведомлением: без квитирования двое пишут один ответ,
+        // а третье обращение не берёт никто, решив, что его уже взяли.
+        { kind: 'ticket', id: chatId },
+      )
     }
     return { id: chatId, created: existing === null }
   }

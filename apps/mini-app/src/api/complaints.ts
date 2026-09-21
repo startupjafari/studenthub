@@ -22,6 +22,8 @@ export interface Complaint {
   priority: ComplaintPriority
   createdAt: string
   reporter: { id: string; firstName: string; lastName: string } | null
+  /** Кто взял жалобу в разбор. null — ничья. */
+  reviewingBy?: { id: string; firstName: string; lastName: string } | null
 }
 
 export interface ComplaintPage {
@@ -152,4 +154,12 @@ export async function createComplaintFromSupport(
   targetId: string,
 ): Promise<Complaint> {
   return apiPost<Complaint>('/complaints/from-support', { chatId, targetId })
+}
+
+/**
+ * Взять жалобу в разбор. То же квитирование, что кнопкой в Telegram: команда видит, что
+ * работа занята, и двое не разбирают одно и то же. Перехватить чужую сервер не даст.
+ */
+export async function takeComplaint(id: string): Promise<{ takenBy: string }> {
+  return apiPatch<{ takenBy: string }>(`/complaints/${id}/take`, {})
 }
