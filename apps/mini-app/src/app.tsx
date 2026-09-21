@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useBackButton } from './telegram/use-telegram'
-import { haptic, initTelegram } from './telegram/webapp'
+import { haptic, initTelegram, isTelegram } from './telegram/webapp'
 import { ScheduleScreen } from './screens/schedule'
 import { LessonScreen } from './screens/lesson'
 import { TasksScreen } from './screens/tasks'
@@ -34,6 +34,14 @@ export function App() {
 
   return (
     <div className="app">
+      {/* Запасная «назад» — только вне Telegram: в клиенте эту роль играет системная
+          кнопка в шапке, и вторая рядом с ней выглядела бы ошибкой. */}
+      {lesson && !isTelegram() && (
+        <button type="button" className="back-fallback" onClick={() => setLesson(null)}>
+          ‹ Назад
+        </button>
+      )}
+
       <main className="content">
         {lesson ? (
           <LessonScreen lesson={lesson} />

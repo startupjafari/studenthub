@@ -49,6 +49,21 @@ body {
   padding-bottom: calc(64px + env(safe-area-inset-bottom));
 }
 
+.back-fallback {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  padding: 10px var(--side);
+  border: 0;
+  border-bottom: 1px solid var(--tg-theme-section-separator-color);
+  background: var(--tg-theme-section-bg-color);
+  color: var(--tg-theme-link-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .screen {
   padding: var(--side);
   display: flex;
