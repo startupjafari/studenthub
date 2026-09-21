@@ -16,15 +16,18 @@ import { useBackButton } from '../telegram/use-telegram'
 // Здесь набирают текст — и это единственное место в мини-аппе, где иначе нельзя: ответ
 // человеку нельзя выбрать из заготовок. Зато закрытие и возврат — тапы.
 
-type Screen = { kind: 'queue' } | { kind: 'thread'; ticket: SupportTicket }
+type Screen = { kind: 'queue' } | { kind: 'thread'; id: string }
 
-export function SupportScreen() {
-  const [screen, setScreen] = useState<Screen>({ kind: 'queue' })
+/** `initialId` — обращение из ссылки в уведомлении: открываем его сразу, минуя очередь. */
+export function SupportScreen({ initialId }: { initialId?: string }) {
+  const [screen, setScreen] = useState<Screen>(
+    initialId ? { kind: 'thread', id: initialId } : { kind: 'queue' },
+  )
 
   return screen.kind === 'queue' ? (
-    <QueueView onOpen={(ticket) => setScreen({ kind: 'thread', ticket })} />
+    <QueueView onOpen={(ticket) => setScreen({ kind: 'thread', id: ticket.id })} />
   ) : (
-    <ThreadView ticket={screen.ticket} onBack={() => setScreen({ kind: 'queue' })} />
+    <ThreadView id={screen.id} onBack={() => setScreen({ kind: 'queue' })} />
   )
 }
 
@@ -114,9 +117,11 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
 }
 
 type ThreadState =
-  { status: 'loading' } | { status: 'ready'; messages: SupportMessage[] } | { status: 'error' }
+  | { status: 'loading' }
+  | { status: 'ready'; ticket: SupportTicket; messages: SupportMessage[] }
+  | { status: 'error' }
 
-function ThreadView({ ticket, onBack }: { ticket: SupportTicket; onBack: () => void }) {
+function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   const [state, setState] = useState<ThreadState>({ status: 'loading' })
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -129,12 +134,12 @@ function ThreadView({ ticket, onBack }: { ticket: SupportTicket; onBack: () => v
     try {
       // Сервер отдаёт свежие сверху (курсорная история), а читать переписку удобно
       // сверху вниз по времени — разворачиваем здесь.
-      const messages = await fetchSupportThread(ticket.id)
-      setState({ status: 'ready', messages: [...messages].reverse() })
+      const { ticket, messages } = await fetchSupportThread(id)
+      setState({ status: 'ready', ticket, messages: [...messages].reverse() })
     } catch {
       setState({ status: 'error' })
     }
-  }, [ticket.id])
+  }, [id])
 
   useEffect(() => {
     void load()
@@ -145,18 +150,18 @@ function ThreadView({ ticket, onBack }: { ticket: SupportTicket; onBack: () => v
     setBusy(true)
     setError(null)
     try {
-      const message = await replyToTicket(ticket.id, text.trim())
+      const message = await replyToTicket(id, text.trim())
       setText('')
       haptic.success()
       setState((prev) =>
-        prev.status === 'ready' ? { status: 'ready', messages: [...prev.messages, message] } : prev,
+        prev.status === 'ready' ? { ...prev, messages: [...prev.messages, message] } : prev,
       )
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось отправить')
     } finally {
       setBusy(false)
     }
-  }, [busy, text, ticket.id])
+  }, [busy, text, id])
 
   const finish = useCallback(async () => {
     if (
@@ -164,21 +169,25 @@ function ThreadView({ ticket, onBack }: { ticket: SupportTicket; onBack: () => v
     )
       return
     try {
-      await closeTicket(ticket.id)
+      await closeTicket(id)
       haptic.success()
       onBack()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось закрыть')
     }
-  }, [onBack, ticket.id])
+  }, [onBack, id])
+
+  // Пока переписка грузится, автора мы ещё не знаем: экран открывается и по ссылке из
+  // уведомления, где очереди с его именем не было.
+  const ticket = state.status === 'ready' ? state.ticket : null
 
   return (
     <div className="screen">
       <header className="screen-head">
         <h1>
-          {ticket.author ? `${ticket.author.lastName} ${ticket.author.firstName}` : 'Обращение'}
+          {ticket?.author ? `${ticket.author.lastName} ${ticket.author.firstName}` : 'Обращение'}
         </h1>
-        <p className="hint">Открыто {formatDate(ticket.createdAt)}</p>
+        <p className="hint">{ticket ? `Открыто ${formatDate(ticket.createdAt)}` : 'Открываем…'}</p>
       </header>
 
       {state.status === 'loading' && <SkeletonList />}

@@ -29,11 +29,12 @@ type State =
   | { status: 'ready'; page: ComplaintPage }
   | { status: 'error'; message: string }
 
-export function ComplaintsScreen() {
+/** `initialId` — жалоба из ссылки в уведомлении: открываем её сразу, минуя очередь. */
+export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const [state, setState] = useState<State>({ status: 'loading' })
   // Открытая карточка. Возврат из неё перезапрашивает очередь: за время разбора её мог
   // изменить второй модератор, а разобранной жалобы в ней уже нет.
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialId ?? null)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })

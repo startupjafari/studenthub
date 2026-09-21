@@ -5,6 +5,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { ChatsService } from './chats.service'
+import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 function who(role: Role, sub = 'u1'): JwtPayload {
@@ -39,12 +40,14 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
     getMessages: jest.fn().mockResolvedValue({ items: [], meta: {} }),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
   const service = new SupportService(
     prisma as unknown as PrismaService,
     chats as unknown as ChatsService,
     audit as unknown as AuditService,
+    telegram as unknown as TelegramNotifyService,
   )
-  return { service, prisma, chats, audit }
+  return { service, prisma, chats, audit, telegram }
 }
 
 describe('SupportService.open', () => {
@@ -164,5 +167,28 @@ describe('SupportService.close', () => {
       where: { id: 'ticket-1' },
       data: { supportClosedAt: expect.any(Date) },
     })
+  })
+})
+
+describe('SupportService — уведомление команды', () => {
+  it('сообщает в Telegram о новом обращении', async () => {
+    const { service, telegram } = setup()
+
+    await service.open(who(Role.STUDENT), { text: 'не приходит письмо на почту' })
+
+    expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'Новое обращение в поддержку',
+      'support_ticket-1',
+    )
+  })
+
+  // Дописка в открытое обращение уже кого-то ждёт: второе уведомление о той же ветке
+  // ничего не добавляет, а внимание к уведомлениям расходует.
+  it('молчит, когда человек дописывает в открытое обращение', async () => {
+    const { service, telegram } = setup({ openTicket: { id: 'ticket-9' } })
+
+    await service.open(who(Role.STUDENT), { text: 'ещё вопрос' })
+
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
   })
 })
