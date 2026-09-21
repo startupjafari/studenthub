@@ -286,3 +286,43 @@ describe('SupportService.reply — время первого ответа', () =
     expect(calls.some((call) => 'supportFirstReplyAt' in (call.data ?? {}))).toBe(false)
   })
 })
+
+describe('SupportService.closeStale', () => {
+  function staleSetup(lastSenderRole: Role) {
+    const base = setup()
+    base.prisma.chat.findMany.mockResolvedValue([
+      { id: 't1', messages: [{ sender: { role: lastSenderRole } }] },
+    ])
+    return base
+  }
+
+  /**
+   * Закрывается только то, где последнее слово было за КОМАНДОЙ: человек получил ответ и
+   * не вернулся. Обращение, где последним писал автор, — это неотвеченный вопрос, и
+   * закрывать его по таймеру значит прятать собственный долг.
+   */
+  it('закрывает обращение, где последним отвечала команда', async () => {
+    const { service, prisma } = staleSetup(Role.PLATFORM_ADMIN)
+
+    await expect(service.closeStale(new Date())).resolves.toBe(1)
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['t1'] } },
+      data: { supportClosedAt: expect.any(Date) },
+    })
+  })
+
+  it('не закрывает обращение, где последним писал автор', async () => {
+    const { service, prisma } = staleSetup(Role.STUDENT)
+
+    await expect(service.closeStale(new Date())).resolves.toBe(0)
+    expect(prisma.chat.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('на пустой выборке ничего не пишет', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValue([])
+
+    await expect(service.closeStale(new Date())).resolves.toBe(0)
+    expect(prisma.chat.updateMany).not.toHaveBeenCalled()
+  })
+})

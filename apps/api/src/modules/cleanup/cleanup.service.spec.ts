@@ -38,6 +38,7 @@ function makeService() {
   // счётчика — сама доставка проверяется в chats.service.spec.ts.
   const chats = { deliverDueScheduled: jest.fn(async () => 0) as Mock }
   // Суточная сводка: cron спрашивает час отправки у состояния платформы и пишет в Telegram.
+  const support = { closeStale: jest.fn(async () => 0) as Mock }
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
@@ -59,6 +60,7 @@ function makeService() {
     chats as never,
     locks as never,
     redis as never,
+    support as never,
     telegram as never,
     platform as never,
   )
@@ -74,6 +76,7 @@ function makeService() {
     locks,
     redis,
     store,
+    support,
     telegram,
     platform,
   }

@@ -29,11 +29,23 @@ export type QueueScope = 'any' | 'mine' | 'free'
 export async function fetchSupportQueue(
   status: 'open' | 'closed' = 'open',
   assignee: QueueScope = 'any',
+  search?: string,
 ): Promise<{ items: SupportTicket[]; total: number }> {
-  return apiGetPaged<SupportTicket>(
-    `/support?status=${status}&assignee=${assignee}&page=1&limit=30`,
-  )
+  const params = new URLSearchParams({ status, assignee, page: '1', limit: '30' })
+  if (search && search.trim().length >= 2) params.set('search', search.trim())
+  return apiGetPaged<SupportTicket>(`/support?${params.toString()}`)
 }
+
+/**
+ * Заготовки ответов. Подставляются в поле, а не отправляются сразу: заготовка — начало
+ * ответа, а не ответ. Треть обращений при этом повторяется дословно, и набирать их
+ * с телефона — самое дорогое, что есть в мини-аппе.
+ */
+export const REPLY_TEMPLATES = [
+  { key: 'taken', labelKey: 'supportTplTaken', textKey: 'supportTplTakenText' },
+  { key: 'details', labelKey: 'supportTplDetails', textKey: 'supportTplDetailsText' },
+  { key: 'done', labelKey: 'supportTplDone', textKey: 'supportTplDoneText' },
+] as const
 
 /** Взять обращение себе или отдать обратно. Перехватить чужое сервер не даст. */
 export async function assignTicket(

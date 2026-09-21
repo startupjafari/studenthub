@@ -103,6 +103,21 @@ export class SupportService {
       supportClosedAt: query.status === 'open' ? null : { not: null },
       ...(query.assignee === 'mine' ? { supportAssigneeId: viewer.sub } : {}),
       ...(query.assignee === 'free' ? { supportAssigneeId: null } : {}),
+      // Поиск сразу по двум местам: «мы это уже кому-то отвечали» ищут по словам из
+      // переписки, а «что там было у Сериковой» — по фамилии. Разделять их на два поля
+      // значило бы заставить человека выбирать, что он помнит лучше.
+      ...(query.search
+        ? {
+            OR: [
+              { messages: { some: { content: { contains: query.search, mode: 'insensitive' } } } },
+              {
+                members: {
+                  some: { user: { lastName: { contains: query.search, mode: 'insensitive' } } },
+                },
+              },
+            ],
+          }
+        : {}),
     }
     const [rows, total] = await Promise.all([
       this.prisma.chat.findMany({
@@ -229,6 +244,48 @@ export class SupportService {
       ...ctx,
     })
     return { id: chatId, closed: true }
+  }
+
+  /**
+   * Закрыть обращения, в которых давно нет движения.
+   *
+   * Закрывается только то, где последнее слово было за КОМАНДОЙ: человек получил ответ и
+   * не вернулся. Обращение, где последним писал автор, — это неотвеченный вопрос, и
+   * закрывать его по таймеру значит прятать собственный долг.
+   *
+   * Ответ такое обращение откроет снова, поэтому закрытие ничего не отнимает.
+   */
+  async closeStale(olderThan: Date): Promise<number> {
+    const stale = await this.prisma.chat.findMany({
+      where: {
+        type: ChatType.SUPPORT_PLATFORM,
+        supportClosedAt: null,
+        updatedAt: { lt: olderThan },
+      },
+      select: {
+        id: true,
+        messages: {
+          orderBy: { seq: Prisma.SortOrder.desc },
+          take: 1,
+          select: { sender: { select: { role: true } } },
+        },
+      },
+      take: 200,
+    })
+
+    const ids = stale
+      .filter((chat) => {
+        const lastRole = chat.messages[0]?.sender.role as Role | undefined
+        return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
+      })
+      .map((chat) => chat.id)
+    if (ids.length === 0) return 0
+
+    const { count } = await this.prisma.chat.updateMany({
+      where: { id: { in: ids } },
+      data: { supportClosedAt: new Date() },
+    })
+    return count
   }
 
   /** Создаёт обращение с автором и всей текущей командой платформы в участниках. */
