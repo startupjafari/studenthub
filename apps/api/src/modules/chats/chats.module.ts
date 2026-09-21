@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common'
 import { FilesModule } from '../files/files.module'
 import { PostsModule } from '../posts/posts.module'
 import { ChatsService } from './chats.service'
+import { SupportController } from './support.controller'
+import { SupportService } from './support.service'
 import { ChatsController } from './chats.controller'
 import { ChatFoldersService } from './chat-folders.service'
 import { ChatFoldersController } from './chat-folders.controller'
@@ -15,13 +17,14 @@ import { LinkPreviewService } from '../../common/link-preview/link-preview.servi
 @Module({
   imports: [FilesModule, PostsModule],
   // ChatFoldersController — первым: путь `chats/folders` не должен попасть в `chats/:id`.
-  controllers: [ChatFoldersController, ChatsController],
+  controllers: [ChatFoldersController, ChatsController, SupportController],
   providers: [
     ChatsService,
     ChatFoldersService,
     ChatGateway,
     LinkPreviewProcessor,
     LinkPreviewService,
+    SupportService,
   ],
   exports: [ChatsService],
 })

@@ -1632,7 +1632,7 @@
     "typeGroupOfficial": "Топ чаты",
     "typeFaculty": "Факультет чаты",
     "typeDean": "Деканат",
-    "typeSupport": "Қолдау",
+    "typeSupport": "Университет көмегі (жалпы чат)",
     "typeSubject": "Пән",
     "newChat": "Жаңа чат",
     "attachment": "Тіркеме",
@@ -1818,7 +1818,7 @@
     "tagSubject": "Пән",
     "tagFaculty": "Факультет",
     "tagDean": "Деканат",
-    "tagSupport": "Қолдау",
+    "tagSupport": "Университет көмегі",
     "tagEvent": "Оқиға",
     "searchAll": "Чаттарды, хабарламаларды және адамдарды іздеу",
     "clearSearch": "Тазалау",
@@ -1890,7 +1890,9 @@
     "playbackSpeed": "Жылдамдық",
     "play": "Ойнату",
     "pause": "Кідірту",
-    "chatActions": "Чат әрекеттері"
+    "chatActions": "Чат әрекеттері",
+    "typeSupportPlatform": "StudentHub қолдауы",
+    "tagSupportPlatform": "Қолдау"
   },
   "Events": {
     "title": "Іс-шаралар",
@@ -2280,7 +2282,8 @@
     "versionUpToDate": "Соңғы нұсқа",
     "whatsNewTitle": "Не жаңалық",
     "whatsNewDesc": "{version} нұсқасында не өзгерді",
-    "whatsNewOpen": "Ашу"
+    "whatsNewOpen": "Ашу",
+    "navSupport": "Қолдау"
   },
   "Offline": {
     "title": "Байланыс жоқ",
@@ -3595,5 +3598,14 @@
     "maintenanceStaffNotice": "Техникалық жұмыс режимі {until} дейін қосулы. Қалғандары бітеу бетті көреді.",
     "sectionOffTitle": "Бөлім уақытша жабық",
     "sectionOffText": "Жөндеу үшін оны қысқа уақытқа өшірдік. Қалған бөлімдер әдеттегідей жұмыс істеп тұр."
+  },
+  "Support": {
+    "title": "Қолдауға жазу",
+    "description": "StudentHub командасымен жеке хат алмасу — оны тек сіз бен қолдау көреді",
+    "placeholder": "Не болды? Мүмкіндігінше толық жазыңыз: не істедіңіз және не дұрыс болмады.",
+    "answerWhere": "Жауап «Чаттарға» келеді — сол жерде скриншот немесе файл жіберуге болады.",
+    "send": "Жіберу",
+    "sent": "Өтініш жіберілді",
+    "appended": "Ашық өтінішіңізге қосылды"
   }
 }

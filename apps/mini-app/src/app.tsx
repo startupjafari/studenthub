@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { initTelegram, isTelegram } from './telegram/webapp'
+import { haptic, initTelegram, isTelegram, startParam } from './telegram/webapp'
 import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
 import { ControlScreen } from './screens/control'
-import { haptic } from './telegram/webapp'
+import { SupportScreen } from './screens/support'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -17,7 +17,16 @@ import { haptic } from './telegram/webapp'
 // единственное действие, которое способно помочь: ввести код. Нет доступа в принципе —
 // код не подойдёт, и об этом скажет уже сам ответ на привязку.
 
-type Tab = 'complaints' | 'control'
+type Tab = 'complaints' | 'support' | 'control'
+
+// Вкладки мини-аппа. «Управление» — только администратору: рычаги платформы пишет он
+// один, и показывать модератору вкладку, где сервер всё равно откажет, значило бы
+// обещать несуществующее действие.
+const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
+  { id: 'complaints', label: 'Жалобы' },
+  { id: 'support', label: 'Поддержка' },
+  { id: 'control', label: 'Управление', adminOnly: true },
+]
 
 type State =
   | { status: 'starting' }
@@ -27,7 +36,11 @@ type State =
 
 export function App() {
   const [state, setState] = useState<State>({ status: 'starting' })
-  const [tab, setTab] = useState<Tab>('complaints')
+  // Ссылка из уведомления: `complaint_<id>` / `support_<id>`. Читается один раз при
+  // старте — дальше человек ходит по вкладкам сам, и возвращать его к той же карточке
+  // при каждом рендере было бы навязчиво.
+  const [deepLink] = useState(() => startParam())
+  const [tab, setTab] = useState<Tab>(deepLink?.kind === 'support' ? 'support' : 'complaints')
 
   useEffect(() => initTelegram(), [])
 
@@ -56,44 +69,7 @@ export function App() {
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
         )}
         {state.status === 'ready' && (
-          <>
-            {/* Вкладки видит только администратор: рычаги платформы пишет он один, и
-                показывать модератору пустую вкладку «Управление» значило бы обещать
-                действие, которое сервер всё равно не выполнит. */}
-            {state.user.role === 'PLATFORM_ADMIN' && (
-              <div className="tabs" role="tablist">
-                <button
-                  type="button"
-                  role="tab"
-                  className="tab"
-                  aria-selected={tab === 'complaints'}
-                  onClick={() => {
-                    haptic.select()
-                    setTab('complaints')
-                  }}
-                >
-                  Жалобы
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className="tab"
-                  aria-selected={tab === 'control'}
-                  onClick={() => {
-                    haptic.select()
-                    setTab('control')
-                  }}
-                >
-                  Управление
-                </button>
-              </div>
-            )}
-            {tab === 'complaints' || state.user.role !== 'PLATFORM_ADMIN' ? (
-              <ComplaintsScreen />
-            ) : (
-              <ControlScreen />
-            )}
-          </>
+          <ReadyView role={state.user.role} tab={tab} onTab={setTab} deepLink={deepLink} />
         )}
       </main>
     </div>
@@ -127,5 +103,52 @@ function Outside() {
         </p>
       </section>
     </div>
+  )
+}
+
+function ReadyView({
+  role,
+  tab,
+  onTab,
+  deepLink,
+}: {
+  role: MiniUser['role']
+  tab: Tab
+  onTab: (tab: Tab) => void
+  deepLink: { kind: 'complaint' | 'support'; id: string } | null
+}) {
+  const isAdmin = role === 'PLATFORM_ADMIN'
+  const tabs = TABS.filter((item) => isAdmin || !item.adminOnly)
+  // Модератор, стоящий на вкладке администратора, получил бы пустой экран: сводим к
+  // первой доступной, а не рисуем заглушку «нет прав» там, где вкладки просто нет.
+  const active = tabs.some((item) => item.id === tab) ? tab : 'complaints'
+
+  return (
+    <>
+      <div className="tabs" role="tablist">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            className="tab"
+            aria-selected={active === item.id}
+            onClick={() => {
+              haptic.select()
+              onTab(item.id)
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {active === 'complaints' && (
+        <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
+      )}
+      {active === 'support' && (
+        <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
+      )}
+      {active === 'control' && <ControlScreen />}
+    </>
   )
 }
