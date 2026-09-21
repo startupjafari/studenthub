@@ -67,7 +67,9 @@ describe('PeopleScreen', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
 
-    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true))
+    // Третьим аргументом уходит код 2FA: блокировка с телефона подтверждается им,
+    // разблокировка — нет.
+    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, ''))
     expect(confirmAction).toHaveBeenCalled()
   })
 
@@ -100,5 +102,34 @@ describe('PeopleScreen', () => {
     vi.mocked(searchPeople).mockResolvedValue({ items: [], total: 0 })
     render(<PeopleScreen />)
     expect(await screen.findByText('Никого не нашли')).toBeInTheDocument()
+  })
+})
+
+describe('PeopleScreen — подтверждение блокировки', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(confirmAction).mockResolvedValue(true)
+    vi.mocked(searchPeople).mockResolvedValue({ items: [person()], total: 1 })
+  })
+
+  it('передаёт введённый код вместе с блокировкой', async () => {
+    render(<PeopleScreen />)
+    await screen.findByText('Серикова Айгуль')
+
+    await userEvent.type(screen.getByLabelText(/Код 2FA/), '123456')
+    await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
+
+    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, '123456'))
+  })
+
+  // Та же асимметрия, что у техработ: вернуть доступ обязано быть возможно сразу.
+  it('разблокировка кода не требует', async () => {
+    vi.mocked(searchPeople).mockResolvedValue({ items: [person({ isBlocked: true })], total: 1 })
+    render(<PeopleScreen />)
+    await screen.findByText('Серикова Айгуль')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Разблокировать' }))
+
+    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', false, undefined))
   })
 })

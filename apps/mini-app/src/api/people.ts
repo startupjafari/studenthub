@@ -38,8 +38,12 @@ export async function searchPeople(
   return apiGetPaged<Person>(`/users?${params.toString()}`)
 }
 
-export async function setBlocked(id: string, blocked: boolean): Promise<void> {
-  await apiPatch<null>(`/users/${id}/${blocked ? 'block' : 'unblock'}`, {})
+/**
+ * Блокировка требует кода 2FA, разблокировка — нет. Та же асимметрия, что у техработ:
+ * отобрать доступ нельзя промахом по экрану, а вернуть обязано быть возможно сразу.
+ */
+export async function setBlocked(id: string, blocked: boolean, code?: string): Promise<void> {
+  await apiPatch<null>(`/users/${id}/${blocked ? 'block' : 'unblock'}`, code ? { code } : {})
 }
 
 /** Выгнать чужого, не отбирая доступ у хозяина: блокировка наказала бы пострадавшего. */

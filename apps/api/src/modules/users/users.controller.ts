@@ -4,6 +4,7 @@ import { Role } from '@studenthub/shared-types'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
+import { RequiresConfirmation } from '../../common/decorators/requires-confirmation.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
@@ -192,7 +193,9 @@ export class UsersController {
     Role.UNIVERSITY_MODERATOR,
   )
   @MiniAllowed()
-  @ApiOperation({ summary: 'Заблокировать пользователя (в своём scope)' })
+  // С телефона — только с кодом: отобрать человеку доступ нельзя промахом по экрану.
+  @RequiresConfirmation()
+  @ApiOperation({ summary: 'Заблокировать пользователя (из мини-аппа — с кодом 2FA)' })
   async block(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
     await this.users.setBlocked(user, id, true)
     return null

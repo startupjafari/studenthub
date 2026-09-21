@@ -33,6 +33,9 @@ export function PeopleScreen() {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Код 2FA для блокировки: одно поле на экран, а не на каждую строку — иначе список
+  // превращается в форму.
+  const [code, setCode] = useState('')
 
   const load = useCallback(async (search: string, blocked: boolean) => {
     setState({ status: 'loading' })
@@ -51,37 +54,40 @@ export function PeopleScreen() {
     return () => clearTimeout(timer)
   }, [query, onlyBlocked, load])
 
-  const toggleAccess = useCallback(async (person: Person) => {
-    const name = `${person.lastName} ${person.firstName}`
-    const question = person.isBlocked
-      ? t('peopleConfirmUnblock', { name })
-      : t('peopleConfirmBlock', { name })
-    if (!(await confirmAction(question))) return
+  const toggleAccess = useCallback(
+    async (person: Person) => {
+      const name = `${person.lastName} ${person.firstName}`
+      const question = person.isBlocked
+        ? t('peopleConfirmUnblock', { name })
+        : t('peopleConfirmBlock', { name })
+      if (!(await confirmAction(question))) return
 
-    setBusy(person.id)
-    setError(null)
-    try {
-      await setBlocked(person.id, !person.isBlocked)
-      haptic.success()
-      // Правим строку на месте, а не перезапрашиваем список: при включённом фильтре
-      // «только заблокированные» разблокированный человек иначе исчезал бы под пальцем,
-      // не успев показать, что действие сработало.
-      setState((prev) =>
-        prev.status === 'ready'
-          ? {
-              ...prev,
-              items: prev.items.map((item) =>
-                item.id === person.id ? { ...item, isBlocked: !item.isBlocked } : item,
-              ),
-            }
-          : prev,
-      )
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
-    } finally {
-      setBusy(null)
-    }
-  }, [])
+      setBusy(person.id)
+      setError(null)
+      try {
+        await setBlocked(person.id, !person.isBlocked, person.isBlocked ? undefined : code)
+        haptic.success()
+        // Правим строку на месте, а не перезапрашиваем список: при включённом фильтре
+        // «только заблокированные» разблокированный человек иначе исчезал бы под пальцем,
+        // не успев показать, что действие сработало.
+        setState((prev) =>
+          prev.status === 'ready'
+            ? {
+                ...prev,
+                items: prev.items.map((item) =>
+                  item.id === person.id ? { ...item, isBlocked: !item.isBlocked } : item,
+                ),
+              }
+            : prev,
+        )
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : t('peopleActionError'))
+      } finally {
+        setBusy(null)
+      }
+    },
+    [code],
+  )
 
   const endSessions = useCallback(async (person: Person) => {
     const name = `${person.lastName} ${person.firstName}`
@@ -140,6 +146,19 @@ export function PeopleScreen() {
           {t('peopleOnlyBlocked')}
         </button>
       </div>
+
+      {/* Код спрашивается один раз на экран: блокировка с телефона не должна быть
+          возможна промахом, но и вводить его на каждую строку невыносимо. */}
+      <input
+        className="field"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        placeholder={t('confirmCodeLabel')}
+        aria-label={t('confirmCodeLabel')}
+        value={code}
+        onChange={(event) => setCode(event.target.value.trim())}
+      />
+      <p className="hint">{t('confirmCodeNeeded')}</p>
 
       {error && (
         <section className="card">

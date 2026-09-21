@@ -5,6 +5,7 @@ import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
+import { RequiresConfirmation } from '../../common/decorators/requires-confirmation.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -75,6 +76,11 @@ export class ComplaintsController {
     return this.complaints.getMessageContext(user, id, this.ctx(req))
   }
 
+  // Код нужен, только когда решение блокирует человека: требовать подтверждение на
+  // прямой блокировке и не требовать на той же блокировке через жалобу значило бы
+  // оставить защиту декоративной, а спрашивать его на «нарушения нет» — приучить
+  // вводить код не глядя.
+  @RequiresConfirmation((body) => body.action === 'BLOCK_USER')
   @Patch(':id/resolve')
   @Roles(...MODERATOR_ROLES)
   @MiniAllowed()

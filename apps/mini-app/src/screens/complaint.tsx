@@ -43,6 +43,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   const [context, setContext] = useState<ComplaintMessage[] | 'error' | null>(null)
   const [comment, setComment] = useState('')
   const [applyAll, setApplyAll] = useState(false)
+  const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,7 +81,13 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       setBusy(true)
       setError(null)
       try {
-        await resolveComplaint(id, action, comment.trim() || undefined, applyAll)
+        await resolveComplaint(
+          id,
+          action,
+          comment.trim() || undefined,
+          applyAll,
+          action === 'BLOCK_USER' ? code : undefined,
+        )
         haptic.success()
         // Возвращаемся в очередь: разобранной жалобы в ней уже нет, и оставаться
         // на карточке, которая больше ничего не ждёт, незачем.
@@ -93,7 +100,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         setBusy(false)
       }
     },
-    [applyAll, busy, comment, id, onBack],
+    [applyAll, busy, code, comment, id, onBack],
   )
 
   const reopen = useCallback(async () => {
@@ -257,10 +264,20 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
               {t('complaintDeleteContent')}
             </button>
           )}
+          {/* Код нужен только блокировке: «снять контент» и «нарушения нет» обратимы. */}
+          <input
+            className="field"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder={t('confirmCodeLabel')}
+            aria-label={t('confirmCodeLabel')}
+            value={code}
+            onChange={(event) => setCode(event.target.value.trim())}
+          />
           <button
             type="button"
             className="fallback-submit danger"
-            disabled={busy}
+            disabled={busy || code.length < 6}
             onClick={() => void decide('BLOCK_USER', t('complaintConfirmBlock'))}
           >
             {t('complaintBlockUser')}
