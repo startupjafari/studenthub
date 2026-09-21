@@ -503,16 +503,4 @@ export class InviteService {
       throw new AppException('INVITE_EXPIRED', 'Срок инвайта истёк')
     }
   }
-  /**
-   * Невостребованные инвайты старше `olderThan` — агрегат для админ-сводки. Растущее
-   * число значит, что людей позвали, а они не дошли: письма не доходят, ссылку не
-   * передали, роль выдали не тому.
-   *
-   * Только счётчик: ни адресатов, ни токенов наружу.
-   */
-  async staleCount(olderThan: Date): Promise<number> {
-    return this.prisma.invite.count({
-      where: { status: InviteStatus.PENDING, createdAt: { lt: olderThan } },
-    })
-  }
 }

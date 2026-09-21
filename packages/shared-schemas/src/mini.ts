@@ -16,7 +16,6 @@ export const MINI_LINK_CODE_LENGTH = 8
 export const MiniSessionSchema = z.object({
   initData,
 })
-export type MiniSessionInput = z.infer<typeof MiniSessionSchema>
 
 export const MiniLinkSchema = z.object({
   initData,
@@ -26,4 +25,3 @@ export const MiniLinkSchema = z.object({
     .toUpperCase()
     .length(MINI_LINK_CODE_LENGTH, `Код привязки — ${MINI_LINK_CODE_LENGTH} символов`),
 })
-export type MiniLinkInput = z.infer<typeof MiniLinkSchema>
