@@ -156,6 +156,12 @@ export class SupportService {
       entityId: chatId,
       ...ctx,
     })
+    // Ответ АВТОРА будит команду, ответ команды — нет: иначе поддержка уведомляла бы
+    // сама себя. Без этого человек, дописавший в открытое обращение, ждал молча, а
+    // узнавали о нём, только зайдя в очередь.
+    if (!STAFF_ROLES.includes(viewer.role)) {
+      await this.telegram.notifyStaff('Ответ в обращении поддержки', `support_${chatId}`)
+    }
     return message
   }
 

@@ -192,3 +192,25 @@ describe('SupportService — уведомление команды', () => {
     expect(telegram.notifyStaff).not.toHaveBeenCalled()
   })
 })
+
+describe('SupportService.reply — кого будить', () => {
+  it('ответ автора будит команду платформы', async () => {
+    const { service, telegram } = setup()
+
+    await service.reply(who(Role.STUDENT), 'ticket-1', { text: 'всё ещё не работает' })
+
+    expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'Ответ в обращении поддержки',
+      'support_ticket-1',
+    )
+  })
+
+  // Иначе поддержка уведомляла бы сама себя на каждый свой ответ.
+  it('ответ команды никого не будит', async () => {
+    const { service, telegram } = setup()
+
+    await service.reply(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', { text: 'проверяем' })
+
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+})
