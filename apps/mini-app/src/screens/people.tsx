@@ -1,0 +1,242 @@
+import { useCallback, useEffect, useState } from 'react'
+import {
+  fetchInvites,
+  revokeInvite,
+  searchPeople,
+  setBlocked,
+  type Invite,
+  type Person,
+} from '../api/people'
+import { ApiError } from '../api/client'
+import { confirmAction, haptic } from '../telegram/webapp'
+import { t } from '../i18n'
+import { formatShortTime } from '../lib/format'
+
+// Люди: найти человека и решить, оставить ли ему доступ.
+//
+// До этого экрана заблокировать нарушителя можно было только как решение по жалобе — то
+// есть если на него кто-то пожаловался. Случаи, когда модератор видит проблему сам,
+// упирались в «дойду до ноутбука».
+//
+// Поиск идёт на сервер по мере ввода с задержкой: список пользователей платформы велик,
+// и фильтровать загруженную страницу значило бы искать среди первых двадцати.
+
+const SEARCH_DELAY_MS = 350
+
+type State =
+  { status: 'loading' } | { status: 'ready'; items: Person[]; total: number } | { status: 'error' }
+
+export function PeopleScreen() {
+  const [query, setQuery] = useState('')
+  const [onlyBlocked, setOnlyBlocked] = useState(false)
+  const [state, setState] = useState<State>({ status: 'loading' })
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async (search: string, blocked: boolean) => {
+    setState({ status: 'loading' })
+    try {
+      const page = await searchPeople(search, blocked ? true : undefined)
+      setState({ status: 'ready', items: page.items, total: page.total })
+    } catch {
+      setState({ status: 'error' })
+    }
+  }, [])
+
+  // Задержка перед запросом: без неё каждая буква уходит в сеть, а на телефоне это
+  // ещё и пятнадцать ответов, которые приходят вперемешку.
+  useEffect(() => {
+    const timer = setTimeout(() => void load(query, onlyBlocked), SEARCH_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [query, onlyBlocked, load])
+
+  const toggleAccess = useCallback(async (person: Person) => {
+    const name = `${person.lastName} ${person.firstName}`
+    const question = person.isBlocked
+      ? t('peopleConfirmUnblock', { name })
+      : t('peopleConfirmBlock', { name })
+    if (!(await confirmAction(question))) return
+
+    setBusy(person.id)
+    setError(null)
+    try {
+      await setBlocked(person.id, !person.isBlocked)
+      haptic.success()
+      // Правим строку на месте, а не перезапрашиваем список: при включённом фильтре
+      // «только заблокированные» разблокированный человек иначе исчезал бы под пальцем,
+      // не успев показать, что действие сработало.
+      setState((prev) =>
+        prev.status === 'ready'
+          ? {
+              ...prev,
+              items: prev.items.map((item) =>
+                item.id === person.id ? { ...item, isBlocked: !item.isBlocked } : item,
+              ),
+            }
+          : prev,
+      )
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
+    } finally {
+      setBusy(null)
+    }
+  }, [])
+
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <h1>{t('peopleTitle')}</h1>
+        <p className="hint">{t('peopleSubtitle')}</p>
+      </header>
+
+      <input
+        className="field"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={t('peopleSearchPlaceholder')}
+        aria-label={t('peopleSearchPlaceholder')}
+        autoCapitalize="off"
+        autoCorrect="off"
+      />
+
+      <div className="chips">
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={!onlyBlocked}
+          onClick={() => {
+            haptic.select()
+            setOnlyBlocked(false)
+          }}
+        >
+          {t('peopleAll')}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={onlyBlocked}
+          onClick={() => {
+            haptic.select()
+            setOnlyBlocked(true)
+          }}
+        >
+          {t('peopleOnlyBlocked')}
+        </button>
+      </div>
+
+      {error && (
+        <section className="card">
+          <p className="hint-danger">{error}</p>
+        </section>
+      )}
+
+      {state.status === 'error' && (
+        <section className="card">
+          <p>{t('peopleLoadError')}</p>
+          <button
+            type="button"
+            className="fallback-submit"
+            onClick={() => void load(query, onlyBlocked)}
+          >
+            {t('retry')}
+          </button>
+        </section>
+      )}
+
+      {state.status === 'ready' && state.items.length === 0 && (
+        <section className="card">
+          <p className="hint">{t('peopleEmpty')}</p>
+        </section>
+      )}
+
+      {state.status === 'ready' && state.items.length > 0 && (
+        <section className="list">
+          {state.items.map((person) => (
+            <div className="toggle-row" key={person.id}>
+              <span className="row-body">
+                <b>
+                  {person.lastName} {person.firstName}
+                </b>
+                <span className="hint">{person.email}</span>
+                {person.isBlocked && <span className="hint hint-danger">{t('peopleBlocked')}</span>}
+              </span>
+              <button
+                type="button"
+                className={person.isBlocked ? 'chip' : 'chip danger-chip'}
+                disabled={busy === person.id}
+                onClick={() => void toggleAccess(person)}
+              >
+                {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <InvitesCard />
+    </div>
+  )
+}
+
+/**
+ * Свои приглашения. Выдачи здесь нет намеренно — она требует ввода почты и выбора scope,
+ * то есть клавиатуры и стола. А вот отозвать ошибочно выданное нужно быстро: иначе
+ * приглашение живёт до истечения срока и всё это время им можно воспользоваться.
+ */
+function InvitesCard() {
+  const [invites, setInvites] = useState<Invite[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const page = await fetchInvites()
+      setInvites(page.items.filter((invite) => invite.status === 'PENDING'))
+    } catch {
+      setInvites([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (invites === null) return null
+
+  return (
+    <section className="card">
+      <h2>{t('invitesTitle')}</h2>
+      {error && <p className="hint-danger">{error}</p>}
+      {invites.length === 0 && <p className="hint">{t('invitesEmpty')}</p>}
+      <div className="list">
+        {invites.map((invite) => (
+          <div className="toggle-row" key={invite.id}>
+            <span className="row-body">
+              <b>{invite.email ?? t('invitesNoEmail')}</b>
+              <span className="hint">
+                {t('invitesPending')} ·{' '}
+                {t('invitesExpires', { date: formatShortTime(invite.expiresAt) })}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="chip danger-chip"
+              onClick={async () => {
+                const email = invite.email ?? t('invitesNoEmail')
+                if (!(await confirmAction(t('invitesRevokeConfirm', { email })))) return
+                try {
+                  await revokeInvite(invite.id)
+                  haptic.success()
+                  setInvites((prev) => (prev ?? []).filter((item) => item.id !== invite.id))
+                } catch (err) {
+                  setError(err instanceof ApiError ? err.message : t('invitesRevokeError'))
+                }
+              }}
+            >
+              {t('invitesRevoke')}
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}

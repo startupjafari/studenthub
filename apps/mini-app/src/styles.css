@@ -447,3 +447,25 @@ body {
   background: var(--tg-theme-secondary-bg-color);
   font-size: 14px;
 }
+
+/* Четыре вкладки в ширину телефона не помещаются — ряд прокручивается, а не сжимает
+   надписи до нечитаемых. */
+.tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Разрушительное действие в строке списка. */
+.chip.danger-chip {
+  border-color: var(--tg-theme-destructive-text-color);
+  color: var(--tg-theme-destructive-text-color);
+}

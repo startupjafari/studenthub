@@ -3,6 +3,7 @@ import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestj
 import { Role } from '@studenthub/shared-types'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
@@ -110,6 +111,9 @@ export class UsersController {
     Role.UNIVERSITY_MODERATOR,
     Role.DEAN,
   )
+  // Мини-аппу открыт только поиск и карточка: с телефона человека находят, чтобы принять
+  // решение о доступе. Выгрузка, импорт и правка профиля остаются в вебе.
+  @MiniAllowed()
   @ApiOperation({
     summary: 'Список пользователей (Admin+, по scope; фильтры role/faculty/group/search)',
   })
@@ -168,6 +172,7 @@ export class UsersController {
   }
 
   @Get(':id')
+  @MiniAllowed()
   @ApiOperation({ summary: 'Профиль пользователя (email — по правам смотрящего)' })
   getById(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.users.getProfileForViewer(id, user)
@@ -186,6 +191,7 @@ export class UsersController {
     Role.UNIVERSITY_ADMIN,
     Role.UNIVERSITY_MODERATOR,
   )
+  @MiniAllowed()
   @ApiOperation({ summary: 'Заблокировать пользователя (в своём scope)' })
   async block(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
     await this.users.setBlocked(user, id, true)
@@ -199,6 +205,7 @@ export class UsersController {
     Role.UNIVERSITY_ADMIN,
     Role.UNIVERSITY_MODERATOR,
   )
+  @MiniAllowed()
   @ApiOperation({ summary: 'Разблокировать пользователя (в своём scope)' })
   async unblock(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
     await this.users.setBlocked(user, id, false)
