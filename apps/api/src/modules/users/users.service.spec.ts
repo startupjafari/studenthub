@@ -534,7 +534,9 @@ describe('UserService — setBlocked', () => {
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true)
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 't' },
-      data: { isBlocked: true },
+      // Срока нет — блокировка бессрочная, и поле явно затирается: иначе снятая и
+      // выданная заново блокировка унаследовала бы чужой срок.
+      data: { isBlocked: true, blockedUntil: null },
     })
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('t')
   })

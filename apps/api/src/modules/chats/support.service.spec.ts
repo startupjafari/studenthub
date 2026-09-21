@@ -180,10 +180,15 @@ describe('SupportService — уведомление команды', () => {
 
     await service.open(who(Role.STUDENT), { text: 'не приходит письмо на почту' })
 
+    // Последние аргументы — кнопка квитирования под уведомлением: без неё двое пишут
+    // один ответ, а третье обращение не берёт никто.
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
       'ticket',
       'Новое обращение в поддержку',
       'support_ticket-1',
+      expect.any(Date),
+      false,
+      { kind: 'ticket', id: 'ticket-1' },
     )
   })
 
@@ -388,7 +393,9 @@ describe('SupportService — теги', () => {
       page: 1,
       limit: 30,
     })
-    expect(prisma.chat.findMany.mock.calls[0][0].where).toMatchObject({
+    // Первым findMany идёт `joinOpenTickets` (догоняет участие сотрудника) — очередь
+    // читается последним запросом.
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
       supportTags: { has: 'ACCESS' },
     })
   })
@@ -458,7 +465,7 @@ describe('SupportService.merge', () => {
   it('очередь не показывает склеенные', async () => {
     const { service, prisma } = setup()
     await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
-    expect(prisma.chat.findMany.mock.calls[0][0].where).toMatchObject({
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
       supportMergedIntoId: null,
     })
   })

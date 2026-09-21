@@ -344,7 +344,8 @@ describe('ComplaintsService.resolve (11.4)', () => {
     })
     prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
     await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx)
-    expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true)
+    // Четвёртый аргумент — срок: без него блокировка бессрочная, как была до сроков.
+    expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true, null)
   })
 
   it('уже обработанную нельзя разрешить повторно → CONFLICT', async () => {
@@ -399,10 +400,15 @@ describe('ComplaintsService.create — уведомление команды п�
       ctx,
     )
 
+    // Последние аргументы — кнопка квитирования: уведомление о срочной жалобе уходит
+    // всей команде, и без неё двое открывают одну и ту же.
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
       'complaint',
       'Срочная жалоба на пользователя',
       'complaint_c-1',
+      expect.any(Date),
+      false,
+      { kind: 'complaint', id: 'c-1' },
     )
   })
 

@@ -359,7 +359,10 @@ export class PlatformService {
 
     const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
     const next = rotation[(index + 1) % rotation.length]
-    if (next === row?.dutyUserId) return null
+    // `next` пуст только если очередь изменилась между чтением и этой строкой; передавать
+    // дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить команду без
+    // адресата уведомлений.
+    if (!next || next === row?.dutyUserId) return null
 
     await this.write(row?.updatedById ?? next, { dutyUserId: next })
     await this.audit.record({
