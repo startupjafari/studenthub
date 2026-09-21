@@ -1,5 +1,102 @@
 [
   {
+    "version": "1.2.1",
+    "date": "2026-09-21",
+    "showModal": true,
+    "content": {
+      "ru": {
+        "title": "Чаты и просмотр медиа стали ближе к пальцу",
+        "intro": "Этот выпуск почти целиком про то, как приложение отзывается на прикосновение: меню открываются там, где вы нажали, а фотографии и видео листаются и приближаются так же, как в привычных мессенджерах.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "💬",
+                "title": "Меню у самого сообщения",
+                "text": "Долгое нажатие на сообщение открывает действия прямо у пузыря, а не нижним листом через полэкрана. Текст при этом больше не выделяется случайно."
+              },
+              {
+                "icon": "📂",
+                "title": "Действия со списком чатов",
+                "text": "Долгое нажатие на строку в списке открывает её меню: закрепить, отключить уведомления, добавить чат в папку — не заходя в сам чат."
+              },
+              {
+                "icon": "🖼",
+                "title": "Просмотр фото и видео",
+                "text": "Кадры листаются свайпом, снимок приближается щипком и двойным тапом. Соседние кадры готовятся заранее, поэтому перелистывание не спотыкается."
+              },
+              {
+                "icon": "▶️",
+                "title": "Свой видеоплеер",
+                "text": "Видео открывается в плеере платформы вместо системного: одинаково выглядит на телефоне и на компьютере."
+              }
+            ]
+          }
+        ]
+      },
+      "kk": {
+        "title": "Чаттар мен медиа қарау саусаққа жақындады",
+        "intro": "Бұл шығарылым негізінен қосымшаның қимылға қалай жауап беретіні туралы: мәзірлер дәл басқан жеріңізде ашылады, ал фотосуреттер мен бейнелер таныс мессенджерлердегідей парақталып, үлкейтіледі.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "💬",
+                "title": "Мәзір хабарламаның қасында",
+                "text": "Хабарламаны ұзақ басу әрекеттерді жарты экранды алатын төменгі парақ орнына хабарлама қасында ашады. Мәтін де енді кездейсоқ белгіленбейді."
+              },
+              {
+                "icon": "📂",
+                "title": "Чаттар тізімімен жұмыс",
+                "text": "Тізімдегі жолды ұзақ басу оның мәзірін ашады: бекіту, хабарландыруларды өшіру, чатты қалтаға қосу — чаттың өзіне кірмей-ақ."
+              },
+              {
+                "icon": "🖼",
+                "title": "Фото мен бейнені қарау",
+                "text": "Кадрлар сырғытумен ауысады, сурет шымшумен және қос түртумен үлкейеді. Көрші кадрлар алдын ала дайындалады, сондықтан парақтау кідірмейді."
+              },
+              {
+                "icon": "▶️",
+                "title": "Өз бейнеойнатқышы",
+                "text": "Бейне жүйелік ойнатқыштың орнына платформа ойнатқышында ашылады: телефонда да, компьютерде де бірдей көрінеді."
+              }
+            ]
+          }
+        ]
+      },
+      "en": {
+        "title": "Chats and media viewing now follow your finger",
+        "intro": "This release is mostly about how the app responds to touch: menus open where you pressed, and photos and videos swipe and zoom the way they do in the messengers you already use.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "💬",
+                "title": "Menu right at the message",
+                "text": "A long press opens actions next to the bubble instead of a sheet covering half the screen. The text no longer gets selected by accident."
+              },
+              {
+                "icon": "📂",
+                "title": "Working with the chat list",
+                "text": "A long press on a row opens its menu: pin, mute, add the chat to a folder — without opening the chat itself."
+              },
+              {
+                "icon": "🖼",
+                "title": "Photo and video viewer",
+                "text": "Swipe between frames, zoom a photo by pinching or double-tapping. Neighbouring frames are prepared ahead, so paging never stutters."
+              },
+              {
+                "icon": "▶️",
+                "title": "Our own video player",
+                "text": "Video opens in the platform player instead of the system one, and looks the same on a phone and on a desktop."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
     "version": "1.0.0",
     "date": "2026-09-17",
     "showModal": true,
