@@ -293,6 +293,11 @@ const ru = {
   complaintHistory: 'Все жалобы на эту цель',
   confirmCodeLabel: 'Код 2FA для блокировки',
   confirmCodeNeeded: 'Блокировка с телефона требует кода из приложения-аутентификатора.',
+  storageTitle: 'Хранилище',
+  storageUsed: '{files} файлов, {size}',
+  changesTitle: 'Последние изменения',
+  changesBy: '{who}, {when}',
+  changesNobody: 'система',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -575,6 +580,11 @@ const kk: Record<MessageKey, string> = {
   complaintHistory: 'Осы нысанға барлық шағым',
   confirmCodeLabel: 'Бұғаттауға арналған 2FA коды',
   confirmCodeNeeded: 'Телефоннан бұғаттау аутентификатор қосымшасының кодын талап етеді.',
+  storageTitle: 'Қойма',
+  storageUsed: '{files} файл, {size}',
+  changesTitle: 'Соңғы өзгерістер',
+  changesBy: '{who}, {when}',
+  changesNobody: 'жүйе',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -854,6 +864,11 @@ const en: Record<MessageKey, string> = {
   complaintHistory: 'All reports about this target',
   confirmCodeLabel: '2FA code for blocking',
   confirmCodeNeeded: 'Blocking from a phone needs a code from your authenticator app.',
+  storageTitle: 'Storage',
+  storageUsed: '{files} files, {size}',
+  changesTitle: 'Recent changes',
+  changesBy: '{who}, {when}',
+  changesNobody: 'system',
   aboutVersion: 'Build {version}',
 }
 

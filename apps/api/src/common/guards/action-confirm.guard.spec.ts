@@ -2,7 +2,7 @@ import { Reflector } from '@nestjs/core'
 import type { ExecutionContext } from '@nestjs/common'
 import { ActionConfirmGuard } from './action-confirm.guard'
 import { AppException } from '../exceptions/app.exception'
-import type { TwoFactorService } from '../../modules/auth/two-factor.service'
+import type { ActionConfirmation } from '../auth/confirmation.constants'
 
 function context(user?: { sub: string; client?: string }, body?: unknown): ExecutionContext {
   return {
@@ -18,7 +18,7 @@ function setup(required: boolean, codeValid = true) {
   const twoFactor = { verifyForUser: jest.fn().mockResolvedValue(codeValid) }
   const guard = new ActionConfirmGuard(
     reflector as unknown as Reflector,
-    twoFactor as unknown as TwoFactorService,
+    twoFactor as unknown as ActionConfirmation,
   )
   return { guard, twoFactor }
 }
@@ -78,7 +78,7 @@ describe('ActionConfirmGuard — условное требование', () => {
     const twoFactor = { verifyForUser: jest.fn().mockResolvedValue(valid) }
     const guard = new ActionConfirmGuard(
       reflector as unknown as Reflector,
-      twoFactor as unknown as TwoFactorService,
+      twoFactor as unknown as ActionConfirmation,
     )
     return { guard, twoFactor, ctx: context({ sub: 'u1', client: 'mini' }, body) }
   }
