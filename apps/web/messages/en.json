@@ -2283,7 +2283,13 @@
     "whatsNewTitle": "What's new",
     "whatsNewDesc": "What changed in version {version}",
     "whatsNewOpen": "Open",
-    "navSupport": "Support"
+    "navSupport": "Support",
+    "telegramLinkedAs": "Linked to {account} since {date}",
+    "telegramNoUsername": "an account without a username",
+    "telegramLastSeen": "Last opened {date}",
+    "telegramRevoke": "Revoke",
+    "telegramRevokeConfirm": "Revoke the link? The mini app will stop opening on that phone. You can link again with a new code.",
+    "telegramRevoked": "The link is revoked"
   },
   "Offline": {
     "title": "You are offline",

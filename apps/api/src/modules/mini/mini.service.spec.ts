@@ -87,3 +87,59 @@ describe('MiniService.session — признак 2FA в токене', () => {
     expect(signed[0]).toMatchObject({ tfa: false })
   })
 })
+
+describe('MiniService — отзыв привязки', () => {
+  function revokeSetup(existing: boolean) {
+    const prisma = {
+      telegramAccount: {
+        updateMany: jest.fn().mockResolvedValue({ count: existing ? 1 : 0 }),
+        findUnique: jest.fn(),
+      },
+    }
+    const audit = { record: jest.fn().mockResolvedValue(undefined) }
+    const service = new MiniService(
+      prisma as unknown as PrismaService,
+      { sign: jest.fn() } as unknown as JwtService,
+      audit as unknown as AuditService,
+      { get: jest.fn(() => BOT_TOKEN) } as unknown as ConfigService<EnvVars, true>,
+      {} as unknown as Redis,
+    )
+    return { service, prisma, audit }
+  }
+
+  /**
+   * Единственный способ отобрать доступ у потерянного телефона: токен мини-аппа живёт
+   * в памяти 15 минут и сам не отзывается, а следующая сессия по отозванной привязке
+   * уже не выдаётся.
+   */
+  it('проставляет отметку отзыва и пишет в журнал', async () => {
+    const { service, prisma, audit } = revokeSetup(true)
+
+    await expect(service.revoke('admin-1')).resolves.toEqual({ revoked: true })
+
+    expect(prisma.telegramAccount.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'admin-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'mini.link.revoke' }),
+    )
+  })
+
+  // Строка остаётся с `revokedAt`, а не удаляется: перепривязка должна быть осознанной,
+  // и история «этот Telegram здесь уже был» для этого нужна.
+  it('не удаляет запись', async () => {
+    const { service, prisma } = revokeSetup(true)
+
+    await service.revoke('admin-1')
+
+    expect(prisma.telegramAccount).not.toHaveProperty('delete')
+  })
+
+  it('без привязки отвечает «нечего отзывать» и не шумит в журнале', async () => {
+    const { service, audit } = revokeSetup(false)
+
+    await expect(service.revoke('admin-1')).resolves.toEqual({ revoked: false })
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+})
