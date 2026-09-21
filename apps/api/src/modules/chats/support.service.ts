@@ -9,6 +9,7 @@ import type {
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -45,6 +46,7 @@ export class SupportService {
     private readonly prisma: PrismaService,
     private readonly chats: ChatsService,
     private readonly audit: AuditService,
+    private readonly telegram: TelegramNotifyService,
   ) {}
 
   /**
@@ -78,6 +80,11 @@ export class SupportService {
       entityId: chatId,
       ...ctx,
     })
+    // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
+    // уведомление о той же ветке ничего не добавляет.
+    if (!existing) {
+      await this.telegram.notifyStaff('Новое обращение в поддержку', `support_${chatId}`)
+    }
     return { id: chatId, created: existing === null }
   }
 
@@ -107,10 +114,20 @@ export class SupportService {
     return new Paginated(rows.map(toTicket), { total })
   }
 
-  /** Переписка обращения: команда платформы или его автор. */
+  /**
+   * Обращение вместе с перепиской: команда платформы или его автор.
+   *
+   * Карточка обращения отдаётся рядом с сообщениями намеренно. Экран открывается не только
+   * из очереди, но и по ссылке из уведомления — а там списка, откуда взять автора и дату,
+   * у клиента нет.
+   */
   async thread(viewer: JwtPayload, chatId: string) {
     await this.assertAccess(viewer, chatId)
-    return this.chats.getMessages(viewer, chatId, { limit: 50 })
+    const [row, messages] = await Promise.all([
+      this.prisma.chat.findUniqueOrThrow({ where: { id: chatId }, select: TICKET_SELECT }),
+      this.chats.getMessages(viewer, chatId, { limit: 50 }),
+    ])
+    return { ticket: toTicket(row), messages: messages.items }
   }
 
   /**

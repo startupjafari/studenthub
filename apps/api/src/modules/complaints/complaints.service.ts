@@ -10,6 +10,7 @@ import { complaintPriorityFor } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -67,6 +68,15 @@ function complaintsOrderBy(
   }
 }
 
+/** Слова для уведомления. Текста жалобы в Telegram не уходит — он читается в мини-аппе. */
+const TARGET_WORD: Record<ComplaintTargetType, string> = {
+  USER: 'на пользователя',
+  MESSAGE: 'на сообщение',
+  POST: 'на пост',
+  STORY: 'на историю',
+  COMMENT: 'на комментарий',
+}
+
 @Injectable()
 export class ComplaintsService {
   private readonly logger = new Logger(ComplaintsService.name)
@@ -76,6 +86,7 @@ export class ComplaintsService {
     private readonly audit: AuditService,
     private readonly queue: QueueService,
     private readonly users: UserService,
+    private readonly telegram: TelegramNotifyService,
   ) {}
 
   // ── Создание (11.2) ──────────────────────────────────────────────────────
@@ -103,6 +114,16 @@ export class ComplaintsService {
       metadata: { targetType: input.targetType, targetId: input.targetId },
       ...ctx,
     })
+    // Срочные — в Telegram команде платформы: жалоба на человека или на личные сообщения
+    // означает, что кто-то страдает прямо сейчас, и ждать, пока модератор сам откроет
+    // очередь, не стоит. Обычные и несрочные ждут в очереди — иначе уведомления
+    // обесценятся, и первыми перестанут читать как раз срочные.
+    if (complaint.priority === ComplaintPriority.HIGH) {
+      await this.telegram.notifyStaff(
+        `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
+        `complaint_${complaint.id}`,
+      )
+    }
     return complaint
   }
 

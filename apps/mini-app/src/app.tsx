@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { initTelegram, isTelegram } from './telegram/webapp'
+import { haptic, initTelegram, isTelegram, startParam } from './telegram/webapp'
 import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
 import { ControlScreen } from './screens/control'
 import { SupportScreen } from './screens/support'
-import { haptic } from './telegram/webapp'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -37,7 +36,11 @@ type State =
 
 export function App() {
   const [state, setState] = useState<State>({ status: 'starting' })
-  const [tab, setTab] = useState<Tab>('complaints')
+  // Ссылка из уведомления: `complaint_<id>` / `support_<id>`. Читается один раз при
+  // старте — дальше человек ходит по вкладкам сам, и возвращать его к той же карточке
+  // при каждом рендере было бы навязчиво.
+  const [deepLink] = useState(() => startParam())
+  const [tab, setTab] = useState<Tab>(deepLink?.kind === 'support' ? 'support' : 'complaints')
 
   useEffect(() => initTelegram(), [])
 
@@ -65,7 +68,9 @@ export function App() {
         {state.status === 'link' && (
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
         )}
-        {state.status === 'ready' && <ReadyView role={state.user.role} tab={tab} onTab={setTab} />}
+        {state.status === 'ready' && (
+          <ReadyView role={state.user.role} tab={tab} onTab={setTab} deepLink={deepLink} />
+        )}
       </main>
     </div>
   )
@@ -105,10 +110,12 @@ function ReadyView({
   role,
   tab,
   onTab,
+  deepLink,
 }: {
   role: MiniUser['role']
   tab: Tab
   onTab: (tab: Tab) => void
+  deepLink: { kind: 'complaint' | 'support'; id: string } | null
 }) {
   const isAdmin = role === 'PLATFORM_ADMIN'
   const tabs = TABS.filter((item) => isAdmin || !item.adminOnly)
@@ -135,8 +142,12 @@ function ReadyView({
           </button>
         ))}
       </div>
-      {active === 'complaints' && <ComplaintsScreen />}
-      {active === 'support' && <SupportScreen />}
+      {active === 'complaints' && (
+        <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
+      )}
+      {active === 'support' && (
+        <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
+      )}
       {active === 'control' && <ControlScreen />}
     </>
   )

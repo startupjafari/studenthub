@@ -24,10 +24,15 @@ export async function fetchSupportQueue(
   return apiGetPaged<SupportTicket>(`/support?status=${status}&page=1&limit=30`)
 }
 
-/** Переписка. Сервер отдаёт свежие сверху — экран разворачивает сам. */
-export async function fetchSupportThread(id: string): Promise<SupportMessage[]> {
-  const page = await apiGet<{ items?: SupportMessage[] } | SupportMessage[]>(`/support/${id}`)
-  return Array.isArray(page) ? page : (page.items ?? [])
+/**
+ * Обращение вместе с перепиской. Карточка приходит рядом с сообщениями, потому что экран
+ * открывается и по ссылке из уведомления — а там очереди, откуда взять автора, нет.
+ * Сообщения приходят свежими сверху; экран разворачивает их сам.
+ */
+export async function fetchSupportThread(
+  id: string,
+): Promise<{ ticket: SupportTicket; messages: SupportMessage[] }> {
+  return apiGet<{ ticket: SupportTicket; messages: SupportMessage[] }>(`/support/${id}`)
 }
 
 export async function replyToTicket(id: string, text: string): Promise<SupportMessage> {
