@@ -65,7 +65,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     // Считаем здесь все отказы: guard'ы отрабатывают ДО интерцепторов, поэтому 401 от
     // JwtAuthGuard и 403 от ScopeGuard до `LoggingInterceptor` не доходят — фильтр
-    // единственный, кто видит их все (docs/TELEGRAM_BOT.md §2.3, §2.4).
+    // единственный, кто видит их все.
     this.statusCounter.record(status, request.ip)
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
