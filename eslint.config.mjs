@@ -75,6 +75,7 @@ export default tseslint.config(
       'scripts/**/*.mjs',
       'apps/web/e2e/**/*.mjs',
       'apps/landing/scripts/**/*.mjs',
+      'apps/mini-app/scripts/**/*.mjs',
     ],
     languageOptions: {
       globals: {
@@ -87,6 +88,7 @@ export default tseslint.config(
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
         Buffer: 'readonly',
       },
     },

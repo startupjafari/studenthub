@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "tunnel": "node scripts/tg-tunnel.mjs",
     "build": "vite build",
     "start": "vite preview --port 3003",
     "lint": "eslint .",
