@@ -148,8 +148,19 @@ export class ComplaintsService {
     return new Paginated(rows, { total })
   }
 
-  async getById(viewer: JwtPayload, id: string): Promise<ComplaintRow> {
-    return this.findScoped(viewer, id)
+  /**
+   * Одна жалоба плюс счётчик: сколько раз на ту же цель жаловались вообще.
+   *
+   * Число отличает единичную обиду от травли, и без него модератор судит по одной строке
+   * текста. Считается по `targetId`, а не по автору жалобы: важно, сколько РАЗНЫХ людей
+   * пришло с одним и тем же, а не сколько раз пришёл один настойчивый.
+   */
+  async getById(viewer: JwtPayload, id: string): Promise<ComplaintRow & { targetReports: number }> {
+    const complaint = await this.findScoped(viewer, id)
+    const targetReports = await this.prisma.complaint.count({
+      where: { targetType: complaint.targetType, targetId: complaint.targetId },
+    })
+    return { ...complaint, targetReports }
   }
 
   // ── Разрешение (11.4) ────────────────────────────────────────────────────

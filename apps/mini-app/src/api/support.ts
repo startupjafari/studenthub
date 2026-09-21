@@ -16,6 +16,8 @@ export interface SupportMessage {
   content: string | null
   createdAt: string
   sender: { id: string; firstName: string; lastName: string }
+  /** Вложения. Скачать их из мини-аппа нельзя, но знать об их наличии модератор обязан. */
+  media?: { id: string; name: string | null }[]
 }
 
 export async function fetchSupportQueue(

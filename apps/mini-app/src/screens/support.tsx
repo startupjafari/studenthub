@@ -10,6 +10,8 @@ import {
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton } from '../telegram/use-telegram'
+import { t } from '../i18n'
+import { formatDateTime, formatShortTime } from '../lib/format'
 
 // Поддержка платформы: очередь обращений и переписка.
 //
@@ -17,6 +19,7 @@ import { useBackButton } from '../telegram/use-telegram'
 // человеку нельзя выбрать из заготовок. Зато закрытие и возврат — тапы.
 
 type Screen = { kind: 'queue' } | { kind: 'thread'; id: string }
+type Tab = 'open' | 'closed'
 
 /** `initialId` — обращение из ссылки в уведомлении: открываем его сразу, минуя очередь. */
 export function SupportScreen({ initialId }: { initialId?: string }) {
@@ -38,16 +41,17 @@ type QueueState =
 
 function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   const [state, setState] = useState<QueueState>({ status: 'loading' })
+  const [tab, setTab] = useState<Tab>('open')
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      const page = await fetchSupportQueue('open')
+      const page = await fetchSupportQueue(tab)
       setState({ status: 'ready', items: page.items, total: page.total })
     } catch {
       setState({ status: 'error' })
     }
-  }, [])
+  }, [tab])
 
   useEffect(() => {
     void load()
@@ -56,27 +60,49 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   return (
     <div className="screen">
       <header className="screen-head">
-        <h1>Поддержка</h1>
+        <h1>{t('supportTitle')}</h1>
         <p className="hint">
-          {state.status === 'ready' ? summary(state.total) : 'Обращения пользователей'}
+          {state.status === 'ready' && tab === 'open' ? summary(state.total) : t('supportSubtitle')}
         </p>
       </header>
+
+      <div className="tabs" role="tablist">
+        {(['open', 'closed'] as Tab[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            className="tab"
+            aria-selected={tab === value}
+            onClick={() => {
+              haptic.select()
+              setTab(value)
+            }}
+          >
+            {value === 'open' ? t('supportTabOpen') : t('supportTabClosed')}
+          </button>
+        ))}
+      </div>
 
       {state.status === 'loading' && <SkeletonList />}
 
       {state.status === 'error' && (
         <section className="card">
-          <p>Не удалось загрузить очередь</p>
+          <p>{t('supportLoadError')}</p>
           <button type="button" className="fallback-submit" onClick={() => void load()}>
-            Повторить
+            {t('retry')}
           </button>
         </section>
       )}
 
+      {/* Подзаголовок уже сказал «открытых обращений нет» — карточка повторяет только
+          заголовок и добавляет то, чего в нём не было. */}
       {state.status === 'ready' && state.items.length === 0 && (
         <section className="card">
-          <h2>Пусто</h2>
-          <p className="hint">Открытых обращений нет.</p>
+          <h2>{t('supportEmptyTitle')}</h2>
+          <p className="hint">
+            {tab === 'open' ? t('supportEmptyText') : t('supportClosedEmptyText')}
+          </p>
         </section>
       )}
 
@@ -93,16 +119,13 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
               }}
             >
               <span className="row-body">
-                <b>
-                  {ticket.author
-                    ? `${ticket.author.lastName} ${ticket.author.firstName}`
-                    : 'Аккаунт удалён'}
-                </b>
+                <b>{authorName(ticket)}</b>
                 <span className="hint">{firstLine(ticket.lastMessage?.text ?? '')}</span>
                 {/* Кто ответил последним — главный признак «ждёт ли нас обращение». */}
                 <span className="hint">
-                  {ticket.lastMessage?.fromAuthor ? 'Ждёт ответа' : 'Ответили'} ·{' '}
-                  {formatDate(ticket.updatedAt)}
+                  {ticket.closedAt
+                    ? t('supportClosedAt', { when: formatShortTime(ticket.closedAt) })
+                    : `${ticket.lastMessage?.fromAuthor ? t('supportNeedsReply') : t('supportAnswered')} · ${formatShortTime(ticket.updatedAt)}`}
                 </span>
               </span>
               <span className="row-chevron" aria-hidden>
@@ -157,23 +180,20 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         prev.status === 'ready' ? { ...prev, messages: [...prev.messages, message] } : prev,
       )
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось отправить')
+      setError(err instanceof ApiError ? err.message : t('supportSendError'))
     } finally {
       setBusy(false)
     }
   }, [busy, text, id])
 
   const finish = useCallback(async () => {
-    if (
-      !(await confirmAction('Закрыть обращение? Переписка останется, а ответ снова его откроет.'))
-    )
-      return
+    if (!(await confirmAction(t('supportConfirmClose')))) return
     try {
       await closeTicket(id)
       haptic.success()
       onBack()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось закрыть')
+      setError(err instanceof ApiError ? err.message : t('supportCloseError'))
     }
   }, [onBack, id])
 
@@ -184,18 +204,20 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <div className="screen">
       <header className="screen-head">
-        <h1>
-          {ticket?.author ? `${ticket.author.lastName} ${ticket.author.firstName}` : 'Обращение'}
-        </h1>
-        <p className="hint">{ticket ? `Открыто ${formatDate(ticket.createdAt)}` : 'Открываем…'}</p>
+        <h1>{ticket ? authorName(ticket) : t('supportThreadTitle')}</h1>
+        <p className="hint">
+          {ticket
+            ? t('supportOpenedAt', { when: formatDateTime(ticket.createdAt) })
+            : t('complaintOpening')}
+        </p>
       </header>
 
       {state.status === 'loading' && <SkeletonList />}
       {state.status === 'error' && (
         <section className="card">
-          <p>Не удалось открыть переписку</p>
+          <p>{t('supportThreadError')}</p>
           <button type="button" className="fallback-submit" onClick={() => void load()}>
-            Повторить
+            {t('retry')}
           </button>
         </section>
       )}
@@ -207,7 +229,14 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
               <span className="row-body">
                 <b>{message.sender.firstName}</b>
                 <span>{message.content}</span>
-                <span className="hint">{formatDate(message.createdAt)}</span>
+                {/* Вложение объясняет больше абзаца текста; скачать его из мини-аппа
+                    нельзя, но знать, что оно есть, модератор обязан. */}
+                {message.media && message.media.length > 0 && (
+                  <span className="hint">
+                    {t('supportAttachments', { count: message.media.length })}
+                  </span>
+                )}
+                <span className="hint">{formatShortTime(message.createdAt)}</span>
               </span>
             </div>
           ))}
@@ -224,7 +253,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         <textarea
           className="field"
           rows={3}
-          placeholder="Ответ"
+          placeholder={t('supportReplyPlaceholder')}
           value={text}
           maxLength={4000}
           onChange={(e) => setText(e.target.value)}
@@ -235,38 +264,31 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
           disabled={busy || text.trim().length === 0}
           onClick={() => void send()}
         >
-          Ответить
+          {t('supportReply')}
         </button>
-        <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
-          Закрыть обращение
-        </button>
+        {!ticket?.closedAt && (
+          <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
+            {t('supportClose')}
+          </button>
+        )}
       </section>
     </div>
   )
 }
 
+function authorName(ticket: SupportTicket): string {
+  return ticket.author
+    ? `${ticket.author.lastName} ${ticket.author.firstName}`
+    : t('supportDeletedAccount')
+}
+
 function summary(total: number): string {
-  if (total === 0) return 'Открытых обращений нет'
-  const last = total % 10
-  const teen = total % 100 >= 11 && total % 100 <= 14
-  const word =
-    !teen && last === 1 ? 'обращение' : !teen && last >= 2 && last <= 4 ? 'обращения' : 'обращений'
-  return `${total} ${word} ждут ответа`
+  return total === 0 ? t('supportNone') : t('supportWaiting', { count: total })
 }
 
 function firstLine(text: string): string {
   const line = text.split('\n')[0] ?? ''
   return line.length > 90 ? `${line.slice(0, 90)}…` : line
-}
-
-function formatDate(iso: string): string {
-  const date = new Date(iso)
-  const sameDay = date.toDateString() === new Date().toDateString()
-  return date.toLocaleString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(sameDay ? {} : { day: 'numeric', month: 'short' }),
-  })
 }
 
 function SkeletonList() {

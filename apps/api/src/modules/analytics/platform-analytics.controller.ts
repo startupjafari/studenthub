@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { PlatformAnalyticsService } from './platform-analytics.service'
 import { PlatformActivityQueryDto } from './dto/platform-activity-query.dto'
 import { PlatformRangeQueryDto } from './dto/platform-range-query.dto'
@@ -19,6 +20,9 @@ export class PlatformAnalyticsController {
 
   @Get('overview')
   @Roles(...PLATFORM_ROLES)
+  // Единственная ручка аналитики, открытая мини-аппу: сводка отвечает на вопрос «всё ли в
+  // порядке», который задают с телефона. Остальные — графики и разрезы, их читают за столом.
+  @MiniAllowed()
   @ApiOperation({ summary: 'Плитки дашборда: вузы, пользователи, жалобы, DAU/WAU' })
   overview() {
     return this.analytics.overview()

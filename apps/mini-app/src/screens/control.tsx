@@ -11,28 +11,28 @@ import {
 } from '../api/platform'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
+import { t } from '../i18n'
+import { locale } from '../i18n'
+import { formatDateTime } from '../lib/format'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
 // Экран собран вокруг одного ограничения — это телефон. Поэтому здесь нет ни одного поля
-// свободного текста, кроме номера версии: сроки и формулировки выбираются тапом. Объявление
-// обязано существовать на трёх языках, и набирать их с телефона никто не станет — потому
-// вместо поля ввода готовые заготовки (см. BANNER_PRESETS).
+// свободного текста, кроме номера версии и кода подтверждения: сроки и формулировки
+// выбираются тапом. Объявление обязано существовать на трёх языках, и набирать их с
+// телефона никто не станет — потому вместо поля ввода готовые заготовки.
 //
 // Каждое действие проходит через нативное подтверждение Telegram: рычаги здесь меняют то,
 // что видят все пользователи платформы, и промах по экрану не должен этого делать.
 
 const MAINTENANCE_MINUTES = [15, 30, 60, 120]
-const BANNER_MINUTES = [
-  { minutes: 60, label: 'час' },
-  { minutes: 60 * 24, label: 'сутки' },
-  { minutes: 60 * 24 * 3, label: '3 дня' },
-]
+const BANNER_PERIODS = [
+  { minutes: 60, key: 'bannerPeriodHour' },
+  { minutes: 60 * 24, key: 'bannerPeriodDay' },
+  { minutes: 60 * 24 * 3, key: 'bannerPeriod3Days' },
+] as const
 
-type Load =
-  | { status: 'loading' }
-  | { status: 'ready'; state: PlatformState }
-  | { status: 'error'; message: string }
+type Load = { status: 'loading' } | { status: 'ready'; state: PlatformState } | { status: 'error' }
 
 export function ControlScreen() {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
@@ -44,7 +44,7 @@ export function ControlScreen() {
     try {
       setLoad({ status: 'ready', state: await fetchPlatformState() })
     } catch {
-      setLoad({ status: 'error', message: 'Не удалось прочитать состояние' })
+      setLoad({ status: 'error' })
     }
   }, [])
 
@@ -70,7 +70,7 @@ export function ControlScreen() {
       } catch (err) {
         // Текст берём из ответа: сервер уже объяснил отказ по-человечески («Неверный код
         // подтверждения»), и подменять его своей формулировкой значило бы врать о причине.
-        setError(err instanceof ApiError ? err.message : 'Не удалось применить')
+        setError(err instanceof ApiError ? err.message : t('controlApplyError'))
       } finally {
         setBusy(false)
       }
@@ -78,15 +78,15 @@ export function ControlScreen() {
     [busy],
   )
 
-  if (load.status === 'loading') return <Head hint="Читаем состояние…" />
+  if (load.status === 'loading') return <Head hint={t('controlReading')} />
   if (load.status === 'error') {
     return (
       <div className="screen">
-        <Head hint="Управление платформой" />
+        <Head hint={t('controlSubtitle')} />
         <section className="card">
-          <p>{load.message}</p>
+          <p>{t('controlReadError')}</p>
           <button type="button" className="fallback-submit" onClick={() => void reload()}>
-            Повторить
+            {t('retry')}
           </button>
         </section>
       </div>
@@ -97,7 +97,7 @@ export function ControlScreen() {
 
   return (
     <div className="screen">
-      <Head hint="Управление платформой" />
+      <Head hint={t('controlSubtitle')} />
 
       {error && (
         <section className="card">
@@ -120,36 +120,28 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
   const [minutes, setMinutes] = useState<number | null>(null)
   const active = state.maintenance
 
-  if (active) {
-    return (
-      <section className="card">
-        <h2>Техработы идут</h2>
-        <p className="hint">
-          До {formatTime(active.until)}. Все, кроме платформенных ролей, видят заглушку.
-        </p>
+  return (
+    <section className="card">
+      <h2>{active ? t('maintenanceOnTitle') : t('maintenanceOffTitle')}</h2>
+      <p className="hint">
+        {active
+          ? t('maintenanceOnHint', { until: formatDateTime(active.until) })
+          : t('maintenanceOffHint')}
+      </p>
+
+      {active && (
         <button
           type="button"
           className="fallback-submit"
           disabled={busy}
-          onClick={() =>
-            void run('Снять режим техработ? Платформа снова откроется всем.', () =>
-              setMaintenance(null),
-            )
-          }
+          onClick={() => void run(t('maintenanceConfirmOff'), () => setMaintenance(null))}
         >
-          Снять
+          {t('maintenanceDisable')}
         </button>
-      </section>
-    )
-  }
+      )}
 
-  return (
-    <section className="card">
-      <h2>Техработы</h2>
-      <p className="hint">
-        Платформа закроется для всех, кроме платформенных ролей, и откроется сама, когда срок
-        выйдет.
-      </p>
+      {/* Продление — тот же путь, что включение, и код 2FA нужен так же: платформа
+          остаётся остановленной дольше, а это ровно то действие, которое защищали. */}
       <div className="chips">
         {MAINTENANCE_MINUTES.map((value) => (
           <button
@@ -163,17 +155,18 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
               setMinutes(value)
             }}
           >
-            {value} мин
+            {t('maintenanceMinutes', { count: value })}
           </button>
         ))}
       </div>
-      {/* Код 2FA — единственное место в мини-аппе, где что-то набирают: остановка платформы
-          не должна быть возможна одним промахом по экрану. */}
+
+      {/* Код 2FA — одно из двух мест в мини-аппе, где что-то набирают: остановка
+          платформы не должна быть возможна одним промахом по экрану. */}
       <input
         className="field"
         inputMode="numeric"
         autoComplete="one-time-code"
-        placeholder="Код из приложения-аутентификатора"
+        placeholder={t('maintenanceCodePlaceholder')}
         value={code}
         onChange={(e) => setCode(e.target.value.trim())}
       />
@@ -182,12 +175,15 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
         className="fallback-submit danger"
         disabled={busy || minutes === null || code.length < 6}
         onClick={() =>
-          void run(`Остановить платформу на ${minutes} мин? Её увидят все пользователи.`, () =>
-            setMaintenance(minutes, code),
+          void run(
+            active
+              ? t('maintenanceConfirmExtend', { count: minutes ?? 0 })
+              : t('maintenanceConfirmOn', { count: minutes ?? 0 }),
+            () => setMaintenance(minutes, code),
           ).then(() => setCode(''))
         }
       >
-        Включить техработы
+        {active ? t('maintenanceExtend', { count: minutes ?? 0 }) : t('maintenanceEnable')}
       </button>
     </section>
   )
@@ -196,20 +192,21 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [preset, setPreset] = useState<(typeof BANNER_PRESETS)[number] | null>(null)
   const active = state.banner
+  const lang = locale()
 
   if (active) {
     return (
       <section className="card">
-        <h2>Объявление висит</h2>
-        <p className="hint">{active.text.ru}</p>
-        <p className="hint">До {formatTime(active.until)}</p>
+        <h2>{t('bannerOnTitle')}</h2>
+        <p className="hint">{active.text[lang]}</p>
+        <p className="hint">{t('bannerUntil', { until: formatDateTime(active.until) })}</p>
         <button
           type="button"
           className="fallback-submit"
           disabled={busy}
-          onClick={() => void run('Снять объявление?', () => setBanner(null))}
+          onClick={() => void run(t('bannerConfirmOff'), () => setBanner(null))}
         >
-          Снять
+          {t('bannerRemove')}
         </button>
       </section>
     )
@@ -217,8 +214,8 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
 
   return (
     <section className="card">
-      <h2>Объявление</h2>
-      <p className="hint">Полоса над приложением у всех пользователей.</p>
+      <h2>{t('bannerOffTitle')}</h2>
+      <p className="hint">{t('bannerHint')}</p>
       <div className="chips">
         {BANNER_PRESETS.map((item) => (
           <button
@@ -232,24 +229,38 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
               setPreset(item)
             }}
           >
-            {item.label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
+
+      {/* Предпросмотр ровно тем же текстом, который увидят пользователи: объявление
+          вешают один раз и сразу всем, переделать его «как увидят» уже нельзя. */}
+      {preset && (
+        <>
+          <p className="hint">{t('bannerPreview')}</p>
+          <p className="preview">{preset.text[lang]}</p>
+        </>
+      )}
+
       <div className="chips">
-        {BANNER_MINUTES.map(({ minutes, label }) => (
+        {BANNER_PERIODS.map(({ minutes, key }) => (
           <button
             key={minutes}
             type="button"
             className="chip"
             disabled={busy || preset === null}
             onClick={() =>
-              void run(`Повесить объявление «${preset?.label}» на ${label}?`, () =>
-                setBanner(minutes, preset ?? undefined),
+              void run(
+                t('bannerConfirmOn', {
+                  preset: preset ? t(preset.labelKey) : '',
+                  period: t(key),
+                }),
+                () => setBanner(minutes, preset ?? undefined),
               ).then(() => setPreset(null))
             }
           >
-            На {label}
+            {t('bannerFor', { period: t(key) })}
           </button>
         ))}
       </div>
@@ -262,11 +273,12 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
 
   return (
     <section className="card">
-      <h2>Разделы</h2>
-      <p className="hint">Погашенный раздел исчезает у всех до возвращения.</p>
+      <h2>{t('sectionsTitle')}</h2>
+      <p className="hint">{t('sectionsHint')}</p>
       <div className="list">
-        {SECTIONS.map(({ key, label }) => {
+        {SECTIONS.map(({ key, labelKey }) => {
           const off = disabled.has(key)
+          const name = t(labelKey)
           return (
             <button
               key={key}
@@ -278,14 +290,14 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
                 if (off) next.delete(key)
                 else next.add(key)
                 void run(
-                  off ? `Вернуть раздел «${label}»?` : `Погасить раздел «${label}» для всех?`,
+                  off ? t('sectionConfirmOn', { name }) : t('sectionConfirmOff', { name }),
                   () => setSections([...next]),
                 )
               }}
             >
-              <span>{label}</span>
+              <span>{name}</span>
               <span className={off ? 'toggle-state off' : 'toggle-state'}>
-                {off ? 'Погашен' : 'Работает'}
+                {off ? t('sectionOff') : t('sectionOn')}
               </span>
             </button>
           )
@@ -300,12 +312,12 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
 
   return (
     <section className="card">
-      <h2>«Что нового»</h2>
+      <h2>{t('releaseTitle')}</h2>
       <p className="hint">
         {state.announcedVersion
-          ? `Объявлена версия ${state.announcedVersion}.`
-          : 'Ни одна версия не объявлена.'}{' '}
-        Текст заметки едет в сборке веба — здесь только номер.
+          ? t('releaseAnnounced', { version: state.announcedVersion })
+          : t('releaseNone')}{' '}
+        {t('releaseHint')}
       </p>
       <input
         className="field"
@@ -319,12 +331,12 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
         className="fallback-submit"
         disabled={busy || !/^\d+\.\d+\.\d+$/.test(version)}
         onClick={() =>
-          void run(`Объявить версию ${version}?`, () => announceRelease(version)).then(() =>
+          void run(t('releaseConfirm', { version }), () => announceRelease(version)).then(() =>
             setVersion(''),
           )
         }
       >
-        Объявить
+        {t('releaseAnnounce')}
       </button>
     </section>
   )
@@ -333,19 +345,8 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
 function Head({ hint }: { hint: string }) {
   return (
     <header className="screen-head">
-      <h1>Управление</h1>
+      <h1>{t('controlTitle')}</h1>
       <p className="hint">{hint}</p>
     </header>
   )
-}
-
-/** Только время, если срок истекает сегодня; иначе с датой — «до 14:30» без дня врёт. */
-function formatTime(iso: string): string {
-  const date = new Date(iso)
-  const sameDay = date.toDateString() === new Date().toDateString()
-  return date.toLocaleString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(sameDay ? {} : { day: 'numeric', month: 'short' }),
-  })
 }
