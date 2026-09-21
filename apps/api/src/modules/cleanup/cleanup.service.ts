@@ -42,6 +42,7 @@ const LOCK_TTL_MS = {
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
   liftExpiredBlocks: 4 * 60 * 1000,
+  rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
@@ -168,6 +169,18 @@ export class CleanupService {
     }
     if (total > 0) this.logger.log(`liftExpiredBlocks: снято блокировок ${total}`)
     return total
+  }
+
+  // Передача дежурства: по понедельникам в 9 утра дежурным становится следующий в
+  // очереди. Раньше дежурного назначали руками — то есть он оставался прежним, пока
+  // кто-нибудь не вспоминал, что дежурит уже месяц.
+  @Cron('0 9 * * 1', { name: 'rotateDuty' })
+  async rotateDuty(): Promise<string | null> {
+    return this.locks.run('rotateDuty', LOCK_TTL_MS.rotateDuty, async () => {
+      const next = await this.platform.rotateDuty()
+      if (next) this.logger.log('rotateDuty: дежурство передано следующему')
+      return next
+    })
   }
 
   // Просроченные PENDING-инвайты → EXPIRED. Ежечасно.

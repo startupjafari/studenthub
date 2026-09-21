@@ -6,14 +6,19 @@ import {
   setMaintenance,
   setNotifications,
   setSections,
+  setDuty,
+  fetchDuty,
+  fetchTeam,
   undoLastChange,
   BANNER_AUDIENCES,
   BANNER_PRESETS,
   NOTIFICATION_KINDS,
   SECTIONS,
+  type Duty,
   type NotificationKind,
   type NotificationSettings,
   type PlatformState,
+  type TeamLink,
 } from '../api/platform'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
@@ -121,6 +126,7 @@ export function ControlScreen({ userId }: { userId: string }) {
       <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
       <SectionsCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
+      <DutyCard busy={busy} setError={setError} />
       <FontCard />
       <UndoCard busy={busy} run={run} />
 
@@ -132,6 +138,86 @@ export function ControlScreen({ userId }: { userId: string }) {
 }
 
 type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
+
+/**
+ * Дежурство по очереди.
+ *
+ * До него дежурного назначали руками — то есть он оставался прежним, пока кто-нибудь не
+ * вспоминал, что дежурит уже месяц. Порядок задаётся касаниями: номер у чипа и есть
+ * очередь, а передаёт её сервер по понедельникам.
+ *
+ * Список людей — те, кто привязал Telegram: дежурить может только тот, кому бот в
+ * принципе может написать. Заодно это и есть список привязок команды, которого на экране
+ * до сих пор не было, хотя ручка для него давно есть.
+ */
+function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string | null) => void }) {
+  const [team, setTeam] = useState<TeamLink[] | null>(null)
+  const [duty, setDutyState] = useState<Duty | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    void Promise.all([fetchTeam(), fetchDuty()])
+      .then(([people, current]) => {
+        setTeam(people)
+        setDutyState(current)
+      })
+      .catch(() => setTeam([]))
+  }, [])
+
+  if (team === null || duty === null) return null
+  if (team.length === 0) return null
+
+  const order = duty.rotation
+  const toggle = async (userId: string): Promise<void> => {
+    const next = order.includes(userId) ? order.filter((id) => id !== userId) : [...order, userId]
+    haptic.select()
+    setSaving(true)
+    setError(null)
+    try {
+      setDutyState(await setDuty(next))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('dutyError'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>{t('dutyTitle')}</h2>
+      <p className="hint">{order.length > 1 ? t('dutyHint') : t('dutyHintSingle')}</p>
+      <div className="chips">
+        {team.map((person) => {
+          const place = order.indexOf(person.userId)
+          return (
+            <button
+              key={person.userId}
+              type="button"
+              className="chip"
+              aria-pressed={place >= 0}
+              disabled={busy || saving}
+              onClick={() => void toggle(person.userId)}
+            >
+              {place >= 0 ? `${place + 1}. ` : ''}
+              {person.name}
+              {person.userId === duty.dutyUserId ? ` · ${t('dutyNow')}` : ''}
+            </button>
+          )
+        })}
+      </div>
+      {/* Привязка, которой не пользовались месяцами, — это доступ, о котором забыли все,
+          включая её владельца. Видно её здесь же: список тот же самый. */}
+      {team.map((person) => (
+        <p key={person.userId} className="hint">
+          {person.name} ·{' '}
+          {person.lastSeenAt
+            ? t('dutySeen', { when: formatDateTime(person.lastSeenAt) })
+            : t('dutyNeverSeen')}
+        </p>
+      ))}
+    </section>
+  )
+}
 
 /**
  * Верни как было. Стоит последней и намеренно скромно: это не рычаг, а исправление
