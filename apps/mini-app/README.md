@@ -1,16 +1,17 @@
-# StudentHub — Telegram Mini App
+# StudentHub — Telegram Mini App (`apps/mini-app`)
 
-Каркас мини-аппа. Отдельное приложение: свой `package.json`, свои зависимости, **вне**
-pnpm-воркспейса монорепо (`pnpm-workspace.yaml` покрывает только `apps/*` и `packages/*`),
-поэтому `pnpm install` в корне его не трогает и `pnpm dev` не поднимает.
+Каркас мини-аппа: Vite + React + TypeScript. Отдельное приложение монорепо рядом с `web`,
+`api` и `landing` — участник pnpm-воркспейса, со своими зависимостями и своим портом.
 
 ## Запуск
 
 ```bash
-cd app
-pnpm install
-pnpm dev        # http://localhost:5175
+pnpm install                        # из корня монорепо
+pnpm --filter mini-app dev          # http://localhost:3003
 ```
+
+`pnpm dev` в корне поднимает его вместе с остальными приложениями (web 3000, api 3001,
+landing 3002, mini-app 3003).
 
 В обычном браузере приложение работает: Telegram не подключён — берётся запасная светлая
 палитра, нативные кнопки и хаптика молчат, на экране «Профиль» про это написано.
@@ -18,7 +19,7 @@ pnpm dev        # http://localhost:5175
 Чтобы открыть внутри Telegram, нужен https-адрес:
 
 ```bash
-cloudflared tunnel --url http://localhost:5175   # или ngrok http 5175
+cloudflared tunnel --url http://localhost:3003   # или ngrok http 3003
 ```
 
 Дальше в `@BotFather`: `/newapp` → выбрать бота → указать полученный https-URL. Открывается
@@ -27,7 +28,8 @@ cloudflared tunnel --url http://localhost:5175   # или ngrok http 5175
 ## Сборка
 
 ```bash
-pnpm build      # tsc --noEmit + vite build → dist/
+pnpm --filter mini-app build        # → dist/
+pnpm --filter mini-app typecheck
 ```
 
 `base: './'` в [vite.config.ts](vite.config.ts) — статика раздаётся с любого пути, не

@@ -1,14 +1,15 @@
 {
-  "name": "studenthub-mini-app",
+  "name": "mini-app",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.1.0",
   "type": "module",
-  "description": "Telegram Mini App для StudentHub — отдельное приложение, вне pnpm-воркспейса монорепо",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "build": "vite build",
+    "start": "vite preview --port 3003",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -18,6 +19,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^9.39.1",
     "typescript": "^5.9.3",
     "vite": "^6.3.5"
   }

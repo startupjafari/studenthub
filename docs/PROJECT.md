@@ -333,7 +333,9 @@ QR получается менее плотным (сканируется с б�
 studenthub/
 ├── apps/
 │   ├── web/                # Next.js frontend
-│   └── api/                # NestJS backend
+│   ├── api/                # NestJS backend
+│   ├── landing/            # публичный сайт (docs/LANDING.md)
+│   └── mini-app/           # Telegram Mini App (Vite + React)
 ├── packages/
 │   ├── shared-types/       # Role, DTO-интерфейсы, коды ошибок
 │   ├── shared-schemas/     # Zod-схемы — единый источник валидации
