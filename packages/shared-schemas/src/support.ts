@@ -23,6 +23,8 @@ export const SupportQueueQuerySchema = z.object({
   status: z.enum(['open', 'closed']).default('open'),
   /** `mine` — только взятые собой; `free` — ещё никем не взятые. */
   assignee: z.enum(['any', 'mine', 'free']).default('any'),
+  /** Поиск по тексту переписки и по фамилии автора. */
+  search: z.string().trim().min(2).max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(30),
 })

@@ -13,6 +13,7 @@ import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
+import { SupportService } from '../chats/support.service'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 
@@ -37,6 +38,7 @@ const LOCK_TTL_MS = {
   cleanOrphanFiles: 60 * 60 * 1000,
   sendDailyDigest: 10 * 60 * 1000,
   alertQueueBacklog: 10 * 60 * 1000,
+  closeStaleTickets: 10 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -53,6 +55,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const QUEUE_BACKLOG_THRESHOLD = 20
 const QUEUE_BACKLOG_SILENCE_SEC = 6 * 60 * 60
 const QUEUE_BACKLOG_KEY = 'platform:queue-backlog-alerted'
+
+// Через сколько молчания обращение закрывается само. Две недели — достаточно, чтобы
+// человек успел вернуться с уточнением, и достаточно мало, чтобы очередь не превращалась
+// в кладбище отвеченного.
+const SUPPORT_STALE_DAYS = 14
 
 // Итог ночной уборки сирот живёт двое суток: сводка читает его раз в день, и пропуск
 // одного запуска не должен превращаться в пустую строку навсегда.
@@ -71,6 +78,7 @@ export class CleanupService {
     private readonly chats: ChatsService,
     private readonly locks: CronLockService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly support: SupportService,
     private readonly telegram: TelegramNotifyService,
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
@@ -288,6 +296,18 @@ export class CleanupService {
     await this.telegram.notifyStaff('complaint', `В очереди накопилось жалоб: ${pending}`)
     this.logger.log(`alertQueueBacklog: жалоб ${pending}`)
     return pending
+  }
+
+  // Обращения без движения. Ежедневно в 05:00, после уборки файлов.
+  @Cron('0 5 * * *', { name: 'closeStaleTickets' })
+  async closeStaleTickets(): Promise<number | null> {
+    return this.locks.run('closeStaleTickets', LOCK_TTL_MS.closeStaleTickets, async () => {
+      const closed = await this.support.closeStale(
+        new Date(Date.now() - SUPPORT_STALE_DAYS * DAY_MS),
+      )
+      this.logger.log(`closeStaleTickets: закрыто ${closed}`)
+      return closed
+    })
   }
 
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---

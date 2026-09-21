@@ -26,6 +26,6 @@ import { LinkPreviewService } from '../../common/link-preview/link-preview.servi
     LinkPreviewService,
     SupportService,
   ],
-  exports: [ChatsService],
+  exports: [ChatsService, SupportService],
 })
 export class ChatsModule {}

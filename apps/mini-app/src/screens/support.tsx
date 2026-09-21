@@ -5,6 +5,7 @@ import {
   fetchSupportQueue,
   fetchSupportThread,
   replyToTicket,
+  REPLY_TEMPLATES,
   type QueueScope,
   type SupportMessage,
   type SupportTicket,
@@ -52,20 +53,23 @@ type QueueState =
 function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   const [state, setState] = useState<QueueState>({ status: 'loading' })
   const [tab, setTab] = useState<Tab>('open')
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
       const { status, assignee } = TAB_QUERY[tab]
-      const page = await fetchSupportQueue(status, assignee)
+      const page = await fetchSupportQueue(status, assignee, search)
       setState({ status: 'ready', items: page.items, total: page.total })
     } catch {
       setState({ status: 'error' })
     }
-  }, [tab])
+  }, [tab, search])
 
+  // Задержка перед запросом: иначе каждая буква уходит в сеть.
   useEffect(() => {
-    void load()
+    const timer = setTimeout(() => void load(), 350)
+    return () => clearTimeout(timer)
   }, [load])
 
   return (
@@ -98,6 +102,15 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
           </button>
         ))}
       </div>
+
+      {/* «Мы это уже кому-то отвечали» — вопрос, который без поиска проверить негде. */}
+      <input
+        className="field"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder={t('supportSearchPlaceholder')}
+        aria-label={t('supportSearchPlaceholder')}
+      />
 
       {state.status === 'loading' && <SkeletonList />}
 
@@ -288,6 +301,23 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       )}
 
       <section className="card">
+        {/* Заготовка подставляется в поле, а не отправляется: это начало ответа. */}
+        <div className="chips">
+          {REPLY_TEMPLATES.map((template) => (
+            <button
+              key={template.key}
+              type="button"
+              className="chip"
+              disabled={busy}
+              onClick={() => {
+                haptic.select()
+                setText(t(template.textKey))
+              }}
+            >
+              {t(template.labelKey)}
+            </button>
+          ))}
+        </div>
         <textarea
           className="field"
           rows={3}

@@ -254,6 +254,15 @@ const ru = {
     'Вернуть жалобу в очередь? Снятый контент не вернётся, блокировка снимается отдельно.',
   complaintReopenError: 'Не удалось вернуть жалобу',
   complaintResolvedAt: 'Разобрана {when}',
+  supportSearchPlaceholder: 'Поиск по переписке и фамилии',
+  supportTplTaken: 'Приняли в работу',
+  supportTplDetails: 'Нужны подробности',
+  supportTplDone: 'Решено',
+  supportTplTakenText: 'Здравствуйте! Приняли ваше обращение в работу, вернёмся с ответом.',
+  supportTplDetailsText:
+    'Здравствуйте! Чтобы разобраться, нужны подробности: что вы делали и что произошло. Если можно — приложите снимок экрана.',
+  supportTplDoneText:
+    'Здравствуйте! Проблема решена. Если повторится — напишите сюда же, обращение откроется снова.',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -497,6 +506,15 @@ const kk: Record<MessageKey, string> = {
     'Шағымды кезекке қайтару керек пе? Алынған мазмұн қайтарылмайды, бұғаттау бөлек шешіледі.',
   complaintReopenError: 'Шағымды қайтару мүмкін болмады',
   complaintResolvedAt: '{when} қаралған',
+  supportSearchPlaceholder: 'Жазысу мен тегі бойынша іздеу',
+  supportTplTaken: 'Жұмысқа алдық',
+  supportTplDetails: 'Толығырақ керек',
+  supportTplDone: 'Шешілді',
+  supportTplTakenText: 'Сәлеметсіз бе! Өтінішіңізді жұмысқа алдық, жауаппен ораламыз.',
+  supportTplDetailsText:
+    'Сәлеметсіз бе! Түсіну үшін толығырақ керек: не істедіңіз және не болды. Мүмкін болса, экран суретін жіберіңіз.',
+  supportTplDoneText:
+    'Сәлеметсіз бе! Мәселе шешілді. Қайталанса — осында жазыңыз, өтініш қайта ашылады.',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -738,6 +756,15 @@ const en: Record<MessageKey, string> = {
     'Send this report back? Removed content does not come back, and a block is lifted separately.',
   complaintReopenError: 'Could not send the report back',
   complaintResolvedAt: 'Reviewed {when}',
+  supportSearchPlaceholder: 'Search conversations and names',
+  supportTplTaken: 'Picked it up',
+  supportTplDetails: 'Need details',
+  supportTplDone: 'Resolved',
+  supportTplTakenText: 'Hi! We picked up your request and will come back with an answer.',
+  supportTplDetailsText:
+    'Hi! To look into this we need details: what you were doing and what happened. A screenshot helps if you can send one.',
+  supportTplDoneText:
+    'Hi! The issue is resolved. If it comes back, write here — the request reopens.',
   aboutVersion: 'Build {version}',
 }
 
