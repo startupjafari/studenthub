@@ -7,6 +7,7 @@ import { Role } from '@studenthub/shared-types'
 import { MINI_LINK_CODE_LENGTH } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { RequestContext } from '../auth/auth.service'
+import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -59,6 +60,7 @@ export class MiniService {
     private readonly audit: AuditService,
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly telegram: TelegramNotifyService,
   ) {}
 
   /** Настроен ли бот. Без токена проверять подпись нечем — мини-апп просто выключен. */
@@ -146,6 +148,13 @@ export class MiniService {
       metadata: { source: 'telegram' },
     })
 
+    // Подтверждение в сам привязанный Telegram: человек видит, что доступ появился
+    // именно здесь, а если сообщение пришло неожиданно — что кто-то привязал его аккаунт.
+    // Отправка не должна мешать привязке, поэтому её отказ не пробрасывается.
+    await this.telegram
+      .notifyOne(telegramId, 'Telegram привязан к аккаунту StudentHub')
+      .catch(() => undefined)
+
     return this.issueSession({
       id: user.id,
       firstName: user.firstName,
@@ -199,6 +208,45 @@ export class MiniService {
       role: user.role as Role,
       twoFactorEnabled: user.twoFactorEnabled,
     })
+  }
+
+  /**
+   * Кто из команды пользуется мини-аппом. Только для администратора платформы.
+   *
+   * Отвечает на два вопроса сразу: «у кого вообще есть доступ с телефона» и «чья привязка
+   * заброшена». Второе важнее: привязка, которой не пользовались полгода, — это доступ,
+   * о котором забыли все, включая её владельца.
+   */
+  async listLinks(): Promise<
+    {
+      userId: string
+      name: string
+      role: Role
+      username: string | null
+      linkedAt: Date
+      lastSeenAt: Date | null
+    }[]
+  > {
+    const rows = await this.prisma.telegramAccount.findMany({
+      where: { revokedAt: null },
+      select: {
+        userId: true,
+        username: true,
+        linkedAt: true,
+        lastSeenAt: true,
+        user: { select: { firstName: true, lastName: true, role: true } },
+      },
+      orderBy: { linkedAt: 'asc' },
+      take: 100,
+    })
+    return rows.map((row) => ({
+      userId: row.userId,
+      name: `${row.user.lastName} ${row.user.firstName}`,
+      role: row.user.role as Role,
+      username: row.username,
+      linkedAt: row.linkedAt,
+      lastSeenAt: row.lastSeenAt,
+    }))
   }
 
   /**

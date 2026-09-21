@@ -492,3 +492,11 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
 }
+
+/* Подпись сборки внизу экрана управления. */
+.footnote {
+  margin: 20px 0 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 12px;
+  text-align: center;
+}

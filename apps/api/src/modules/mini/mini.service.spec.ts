@@ -7,6 +7,7 @@ import type { JwtService } from '@nestjs/jwt'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
 import type Redis from 'ioredis'
+import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const BOT_TOKEN = '123456:test-token'
@@ -53,12 +54,14 @@ function setup(twoFactorEnabled: boolean) {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn(() => BOT_TOKEN) }
   const redis = { multi: jest.fn(), get: jest.fn(), del: jest.fn() }
+  const telegram = { notifyOne: jest.fn().mockResolvedValue(undefined) }
   const service = new MiniService(
     prisma as unknown as PrismaService,
     jwt as unknown as JwtService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
     redis as unknown as Redis,
+    telegram as unknown as TelegramNotifyService,
   )
   return { service, signed }
 }
@@ -97,12 +100,14 @@ describe('MiniService — отзыв привязки', () => {
       },
     }
     const audit = { record: jest.fn().mockResolvedValue(undefined) }
+    const telegram = { notifyOne: jest.fn().mockResolvedValue(undefined) }
     const service = new MiniService(
       prisma as unknown as PrismaService,
       { sign: jest.fn() } as unknown as JwtService,
       audit as unknown as AuditService,
       { get: jest.fn(() => BOT_TOKEN) } as unknown as ConfigService<EnvVars, true>,
       {} as unknown as Redis,
+      telegram as unknown as TelegramNotifyService,
     )
     return { service, prisma, audit }
   }
