@@ -59,9 +59,30 @@ export interface ComplaintMessage {
   sender: { id: string; firstName: string; lastName: string }
 }
 
-/** Одна жалоба целиком — для карточки разбора. `targetReports` считает сервер. */
-export async function fetchComplaint(id: string): Promise<Complaint & { targetReports: number }> {
-  return apiGet<Complaint & { targetReports: number }>(`/complaints/${id}`)
+/**
+ * Одна жалоба целиком — для карточки разбора. `targetReports` считает сервер, `targetOwnerId`
+ * он же и разрешает: в жалобе на пост или сообщение автора не видно, а блокируют человека.
+ * У снесённой цели владельца нет — приходит null.
+ */
+export interface ComplaintCard extends Complaint {
+  targetReports: number
+  targetOwnerId: string | null
+}
+
+export async function fetchComplaint(id: string): Promise<ComplaintCard> {
+  return apiGet<ComplaintCard>(`/complaints/${id}`)
+}
+
+/**
+ * Медиана времени разбора за последний месяц, часы. Показывается над разобранными:
+ * очередь отвечает на «сколько осталось», а медиана — на «быстро ли мы это делаем».
+ * По отказу молчит: список жалоб важнее цифры над ним.
+ */
+export async function fetchResolutionMedian(): Promise<number | null> {
+  const report = await apiGet<{ medianHours: number | null }>(
+    '/analytics/platform/complaints-latency',
+  )
+  return report.medianHours
 }
 
 /**

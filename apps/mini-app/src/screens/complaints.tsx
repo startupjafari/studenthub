@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   fetchComplaints,
+  fetchResolutionMedian,
   type Complaint,
   type ComplaintPage,
   type ComplaintPriority,
@@ -9,7 +10,7 @@ import { ComplaintScreen } from './complaint'
 import { haptic } from '../telegram/webapp'
 import { t } from '../i18n'
 import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
-import { dayLabel, formatAge, formatShortTime } from '../lib/format'
+import { dayLabel, formatAge, formatHours, formatShortTime } from '../lib/format'
 
 // Очередь модерации — то, ради чего мини-апп существует: разобрать жалобу с телефона,
 // не дожидаясь возвращения к столу.
@@ -47,6 +48,10 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   // Открытая карточка. Возврат из неё перезапрашивает очередь: за время разбора её мог
   // изменить второй модератор, а разобранной жалобы в ней уже нет.
   const [openId, setOpenId] = useState<string | null>(initialId ?? null)
+  // Медиана времени разбора. Живёт рядом с разобранными: очередь отвечает на «сколько
+  // осталось», а медиана — на «быстро ли команда с этим справляется». Считается за
+  // месяц по всем жалобам, поэтому фильтр приоритета её не трогает.
+  const [median, setMedian] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -64,6 +69,15 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Тянем один раз при переходе на вкладку и молчим по отказу: список разобранных важнее
+  // цифры над ним, и ронять экран ради неё нельзя.
+  useEffect(() => {
+    if (tab !== 'done' || median !== null) return
+    fetchResolutionMedian()
+      .then((hours) => setMedian(hours))
+      .catch(() => undefined)
+  }, [tab, median])
 
   // Потянуть вниз — перезапросить очередь: до этого она обновлялась только повторным
   // открытием приложения.
@@ -87,7 +101,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
       <header className="screen-head">
         <h1>{t('complaintsTitle')}</h1>
         <p className="hint">
-          {state.status === 'ready' ? summary(state.page, tab) : t('complaintsSubtitle')}
+          {state.status === 'ready' ? summary(state.page, tab, median) : t('complaintsSubtitle')}
         </p>
       </header>
 
@@ -228,8 +242,12 @@ function EmptyState({ tab, filtered }: { tab: Tab; filtered: boolean }) {
  * только когда вся очередь уместилась на странице: иначе «самая старая» оказалась бы самой
  * старой из загруженных, то есть неправдой.
  */
-function summary(page: ComplaintPage, tab: Tab): string {
-  if (tab === 'done') return t('complaintsTabDone')
+function summary(page: ComplaintPage, tab: Tab, median: number | null): string {
+  if (tab === 'done') {
+    return median === null
+      ? t('complaintsTabDone')
+      : t('complaintsMedian', { value: formatHours(median) })
+  }
   if (page.total === 0) return t('complaintsQueueEmpty')
 
   const counted = t('complaintsInQueue', { count: page.total })

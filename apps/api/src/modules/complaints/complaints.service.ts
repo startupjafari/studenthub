@@ -157,12 +157,21 @@ export class ComplaintsService {
    * текста. Считается по `targetId`, а не по автору жалобы: важно, сколько РАЗНЫХ людей
    * пришло с одним и тем же, а не сколько раз пришёл один настойчивый.
    */
-  async getById(viewer: JwtPayload, id: string): Promise<ComplaintRow & { targetReports: number }> {
+  async getById(
+    viewer: JwtPayload,
+    id: string,
+  ): Promise<ComplaintRow & { targetReports: number; targetOwnerId: string | null }> {
     const complaint = await this.findScoped(viewer, id)
     const targetReports = await this.prisma.complaint.count({
       where: { targetType: complaint.targetType, targetId: complaint.targetId },
     })
-    return { ...complaint, targetReports }
+    // Кто отвечает за цель. В жалобе на пост или сообщение автора не видно, а решение
+    // принимается про человека: заблокировать — значит заблокировать именно его.
+    // Снесённая цель отвечает null — карточку нарушителя тогда просто не показываем.
+    const targetOwnerId = await this.getTarget(complaint.targetType, complaint.targetId)
+      .then((target) => target.ownerId)
+      .catch(() => null)
+    return { ...complaint, targetReports, targetOwnerId }
   }
 
   // ── Разрешение (11.4) ────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { apiGetPaged, apiPatch } from './client'
+import { apiGet, apiGetPaged, apiPatch } from './client'
 
 // Люди: найти человека и решить, оставить ли ему доступ.
 //
@@ -22,6 +22,29 @@ export interface Invite {
   status: 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED'
   expiresAt: string
   createdAt: string
+}
+
+/**
+ * Карточка человека для модератора (`GET /users/:id/moderation`).
+ *
+ * Отдельная ручка, а не профиль целиком: решение принимают по роли, вузу, состоянию
+ * доступа и тому, попадался ли человек раньше. Остальные полсотни полей профиля с
+ * телефона никто не читает, а ПДн в них хватает.
+ */
+export interface PersonCard {
+  id: string
+  firstName: string
+  lastName: string
+  role: string
+  isBlocked: boolean
+  createdAt: string
+  university: { id: string; name: string } | null
+  /** Жалобы на самого человека: всего и сколько подтвердилось. */
+  complaints: { total: number; upheld: number }
+}
+
+export async function fetchPersonCard(id: string): Promise<PersonCard> {
+  return apiGet<PersonCard>(`/users/${id}/moderation`)
 }
 
 /**

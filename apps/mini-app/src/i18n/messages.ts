@@ -299,6 +299,24 @@ const ru = {
   changesBy: '{who}, {when}',
   changesNobody: 'система',
   aboutVersion: 'Сборка {version}',
+
+  // ── Карточка человека ──────────────────────────────────────────────────
+  complaintOffender: 'Нарушитель',
+  supportAuthorTitle: 'Кто спрашивает',
+  complaintsMedian: 'Медиана разбора {value}',
+  personCardError: 'Карточку человека загрузить не удалось',
+  personSince: 'На платформе с {when}',
+  personBlocked: 'Доступ заблокирован',
+  personFirstTime: 'Жалоб на этого человека не было',
+  personComplaints: 'Жалоб на человека: {count}, подтверждено {upheld}',
+  personRoleStudent: 'Студент',
+  personRoleStarosta: 'Староста',
+  personRoleTeacher: 'Преподаватель',
+  personRoleDean: 'Декан',
+  personRoleUniAdmin: 'Администратор вуза',
+  personRoleUniModerator: 'Модератор вуза',
+  personRolePlatformAdmin: 'Администратор платформы',
+  personRolePlatformModerator: 'Модератор платформы',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -586,6 +604,24 @@ const kk: Record<MessageKey, string> = {
   changesBy: '{who}, {when}',
   changesNobody: 'жүйе',
   aboutVersion: 'Жинақ {version}',
+
+  // ── Адам картасы ───────────────────────────────────────────────────────
+  complaintOffender: 'Бұзушы',
+  supportAuthorTitle: 'Кім сұрап отыр',
+  complaintsMedian: 'Талдау медианасы {value}',
+  personCardError: 'Адам картасын жүктеу мүмкін болмады',
+  personSince: 'Платформада {when} бері',
+  personBlocked: 'Қолжетімділік бұғатталған',
+  personFirstTime: 'Бұл адамға шағым түспеген',
+  personComplaints: 'Адамға шағым: {count}, расталғаны {upheld}',
+  personRoleStudent: 'Білім алушы',
+  personRoleStarosta: 'Топ старостасы',
+  personRoleTeacher: 'Оқытушы',
+  personRoleDean: 'Факультет деканы',
+  personRoleUniAdmin: 'ЖОО әкімшісі',
+  personRoleUniModerator: 'ЖОО модераторы',
+  personRolePlatformAdmin: 'Платформа әкімшісі',
+  personRolePlatformModerator: 'Платформа модераторы',
 }
 
 const en: Record<MessageKey, string> = {
@@ -870,6 +906,24 @@ const en: Record<MessageKey, string> = {
   changesBy: '{who}, {when}',
   changesNobody: 'system',
   aboutVersion: 'Build {version}',
+
+  // ── Person card ────────────────────────────────────────────────────────
+  complaintOffender: 'Offender',
+  supportAuthorTitle: 'Who is asking',
+  complaintsMedian: 'Median time to resolve {value}',
+  personCardError: 'Could not load the person card',
+  personSince: 'On the platform since {when}',
+  personBlocked: 'Access blocked',
+  personFirstTime: 'No complaints about this person yet',
+  personComplaints: 'Complaints about the person: {count}, upheld {upheld}',
+  personRoleStudent: 'Student',
+  personRoleStarosta: 'Group monitor',
+  personRoleTeacher: 'Teacher',
+  personRoleDean: 'Dean',
+  personRoleUniAdmin: 'University admin',
+  personRoleUniModerator: 'University moderator',
+  personRolePlatformAdmin: 'Platform admin',
+  personRolePlatformModerator: 'Platform moderator',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

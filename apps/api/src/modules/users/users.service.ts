@@ -1362,6 +1362,53 @@ export class UserService {
   }
 
   /**
+   * Карточка человека для модератора: кто он и попадался ли раньше.
+   *
+   * Отдельно от `GET /users/:id`: тот отдаёт профиль в полсотни полей и без `isBlocked`,
+   * а решение по жалобе или обращению принимается по четырём — роль, вуз, состояние
+   * доступа и счётчик жалоб. Читает её мини-апп с телефона, поэтому лишних ПДн в ответе
+   * нет: ни почты, ни телефона, ни учебных данных.
+   *
+   * Счётчик считает жалобы НА САМОГО человека. Жалобы на его посты и сообщения сюда не
+   * попадают: собрать их значило бы пройти по всем его сущностям на каждое открытие
+   * карточки. Историю по конкретной цели показывает `GET /complaints?targetId=`.
+   */
+  async moderationCard(viewer: JwtPayload, userId: string) {
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isBlocked: true,
+        createdAt: true,
+        universityId: true,
+        university: { select: { id: true, name: true } },
+      },
+    })
+    if (!target) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const isPlatform =
+      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!isPlatform && target.universityId !== viewer.universityId) {
+      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
+    }
+
+    const [complaints, upheld] = await this.prisma.$transaction([
+      this.prisma.complaint.count({ where: { targetType: 'USER', targetId: userId } }),
+      this.prisma.complaint.count({
+        where: { targetType: 'USER', targetId: userId, status: 'RESOLVED' },
+      }),
+    ])
+
+    const { universityId, ...rest } = target
+    void universityId
+    return { ...rest, complaints: { total: complaints, upheld } }
+  }
+
+  /**
    * Блокировка/разблокировка модератором в своём scope. Платформенные роли — глобально;
    * админ/модератор вуза — только свой университет. Блокировка гасит активные сессии.
    */

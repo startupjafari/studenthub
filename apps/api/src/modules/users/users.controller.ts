@@ -179,6 +179,27 @@ export class UsersController {
     return this.users.getProfileForViewer(id, user)
   }
 
+  /**
+   * Карточка для модератора: роль, вуз, доступ и счётчик жалоб на человека.
+   *
+   * Читается рядом с жалобой и обращением — там, где решение принимают про человека,
+   * а видно только имя. Полный профиль (`GET /users/:id`) для этого слишком широк.
+   */
+  @Get(':id/moderation')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Карточка пользователя для модератора (роль, вуз, блокировка, жалобы)' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — пользователь другого вуза' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
+  moderationCard(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.users.moderationCard(user, id)
+  }
+
   @Get(':id/presence')
   @ApiOperation({ summary: 'Статус присутствия пользователя (в сети / не в сети)' })
   getPresence(@Param('id') id: string) {

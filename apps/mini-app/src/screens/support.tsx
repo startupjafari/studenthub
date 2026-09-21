@@ -16,6 +16,7 @@ import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
 import { formatDateTime, formatShortTime } from '../lib/format'
+import { PersonSummary } from './person-summary'
 
 // Поддержка платформы: очередь обращений и переписка.
 //
@@ -280,6 +281,13 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
             : t('complaintOpening')}
         </p>
       </header>
+
+      {/* Кто спрашивает. Роль и вуз объясняют половину вопросов: «почему не вижу
+          ведомость» от студента и от преподавателя — два разных ответа, а до карточки
+          это выяснялось встречным вопросом и сутками ожидания. */}
+      {ticket?.author && (
+        <PersonSummary userId={ticket.author.id} title={t('supportAuthorTitle')} />
+      )}
 
       {state.status === 'loading' && <SkeletonList />}
       {state.status === 'error' && (
