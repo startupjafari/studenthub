@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   fetchComplaint,
+  fetchComplaintMessages,
   resolveComplaint,
   type Complaint,
+  type ComplaintMessage,
   type ResolveAction,
 } from '../api/complaints'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton } from '../telegram/use-telegram'
+import { t } from '../i18n'
+import { formatDateTime } from '../lib/format'
 
 // Карточка разбора жалобы: прочитать целиком и принять решение с телефона.
 //
@@ -15,27 +19,28 @@ import { useBackButton } from '../telegram/use-telegram'
 // контент», «заблокировать» и «отклонить» — это и есть работа модератора. Кнопки стоят
 // в потоке, разрушительные отличаются цветом.
 
-const TARGET_LABEL: Record<Complaint['targetType'], string> = {
-  USER: 'на пользователя',
-  MESSAGE: 'на сообщение',
-  POST: 'на пост',
-  STORY: 'на историю',
-  COMMENT: 'на комментарий',
-}
+const TARGET_KEY = {
+  USER: 'targetUser',
+  MESSAGE: 'targetMessage',
+  POST: 'targetPost',
+  STORY: 'targetStory',
+  COMMENT: 'targetComment',
+} as const
 
-const PRIORITY_LABEL: Record<Complaint['priority'], string> = {
-  HIGH: 'Срочно',
-  MEDIUM: 'Обычная',
-  LOW: 'Не срочно',
-}
+const PRIORITY_KEY = {
+  HIGH: 'priorityHigh',
+  MEDIUM: 'priorityMedium',
+  LOW: 'priorityLow',
+} as const
 
-type State =
-  | { status: 'loading' }
-  | { status: 'ready'; complaint: Complaint }
-  | { status: 'error'; message: string }
+type Loaded = Complaint & { targetReports: number }
+
+type State = { status: 'loading' } | { status: 'ready'; complaint: Loaded } | { status: 'error' }
 
 export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const [state, setState] = useState<State>({ status: 'loading' })
+  const [context, setContext] = useState<ComplaintMessage[] | 'error' | null>(null)
+  const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,9 +49,20 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      setState({ status: 'ready', complaint: await fetchComplaint(id) })
+      const complaint = await fetchComplaint(id)
+      setState({ status: 'ready', complaint })
+
+      // Переписка — только для жалоб на сообщение, и грузится отдельно: её отсутствие
+      // не должно мешать принять решение, а сервер на остальных типах отвечает отказом.
+      if (complaint.targetType === 'MESSAGE') {
+        try {
+          setContext(await fetchComplaintMessages(id))
+        } catch {
+          setContext('error')
+        }
+      }
     } catch {
-      setState({ status: 'error', message: 'Не удалось открыть жалобу' })
+      setState({ status: 'error' })
     }
   }, [id])
 
@@ -62,7 +78,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       setBusy(true)
       setError(null)
       try {
-        await resolveComplaint(id, action)
+        await resolveComplaint(id, action, comment.trim() || undefined)
         haptic.success()
         // Возвращаемся в очередь: разобранной жалобы в ней уже нет, и оставаться
         // на карточке, которая больше ничего не ждёт, незачем.
@@ -70,20 +86,20 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       } catch (err) {
         // Текст от сервера: он знает, почему нельзя (например, «жалоба уже обработана»
         // другим модератором), а выдумывать свою формулировку значило бы врать.
-        setError(err instanceof ApiError ? err.message : 'Не удалось применить решение')
+        setError(err instanceof ApiError ? err.message : t('complaintApplyError'))
       } finally {
         setBusy(false)
       }
     },
-    [busy, id, onBack],
+    [busy, comment, id, onBack],
   )
 
   if (state.status === 'loading') {
     return (
       <div className="screen">
         <header className="screen-head">
-          <h1>Жалоба</h1>
-          <p className="hint">Открываем…</p>
+          <h1>{t('complaintTitle')}</h1>
+          <p className="hint">{t('complaintOpening')}</p>
         </header>
       </div>
     )
@@ -93,12 +109,12 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
     return (
       <div className="screen">
         <header className="screen-head">
-          <h1>Жалоба</h1>
+          <h1>{t('complaintTitle')}</h1>
         </header>
         <section className="card">
-          <p>{state.message}</p>
+          <p>{t('complaintOpenError')}</p>
           <button type="button" className="fallback-submit" onClick={() => void load()}>
-            Повторить
+            {t('retry')}
           </button>
         </section>
       </div>
@@ -111,23 +127,49 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   return (
     <div className="screen">
       <header className="screen-head">
-        <h1>Жалоба {TARGET_LABEL[complaint.targetType]}</h1>
+        <h1>{t(TARGET_KEY[complaint.targetType])}</h1>
         <p className="hint">
-          {PRIORITY_LABEL[complaint.priority]} · {formatDate(complaint.createdAt)}
+          {t(PRIORITY_KEY[complaint.priority])} · {formatDateTime(complaint.createdAt)}
         </p>
       </header>
 
       <section className="card">
-        <h2>Что написали</h2>
+        <h2>{t('complaintReasonTitle')}</h2>
         {/* Текст жалобы целиком: в очереди видна только первая строка, а решение
             принимается по всему тексту. */}
         <p>{complaint.reason}</p>
         <p className="hint">
           {complaint.reporter
-            ? `Пожаловался: ${complaint.reporter.lastName} ${complaint.reporter.firstName}`
-            : 'Автор жалобы удалён'}
+            ? t('complaintReporter', {
+                name: `${complaint.reporter.lastName} ${complaint.reporter.firstName}`,
+              })
+            : t('complaintReporterGone')}
         </p>
+        {/* Больше одной жалобы на ту же цель — признак, которого не видно в тексте:
+            единичная обида и травля выглядят одинаково, пока не посмотришь на счётчик. */}
+        {complaint.targetReports > 1 && (
+          <p className="hint hint-danger">
+            {t('complaintRepeats', { count: complaint.targetReports })}
+          </p>
+        )}
       </section>
+
+      {complaint.targetType === 'MESSAGE' && (
+        <section className="card">
+          <h2>{t('complaintContextTitle')}</h2>
+          {context === null && <p className="hint">{t('complaintOpening')}</p>}
+          {context === 'error' && <p className="hint">{t('complaintContextError')}</p>}
+          {Array.isArray(context) && context.length === 0 && (
+            <p className="hint">{t('complaintContextEmpty')}</p>
+          )}
+          {Array.isArray(context) &&
+            context.map((message) => (
+              <p key={message.id} className="quote">
+                <b>{message.sender.firstName}</b> {message.content}
+              </p>
+            ))}
+        </section>
+      )}
 
       {error && (
         <section className="card">
@@ -136,7 +178,18 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       )}
 
       <section className="card">
-        <h2>Решение</h2>
+        <h2>{t('complaintDecision')}</h2>
+        {/* Комментарий необязателен, но уходит в журнал вместе с решением: через месяц
+            «почему заблокировали» отвечается только им. */}
+        <textarea
+          className="field"
+          rows={2}
+          maxLength={2000}
+          placeholder={t('complaintNotePlaceholder')}
+          aria-label={t('complaintNoteLabel')}
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+        />
         {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
             и кнопку здесь просто не рисуем, чтобы не предлагать заведомый отказ. */}
         {!isUser && (
@@ -144,42 +197,28 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
             type="button"
             className="fallback-submit danger"
             disabled={busy}
-            onClick={() =>
-              void decide('DELETE_CONTENT', 'Снять контент? Автор его больше не увидит.')
-            }
+            onClick={() => void decide('DELETE_CONTENT', t('complaintConfirmDelete'))}
           >
-            Снять контент
+            {t('complaintDeleteContent')}
           </button>
         )}
         <button
           type="button"
           className="fallback-submit danger"
           disabled={busy}
-          onClick={() =>
-            void decide('BLOCK_USER', 'Заблокировать пользователя? Он потеряет доступ к платформе.')
-          }
+          onClick={() => void decide('BLOCK_USER', t('complaintConfirmBlock'))}
         >
-          Заблокировать автора
+          {t('complaintBlockUser')}
         </button>
         <button
           type="button"
           className="fallback-submit"
           disabled={busy}
-          onClick={() => void decide('DISMISS', 'Отклонить жалобу? Нарушения нет.')}
+          onClick={() => void decide('DISMISS', t('complaintConfirmDismiss'))}
         >
-          Нарушения нет
+          {t('complaintDismiss')}
         </button>
       </section>
     </div>
   )
-}
-
-function formatDate(iso: string): string {
-  const date = new Date(iso)
-  const sameDay = date.toDateString() === new Date().toDateString()
-  return date.toLocaleString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(sameDay ? {} : { day: 'numeric', month: 'short' }),
-  })
 }

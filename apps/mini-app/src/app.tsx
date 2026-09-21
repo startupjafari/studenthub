@@ -5,6 +5,9 @@ import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
 import { ControlScreen } from './screens/control'
 import { SupportScreen } from './screens/support'
+import { OverviewScreen } from './screens/overview'
+import { fetchBadges, type Badges } from './api/badges'
+import { t } from './i18n'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -22,10 +25,14 @@ type Tab = 'complaints' | 'support' | 'control'
 // Вкладки мини-аппа. «Управление» — только администратору: рычаги платформы пишет он
 // один, и показывать модератору вкладку, где сервер всё равно откажет, значило бы
 // обещать несуществующее действие.
-const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
-  { id: 'complaints', label: 'Жалобы' },
-  { id: 'support', label: 'Поддержка' },
-  { id: 'control', label: 'Управление', adminOnly: true },
+const TABS: {
+  id: Tab
+  labelKey: 'tabComplaints' | 'tabSupport' | 'tabControl'
+  adminOnly?: boolean
+}[] = [
+  { id: 'complaints', labelKey: 'tabComplaints' },
+  { id: 'support', labelKey: 'tabSupport' },
+  { id: 'control', labelKey: 'tabControl', adminOnly: true },
 ]
 
 type State =
@@ -76,36 +83,6 @@ export function App() {
   )
 }
 
-function Starting() {
-  // Пустой экран без слова «загрузка»: обмен занимает доли секунды, и надпись успевает
-  // только моргнуть. Заголовок держит место, чтобы страница не прыгнула.
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <h1>StudentHub</h1>
-        <p className="hint">Проверяем доступ…</p>
-      </header>
-    </div>
-  )
-}
-
-function Outside() {
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <h1>Откройте из Telegram</h1>
-        <p className="hint">Мини-апп работает внутри клиента Telegram</p>
-      </header>
-      <section className="card">
-        <p className="hint">
-          Приложение подтверждает вас подписью, которую выдаёт Telegram при открытии. В обычном
-          браузере такой подписи нет, поэтому очередь жалоб здесь недоступна.
-        </p>
-      </section>
-    </div>
-  )
-}
-
 function ReadyView({
   role,
   tab,
@@ -122,6 +99,7 @@ function ReadyView({
   // Модератор, стоящий на вкладке администратора, получил бы пустой экран: сводим к
   // первой доступной, а не рисуем заглушку «нет прав» там, где вкладки просто нет.
   const active = tabs.some((item) => item.id === tab) ? tab : 'complaints'
+  const badges = useBadges()
 
   return (
     <>
@@ -138,7 +116,12 @@ function ReadyView({
               onTab(item.id)
             }}
           >
-            {item.label}
+            {t(item.labelKey)}
+            {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
+                до него приходилось обходить все три по очереди. */}
+            {badgeFor(item.id, badges) > 0 && (
+              <span className="tab-badge">{badgeFor(item.id, badges)}</span>
+            )}
           </button>
         ))}
       </div>
@@ -148,7 +131,62 @@ function ReadyView({
       {active === 'support' && (
         <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
       )}
-      {active === 'control' && <ControlScreen />}
+      {active === 'control' && (
+        <>
+          <OverviewScreen />
+          <ControlScreen />
+        </>
+      )}
     </>
+  )
+}
+
+/**
+ * Числа на вкладках. Запрашиваются один раз при открытии: мини-апп живёт минуты, и
+ * опрос ради счётчика, который человек и так увидит, войдя во вкладку, не нужен.
+ */
+function useBadges(): Badges {
+  const [badges, setBadges] = useState<Badges>({ complaints: 0, support: 0 })
+
+  useEffect(() => {
+    // Счётчики — украшение: их отказ не должен ничего ломать и ничего сообщать.
+    fetchBadges()
+      .then(setBadges)
+      .catch(() => undefined)
+  }, [])
+
+  return badges
+}
+
+function badgeFor(tab: Tab, badges: Badges): number {
+  if (tab === 'complaints') return badges.complaints
+  if (tab === 'support') return badges.support
+  return 0
+}
+
+function Starting() {
+  // Пустой экран без слова «загрузка»: обмен занимает доли секунды, и надпись успевает
+  // только моргнуть. Заголовок держит место, чтобы страница не прыгнула.
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <h1>{t('appName')}</h1>
+        <p className="hint">{t('checkingAccess')}</p>
+      </header>
+    </div>
+  )
+}
+
+function Outside() {
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <h1>{t('outsideTitle')}</h1>
+        <p className="hint">{t('outsideHint')}</p>
+      </header>
+      <section className="card">
+        <p className="hint">{t('outsideBody')}</p>
+      </section>
+    </div>
   )
 }

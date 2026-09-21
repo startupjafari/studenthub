@@ -404,3 +404,46 @@ body {
   color: var(--tg-theme-text-color);
   font: inherit;
 }
+
+/* Заголовок группы в списке (разделение по дням). */
+.list-day {
+  margin: 0;
+  padding: 10px 14px 4px;
+  color: var(--tg-theme-hint-color);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Счётчик на вкладке: число работы, видное без захода во вкладку. */
+.tab-badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Цитата чужого сообщения в карточке жалобы — отделена, чтобы её не спутали с нашим текстом. */
+.quote {
+  margin: 8px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--tg-theme-section-separator-color);
+  color: var(--tg-theme-text-color);
+  font-size: 14px;
+}
+
+/* Предпросмотр объявления — так, как его увидят пользователи. */
+.preview {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--tg-theme-secondary-bg-color);
+  font-size: 14px;
+}

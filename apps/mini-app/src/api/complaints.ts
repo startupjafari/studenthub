@@ -12,6 +12,9 @@ export type ComplaintTarget = 'POST' | 'STORY' | 'COMMENT' | 'MESSAGE' | 'USER'
 
 export interface Complaint {
   id: string
+  /** Кто разобрал — приходит только у обработанных. */
+  resolvedBy?: { id: string; firstName: string; lastName: string } | null
+  resolvedAt?: string | null
   targetType: ComplaintTarget
   targetId: string
   reason: string
@@ -31,13 +34,46 @@ export interface ComplaintPage {
  * (там же, где он задан для веб-админки), поэтому здесь нет ни сортировки, ни фильтров:
  * две очереди с разным порядком разъехались бы, и модераторы разбирали бы разное.
  */
-export async function fetchOpenComplaints(limit = 30): Promise<ComplaintPage> {
-  return apiGetPaged<Complaint>(`/complaints?status=PENDING&page=1&limit=${limit}`)
+export interface ComplaintQuery {
+  /** `PENDING` — очередь, `RESOLVED` — разобранное. */
+  status: ComplaintStatus
+  priority?: ComplaintPriority
+  limit?: number
 }
 
-/** Одна жалоба целиком — для карточки разбора. */
-export async function fetchComplaint(id: string): Promise<Complaint> {
-  return apiGet<Complaint>(`/complaints/${id}`)
+export async function fetchComplaints(query: ComplaintQuery): Promise<ComplaintPage> {
+  const params = new URLSearchParams({
+    status: query.status,
+    page: '1',
+    limit: String(query.limit ?? 30),
+  })
+  if (query.priority) params.set('priority', query.priority)
+  return apiGetPaged<Complaint>(`/complaints?${params.toString()}`)
+}
+
+/** Сообщение из переписки вокруг цели жалобы (`GET /complaints/:id/messages`). */
+export interface ComplaintMessage {
+  id: string
+  content: string | null
+  createdAt: string
+  sender: { id: string; firstName: string; lastName: string }
+}
+
+/** Одна жалоба целиком — для карточки разбора. `targetReports` считает сервер. */
+export async function fetchComplaint(id: string): Promise<Complaint & { targetReports: number }> {
+  return apiGet<Complaint & { targetReports: number }>(`/complaints/${id}`)
+}
+
+/**
+ * Переписка вокруг цели — только для жалоб на сообщение. Доступ открывается самой жалобой
+ * и пишется в аудит: читать чужие чаты «просто так» нельзя, а разобрать жалобу на
+ * сообщение, не видя соседних реплик, невозможно.
+ */
+export async function fetchComplaintMessages(id: string): Promise<ComplaintMessage[]> {
+  const page = await apiGet<{ items?: ComplaintMessage[] } | ComplaintMessage[]>(
+    `/complaints/${id}/messages`,
+  )
+  return Array.isArray(page) ? page : (page.items ?? [])
 }
 
 /**
@@ -50,6 +86,13 @@ export async function fetchComplaint(id: string): Promise<Complaint> {
  */
 export type ResolveAction = 'DELETE_CONTENT' | 'BLOCK_USER' | 'DISMISS'
 
-export async function resolveComplaint(id: string, action: ResolveAction): Promise<Complaint> {
-  return apiPatch<Complaint>(`/complaints/${id}/resolve`, { action })
+export async function resolveComplaint(
+  id: string,
+  action: ResolveAction,
+  comment?: string,
+): Promise<Complaint> {
+  return apiPatch<Complaint>(`/complaints/${id}/resolve`, {
+    action,
+    ...(comment ? { comment } : {}),
+  })
 }

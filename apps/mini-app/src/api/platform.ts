@@ -21,12 +21,12 @@ export interface PlatformState {
 
 /** Разделы, которые можно погасить. Совпадает с PLATFORM_SECTIONS в shared-schemas. */
 export const SECTIONS = [
-  { key: 'chats', label: 'Чаты' },
-  { key: 'events', label: 'События' },
-  { key: 'documents', label: 'Документы' },
-  { key: 'applications', label: 'Заявки' },
-  { key: 'portfolio', label: 'Портфолио' },
-  { key: 'career', label: 'Карьера' },
+  { key: 'chats', labelKey: 'sectionChats' },
+  { key: 'events', labelKey: 'sectionEvents' },
+  { key: 'documents', labelKey: 'sectionDocuments' },
+  { key: 'applications', labelKey: 'sectionApplications' },
+  { key: 'portfolio', labelKey: 'sectionPortfolio' },
+  { key: 'career', labelKey: 'sectionCareer' },
 ] as const
 
 /**
@@ -39,7 +39,7 @@ export const SECTIONS = [
 export const BANNER_PRESETS = [
   {
     key: 'planned',
-    label: 'Плановое обновление',
+    labelKey: 'presetPlanned',
     level: 'INFO' as const,
     text: {
       ru: 'Сегодня вечером платформа ненадолго остановится на обновление.',
@@ -49,7 +49,7 @@ export const BANNER_PRESETS = [
   },
   {
     key: 'degraded',
-    label: 'Работает медленно',
+    labelKey: 'presetDegraded',
     level: 'WARNING' as const,
     text: {
       ru: 'Платформа отвечает медленнее обычного. Мы уже разбираемся.',
@@ -59,7 +59,7 @@ export const BANNER_PRESETS = [
   },
   {
     key: 'resolved',
-    label: 'Сбой устранён',
+    labelKey: 'presetResolved',
     level: 'INFO' as const,
     text: {
       ru: 'Сбой устранён, всё работает как обычно. Спасибо за терпение.',
