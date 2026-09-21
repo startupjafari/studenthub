@@ -60,6 +60,7 @@ import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
 import { MeModule } from './modules/me/me.module'
 import { ReleasesModule } from './modules/releases/releases.module'
+import { PlatformModule } from './modules/platform/platform.module'
 // Вход в админский мини-апп Telegram (docs/PROJECT.md §8.3).
 import { MiniModule } from './modules/mini/mini.module'
 import { AppController } from './app.controller'
@@ -143,6 +144,7 @@ import { AppController } from './app.controller'
     HealthModule,
     MeModule,
     ReleasesModule,
+    PlatformModule,
     MiniModule,
   ],
   controllers: [AppController],
