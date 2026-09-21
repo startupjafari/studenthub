@@ -68,6 +68,34 @@ function token() {
   return null
 }
 
+/**
+ * Сторож туннеля.
+ *
+ * Живая ssh-сессия не означает работающий туннель: localhost.run перестаёт отдавать
+ * страницу (503), а соединение держит. Тогда скрипт считает, что всё хорошо, кнопка бота
+ * указывает на мёртвый адрес, и в Telegram видно «сайт не отправил данных». Поэтому
+ * проверяем сам адрес снаружи, а не наличие процесса.
+ */
+function watchTunnel(url, onDead) {
+  let misses = 0
+  const timer = setInterval(async () => {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      // 502/503 от края туннеля — это «форвардинг умер», а не ошибка приложения.
+      misses = response.status >= 502 && response.status <= 504 ? misses + 1 : 0
+    } catch {
+      misses += 1
+    }
+    // Две осечки подряд, а не одна: сеть на телефоне и так моргает, и дёргать
+    // переподключение (со сменой адреса) из-за единичного таймаута — хуже болезни.
+    if (misses >= 2) {
+      clearInterval(timer)
+      onDead()
+    }
+  }, 20_000)
+  return () => clearInterval(timer)
+}
+
 async function devServerAlive() {
   try {
     const response = await fetch(`http://localhost:${PORT}/`, { signal: AbortSignal.timeout(3000) })
@@ -131,6 +159,20 @@ async function main() {
 
   const run = () => {
     console.log('Поднимаю туннель…')
+    let unwatch = () => {}
+    let restarting = false
+
+    // Переподключение приходит с двух сторон — от упавшего ssh и от сторожа, — и делать
+    // его дважды нельзя: получим два туннеля и гонку за кнопку бота.
+    const restart = (reason, ssh) => {
+      if (stopping || restarting) return
+      restarting = true
+      unwatch()
+      ssh?.kill()
+      console.log(`${reason} — переподключаюсь через 3 с…`)
+      setTimeout(run, 3000)
+    }
+
     const ssh = startTunnel(
       async (url) => {
         console.log(`\nАдрес: ${url}`)
@@ -140,16 +182,14 @@ async function main() {
         } catch (error) {
           console.error(`Не удалось обновить кнопку бота: ${error.message}\n`)
         }
+        unwatch = watchTunnel(url, () => restart('Туннель перестал отвечать', ssh))
       },
-      (code) => {
-        if (stopping) return
-        console.log(`Туннель оборвался (код ${code}) — переподключаюсь через 3 с…`)
-        setTimeout(run, 3000)
-      },
+      (code) => restart(`Туннель оборвался (код ${code})`, null),
     )
 
     const stop = () => {
       stopping = true
+      unwatch()
       ssh.kill()
       console.log('\nТуннель закрыт. Кнопка бота осталась на мёртвом адресе — это нормально,')
       console.log('при следующем запуске скрипт пропишет новый.')
