@@ -69,7 +69,8 @@ describe('PeopleScreen', () => {
 
     // Третьим аргументом уходит код 2FA: блокировка с телефона подтверждается им,
     // разблокировка — нет.
-    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, ''))
+    // Четвёртый аргумент — срок. Не выбран ни один чип = «Навсегда», как было до сроков.
+    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, '', undefined))
     expect(confirmAction).toHaveBeenCalled()
   })
 
@@ -119,7 +120,7 @@ describe('PeopleScreen — подтверждение блокировки', () 
     await userEvent.type(screen.getByLabelText(/Код 2FA/), '123456')
     await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
 
-    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, '123456'))
+    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, '123456', undefined))
   })
 
   // Та же асимметрия, что у техработ: вернуть доступ обязано быть возможно сразу.
@@ -130,6 +131,6 @@ describe('PeopleScreen — подтверждение блокировки', () 
 
     await userEvent.click(screen.getByRole('button', { name: 'Разблокировать' }))
 
-    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', false, undefined))
+    await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', false, undefined, undefined))
   })
 })
