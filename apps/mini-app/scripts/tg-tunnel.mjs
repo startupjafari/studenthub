@@ -11,7 +11,7 @@
 // прописывается снова. Со стороны пользователя ничего не меняется: кнопка в чате всегда
 // ведёт на живой адрес.
 //
-// Токен читается из окружения или из apps/mini-app/.env.local (в git не попадает).
+// Токен читается из окружения или из apps/mini-app/.env (в git не попадает).
 
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -21,7 +21,10 @@ import { dirname, resolve } from 'node:path'
 
 const PORT = Number(process.env.MINI_APP_PORT ?? 3003)
 const BUTTON_TEXT = process.env.MINI_APP_BUTTON_TEXT ?? 'Открыть StudentHub'
-const ENV_FILE = resolve(dirname(fileURLToPath(import.meta.url)), '..', '.env.local')
+// Порядок как у Vite: .env.local перекрывает .env. Токен кладут то туда, то сюда —
+// читаем оба, чтобы «нет токена» не встречало там, где он лежит рядом.
+const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const ENV_FILES = [resolve(APP_DIR, '.env.local'), resolve(APP_DIR, '.env')]
 
 // localhost.run — единственный из бесплатных туннелей, который отдаёт страницу сразу.
 // pinggy и serveo показывают браузеру предупреждение, а переход по кнопке «продолжить»
@@ -47,19 +50,22 @@ const URL_RE = /https:\/\/[a-z0-9-]+\.lhr\.life/i
 
 function token() {
   if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN
-  try {
-    const line = readFileSync(ENV_FILE, 'utf8')
-      .split('\n')
-      .find((l) => l.startsWith('TELEGRAM_BOT_TOKEN='))
-    return (
-      line
+
+  for (const file of ENV_FILES) {
+    try {
+      const line = readFileSync(file, 'utf8')
+        .split('\n')
+        .find((l) => l.startsWith('TELEGRAM_BOT_TOKEN='))
+      const value = line
         ?.slice('TELEGRAM_BOT_TOKEN='.length)
         .trim()
-        .replace(/^["']|["']$/g, '') || null
-    )
-  } catch {
-    return null
+        .replace(/^["']|["']$/g, '')
+      if (value) return value
+    } catch {
+      // Файла может не быть — это норма, пробуем следующий.
+    }
   }
+  return null
 }
 
 async function devServerAlive() {
@@ -106,8 +112,9 @@ async function main() {
   const botToken = token()
   if (!botToken) {
     console.error(
-      `Нет токена бота. Положи его в ${ENV_FILE}:\n\n  TELEGRAM_BOT_TOKEN=123456:AA...\n\n` +
-        'Токен даёт @BotFather при /newbot. Файл .env.local в git не попадает.',
+      `Нет токена бота. Положи его в ${ENV_FILES[0]} (или .env рядом):\n\n` +
+        '  TELEGRAM_BOT_TOKEN=123456:AA...\n\n' +
+        'Токен даёт @BotFather при /newbot. Оба файла в git не попадают.',
     )
     process.exit(1)
   }
