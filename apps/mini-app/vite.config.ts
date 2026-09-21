@@ -12,5 +12,10 @@ export default defineConfig({
     // host: true — чтобы тоннель (ngrok/cloudflared) видел dev-сервер: Telegram требует
     // https-адрес, локальный http://localhost он не откроет.
     host: true,
+    // Vite 6 отвечает 403 на запрос с незнакомым заголовком Host — защита от DNS-rebinding.
+    // Тоннель приходит именно с чужим хостом, поэтому домены тоннелей перечислены явно.
+    // Точка в начале разрешает поддомены: у бесплатных тоннелей имя каждый раз новое.
+    // Здесь только dev-сервер; прод раздаётся статикой, и этой настройки там нет.
+    allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok-free.dev', '.loca.lt'],
   },
 })
