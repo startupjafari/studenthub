@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchOpenComplaints, type Complaint, type ComplaintPage } from '../api/complaints'
+import { ComplaintScreen } from './complaint'
+import { haptic } from '../telegram/webapp'
 
 // Очередь модерации — то, ради чего мини-апп существует: разобрать жалобу с телефона,
 // не дожидаясь возвращения к столу.
@@ -29,6 +31,9 @@ type State =
 
 export function ComplaintsScreen() {
   const [state, setState] = useState<State>({ status: 'loading' })
+  // Открытая карточка. Возврат из неё перезапрашивает очередь: за время разбора её мог
+  // изменить второй модератор, а разобранной жалобы в ней уже нет.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -42,6 +47,18 @@ export function ComplaintsScreen() {
   useEffect(() => {
     void load()
   }, [load])
+
+  if (openId !== null) {
+    return (
+      <ComplaintScreen
+        id={openId}
+        onBack={() => {
+          setOpenId(null)
+          void load()
+        }}
+      />
+    )
+  }
 
   return (
     <div className="screen">
@@ -73,9 +90,15 @@ export function ComplaintsScreen() {
       {state.status === 'ready' && state.page.items.length > 0 && (
         <section className="list">
           {state.page.items.map((complaint) => (
-            // Карточка с разбором и решением — следующий шаг; пока строка не
-            // притворяется кликабельной, чтобы тап не оставался без ответа.
-            <div key={complaint.id} className="row row-static">
+            <button
+              key={complaint.id}
+              type="button"
+              className="row"
+              onClick={() => {
+                haptic.tap()
+                setOpenId(complaint.id)
+              }}
+            >
               <span className="row-body">
                 <b>{TARGET_LABEL[complaint.targetType]}</b>
                 {/* Текст жалобы — чужие слова о третьем лице: показываем первую строку,
@@ -85,7 +108,10 @@ export function ComplaintsScreen() {
                   {PRIORITY_LABEL[complaint.priority]} · {formatDate(complaint.createdAt)}
                 </span>
               </span>
-            </div>
+              <span className="row-chevron" aria-hidden>
+                ›
+              </span>
+            </button>
           ))}
         </section>
       )}
