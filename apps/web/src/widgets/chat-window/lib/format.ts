@@ -7,6 +7,7 @@ const OFFICIAL_LABEL: Partial<Record<ChatTypeValue, string>> = {
   FACULTY: 'typeFaculty',
   DEAN: 'typeDean',
   SUPPORT: 'typeSupport',
+  SUPPORT_PLATFORM: 'typeSupportPlatform',
   SUBJECT: 'typeSubject',
 }
 
@@ -35,6 +36,7 @@ export const TYPE_TAG: Record<ChatTypeValue, { key: string; dot: string }> = {
   FACULTY: { key: 'tagFaculty', dot: 'bg-violet-500' },
   DEAN: { key: 'tagDean', dot: 'bg-amber-500' },
   SUPPORT: { key: 'tagSupport', dot: 'bg-rose-500' },
+  SUPPORT_PLATFORM: { key: 'tagSupportPlatform', dot: 'bg-rose-500' },
   EVENT: { key: 'tagEvent', dot: 'bg-teal-500' },
   SAVED: { key: 'tagSaved', dot: 'bg-amber-500' },
 }

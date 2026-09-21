@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
+import { ContactSupportForm } from '../../../features/contact-support'
 import Link from 'next/link'
 import {
   Bell,
@@ -28,6 +29,7 @@ import {
   Trash2,
   UserRound,
   type LucideIcon,
+  LifeBuoy,
 } from 'lucide-react'
 import {
   ChangePasswordSchema,
@@ -118,6 +120,7 @@ const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'appearance', labelKey: 'navAppearance', icon: Palette },
   { id: 'app', labelKey: 'navApp', icon: Smartphone },
   { id: 'privacy', labelKey: 'navPrivacy', icon: Lock },
+  { id: 'support', labelKey: 'navSupport', icon: LifeBuoy },
   { id: 'danger', labelKey: 'navDanger', icon: ShieldAlert },
 ]
 
@@ -193,6 +196,7 @@ export function AccountSettingsPanels() {
             {tab === 'appearance' && <AppearanceSection />}
             {tab === 'app' && <AppSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
+            {tab === 'support' && <ContactSupportForm />}
             {tab === 'danger' && <DangerSection />}
           </>
         )}
