@@ -1,22 +1,44 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   fetchHealth,
+  fetchInvitesFunnel,
   fetchOverview,
+  fetchTopActions,
+  fetchUniversitySizes,
   type HealthReport,
+  type InvitesFunnel,
   type PlatformOverview,
+  type TopAction,
+  type UniversitySize,
 } from '../api/overview'
 import { t } from '../i18n'
 
 // Сводка платформы: утренний взгляд «всё ли в порядке» до того, как открыть ноутбук.
 //
-// Здесь только числа, отвечающие на этот вопрос, и живость сервисов. Графики, разрезы по
-// вузам и воронки остаются в вебе — на экране шириной с ладонь они превращаются в
-// картинку, по которой ничего не решить.
+// Здесь то, что читается с ладони: числа, форма кривой за последние дни, короткие списки
+// и живость сервисов. Тепловая карта активности 7×24 сюда не попала, хотя ручка для неё
+// есть: на телефоне она превращается в картинку, по которой ничего не решить. Разрезы,
+// требующие сравнения и масштаба, остаются в вебе.
+
+interface Extras {
+  invites: InvitesFunnel | null
+  universities: UniversitySize[]
+  actions: TopAction[]
+}
 
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; overview: PlatformOverview; health: HealthReport | null }
+  | {
+      status: 'ready'
+      overview: PlatformOverview
+      health: HealthReport | null
+      extras: Extras
+    }
   | { status: 'error' }
+
+/** Сколько вузов показывать: список из сотни строк на телефоне не читают. */
+const TOP_UNIVERSITIES = 5
+const TOP_ACTIONS = 5
 
 const HEALTH_LABEL = {
   database: 'healthDatabase',
@@ -30,13 +52,22 @@ export function OverviewScreen() {
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      // Живость читается параллельно и её отказ не ломает сводку: недоступный /health —
-      // сам по себе ответ, а не причина не показывать числа.
-      const [overview, health] = await Promise.all([
+      // Разрезы и живость читаются параллельно, и отказ любого из них не ломает сводку:
+      // главные числа обязаны показаться, даже если один агрегат не посчитался. Недоступный
+      // /health — сам по себе ответ, а не причина прятать всё остальное.
+      const [overview, health, invites, universities, actions] = await Promise.all([
         fetchOverview(),
         fetchHealth().catch(() => null),
+        fetchInvitesFunnel().catch(() => null),
+        fetchUniversitySizes().catch(() => []),
+        fetchTopActions().catch(() => []),
       ])
-      setState({ status: 'ready', overview, health })
+      setState({
+        status: 'ready',
+        overview,
+        health,
+        extras: { invites, universities, actions },
+      })
     } catch {
       setState({ status: 'error' })
     }
@@ -67,7 +98,7 @@ export function OverviewScreen() {
     )
   }
 
-  const { overview, health } = state
+  const { overview, health, extras } = state
 
   return (
     <>
@@ -82,6 +113,65 @@ export function OverviewScreen() {
           <Stat label={t('overviewComplaints')} value={overview.complaints.pending} />
         </div>
       </section>
+
+      {/* Спарклайн по тем же данным, что уже приехали со сводкой: отдельного запроса
+          «рост пользователей» не нужно, а форма кривой отвечает на «растём ли мы»
+          быстрее любого числа. */}
+      {overview.users.spark.length > 1 && (
+        <section className="card">
+          <h2>{t('overviewTrend')}</h2>
+          <Spark points={overview.users.spark} label={t('overviewUsers')} />
+          <Spark points={overview.complaints.spark} label={t('overviewComplaints')} />
+        </section>
+      )}
+
+      {extras.invites && extras.invites.total > 0 && (
+        <section className="card">
+          <h2>{t('overviewInvites')}</h2>
+          <p className="hint">
+            {t('overviewInvitesUsed', {
+              used: extras.invites.used,
+              total: extras.invites.total,
+              conversion: Math.round(extras.invites.conversion),
+            })}
+          </p>
+        </section>
+      )}
+
+      {extras.universities.length > 0 && (
+        <section className="card">
+          <h2>{t('overviewTopUniversities')}</h2>
+          <div className="list">
+            {[...extras.universities]
+              .sort((a, b) => b.total - a.total)
+              .slice(0, TOP_UNIVERSITIES)
+              .map((university) => (
+                <div className="toggle-row" key={university.id}>
+                  <span>{university.name}</span>
+                  <span className="toggle-state">
+                    {university.students.toLocaleString()} {t('overviewStudents')}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
+
+      {extras.actions.length > 0 && (
+        <section className="card">
+          <h2>{t('overviewTopActions')}</h2>
+          <div className="list">
+            {extras.actions.slice(0, TOP_ACTIONS).map((action) => (
+              <div className="toggle-row" key={action.action}>
+                {/* Машинный код действия — он же и в журнале аудита: свой перевод
+                    развёл бы два названия одного события. */}
+                <span className="mono">{action.action}</span>
+                <span className="toggle-state">{action.value.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {health && (
         <section className="card">
@@ -107,6 +197,29 @@ function Stat({ label, value }: { label: string; value: number }) {
     <div className="stat">
       <b>{value.toLocaleString()}</b>
       <span>{label}</span>
+    </div>
+  )
+}
+
+/**
+ * Спарклайн: форма важнее значений, поэтому ни осей, ни подписей. Рисуется SVG, а не
+ * библиотекой графиков — кривая из десяти точек не стоит двухсот килобайт в бандле,
+ * который открывают по мобильной сети.
+ */
+function Spark({ points, label }: { points: number[]; label: string }) {
+  const max = Math.max(...points, 1)
+  const step = 100 / Math.max(points.length - 1, 1)
+  const path = points
+    .map((value, index) => `${index === 0 ? 'M' : 'L'} ${index * step} ${30 - (value / max) * 28}`)
+    .join(' ')
+
+  return (
+    <div className="spark-row">
+      <span className="hint">{label}</span>
+      <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
+        <path d={path} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span className="hint">{points.at(-1)?.toLocaleString() ?? 0}</span>
     </div>
   )
 }

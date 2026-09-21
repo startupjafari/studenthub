@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  assignTicket,
   closeTicket,
   fetchSupportQueue,
   fetchSupportThread,
   replyToTicket,
+  type QueueScope,
   type SupportMessage,
   type SupportTicket,
 } from '../api/support'
@@ -19,7 +21,15 @@ import { formatDateTime, formatShortTime } from '../lib/format'
 // человеку нельзя выбрать из заготовок. Зато закрытие и возврат — тапы.
 
 type Screen = { kind: 'queue' } | { kind: 'thread'; id: string }
-type Tab = 'open' | 'closed'
+type Tab = 'open' | 'mine' | 'closed'
+
+// Вкладка задаёт сразу две вещи: какие обращения показывать и чьи. «Мои» — то, что
+// человек взял на себя; без них все видят всё и никто ни за что не отвечает.
+const TAB_QUERY: Record<Tab, { status: 'open' | 'closed'; assignee: QueueScope }> = {
+  open: { status: 'open', assignee: 'any' },
+  mine: { status: 'open', assignee: 'mine' },
+  closed: { status: 'closed', assignee: 'any' },
+}
 
 /** `initialId` — обращение из ссылки в уведомлении: открываем его сразу, минуя очередь. */
 export function SupportScreen({ initialId }: { initialId?: string }) {
@@ -46,7 +56,8 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      const page = await fetchSupportQueue(tab)
+      const { status, assignee } = TAB_QUERY[tab]
+      const page = await fetchSupportQueue(status, assignee)
       setState({ status: 'ready', items: page.items, total: page.total })
     } catch {
       setState({ status: 'error' })
@@ -67,7 +78,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
       </header>
 
       <div className="tabs" role="tablist">
-        {(['open', 'closed'] as Tab[]).map((value) => (
+        {(['open', 'mine', 'closed'] as Tab[]).map((value) => (
           <button
             key={value}
             type="button"
@@ -79,7 +90,11 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
               setTab(value)
             }}
           >
-            {value === 'open' ? t('supportTabOpen') : t('supportTabClosed')}
+            {value === 'open'
+              ? t('supportTabOpen')
+              : value === 'mine'
+                ? t('supportTabMine')
+                : t('supportTabClosed')}
           </button>
         ))}
       </div>
@@ -127,6 +142,15 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
                     ? t('supportClosedAt', { when: formatShortTime(ticket.closedAt) })
                     : `${ticket.lastMessage?.fromAuthor ? t('supportNeedsReply') : t('supportAnswered')} · ${formatShortTime(ticket.updatedAt)}`}
                 </span>
+                {/* Кто разбирает — видно из очереди: иначе двое берутся за одно, а
+                    третье не берёт никто, решив, что его уже взяли. */}
+                {ticket.assignee && (
+                  <span className="hint">
+                    {t('supportAssigned', {
+                      name: `${ticket.assignee.lastName} ${ticket.assignee.firstName}`,
+                    })}
+                  </span>
+                )}
               </span>
               <span className="row-chevron" aria-hidden>
                 ›
@@ -185,6 +209,20 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       setBusy(false)
     }
   }, [busy, text, id])
+
+  /** Взять на себя. Отказ сервера — не ошибка сети, а «уже взяли», и текст его об этом. */
+  const take = useCallback(async () => {
+    setError(null)
+    try {
+      const { assigneeId } = await assignTicket(id, true)
+      haptic.success()
+      setState((prev) =>
+        prev.status === 'ready' ? { ...prev, ticket: { ...prev.ticket, assigneeId } } : prev,
+      )
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('supportAssignError'))
+    }
+  }, [id])
 
   const finish = useCallback(async () => {
     if (!(await confirmAction(t('supportConfirmClose')))) return
@@ -266,6 +304,16 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         >
           {t('supportReply')}
         </button>
+        {ticket && !ticket.assigneeId && !ticket.closedAt && (
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void take()}
+          >
+            {t('supportAssign')}
+          </button>
+        )}
         {!ticket?.closedAt && (
           <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
             {t('supportClose')}

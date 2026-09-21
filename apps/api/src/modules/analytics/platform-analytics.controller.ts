@@ -44,6 +44,7 @@ export class PlatformAnalyticsController {
 
   @Get('universities-size')
   @Roles(...PLATFORM_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Размер вузов: студенты и преподаватели по каждому' })
   universitiesSize() {
     return this.analytics.universitiesSize()
@@ -65,6 +66,7 @@ export class PlatformAnalyticsController {
 
   @Get('invites-funnel')
   @Roles(...PLATFORM_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Воронка инвайтов: конверсия и статусы по корзинам' })
   invitesFunnel(@Query() query: PlatformRangeQueryDto) {
     return this.analytics.invitesFunnel(query)
@@ -85,6 +87,7 @@ export class PlatformAnalyticsController {
 
   @Get('top-actions')
   @Roles(...PLATFORM_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Топ действий в аудите за период' })
   topActions(@Query() query: PlatformTopActionsQueryDto) {
     return this.analytics.topActions(query)

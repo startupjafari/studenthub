@@ -29,6 +29,8 @@ const TICKET_SELECT = {
   createdAt: true,
   updatedAt: true,
   supportClosedAt: true,
+  supportAssigneeId: true,
+  supportFirstReplyAt: true,
   members: {
     select: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
   },
@@ -99,6 +101,8 @@ export class SupportService {
     const where: Prisma.ChatWhereInput = {
       type: ChatType.SUPPORT_PLATFORM,
       supportClosedAt: query.status === 'open' ? null : { not: null },
+      ...(query.assignee === 'mine' ? { supportAssigneeId: viewer.sub } : {}),
+      ...(query.assignee === 'free' ? { supportAssigneeId: null } : {}),
     }
     const [rows, total] = await Promise.all([
       this.prisma.chat.findMany({
@@ -149,6 +153,15 @@ export class SupportService {
       where: { id: chatId, supportClosedAt: { not: null } },
       data: { supportClosedAt: null },
     })
+    // Первый ответ команды. `supportFirstReplyAt: null` в условии — чтобы отметка
+    // проставилась ровно один раз: повторное открытие обращения не делает первый
+    // ответ быстрее, и переписывать её значило бы улучшать метрику задним числом.
+    if (STAFF_ROLES.includes(viewer.role)) {
+      await this.prisma.chat.updateMany({
+        where: { id: chatId, supportFirstReplyAt: null },
+        data: { supportFirstReplyAt: new Date() },
+      })
+    }
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.reply',
@@ -163,6 +176,41 @@ export class SupportService {
       await this.telegram.notifyStaff('Ответ в обращении поддержки', `support_${chatId}`)
     }
     return message
+  }
+
+  /**
+   * Взять обращение себе или отдать обратно в общую очередь.
+   *
+   * Перехватить чужое нельзя: если обращение уже за кем-то, сервер отвечает отказом, а не
+   * молча переписывает назначение. Двое, разбирающие одно обращение и не знающие об этом, —
+   * та самая проблема, ради которой назначение и заводится.
+   */
+  async assign(
+    viewer: JwtPayload,
+    chatId: string,
+    take: boolean,
+    ctx: RequestContext = {},
+  ): Promise<{ assigneeId: string | null }> {
+    this.assertStaff(viewer)
+    await this.assertTicket(chatId)
+
+    const { count } = await this.prisma.chat.updateMany({
+      // Взять можно только свободное, отдать — только своё.
+      where: take
+        ? { id: chatId, supportAssigneeId: null }
+        : { id: chatId, supportAssigneeId: viewer.sub },
+      data: { supportAssigneeId: take ? viewer.sub : null },
+    })
+    if (count === 0) throw new AppException('CONFLICT', 'Обращение уже разбирает другой человек')
+
+    await this.audit.record({
+      userId: viewer.sub,
+      action: take ? 'support.ticket.assign' : 'support.ticket.unassign',
+      entity: 'Chat',
+      entityId: chatId,
+      ...ctx,
+    })
+    return { assigneeId: take ? viewer.sub : null }
   }
 
   /** Закрыть обращение. Переписка остаётся; закрытие — про очередь, не про доступ. */
@@ -259,6 +307,8 @@ function toTicket(row: {
   createdAt: Date
   updatedAt: Date
   supportClosedAt: Date | null
+  supportAssigneeId: string | null
+  supportFirstReplyAt: Date | null
   members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
   messages: { content: string | null; createdAt: Date; senderId: string }[]
 }) {
@@ -279,6 +329,10 @@ function toTicket(row: {
       fromAuthor: author !== null && last.senderId === author.id,
     },
     closedAt: row.supportClosedAt,
+    assigneeId: row.supportAssigneeId,
+    // Имя разбирающего берём из участников: команда платформы в них уже есть.
+    assignee: row.members.find((m) => m.user.id === row.supportAssigneeId)?.user ?? null,
+    firstReplyAt: row.supportFirstReplyAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
