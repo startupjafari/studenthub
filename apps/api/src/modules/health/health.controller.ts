@@ -1,12 +1,14 @@
 import { Controller, Get } from '@nestjs/common'
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { Public } from '../../common/decorators'
+import { Public, MaintenanceExempt } from '../../common/decorators'
 import { PrismaHealthIndicator } from './indicators/prisma.health'
 import { RedisHealthIndicator } from './indicators/redis.health'
 import { MinioHealthIndicator } from './indicators/minio.health'
 
 @ApiTags('Служебное')
+// Без живости хостинг решит, что контейнер умер, и будет перезапускать его по кругу — техработы превратились бы в аварию.
+@MaintenanceExempt()
 @Controller('health')
 export class HealthController {
   constructor(

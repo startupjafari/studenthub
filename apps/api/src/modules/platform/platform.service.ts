@@ -25,6 +25,13 @@ const CACHE_KEY = 'platform:state'
 // баннера, а потолок расхождения, если сброс до инстанса не доехал.
 const CACHE_TTL_SEC = 60
 
+// Отдельная, куда более короткая память в самом процессе — под вопрос «идут ли техработы».
+// Его задаёт КАЖДЫЙ запрос к API (MaintenanceGuard), и ходить за ответом в Redis на каждый
+// из них значило бы добавить сетевой round-trip ко всему трафику платформы. Пять секунд —
+// цена, которую платит включение режима: столько он доходит до инстанса, который его не
+// включал. Для остановки на четверть часа это незаметно.
+const MAINTENANCE_MEMO_MS = 5_000
+
 export interface LocalizedText {
   ru: string
   kk: string
@@ -61,6 +68,21 @@ export class PlatformService {
     private readonly audit: AuditService,
     private readonly twoFactor: TwoFactorService,
   ) {}
+
+  /** Память процесса под вопрос «идут ли техработы» (см. MAINTENANCE_MEMO_MS). */
+  private memo: { until: Date | null; readAt: number } | null = null
+
+  /**
+   * Идут ли техработы прямо сейчас. Отдельно от `publicState`, потому что вызывается на
+   * каждый запрос и отвечать обязан почти бесплатно.
+   */
+  async maintenanceActive(now: Date = new Date()): Promise<boolean> {
+    if (this.memo === null || Date.now() - this.memo.readAt > MAINTENANCE_MEMO_MS) {
+      const row = await this.read()
+      this.memo = { until: row?.maintenanceUntil ?? null, readAt: Date.now() }
+    }
+    return alive(this.memo.until, now)
+  }
 
   /** Публичное состояние платформы. Пока рычагов не трогали, строки нет — это норма. */
   async publicState(now: Date = new Date()): Promise<PublicPlatformState> {
@@ -179,6 +201,9 @@ export class PlatformService {
       update: { ...data, updatedById: userId },
     })
     await this.redis.del(CACHE_KEY).catch(() => undefined)
+    // И местную память тоже: инстанс, принявший команду, обязан подчиниться ей сразу, а не
+    // через пять секунд — иначе админ увидит «включено», а следующий его же запрос пройдёт.
+    this.memo = null
     return project(row, new Date())
   }
 
