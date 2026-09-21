@@ -32,8 +32,19 @@ export const NOTIFICATION_KINDS: { key: NotificationKind; labelKey: MessageKey }
 
 export interface PlatformState {
   notifications: NotificationSettings
-  maintenance: { until: string; message: LocalizedText | null } | null
-  banner: { until: string; level: 'INFO' | 'WARNING'; text: LocalizedText } | null
+  maintenance: {
+    until: string
+    message: LocalizedText | null
+    startsAt: string | null
+    active: boolean
+  } | null
+  banner: {
+    until: string
+    level: 'INFO' | 'WARNING'
+    text: LocalizedText
+    roles: string[]
+    universityIds: string[]
+  } | null
   disabledSections: string[]
   announcedVersion: string | null
 }
@@ -96,22 +107,40 @@ export async function fetchPlatformState(): Promise<PlatformState> {
 export async function setMaintenance(
   minutes: number | null,
   code?: string,
+  startsInMinutes = 0,
 ): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/maintenance', {
     minutes,
     message: null,
+    ...(startsInMinutes > 0 ? { startsInMinutes } : {}),
     ...(code ? { code } : {}),
   })
 }
 
+/**
+ * Роли, которым можно адресовать объявление. Список короткий и выбирается тапом —
+ * в отличие от вузов, которых сотня: их прицел задаётся из веба.
+ */
+export const BANNER_AUDIENCES = [
+  { key: 'students', labelKey: 'roleStudent', roles: ['STUDENT', 'STAROSTA'] },
+  { key: 'teachers', labelKey: 'roleTeacher', roles: ['TEACHER'] },
+  {
+    key: 'staff',
+    labelKey: 'roleStaff',
+    roles: ['DEAN', 'UNIVERSITY_ADMIN', 'UNIVERSITY_MODERATOR'],
+  },
+] as const
+
 export async function setBanner(
   minutes: number | null,
   preset?: (typeof BANNER_PRESETS)[number],
+  roles: string[] = [],
 ): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/banner', {
     minutes,
     level: preset?.level ?? 'INFO',
     text: preset?.text ?? null,
+    roles,
   })
 }
 

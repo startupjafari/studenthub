@@ -3603,7 +3603,8 @@
     "maintenanceUntil": "Expected to finish",
     "maintenanceStaffNotice": "Maintenance mode is on until {until}. Everyone else sees the stub.",
     "sectionOffTitle": "This section is temporarily closed",
-    "sectionOffText": "We turned it off briefly to fix it. Everything else works as usual."
+    "sectionOffText": "We turned it off briefly to fix it. Everything else works as usual.",
+    "maintenancePlanned": "Planned maintenance from {from} to {until}. The platform will close briefly."
   },
   "Support": {
     "title": "Contact support",

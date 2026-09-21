@@ -6,6 +6,7 @@ import {
   setMaintenance,
   setNotifications,
   setSections,
+  BANNER_AUDIENCES,
   BANNER_PRESETS,
   NOTIFICATION_KINDS,
   SECTIONS,
@@ -31,6 +32,10 @@ import { applyFontScale, isLargeFont } from '../lib/font-scale'
 // что видят все пользователи платформы, и промах по экрану не должен этого делать.
 
 const MAINTENANCE_MINUTES = [15, 30, 60, 120]
+
+// Когда начать. Плановая остановка задаётся тем же действием, что и обычная: два
+// объявления об одном событии (баннер «сегодня в 22:00» и отдельно техработы) расходятся.
+const MAINTENANCE_STARTS = [0, 2, 6, 12]
 const BANNER_PERIODS = [
   { minutes: 60, key: 'bannerPeriodHour' },
   { minutes: 60 * 24, key: 'bannerPeriodDay' },
@@ -129,6 +134,7 @@ type Run = (question: string, action: () => Promise<PlatformState>) => Promise<v
 function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [code, setCode] = useState('')
   const [minutes, setMinutes] = useState<number | null>(null)
+  const [startsIn, setStartsIn] = useState(0)
   const active = state.maintenance
 
   return (
@@ -136,7 +142,12 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
       <h2>{active ? t('maintenanceOnTitle') : t('maintenanceOffTitle')}</h2>
       <p className="hint">
         {active
-          ? t('maintenanceOnHint', { until: formatDateTime(active.until) })
+          ? active.active
+            ? t('maintenanceOnHint', { until: formatDateTime(active.until) })
+            : t('maintenancePlannedHint', {
+                from: formatDateTime(active.startsAt ?? active.until),
+                until: formatDateTime(active.until),
+              })
           : t('maintenanceOffHint')}
       </p>
 
@@ -173,6 +184,24 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
       {/* Код 2FA — одно из двух мест в мини-аппе, где что-то набирают: остановка
           платформы не должна быть возможна одним промахом по экрану. */}
+      <div className="chips">
+        {MAINTENANCE_STARTS.map((value) => (
+          <button
+            key={value}
+            type="button"
+            className="chip"
+            aria-pressed={startsIn === value}
+            disabled={busy}
+            onClick={() => {
+              haptic.select()
+              setStartsIn(value)
+            }}
+          >
+            {value === 0 ? t('maintenanceStartNow') : t('maintenanceStartIn', { count: value })}
+          </button>
+        ))}
+      </div>
+
       <input
         className="field"
         inputMode="numeric"
@@ -190,7 +219,7 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
             active
               ? t('maintenanceConfirmExtend', { count: minutes ?? 0 })
               : t('maintenanceConfirmOn', { count: minutes ?? 0 }),
-            () => setMaintenance(minutes, code),
+            () => setMaintenance(minutes, code, startsIn * 60),
           ).then(() => setCode(''))
         }
       >
@@ -202,6 +231,7 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
 function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [preset, setPreset] = useState<(typeof BANNER_PRESETS)[number] | null>(null)
+  const [audience, setAudience] = useState<string[]>([])
   const active = state.banner
   const lang = locale()
 
@@ -254,6 +284,45 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
         </>
       )}
 
+      {/* Прицел по ролям — тапом; по вузам их сотня, и такой список задаётся из веба. */}
+      <p className="hint">{t('bannerAudience')}</p>
+      <div className="chips">
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={audience.length === 0}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setAudience([])
+          }}
+        >
+          {t('bannerAudienceAll')}
+        </button>
+        {BANNER_AUDIENCES.map((item) => {
+          const chosen = item.roles.every((role) => audience.includes(role))
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className="chip"
+              aria-pressed={chosen}
+              disabled={busy}
+              onClick={() => {
+                haptic.select()
+                setAudience((prev) =>
+                  chosen
+                    ? prev.filter((role) => !item.roles.includes(role as never))
+                    : [...new Set([...prev, ...item.roles])],
+                )
+              }}
+            >
+              {t(item.labelKey)}
+            </button>
+          )
+        })}
+      </div>
+
       <div className="chips">
         {BANNER_PERIODS.map(({ minutes, key }) => (
           <button
@@ -267,8 +336,11 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
                   preset: preset ? t(preset.labelKey) : '',
                   period: t(key),
                 }),
-                () => setBanner(minutes, preset ?? undefined),
-              ).then(() => setPreset(null))
+                () => setBanner(minutes, preset ?? undefined, audience),
+              ).then(() => {
+                setPreset(null)
+                setAudience([])
+              })
             }
           >
             {t('bannerFor', { period: t(key) })}

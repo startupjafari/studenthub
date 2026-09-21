@@ -11,6 +11,7 @@ const NOW = new Date('2026-09-21T12:00:00Z')
 function row(patch: Partial<PlatformState> = {}): PlatformState {
   return {
     id: 'singleton',
+    maintenanceFrom: null,
     maintenanceUntil: null,
     maintenanceMessageRu: null,
     maintenanceMessageKk: null,
@@ -20,6 +21,8 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
     bannerTextKk: null,
     bannerTextEn: null,
     bannerLevel: null,
+    bannerRoles: [],
+    bannerUniversityIds: [],
     disabledSections: [],
     announcedVersion: null,
     quietFrom: null,
@@ -97,6 +100,8 @@ describe('PlatformService.publicState', () => {
 
     expect(state.maintenance).toEqual({
       until: until.toISOString(),
+      startsAt: null,
+      active: true,
       message: {
         ru: 'Обновляем платформу',
         kk: 'Платформаны жаңартамыз',
@@ -261,6 +266,8 @@ describe('PlatformService — запись рычагов', () => {
       bannerTextKk: null,
       bannerTextEn: null,
       bannerLevel: null,
+      bannerRoles: [],
+      bannerUniversityIds: [],
     })
   })
 
@@ -305,5 +312,78 @@ describe('PlatformService — отказ чтения состояния', () =>
       disabledSections: [],
       announcedVersion: null,
     })
+  })
+})
+
+describe('PlatformService — плановые техработы', () => {
+  /**
+   * Предупреждение и остановка — разные состояния одного события: назначенные на вечер
+   * работы видны заранее, но платформу закрывать ещё не должны.
+   */
+  it('назначенные на будущее видны, но платформу не закрывают', async () => {
+    const from = new Date(NOW.getTime() + 60 * 60_000)
+    const until = new Date(NOW.getTime() + 120 * 60_000)
+    const { service } = setup(row({ maintenanceFrom: from, maintenanceUntil: until }))
+
+    const state = await service.publicState(NOW)
+
+    expect(state.maintenance).toMatchObject({ active: false, startsAt: from.toISOString() })
+    await expect(service.maintenanceActive(NOW)).resolves.toBe(false)
+  })
+
+  it('начавшиеся закрывают платформу', async () => {
+    const from = new Date(NOW.getTime() - 10 * 60_000)
+    const until = new Date(NOW.getTime() + 60 * 60_000)
+    const { service } = setup(row({ maintenanceFrom: from, maintenanceUntil: until }))
+
+    await expect(service.maintenanceActive(NOW)).resolves.toBe(true)
+  })
+
+  // Иначе плановые работы, назначенные на вечер, кончались бы через час после нажатия.
+  it('срок окончания считается от начала окна, а не от нажатия', async () => {
+    const { service, updates } = setup()
+
+    await service.setMaintenance('admin-1', {
+      startsInMinutes: 120,
+      minutes: 30,
+      message: null,
+      code: '123456',
+    })
+
+    const written = updates.at(0) ?? {}
+    const minutesAhead = (Number(written.maintenanceUntil) - Date.now()) / 60_000
+    expect(minutesAhead).toBeGreaterThan(149)
+    expect(minutesAhead).toBeLessThanOrEqual(150)
+  })
+})
+
+describe('PlatformService — адресный баннер', () => {
+  it('отдаёт аудиторию вместе с баннером', async () => {
+    const { service } = setup(
+      row({
+        bannerUntil: new Date(NOW.getTime() + 60 * 60_000),
+        bannerTextRu: 'р',
+        bannerTextKk: 'қ',
+        bannerTextEn: 'e',
+        bannerRoles: ['TEACHER'],
+        bannerUniversityIds: ['11111111-1111-1111-1111-111111111111'],
+      }),
+    )
+
+    await expect(service.publicState(NOW)).resolves.toMatchObject({
+      banner: expect.objectContaining({
+        roles: ['TEACHER'],
+        universityIds: ['11111111-1111-1111-1111-111111111111'],
+      }),
+    })
+  })
+
+  // Снимая баннер, аудиторию тоже стираем: иначе следующий унаследовал бы чужой прицел.
+  it('снятие баннера стирает аудиторию', async () => {
+    const { service, updates } = setup()
+
+    await service.setBanner('admin-1', { minutes: null, level: 'INFO' })
+
+    expect(updates.at(0) ?? {}).toMatchObject({ bannerRoles: [], bannerUniversityIds: [] })
   })
 })
