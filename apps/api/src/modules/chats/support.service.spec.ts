@@ -40,6 +40,7 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
   const chats = {
     createMessage: jest.fn().mockResolvedValue({ message: { id: 'msg-1' }, recipientIds: [] }),
     getMessages: jest.fn().mockResolvedValue({ items: [], meta: {} }),
+    sendMessageRest: jest.fn().mockResolvedValue({ id: 'voice-1' }),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
@@ -460,5 +461,48 @@ describe('SupportService.merge', () => {
     expect(prisma.chat.findMany.mock.calls[0][0].where).toMatchObject({
       supportMergedIntoId: null,
     })
+  })
+})
+
+// ── Голосовой ответ (пункт 39) ──────────────────────────────────────────────
+describe('SupportService.voiceReply', () => {
+  const staff = who(Role.PLATFORM_ADMIN, 'staff-1')
+
+  // Имя файла значимо: по нему чат распознаёт голосовое, потому что mime у webm-аудио
+  // браузеры отдают как `video/webm`.
+  it('отправляет аудио с именем голосового', async () => {
+    const { service, chats } = setup()
+    await service.voiceReply(staff, 'chat-1', { buffer: Buffer.from('x'), name: 'voice-msg.webm' })
+    expect(chats.sendMessageRest).toHaveBeenCalledWith('staff-1', { chatId: 'chat-1' }, [
+      { buffer: expect.any(Buffer), name: 'voice-msg.webm' },
+    ])
+  })
+
+  it('без имени подставляет своё, а не отправляет безымянный файл', async () => {
+    const { service, chats } = setup()
+    await service.voiceReply(staff, 'chat-1', { buffer: Buffer.from('x') })
+    expect(chats.sendMessageRest.mock.calls[0][2][0].name).toBe('voice-msg.webm')
+  })
+
+  // Правила текстового ответа обязаны действовать и здесь: иначе «первый ответ голосом»
+  // не попадал бы в метрику, а закрытое обращение оставалось бы закрытым.
+  it('открывает закрытое обращение и отмечает первый ответ', async () => {
+    const { service, prisma } = setup()
+    await service.voiceReply(staff, 'chat-1', { buffer: Buffer.from('x') })
+    const updates = prisma.chat.updateMany.mock.calls.map((call) => call[0])
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ data: { supportClosedAt: null } }),
+        expect.objectContaining({ data: { supportFirstReplyAt: expect.any(Date) } }),
+      ]),
+    )
+  })
+
+  it('обычную роль к голосовому ответу не подпускает', async () => {
+    const { service } = setup()
+    const err = await service
+      .voiceReply(who(Role.STUDENT), 'chat-1', { buffer: Buffer.from('x') })
+      .catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
   })
 })
