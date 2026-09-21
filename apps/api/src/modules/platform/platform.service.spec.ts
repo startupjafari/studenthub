@@ -46,7 +46,11 @@ function setup(stored: PlatformState | null = null, cached: string | null = null
       count: jest.fn().mockResolvedValue(0),
       aggregate: jest.fn().mockResolvedValue({ _sum: { size: null } }),
     },
-    auditLog: { findMany: jest.fn().mockResolvedValue([]) },
+    auditLog: {
+      findMany: jest.fn().mockResolvedValue([]),
+      // Откат читает последнюю запись рычага и берёт из неё снимок «как было».
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     user: { findMany: jest.fn().mockResolvedValue([]) },
     platformState: {
       findUnique: jest.fn().mockResolvedValue(stored),
@@ -422,5 +426,57 @@ describe('PlatformService — наблюдение', () => {
     await expect(service.recentChanges()).resolves.toEqual([
       { action: 'platform.maintenance.on', at: NOW, by: null },
     ])
+  })
+})
+
+// ── Откат последнего изменения (пункт 53) ───────────────────────────────────
+describe('PlatformService.undoLast', () => {
+  function entry(before: Record<string, unknown>, ageMs = 0, action = 'platform.banner.on') {
+    return { action, metadata: { before }, createdAt: new Date(Date.now() - ageMs) }
+  }
+
+  it('возвращает поля к прежним значениям', async () => {
+    const { service, prisma, updates } = setup(row({ disabledSections: ['chats'] }))
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ disabledSections: [] }))
+
+    await service.undoLast('admin')
+    expect(updates.at(-1)).toMatchObject({ disabledSections: [] })
+  })
+
+  // Снимок в журнале — JSON: даты лежат строками, и вернуть их строками в БД нельзя.
+  it('поднимает даты из строк обратно', async () => {
+    const past = new Date(Date.now() - 60_000).toISOString()
+    const { service, prisma, updates } = setup(row())
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ bannerUntil: past }))
+
+    await service.undoLast('admin')
+    expect(updates.at(-1)?.bannerUntil).toBeInstanceOf(Date)
+  })
+
+  it('отменять нечего → NOT_FOUND', async () => {
+    const { service } = setup(row())
+    const err = await service.undoLast('admin').catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  // Полчаса — граница между «промахнулся» и «решил»: второе молча не отменяют.
+  it('старше получаса → CONFLICT', async () => {
+    const { service, prisma } = setup(row())
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ disabledSections: [] }, 31 * 60 * 1000))
+    const err = await service.undoLast('admin').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  // Включение техработ спрашивает код 2FA. Кнопка без кода, делающая то же самое,
+  // превратила бы эту защиту в декорацию.
+  it('не включает техработы откатом', async () => {
+    const future = new Date(Date.now() + 60 * 60_000).toISOString()
+    const { service, prisma } = setup(row())
+    prisma.auditLog.findFirst.mockResolvedValue(
+      entry({ maintenanceUntil: future }, 0, 'platform.maintenance.off'),
+    )
+    const err = await service.undoLast('admin').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
   })
 })

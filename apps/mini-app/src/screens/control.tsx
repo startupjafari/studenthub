@@ -6,6 +6,7 @@ import {
   setMaintenance,
   setNotifications,
   setSections,
+  undoLastChange,
   BANNER_AUDIENCES,
   BANNER_PRESETS,
   NOTIFICATION_KINDS,
@@ -121,6 +122,7 @@ export function ControlScreen({ userId }: { userId: string }) {
       <SectionsCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
       <FontCard />
+      <UndoCard busy={busy} run={run} />
 
       {/* Какая сборка открыта. Не украшение: сервисы на Railway однажды разъехались по
           веткам, и мини-апп неделю ходил в бэкенд за маршрутами, которых там не было. */}
@@ -130,6 +132,28 @@ export function ControlScreen({ userId }: { userId: string }) {
 }
 
 type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
+
+/**
+ * Верни как было. Стоит последней и намеренно скромно: это не рычаг, а исправление
+ * промаха по соседнему рычагу. Сервер сам откажет, если отменять нечего, изменение
+ * старше получаса или откат включил бы техработы, — и его отказ мы и покажем.
+ */
+function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
+  return (
+    <section className="card">
+      <h2>{t('undoTitle')}</h2>
+      <p className="hint">{t('undoHint')}</p>
+      <button
+        type="button"
+        className="fallback-submit"
+        disabled={busy}
+        onClick={() => void run(t('undoConfirm'), () => undoLastChange())}
+      >
+        {t('undoAction')}
+      </button>
+    </section>
+  )
+}
 
 function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [code, setCode] = useState('')

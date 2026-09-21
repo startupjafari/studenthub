@@ -346,6 +346,11 @@ const ru = {
   supportTagFeature: 'Пожелание',
   supportTagAbuse: 'Жалоба',
   supportTagOther: 'Прочее',
+  undoTitle: 'Верни как было',
+  undoHint:
+    'Отменяет последнее переключение рычага, если ему меньше получаса. Техработы так не включить.',
+  undoAction: 'Отменить последнее изменение',
+  undoConfirm: 'Вернуть состояние, которое было до последнего изменения?',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -680,6 +685,11 @@ const kk: Record<MessageKey, string> = {
   supportTagFeature: 'Ұсыныс',
   supportTagAbuse: 'Шағым',
   supportTagOther: 'Басқа',
+  undoTitle: 'Бұрынғысын қайтар',
+  undoHint:
+    'Соңғы ауыстыруды жояды, егер оған жарты сағаттан аз болса. Техжұмысты бұлай қосуға болмайды.',
+  undoAction: 'Соңғы өзгерісті болдырмау',
+  undoConfirm: 'Соңғы өзгеріске дейінгі күй қайтарылсын ба?',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1011,6 +1021,11 @@ const en: Record<MessageKey, string> = {
   supportTagFeature: 'Request',
   supportTagAbuse: 'Abuse',
   supportTagOther: 'Other',
+  undoTitle: 'Put it back',
+  undoHint:
+    'Reverts the last lever change if it is under half an hour old. Maintenance cannot be switched on this way.',
+  undoAction: 'Undo the last change',
+  undoConfirm: 'Restore the state from before the last change?',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

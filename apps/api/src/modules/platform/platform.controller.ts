@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Req } from '@nestjs/common'
+import { Body, Controller, Get, Patch, Post, Req } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
@@ -148,6 +148,23 @@ export class PlatformController {
     @Req() req: FastifyRequest,
   ) {
     return this.platform.announceRelease(user.sub, dto, this.ctx(req))
+  }
+
+  /**
+   * Верни как было. Кода не требует и требовать не может: код спрашивают там, где
+   * платформу гасят, а откат — единственная кнопка, которой промах исправляют. Включить
+   * техработы им нельзя — сервис откажет.
+   */
+  @Post('undo')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Откатить последнее изменение рычагов (не старше 30 минут)' })
+  @ApiResponse({ status: 200, description: 'Состояние после отката' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — отменять нечего' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — старше 30 минут или включило бы техработы' })
+  undo(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest) {
+    return this.platform.undoLast(user.sub, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {
