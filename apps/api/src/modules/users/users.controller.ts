@@ -15,6 +15,7 @@ import { ChangePasswordDto } from './dto/change-password.dto'
 import { UpdateUsernameDto } from './dto/update-username.dto'
 import { UserListQueryDto } from './dto/user-list-query.dto'
 import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
+import { BlockUserDto } from './dto/block-user.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -216,9 +217,18 @@ export class UsersController {
   @MiniAllowed()
   // С телефона — только с кодом: отобрать человеку доступ нельзя промахом по экрану.
   @RequiresConfirmation()
-  @ApiOperation({ summary: 'Заблокировать пользователя (из мини-аппа — с кодом 2FA)' })
-  async block(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
-    await this.users.setBlocked(user, id, true)
+  @ApiOperation({
+    summary: 'Заблокировать пользователя (из мини-аппа — с кодом 2FA; blockDays — срок)',
+  })
+  async block(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: BlockUserDto,
+  ): Promise<null> {
+    // Со сроком блокировка снимется сама, без него — бессрочная, как была. Считаем срок
+    // от момента блокировки: «на три дня», выданное вечером, кончается вечером через три дня.
+    const until = dto.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
+    await this.users.setBlocked(user, id, true, until)
     return null
   }
 

@@ -105,21 +105,29 @@ export async function fetchComplaintMessages(id: string): Promise<ComplaintMessa
  * удаление контента недопустимо, и об этом отвечает он же — клиент это не дублирует,
  * иначе два правила разъехались бы.
  */
-export type ResolveAction = 'DELETE_CONTENT' | 'BLOCK_USER' | 'DISMISS'
+export type ResolveAction = 'DELETE_CONTENT' | 'BLOCK_USER' | 'WARN_USER' | 'DISMISS'
+
+export interface ResolveOptions {
+  /** Внутренняя записка модератора: уходит в журнал, нарушителю не показывается. */
+  comment?: string
+  applyToDuplicates?: boolean
+  /** Нужен только для BLOCK_USER: блокировка с телефона подтверждается кодом. */
+  code?: string
+  /** Срок блокировки в днях. Без него блокировка бессрочная. */
+  blockDays?: number
+}
 
 export async function resolveComplaint(
   id: string,
   action: ResolveAction,
-  comment?: string,
-  applyToDuplicates?: boolean,
-  /** Нужен только для BLOCK_USER: блокировка с телефона подтверждается кодом. */
-  code?: string,
+  options: ResolveOptions = {},
 ): Promise<Complaint> {
   return apiPatch<Complaint>(`/complaints/${id}/resolve`, {
     action,
-    ...(comment ? { comment } : {}),
-    ...(applyToDuplicates ? { applyToDuplicates: true } : {}),
-    ...(code ? { code } : {}),
+    ...(options.comment ? { comment: options.comment } : {}),
+    ...(options.applyToDuplicates ? { applyToDuplicates: true } : {}),
+    ...(options.code ? { code: options.code } : {}),
+    ...(options.blockDays ? { blockDays: options.blockDays } : {}),
   })
 }
 

@@ -37,8 +37,12 @@ export interface PersonCard {
   lastName: string
   role: string
   isBlocked: boolean
+  /** Срок временной блокировки. null при isBlocked — блокировка бессрочная. */
+  blockedUntil: string | null
   createdAt: string
   university: { id: string; name: string } | null
+  /** Сколько раз человека предупреждали. Переживает чистку журнала аудита. */
+  warnings: number
   /** Жалобы на самого человека: всего и сколько подтвердилось. */
   complaints: { total: number; upheld: number }
 }
@@ -64,9 +68,20 @@ export async function searchPeople(
 /**
  * Блокировка требует кода 2FA, разблокировка — нет. Та же асимметрия, что у техработ:
  * отобрать доступ нельзя промахом по экрану, а вернуть обязано быть возможно сразу.
+ *
+ * `blockDays` делает блокировку временной: срок снимет сервер, а не память модератора.
+ * Без срока блокировка бессрочная — как была.
  */
-export async function setBlocked(id: string, blocked: boolean, code?: string): Promise<void> {
-  await apiPatch<null>(`/users/${id}/${blocked ? 'block' : 'unblock'}`, code ? { code } : {})
+export async function setBlocked(
+  id: string,
+  blocked: boolean,
+  code?: string,
+  blockDays?: number,
+): Promise<void> {
+  await apiPatch<null>(`/users/${id}/${blocked ? 'block' : 'unblock'}`, {
+    ...(code ? { code } : {}),
+    ...(blocked && blockDays ? { blockDays } : {}),
+  })
 }
 
 /** Выгнать чужого, не отбирая доступ у хозяина: блокировка наказала бы пострадавшего. */

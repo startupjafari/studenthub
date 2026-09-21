@@ -24,6 +24,13 @@ import { formatShortTime } from '../lib/format'
 
 const SEARCH_DELAY_MS = 350
 
+// Сроки блокировки — те же три, что на карточке жалобы: 0 — бессрочно.
+const BLOCK_TERMS = [
+  { days: 0, key: 'blockForever' },
+  { days: 7, key: 'blockWeek' },
+  { days: 30, key: 'blockMonth' },
+] as const
+
 type State =
   { status: 'loading' } | { status: 'ready'; items: Person[]; total: number } | { status: 'error' }
 
@@ -34,8 +41,9 @@ export function PeopleScreen() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Код 2FA для блокировки: одно поле на экран, а не на каждую строку — иначе список
-  // превращается в форму.
+  // превращается в форму. Срок — рядом с ним и по той же причине.
   const [code, setCode] = useState('')
+  const [blockDays, setBlockDays] = useState(0)
 
   const load = useCallback(async (search: string, blocked: boolean) => {
     setState({ status: 'loading' })
@@ -59,13 +67,20 @@ export function PeopleScreen() {
       const name = `${person.lastName} ${person.firstName}`
       const question = person.isBlocked
         ? t('peopleConfirmUnblock', { name })
-        : t('peopleConfirmBlock', { name })
+        : blockDays === 0
+          ? t('peopleConfirmBlock', { name })
+          : t('peopleConfirmBlockFor', { name, days: blockDays })
       if (!(await confirmAction(question))) return
 
       setBusy(person.id)
       setError(null)
       try {
-        await setBlocked(person.id, !person.isBlocked, person.isBlocked ? undefined : code)
+        await setBlocked(
+          person.id,
+          !person.isBlocked,
+          person.isBlocked ? undefined : code,
+          person.isBlocked || blockDays === 0 ? undefined : blockDays,
+        )
         haptic.success()
         // Правим строку на месте, а не перезапрашиваем список: при включённом фильтре
         // «только заблокированные» разблокированный человек иначе исчезал бы под пальцем,
@@ -86,7 +101,7 @@ export function PeopleScreen() {
         setBusy(null)
       }
     },
-    [code],
+    [blockDays, code],
   )
 
   const endSessions = useCallback(async (person: Person) => {
@@ -159,6 +174,24 @@ export function PeopleScreen() {
         onChange={(event) => setCode(event.target.value.trim())}
       />
       <p className="hint">{t('confirmCodeNeeded')}</p>
+
+      {/* Срок блокировки. Разблокировки он не касается: вернуть доступ можно только сразу. */}
+      <div className="chips">
+        {BLOCK_TERMS.map((term) => (
+          <button
+            key={term.days}
+            type="button"
+            className="chip"
+            aria-pressed={blockDays === term.days}
+            onClick={() => {
+              haptic.select()
+              setBlockDays(term.days)
+            }}
+          >
+            {t(term.key)}
+          </button>
+        ))}
+      </div>
 
       {error && (
         <section className="card">

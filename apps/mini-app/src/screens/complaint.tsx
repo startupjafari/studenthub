@@ -35,6 +35,14 @@ const PRIORITY_KEY = {
   LOW: 'priorityLow',
 } as const
 
+// Сроки блокировки. Три значения вместо поля ввода: выбор из трёх делается одним касанием
+// и не даёт промахнуться разрядом. 0 — бессрочно, как было до появления сроков.
+const BLOCK_TERMS = [
+  { days: 0, key: 'blockForever' },
+  { days: 7, key: 'blockWeek' },
+  { days: 30, key: 'blockMonth' },
+] as const
+
 type Loaded = ComplaintCard
 
 type State = { status: 'loading' } | { status: 'ready'; complaint: Loaded } | { status: 'error' }
@@ -45,6 +53,9 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   const [comment, setComment] = useState('')
   const [applyAll, setApplyAll] = useState(false)
   const [code, setCode] = useState('')
+  // Срок блокировки: 0 — бессрочно. Выбор из трёх значений, а не поле ввода: на телефоне
+  // набирать число незачем, а «7» и «70» в поле различаются одним промахом.
+  const [blockDays, setBlockDays] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,13 +93,13 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       setBusy(true)
       setError(null)
       try {
-        await resolveComplaint(
-          id,
-          action,
-          comment.trim() || undefined,
-          applyAll,
-          action === 'BLOCK_USER' ? code : undefined,
-        )
+        await resolveComplaint(id, action, {
+          comment: comment.trim() || undefined,
+          applyToDuplicates: applyAll,
+          // Код нужен только блокировке: предупреждение и «нарушения нет» обратимы.
+          code: action === 'BLOCK_USER' ? code : undefined,
+          blockDays: action === 'BLOCK_USER' && blockDays > 0 ? blockDays : undefined,
+        })
         haptic.success()
         // Возвращаемся в очередь: разобранной жалобы в ней уже нет, и оставаться
         // на карточке, которая больше ничего не ждёт, незачем.
@@ -101,7 +112,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         setBusy(false)
       }
     },
-    [applyAll, busy, code, comment, id, onBack],
+    [applyAll, blockDays, busy, code, comment, id, onBack],
   )
 
   const reopen = useCallback(async () => {
@@ -272,6 +283,39 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
               {t('complaintDeleteContent')}
             </button>
           )}
+          {/* Промежуточная мера. До неё шкала шла от «нарушения нет» сразу к блокировке,
+            и на первый грубый комментарий приходилось выбирать между «ничего» и
+            отключением человека от платформы. Кода не требует: предупреждение обратимо
+            ровно в той мере, в какой обратим разговор. */}
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void decide('WARN_USER', t('complaintConfirmWarn'))}
+          >
+            {t('complaintWarnUser')}
+          </button>
+
+          {/* Срок блокировки. «Навсегда» остаётся первым и выбранным по умолчанию:
+            менять смысл кнопки молча нельзя. */}
+          <div className="chips">
+            {BLOCK_TERMS.map((term) => (
+              <button
+                key={term.days}
+                type="button"
+                className="chip"
+                aria-pressed={blockDays === term.days}
+                disabled={busy}
+                onClick={() => {
+                  haptic.select()
+                  setBlockDays(term.days)
+                }}
+              >
+                {t(term.key)}
+              </button>
+            ))}
+          </div>
+
           {/* Код нужен только блокировке: «снять контент» и «нарушения нет» обратимы. */}
           <input
             className="field"
@@ -282,13 +326,25 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
             value={code}
             onChange={(event) => setCode(event.target.value.trim())}
           />
+          {/* Срок стоит и в подтверждении, и на кнопке: диалог «заблокировать?» без срока
+            означал бы разное в зависимости от чипа выше, а это ровно то место, где
+            двусмысленность стоит человеку доступа. */}
           <button
             type="button"
             className="fallback-submit danger"
             disabled={busy || code.length < 6}
-            onClick={() => void decide('BLOCK_USER', t('complaintConfirmBlock'))}
+            onClick={() =>
+              void decide(
+                'BLOCK_USER',
+                blockDays === 0
+                  ? t('complaintConfirmBlock')
+                  : t('complaintConfirmBlockFor', { days: blockDays }),
+              )
+            }
           >
-            {t('complaintBlockUser')}
+            {blockDays === 0
+              ? t('complaintBlockUser')
+              : t('complaintBlockUserFor', { days: blockDays })}
           </button>
           <button
             type="button"

@@ -28,7 +28,7 @@ import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { RealtimeGateway } from '../../common/realtime'
-import { QueueService, QUEUES, FILE_JOBS } from '../../common/queue'
+import { QueueService, QUEUES, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
@@ -1369,7 +1369,10 @@ export class UserService {
    * доступа и счётчик жалоб. Читает её мини-апп с телефона, поэтому лишних ПДн в ответе
    * нет: ни почты, ни телефона, ни учебных данных.
    *
-   * Счётчик считает жалобы НА САМОГО человека. Жалобы на его посты и сообщения сюда не
+   * Предупреждения считаются по своей таблице — они переживают чистку журнала аудита,
+   * и «второе за месяц» от «первого за два года» отличает именно она.
+   *
+   * Счётчик жалоб считает жалобы НА САМОГО человека. Жалобы на его посты и сообщения сюда не
    * попадают: собрать их значило бы пройти по всем его сущностям на каждое открытие
    * карточки. Историю по конкретной цели показывает `GET /complaints?targetId=`.
    */
@@ -1382,6 +1385,7 @@ export class UserService {
         lastName: true,
         role: true,
         isBlocked: true,
+        blockedUntil: true,
         createdAt: true,
         universityId: true,
         university: { select: { id: true, name: true } },
@@ -1396,23 +1400,33 @@ export class UserService {
       throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
     }
 
-    const [complaints, upheld] = await this.prisma.$transaction([
+    const [complaints, upheld, warnings] = await this.prisma.$transaction([
       this.prisma.complaint.count({ where: { targetType: 'USER', targetId: userId } }),
       this.prisma.complaint.count({
         where: { targetType: 'USER', targetId: userId, status: 'RESOLVED' },
       }),
+      this.prisma.moderationWarning.count({ where: { userId } }),
     ])
 
     const { universityId, ...rest } = target
     void universityId
-    return { ...rest, complaints: { total: complaints, upheld } }
+    return { ...rest, warnings, complaints: { total: complaints, upheld } }
   }
 
   /**
    * Блокировка/разблокировка модератором в своём scope. Платформенные роли — глобально;
    * админ/модератор вуза — только свой университет. Блокировка гасит активные сессии.
+   *
+   * `until` делает блокировку временной: по истечении срока её снимет крон
+   * (`CleanupService.liftExpiredBlocks`). Без срока блокировка бессрочная — как была.
+   * Разблокировка срок стирает: иначе снятая руками блокировка «снялась» бы второй раз.
    */
-  async setBlocked(viewer: JwtPayload, userId: string, blocked: boolean): Promise<void> {
+  async setBlocked(
+    viewer: JwtPayload,
+    userId: string,
+    blocked: boolean,
+    until: Date | null = null,
+  ): Promise<void> {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя заблокировать самого себя')
     }
@@ -1428,7 +1442,10 @@ export class UserService {
     if (!isPlatform && target.universityId !== viewer.universityId) {
       throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
     }
-    await this.prisma.user.update({ where: { id: userId }, data: { isBlocked: blocked } })
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { isBlocked: blocked, blockedUntil: blocked ? until : null },
+    })
     if (blocked) {
       await this.authService.revokeAllUserSessions(userId)
     }
@@ -1439,7 +1456,68 @@ export class UserService {
       action: blocked ? 'user_blocked' : 'user_unblocked',
       entity: 'User',
       entityId: userId,
+      ...(blocked && until ? { metadata: { until: until.toISOString() } } : {}),
     })
+  }
+
+  /**
+   * Предупреждение — промежуточная мера между «нарушения нет» и блокировкой.
+   *
+   * Человеку уходит уведомление о самом факте: внутренний комментарий модератора сюда не
+   * копируется — его писали не нарушителю. Запись остаётся навсегда, потому что «второе
+   * предупреждение за месяц» и «первое за два года» — разные случаи, а по журналу аудита
+   * их не отличить: он чистится по расписанию.
+   */
+  async warn(
+    viewer: JwtPayload,
+    userId: string,
+    complaintId: string | null = null,
+  ): Promise<{ total: number }> {
+    if (userId === viewer.sub) {
+      throw new AppException('BAD_REQUEST', 'Нельзя предупредить самого себя')
+    }
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, universityId: true },
+    })
+    if (!target) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const isPlatform =
+      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!isPlatform && target.universityId !== viewer.universityId) {
+      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
+    }
+
+    const warning = await this.prisma.moderationWarning.create({
+      data: { userId, issuedById: viewer.sub, complaintId },
+      select: { id: true },
+    })
+    const total = await this.prisma.moderationWarning.count({ where: { userId } })
+
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.MODERATION_WARNING,
+      {
+        recipientIds: [userId],
+        type: 'SYSTEM',
+        title: 'Предупреждение модератора',
+        body: 'Ваши материалы нарушают правила платформы. При повторном нарушении доступ будет ограничен.',
+        data: { warningId: warning.id },
+        dedupeKey: `moderation-warning:${warning.id}`,
+      },
+      { jobId: `moderation-warning:${warning.id}` },
+    )
+
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'user_warned',
+      entity: 'User',
+      entityId: userId,
+      metadata: { warningId: warning.id, ...(complaintId ? { complaintId } : {}) },
+    })
+
+    return { total }
   }
 
   /**
