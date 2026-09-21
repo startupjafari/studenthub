@@ -168,9 +168,7 @@ export class ComplaintsService {
     // Кто отвечает за цель. В жалобе на пост или сообщение автора не видно, а решение
     // принимается про человека: заблокировать — значит заблокировать именно его.
     // Снесённая цель отвечает null — карточку нарушителя тогда просто не показываем.
-    const targetOwnerId = await this.getTarget(complaint.targetType, complaint.targetId)
-      .then((target) => target.ownerId)
-      .catch(() => null)
+    const targetOwnerId = await this.ownerOf(complaint)
     return { ...complaint, targetReports, targetOwnerId }
   }
 
@@ -192,12 +190,26 @@ export class ComplaintsService {
       }
       await this.softDeleteTarget(targetType, complaint.targetId)
     } else if (input.action === 'BLOCK_USER') {
-      const target = await this.getTarget(targetType, complaint.targetId).catch(() => null)
-      const ownerId = target?.ownerId
+      const ownerId = await this.ownerOf(complaint)
       if (!ownerId)
         throw new AppException('BAD_REQUEST', 'Не удалось определить пользователя для блокировки')
+      // Срок делает блокировку временной: её снимет крон, а не память модератора.
+      const until = input.blockDays
+        ? new Date(Date.now() + input.blockDays * 24 * 60 * 60 * 1000)
+        : null
       // UserService.setBlocked проверяет scope и рвёт сессии.
-      await this.users.setBlocked(actor, ownerId, true)
+      await this.users.setBlocked(actor, ownerId, true, until)
+    } else if (input.action === 'WARN_USER') {
+      const ownerId = await this.ownerOf(complaint)
+      if (!ownerId)
+        throw new AppException(
+          'BAD_REQUEST',
+          'Не удалось определить пользователя для предупреждения',
+        )
+      // Предупреждение не трогает ни контент, ни доступ: человеку уходит уведомление,
+      // а модерации остаётся запись — вторая жалоба на того же человека будет разбираться
+      // уже зная, что разговор был.
+      await this.users.warn(actor, ownerId, id)
     }
 
     const status = input.action === 'DISMISS' ? ComplaintStatus.DISMISSED : ComplaintStatus.RESOLVED
@@ -373,6 +385,12 @@ export class ComplaintsService {
   }
 
   /** Проверка существования цели и вычисление её вуза/владельца. */
+  /** Владелец цели: автор поста, отправитель сообщения или сам пользователь. */
+  private async ownerOf(complaint: { targetType: ComplaintTargetType; targetId: string }) {
+    const target = await this.getTarget(complaint.targetType, complaint.targetId).catch(() => null)
+    return target?.ownerId ?? null
+  }
+
   private async getTarget(type: ComplaintTargetType, targetId: string): Promise<TargetInfo> {
     switch (type) {
       case ComplaintTargetType.STORY:

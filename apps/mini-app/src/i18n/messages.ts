@@ -317,6 +317,18 @@ const ru = {
   personRoleUniModerator: 'Модератор вуза',
   personRolePlatformAdmin: 'Администратор платформы',
   personRolePlatformModerator: 'Модератор платформы',
+
+  // ── Предупреждение и срок блокировки ───────────────────────────────────
+  complaintWarnUser: 'Предупредить',
+  complaintConfirmWarn: 'Вынести автору предупреждение?',
+  complaintBlockUserFor: 'Заблокировать на {days} дн.',
+  complaintConfirmBlockFor: 'Заблокировать автора на {days} дн.?',
+  blockForever: 'Навсегда',
+  blockWeek: '7 дней',
+  blockMonth: '30 дней',
+  peopleConfirmBlockFor: 'Заблокировать {name} на {days} дн.?',
+  personBlockedUntil: 'Заблокирован до {when}',
+  personWarnings: 'Предупреждений: {count}',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -622,6 +634,18 @@ const kk: Record<MessageKey, string> = {
   personRoleUniModerator: 'ЖОО модераторы',
   personRolePlatformAdmin: 'Платформа әкімшісі',
   personRolePlatformModerator: 'Платформа модераторы',
+
+  // ── Ескерту және бұғаттау мерзімі ──────────────────────────────────────
+  complaintWarnUser: 'Ескерту жасау',
+  complaintConfirmWarn: 'Авторға ескерту жасалсын ба?',
+  complaintBlockUserFor: '{days} күнге бұғаттау',
+  complaintConfirmBlockFor: 'Автор {days} күнге бұғатталсын ба?',
+  blockForever: 'Мәңгілікке',
+  blockWeek: '7 күн',
+  blockMonth: '30 күн',
+  peopleConfirmBlockFor: '{name} {days} күнге бұғатталсын ба?',
+  personBlockedUntil: '{when} дейін бұғатталған',
+  personWarnings: 'Ескертулер: {count}',
 }
 
 const en: Record<MessageKey, string> = {
@@ -924,6 +948,18 @@ const en: Record<MessageKey, string> = {
   personRoleUniModerator: 'University moderator',
   personRolePlatformAdmin: 'Platform admin',
   personRolePlatformModerator: 'Platform moderator',
+
+  // ── Warning and block term ─────────────────────────────────────────────
+  complaintWarnUser: 'Warn',
+  complaintConfirmWarn: 'Issue a warning to the author?',
+  complaintBlockUserFor: 'Block for {days} days',
+  complaintConfirmBlockFor: 'Block the author for {days} days?',
+  blockForever: 'Forever',
+  blockWeek: '7 days',
+  blockMonth: '30 days',
+  peopleConfirmBlockFor: 'Block {name} for {days} days?',
+  personBlockedUntil: 'Blocked until {when}',
+  personWarnings: 'Warnings: {count}',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

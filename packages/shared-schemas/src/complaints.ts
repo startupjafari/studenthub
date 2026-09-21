@@ -50,7 +50,12 @@ export type CreateComplaintInput = z.infer<typeof CreateComplaintSchema>
 // Действие модератора при разрешении жалобы (задача 11.4).
 export const ResolveComplaintSchema = z
   .object({
-    action: z.enum(['DELETE_CONTENT', 'BLOCK_USER', 'DISMISS']),
+    /**
+     * `WARN_USER` — промежуточная мера: человеку уходит уведомление, запись остаётся в
+     * модерации навсегда. До неё шкала шла от «нарушения нет» сразу к блокировке, и на
+     * первый грубый комментарий приходилось выбирать между «ничего» и отключением.
+     */
+    action: z.enum(['DELETE_CONTENT', 'BLOCK_USER', 'WARN_USER', 'DISMISS']),
     comment: z.string().max(2000).optional(),
     /**
      * Применить решение ко ВСЕМ необработанным жалобам на ту же цель.
@@ -60,11 +65,26 @@ export const ResolveComplaintSchema = z
      * выполняется РОВНО ОДИН раз: остальные жалобы просто получают тот же статус.
      */
     applyToDuplicates: z.boolean().optional(),
+    /**
+     * Срок блокировки в днях (только для `BLOCK_USER`). Без него блокировка бессрочная —
+     * как была. Потолок в 365 дней: всё, что дольше года, по смыслу и есть «навсегда»,
+     * и промах в поле ввода не должен создавать блокировку до 2147 года.
+     */
+    blockDays: z.number().int().min(1).max(365).optional(),
     /** Код 2FA. Обязателен только из мини-аппа (ActionConfirmGuard). */
     code: z.string().trim().min(6).max(16).optional(),
   })
   .strict()
 export type ResolveComplaintInput = z.infer<typeof ResolveComplaintSchema>
+
+/** Тело `PATCH /users/:id/block`: срок и код 2FA — оба необязательны. */
+export const BlockUserSchema = z
+  .object({
+    blockDays: z.number().int().min(1).max(365).optional(),
+    code: z.string().trim().min(6).max(16).optional(),
+  })
+  .strict()
+export type BlockUserInput = z.infer<typeof BlockUserSchema>
 
 // Колонки таблицы жалоб, по которым разрешена сортировка.
 export const COMPLAINT_SORT_FIELDS = ['priority', 'createdAt', 'status', 'targetType'] as const

@@ -7,6 +7,7 @@ import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import { CronLockService } from '../../common/redis/cron-lock.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
@@ -40,6 +41,7 @@ const LOCK_TTL_MS = {
   sendDailyDigest: 10 * 60 * 1000,
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
+  liftExpiredBlocks: 4 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
@@ -90,6 +92,7 @@ export class CleanupService {
     private readonly documents: DocumentsService,
     private readonly chats: ChatsService,
     private readonly locks: CronLockService,
+    private readonly audit: AuditService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly support: SupportService,
     private readonly telegram: TelegramNotifyService,
@@ -129,6 +132,42 @@ export class CleanupService {
     return this.locks.run('sweepDocumentExpiry', LOCK_TTL_MS.sweepDocumentExpiry, () =>
       this.documents.sweepExpiry(),
     )
+  }
+
+  // Временные блокировки: снимаем те, у которых вышел срок. Каждые пять минут — так же,
+  // как техработы: человек, отсидевший сутки, не должен ждать до ночного прогона.
+  @Cron('*/5 * * * *', { name: 'liftExpiredBlocks' })
+  async liftExpiredBlocks(): Promise<number | null> {
+    return this.locks.run('liftExpiredBlocks', LOCK_TTL_MS.liftExpiredBlocks, () =>
+      this.liftExpiredBlocksTask(),
+    )
+  }
+
+  private async liftExpiredBlocksTask(): Promise<number> {
+    const now = new Date()
+    let total = 0
+    for (;;) {
+      const batch = await this.prisma.user.findMany({
+        where: { isBlocked: true, blockedUntil: { lte: now } },
+        select: { id: true },
+        take: BATCH_SIZE,
+      })
+      if (batch.length === 0) break
+      const ids = batch.map((row) => row.id)
+      const { count } = await this.prisma.user.updateMany({
+        where: { id: { in: ids } },
+        data: { isBlocked: false, blockedUntil: null },
+      })
+      total += count
+      // Снятие блокировки — событие того же веса, что и сама блокировка: без записи в
+      // журнале человек «разблокировался сам», и через месяц никто не объяснит, почему.
+      for (const id of ids) {
+        await this.audit.record({ action: 'user_unblocked_expired', entity: 'User', entityId: id })
+      }
+      if (batch.length < BATCH_SIZE) break
+    }
+    if (total > 0) this.logger.log(`liftExpiredBlocks: снято блокировок ${total}`)
+    return total
   }
 
   // Просроченные PENDING-инвайты → EXPIRED. Ежечасно.

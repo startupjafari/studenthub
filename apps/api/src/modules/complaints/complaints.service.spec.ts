@@ -32,7 +32,10 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
-  const users = { setBlocked: jest.fn().mockResolvedValue(undefined) }
+  const users = {
+    setBlocked: jest.fn().mockResolvedValue(undefined),
+    warn: jest.fn().mockResolvedValue({ total: 1 }),
+  }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
@@ -256,6 +259,54 @@ describe('ComplaintsService.resolve (11.4)', () => {
     await service.resolve(admin, 'c1', { action: 'DISMISS' }, ctx)
     expect(prisma.complaint.update.mock.calls[0][0].data.status).toBe('DISMISSED')
     expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['r1'])
+  })
+
+  // Промежуточная мера: до неё шкала шла от «нарушения нет» сразу к блокировке.
+  it('WARN_USER → предупреждение автору, доступ не трогаем', async () => {
+    const { service, prisma, users } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
+
+    await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx)
+    expect(users.warn).toHaveBeenCalledWith(admin, 'author1', 'c1')
+    expect(users.setBlocked).not.toHaveBeenCalled()
+    expect(prisma.complaint.update.mock.calls[0][0].data.status).toBe('RESOLVED')
+  })
+
+  // Срок считается от решения: «на семь дней», выданное вечером, кончается вечером.
+  it('BLOCK_USER со сроком передаёт дату снятия', async () => {
+    const { service, prisma, users } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
+
+    await service.resolve(admin, 'c1', { action: 'BLOCK_USER', blockDays: 7 }, ctx)
+    const until = users.setBlocked.mock.calls[0][3] as Date
+    const days = Math.round((until.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+    expect(days).toBe(7)
+  })
+
+  it('BLOCK_USER без срока блокирует бессрочно', async () => {
+    const { service, prisma, users } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
+
+    await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx)
+    expect(users.setBlocked.mock.calls[0][3]).toBeNull()
   })
 
   it('DELETE_CONTENT (пост) → soft delete поста + RESOLVED', async () => {

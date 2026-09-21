@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchPersonCard, type PersonCard } from '../api/people'
 import { t, type MessageKey } from '../i18n'
-import { formatDay } from '../lib/format'
+import { formatDateTime, formatDay } from '../lib/format'
 
 // Кто этот человек — рядом с жалобой и рядом с обращением.
 //
@@ -67,7 +67,16 @@ export function PersonSummary({ userId, title }: { userId: string; title: string
         {card.university ? ` · ${card.university.name}` : ''}
       </p>
       <p className="hint">{t('personSince', { when: formatDay(card.createdAt) })}</p>
-      {card.isBlocked && <p className="hint hint-danger">{t('personBlocked')}</p>}
+      {card.isBlocked && (
+        <p className="hint hint-danger">
+          {/* Срок важнее самого факта: «до завтра» и «навсегда» — разные решения,
+              и повторно блокировать человека, который и так отключён до среды, незачем. */}
+          {card.blockedUntil
+            ? t('personBlockedUntil', { when: formatDateTime(card.blockedUntil) })
+            : t('personBlocked')}
+        </p>
+      )}
+      {card.warnings > 0 && <p className="hint">{t('personWarnings', { count: card.warnings })}</p>}
       {/* «Впервые или снова» — то, чего не видно ни в тексте жалобы, ни в вопросе.
           Счётчик считает жалобы на самого человека: так отвечает сервер, и обещать
           больше, чем он считает, значило бы врать в самом чувствительном месте. */}

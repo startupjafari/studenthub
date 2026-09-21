@@ -17,6 +17,8 @@ function card(over: Partial<PersonCard> = {}): PersonCard {
     lastName: 'Серикова',
     role: 'STUDENT',
     isBlocked: false,
+    blockedUntil: null,
+    warnings: 0,
     createdAt: '2025-09-14T10:00:00.000Z',
     university: { id: 'uni1', name: 'КазНУ' },
     complaints: { total: 0, upheld: 0 },
@@ -57,6 +59,24 @@ describe('PersonSummary', () => {
     render(<PersonSummary userId="u1" title="Нарушитель" />)
 
     expect(await screen.findByText('Доступ заблокирован')).toBeInTheDocument()
+  })
+
+  // «До среды» и «навсегда» — разные решения: блокировать второй раз того, кто и так
+  // отключён до среды, незачем, а по строке «доступ заблокирован» это неразличимо.
+  it('показывает срок временной блокировки, а не просто факт', async () => {
+    vi.mocked(fetchPersonCard).mockResolvedValue(
+      card({ isBlocked: true, blockedUntil: '2026-10-01T09:00:00.000Z' }),
+    )
+    render(<PersonSummary userId="u1" title="Нарушитель" />)
+
+    expect(await screen.findByText(/Заблокирован до/)).toBeInTheDocument()
+  })
+
+  it('считает предупреждения: второе за месяц — не первое за два года', async () => {
+    vi.mocked(fetchPersonCard).mockResolvedValue(card({ warnings: 2 }))
+    render(<PersonSummary userId="u1" title="Нарушитель" />)
+
+    expect(await screen.findByText('Предупреждений: 2')).toBeInTheDocument()
   })
 
   // Карточка вспомогательная: по отказу экран разбора обязан остаться рабочим.
