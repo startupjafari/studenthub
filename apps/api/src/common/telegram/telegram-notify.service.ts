@@ -88,6 +88,19 @@ export class TelegramNotifyService {
     )
   }
 
+  /**
+   * Сообщение конкретному человеку в Telegram.
+   *
+   * Политика тишины и дежурства сюда НЕ применяется: это не оповещение команды о работе,
+   * а подтверждение действия самому человеку — «твой Telegram только что привязали».
+   * Заглушить такое значило бы скрыть от него изменение доступа к его же аккаунту.
+   */
+  async notifyOne(telegramId: bigint | string, text: string): Promise<void> {
+    const token = this.config.get('TELEGRAM_BOT_TOKEN', { infer: true })
+    if (!token) return
+    await this.send(token, telegramId.toString(), text, this.keyboard())
+  }
+
   /** Кнопка «открыть» — только если адрес мини-аппа задан; иначе уходит голый текст. */
   private keyboard(deepLink?: string): unknown | undefined {
     const base = this.config.get('MINI_APP_URL', { infer: true })

@@ -5,6 +5,7 @@ import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Public } from '../../common/decorators/public.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { MiniService } from './mini.service'
@@ -36,6 +37,15 @@ export class MiniController {
   @ApiResponse({ status: 201, description: 'Код выдан, живёт 5 минут' })
   linkCode(@CurrentUser() user: CurrentUserData) {
     return this.mini.issueLinkCode(user.sub, user.role)
+  }
+
+  @Get('links')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Кто из команды привязал Telegram и когда открывал мини-апп' })
+  links() {
+    return this.mini.listLinks()
   }
 
   @Get('link')

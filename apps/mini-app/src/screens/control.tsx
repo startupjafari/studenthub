@@ -114,6 +114,10 @@ export function ControlScreen({ userId }: { userId: string }) {
       <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
       <SectionsCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
+
+      {/* Какая сборка открыта. Не украшение: сервисы на Railway однажды разъехались по
+          веткам, и мини-апп неделю ходил в бэкенд за маршрутами, которых там не было. */}
+      <p className="footnote">{t('aboutVersion', { version: __APP_VERSION__ })}</p>
     </div>
   )
 }
