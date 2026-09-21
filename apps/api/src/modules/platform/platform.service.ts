@@ -3,6 +3,7 @@ import type { PlatformState } from '@prisma/client'
 import type Redis from 'ioredis'
 import type {
   AnnounceReleaseInput,
+  SetNotificationsInput,
   SetBannerInput,
   SetMaintenanceInput,
   SetSectionsInput,
@@ -10,6 +11,7 @@ import type {
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import type { NotificationPolicy } from './platform.constants'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { TwoFactorService } from '../auth/two-factor.service'
 import type { RequestContext } from '../auth/auth.service'
@@ -44,6 +46,15 @@ export interface LocalizedText {
  * мини-апп и мобильный браузер с уехавшими часами решали бы этот вопрос по-разному.
  */
 export interface PublicPlatformState {
+  /** Настройки уведомлений команде. Публичны намеренно: в них нет ничего о людях,
+      кроме id дежурного, а знание «сейчас тихие часы» не даёт постороннему ничего. */
+  notifications: {
+    quietFrom: number | null
+    quietTo: number | null
+    muted: string[]
+    dutyUserId: string | null
+    digestHour: number | null
+  }
   maintenance: { until: string; message: LocalizedText | null } | null
   banner: { until: string; level: 'INFO' | 'WARNING'; text: LocalizedText } | null
   disabledSections: string[]
@@ -54,6 +65,7 @@ export interface PublicPlatformState {
 type StatePatch = Partial<Omit<PlatformState, 'id' | 'updatedById' | 'updatedAt'>>
 
 const EMPTY: PublicPlatformState = {
+  notifications: { quietFrom: null, quietTo: null, muted: [], dutyUserId: null, digestHour: null },
   maintenance: null,
   banner: null,
   disabledSections: [],
@@ -84,6 +96,22 @@ export class PlatformService {
       this.memo = { until: row?.maintenanceUntil ?? null, readAt: Date.now() }
     }
     return alive(this.memo.until, now)
+  }
+
+  /**
+   * Кого и когда уведомлять. Читается перед каждой отправкой в Telegram, поэтому идёт
+   * через тот же кэш, что и состояние: настройки меняют раз в месяц, а спрашивают их
+   * на каждую жалобу.
+   */
+  async notificationPolicy(): Promise<NotificationPolicy> {
+    const row = await this.read()
+    return {
+      quietFrom: row?.quietFrom ?? null,
+      quietTo: row?.quietTo ?? null,
+      muted: row?.mutedNotifications ?? [],
+      dutyUserId: row?.dutyUserId ?? null,
+      digestHour: row?.digestHour ?? null,
+    }
   }
 
   /** Публичное состояние платформы. Пока рычагов не трогали, строки нет — это норма. */
@@ -175,6 +203,35 @@ export class PlatformService {
     return state
   }
 
+  /** Настройки уведомлений команде: тишина, дежурный, что слать, час сводки. */
+  async setNotifications(
+    userId: string,
+    input: SetNotificationsInput,
+    ctx: RequestContext = {},
+  ): Promise<PublicPlatformState> {
+    const state = await this.write(userId, {
+      quietFrom: input.quietFrom,
+      quietTo: input.quietTo,
+      mutedNotifications: input.muted,
+      dutyUserId: input.dutyUserId,
+      digestHour: input.digestHour,
+    })
+    await this.audit.record({
+      userId,
+      action: 'platform.notifications.set',
+      entity: 'PlatformState',
+      metadata: {
+        quietFrom: input.quietFrom,
+        quietTo: input.quietTo,
+        muted: input.muted,
+        duty: input.dutyUserId !== null,
+        digestHour: input.digestHour,
+      },
+      ...ctx,
+    })
+    return state
+  }
+
   /** Объявить версию «Что нового» — только номер, текст едет в бандле web. */
   async announceRelease(
     userId: string,
@@ -245,6 +302,13 @@ export class PlatformService {
 /** Применяет сроки и отбрасывает служебные поля (кто правил — не дело посетителя). */
 function project(row: PlatformState, now: Date): PublicPlatformState {
   return {
+    notifications: {
+      quietFrom: row.quietFrom,
+      quietTo: row.quietTo,
+      muted: row.mutedNotifications,
+      dutyUserId: row.dutyUserId,
+      digestHour: row.digestHour,
+    },
     maintenance: alive(row.maintenanceUntil, now)
       ? {
           until: row.maintenanceUntil!.toISOString(),

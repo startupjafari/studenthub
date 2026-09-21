@@ -79,7 +79,13 @@ export function App() {
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
         )}
         {state.status === 'ready' && (
-          <ReadyView role={state.user.role} tab={tab} onTab={setTab} deepLink={deepLink} />
+          <ReadyView
+            userId={state.user.id}
+            role={state.user.role}
+            tab={tab}
+            onTab={setTab}
+            deepLink={deepLink}
+          />
         )}
       </main>
     </div>
@@ -87,11 +93,13 @@ export function App() {
 }
 
 function ReadyView({
+  userId,
   role,
   tab,
   onTab,
   deepLink,
 }: {
+  userId: string
   role: MiniUser['role']
   tab: Tab
   onTab: (tab: Tab) => void
@@ -138,7 +146,7 @@ function ReadyView({
       {active === 'control' && (
         <>
           <OverviewScreen />
-          <ControlScreen />
+          <ControlScreen userId={userId} />
         </>
       )}
     </>

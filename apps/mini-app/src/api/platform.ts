@@ -1,4 +1,5 @@
 import { apiGet, apiPatch } from './client'
+import type { MessageKey } from '../i18n'
 
 // Рычаги управления вебом. Типы повторяют ответ `GET /platform/state`.
 //
@@ -12,7 +13,25 @@ export interface LocalizedText {
   en: string
 }
 
+export interface NotificationSettings {
+  quietFrom: number | null
+  quietTo: number | null
+  muted: string[]
+  dutyUserId: string | null
+  digestHour: number | null
+}
+
+export type NotificationKind = 'complaint' | 'ticket' | 'reply' | 'digest'
+
+export const NOTIFICATION_KINDS: { key: NotificationKind; labelKey: MessageKey }[] = [
+  { key: 'complaint', labelKey: 'notifKindComplaint' },
+  { key: 'ticket', labelKey: 'notifKindTicket' },
+  { key: 'reply', labelKey: 'notifKindReply' },
+  { key: 'digest', labelKey: 'notifKindDigest' },
+]
+
 export interface PlatformState {
+  notifications: NotificationSettings
   maintenance: { until: string; message: LocalizedText | null } | null
   banner: { until: string; level: 'INFO' | 'WARNING'; text: LocalizedText } | null
   disabledSections: string[]
@@ -102,4 +121,9 @@ export async function setSections(disabled: string[]): Promise<PlatformState> {
 
 export async function announceRelease(version: string | null): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/release', { version })
+}
+
+/** Настройки уведомлений команде. Отправляются целиком: это состояние, а не команда. */
+export async function setNotifications(input: NotificationSettings): Promise<PlatformState> {
+  return apiPatch<PlatformState>('/platform/notifications', input)
 }

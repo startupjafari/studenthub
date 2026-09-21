@@ -9,6 +9,9 @@ function makeService() {
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     auditLog: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     file: { findMany: jest.fn() as Mock },
+    // Счётчики суточной сводки.
+    complaint: { count: jest.fn(async () => 0) as Mock },
+    chat: { count: jest.fn(async () => 0) as Mock },
   }
   const minio = { listObjectsV2: jest.fn() as Mock, removeObject: jest.fn() as Mock }
   const config = { get: jest.fn((k: string) => k) as Mock } // возвращает имя ключа как имя бакета
@@ -34,6 +37,18 @@ function makeService() {
   // Доставка отложенных сообщений чатов: cron только делегирует, поэтому в тесте достаточно
   // счётчика — сама доставка проверяется в chats.service.spec.ts.
   const chats = { deliverDueScheduled: jest.fn(async () => 0) as Mock }
+  // Суточная сводка: cron спрашивает час отправки у состояния платформы и пишет в Telegram.
+  const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
+  const platform = {
+    maintenanceActive: jest.fn(async () => false) as Mock,
+    notificationPolicy: jest.fn(async () => ({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: null,
+    })) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -44,8 +59,24 @@ function makeService() {
     chats as never,
     locks as never,
     redis as never,
+    telegram as never,
+    platform as never,
   )
-  return { service, prisma, minio, config, events, posts, documents, chats, locks, redis, store }
+  return {
+    service,
+    prisma,
+    minio,
+    config,
+    events,
+    posts,
+    documents,
+    chats,
+    locks,
+    redis,
+    store,
+    telegram,
+    platform,
+  }
 }
 
 // Поток MinIO listObjectsV2 → синхронно эмитим data+end при подписке на 'end'
@@ -199,5 +230,48 @@ describe('CleanupService — Redis-лок задач (Ф13.9)', () => {
       'cleanAuditLogs',
       'cleanOrphanFiles',
     ])
+  })
+})
+
+describe('CleanupService.sendDailyDigest', () => {
+  /**
+   * Cron ходит ежечасно, а отправляет только в выбранный админом час: держать время в
+   * cron-выражении значило бы перезапускать приложение ради его смены.
+   */
+  it('молчит в чужой час', async () => {
+    const c = makeService()
+    c.platform.notificationPolicy.mockResolvedValue({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: (new Date().getHours() + 1) % 24,
+    })
+
+    await expect(c.service.sendDailyDigest()).resolves.toBe(0)
+    expect(c.telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+
+  it('не шлёт сводку, пока час не выбран', async () => {
+    const c = makeService()
+
+    await expect(c.service.sendDailyDigest()).resolves.toBe(0)
+    expect(c.telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+
+  // «Ноль и ноль» — тоже новость: по отсутствию сводки нельзя отличить спокойный день
+  // от сломавшейся отправки.
+  it('шлёт сводку и при пустой очереди', async () => {
+    const c = makeService()
+    c.platform.notificationPolicy.mockResolvedValue({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: new Date().getHours(),
+    })
+
+    await expect(c.service.sendDailyDigest()).resolves.toBe(1)
+    expect(c.telegram.notifyStaff).toHaveBeenCalledWith('digest', expect.stringContaining('0'))
   })
 })

@@ -4,15 +4,19 @@ import {
   fetchPlatformState,
   setBanner,
   setMaintenance,
+  setNotifications,
   setSections,
   BANNER_PRESETS,
+  NOTIFICATION_KINDS,
   SECTIONS,
+  type NotificationKind,
+  type NotificationSettings,
   type PlatformState,
 } from '../api/platform'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
-import { locale } from '../i18n'
+import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
@@ -34,7 +38,7 @@ const BANNER_PERIODS = [
 
 type Load = { status: 'loading' } | { status: 'ready'; state: PlatformState } | { status: 'error' }
 
-export function ControlScreen() {
+export function ControlScreen({ userId }: { userId: string }) {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -107,6 +111,7 @@ export function ControlScreen() {
 
       <MaintenanceCard state={state} busy={busy} run={run} />
       <BannerCard state={state} busy={busy} run={run} />
+      <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
       <SectionsCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
     </div>
@@ -348,5 +353,149 @@ function Head({ hint }: { hint: string }) {
       <h1>{t('controlTitle')}</h1>
       <p className="hint">{hint}</p>
     </header>
+  )
+}
+
+/**
+ * Уведомления команде. Четыре решения, каждое — выбор из готовых вариантов: часы тишины,
+ * что присылать, кто дежурит и когда приходит сводка.
+ *
+ * Произвольные часы не вводятся намеренно. «Не будить с 22 до 8» — решение о ночи, а не
+ * о минутах; поле ввода времени на телефоне стоит трёх тапов и даёт точность, которой
+ * здесь некуда деться.
+ */
+function NotificationsCard({
+  state,
+  busy,
+  run,
+  userId,
+}: {
+  state: PlatformState
+  busy: boolean
+  run: Run
+  userId: string
+}) {
+  const current = state.notifications
+  const [draft, setDraft] = useState<NotificationSettings>(current)
+
+  const quietOptions: { labelKey: MessageKey; from: number | null; to: number | null }[] = [
+    { labelKey: 'notifQuietOff', from: null, to: null },
+    { labelKey: 'notifQuietNight', from: 22, to: 8 },
+    { labelKey: 'notifQuietEvening', from: 19, to: 9 },
+  ]
+  const digestOptions: { labelKey: MessageKey; hour: number | null }[] = [
+    { labelKey: 'notifDigestOff', hour: null },
+    { labelKey: 'notifDigestMorning', hour: 9 },
+    { labelKey: 'notifDigestEvening', hour: 18 },
+  ]
+
+  const toggleKind = (kind: NotificationKind): void => {
+    haptic.select()
+    setDraft((prev) => ({
+      ...prev,
+      muted: prev.muted.includes(kind)
+        ? prev.muted.filter((item) => item !== kind)
+        : [...prev.muted, kind],
+    }))
+  }
+
+  return (
+    <section className="card">
+      <h2>{t('notifTitle')}</h2>
+      <p className="hint">{t('notifHint')}</p>
+
+      <p className="hint">{t('notifQuiet')}</p>
+      <div className="chips">
+        {quietOptions.map((option) => (
+          <button
+            key={option.labelKey}
+            type="button"
+            className="chip"
+            aria-pressed={draft.quietFrom === option.from && draft.quietTo === option.to}
+            disabled={busy}
+            onClick={() => {
+              haptic.select()
+              setDraft((prev) => ({ ...prev, quietFrom: option.from, quietTo: option.to }))
+            }}
+          >
+            {t(option.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <p className="hint">{t('notifKinds')}</p>
+      <div className="chips">
+        {NOTIFICATION_KINDS.map(({ key, labelKey }) => (
+          <button
+            key={key}
+            type="button"
+            className="chip"
+            // Нажатая фишка = «присылать». Хранится обратное (список выключенного),
+            // чтобы новый вид уведомления по умолчанию доходил.
+            aria-pressed={!draft.muted.includes(key)}
+            disabled={busy}
+            onClick={() => toggleKind(key)}
+          >
+            {t(labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <p className="hint">{t('notifDuty')}</p>
+      <div className="chips">
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={draft.dutyUserId === null}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setDraft((prev) => ({ ...prev, dutyUserId: null }))
+          }}
+        >
+          {t('notifDutyTeam')}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={draft.dutyUserId === userId}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setDraft((prev) => ({ ...prev, dutyUserId: userId }))
+          }}
+        >
+          {t('notifDutyMe')}
+        </button>
+      </div>
+
+      <p className="hint">{t('notifDigest')}</p>
+      <div className="chips">
+        {digestOptions.map((option) => (
+          <button
+            key={option.labelKey}
+            type="button"
+            className="chip"
+            aria-pressed={draft.digestHour === option.hour}
+            disabled={busy}
+            onClick={() => {
+              haptic.select()
+              setDraft((prev) => ({ ...prev, digestHour: option.hour }))
+            }}
+          >
+            {t(option.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        className="fallback-submit"
+        disabled={busy}
+        onClick={() => void run(t('notifConfirm'), () => setNotifications(draft))}
+      >
+        {t('notifSave')}
+      </button>
+    </section>
   )
 }

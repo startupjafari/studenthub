@@ -120,6 +120,7 @@ export class ComplaintsService {
     // обесценятся, и первыми перестанут читать как раз срочные.
     if (complaint.priority === ComplaintPriority.HIGH) {
       await this.telegram.notifyStaff(
+        'complaint',
         `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
         `complaint_${complaint.id}`,
       )

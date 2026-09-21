@@ -80,3 +80,27 @@ export const AnnounceReleaseSchema = z.object({
     .nullable(),
 })
 export type AnnounceReleaseInput = z.infer<typeof AnnounceReleaseSchema>
+
+/** Виды уведомлений, которые команда платформы получает в Telegram. */
+export const NOTIFICATION_KINDS = ['complaint', 'ticket', 'reply', 'digest'] as const
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
+
+const hour = z.number().int().min(0).max(23)
+
+/**
+ * Настройки уведомлений команде. Часы — по времени сервера и целые: «не будить с 22 до 8»
+ * это решение о ночи, а не о минутах, и половинчатая точность только усложнила бы ввод
+ * с телефона.
+ *
+ * `quietFrom === quietTo` схема не запрещает намеренно: это «тишина круглые сутки», то
+ * есть выключить уведомления, не стирая настройку.
+ */
+export const SetNotificationsSchema = z.object({
+  quietFrom: hour.nullable(),
+  quietTo: hour.nullable(),
+  muted: z.array(z.enum(NOTIFICATION_KINDS)).max(NOTIFICATION_KINDS.length),
+  /** id дежурного; null — уведомлять всю команду. */
+  dutyUserId: z.string().uuid().nullable(),
+  digestHour: hour.nullable(),
+})
+export type SetNotificationsInput = z.infer<typeof SetNotificationsSchema>

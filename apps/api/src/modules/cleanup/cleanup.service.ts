@@ -13,6 +13,8 @@ import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
+import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
+import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
 // Разбрасывать @Cron по модулям запрещено. Все задачи работают батчами и логируют счётчик.
@@ -33,6 +35,7 @@ const LOCK_TTL_MS = {
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
+  sendDailyDigest: 10 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -58,6 +61,8 @@ export class CleanupService {
     private readonly chats: ChatsService,
     private readonly locks: CronLockService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly telegram: TelegramNotifyService,
+    @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
@@ -214,6 +219,35 @@ export class CleanupService {
     }
     this.logger.log(`cleanOrphanFiles: удалено осиротевших объектов ${removed}`)
     return removed
+  }
+
+  // Ежедневная сводка команде платформы. Ежечасно, а отправляет только в тот час,
+  // который админ выбрал: хранить расписание в cron-выражении значило бы перезапускать
+  // приложение ради смены времени.
+  @Cron('5 * * * *', { name: 'sendDailyDigest' })
+  async sendDailyDigest(): Promise<number | null> {
+    return this.locks.run('sendDailyDigest', LOCK_TTL_MS.sendDailyDigest, () =>
+      this.sendDailyDigestTask(),
+    )
+  }
+
+  private async sendDailyDigestTask(): Promise<number> {
+    const policy = await this.platform.notificationPolicy()
+    if (policy.digestHour === null || policy.digestHour !== new Date().getHours()) return 0
+
+    const [complaints, tickets] = await Promise.all([
+      this.prisma.complaint.count({ where: { status: { in: ['PENDING', 'REVIEWING'] } } }),
+      this.prisma.chat.count({ where: { type: 'SUPPORT_PLATFORM', supportClosedAt: null } }),
+    ])
+
+    // Сводку шлём, даже когда всё разобрано: «ноль и ноль» — это тоже новость, и по её
+    // отсутствию нельзя отличить спокойный день от сломавшейся отправки.
+    await this.telegram.notifyStaff(
+      'digest',
+      `Сводка за день: жалоб в очереди ${complaints}, открытых обращений ${tickets}`,
+    )
+    this.logger.log(`sendDailyDigest: жалоб ${complaints}, обращений ${tickets}`)
+    return 1
   }
 
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---
