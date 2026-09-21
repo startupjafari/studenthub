@@ -51,6 +51,6 @@ import { LocalStrategy } from './strategies/local.strategy'
     { provide: APP_GUARD, useClass: ScopeGuard },
     { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, TwoFactorService, JwtModule],
 })
 export class AuthModule {}

@@ -101,6 +101,19 @@ export class TwoFactorService {
   }
 
   /**
+   * Подтверждение отдельного действия вторым фактором — не входа, а операции, которую
+   * нельзя совершить одним промахом по экрану (остановка платформы, блокировка человека).
+   *
+   * Если 2FA у человека не включена, ответ — «нет», а не «можно»: привилегированным ролям
+   * она обязательна (TwoFactorGuard), и попасть сюда без неё значит, что что-то не так.
+   */
+  async verifyForUser(userId: string, code: string): Promise<boolean> {
+    const rec = await this.users.getTwoFactorForLogin(userId)
+    if (!rec?.twoFactorEnabled) return false
+    return this.verifyCode(rec, code)
+  }
+
+  /**
    * Проверка кода на втором шаге входа / при отключении. 6 цифр → TOTP; иначе backup-код
    * (сверяем с bcrypt-хэшами и «сжигаем» использованный). Возвращает true при успехе.
    */
