@@ -5,13 +5,17 @@ import { Role } from '@studenthub/shared-types'
 import type { PlatformState } from '../../../entities/platform'
 
 let currentRole: Role | null = Role.STUDENT
+let pathname = '/'
 
 // next-intl → ключ как есть; локаль фиксируем, чтобы тексты выбирались предсказуемо.
 vi.mock('next-intl', () => ({
   useTranslations: () => (k: string) => k,
   useLocale: () => 'ru',
 }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ back: vi.fn(), push: vi.fn() }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
+  usePathname: () => pathname,
+}))
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a href={href}>{children}</a>
@@ -54,6 +58,7 @@ function show(state: PlatformState | Error) {
 describe('PlatformGate', () => {
   beforeEach(() => {
     currentRole = Role.STUDENT
+    pathname = '/'
     vi.clearAllMocks()
   })
 
@@ -113,5 +118,44 @@ describe('PlatformGate', () => {
 
     expect(await screen.findByText('Лента')).toBeInTheDocument()
     expect(screen.queryByText('maintenanceTitle')).not.toBeInTheDocument()
+  })
+})
+
+describe('PlatformGate — погашенные разделы', () => {
+  beforeEach(() => {
+    currentRole = Role.STUDENT
+    vi.clearAllMocks()
+  })
+
+  it('закрывает страницу погашенного раздела', async () => {
+    pathname = '/chats'
+    show({ ...EMPTY, disabledSections: ['chats'] })
+
+    expect(await screen.findByText('sectionOffTitle')).toBeInTheDocument()
+    expect(screen.queryByText('Лента')).not.toBeInTheDocument()
+  })
+
+  it('не трогает соседние разделы', async () => {
+    pathname = '/events'
+    show({ ...EMPTY, disabledSections: ['chats'] })
+
+    expect(await screen.findByText('Лента')).toBeInTheDocument()
+  })
+
+  // Совпадение по границе сегмента: иначе «/chats-archive» уехал бы вместе с «/chats».
+  it('не путает раздел с похожим по началу путём', async () => {
+    pathname = '/chats-archive'
+    show({ ...EMPTY, disabledSections: ['chats'] })
+
+    expect(await screen.findByText('Лента')).toBeInTheDocument()
+  })
+
+  // Тот, кто решает вернуть раздел, обязан видеть ту же платформу, что и пользователи.
+  it('закрывает раздел и платформенному администратору', async () => {
+    currentRole = Role.PLATFORM_ADMIN
+    pathname = '/chats'
+    show({ ...EMPTY, disabledSections: ['chats'] })
+
+    expect(await screen.findByText('sectionOffTitle')).toBeInTheDocument()
   })
 })

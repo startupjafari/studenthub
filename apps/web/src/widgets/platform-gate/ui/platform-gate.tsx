@@ -1,9 +1,14 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
-import { Info, TriangleAlert, Wrench } from 'lucide-react'
+import { CircleSlash, Info, TriangleAlert, Wrench } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
-import { usePlatformState, pickPlatformText } from '../../../entities/platform'
+import {
+  usePlatformState,
+  pickPlatformText,
+  disabledSectionForPath,
+} from '../../../entities/platform'
 import { useAppSelector } from '../../../shared/store'
 import { StatusScreen } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -22,8 +27,9 @@ import { cn } from '../../../shared/lib/utils'
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
 export function PlatformGate({ children }: { children: React.ReactNode }) {
-  const { maintenance, banner } = usePlatformState()
+  const { maintenance, banner, disabledSections } = usePlatformState()
   const role = useAppSelector((s) => s.auth.role)
+  const pathname = usePathname()
   const locale = useLocale()
   const t = useTranslations('Platform')
 
@@ -42,6 +48,20 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
         // Возвращаться некуда: во время техработ любой маршрут покажет тот же экран.
         showHome={false}
         detail={{ label: t('maintenanceUntil'), value: formatUntil(maintenance.until, locale) }}
+      />
+    )
+  }
+
+  // Погашенный раздел закрыт для всех, включая платформенные роли. В отличие от техработ,
+  // здесь нет требования «кто-то обязан суметь это снять»: снимается раздел из мини-аппа.
+  // Зато есть обратное: решающий, вернуть ли раздел, должен видеть ту же платформу, что и
+  // пользователи, — иначе он судит по экрану, которого никто больше не видит.
+  if (disabledSectionForPath(pathname, disabledSections) !== null) {
+    return (
+      <StatusScreen
+        icon={CircleSlash}
+        title={t('sectionOffTitle')}
+        description={t('sectionOffText')}
       />
     )
   }

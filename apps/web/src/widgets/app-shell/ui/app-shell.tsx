@@ -18,6 +18,7 @@ import {
   type NavVariant,
 } from '../model/nav'
 import { fetchMe, userKeys } from '../../../entities/user'
+import { usePlatformState, isNavKeyDisabled } from '../../../entities/platform'
 import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useChatsUnread } from '../../../entities/chat'
@@ -475,9 +476,14 @@ export function AppShell({
 
   // Карьера — отдельный продукт: под /career сайдбар показывает её разделы, а не разделы
   // платформы. Обратно — через переключатель под логотипом.
-  const nav = isCareerPath(pathname)
-    ? careerNavFor(me.data?.role)
-    : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
+  const { disabledSections } = usePlatformState()
+  // Погашенный раздел уходит из навигации целиком. Это не защита — сервер всё равно
+  // решает сам, — а обещание: пункт, ведущий на заглушку, хуже отсутствующего пункта.
+  const nav = (
+    isCareerPath(pathname)
+      ? careerNavFor(me.data?.role)
+      : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
+  ).filter((item) => !isNavKeyDisabled(item.key, disabledSections))
   const chatsMode = pathname.endsWith('/chats')
   const [listSlot, setListSlot] = useState<HTMLElement | null>(null)
 
