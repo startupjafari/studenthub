@@ -6,6 +6,7 @@ import { PassportModule } from '@nestjs/passport'
 import type { EnvVars } from '../../config/env.schema'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
+import { ActionConfirmGuard } from '../../common/guards/action-confirm.guard'
 import { MaintenanceGuard } from '../../common/guards/maintenance.guard'
 import { MiniAppGuard } from '../../common/guards/mini-app.guard'
 import { ScopeGuard } from '../../common/guards/scope.guard'
@@ -52,6 +53,9 @@ import { LocalStrategy } from './strategies/local.strategy'
     // по роли — на маршруты вне белого списка ему нельзя независимо от роли.
     { provide: APP_GUARD, useClass: MiniAppGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // После ролей: подтверждение спрашивается только у того, кому маршрут в принципе
+    // разрешён, — иначе чужой перебирал бы коды на ручке, куда ему и так нельзя.
+    { provide: APP_GUARD, useClass: ActionConfirmGuard },
     { provide: APP_GUARD, useClass: ScopeGuard },
     { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],

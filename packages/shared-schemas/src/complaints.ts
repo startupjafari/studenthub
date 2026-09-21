@@ -60,6 +60,8 @@ export const ResolveComplaintSchema = z
      * выполняется РОВНО ОДИН раз: остальные жалобы просто получают тот же статус.
      */
     applyToDuplicates: z.boolean().optional(),
+    /** Код 2FA. Обязателен только из мини-аппа (ActionConfirmGuard). */
+    code: z.string().trim().min(6).max(16).optional(),
   })
   .strict()
 export type ResolveComplaintInput = z.infer<typeof ResolveComplaintSchema>

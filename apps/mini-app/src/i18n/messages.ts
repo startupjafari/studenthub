@@ -291,6 +291,8 @@ const ru = {
   peopleConfirmLogout: 'Завершить все сессии {name}? Человек сможет войти заново.',
   peopleLoggedOut: 'Сессии завершены',
   complaintHistory: 'Все жалобы на эту цель',
+  confirmCodeLabel: 'Код 2FA для блокировки',
+  confirmCodeNeeded: 'Блокировка с телефона требует кода из приложения-аутентификатора.',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -571,6 +573,8 @@ const kk: Record<MessageKey, string> = {
   peopleConfirmLogout: '{name} барлық сеансын аяқтау керек пе? Адам қайта кіре алады.',
   peopleLoggedOut: 'Сеанстар аяқталды',
   complaintHistory: 'Осы нысанға барлық шағым',
+  confirmCodeLabel: 'Бұғаттауға арналған 2FA коды',
+  confirmCodeNeeded: 'Телефоннан бұғаттау аутентификатор қосымшасының кодын талап етеді.',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -848,6 +852,8 @@ const en: Record<MessageKey, string> = {
   peopleConfirmLogout: 'End all sessions for {name}? They can sign in again.',
   peopleLoggedOut: 'Sessions ended',
   complaintHistory: 'All reports about this target',
+  confirmCodeLabel: '2FA code for blocking',
+  confirmCodeNeeded: 'Blocking from a phone needs a code from your authenticator app.',
   aboutVersion: 'Build {version}',
 }
 

@@ -91,11 +91,14 @@ export async function resolveComplaint(
   action: ResolveAction,
   comment?: string,
   applyToDuplicates?: boolean,
+  /** Нужен только для BLOCK_USER: блокировка с телефона подтверждается кодом. */
+  code?: string,
 ): Promise<Complaint> {
   return apiPatch<Complaint>(`/complaints/${id}/resolve`, {
     action,
     ...(comment ? { comment } : {}),
     ...(applyToDuplicates ? { applyToDuplicates: true } : {}),
+    ...(code ? { code } : {}),
   })
 }
 
