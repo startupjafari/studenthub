@@ -14,14 +14,6 @@ export interface JobMeta {
 // Payload job'а = данные + служебные _meta. Процессоры читают _meta для логирования.
 export type JobPayload<T extends object = Record<string, unknown>> = T & { _meta: JobMeta }
 
-/** Агрегаты по очереди для служебных проверок. */
-export interface QueueCounts {
-  waiting: number
-  active: number
-  delayed: number
-  failed: number
-}
-
 export interface EnqueueOptions extends JobsOptions {
   // Сквозной идентификатор запроса; если не передан — генерируем, чтобы job всегда был трассируем.
   requestId?: string
@@ -92,22 +84,6 @@ export class QueueService {
         { err: error, queue, jobName, requestId: meta.requestId },
         `Не удалось поставить job ${queue}/${jobName} (Redis недоступен?) — сайд-эффект пропущен`,
       )
-    }
-  }
-
-  /**
-   * Глубина очереди — агрегаты для диагностики.
-   *
-   * Живёт здесь: очереди — зона ответственности этого сервиса, и второй источник тех же
-   * чисел разошёлся бы с первым. Только чтение агрегатов, без выгрузки job'ов в приложение.
-   */
-  async counts(queue: QueueName): Promise<QueueCounts> {
-    const counts = await this.queues[queue].getJobCounts('waiting', 'active', 'delayed', 'failed')
-    return {
-      waiting: counts.waiting ?? 0,
-      active: counts.active ?? 0,
-      delayed: counts.delayed ?? 0,
-      failed: counts.failed ?? 0,
     }
   }
 
