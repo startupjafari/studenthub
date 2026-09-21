@@ -52,6 +52,14 @@ export const ResolveComplaintSchema = z
   .object({
     action: z.enum(['DELETE_CONTENT', 'BLOCK_USER', 'DISMISS']),
     comment: z.string().max(2000).optional(),
+    /**
+     * Применить решение ко ВСЕМ необработанным жалобам на ту же цель.
+     *
+     * Десять жалоб на один пост — обычное дело, и разбирать их по одной значит десять раз
+     * прочитать одно и то же. Побочное действие (снять контент, заблокировать) при этом
+     * выполняется РОВНО ОДИН раз: остальные жалобы просто получают тот же статус.
+     */
+    applyToDuplicates: z.boolean().optional(),
   })
   .strict()
 export type ResolveComplaintInput = z.infer<typeof ResolveComplaintSchema>

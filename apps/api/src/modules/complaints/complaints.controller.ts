@@ -90,6 +90,19 @@ export class ComplaintsController {
     return this.complaints.resolve(user, id, dto, this.ctx(req))
   }
 
+  @Patch(':id/reopen')
+  @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Вернуть жалобу в очередь (побочные действия не отменяются)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — жалоба и так в очереди' })
+  reopen(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.complaints.reopen(user, id, this.ctx(req))
+  }
+
   private ctx(req: FastifyRequest): RequestContext {
     return { ip: req.ip, userAgent: req.headers['user-agent'] }
   }

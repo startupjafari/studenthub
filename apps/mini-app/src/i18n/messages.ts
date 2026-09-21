@@ -248,6 +248,12 @@ const ru = {
   notifConfirm: 'Сохранить настройки уведомлений?',
   notifDigestMorning: 'Утром',
   notifDigestEvening: 'Вечером',
+  complaintApplyAll: 'Применить ко всем ({count})',
+  complaintReopen: 'Вернуть в очередь',
+  complaintReopenConfirm:
+    'Вернуть жалобу в очередь? Снятый контент не вернётся, блокировка снимается отдельно.',
+  complaintReopenError: 'Не удалось вернуть жалобу',
+  complaintResolvedAt: 'Разобрана {when}',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -485,6 +491,12 @@ const kk: Record<MessageKey, string> = {
   notifConfirm: 'Хабарлама параметрлерін сақтау керек пе?',
   notifDigestMorning: 'Таңертең',
   notifDigestEvening: 'Кешке',
+  complaintApplyAll: 'Барлығына қолдану ({count})',
+  complaintReopen: 'Кезекке қайтару',
+  complaintReopenConfirm:
+    'Шағымды кезекке қайтару керек пе? Алынған мазмұн қайтарылмайды, бұғаттау бөлек шешіледі.',
+  complaintReopenError: 'Шағымды қайтару мүмкін болмады',
+  complaintResolvedAt: '{when} қаралған',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -720,6 +732,12 @@ const en: Record<MessageKey, string> = {
   notifConfirm: 'Save notification settings?',
   notifDigestMorning: 'Morning',
   notifDigestEvening: 'Evening',
+  complaintApplyAll: 'Apply to all ({count})',
+  complaintReopen: 'Send back to the queue',
+  complaintReopenConfirm:
+    'Send this report back? Removed content does not come back, and a block is lifted separately.',
+  complaintReopenError: 'Could not send the report back',
+  complaintResolvedAt: 'Reviewed {when}',
   aboutVersion: 'Build {version}',
 }
 

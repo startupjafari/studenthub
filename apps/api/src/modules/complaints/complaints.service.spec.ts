@@ -348,3 +348,44 @@ describe('ComplaintsService.create — уведомление команды п�
     expect(telegram.notifyStaff).not.toHaveBeenCalled()
   })
 })
+
+describe('ComplaintsService.reopen', () => {
+  it('возвращает разобранную жалобу в очередь и стирает решение', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue({
+      id: 'c-1',
+      status: 'RESOLVED',
+      targetType: 'POST',
+      targetId: 'p1',
+      universityId: null,
+    })
+
+    await service.reopen(user(Role.PLATFORM_ADMIN), 'c-1', ctx)
+
+    expect(prisma.complaint.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PENDING',
+          resolvedById: null,
+          resolvedAt: null,
+          resolution: null,
+        }),
+      }),
+    )
+  })
+
+  it('не возвращает то, что и так в очереди', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue({
+      id: 'c-1',
+      status: 'PENDING',
+      targetType: 'POST',
+      targetId: 'p1',
+      universityId: null,
+    })
+
+    await expect(service.reopen(user(Role.PLATFORM_ADMIN), 'c-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+  })
+})
