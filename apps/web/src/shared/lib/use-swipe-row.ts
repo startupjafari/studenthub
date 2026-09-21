@@ -26,6 +26,11 @@ export type SwipeRowsController = {
   swiped: { id: string; side: SwipeSide } | null
   /** Жест только что двигал строку — клик по ней гасим (иначе свайп открывает элемент). */
   swipedFlagRef: RefObject<boolean>
+  /**
+   * Долгое нажатие уже отработало. Android поверх него шлёт ещё и `contextmenu`, и без этой
+   * метки меню открылось бы второй раз — без якоря строки и у точки касания.
+   */
+  longPressedRef: RefObject<boolean>
   /** Реестр узлов строк по id: нужен, чтобы императивно доводить и закрывать соседние. */
   rowElsRef: RefObject<Map<string, HTMLElement>>
   onRowTouchStart: (e: ReactTouchEvent<HTMLElement>, id: string) => void
@@ -35,10 +40,14 @@ export type SwipeRowsController = {
   closeRow: (id: string | null) => void
 }
 
+/** Столько держат палец до меню действий — как у сообщения в чате (`chat-window`). */
+const LONG_PRESS_MS = 450
+
 export function useSwipeRows({
   leftWidth,
   rightWidth,
   threshold = 56,
+  onLongPress,
 }: {
   /** Полная ширина левой панели действий (0 — свайп вправо запрещён). */
   leftWidth: number
@@ -46,6 +55,11 @@ export function useSwipeRows({
   rightWidth: number
   /** Порог проекции, после которого панель фиксируется открытой. */
   threshold?: number
+  /**
+   * Долгое нажатие по строке (тач) — меню действий. Узел отдаём вместе с id: меню поднимает
+   * его снимок над затемнением, и искать строку заново по id было бы лишним кругом.
+   */
+  onLongPress?: (id: string, el: HTMLElement) => void
 }): SwipeRowsController {
   const [swiped, setSwiped] = useState<{ id: string; side: SwipeSide } | null>(null)
   const gesture = useRef<{
@@ -55,13 +69,19 @@ export function useSwipeRows({
     moved: boolean
     el: HTMLElement
     base: number
+    /** Таймер долгого нажатия; снимается первым же заметным движением и на отпускании. */
+    timer: ReturnType<typeof setTimeout> | null
     // Окно последних точек — по нему считается скорость отпускания.
     history: { position: number; time: number }[]
   } | null>(null)
   // Строка, которую сейчас доводит пружина: одновременно движется ровно одна.
   const rowSpring = useRef<{ el: HTMLElement; spring: SpringHandle } | null>(null)
   const swipedFlagRef = useRef(false)
+  const longPressedRef = useRef(false)
   const rowElsRef = useRef<Map<string, HTMLElement>>(new Map())
+  // Свежий колбэк без пересоздания обработчиков: строки перерисовываются на каждое сообщение.
+  const longPressRef = useRef(onLongPress)
+  longPressRef.current = onLongPress
 
   /** Смещение строки по её логическому состоянию (право = +, лево = −). */
   function rowOffset(id: string): number {
@@ -117,6 +137,24 @@ export function useSwipeRows({
     // а не логическое, иначе она прыгнет под пальцем.
     const base = rowSpring.current?.el === el ? currentRowX(el) : rowOffset(id)
     rowSpring.current?.spring.stop()
+    longPressedRef.current = false
+    // Метку «клик после жеста» гасит сам клик, но он приходит не всегда (тап по кнопке
+    // открытой панели, отменённый жест). Новое касание — точка, где её точно можно снять:
+    // клик предыдущего жеста к этому моменту либо уже прилетел, либо не прилетит.
+    swipedFlagRef.current = false
+    const timer = longPressRef.current
+      ? setTimeout(() => {
+          const s = gesture.current
+          if (!s || s.moved) return
+          s.timer = null
+          longPressedRef.current = true
+          // Клик, который браузер пошлёт на отпускании, гасим той же меткой, что и после
+          // свайпа: палец вызывал меню, а не открывал строку.
+          swipedFlagRef.current = true
+          hapticTick()
+          longPressRef.current?.(id, el)
+        }, LONG_PRESS_MS)
+      : null
     gesture.current = {
       id,
       startX: tch.clientX,
@@ -124,8 +162,16 @@ export function useSwipeRows({
       moved: false,
       el,
       base,
+      timer,
       history: [{ position: tch.clientX, time: e.timeStamp }],
     }
+  }
+
+  /** Снять таймер долгого нажатия: движение или отпускание отменяют его. */
+  function cancelLongPress(s: { timer: ReturnType<typeof setTimeout> | null }): void {
+    if (!s.timer) return
+    clearTimeout(s.timer)
+    s.timer = null
   }
 
   function onRowTouchMove(e: ReactTouchEvent<HTMLElement>): void {
@@ -134,6 +180,8 @@ export function useSwipeRows({
     if (!s || !tch) return
     const dx = tch.clientX - s.startX
     const dy = tch.clientY - s.startY
+    // Любое заметное движение — это уже прокрутка или свайп, а не удержание.
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelLongPress(s)
     if (!s.moved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) s.moved = true
     if (!s.moved) return
     s.history.push({ position: tch.clientX, time: e.timeStamp })
@@ -155,7 +203,9 @@ export function useSwipeRows({
   function onRowTouchEnd(e: ReactTouchEvent<HTMLElement>, id: string): void {
     const s = gesture.current
     gesture.current = null
-    if (!s || !s.moved) return
+    if (!s) return
+    cancelLongPress(s)
+    if (!s.moved) return
     swipedFlagRef.current = true
     const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
     const finalX = s.base + dx
@@ -190,6 +240,7 @@ export function useSwipeRows({
   return {
     swiped,
     swipedFlagRef,
+    longPressedRef,
     rowElsRef,
     onRowTouchStart,
     onRowTouchMove,

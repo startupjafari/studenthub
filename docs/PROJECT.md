@@ -333,7 +333,9 @@ QR получается менее плотным (сканируется с б�
 studenthub/
 ├── apps/
 │   ├── web/                # Next.js frontend
-│   └── api/                # NestJS backend
+│   ├── api/                # NestJS backend
+│   ├── landing/            # публичный сайт (docs/LANDING.md)
+│   └── mini-app/           # Telegram Mini App (Vite + React)
 ├── packages/
 │   ├── shared-types/       # Role, DTO-интерфейсы, коды ошибок
 │   ├── shared-schemas/     # Zod-схемы — единый источник валидации
@@ -556,11 +558,17 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 **Auth** — `POST /auth/login` (публ.; тело `{ identifier, password }` — `identifier` это email ИЛИ username, регистронезависимо; при включённой 2FA возвращает `{ twoFactorRequired: true, challengeToken }` вместо токенов) · `POST /auth/login/2fa` (публ.; `{ challengeToken, code }` → сессия) · `POST /auth/refresh` (cookie) · `POST /auth/logout` · `GET /auth/me`. Регистрация (`/auth/register-by-invite`) требует `username` (обязателен, 3–32 [a-z0-9_], хранится в нижнем регистре, уникален). Модель: `User.username String? @unique` (nullable — у зарегистрированных до фичи его нет; задать или сменить можно в настройках, в карточке «Личные данные» — тем же сохранением, что и ФИО; запрос отдельный: `PATCH /users/me/username`). `username` отдаётся **только владельцу** (в `/users/me`): в чужой карточке он вырезается, как и `twoFactorEnabled` — это половина учётных данных, а не публичный хэндл.
 
-**Служебные вебхуки** (`docs/TELEGRAM_BOT.md` §5) — `POST /ops/hooks/railway` · `POST /ops/hooks/sentry` · `POST /ops/hooks/github` (все **публ.**: внешние сервисы не умеют наш JWT). Аутентификация — общий секрет `OPS_HOOK_SECRET`: заголовок `X-Ops-Secret` для Railway и Sentry, штатная подпись `X-Hub-Signature-256` (HMAC-SHA256 от сырого тела) для GitHub; сравнение через `timingSafeEqual`. Отдельный throttler 60/мин, лимит тела 128 КБ, тело не логируется. Ответ всегда `202` и пустой: payload превращается в событие и уходит в очередь `ops-notify`, обработка асинхронная. Неизвестный источник → 404, неверная подпись или незаданный секрет → 401 без деталей. Маршруты поднимаются только вместе с модулем `ops-notify`, то есть при заданном `TELEGRAM_BOT_TOKEN`; в остальных случаях их нет вовсе. Действий над платформой не выполняют — только чтение и пересылка в служебный чат команды. Отдельно `POST /ops/hooks/telegram` (публ.) — входящие апдейты для команд бота (`/status`, `/queues`, `/migrations`, `/quiet`): свой секрет `TELEGRAM_WEBHOOK_SECRET` в заголовке `X-Telegram-Bot-Api-Secret-Token` (задаётся при `setWebhook`), allowlist по `TELEGRAM_OPS_CHAT_ID` — апдейты из других чатов игнорируются молча. Все команды только читают; `/quiet` меняет состояние самого бота, не платформы.
-
 **2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
 
 **Форс 2FA для привилегированных ролей.** Ролям `PLATFORM_ADMIN`, `PLATFORM_MODERATOR`, `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR`, `DEAN` двухфакторная аутентификация обязательна. Глобальный `TwoFactorGuard` (после `JwtAuthGuard`) отдаёт `403 TWO_FACTOR_SETUP_REQUIRED` на все эндпоинты, кроме помеченных `@TwoFactorExempt()` (контроллер `auth/2fa/*`), пока 2FA не включена. Флаг `tfa` кладётся в access-токен (без обращения к БД на каждый запрос); при `refresh` payload пересобирается из БД, поэтому после включения 2FA следующая ротация токена снимает форс. Фронт: интерсептор по этому коду уводит на `/setup-2fa` (обязательная настройка); после включения — жёсткий переход на `/`, где `SessionInitializer` перевыпускает токен с `tfa=true`.
+
+**Мини-апп (Telegram, админский)** — `POST /mini/link-code` (авторизован, `PLATFORM_ADMIN`/`PLATFORM_MODERATOR`; → `{ code, expiresIn: 300 }`, код 8 символов живёт в Redis 5 минут, 10/час) · `POST /mini/link` (**публ.**; `{ initData, code }` → привязка + токен) · `POST /mini/session` (**публ.**; `{ initData }` → `{ token, expiresIn: 900, user }`).
+
+Публичны вынужденно: Telegram открывает мини-апп без нашего JWT, и предъявить в первом запросе нечего, кроме подписанного `initData`. Подпись проверяется по алгоритму Telegram (секрет — HMAC-SHA256 от токена бота с ключом `WebAppData`), сравнение постоянного времени, возраст `auth_date` — не более 5 минут в обе стороны. Отказ любой природы — одинаковый `401 UNAUTHORIZED` без подробностей: по разнице ответов «нет привязки» и «не та роль» вычислялось бы, кто из админов привязан.
+
+Привязка `telegram_id ↔ userId` хранится в `telegram_accounts`, оба идентификатора уникальны; перепривязка — только после явного отзыва (`409 CONFLICT`). Роль перечитывается из БД на каждую сессию, а не берётся из привязки.
+
+Токен мини-аппа несёт `client: 'mini'` и живёт 15 минут; refresh-токена нет — клиент присылает свежий `initData`. Такой токен допускается **только** на маршруты с `@MiniAllowed()` (`MiniAppGuard`), на остальных — `403 FORBIDDEN`, независимо от роли. Сейчас в белом списке: `GET /complaints`, `GET /complaints/:id`, `GET /complaints/:id/messages`, `PATCH /complaints/:id/resolve`.
 
 **Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.
 
@@ -977,26 +985,9 @@ SENTRY_ENVIRONMENT=          # production/staging/pilot; по умолчанию
 SENTRY_RELEASE=              # обычно git sha
 SENTRY_TRACES_SAMPLE_RATE=0  # 0 = только ошибки, без трейсинга производительности
 
-# Служебный Telegram-канал команды (docs/TELEGRAM_BOT.md). Пусто = модуль ops-notify
-# не поднимается: ни воркера, ни фоновых запросов. Пользователей не касается.
+# Токен бота, в меню которого открывается админский мини-апп (§Мини-апп). Им проверяется
+# подпись initData. Пусто — мини-апп выключен, /mini/session отвечает «нет доступа».
 TELEGRAM_BOT_TOKEN=
-TELEGRAM_OPS_CHAT_ID=        # закрытая супергруппа с темами, отрицательное число
-TELEGRAM_TOPIC_DEPLOY=       # message_thread_id тем; пусто — общий поток группы
-TELEGRAM_TOPIC_ALERTS=
-TELEGRAM_TOPIC_DIGEST=
-OPS_ENV_LABEL=               # метка в сообщениях: staging/pilot; `prod` не печатается
-OPS_PUBLIC_URL=              # внешний URL для синтетического пинга; пусто — проверки нет
-OPS_QUEUE_WAITING_THRESHOLD=1000
-OPS_QUEUE_FAILED_THRESHOLD=20
-OPS_AUTH_FAILURE_THRESHOLD=50
-TELEGRAM_WEBHOOK_SECRET=     # secret_token апдейтов Telegram; пусто — команды выключены
-OPS_HOOK_SECRET=             # секрет вебхуков Railway/Sentry + ключ подписи GitHub
-OPS_GITHUB_REPO=             # owner/repo — шаг упавшего CI, changelog, дрейф веток
-OPS_GITHUB_TOKEN=            # только чтение репозитория
-OPS_GITHUB_BASE_BRANCH=main
-OPS_GITHUB_HEAD_BRANCH=develop
-OPS_DIGEST_CRON=0 21 * * *   # вечерняя сводка служебного канала
-OPS_DIGEST_TZ=Asia/Almaty
 ```
 
 ### `apps/web/.env.local`

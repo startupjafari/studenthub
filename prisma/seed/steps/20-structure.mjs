@@ -30,6 +30,17 @@ const SERVICE_ROOMS = [
 
 // План вуза по числу студентов. Отдельная функция, потому что её же использует
 // прогресс-бар (нужно знать объём заранее) и тесты плана масштаба.
+// Множитель размера по типу организации (см. planUniversity).
+const SIZE_BY_KIND = {
+  NATIONAL: 2.2,
+  STATE: 1.4,
+  INTERNATIONAL: 1.2,
+  JOINT_STOCK: 1,
+  PRIVATE: 0.6,
+  SECURITY: 0.45,
+  BRANCH: 0.3,
+}
+
 export function planUniversity(index, random, config) {
   const { studentsMin, studentsMax } = config
   // Жёсткий состав (профиль test): факультеты, преподаватели и размер группы заданы
@@ -38,7 +49,14 @@ export function planUniversity(index, random, config) {
   const fixedTeachers = config.teachers ?? null
   const groupSize = config.groupSize ?? GROUP_SIZE
 
-  const students = random.randInt(studentsMin, studentsMax)
+  // Размер зависит от типа организации: национальный университет крупнее частного
+  // института в разы, и ровный разброс по всем вузам сделал бы стенд неправдоподобным
+  // («Пограничная академия» размером с КазНУ). Множители намеренно скромнее реальных:
+  // у настоящего КазНУ больше 20 тысяч студентов, и честный масштаб превратил бы прогон
+  // в десятки миллионов строк на один вуз.
+  const kind = config.realUniversities?.[index - 1]?.kind
+  const sizeMultiplier = config.sizeByKind ? (SIZE_BY_KIND[kind] ?? 1) : 1
+  const students = Math.round(random.randInt(studentsMin, studentsMax) * sizeMultiplier)
   // Факультетов от 4 до 7: у маленького вуза их меньше, у большого больше.
   const facultyCount = fixedFaculties ?? Math.min(7, Math.max(4, Math.round(students / 260)))
   const faculties = facultiesFor(index, facultyCount)
@@ -87,7 +105,7 @@ export function planUniversity(index, random, config) {
 
 export async function seedStructure(prisma, writer, { index, random, config }) {
   const uniId = universityId(index)
-  const profile = universityProfile(index, config.cities)
+  const profile = universityProfile(index, config.cities, config.realUniversities)
   const plan = planUniversity(index, random, config)
 
   // Статус в update не переписываем: модератор платформы мог сменить его руками,

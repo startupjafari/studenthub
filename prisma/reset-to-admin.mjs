@@ -13,7 +13,7 @@
 //   RESET_CONFIRM         обязательно строка RESET — защита от случайного запуска
 //   RESET_ALLOW_REMOTE=1  разрешить работу с нелокальной БД (иначе отказ)
 //   RESET_ADMIN_EMAIL     e-mail админа (по умолчанию admin@studenthub.app)
-//   RESET_ADMIN_PASSWORD  пароль; если не задан — генерируется и печатается в вывод
+//   RESET_ADMIN_PASSWORD  пароль; если не задан (или пустой) — генерируется и печатается
 import { randomInt } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
@@ -81,8 +81,14 @@ async function main() {
   }
 
   const email = (process.env.RESET_ADMIN_EMAIL ?? DEFAULT_EMAIL).trim().toLowerCase()
-  const generated = !process.env.RESET_ADMIN_PASSWORD
-  const password = process.env.RESET_ADMIN_PASSWORD ?? generatePassword()
+  // Пустая строка — это «не задано». `??` её не ловит, и на CI это стоило доступа:
+  // несуществующий секрет GitHub подставляется в env как '', поэтому админ получал
+  // bcrypt-хэш пустого пароля, а войти им нельзя вообще (LoginSchema требует
+  // непустой пароль). Заодно снимаем перевод строки, если пароль вставили в секрет
+  // вместе с ним.
+  const fromEnv = process.env.RESET_ADMIN_PASSWORD?.trim()
+  const generated = !fromEnv
+  const password = fromEnv || generatePassword()
 
   console.log(`Сброс БД ${describeDatabase(databaseUrl)}${remote ? ' (удалённая)' : ''}`)
 
@@ -119,8 +125,16 @@ async function main() {
     console.log('\nГотово. В базе один пользователь:')
     console.log(`  e-mail: ${email}`)
     if (generated) {
-      console.log(`  пароль: ${password}`)
-      console.log('  (сгенерирован — сохраните сейчас, второй раз он нигде не появится)')
+      // Рамка — чтобы пароль не потерялся среди строк прогона: в базе лежит только
+      // bcrypt-хэш, восстановить его будет неоткуда (как в reportSeedPassword сида).
+      console.log('')
+      console.log('  ┌──────────────────────────────────────────────────────────────┐')
+      console.log('  │ RESET_ADMIN_PASSWORD не задан — пароль сгенерирован и больше │')
+      console.log('  │ нигде не хранится:                                           │')
+      console.log(`  │   ${password.padEnd(59)}│`)
+      console.log('  │ Сохраните его сейчас и смените после первого входа.          │')
+      console.log('  └──────────────────────────────────────────────────────────────┘')
+      console.log('')
     } else {
       console.log('  пароль: задан через RESET_ADMIN_PASSWORD')
     }

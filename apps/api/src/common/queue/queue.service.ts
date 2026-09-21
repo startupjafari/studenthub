@@ -41,7 +41,6 @@ export class QueueService {
     @InjectQueue(QUEUES.FILE_PROCESSING) fileProcessing: Queue,
     @InjectQueue(QUEUES.CLEANUP) cleanup: Queue,
     @InjectQueue(QUEUES.LINK_PREVIEW) linkPreview: Queue,
-    @InjectQueue(QUEUES.OPS_NOTIFY) opsNotify: Queue,
   ) {
     this.queues = {
       [QUEUES.EMAIL]: email,
@@ -49,7 +48,6 @@ export class QueueService {
       [QUEUES.FILE_PROCESSING]: fileProcessing,
       [QUEUES.CLEANUP]: cleanup,
       [QUEUES.LINK_PREVIEW]: linkPreview,
-      [QUEUES.OPS_NOTIFY]: opsNotify,
     }
   }
 
@@ -98,11 +96,10 @@ export class QueueService {
   }
 
   /**
-   * Глубина очереди — для служебных проверок (docs/TELEGRAM_BOT.md §2.2, T-5).
+   * Глубина очереди — агрегаты для диагностики.
    *
-   * Живёт здесь, а не в модуле наблюдения: очереди — зона ответственности этого сервиса,
-   * и второй источник тех же чисел разошёлся бы с первым. Только чтение агрегатов, без
-   * выгрузки job'ов в приложение (§7.4.4).
+   * Живёт здесь: очереди — зона ответственности этого сервиса, и второй источник тех же
+   * чисел разошёлся бы с первым. Только чтение агрегатов, без выгрузки job'ов в приложение.
    */
   async counts(queue: QueueName): Promise<QueueCounts> {
     const counts = await this.queues[queue].getJobCounts('waiting', 'active', 'delayed', 'failed')
