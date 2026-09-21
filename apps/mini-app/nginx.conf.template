@@ -1,0 +1,52 @@
+# Раздача мини-аппа и проксирование API.
+#
+# Главное решение здесь — /api проксируется на бэкенд, а не вызывается напрямую с фронта.
+# Мини-апп и API оказываются одним origin'ом: не нужен ни CORS на стороне API, ни
+# пересборка образа при переезде бэкенда, а в разработке ровно так же работает прокси
+# Vite (vite.config.ts) — поведение dev и прода не расходится.
+
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Резолвер нужен, потому что адрес бэкенда приходит переменной: без него nginx
+    # пытается разрешить имя один раз при старте и падает, если бэкенд ещё не поднялся.
+    resolver 1.1.1.1 8.8.8.8 valid=30s ipv6=on;
+
+    location /api/ {
+        set $upstream ${API_TARGET};
+        proxy_pass $upstream$request_uri;
+
+        # Имя хоста для TLS и для маршрутизации на стороне бэкенда: без SNI прокси к
+        # https-адресу получает сертификат по умолчанию и рвёт соединение.
+        proxy_ssl_server_name on;
+        proxy_set_header Host $proxy_host;
+
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Ответы API не кэшируются нигде по пути: очередь жалоб обязана быть свежей.
+        proxy_buffering off;
+        proxy_read_timeout 60s;
+    }
+
+    # Ассеты Vite содержат хэш в имени — их можно кэшировать надолго и безопасно.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # index.html не кэшируем: иначе после деплоя Telegram открывал бы старую страницу,
+    # ссылающуюся на удалённые ассеты, — белый экран без единой ошибки в логе.
+    location = /index.html {
+        add_header Cache-Control "no-store";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
