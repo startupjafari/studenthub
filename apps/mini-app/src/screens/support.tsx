@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   assignTicket,
   closeTicket,
+  escalateTicket,
   fetchSupportQueue,
   fetchSupportThread,
   replyToTicket,
@@ -237,6 +238,18 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     }
   }, [id])
 
+  const escalate = useCallback(async () => {
+    if (!(await confirmAction(t('supportEscalateConfirm')))) return
+    setError(null)
+    try {
+      await escalateTicket(id)
+      haptic.success()
+      setError(t('supportEscalated'))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('supportEscalateError'))
+    }
+  }, [id])
+
   const finish = useCallback(async () => {
     if (!(await confirmAction(t('supportConfirmClose')))) return
     try {
@@ -350,9 +363,20 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
           </button>
         )}
         {!ticket?.closedAt && (
-          <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
-            {t('supportClose')}
-          </button>
+          <>
+            {/* Эскалация — действие, а не состояние: ответ на неё человек, а не флаг. */}
+            <button
+              type="button"
+              className="fallback-submit"
+              disabled={busy}
+              onClick={() => void escalate()}
+            >
+              {t('supportEscalate')}
+            </button>
+            <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
+              {t('supportClose')}
+            </button>
+          </>
         )}
       </section>
     </div>

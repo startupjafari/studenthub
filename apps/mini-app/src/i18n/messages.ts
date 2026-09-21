@@ -275,6 +275,14 @@ const ru = {
   roleStudent: 'Студентам',
   roleTeacher: 'Преподавателям',
   roleStaff: 'Сотрудникам',
+  supportEscalate: 'Позвать администратора',
+  supportEscalateConfirm:
+    'Эскалировать обращение? Администраторам придёт уведомление, даже в тихие часы.',
+  supportEscalated: 'Администраторы уведомлены',
+  supportEscalateError: 'Не удалось эскалировать',
+  complaintShare: 'Скопировать ссылку',
+  complaintShared: 'Ссылка скопирована',
+  complaintShareFailed: 'Не удалось скопировать',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -539,6 +547,14 @@ const kk: Record<MessageKey, string> = {
   roleStudent: 'Студенттерге',
   roleTeacher: 'Оқытушыларға',
   roleStaff: 'Қызметкерлерге',
+  supportEscalate: 'Әкімшіні шақыру',
+  supportEscalateConfirm:
+    'Өтінішті эскалациялау керек пе? Әкімшілерге тыныш сағаттарда да хабарлама барады.',
+  supportEscalated: 'Әкімшілерге хабарланды',
+  supportEscalateError: 'Эскалациялау мүмкін болмады',
+  complaintShare: 'Сілтемені көшіру',
+  complaintShared: 'Сілтеме көшірілді',
+  complaintShareFailed: 'Көшіру мүмкін болмады',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -801,6 +817,13 @@ const en: Record<MessageKey, string> = {
   roleStudent: 'Students',
   roleTeacher: 'Teachers',
   roleStaff: 'Staff',
+  supportEscalate: 'Call an admin',
+  supportEscalateConfirm: 'Escalate this request? Admins are notified even during quiet hours.',
+  supportEscalated: 'Admins notified',
+  supportEscalateError: 'Could not escalate',
+  complaintShare: 'Copy link',
+  complaintShared: 'Link copied',
+  complaintShareFailed: 'Could not copy',
   aboutVersion: 'Build {version}',
 }
 

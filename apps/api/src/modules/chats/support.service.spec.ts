@@ -326,3 +326,29 @@ describe('SupportService.closeStale', () => {
     expect(prisma.chat.updateMany).not.toHaveBeenCalled()
   })
 })
+
+describe('SupportService.escalate', () => {
+  /**
+   * Эскалируют ровно тогда, когда обычный путь не сработал: глушить её дежурством и
+   * тихими часами значило бы глушить именно тот сигнал, ради которого её и завели.
+   */
+  it('пишет администраторам мимо дежурства и тишины', async () => {
+    const { service, telegram } = setup()
+
+    await service.escalate(who(Role.PLATFORM_MODERATOR, 'staff-2'), 'ticket-1')
+
+    expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'ticket',
+      expect.stringContaining('эскалировано'),
+      'support_ticket-1',
+      expect.any(Date),
+      true,
+    )
+  })
+
+  it('обычную роль не пускает', async () => {
+    const { service } = setup()
+
+    await expect(service.escalate(who(Role.STUDENT), 'ticket-1')).rejects.toThrow(AppException)
+  })
+})

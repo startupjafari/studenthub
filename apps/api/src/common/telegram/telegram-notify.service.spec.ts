@@ -181,3 +181,31 @@ describe('TelegramNotifyService — политика уведомлений', ()
     expect(fetchMock).toHaveBeenCalled()
   })
 })
+
+describe('TelegramNotifyService — эскалация', () => {
+  it('не спрашивает политику и пишет администраторам', async () => {
+    const { service, prisma, platform } = setup({ TELEGRAM_BOT_TOKEN: 'tok' }, [
+      { telegramId: 111n },
+    ])
+
+    await service.notifyStaff('ticket', 'Эскалация', undefined, new Date(), true)
+
+    expect(platform.notificationPolicy).not.toHaveBeenCalled()
+    const where = prisma.telegramAccount.findMany.mock.calls[0]?.[0]?.where as {
+      user: { role: { in: string[] } }
+    }
+    expect(where.user.role.in).toEqual(['PLATFORM_ADMIN'])
+  })
+
+  // Тихие часы для эскалации не действуют — иначе ночная беда ждала бы до утра.
+  it('доходит и в тихие часы', async () => {
+    const { service, fetchMock } = setup({ TELEGRAM_BOT_TOKEN: 'tok' }, [{ telegramId: 111n }], {
+      quietFrom: 0,
+      quietTo: 23,
+    })
+
+    await service.notifyStaff('ticket', 'Эскалация', undefined, new Date(2026, 8, 21, 3), true)
+
+    expect(fetchMock).toHaveBeenCalled()
+  })
+})

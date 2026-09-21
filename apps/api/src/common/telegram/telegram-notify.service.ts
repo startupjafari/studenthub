@@ -57,13 +57,19 @@ export class TelegramNotifyService {
     text: string,
     deepLink?: string,
     now: Date = new Date(),
+    /**
+     * Эскалация: письмо уходит администраторам и МИМО дежурства и тихих часов.
+     * Эскалируют ровно тогда, когда обычный путь не сработал, — глушить её теми же
+     * правилами значило бы глушить именно тот сигнал, ради которого её и завели.
+     */
+    escalate = false,
   ): Promise<void> {
     const token = this.config.get('TELEGRAM_BOT_TOKEN', { infer: true })
     if (!token) return
 
     // Настройки читаются перед каждой отправкой, а не кэшируются здесь: выключить
     // уведомления обычно хотят прямо сейчас, а не «в течение часа».
-    const policy = await this.platform.notificationPolicy().catch(() => null)
+    const policy = escalate ? null : await this.platform.notificationPolicy().catch(() => null)
     if (policy) {
       if (policy.muted.includes(kind)) return
       if (isQuiet(policy.quietFrom, policy.quietTo, now)) return
@@ -72,7 +78,10 @@ export class TelegramNotifyService {
     const accounts = await this.prisma.telegramAccount.findMany({
       where: {
         revokedAt: null,
-        user: { role: { in: [...STAFF_ROLES] }, isBlocked: false },
+        user: {
+          role: { in: escalate ? [Role.PLATFORM_ADMIN] : [...STAFF_ROLES] },
+          isBlocked: false,
+        },
         // Дежурный задан — пишем только ему: сообщение всей команде означает, что не
         // среагирует никто, каждый решит, что возьмёт другой.
         ...(policy?.dutyUserId ? { userId: policy.dutyUserId } : {}),
