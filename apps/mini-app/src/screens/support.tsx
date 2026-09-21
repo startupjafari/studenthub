@@ -6,6 +6,7 @@ import {
   fetchSupportQueue,
   fetchSupportThread,
   fetchTagCounts,
+  mergeTicket,
   replyToTicket,
   setTicketTags,
   REPLY_TEMPLATES,
@@ -232,7 +233,13 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
 
 type ThreadState =
   | { status: 'loading' }
-  | { status: 'ready'; ticket: SupportTicket; messages: SupportMessage[] }
+  | {
+      status: 'ready'
+      ticket: SupportTicket
+      messages: SupportMessage[]
+      mergedCount: number
+      siblings: { id: string; createdAt: string; closed: boolean }[]
+    }
   | { status: 'error' }
 
 function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
@@ -248,8 +255,14 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     try {
       // Сервер отдаёт свежие сверху (курсорная история), а читать переписку удобно
       // сверху вниз по времени — разворачиваем здесь.
-      const { ticket, messages } = await fetchSupportThread(id)
-      setState({ status: 'ready', ticket, messages: [...messages].reverse() })
+      const { ticket, messages, mergedCount, siblings } = await fetchSupportThread(id)
+      setState({
+        status: 'ready',
+        ticket,
+        messages: [...messages].reverse(),
+        mergedCount,
+        siblings,
+      })
     } catch {
       setState({ status: 'error' })
     }
@@ -357,6 +370,24 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     [id, state],
   )
 
+  // Склейка дублей. Список веток того же человека приходит вместе с перепиской: искать
+  // дубль в очереди по фамилии и запоминать id — работа, которую делать незачем.
+  const merge = useCallback(
+    async (intoId: string, when: string) => {
+      if (!(await confirmAction(t('supportMergeConfirm', { when })))) return
+      setError(null)
+      try {
+        await mergeTicket(id, intoId)
+        haptic.success()
+        // Уходим в целевую ветку: эта закрыта и сама по себе больше не существует.
+        onBack()
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : t('supportMergeError'))
+      }
+    },
+    [id, onBack],
+  )
+
   const escalate = useCallback(async () => {
     if (!(await confirmAction(t('supportEscalateConfirm')))) return
     setError(null)
@@ -405,6 +436,36 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
           это выяснялось встречным вопросом и сутками ожидания. */}
       {ticket?.author && (
         <PersonSummary userId={ticket.author.id} title={t('supportAuthorTitle')} />
+      )}
+
+      {state.status === 'ready' && state.mergedCount > 0 && (
+        <section className="card">
+          <p className="hint">{t('supportMergedHere', { count: state.mergedCount })}</p>
+        </section>
+      )}
+
+      {state.status === 'ready' && state.siblings.length > 0 && !ticket?.closedAt && (
+        <section className="card">
+          <h2>{t('supportMergeTitle')}</h2>
+          <p className="hint">{t('supportMergeHint')}</p>
+          <div className="chips">
+            {state.siblings.map((sibling) => {
+              const when = formatDateTime(sibling.createdAt)
+              return (
+                <button
+                  key={sibling.id}
+                  type="button"
+                  className="chip"
+                  disabled={busy}
+                  onClick={() => void merge(sibling.id, when)}
+                >
+                  {when}
+                  {sibling.closed ? ` · ${t('supportMergeClosed')}` : ''}
+                </button>
+              )
+            })}
+          </div>
+        </section>
       )}
 
       {/* О чём обращение. Не для порядка: из этих отметок складывается ответ на

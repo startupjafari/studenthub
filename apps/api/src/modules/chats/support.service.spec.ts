@@ -398,3 +398,67 @@ describe('SupportService — теги', () => {
     await expect(service.tagCounts(staff)).resolves.toEqual([{ tag: 'ACCESS', count: 60 }])
   })
 })
+
+// ── Склейка дублей (пункт 35) ───────────────────────────────────────────────
+describe('SupportService.merge', () => {
+  const staff = who(Role.PLATFORM_ADMIN, 'staff-1')
+
+  function ticket(authorId: string | null, mergedInto: string | null = null) {
+    return {
+      supportMergedIntoId: mergedInto,
+      members: [
+        ...(authorId ? [{ user: { id: authorId, role: Role.STUDENT } }] : []),
+        { user: { id: 'staff-1', role: Role.PLATFORM_ADMIN } },
+      ],
+    }
+  }
+
+  it('закрывает склеенную ветку и ставит указатель', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket('author-1'))
+    await expect(service.merge(staff, 'a', 'b')).resolves.toEqual({ mergedInto: 'b' })
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'a' },
+      data: { supportMergedIntoId: 'b', supportClosedAt: expect.any(Date) },
+    })
+  })
+
+  // Две ветки разных людей — это чужая переписка в чужом обращении: склейка показала бы
+  // каждому вопросы другого.
+  it('чужие обращения склеивать нельзя', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst
+      .mockResolvedValueOnce(ticket('author-1'))
+      .mockResolvedValueOnce(ticket('author-2'))
+    const err = await service.merge(staff, 'a', 'b').catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  // Цепочки запрещены: читатель идёт ровно на один шаг, и переписка ветки, склеенной
+  // в склеенное, не была бы видна нигде.
+  it('в уже склеенное обращение склеивать нельзя', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst
+      .mockResolvedValueOnce(ticket('author-1'))
+      .mockResolvedValueOnce(ticket('author-1', 'c'))
+    const err = await service.merge(staff, 'a', 'b').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('само с собой → BAD_REQUEST', async () => {
+    const { service } = setup()
+    const err = await service.merge(staff, 'a', 'a').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  // Склеенная ветка больше не самостоятельное обращение: в очереди её быть не должно
+  // ни среди открытых, ни среди закрытых.
+  it('очередь не показывает склеенные', async () => {
+    const { service, prisma } = setup()
+    await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
+    expect(prisma.chat.findMany.mock.calls[0][0].where).toMatchObject({
+      supportMergedIntoId: null,
+    })
+  })
+})

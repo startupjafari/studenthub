@@ -13,6 +13,7 @@ import { OpenSupportTicketDto } from './dto/open-support-ticket.dto'
 import { SupportReplyDto } from './dto/support-reply.dto'
 import { SupportQueueQueryDto } from './dto/support-queue-query.dto'
 import { SetSupportTagsDto } from './dto/set-support-tags.dto'
+import { MergeSupportDto } from './dto/merge-support.dto'
 
 // Поддержка платформы: личная линия человека к команде платформы.
 //
@@ -105,6 +106,21 @@ export class SupportController {
     @Req() req: FastifyRequest,
   ) {
     return this.support.setTags(user, id, dto.tags, this.ctx(req))
+  }
+
+  @Post(':id/merge')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Склеить обращение с другим обращением того же человека' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — разные авторы или то же обращение' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — одно из обращений уже склеено' })
+  merge(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MergeSupportDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.merge(user, id, dto.intoId, this.ctx(req))
   }
 
   @Post(':id/escalate')

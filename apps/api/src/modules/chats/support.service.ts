@@ -103,6 +103,9 @@ export class SupportService {
     const where: Prisma.ChatWhereInput = {
       type: ChatType.SUPPORT_PLATFORM,
       supportClosedAt: query.status === 'open' ? null : { not: null },
+      // Склеенная ветка в очереди не показывается ни открытой, ни закрытой: она больше
+      // не самостоятельное обращение, а часть другого.
+      supportMergedIntoId: null,
       ...(query.assignee === 'mine' ? { supportAssigneeId: viewer.sub } : {}),
       ...(query.assignee === 'free' ? { supportAssigneeId: null } : {}),
       // Тег фильтрует сервер: клиент видит одну страницу, и «все обращения про доступ»
@@ -147,11 +150,119 @@ export class SupportService {
    */
   async thread(viewer: JwtPayload, chatId: string) {
     await this.assertAccess(viewer, chatId)
-    const [row, messages] = await Promise.all([
+    const [row, messages, merged] = await Promise.all([
       this.prisma.chat.findUniqueOrThrow({ where: { id: chatId }, select: TICKET_SELECT }),
       this.chats.getMessages(viewer, chatId, { limit: 50 }),
+      this.prisma.chat.findMany({
+        where: { supportMergedIntoId: chatId },
+        select: { id: true },
+        take: 10,
+      }),
     ])
-    return { ticket: toTicket(row), messages: messages.items }
+
+    // Переписка склеенных веток читается вместе с целевой: склейка нужна, чтобы видеть
+    // разговор целиком, а не чтобы прятать половину. Сообщения не переносились, поэтому
+    // порядок восстанавливаем по времени — `seq` сравним только внутри одного чата.
+    const extra = await Promise.all(
+      merged.map((ticket) => this.chats.getMessages(viewer, ticket.id, { limit: 50 })),
+    )
+    const all = [...messages.items, ...extra.flatMap((page) => page.items)] as {
+      createdAt: Date
+    }[]
+    all.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+
+    // Другие обращения того же человека — то, с чем эту ветку можно склеить. Без списка
+    // модератору пришлось бы искать дубль в очереди по фамилии и запоминать id.
+    const author = row.members.find((m) => !STAFF_ROLES.includes(m.user.role as Role))?.user
+    const siblings = author
+      ? await this.prisma.chat.findMany({
+          where: {
+            type: ChatType.SUPPORT_PLATFORM,
+            id: { not: chatId },
+            supportMergedIntoId: null,
+            members: { some: { userId: author.id } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { id: true, createdAt: true, supportClosedAt: true },
+        })
+      : []
+
+    return {
+      ticket: toTicket(row),
+      messages: all,
+      mergedCount: merged.length,
+      siblings: siblings.map((item) => ({
+        id: item.id,
+        createdAt: item.createdAt,
+        closed: item.supportClosedAt !== null,
+      })),
+    }
+  }
+
+  /**
+   * Склеить обращение с другим: две ветки об одном превращаются в одну.
+   *
+   * Сообщения НЕ переносятся. Перенос переписал бы отправителям их собственную историю, а
+   * порядок сообщений внутри чата задан `seq`, который в чужом чате ничего не значит.
+   * Склеенная ветка закрывается и помечается указателем, а её переписка читается вместе
+   * с целевой — то есть разговор виден целиком, ничего не потеряно и ничего не подделано.
+   *
+   * Склеивать можно только обращения ОДНОГО человека. Две ветки разных людей — это чужая
+   * переписка в чужом обращении: склейка показала бы каждому вопросы другого.
+   */
+  async merge(
+    viewer: JwtPayload,
+    chatId: string,
+    intoId: string,
+    ctx: RequestContext = {},
+  ): Promise<{ mergedInto: string }> {
+    this.assertStaff(viewer)
+    if (chatId === intoId) throw new AppException('BAD_REQUEST', 'Обращение нельзя склеить с собой')
+
+    const [source, target] = await Promise.all([
+      this.ticketWithAuthor(chatId),
+      this.ticketWithAuthor(intoId),
+    ])
+    if (source.mergedInto) throw new AppException('CONFLICT', 'Обращение уже склеено с другим')
+    // Цепочки запрещены: склейка в склеенное дала бы ветку, чью переписку не видно нигде,
+    // потому что читатель идёт ровно на один шаг.
+    if (target.mergedInto) {
+      throw new AppException('CONFLICT', 'Второе обращение само склеено с третьим')
+    }
+    if (!source.authorId || source.authorId !== target.authorId) {
+      throw new AppException('BAD_REQUEST', 'Склеивать можно только обращения одного человека')
+    }
+
+    await this.prisma.chat.update({
+      where: { id: chatId },
+      data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
+    })
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'support.ticket.merge',
+      entity: 'Chat',
+      entityId: chatId,
+      metadata: { into: intoId },
+      ...ctx,
+    })
+    return { mergedInto: intoId }
+  }
+
+  /** Обращение с id автора и указателем склейки — для проверок склеивания. */
+  private async ticketWithAuthor(
+    chatId: string,
+  ): Promise<{ authorId: string | null; mergedInto: string | null }> {
+    const row = await this.prisma.chat.findFirst({
+      where: { id: chatId, type: ChatType.SUPPORT_PLATFORM },
+      select: {
+        supportMergedIntoId: true,
+        members: { select: { user: { select: { id: true, role: true } } } },
+      },
+    })
+    if (!row) throw new AppException('NOT_FOUND', 'Обращение не найдено')
+    const author = row.members.find((m) => !STAFF_ROLES.includes(m.user.role as Role))?.user
+    return { authorId: author?.id ?? null, mergedInto: row.supportMergedIntoId }
   }
 
   /**
