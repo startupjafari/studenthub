@@ -43,8 +43,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 // Итог ночной уборки сирот живёт двое суток: сводка читает его раз в день, и пропуск
 // одного запуска не должен превращаться в пустую строку навсегда.
-const ORPHAN_SWEEP_KEY = 'ops:cleanup:orphans'
-const ORPHAN_SWEEP_TTL_SEC = 48 * 60 * 60
 
 @Injectable()
 export class CleanupService {
@@ -215,31 +213,7 @@ export class CleanupService {
       }
     }
     this.logger.log(`cleanOrphanFiles: удалено осиротевших объектов ${removed}`)
-    await this.rememberOrphanSweep(removed)
     return removed
-  }
-
-  /**
-   * Итог последней уборки сирот — для админ-сводки. В Redis, а не в памяти: задача идёт
-   * ночью на одной реплике, а число читает, возможно, другая.
-   */
-  private async rememberOrphanSweep(removed: number): Promise<void> {
-    try {
-      await this.redis.set(ORPHAN_SWEEP_KEY, String(removed), 'EX', ORPHAN_SWEEP_TTL_SEC)
-    } catch (error) {
-      // Не смогли запомнить — сводка покажет «нет данных». Уборка при этом отработала.
-      this.logger.warn(`cleanOrphanFiles: итог не сохранён: ${(error as Error).message}`)
-    }
-  }
-
-  /** Сколько сирот нашла последняя ночная уборка. `null` — уборки ещё не было. */
-  async lastOrphanSweep(): Promise<number | null> {
-    try {
-      const raw = await this.redis.get(ORPHAN_SWEEP_KEY)
-      return raw === null ? null : Number(raw)
-    } catch {
-      return null
-    }
   }
 
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---

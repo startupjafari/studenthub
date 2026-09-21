@@ -83,12 +83,10 @@ export class PushService implements OnModuleInit {
             { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
             body,
           )
-          this.count('sent')
         } catch (err) {
           const statusCode = (err as { statusCode?: number }).statusCode
           if (statusCode === 404 || statusCode === 410) {
             // Подписка мертва (устройство отписалось/сбросило) — чистим.
-            this.count('gone')
             await this.prisma.pushSubscription
               .deleteMany({ where: { endpoint: s.endpoint } })
               .catch(() => undefined)
@@ -99,46 +97,4 @@ export class PushService implements OnModuleInit {
       }),
     )
   }
-
-  /**
-   * Итоги рассылки за сутки — агрегат для админ-сводки.
-   *
-   * Доля `410 Gone` — это не ошибка отправки, а мусор в таблице: устройства отписались,
-   * а записи остались. Растёт — пора чистить, и узнать об этом лучше по тренду, чем
-   * по распухшей таблице.
-   */
-  async deliveryStats(): Promise<{ sent: number; gone: number; goneShare: number }> {
-    try {
-      const [sent, gone] = await this.redis.hmget(STATS_KEY, 'sent', 'gone')
-      const sentCount = Number(sent ?? 0)
-      const goneCount = Number(gone ?? 0)
-      const total = sentCount + goneCount
-      return {
-        sent: sentCount,
-        gone: goneCount,
-        goneShare: total ? Math.round((goneCount / total) * 1000) / 10 : 0,
-      }
-    } catch (error) {
-      this.logger.warn(`Не удалось прочитать статистику push: ${String(error)}`)
-      return { sent: 0, gone: 0, goneShare: 0 }
-    }
-  }
-
-  /**
-   * Счётчик живёт в Redis, а не в памяти: отправка идёт из воркера уведомлений, а числа
-   * читают, возможно, в другой реплике. Сбой Redis теряет
-   * счётчик, но не push: инкремент не ожидается и не бросает.
-   */
-  private count(kind: 'sent' | 'gone'): void {
-    void this.redis
-      .pipeline()
-      .hincrby(STATS_KEY, kind, 1)
-      .expire(STATS_KEY, STATS_TTL_SEC)
-      .exec()
-      .catch(() => undefined)
-  }
 }
-
-// Скользящее суточное окно: ключ живёт 25 часов и продлевается при каждой отправке.
-const STATS_KEY = 'ops:push:stats'
-const STATS_TTL_SEC = 25 * 60 * 60

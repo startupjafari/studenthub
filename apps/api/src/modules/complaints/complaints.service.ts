@@ -308,20 +308,4 @@ export class ComplaintsService {
       await this.prisma.message.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
     }
   }
-  /**
-   * Жалобы без решения старше `olderThan` — агрегат для админ-сводки: «очереди дел,
-   * а не техники».
-   *
-   * Наружу отдаётся ЧИСЛО, а не список: читателю сводки незачем знать ни кто пожаловался,
-   * ни на что. Метод живёт здесь, потому что `complaints` — таблица этого модуля
-   * (BACKEND_RULES §2.1).
-   */
-  async staleCount(olderThan: Date): Promise<number> {
-    return this.prisma.complaint.count({
-      where: {
-        status: { in: [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING] },
-        createdAt: { lt: olderThan },
-      },
-    })
-  }
 }

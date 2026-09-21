@@ -15,8 +15,6 @@ import { ChatsModule } from '../chats/chats.module'
 @Module({
   imports: [ScheduleModule.forRoot(), EventsModule, PostsModule, DocumentsModule, ChatsModule],
   providers: [CleanupService, CronMonitorService],
-  // Экспортируется ради `lastOrphanSweep()` в суточной сводке: числа отдаёт владелец
-  // задачи, а не тот, кто их показывает.
   exports: [CleanupService],
 })
 export class CleanupModule {}

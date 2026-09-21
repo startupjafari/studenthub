@@ -2,7 +2,6 @@ import { ArgumentsHost, HttpStatus } from '@nestjs/common'
 import type { PinoLogger } from 'nestjs-pino'
 import { AppException } from '../exceptions/app.exception'
 import { HttpExceptionFilter } from './http-exception.filter'
-import type { HttpStatusCounter } from '../monitoring/http-status.counter'
 
 jest.mock('../monitoring/sentry', () => ({
   captureException: jest.fn(() => 'event-id-1'),
@@ -31,10 +30,7 @@ describe('HttpExceptionFilter — отправка в Sentry', () => {
       }),
     }) as unknown as ArgumentsHost
 
-  // Счётчик ответов — сайд-эффект на пути ответа, поэтому
-  // в тесте он просто мок: важно, что фильтр его зовёт и не ждёт.
-  const statusCounter = { record: jest.fn() }
-  const filter = new HttpExceptionFilter(logger, statusCounter as unknown as HttpStatusCounter)
+  const filter = new HttpExceptionFilter(logger)
 
   it('неожиданная ошибка (500) уходит в трекер с requestId и id пользователя', () => {
     filter.catch(new TypeError('cannot read property of undefined'), hostWith({ sub: 'u-1' }))
