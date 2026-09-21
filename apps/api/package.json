@@ -65,7 +65,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@fastify/static": "^10.1.4",
+    "@fastify/static": "^10.1.1",
     "@nestjs/cli": "^11.0.10",
     "@nestjs/schematics": "^11.0.9",
     "@nestjs/testing": "^11.1.6",
