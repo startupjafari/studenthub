@@ -16,8 +16,11 @@ import { TwoFactorVerifyDto } from './dto/two-factor-verify.dto'
 import { QrApproveDto } from './dto/qr-approve.dto'
 import { QrClaimDto } from './dto/qr-claim.dto'
 import { QrLoginService } from './qr-login.service'
+import { MaintenanceExempt } from '../../common/decorators'
 
 @ApiTags('Auth')
+// Без входа режим техработ не снять: администратор должен уметь войти в остановленную платформу.
+@MaintenanceExempt()
 @Controller('auth')
 export class AuthController {
   constructor(

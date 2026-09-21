@@ -6,6 +6,7 @@ import { PassportModule } from '@nestjs/passport'
 import type { EnvVars } from '../../config/env.schema'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
+import { MaintenanceGuard } from '../../common/guards/maintenance.guard'
 import { MiniAppGuard } from '../../common/guards/mini-app.guard'
 import { ScopeGuard } from '../../common/guards/scope.guard'
 import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
@@ -44,6 +45,9 @@ import { LocalStrategy } from './strategies/local.strategy'
     JwtStrategy,
     LocalStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Сразу после JwtAuthGuard: роль уже известна (платформенные роли проходят), а считать
+    // scope и права на маршруте остановленной платформы незачем.
+    { provide: APP_GUARD, useClass: MaintenanceGuard },
     // Между JwtAuthGuard и RolesGuard: токен мини-аппа отсекается по клиенту раньше, чем
     // по роли — на маршруты вне белого списка ему нельзя независимо от роли.
     { provide: APP_GUARD, useClass: MiniAppGuard },

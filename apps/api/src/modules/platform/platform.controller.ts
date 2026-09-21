@@ -3,7 +3,7 @@ import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
-import { Public } from '../../common/decorators'
+import { Public, MaintenanceExempt } from '../../common/decorators'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -21,6 +21,8 @@ import { AnnounceReleaseDto } from './dto/announce-release.dto'
 // гасящий продукт для всех, к ней не относится. Все четыре ручки помечены @MiniAllowed() —
 // управлять платформой с телефона и есть смысл мини-аппа.
 @ApiTags('Платформа')
+// Чтение состояния объясняет клиентам, что происходит, а запись — снимает режим.
+@MaintenanceExempt()
 @Controller('platform')
 export class PlatformController {
   constructor(private readonly platform: PlatformService) {}
