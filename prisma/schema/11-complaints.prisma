@@ -27,6 +27,8 @@ model Complaint {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  warnings ModerationWarning[]
+
   reporter   User        @relation("ComplaintReporter", fields: [reporterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   resolvedBy User?       @relation("ComplaintResolver", fields: [resolvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   university University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -39,4 +41,26 @@ model Complaint {
   @@index([resolvedById])
   @@index([createdAt])
   @@map("complaints")
+}
+
+// Предупреждение — промежуточная мера между «ничего» и блокировкой. Живёт в своей
+// таблице, а не в AuditLog: журнал чистится по расписанию (`cleanAuditLogs`), а
+// «сколько раз человека предупреждали» — состояние модерации, которое обязано пережить
+// ретенцию логов. Текст модератора сюда не копируется: комментарий к решению внутренний,
+// а человеку уходит уведомление о самом факте — пересылать внутреннюю записку значило бы
+// показывать нарушителю то, что писали не ему.
+model ModerationWarning {
+  id          String  @id @default(uuid())
+  userId      String  @map("user_id")
+  issuedById  String? @map("issued_by_id")
+  complaintId String? @map("complaint_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User       @relation("WarnedUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  issuedBy  User?      @relation("WarningAuthor", fields: [issuedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("moderation_warnings")
 }
