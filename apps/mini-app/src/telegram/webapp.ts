@@ -12,8 +12,18 @@ export function webApp(): TelegramWebApp | null {
   return window.Telegram?.WebApp ?? null
 }
 
-/** Открыто ли приложение внутри клиента Telegram, а не в обычной вкладке. */
-export const isTelegram = (): boolean => webApp() !== null
+/**
+ * Открыто ли приложение внутри клиента Telegram, а не в обычной вкладке.
+ *
+ * Проверяем `platform`, а не наличие объекта: скрипт `telegram-web-app.js` создаёт
+ * `window.Telegram.WebApp` в любом браузере и вне Telegram сообщает `platform: 'unknown'`.
+ * Проверка «объект существует» была бы истинной всегда — и запасные ветки не включались бы
+ * никогда.
+ */
+export function isTelegram(): boolean {
+  const tg = webApp()
+  return tg !== null && tg.platform !== 'unknown'
+}
 
 /**
  * Инициализация: сообщить Telegram, что каркас отрисован, развернуть на всю высоту
@@ -25,7 +35,7 @@ export const isTelegram = (): boolean => webApp() !== null
 export function initTelegram(): () => void {
   const tg = webApp()
   applyTheme(tg?.themeParams ?? {}, tg?.colorScheme ?? 'light')
-  if (!tg) return () => {}
+  if (!tg || !isTelegram()) return () => {}
 
   tg.ready()
   tg.expand()
