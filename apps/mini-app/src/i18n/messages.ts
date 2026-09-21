@@ -221,6 +221,12 @@ const ru = {
   invitesPending: 'Ждёт',
   invitesExpires: 'До {date}',
   invitesNoEmail: 'без почты',
+  overviewTrend: 'За последние дни',
+  overviewInvites: 'Приглашения',
+  overviewInvitesUsed: '{used} из {total} · конверсия {conversion}%',
+  overviewTopUniversities: 'Крупнейшие вузы',
+  overviewTopActions: 'Чаще всего делают',
+  overviewStudents: 'студентов',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -431,6 +437,12 @@ const kk: Record<MessageKey, string> = {
   invitesPending: 'Күтуде',
   invitesExpires: '{date} дейін',
   invitesNoEmail: 'поштасыз',
+  overviewTrend: 'Соңғы күндері',
+  overviewInvites: 'Шақырулар',
+  overviewInvitesUsed: '{total} ішінен {used} · конверсия {conversion}%',
+  overviewTopUniversities: 'Ең ірі ЖОО',
+  overviewTopActions: 'Ең жиі әрекеттер',
+  overviewStudents: 'студент',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -639,6 +651,12 @@ const en: Record<MessageKey, string> = {
   invitesPending: 'Pending',
   invitesExpires: 'Until {date}',
   invitesNoEmail: 'no email',
+  overviewTrend: 'Recent days',
+  overviewInvites: 'Invites',
+  overviewInvitesUsed: '{used} of {total} · {conversion}% accepted',
+  overviewTopUniversities: 'Largest universities',
+  overviewTopActions: 'Most frequent actions',
+  overviewStudents: 'students',
   aboutVersion: 'Build {version}',
 }
 

@@ -18,8 +18,49 @@ export interface HealthReport {
   minio: HealthStatus
 }
 
+export interface InvitesFunnel {
+  total: number
+  used: number
+  /** Доля использованных, проценты. */
+  conversion: number
+}
+
+export interface UniversitySize {
+  id: string
+  name: string
+  students: number
+  teachers: number
+  total: number
+}
+
+export interface TopAction {
+  action: string
+  value: number
+}
+
 export async function fetchOverview(): Promise<PlatformOverview> {
   return apiGet<PlatformOverview>('/analytics/platform/overview')
+}
+
+/**
+ * Дополнительные разрезы. Тянутся отдельно и по отказу молчат: сводка обязана
+ * показаться, даже если один из агрегатов не посчитался.
+ *
+ * Тепловой карты активности 7×24 здесь нет намеренно, хотя ручка существует: на экране
+ * шириной с ладонь она превращается в картинку, по которой ничего не решить.
+ */
+export async function fetchInvitesFunnel(): Promise<InvitesFunnel> {
+  return apiGet<InvitesFunnel>('/analytics/platform/invites-funnel')
+}
+
+export async function fetchUniversitySizes(): Promise<UniversitySize[]> {
+  const page = await apiGet<{ items?: UniversitySize[] }>('/analytics/platform/universities-size')
+  return page.items ?? []
+}
+
+export async function fetchTopActions(): Promise<TopAction[]> {
+  const page = await apiGet<{ items?: TopAction[] }>('/analytics/platform/top-actions')
+  return page.items ?? []
 }
 
 /**

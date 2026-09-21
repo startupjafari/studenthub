@@ -469,3 +469,26 @@ body {
   border-color: var(--tg-theme-destructive-text-color);
   color: var(--tg-theme-destructive-text-color);
 }
+
+/* Спарклайн: подпись — кривая — последнее значение. */
+.spark-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.spark {
+  flex: 1;
+  height: 30px;
+  min-width: 0;
+}
+
+.spark path {
+  stroke: var(--tg-theme-button-color);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}

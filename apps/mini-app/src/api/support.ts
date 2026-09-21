@@ -7,6 +7,10 @@ export interface SupportTicket {
   author: { id: string; firstName: string; lastName: string } | null
   lastMessage: { text: string | null; createdAt: string; fromAuthor: boolean } | null
   closedAt: string | null
+  /** Кто разбирает. null — обращение свободно. */
+  assigneeId: string | null
+  assignee: { id: string; firstName: string; lastName: string } | null
+  firstReplyAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -20,10 +24,23 @@ export interface SupportMessage {
   media?: { id: string; name: string | null }[]
 }
 
+export type QueueScope = 'any' | 'mine' | 'free'
+
 export async function fetchSupportQueue(
   status: 'open' | 'closed' = 'open',
+  assignee: QueueScope = 'any',
 ): Promise<{ items: SupportTicket[]; total: number }> {
-  return apiGetPaged<SupportTicket>(`/support?status=${status}&page=1&limit=30`)
+  return apiGetPaged<SupportTicket>(
+    `/support?status=${status}&assignee=${assignee}&page=1&limit=30`,
+  )
+}
+
+/** Взять обращение себе или отдать обратно. Перехватить чужое сервер не даст. */
+export async function assignTicket(
+  id: string,
+  take: boolean,
+): Promise<{ assigneeId: string | null }> {
+  return apiPatch<{ assigneeId: string | null }>(`/support/${id}/assign?take=${take}`, {})
 }
 
 /**

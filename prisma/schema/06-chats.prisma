@@ -37,6 +37,16 @@ model Chat {
   // открывает его снова — иначе человек с уточняющим вопросом остался бы без канала.
   supportClosedAt DateTime? @map("support_closed_at")
 
+  // Кто разбирает обращение (SUPPORT_PLATFORM). NULL — никто не взял.
+  // Без назначения все видят всё и никто ни за что не отвечает: двое пишут один ответ,
+  // а третье обращение не берёт никто, потому что «наверное, уже взяли».
+  supportAssigneeId String? @map("support_assignee_id")
+
+  // Время ПЕРВОГО ответа команды. Единственная метрика поддержки, которую стоит мерить
+  // с самого начала: сколько человек ждал, пока ему вообще ответили. Проставляется один
+  // раз и не сбрасывается — повторное открытие обращения не делает первый ответ быстрее.
+  supportFirstReplyAt DateTime? @map("support_first_reply_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -57,6 +67,8 @@ model Chat {
   @@index([requestPendingForId])
   // Очередь поддержки: открытые обращения, свежие сверху.
   @@index([type, supportClosedAt])
+  // Вкладка «мои»: обращения, которые разбирает конкретный сотрудник.
+  @@index([supportAssigneeId])
   @@map("chats")
 }
 

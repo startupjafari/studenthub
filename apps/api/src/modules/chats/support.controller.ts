@@ -67,6 +67,20 @@ export class SupportController {
     return this.support.reply(user, id, dto, this.ctx(req))
   }
 
+  @Patch(':id/assign')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Взять обращение себе (или отдать обратно: ?take=false)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — обращение уже разбирает другой' })
+  assign(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query('take') take: string | undefined,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.assign(user, id, take !== 'false', this.ctx(req))
+  }
+
   @Patch(':id/close')
   @Roles(...STAFF)
   @MiniAllowed()

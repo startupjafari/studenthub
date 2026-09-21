@@ -84,7 +84,7 @@ describe('SupportService.queue', () => {
     const { service } = setup()
 
     await expect(
-      service.queue(who(Role.STUDENT), { status: 'open', page: 1, limit: 30 }),
+      service.queue(who(Role.STUDENT), { status: 'open', assignee: 'any', page: 1, limit: 30 }),
     ).rejects.toThrow(AppException)
   })
 
@@ -95,6 +95,7 @@ describe('SupportService.queue', () => {
 
     await service.queue(who(Role.PLATFORM_MODERATOR, 'staff-9'), {
       status: 'open',
+      assignee: 'any',
       page: 1,
       limit: 30,
     })
@@ -212,5 +213,74 @@ describe('SupportService.reply — кого будить', () => {
     await service.reply(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', { text: 'проверяем' })
 
     expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupportService.assign', () => {
+  /**
+   * Двое, разбирающие одно обращение и не знающие об этом, — та самая проблема, ради
+   * которой назначение и заводится. Перехват поэтому запрещён на уровне запроса:
+   * условие `supportAssigneeId: null` не даст двум одновременным «взять» победить обоим.
+   */
+  it('не даёт перехватить чужое обращение', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      service.assign(who(Role.PLATFORM_MODERATOR, 'staff-2'), 'ticket-1', true),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('берёт свободное обращение', async () => {
+    const { service, prisma } = setup()
+
+    await expect(
+      service.assign(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', true),
+    ).resolves.toEqual({ assigneeId: 'staff-1' })
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ticket-1', supportAssigneeId: null },
+      data: { supportAssigneeId: 'staff-1' },
+    })
+  })
+
+  it('отдать обратно можно только своё', async () => {
+    const { service, prisma } = setup()
+
+    await service.assign(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', false)
+
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ticket-1', supportAssigneeId: 'staff-1' },
+      data: { supportAssigneeId: null },
+    })
+  })
+
+  it('обычную роль не пускает', async () => {
+    const { service } = setup()
+
+    await expect(service.assign(who(Role.STUDENT), 'ticket-1', true)).rejects.toThrow(AppException)
+  })
+})
+
+describe('SupportService.reply — время первого ответа', () => {
+  // Отметка ставится один раз: повторное открытие обращения не делает первый ответ
+  // быстрее, и переписывать её значило бы улучшать метрику задним числом.
+  it('проставляется только при пустом значении', async () => {
+    const { service, prisma } = setup()
+
+    await service.reply(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', { text: 'смотрим' })
+
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ticket-1', supportFirstReplyAt: null },
+      data: { supportFirstReplyAt: expect.any(Date) },
+    })
+  })
+
+  it('ответ автора временем первого ответа не считается', async () => {
+    const { service, prisma } = setup()
+
+    await service.reply(who(Role.STUDENT), 'ticket-1', { text: 'жду' })
+
+    const calls = prisma.chat.updateMany.mock.calls.map((call) => call[0])
+    expect(calls.some((call) => 'supportFirstReplyAt' in (call.data ?? {}))).toBe(false)
   })
 })
