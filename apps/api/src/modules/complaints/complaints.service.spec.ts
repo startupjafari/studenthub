@@ -17,6 +17,7 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'c-new' }),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
     },
     post: { findFirst: jest.fn(), updateMany: jest.fn() },
@@ -524,5 +525,38 @@ describe('ComplaintsService.createFromSupport', () => {
     prisma.chat.findFirst.mockResolvedValue(ticket())
     const err = await service.createFromSupport(staff, 'chat1', 'author1', ctx).catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
+  })
+})
+
+// ── Квитирование (пункт 91) ─────────────────────────────────────────────────
+describe('ComplaintsService.take', () => {
+  const admin = user(Role.PLATFORM_ADMIN)
+
+  it('ставит REVIEWING и запоминает, кто взял', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    await expect(service.take(admin, 'c1')).resolves.toEqual({ takenBy: 'u1' })
+    expect(prisma.complaint.updateMany).toHaveBeenCalledWith({
+      where: { id: 'c1', reviewingById: null },
+      data: { reviewingById: 'u1', status: 'REVIEWING' },
+    })
+  })
+
+  // Условие `reviewingById: null` стоит в самом запросе: два одновременных «беру» не
+  // победят оба, и второй получит отказ, а не тихо перепишет первого.
+  it('чужую жалобу перехватить нельзя', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.complaint.updateMany.mockResolvedValue({ count: 0 })
+    const err = await service.take(admin, 'c1').catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('разобранную жалобу брать нечего', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint({ status: 'RESOLVED' }))
+    const err = await service.take(admin, 'c1').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
   })
 })

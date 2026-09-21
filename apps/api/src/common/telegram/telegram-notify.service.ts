@@ -63,6 +63,13 @@ export class TelegramNotifyService {
      * правилами значило бы глушить именно тот сигнал, ради которого её и завели.
      */
     escalate = false,
+    /**
+     * Кнопка квитирования: «Беру в работу» прямо под уведомлением. Нажатие приходит
+     * обратно вебхуком и назначает нажавшего — команда видит, что работа занята, не
+     * открывая приложение. Без неё уведомление всей команде означает, что либо возьмутся
+     * двое, либо никто.
+     */
+    take?: { kind: 'ticket' | 'complaint'; id: string },
   ): Promise<void> {
     const token = this.config.get('TELEGRAM_BOT_TOKEN', { infer: true })
     if (!token) return
@@ -91,7 +98,7 @@ export class TelegramNotifyService {
     })
     if (accounts.length === 0) return
 
-    const markup = this.keyboard(deepLink)
+    const markup = this.keyboard(deepLink, take)
     await Promise.all(
       accounts.map((account) => this.send(token, account.telegramId.toString(), text, markup)),
     )
@@ -110,12 +117,25 @@ export class TelegramNotifyService {
     await this.send(token, telegramId.toString(), text, this.keyboard())
   }
 
-  /** Кнопка «открыть» — только если адрес мини-аппа задан; иначе уходит голый текст. */
-  private keyboard(deepLink?: string): unknown | undefined {
+  /**
+   * Кнопки под уведомлением. «Открыть» — только если адрес мини-аппа задан; иначе уходит
+   * голый текст. «Беру в работу» — только если вебхук настроен: кнопка, нажатие которой
+   * некому принять, молча ничего не делает, а это хуже её отсутствия.
+   */
+  private keyboard(
+    deepLink?: string,
+    take?: { kind: 'ticket' | 'complaint'; id: string },
+  ): unknown | undefined {
+    const rows: unknown[] = []
     const base = this.config.get('MINI_APP_URL', { infer: true })
-    if (!base) return undefined
-    const url = deepLink ? `${base}?startapp=${encodeURIComponent(deepLink)}` : base
-    return { inline_keyboard: [[{ text: 'Открыть', web_app: { url } }]] }
+    if (base) {
+      const url = deepLink ? `${base}?startapp=${encodeURIComponent(deepLink)}` : base
+      rows.push([{ text: 'Открыть', web_app: { url } }])
+    }
+    if (take && this.config.get('TELEGRAM_WEBHOOK_SECRET', { infer: true })) {
+      rows.push([{ text: 'Беру в работу', callback_data: `take:${take.kind}:${take.id}` }])
+    }
+    return rows.length > 0 ? { inline_keyboard: rows } : undefined
   }
 
   private async send(

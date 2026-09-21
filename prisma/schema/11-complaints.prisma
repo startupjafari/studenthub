@@ -19,6 +19,12 @@ model Complaint {
   // Scope цели для очереди модератора (вычисляется при создании из сущности-цели).
   universityId String? @map("university_id")
 
+  // Кто взял жалобу в разбор (статус REVIEWING). Не то же, что resolvedById: «взял» и
+  // «разобрал» — разные события, и путать их значило бы записывать решение тому, кто
+  // только открыл карточку. Нужен для квитирования из Telegram: уведомление о срочной
+  // жалобе уходит всей команде, и без отметки двое разбирают одно и то же.
+  reviewingById String? @map("reviewing_by_id")
+
   // Кто и как разрешил.
   resolvedById String?   @map("resolved_by_id")
   resolution   String?
@@ -29,9 +35,10 @@ model Complaint {
 
   warnings ModerationWarning[]
 
-  reporter   User        @relation("ComplaintReporter", fields: [reporterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  resolvedBy User?       @relation("ComplaintResolver", fields: [resolvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  university University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reviewingBy User?       @relation("ComplaintReviewer", fields: [reviewingById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reporter    User        @relation("ComplaintReporter", fields: [reporterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  resolvedBy  User?       @relation("ComplaintResolver", fields: [resolvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university  University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([status])
   @@index([status, priority])

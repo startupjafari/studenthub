@@ -49,6 +49,7 @@ import { PostsModule } from './modules/posts/posts.module'
 import { ChatsModule } from './modules/chats/chats.module'
 import { EventsModule } from './modules/events/events.module'
 import { ComplaintsModule } from './modules/complaints/complaints.module'
+import { TelegramHookModule } from './modules/telegram-hook/telegram-hook.module'
 import { MaterialsModule } from './modules/materials/materials.module'
 import { ProfileContentModule } from './modules/profile-content/profile-content.module'
 import { PollsModule } from './modules/polls/polls.module'
@@ -134,6 +135,7 @@ import { AppController } from './app.controller'
     ChatsModule,
     EventsModule,
     ComplaintsModule,
+    TelegramHookModule,
     MaterialsModule,
     ProfileContentModule,
     PollsModule,
