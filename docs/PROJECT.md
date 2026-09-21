@@ -576,6 +576,12 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 
 `announced_version` хранит только номер версии; текст ноты «Что нового» остаётся в бандле web (см. `28-releases.prisma`), и веб показывает ноту, лишь если её версия не выше его собственной сборки — у PWA с домашнего экрана вкладка неделями живёт на старой сборке.
 
+*Запись рычагов* — `PATCH /platform/maintenance` · `PATCH /platform/banner` · `PATCH /platform/sections` · `PATCH /platform/release`. Все четыре — только `PLATFORM_ADMIN`, все помечены `@MiniAllowed()` (управление платформой с телефона и есть смысл мини-аппа). Модератора среди пишущих нет: его работа — разбирать жалобы, а выключатель, гасящий продукт для всех, к ней не относится. Каждое изменение пишется в `AuditLog` (`platform.maintenance.on|off`, `platform.banner.on|off`, `platform.sections.set`, `platform.release.announce`).
+
+Длительность приходит **минутами** (`minutes`), а не меткой времени: абсолютное время, посчитанное на телефоне с уехавшими часами, назначило бы окончание техработ не на тот момент. `minutes: null` — снять немедленно. Потолки: техработы ≤ 12 часов, баннер ≤ 30 суток.
+
+**Включение техработ требует кода 2FA (`code`), снятие — нет.** Асимметрия намеренная: остановить платформу для всех нельзя одним промахом по экрану, а вернуть её обязано быть возможно всегда и быстро — иначе потерянный телефон продлевал бы простой. Код проверяет `TwoFactorService.verifyForUser` (TOTP или backup-код); неверный или отсутствующий → `401 INVALID_2FA_CODE`. Эндпоинт ограничен 5 запросами в минуту — против перебора кода.
+
 Токен мини-аппа несёт `client: 'mini'` и живёт 15 минут; refresh-токена нет — клиент присылает свежий `initData`. Такой токен допускается **только** на маршруты с `@MiniAllowed()` (`MiniAppGuard`), на остальных — `403 FORBIDDEN`, независимо от роли. Сейчас в белом списке: `GET /complaints`, `GET /complaints/:id`, `GET /complaints/:id/messages`, `PATCH /complaints/:id/resolve`.
 
 **Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.

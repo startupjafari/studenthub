@@ -60,6 +60,8 @@ export interface TelegramWebApp {
   onEvent: (event: string, handler: () => void) => void
   offEvent: (event: string, handler: () => void) => void
   showAlert: (message: string, callback?: () => void) => void
+  /** Нативное подтверждение. `ok` — нажал ли человек согласие. */
+  showConfirm: (message: string, callback: (ok: boolean) => void) => void
   MainButton: TelegramMainButton
   BackButton: TelegramButton
   HapticFeedback: {
