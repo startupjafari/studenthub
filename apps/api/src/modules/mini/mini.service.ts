@@ -112,7 +112,7 @@ export class MiniService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, firstName: true, role: true, isBlocked: true },
+      select: { id: true, firstName: true, role: true, isBlocked: true, twoFactorEnabled: true },
     })
     if (!user || user.isBlocked || !ALLOWED_ROLES.includes(user.role as Role)) {
       throw this.denied(`link: роль ${user?.role ?? 'нет пользователя'}`)
@@ -145,7 +145,12 @@ export class MiniService {
       metadata: { source: 'telegram' },
     })
 
-    return this.issueSession({ id: user.id, firstName: user.firstName, role: user.role as Role })
+    return this.issueSession({
+      id: user.id,
+      firstName: user.firstName,
+      role: user.role as Role,
+      twoFactorEnabled: user.twoFactorEnabled,
+    })
   }
 
   /**
@@ -162,7 +167,15 @@ export class MiniService {
       select: {
         id: true,
         revokedAt: true,
-        user: { select: { id: true, firstName: true, role: true, isBlocked: true } },
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            role: true,
+            isBlocked: true,
+            twoFactorEnabled: true,
+          },
+        },
       },
     })
 
@@ -179,12 +192,32 @@ export class MiniService {
       .update({ where: { id: account.id }, data: { lastSeenAt: new Date() } })
       .catch((error: unknown) => this.logger.warn(`lastSeenAt не обновлён: ${String(error)}`))
 
-    return this.issueSession({ id: user.id, firstName: user.firstName, role: user.role as Role })
+    return this.issueSession({
+      id: user.id,
+      firstName: user.firstName,
+      role: user.role as Role,
+      twoFactorEnabled: user.twoFactorEnabled,
+    })
   }
 
-  private issueSession(user: { id: string; firstName: string; role: Role }): MiniSession {
+  private issueSession(user: {
+    id: string
+    firstName: string
+    role: Role
+    twoFactorEnabled: boolean
+  }): MiniSession {
     // Признак `client` отличает токен мини-аппа от обычного access-токена: с ним
     // MiniAppGuard пускает только на маршруты из белого списка (§4).
+    //
+    // `tfa` обязателен, хотя мини-апп второй фактор не спрашивает. Глобальный
+    // TwoFactorGuard отдаёт 403 любой привилегированной роли без этого признака, а
+    // платформенные роли привилегированные все — без него мини-апп получал бы отказ на
+    // каждом рабочем запросе, выдав перед этим рабочую сессию (`/mini/session` публичный,
+    // пользователя в запросе ещё нет, и guard до него не доходит).
+    //
+    // Значение берётся из БД, а не ставится в `true`: признак означает «у человека
+    // включена 2FA», и врать в нём нельзя. Администратор, у которого её нет, получит тот
+    // же отказ, что и в вебе, — это и есть задуманное поведение.
     const payload: JwtPayload = {
       sub: user.id,
       role: user.role,
@@ -192,6 +225,7 @@ export class MiniService {
       facultyId: null,
       groupId: null,
       client: 'mini',
+      tfa: user.twoFactorEnabled,
     }
 
     return {
