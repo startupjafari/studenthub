@@ -31,6 +31,11 @@ export function formatDateTime(iso: string): string {
   })
 }
 
+/** Календарная дата без времени: «14 сентября 2025» — день регистрации, а не час. */
+export function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(tag(), { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 /** Заголовок группы в списке: «Сегодня», «Вчера» или дата. */
 export function dayLabel(iso: string): string {
   const date = new Date(iso)
@@ -42,6 +47,16 @@ export function dayLabel(iso: string): string {
   if (sameDay(date, yesterday)) return t('yesterday')
 
   return date.toLocaleDateString(tag(), { day: 'numeric', month: 'long' })
+}
+
+/**
+ * Длительность в часах словами: «40 мин», «3 ч», «2 дн». Огрубляем так же, как возраст
+ * в очереди: «3 ч 12 мин» отвечает на вопрос «быстро ли мы разбираем» не лучше, чем «3 ч».
+ */
+export function formatHours(hours: number): string {
+  if (hours < 1) return t('ageMinutes', { count: Math.max(1, Math.round(hours * 60)) })
+  if (hours < 24) return t('ageHours', { count: Math.round(hours) })
+  return t('ageDays', { count: Math.round(hours / 24) })
 }
 
 /**

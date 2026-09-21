@@ -26,6 +26,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    complaint: { count: jest.fn().mockResolvedValue(0) },
     friendship: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
@@ -532,6 +533,49 @@ describe('UserService — setBlocked', () => {
       data: { isBlocked: true },
     })
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('t')
+  })
+})
+
+// ── Карточка человека для модератора ────────────────────────────────────────
+describe('UserService.moderationCard', () => {
+  const target = {
+    id: 't',
+    firstName: 'Айгуль',
+    lastName: 'Серикова',
+    role: Role.STUDENT,
+    isBlocked: false,
+    createdAt: new Date('2025-09-14T10:00:00.000Z'),
+    universityId: 'uni-B',
+    university: { id: 'uni-B', name: 'КазНУ' },
+  }
+
+  it('чужой вуз (модератор вуза) → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    await expect(
+      service.moderationCard(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't'),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  it('считает жалобы на человека и отдельно подтверждённые', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    prisma.complaint.count.mockResolvedValueOnce(4).mockResolvedValueOnce(2)
+    const card = await service.moderationCard(viewer(Role.PLATFORM_ADMIN), 't')
+    expect(card.complaints).toEqual({ total: 4, upheld: 2 })
+    expect(card.university).toEqual({ id: 'uni-B', name: 'КазНУ' })
+  })
+
+  // Карточку читают с телефона: лишние ПДн в ней — это ПДн, уехавшие в Telegram.
+  it('не отдаёт ни почты, ни телефона', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    const card = await service.moderationCard(viewer(Role.PLATFORM_ADMIN), 't')
+    expect(card).not.toHaveProperty('email')
+    expect(card).not.toHaveProperty('phone')
+    const select = prisma.user.findFirst.mock.calls[0][0].select
+    expect(select.email).toBeUndefined()
+    expect(select.phone).toBeUndefined()
   })
 })
 

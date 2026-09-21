@@ -5,7 +5,12 @@ import type { Complaint } from '../api/complaints'
 
 vi.mock('../api/complaints', async (orig) => {
   const actual = await orig<typeof import('../api/complaints')>()
-  return { ...actual, fetchComplaints: vi.fn(), fetchComplaint: vi.fn() }
+  return {
+    ...actual,
+    fetchComplaints: vi.fn(),
+    fetchComplaint: vi.fn(),
+    fetchResolutionMedian: vi.fn().mockResolvedValue(null),
+  }
 })
 vi.mock('../telegram/webapp', () => ({
   haptic: { tap: vi.fn(), select: vi.fn(), success: vi.fn() },
@@ -15,7 +20,7 @@ vi.mock('../telegram/webapp', () => ({
 }))
 vi.mock('../telegram/use-telegram', () => ({ useBackButton: vi.fn(), useMainButton: vi.fn() }))
 
-import { fetchComplaints } from '../api/complaints'
+import { fetchComplaints, fetchResolutionMedian } from '../api/complaints'
 import { ComplaintsScreen } from './complaints'
 
 function complaint(over: Partial<Complaint> = {}): Complaint {
@@ -95,6 +100,32 @@ describe('ComplaintsScreen', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
 
     expect(vi.mocked(fetchComplaints).mock.calls.at(-1)?.[0]).toMatchObject({ status: 'RESOLVED' })
+  })
+
+  // Очередь отвечает на «сколько осталось», медиана — на «быстро ли мы разбираем».
+  // Второй вопрос задают про разобранное, поэтому цифра живёт на своей вкладке.
+  it('показывает медиану разбора над разобранными', async () => {
+    page([complaint({ status: 'RESOLVED' })])
+    vi.mocked(fetchResolutionMedian).mockResolvedValue(3.2)
+    render(<ComplaintsScreen />)
+    await screen.findByText('Реклама в ленте')
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
+
+    expect(await screen.findByText('Медиана разбора 3 ч')).toBeInTheDocument()
+  })
+
+  // Список важнее цифры над ним: отказ агрегата не должен ни ронять экран, ни
+  // показывать «—» вместо подзаголовка.
+  it('молчит, если медиана не посчиталась', async () => {
+    page([complaint({ status: 'RESOLVED' })])
+    vi.mocked(fetchResolutionMedian).mockRejectedValue(new Error('offline'))
+    render(<ComplaintsScreen />)
+    await screen.findByText('Реклама в ленте')
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
+
+    expect(await screen.findByText('Разобранные', { selector: 'p' })).toBeInTheDocument()
   })
 
   it('группирует список по дням', async () => {

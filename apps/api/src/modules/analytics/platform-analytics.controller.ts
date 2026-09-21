@@ -59,6 +59,10 @@ export class PlatformAnalyticsController {
 
   @Get('complaints-latency')
   @Roles(...PLATFORM_ROLES)
+  // Мини-апп берёт отсюда одну медиану и показывает её над разобранными жалобами: это
+  // единственная цифра, которая говорит модератору, быстро ли разбирает команда. Корзины
+  // распределения он не рисует — их читают в вебе.
+  @MiniAllowed()
   @ApiOperation({ summary: 'Время разбора жалоб: распределение по корзинам и медиана' })
   complaintsLatency(@Query() query: PlatformRangeQueryDto) {
     return this.analytics.complaintsLatency(query)

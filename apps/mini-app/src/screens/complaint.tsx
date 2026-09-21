@@ -4,7 +4,7 @@ import {
   fetchComplaintMessages,
   reopenComplaint,
   resolveComplaint,
-  type Complaint,
+  type ComplaintCard,
   type ComplaintMessage,
   type ResolveAction,
 } from '../api/complaints'
@@ -13,6 +13,7 @@ import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
 import { formatDateTime } from '../lib/format'
+import { PersonSummary } from './person-summary'
 
 // Карточка разбора жалобы: прочитать целиком и принять решение с телефона.
 //
@@ -34,7 +35,7 @@ const PRIORITY_KEY = {
   LOW: 'priorityLow',
 } as const
 
-type Loaded = Complaint & { targetReports: number }
+type Loaded = ComplaintCard
 
 type State = { status: 'loading' } | { status: 'ready'; complaint: Loaded } | { status: 'error' }
 
@@ -194,6 +195,13 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
           </p>
         )}
       </section>
+
+      {/* Кто нарушил. Решение принимается про человека, а в жалобе на пост или сообщение
+          видно только текст: студент первого курса и модератор вуза с одинаковой жалобой —
+          разные случаи, и «попадался раньше» меняет меру. */}
+      {complaint.targetOwnerId && (
+        <PersonSummary userId={complaint.targetOwnerId} title={t('complaintOffender')} />
+      )}
 
       {complaint.targetType === 'MESSAGE' && (
         <section className="card">

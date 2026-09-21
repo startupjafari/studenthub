@@ -212,6 +212,30 @@ describe('ComplaintsService — scope очереди (11.3)', () => {
     expect(prisma.complaint.findMany.mock.calls[0][0].where.universityId).toBeUndefined()
   })
 
+  // Блокируют человека, а в жалобе на пост видно только пост: владельца цели сервер
+  // разрешает сам, иначе мини-апп показывал бы карточку «неизвестно кого».
+  it('отдаёт владельца цели: по жалобе на пост — его автора', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
+    expect(card.targetOwnerId).toBe('author1')
+  })
+
+  // Снесённый пост — обычное дело: его могли удалить до разбора. Карточка обязана
+  // открыться и без владельца, иначе жалобу нельзя ни отклонить, ни закрыть.
+  it('у снесённой цели владельца нет, но карточка открывается', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue(null)
+    const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
+    expect(card.targetOwnerId).toBeNull()
+  })
+
   it('жалоба чужого вуза → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint({ universityId: 'uniX' }))
