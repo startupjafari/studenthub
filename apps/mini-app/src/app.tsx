@@ -1,80 +1,87 @@
-import { useEffect, useState } from 'react'
-import { useBackButton } from './telegram/use-telegram'
-import { haptic, initTelegram, isTelegram } from './telegram/webapp'
-import { ScheduleScreen } from './screens/schedule'
-import { LessonScreen } from './screens/lesson'
-import { TasksScreen } from './screens/tasks'
-import { ProfileScreen } from './screens/profile'
-import type { Lesson } from './mocks/data'
+import { useCallback, useEffect, useState } from 'react'
+import { initTelegram, isTelegram } from './telegram/webapp'
+import { openSession, type MiniUser } from './api/client'
+import { LinkScreen } from './screens/link'
+import { ComplaintsScreen } from './screens/complaints'
 
-// Навигация — состоянием, без роутера.
+// Мини-апп для администраторов и модераторов платформы.
 //
-// У мини-аппа нет адресной строки: Telegram открывает один URL, «назад» приходит
-// системной кнопкой в шапке, а история браузера в WebView ведёт себя по-разному на iOS
-// и Android. Три вкладки и один экран вглубь описываются состоянием честнее и без
-// зависимости; когда экранов станет вдвое больше — придёт router, но не раньше.
+// Единственный вход — подписанный initData от Telegram: при старте он меняется на короткий
+// токен. Дальше возможны ровно три исхода, и каждому соответствует экран.
+//
+// Отказ сессии НЕ означает «не привязан»: сервер одинаково отвечает «нет доступа» и когда
+// привязки нет, и когда роль больше не та — по разнице ответов вычислялось бы, кто из
+// админов привязан (docs/PROJECT.md §Мини-апп). Клиент причину не знает и потому предлагает
+// единственное действие, которое способно помочь: ввести код. Нет доступа в принципе —
+// код не подойдёт, и об этом скажет уже сам ответ на привязку.
 
-type Tab = 'schedule' | 'tasks' | 'profile'
-
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'schedule', label: 'Расписание', icon: '🗓' },
-  { id: 'tasks', label: 'Задания', icon: '📘' },
-  { id: 'profile', label: 'Профиль', icon: '👤' },
-]
+type State =
+  | { status: 'starting' }
+  | { status: 'outside' }
+  | { status: 'link' }
+  | { status: 'ready'; user: MiniUser }
 
 export function App() {
-  const [tab, setTab] = useState<Tab>('schedule')
-  const [lesson, setLesson] = useState<Lesson | null>(null)
+  const [state, setState] = useState<State>({ status: 'starting' })
 
   useEffect(() => initTelegram(), [])
 
-  // Кнопка «Назад» нужна ровно на экране вглубь: на вкладках её место — закрыть мини-апп,
-  // и этим занимается сам Telegram.
-  useBackButton(lesson ? () => setLesson(null) : null)
+  const start = useCallback(async () => {
+    if (!isTelegram()) {
+      setState({ status: 'outside' })
+      return
+    }
+    try {
+      setState({ status: 'ready', user: await openSession() })
+    } catch {
+      setState({ status: 'link' })
+    }
+  }, [])
+
+  useEffect(() => {
+    void start()
+  }, [start])
 
   return (
     <div className="app">
-      {/* Запасная «назад» — только вне Telegram: в клиенте эту роль играет системная
-          кнопка в шапке, и вторая рядом с ней выглядела бы ошибкой. */}
-      {lesson && !isTelegram() && (
-        <button type="button" className="back-fallback" onClick={() => setLesson(null)}>
-          ‹ Назад
-        </button>
-      )}
-
       <main className="content">
-        {lesson ? (
-          <LessonScreen lesson={lesson} />
-        ) : tab === 'schedule' ? (
-          <ScheduleScreen onOpen={setLesson} />
-        ) : tab === 'tasks' ? (
-          <TasksScreen />
-        ) : (
-          <ProfileScreen />
+        {state.status === 'starting' && <Starting />}
+        {state.status === 'outside' && <Outside />}
+        {state.status === 'link' && (
+          <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
         )}
+        {state.status === 'ready' && <ComplaintsScreen />}
       </main>
+    </div>
+  )
+}
 
-      {/* Вкладки прячутся на экране вглубь: две навигации одновременно — это не «удобнее». */}
-      {!lesson && (
-        <nav className="tabbar">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={item.id === tab ? 'tab tab-active' : 'tab'}
-              onClick={() => {
-                if (item.id !== tab) haptic.select()
-                setTab(item.id)
-              }}
-            >
-              <span className="tab-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-      )}
+function Starting() {
+  // Пустой экран без слова «загрузка»: обмен занимает доли секунды, и надпись успевает
+  // только моргнуть. Заголовок держит место, чтобы страница не прыгнула.
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <h1>StudentHub</h1>
+        <p className="hint">Проверяем доступ…</p>
+      </header>
+    </div>
+  )
+}
+
+function Outside() {
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <h1>Откройте из Telegram</h1>
+        <p className="hint">Мини-апп работает внутри клиента Telegram</p>
+      </header>
+      <section className="card">
+        <p className="hint">
+          Приложение подтверждает вас подписью, которую выдаёт Telegram при открытии. В обычном
+          браузере такой подписи нет, поэтому очередь жалоб здесь недоступна.
+        </p>
+      </section>
     </div>
   )
 }
