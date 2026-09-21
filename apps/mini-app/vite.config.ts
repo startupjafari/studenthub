@@ -7,7 +7,8 @@ export default defineConfig({
   // (например, /mini/), а Telegram открывает ровно тот URL, что задан в BotFather.
   base: './',
   server: {
-    port: 5175,
+    // Порты монорепо заняты по порядку: web 3000, api 3001, landing 3002.
+    port: 3003,
     // host: true — чтобы тоннель (ngrok/cloudflared) видел dev-сервер: Telegram требует
     // https-адрес, локальный http://localhost он не откроет.
     host: true,
