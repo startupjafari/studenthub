@@ -18,6 +18,7 @@ import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
 import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
+import { applyFontScale, isLargeFont } from '../lib/font-scale'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
@@ -114,6 +115,7 @@ export function ControlScreen({ userId }: { userId: string }) {
       <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
       <SectionsCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
+      <FontCard />
 
       {/* Какая сборка открыта. Не украшение: сервисы на Railway однажды разъехались по
           веткам, и мини-апп неделю ходил в бэкенд за маршрутами, которых там не было. */}
@@ -500,6 +502,38 @@ function NotificationsCard({
       >
         {t('notifSave')}
       </button>
+    </section>
+  )
+}
+
+/**
+ * Размер текста. Настройка устройства, а не человека: с телефона хочется крупнее, с
+ * планшета может и нет, — поэтому живёт в localStorage мини-аппа, а не на сервере.
+ */
+function FontCard() {
+  const [large, setLarge] = useState(isLargeFont)
+
+  return (
+    <section className="card">
+      <h2>{t('fontTitle')}</h2>
+      <p className="hint">{t('fontHint')}</p>
+      <div className="chips">
+        {[false, true].map((value) => (
+          <button
+            key={String(value)}
+            type="button"
+            className="chip"
+            aria-pressed={large === value}
+            onClick={() => {
+              haptic.select()
+              applyFontScale(value)
+              setLarge(value)
+            }}
+          >
+            {value ? t('fontLarge') : t('fontNormal')}
+          </button>
+        ))}
+      </div>
     </section>
   )
 }

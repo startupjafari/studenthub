@@ -12,7 +12,7 @@ import {
 } from '../api/support'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
 import { formatDateTime, formatShortTime } from '../lib/format'
 
@@ -247,6 +247,11 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       setError(err instanceof ApiError ? err.message : t('supportCloseError'))
     }
   }, [onBack, id])
+
+  // Главная кнопка Telegram под областью приложения: она не отнимает высоту у переписки,
+  // а «Ответить» — единственное главное действие этого экрана. Пустой текст кнопку
+  // убирает: кнопка, которая ничего не сделает, хуже её отсутствия.
+  useMainButton(text.trim().length > 0 ? t('supportReply') : null, () => void send())
 
   // Пока переписка грузится, автора мы ещё не знаем: экран открывается и по ссылке из
   // уведомления, где очереди с его именем не было.
