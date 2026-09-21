@@ -117,6 +117,14 @@ export const envSchema = z.object({
    */
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 
+  /**
+   * Токен бота, в меню которого открывается админский мини-апп (docs/PROJECT.md §Мини-апп).
+   * Им проверяется подпись initData — другого способа удостовериться, что данные пришли
+   * от Telegram, нет. Не задан — `/mini/session` отвечает «нет доступа», то есть мини-апп
+   * просто выключен; локальная разработка и CI его не требуют.
+   */
+  TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),

@@ -38,6 +38,7 @@ import {
   type ProfileVisibilityValue,
 } from '@studenthub/shared-schemas'
 import { RELEASE_NOTES, ReleaseNoteModal, latestNote } from '../../../entities/release'
+import { TelegramLinkRow } from '../../../features/link-telegram'
 import type { MeResponse } from '../../../shared/api'
 import { setup2faRequest, enable2faRequest, disable2faRequest } from '../../../shared/api'
 import {
@@ -415,6 +416,12 @@ function SecuritySection({ me }: { me: MeResponse }) {
 
       <div className="mt-6 border-t border-border pt-5">
         <TwoFactorManager me={me} />
+      </div>
+
+      {/* Привязка Telegram — ниже 2FA: это тоже про доступ к аккаунту, и платформенным
+          ролям мини-апп доступен только после включённой двухфакторной. */}
+      <div className="mt-6 border-t border-border pt-5">
+        <TelegramLinkRow role={me.role} />
       </div>
     </SectionCard>
   )

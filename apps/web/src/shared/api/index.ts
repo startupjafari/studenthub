@@ -19,6 +19,8 @@ export {
   type InvitePreview,
   type LoginResult,
   type TwoFactorSetupResponse,
+  miniLinkCodeRequest,
+  type MiniLinkCodeResponse,
 } from './auth-api'
 export { uploadFileRequest, type UploadedFile } from './files-api'
 export { needsDirectUpload, uploadDirect, type PresignedTarget } from './direct-upload'

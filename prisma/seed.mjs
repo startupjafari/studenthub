@@ -18,8 +18,18 @@ import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
+import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
+
+// DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
+// подхватывает только Prisma CLI через prisma.config.ts (те же строки есть в
+// prisma/seed-test.mjs и prisma/reset-to-admin.mjs). Без них `pnpm db:seed` на не-demo
+// масштабе падал на гарде «нелокальная БД» — пустой URL локальным не считается, — а на
+// demo доходил до первого запроса и падал уже в Prisma.
+// Уже заданное окружение приоритетнее: на CI переменные приходят снаружи.
+const env = loadEnv()
+if (!process.env.DATABASE_URL && env.DATABASE_URL) process.env.DATABASE_URL = env.DATABASE_URL
 
 const prisma = new PrismaClient()
 const config = loadConfig()
@@ -138,6 +148,18 @@ async function main() {
   // развёртывании; он идемпотентен (ON CONFLICT DO UPDATE).
   if (config.runs('kato')) {
     await seedKato(prisma)
+    // SEED_ONLY=kato — шаг РАЗВЁРТЫВАНИЯ, а не демо-сид, и на нём сид заканчивается.
+    //
+    // Справочник нужен и на чистом стенде: `University.city` хранит 9-значный код, и без
+    // КАТО селект «Город» при создании вуза пуст. Всё, что ниже, — демо-вуз «Алатау» с
+    // сотнями пользователей и dev-аккаунтами под общим паролем. На проде это ровно то,
+    // что сброс БД (`db:reset:admin`) только что удалил: workflow «Reset DB» вызывает
+    // db:seed:kato сразу после сброса, и без этого выхода стенд снова оказывался с
+    // демо-данными и одним админом вместо одного админа.
+    if (config.only?.length === 1) {
+      console.log('SEED_ONLY=kato: справочник залит, демо-данные пропущены.')
+      return
+    }
   }
 
   // Один bcrypt-хэш на всех сид-пользователей. Это не оптимизация, а условие
