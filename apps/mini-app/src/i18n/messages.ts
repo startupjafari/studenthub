@@ -283,6 +283,14 @@ const ru = {
   complaintShare: 'Скопировать ссылку',
   complaintShared: 'Ссылка скопирована',
   complaintShareFailed: 'Не удалось скопировать',
+  queuesTitle: 'Очереди задач',
+  queuesWaiting: 'ждёт {count}',
+  queuesFailed: 'упало {count}',
+  queuesFine: 'Все очереди пусты',
+  peopleLogout: 'Завершить сессии',
+  peopleConfirmLogout: 'Завершить все сессии {name}? Человек сможет войти заново.',
+  peopleLoggedOut: 'Сессии завершены',
+  complaintHistory: 'Все жалобы на эту цель',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -555,6 +563,14 @@ const kk: Record<MessageKey, string> = {
   complaintShare: 'Сілтемені көшіру',
   complaintShared: 'Сілтеме көшірілді',
   complaintShareFailed: 'Көшіру мүмкін болмады',
+  queuesTitle: 'Тапсырма кезектері',
+  queuesWaiting: 'күтуде {count}',
+  queuesFailed: 'құлады {count}',
+  queuesFine: 'Барлық кезек бос',
+  peopleLogout: 'Сеанстарды аяқтау',
+  peopleConfirmLogout: '{name} барлық сеансын аяқтау керек пе? Адам қайта кіре алады.',
+  peopleLoggedOut: 'Сеанстар аяқталды',
+  complaintHistory: 'Осы нысанға барлық шағым',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -824,6 +840,14 @@ const en: Record<MessageKey, string> = {
   complaintShare: 'Copy link',
   complaintShared: 'Link copied',
   complaintShareFailed: 'Could not copy',
+  queuesTitle: 'Job queues',
+  queuesWaiting: '{count} waiting',
+  queuesFailed: '{count} failed',
+  queuesFine: 'All queues are empty',
+  peopleLogout: 'End sessions',
+  peopleConfirmLogout: 'End all sessions for {name}? They can sign in again.',
+  peopleLoggedOut: 'Sessions ended',
+  complaintHistory: 'All reports about this target',
   aboutVersion: 'Build {version}',
 }
 

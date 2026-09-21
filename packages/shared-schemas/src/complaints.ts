@@ -73,6 +73,11 @@ export type ComplaintSortValue = z.infer<typeof ComplaintSortSchema>
 // сортировка по всей выборке. Порядок по умолчанию — очередь: сначала необработанные,
 // внутри — по приоритету, внутри — свежие раньше.
 export const ComplaintListQuerySchema = OffsetPaginationSchema.extend({
+  /**
+   * Все жалобы на одну цель — история по нарушителю или по посту. Единичная обида и
+   * травля в очереди выглядят одинаково; разводит их только список прошлых разборов.
+   */
+  targetId: z.string().min(1).max(64).optional(),
   status: ComplaintStatusSchema.optional(),
   priority: ComplaintPrioritySchema.optional(),
   sort: ComplaintSortSchema.optional(),

@@ -3,11 +3,13 @@ import {
   fetchHealth,
   fetchInvitesFunnel,
   fetchOverview,
+  fetchQueues,
   fetchTopActions,
   fetchUniversitySizes,
   type HealthReport,
   type InvitesFunnel,
   type PlatformOverview,
+  type QueueCount,
   type TopAction,
   type UniversitySize,
 } from '../api/overview'
@@ -21,6 +23,7 @@ import { t } from '../i18n'
 // требующие сравнения и масштаба, остаются в вебе.
 
 interface Extras {
+  queues: QueueCount[]
   invites: InvitesFunnel | null
   universities: UniversitySize[]
   actions: TopAction[]
@@ -55,18 +58,19 @@ export function OverviewScreen() {
       // Разрезы и живость читаются параллельно, и отказ любого из них не ломает сводку:
       // главные числа обязаны показаться, даже если один агрегат не посчитался. Недоступный
       // /health — сам по себе ответ, а не причина прятать всё остальное.
-      const [overview, health, invites, universities, actions] = await Promise.all([
+      const [overview, health, invites, universities, actions, queues] = await Promise.all([
         fetchOverview(),
         fetchHealth().catch(() => null),
         fetchInvitesFunnel().catch(() => null),
         fetchUniversitySizes().catch(() => []),
         fetchTopActions().catch(() => []),
+        fetchQueues().catch(() => []),
       ])
       setState({
         status: 'ready',
         overview,
         health,
-        extras: { invites, universities, actions },
+        extras: { invites, universities, actions, queues },
       })
     } catch {
       setState({ status: 'error' })
@@ -169,6 +173,28 @@ export function OverviewScreen() {
                 <span className="toggle-state">{action.value.toLocaleString()}</span>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* Очереди показываем только когда в них что-то есть: пустая таблица нулей
+          каждое утро приучает не смотреть на этот блок вовсе. */}
+      {extras.queues.some((queue) => queue.waiting > 0 || queue.failed > 0) && (
+        <section className="card">
+          <h2>{t('queuesTitle')}</h2>
+          <div className="list">
+            {extras.queues
+              .filter((queue) => queue.waiting > 0 || queue.failed > 0)
+              .map((queue) => (
+                <div className="toggle-row" key={queue.name}>
+                  <span className="mono">{queue.name}</span>
+                  <span className={queue.failed > 0 ? 'toggle-state off' : 'toggle-state'}>
+                    {queue.failed > 0
+                      ? t('queuesFailed', { count: queue.failed })
+                      : t('queuesWaiting', { count: queue.waiting })}
+                  </span>
+                </div>
+              ))}
           </div>
         </section>
       )}
