@@ -234,6 +234,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
   | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
   | `POST /ops/hooks/:source` | внешние сервисы не умеют наш JWT; защита — подпись | `TELEGRAM_BOT.md` §5 |
+  | `POST /mini/session` | Telegram открывает мини-апп без нашего JWT; защита — подпись initData | `PROJECT.md` §Мини-апп |
+  | `POST /mini/link` | то же, плюс одноразовый код, выданный в вебе | `PROJECT.md` §Мини-апп |
 
   `POST /auth/qr/approve` в списке **нет намеренно**: подтверждение входа делает уже залогиненный телефон, и этот маршрут закрыт. `claimSecret` в QR-код не попадает, поэтому публичность `qr/claim` не даёт забрать чужую сессию.
   - `POST /auth/logout` публичный намеренно: выход должен работать при истёкшем access-токене (иначе пользователь не сможет разлогиниться и очистить cookie). Безопасен — инвалидирует ТОЛЬКО сессию из refresh-cookie самого вызывающего; CSRF гасится `SameSite=Lax` (cookie не уходит на cross-site POST). Проверено аудитом §13.5.
