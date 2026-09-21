@@ -11,6 +11,7 @@ export const ChatTypeSchema = z.enum([
   'FACULTY',
   'DEAN',
   'SUPPORT',
+  'SUPPORT_PLATFORM',
   'EVENT',
   'SAVED',
 ])
