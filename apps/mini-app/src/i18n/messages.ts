@@ -335,6 +335,17 @@ const ru = {
   supportComplaintConfirm: 'Завести жалобу на {name} от имени автора обращения?',
   supportComplaintCreated: 'Жалоба в очереди модерации',
   supportComplaintError: 'Не удалось завести жалобу',
+  supportTagsTitle: 'О чём обращение',
+  supportTagsHint: 'Не больше трёх отметок. По ним видно, о чём спрашивают чаще всего.',
+  supportTagsLimit: 'Больше трёх отметок не ставим',
+  supportTagsError: 'Не удалось сохранить отметки',
+  supportTagAccess: 'Доступ',
+  supportTagData: 'Данные',
+  supportTagDocs: 'Документы',
+  supportTagBug: 'Ошибка',
+  supportTagFeature: 'Пожелание',
+  supportTagAbuse: 'Жалоба',
+  supportTagOther: 'Прочее',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -658,6 +669,17 @@ const kk: Record<MessageKey, string> = {
   supportComplaintConfirm: '{name} туралы шағым өтініш авторының атынан ашылсын ба?',
   supportComplaintCreated: 'Шағым модерация кезегінде',
   supportComplaintError: 'Шағым ашу мүмкін болмады',
+  supportTagsTitle: 'Өтініш не туралы',
+  supportTagsHint: 'Үштен артық белгі емес. Олар бойынша не туралы жиі сұрайтыны көрінеді.',
+  supportTagsLimit: 'Үштен артық белгі қойылмайды',
+  supportTagsError: 'Белгілерді сақтау мүмкін болмады',
+  supportTagAccess: 'Қолжетімділік',
+  supportTagData: 'Деректер',
+  supportTagDocs: 'Құжаттар',
+  supportTagBug: 'Қате',
+  supportTagFeature: 'Ұсыныс',
+  supportTagAbuse: 'Шағым',
+  supportTagOther: 'Басқа',
 }
 
 const en: Record<MessageKey, string> = {
@@ -978,6 +1000,17 @@ const en: Record<MessageKey, string> = {
   supportComplaintConfirm: 'File a complaint about {name} on behalf of the ticket author?',
   supportComplaintCreated: 'The complaint is in the moderation queue',
   supportComplaintError: 'Could not file the complaint',
+  supportTagsTitle: 'What the ticket is about',
+  supportTagsHint: 'Up to three marks. They show what people ask about most often.',
+  supportTagsLimit: 'Three marks is the limit',
+  supportTagsError: 'Could not save the marks',
+  supportTagAccess: 'Access',
+  supportTagData: 'Data',
+  supportTagDocs: 'Documents',
+  supportTagBug: 'Bug',
+  supportTagFeature: 'Request',
+  supportTagAbuse: 'Abuse',
+  supportTagOther: 'Other',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

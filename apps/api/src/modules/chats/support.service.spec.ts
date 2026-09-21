@@ -34,6 +34,8 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
       findUnique: jest.fn().mockResolvedValue({ id: 'm1' }),
     },
     user: { findMany: jest.fn().mockResolvedValue([{ id: 'staff-1' }, { id: 'staff-2' }]) },
+    // Счётчики тегов считаются одним запросом: массив в GROUP BY Prisma не умеет.
+    $queryRaw: jest.fn().mockResolvedValue([]),
   }
   const chats = {
     createMessage: jest.fn().mockResolvedValue({ message: { id: 'msg-1' }, recipientIds: [] }),
@@ -350,5 +352,49 @@ describe('SupportService.escalate', () => {
     const { service } = setup()
 
     await expect(service.escalate(who(Role.STUDENT), 'ticket-1')).rejects.toThrow(AppException)
+  })
+})
+
+// ── Теги обращений (пункт 33) ───────────────────────────────────────────────
+describe('SupportService — теги', () => {
+  const staff = who(Role.PLATFORM_ADMIN, 'staff-1')
+
+  it('набор заменяется целиком и чистится от дубликатов', async () => {
+    const { service, prisma } = setup()
+    await expect(service.setTags(staff, 'chat1', ['ACCESS', 'ACCESS', 'BUG'])).resolves.toEqual({
+      tags: ['ACCESS', 'BUG'],
+    })
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'chat1' },
+      data: { supportTags: ['ACCESS', 'BUG'] },
+    })
+  })
+
+  it('обычной роли теги не доверяем', async () => {
+    const { service } = setup()
+    const err = await service.setTags(who(Role.STUDENT), 'chat1', ['BUG']).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+  })
+
+  // Фильтр по тегу уходит на сервер: «все обращения про доступ» среди тридцати
+  // загруженных строк — это не «все».
+  it('фильтр по тегу попадает в запрос, а не режет страницу', async () => {
+    const { service, prisma } = setup()
+    await service.queue(staff, {
+      status: 'open',
+      assignee: 'any',
+      tag: 'ACCESS',
+      page: 1,
+      limit: 30,
+    })
+    expect(prisma.chat.findMany.mock.calls[0][0].where).toMatchObject({
+      supportTags: { has: 'ACCESS' },
+    })
+  })
+
+  it('счётчики отдаёт числами, а не bigint из базы', async () => {
+    const { service, prisma } = setup()
+    prisma.$queryRaw.mockResolvedValue([{ tag: 'ACCESS', count: 60n }])
+    await expect(service.tagCounts(staff)).resolves.toEqual([{ tag: 'ACCESS', count: 60 }])
   })
 })
