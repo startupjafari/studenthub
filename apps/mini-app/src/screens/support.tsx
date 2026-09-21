@@ -5,10 +5,15 @@ import {
   escalateTicket,
   fetchSupportQueue,
   fetchSupportThread,
+  fetchTagCounts,
   replyToTicket,
+  setTicketTags,
   REPLY_TEMPLATES,
+  SUPPORT_TAGS,
+  SUPPORT_TAG_KEY,
   type QueueScope,
   type SupportMessage,
+  type SupportTag,
   type SupportTicket,
 } from '../api/support'
 import { ApiError } from '../api/client'
@@ -61,17 +66,27 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   const [state, setState] = useState<QueueState>({ status: 'loading' })
   const [tab, setTab] = useState<Tab>('open')
   const [search, setSearch] = useState('')
+  // Тег служит сразу двумя способами: как фильтр очереди и как ответ на «о чём
+  // спрашивают чаще». Счётчики за 30 дней приходят отдельно и по отказу молчат.
+  const [tag, setTag] = useState<SupportTag | null>(null)
+  const [counts, setCounts] = useState<{ tag: SupportTag; count: number }[]>([])
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
       const { status, assignee } = TAB_QUERY[tab]
-      const page = await fetchSupportQueue(status, assignee, search)
+      const page = await fetchSupportQueue(status, assignee, search, tag ?? undefined)
       setState({ status: 'ready', items: page.items, total: page.total })
     } catch {
       setState({ status: 'error' })
     }
-  }, [tab, search])
+  }, [tab, search, tag])
+
+  useEffect(() => {
+    void fetchTagCounts()
+      .then(setCounts)
+      .catch(() => undefined)
+  }, [])
 
   // Задержка перед запросом: иначе каждая буква уходит в сеть.
   useEffect(() => {
@@ -118,6 +133,38 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
         placeholder={t('supportSearchPlaceholder')}
         aria-label={t('supportSearchPlaceholder')}
       />
+
+      {/* Теги показываются только те, что реально встречались за месяц: полный список
+          из семи чипов на телефоне занимает экран и половину времени врёт нулями. */}
+      {counts.length > 0 && (
+        <div className="chips">
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={tag === null}
+            onClick={() => {
+              haptic.select()
+              setTag(null)
+            }}
+          >
+            {t('complaintsFilterAll')}
+          </button>
+          {counts.map((row) => (
+            <button
+              key={row.tag}
+              type="button"
+              className="chip"
+              aria-pressed={tag === row.tag}
+              onClick={() => {
+                haptic.select()
+                setTag((prev) => (prev === row.tag ? null : row.tag))
+              }}
+            >
+              {t(SUPPORT_TAG_KEY[row.tag])} · {row.count}
+            </button>
+          ))}
+        </div>
+      )}
 
       {state.status === 'loading' && <SkeletonList />}
 
@@ -279,6 +326,37 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     [id],
   )
 
+  // Тег снимается тем же касанием, каким ставится: отдельная кнопка «убрать» на чипе
+  // не помещается, а «поставил не тот» — самая частая ошибка из трёх касаний.
+  const toggleTag = useCallback(
+    async (value: SupportTag) => {
+      const current = state.status === 'ready' ? state.ticket.tags : []
+      const next = current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value]
+      // Больше трёх сервер не примет: набор, означающий всё, не означает ничего.
+      if (next.length > 3) {
+        setError(t('supportTagsLimit'))
+        return
+      }
+      setError(null)
+      // Ставим сразу: отметка должна отзываться под пальцем, а не через круг по сети.
+      setState((prev) =>
+        prev.status === 'ready' ? { ...prev, ticket: { ...prev.ticket, tags: next } } : prev,
+      )
+      try {
+        await setTicketTags(id, next)
+        haptic.select()
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : t('supportTagsError'))
+        setState((prev) =>
+          prev.status === 'ready' ? { ...prev, ticket: { ...prev.ticket, tags: current } } : prev,
+        )
+      }
+    },
+    [id, state],
+  )
+
   const escalate = useCallback(async () => {
     if (!(await confirmAction(t('supportEscalateConfirm')))) return
     setError(null)
@@ -327,6 +405,30 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
           это выяснялось встречным вопросом и сутками ожидания. */}
       {ticket?.author && (
         <PersonSummary userId={ticket.author.id} title={t('supportAuthorTitle')} />
+      )}
+
+      {/* О чём обращение. Не для порядка: из этих отметок складывается ответ на
+          «поддержка отвечает на одно и то же» — шестьдесят вопросов про доступ за месяц
+          это задача продукту, а ощущение усталости — нет. */}
+      {ticket && (
+        <section className="card">
+          <h2>{t('supportTagsTitle')}</h2>
+          <div className="chips">
+            {SUPPORT_TAGS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="chip"
+                aria-pressed={ticket.tags.includes(value)}
+                disabled={busy}
+                onClick={() => void toggleTag(value)}
+              >
+                {t(SUPPORT_TAG_KEY[value])}
+              </button>
+            ))}
+          </div>
+          <p className="hint">{t('supportTagsHint')}</p>
+        </section>
       )}
 
       {state.status === 'loading' && <SkeletonList />}

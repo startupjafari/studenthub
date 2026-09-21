@@ -12,6 +12,7 @@ import { SupportService } from './support.service'
 import { OpenSupportTicketDto } from './dto/open-support-ticket.dto'
 import { SupportReplyDto } from './dto/support-reply.dto'
 import { SupportQueueQueryDto } from './dto/support-queue-query.dto'
+import { SetSupportTagsDto } from './dto/set-support-tags.dto'
 
 // Поддержка платформы: личная линия человека к команде платформы.
 //
@@ -47,6 +48,18 @@ export class SupportController {
     return this.support.queue(user, query)
   }
 
+  /**
+   * Объявлен ДО `@Get(':id')` — иначе параметрический маршрут перехватил бы /support/tags
+   * и поддержка получала бы «обращение не найдено» вместо сводки.
+   */
+  @Get('tags')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'О чём спрашивают чаще: счётчики тегов за 30 дней' })
+  tagCounts(@CurrentUser() user: CurrentUserData) {
+    return this.support.tagCounts(user)
+  }
+
   @Get(':id')
   @MiniAllowed()
   @ApiOperation({ summary: 'Переписка обращения (команда платформы или автор)' })
@@ -79,6 +92,19 @@ export class SupportController {
     @Req() req: FastifyRequest,
   ) {
     return this.support.assign(user, id, take !== 'false', this.ctx(req))
+  }
+
+  @Patch(':id/tags')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Проставить теги обращению (набор заменяется целиком, до трёх)' })
+  setTags(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SetSupportTagsDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.setTags(user, id, dto.tags, this.ctx(req))
   }
 
   @Post(':id/escalate')

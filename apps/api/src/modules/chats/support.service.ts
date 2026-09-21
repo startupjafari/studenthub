@@ -5,6 +5,7 @@ import type {
   OpenSupportTicketInput,
   SupportQueueQueryInput,
   SupportReplyInput,
+  SupportTag,
 } from '@studenthub/shared-schemas'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -31,6 +32,7 @@ const TICKET_SELECT = {
   supportClosedAt: true,
   supportAssigneeId: true,
   supportFirstReplyAt: true,
+  supportTags: true,
   members: {
     select: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
   },
@@ -103,6 +105,9 @@ export class SupportService {
       supportClosedAt: query.status === 'open' ? null : { not: null },
       ...(query.assignee === 'mine' ? { supportAssigneeId: viewer.sub } : {}),
       ...(query.assignee === 'free' ? { supportAssigneeId: null } : {}),
+      // Тег фильтрует сервер: клиент видит одну страницу, и «все обращения про доступ»
+      // среди тридцати загруженных строк — это не «все».
+      ...(query.tag ? { supportTags: { has: query.tag } } : {}),
       // Поиск сразу по двум местам: «мы это уже кому-то отвечали» ищут по словам из
       // переписки, а «что там было у Сериковой» — по фамилии. Разделять их на два поля
       // значило бы заставить человека выбирать, что он помнит лучше.
@@ -226,6 +231,54 @@ export class SupportService {
       ...ctx,
     })
     return { assigneeId: take ? viewer.sub : null }
+  }
+
+  /**
+   * Проставить теги обращению. Набор заменяется целиком: снимать теги по одному нечем,
+   * а «добавить» и «убрать» двумя ручками — два способа получить расходящееся состояние.
+   */
+  async setTags(
+    viewer: JwtPayload,
+    chatId: string,
+    tags: SupportTag[],
+    ctx: RequestContext = {},
+  ): Promise<{ tags: SupportTag[] }> {
+    this.assertStaff(viewer)
+    await this.assertTicket(chatId)
+
+    // Дубликаты приходят от двойного касания по чипу и ломают счётчики в сводке.
+    const unique = [...new Set(tags)]
+    await this.prisma.chat.update({ where: { id: chatId }, data: { supportTags: unique } })
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'support.ticket.tags',
+      entity: 'Chat',
+      entityId: chatId,
+      metadata: { tags: unique },
+      ...ctx,
+    })
+    return { tags: unique }
+  }
+
+  /**
+   * О чём спрашивают чаще: счётчики тегов за 30 дней.
+   *
+   * Ради этого числа теги и заводились — «поддержка отвечает на одно и то же» превращается
+   * в «шестьдесят обращений про доступ за месяц», то есть в понятную задачу продукту.
+   * Окно ограничено намеренно: за всё время счётчик показывал бы историю платформы, а не
+   * то, что происходит сейчас.
+   */
+  async tagCounts(viewer: JwtPayload): Promise<{ tag: string; count: number }[]> {
+    this.assertStaff(viewer)
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const rows = await this.prisma.$queryRaw<{ tag: string; count: bigint }[]>`
+      SELECT unnest(support_tags) AS tag, COUNT(*) AS count
+        FROM chats
+       WHERE type = 'SUPPORT_PLATFORM' AND created_at >= ${since}
+       GROUP BY 1
+       ORDER BY 2 DESC
+    `
+    return rows.map((row) => ({ tag: row.tag, count: Number(row.count) }))
   }
 
   /**
@@ -394,6 +447,7 @@ function toTicket(row: {
   supportClosedAt: Date | null
   supportAssigneeId: string | null
   supportFirstReplyAt: Date | null
+  supportTags: string[]
   members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
   messages: { content: string | null; createdAt: Date; senderId: string }[]
 }) {
@@ -418,6 +472,7 @@ function toTicket(row: {
     // Имя разбирающего берём из участников: команда платформы в них уже есть.
     assignee: row.members.find((m) => m.user.id === row.supportAssigneeId)?.user ?? null,
     firstReplyAt: row.supportFirstReplyAt,
+    tags: row.supportTags,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
