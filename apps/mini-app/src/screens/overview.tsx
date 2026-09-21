@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  fetchActivity,
   fetchHealth,
   fetchInvitesFunnel,
   fetchOverview,
@@ -8,6 +9,7 @@ import {
   fetchStorage,
   fetchTopActions,
   fetchUniversitySizes,
+  type ActivityGrid,
   type HealthReport,
   type InvitesFunnel,
   type PlatformOverview,
@@ -23,11 +25,12 @@ import { formatShortTime } from '../lib/format'
 // Сводка платформы: утренний взгляд «всё ли в порядке» до того, как открыть ноутбук.
 //
 // Здесь то, что читается с ладони: числа, форма кривой за последние дни, короткие списки
-// и живость сервисов. Тепловая карта активности 7×24 сюда не попала, хотя ручка для неё
-// есть: на телефоне она превращается в картинку, по которой ничего не решить. Разрезы,
-// требующие сравнения и масштаба, остаются в вебе.
+// и живость сервисов. Тепловая карта 7×24 читается силуэтом — где темно, там людей нет, —
+// и отвечает на единственный вопрос, который задают с телефона рядом с рычагом техработ:
+// когда платформу можно останавливать. Точные числа по часам остаются в вебе.
 
 interface Extras {
+  activity: ActivityGrid | null
   storage: StorageUsage | null
   changes: PlatformChange[]
   queues: QueueCount[]
@@ -65,7 +68,7 @@ export function OverviewScreen() {
       // Разрезы и живость читаются параллельно, и отказ любого из них не ломает сводку:
       // главные числа обязаны показаться, даже если один агрегат не посчитался. Недоступный
       // /health — сам по себе ответ, а не причина прятать всё остальное.
-      const [overview, health, invites, universities, actions, queues, storage, changes] =
+      const [overview, health, invites, universities, actions, queues, storage, changes, activity] =
         await Promise.all([
           fetchOverview(),
           fetchHealth().catch(() => null),
@@ -75,12 +78,13 @@ export function OverviewScreen() {
           fetchQueues().catch(() => []),
           fetchStorage().catch(() => null),
           fetchChanges().catch(() => []),
+          fetchActivity().catch(() => null),
         ])
       setState({
         status: 'ready',
         overview,
         health,
-        extras: { invites, universities, actions, queues, storage, changes },
+        extras: { invites, universities, actions, queues, storage, changes, activity },
       })
     } catch {
       setState({ status: 'error' })
@@ -221,6 +225,8 @@ export function OverviewScreen() {
         </section>
       )}
 
+      {extras.activity && extras.activity.max > 0 && <ActivityCard grid={extras.activity} />}
+
       {/* Кто двигал рычаги: без ответа на «кто включил техработы» команда жить не может,
           а публичное состояние его не отдаёт — посетителю знать незачем. */}
       {extras.changes.length > 0 && (
@@ -303,4 +309,55 @@ function formatBytes(bytes: number): string {
     unit += 1
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+/**
+ * Активность по дням недели и часам.
+ *
+ * На ладони её читают не по числам, а по силуэту: где темно — там людей нет, и именно туда
+ * ставят техработы. Поэтому здесь нет ни осей с цифрами, ни подписи каждого часа — только
+ * сетка, засечки в полночь, шесть, полдень и шесть вечера, и буква дня слева.
+ *
+ * Плотность считается от самой горячей клетки недели, а не от абсолютного числа: в тихую
+ * неделю карта иначе была бы равномерно чёрной и не отвечала бы ни на что.
+ */
+function ActivityCard({ grid }: { grid: ActivityGrid }) {
+  const days = [
+    t('dayMon'),
+    t('dayTue'),
+    t('dayWed'),
+    t('dayThu'),
+    t('dayFri'),
+    t('daySat'),
+    t('daySun'),
+  ]
+
+  return (
+    <section className="card">
+      <h2>{t('activityTitle')}</h2>
+      <p className="hint">{t('activityHint')}</p>
+      <div className="heatmap">
+        {grid.cells.map((hours, dow) => (
+          <div className="heatmap-row" key={dow}>
+            <span className="heatmap-day">{days[dow]}</span>
+            {hours.map((value, hour) => (
+              <span
+                key={hour}
+                className="heatmap-cell"
+                // Ноль оставляем видимым контуром, а не пустотой: пропуск в сетке
+                // читался бы как «данных нет», а это «здесь никого не было».
+                style={{ opacity: value === 0 ? 0.08 : 0.2 + (0.8 * value) / grid.max }}
+                aria-hidden
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="heatmap-scale">
+        <span>{t('activityMidnight')}</span>
+        <span>{t('activityNoon')}</span>
+        <span>{t('activityEvening')}</span>
+      </div>
+    </section>
+  )
 }

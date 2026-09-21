@@ -508,3 +508,40 @@ body {
   font-size: 18px;
   text-align: center;
 }
+
+/* Тепловая карта 7×24. Клетки резиновые: на узком экране они сжимаются, но строка дня
+   остаётся одной строкой — перенос превратил бы карту в кашу. */
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.heatmap-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.heatmap-day {
+  flex: 0 0 22px;
+  color: var(--tg-theme-hint-color);
+  font-size: 11px;
+}
+
+.heatmap-cell {
+  flex: 1 1 0;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--tg-theme-button-color, #2ea6ff);
+}
+
+/* Три засечки вместо двадцати четырёх подписей: час с точностью до минуты здесь не нужен. */
+.heatmap-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 0 24px;
+  color: var(--tg-theme-hint-color);
+  font-size: 11px;
+}

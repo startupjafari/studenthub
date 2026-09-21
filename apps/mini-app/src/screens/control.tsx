@@ -342,6 +342,19 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [preset, setPreset] = useState<(typeof BANNER_PRESETS)[number] | null>(null)
   const [audience, setAudience] = useState<string[]>([])
+  // Свой текст. Заготовки остаются первыми и это не вкусовщина: набрать объявление на трёх
+  // языках с телефона — работа на несколько минут, а заготовка вешается одним касанием.
+  // Но случай «у нас своё, ни на что не похожее» существует, и раньше он упирался в ноутбук,
+  // которого у дежурного может не быть.
+  const [custom, setCustom] = useState<{ ru: string; kk: string; en: string } | null>(null)
+  const [level, setLevel] = useState<'INFO' | 'WARNING'>('INFO')
+  // Все три языка обязательны: строка на двух из трёх — дыра в интерфейсе у тех, кому не
+  // повезло с локалью. Проверяем здесь же, чтобы кнопка не предлагала заведомый отказ.
+  const customReady =
+    custom !== null &&
+    custom.ru.trim().length > 0 &&
+    custom.kk.trim().length > 0 &&
+    custom.en.trim().length > 0
   const active = state.banner
   const lang = locale()
 
@@ -385,12 +398,68 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
         ))}
       </div>
 
+      <div className="chips">
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={custom !== null}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setPreset(null)
+            setCustom((prev) => (prev ? null : { ru: '', kk: '', en: '' }))
+          }}
+        >
+          {t('bannerCustom')}
+        </button>
+      </div>
+
+      {custom && (
+        <>
+          <p className="hint">{t('bannerCustomHint')}</p>
+          {(['ru', 'kk', 'en'] as const).map((code) => (
+            <input
+              key={code}
+              className="field"
+              maxLength={300}
+              placeholder={t(`bannerLang_${code}` as MessageKey)}
+              aria-label={t(`bannerLang_${code}` as MessageKey)}
+              value={custom[code]}
+              onChange={(event) => setCustom({ ...custom, [code]: event.target.value })}
+            />
+          ))}
+          <div className="chips">
+            {(['INFO', 'WARNING'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="chip"
+                aria-pressed={level === value}
+                disabled={busy}
+                onClick={() => {
+                  haptic.select()
+                  setLevel(value)
+                }}
+              >
+                {value === 'INFO' ? t('bannerLevelInfo') : t('bannerLevelWarning')}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {/* Предпросмотр ровно тем же текстом, который увидят пользователи: объявление
           вешают один раз и сразу всем, переделать его «как увидят» уже нельзя. */}
       {preset && (
         <>
           <p className="hint">{t('bannerPreview')}</p>
           <p className="preview">{preset.text[lang]}</p>
+        </>
+      )}
+      {customReady && (
+        <>
+          <p className="hint">{t('bannerPreview')}</p>
+          <p className="preview">{custom[lang]}</p>
         </>
       )}
 
@@ -439,16 +508,25 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
             key={minutes}
             type="button"
             className="chip"
-            disabled={busy || preset === null}
+            disabled={busy || (preset === null && !customReady)}
             onClick={() =>
               void run(
                 t('bannerConfirmOn', {
-                  preset: preset ? t(preset.labelKey) : '',
+                  preset: preset ? t(preset.labelKey) : t('bannerCustom'),
                   period: t(key),
                 }),
-                () => setBanner(minutes, preset ?? undefined, audience),
+                () =>
+                  setBanner(
+                    minutes,
+                    preset ?? undefined,
+                    audience,
+                    customReady ? custom : undefined,
+                    level,
+                  ),
               ).then(() => {
                 setPreset(null)
+                setCustom(null)
+                setLevel('INFO')
                 setAudience([])
               })
             }
