@@ -6,6 +6,7 @@ import { TwoFactorExempt } from '../../common/decorators/two-factor-exempt.decor
 import { TwoFactorService } from './two-factor.service'
 import { TwoFactorEnableDto } from './dto/two-factor-enable.dto'
 import { TwoFactorDisableDto } from './dto/two-factor-disable.dto'
+import { MaintenanceExempt } from '../../common/decorators'
 
 // Управление 2FA текущего пользователя. JWT-защищено (не @Public): включать/отключать
 // 2FA может только уже вошедший пользователь. Второй шаг ВХОДА — в AuthController (@Public).
@@ -14,6 +15,8 @@ import { TwoFactorDisableDto } from './dto/two-factor-disable.dto'
 @ApiTags('Auth')
 @ApiBearerAuth()
 @TwoFactorExempt()
+// Второй шаг входа — часть входа: без него привилегированная роль в остановленную платформу не попадёт.
+@MaintenanceExempt()
 @Controller('auth/2fa')
 export class TwoFactorController {
   constructor(private readonly twoFactor: TwoFactorService) {}

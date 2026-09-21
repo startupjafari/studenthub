@@ -9,6 +9,7 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { MiniService } from './mini.service'
 import { MiniSessionDto } from './dto/mini-session.dto'
 import { MiniLinkDto } from './dto/mini-link.dto'
+import { MaintenanceExempt } from '../../common/decorators'
 
 // Вход в админский мини-апп (docs/PROJECT.md §8.3).
 //
@@ -18,6 +19,8 @@ import { MiniLinkDto } from './dto/mini-link.dto'
 // над платформой в этих маршрутах: они только обменивают подпись на короткий токен.
 
 @ApiTags('Мини-апп')
+// Мини-апп — тот самый пульт, которым режим снимают с телефона.
+@MaintenanceExempt()
 @Controller('mini')
 export class MiniController {
   constructor(private readonly mini: MiniService) {}

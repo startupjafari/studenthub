@@ -90,3 +90,16 @@ export const haptic = {
   select: (): void => webApp()?.HapticFeedback.selectionChanged(),
   success: (): void => webApp()?.HapticFeedback.notificationOccurred('success'),
 }
+
+/**
+ * Нативное подтверждение Telegram. Вне клиента — обычный confirm браузера, чтобы отладка
+ * в вебе проходила тот же путь, а не в обход проверки.
+ *
+ * Возвращает промис: последовательность «спросили → дождались → сделали» читается сверху
+ * вниз, тогда как колбэк разорвал бы её на два места.
+ */
+export function confirmAction(message: string): Promise<boolean> {
+  const tg = webApp()
+  if (!tg || !isTelegram()) return Promise.resolve(window.confirm(message))
+  return new Promise((resolve) => tg.showConfirm(message, resolve))
+}

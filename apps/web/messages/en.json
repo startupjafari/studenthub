@@ -3587,5 +3587,13 @@
   "WhatsNew": {
     "title": "What's new",
     "gotIt": "Got it"
+  },
+  "Platform": {
+    "maintenanceTitle": "Maintenance in progress",
+    "maintenanceFallback": "The platform is briefly paused — we'll be back as soon as we're done.",
+    "maintenanceUntil": "Expected to finish",
+    "maintenanceStaffNotice": "Maintenance mode is on until {until}. Everyone else sees the stub.",
+    "sectionOffTitle": "This section is temporarily closed",
+    "sectionOffText": "We turned it off briefly to fix it. Everything else works as usual."
   }
 }
