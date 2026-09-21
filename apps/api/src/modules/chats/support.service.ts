@@ -228,6 +228,34 @@ export class SupportService {
     return { assigneeId: take ? viewer.sub : null }
   }
 
+  /**
+   * Эскалировать обращение администраторам.
+   *
+   * Это действие, а не состояние: эскалация означает «я не справляюсь, посмотрите», и
+   * ответ на неё — человек, а не флаг в таблице. Уведомление идёт мимо дежурства и тихих
+   * часов: эскалируют ровно тогда, когда обычный путь не сработал.
+   */
+  async escalate(viewer: JwtPayload, chatId: string, ctx: RequestContext = {}) {
+    this.assertStaff(viewer)
+    await this.assertTicket(chatId)
+
+    await this.telegram.notifyStaff(
+      'ticket',
+      'Обращение эскалировано — нужен администратор',
+      `support_${chatId}`,
+      new Date(),
+      true,
+    )
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'support.ticket.escalate',
+      entity: 'Chat',
+      entityId: chatId,
+      ...ctx,
+    })
+    return { escalated: true }
+  }
+
   /** Закрыть обращение. Переписка остаётся; закрытие — про очередь, не про доступ. */
   async close(viewer: JwtPayload, chatId: string, ctx: RequestContext = {}) {
     this.assertStaff(viewer)

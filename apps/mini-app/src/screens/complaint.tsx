@@ -155,6 +155,23 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         {/* Текст жалобы целиком: в очереди видна только первая строка, а решение
             принимается по всему тексту. */}
         <p>{complaint.reason}</p>
+        {/* Ссылка на карточку: передать коллеге конкретную жалобу, а не «посмотри
+            в очереди». Тот же формат, что в уведомлениях бота. */}
+        <button
+          type="button"
+          className="chip"
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(`${location.origin}${location.pathname}?startapp=complaint_${id}`)
+              .then(() => {
+                haptic.success()
+                setError(t('complaintShared'))
+              })
+              .catch(() => setError(t('complaintShareFailed')))
+          }}
+        >
+          {t('complaintShare')}
+        </button>
         <p className="hint">
           {complaint.reporter
             ? t('complaintReporter', {

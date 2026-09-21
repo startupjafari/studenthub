@@ -81,6 +81,18 @@ export class SupportController {
     return this.support.assign(user, id, take !== 'false', this.ctx(req))
   }
 
+  @Post(':id/escalate')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Эскалировать обращение администраторам (мимо дежурства и тишины)' })
+  escalate(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.escalate(user, id, this.ctx(req))
+  }
+
   @Patch(':id/close')
   @Roles(...STAFF)
   @MiniAllowed()

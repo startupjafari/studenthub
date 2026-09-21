@@ -70,6 +70,11 @@ export async function replyToTicket(id: string, text: string): Promise<SupportMe
   return apiPost<SupportMessage>(`/support/${id}/reply`, { text })
 }
 
+/** Позвать администратора. Уведомление идёт мимо дежурства и тихих часов. */
+export async function escalateTicket(id: string): Promise<{ escalated: boolean }> {
+  return apiPost<{ escalated: boolean }>(`/support/${id}/escalate`, {})
+}
+
 export async function closeTicket(id: string): Promise<{ id: string; closed: boolean }> {
   return apiPatch<{ id: string; closed: boolean }>(`/support/${id}/close`, {})
 }
