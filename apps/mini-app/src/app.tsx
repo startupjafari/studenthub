@@ -114,27 +114,29 @@ function ReadyView({
 
   return (
     <>
-      <div className="tabs" role="tablist">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            className="tab"
-            aria-selected={active === item.id}
-            onClick={() => {
-              haptic.select()
-              onTab(item.id)
-            }}
-          >
-            {t(item.labelKey)}
-            {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
-                до него приходилось обходить все три по очереди. */}
-            {badgeFor(item.id, badges) > 0 && (
-              <span className="tab-badge">{badgeFor(item.id, badges)}</span>
-            )}
-          </button>
-        ))}
+      <div className="tabbar">
+        <div className="tabs" role="tablist">
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              className="tab"
+              aria-selected={active === item.id}
+              onClick={() => {
+                haptic.select()
+                onTab(item.id)
+              }}
+            >
+              {t(item.labelKey)}
+              {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
+                  до него приходилось обходить все три по очереди. */}
+              {badgeFor(item.id, badges) > 0 && (
+                <span className="tab-badge">{badgeFor(item.id, badges)}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
       {active === 'complaints' && (
         <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
@@ -143,12 +145,42 @@ function ReadyView({
         <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
       )}
       {active === 'people' && <PeopleScreen />}
-      {active === 'control' && (
-        <>
-          <OverviewScreen />
-          <ControlScreen userId={userId} />
-        </>
-      )}
+      {active === 'control' && <ControlTab userId={userId} />}
+    </>
+  )
+}
+
+/**
+ * Раздел «Управление» — это два разных занятия: посмотреть, всё ли в порядке, и подвигать
+ * рычаги. Раньше они шли одной лентой, и чтобы добраться до техработ, приходилось
+ * пролистать сводку целиком. Открывается на сводке: с неё начинается утро, а рычаги
+ * трогают, когда уже знают зачем.
+ */
+function ControlTab({ userId }: { userId: string }) {
+  const [sub, setSub] = useState<'summary' | 'levers'>('summary')
+
+  return (
+    <>
+      <div className="subtabs">
+        <div className="tabs" role="tablist">
+          {(['summary', 'levers'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              className="tab"
+              aria-selected={sub === value}
+              onClick={() => {
+                haptic.select()
+                setSub(value)
+              }}
+            >
+              {value === 'summary' ? t('controlTabSummary') : t('controlTabLevers')}
+            </button>
+          ))}
+        </div>
+      </div>
+      {sub === 'summary' ? <OverviewScreen /> : <ControlScreen userId={userId} />}
     </>
   )
 }
