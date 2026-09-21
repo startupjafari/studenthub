@@ -5,6 +5,7 @@ import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
 import { ControlScreen } from './screens/control'
 import { SupportScreen } from './screens/support'
+import { PeopleScreen } from './screens/people'
 import { OverviewScreen } from './screens/overview'
 import { fetchBadges, type Badges } from './api/badges'
 import { t } from './i18n'
@@ -20,18 +21,20 @@ import { t } from './i18n'
 // единственное действие, которое способно помочь: ввести код. Нет доступа в принципе —
 // код не подойдёт, и об этом скажет уже сам ответ на привязку.
 
-type Tab = 'complaints' | 'support' | 'control'
+type Tab = 'complaints' | 'support' | 'people' | 'control'
 
 // Вкладки мини-аппа. «Управление» — только администратору: рычаги платформы пишет он
 // один, и показывать модератору вкладку, где сервер всё равно откажет, значило бы
 // обещать несуществующее действие.
 const TABS: {
   id: Tab
-  labelKey: 'tabComplaints' | 'tabSupport' | 'tabControl'
+  labelKey: 'tabComplaints' | 'tabSupport' | 'tabPeople' | 'tabControl'
   adminOnly?: boolean
 }[] = [
   { id: 'complaints', labelKey: 'tabComplaints' },
   { id: 'support', labelKey: 'tabSupport' },
+  // Люди доступны и модератору: блокировка — его инструмент, а не только админский.
+  { id: 'people', labelKey: 'tabPeople' },
   { id: 'control', labelKey: 'tabControl', adminOnly: true },
 ]
 
@@ -131,6 +134,7 @@ function ReadyView({
       {active === 'support' && (
         <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
       )}
+      {active === 'people' && <PeopleScreen />}
       {active === 'control' && (
         <>
           <OverviewScreen />
