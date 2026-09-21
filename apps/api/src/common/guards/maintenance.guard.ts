@@ -1,10 +1,10 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { AppException } from '../exceptions/app.exception'
 import { MAINTENANCE_EXEMPT_KEY } from '../decorators/maintenance-exempt.decorator'
-import { PlatformService } from '../../modules/platform/platform.service'
+import { PLATFORM_STATE, type PlatformStateReader } from '../../modules/platform/platform.constants'
 import type { CurrentUserData } from '../auth/jwt-payload.type'
 
 // Режим техработ на стороне сервера (docs/PROJECT.md §Состояние платформы).
@@ -24,7 +24,9 @@ const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERAT
 export class MaintenanceGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly platform: PlatformService,
+    // По токену, а не по классу: импорт PlatformService втянул бы сюда домен auth целиком
+    // и замкнул кольцо импортов (см. platform.constants.ts).
+    @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
