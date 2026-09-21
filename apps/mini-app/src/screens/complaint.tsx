@@ -326,7 +326,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
 
           {/* Срок блокировки. «Навсегда» остаётся первым и выбранным по умолчанию:
             менять смысл кнопки молча нельзя. */}
-          <div className="chips">
+          <div className="chips-grid">
             {BLOCK_TERMS.map((term) => (
               <button
                 key={term.days}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   announceRelease,
   fetchPlatformState,
@@ -113,8 +113,9 @@ export function ControlScreen({ userId }: { userId: string }) {
 
   return (
     <div className="screen">
-      <Head hint={t('controlSubtitle')} />
-
+      {/* Заголовка экрана здесь нет намеренно: где мы находимся, сказано вкладкой сверху,
+          а повторять это третьей строкой подряд — отдавать телефону место под надпись,
+          которую и так прочитали. */}
       {error && (
         <section className="card">
           <p className="hint-danger">{error}</p>
@@ -138,6 +139,31 @@ export function ControlScreen({ userId }: { userId: string }) {
 }
 
 type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
+
+/**
+ * Складной раздел пульта.
+ *
+ * Рычагов восемь, и развёрнутые сразу все они давали ленту в три экрана: чтобы дойти до
+ * «Релиза», приходилось пролистать техработы, баннер, уведомления и разделы. Свёрнутый
+ * раздел показывает главное — своё состояние прямо в заголовке, — и раскрывается касанием.
+ *
+ * `state` не украшение: ради ответа «идут ли сейчас техработы» раздел и открывали чаще
+ * всего, а теперь его видно, не открывая.
+ */
+function Fold({ title, state, children }: { title: string; state?: string; children: ReactNode }) {
+  return (
+    <details className="card fold">
+      <summary>
+        <span className="fold-title">{title}</span>
+        {state && <span className="fold-state">{state}</span>}
+        <span className="fold-chevron" aria-hidden>
+          ›
+        </span>
+      </summary>
+      <div className="fold-body">{children}</div>
+    </details>
+  )
+}
 
 /**
  * Дежурство по очереди.
@@ -183,8 +209,10 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
   }
 
   return (
-    <section className="card">
-      <h2>{t('dutyTitle')}</h2>
+    <Fold
+      title={t('dutyTitle')}
+      state={order.length > 1 ? t('dutyStateRota', { count: order.length }) : t('dutyStateManual')}
+    >
       <p className="hint">{order.length > 1 ? t('dutyHint') : t('dutyHintSingle')}</p>
       <div className="chips">
         {team.map((person) => {
@@ -215,7 +243,7 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
             : t('dutyNeverSeen')}
         </p>
       ))}
-    </section>
+    </Fold>
   )
 }
 
@@ -226,8 +254,7 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
  */
 function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
   return (
-    <section className="card">
-      <h2>{t('undoTitle')}</h2>
+    <Fold title={t('undoTitle')}>
       <p className="hint">{t('undoHint')}</p>
       <button
         type="button"
@@ -237,7 +264,7 @@ function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
       >
         {t('undoAction')}
       </button>
-    </section>
+    </Fold>
   )
 }
 
@@ -248,8 +275,19 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
   const active = state.maintenance
 
   return (
-    <section className="card">
-      <h2>{active ? t('maintenanceOnTitle') : t('maintenanceOffTitle')}</h2>
+    <Fold
+      title={t('maintenanceTitle')}
+      // Состояние в заголовке: «идут ли сейчас техработы» — вопрос, ради которого этот
+      // раздел и открывали чаще прочих.
+      state={
+        active
+          ? active.active
+            ? t('maintenanceStateOn')
+            : t('maintenanceStatePlanned')
+          : t('maintenanceStateOff')
+      }
+    >
+      <h2 className="fold-sub">{active ? t('maintenanceOnTitle') : t('maintenanceOffTitle')}</h2>
       <p className="hint">
         {active
           ? active.active
@@ -274,7 +312,7 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
       {/* Продление — тот же путь, что включение, и код 2FA нужен так же: платформа
           остаётся остановленной дольше, а это ровно то действие, которое защищали. */}
-      <div className="chips">
+      <div className="chips-grid">
         {MAINTENANCE_MINUTES.map((value) => (
           <button
             key={value}
@@ -294,7 +332,7 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
       {/* Код 2FA — одно из двух мест в мини-аппе, где что-то набирают: остановка
           платформы не должна быть возможна одним промахом по экрану. */}
-      <div className="chips">
+      <div className="chips-grid">
         {MAINTENANCE_STARTS.map((value) => (
           <button
             key={value}
@@ -335,7 +373,7 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
       >
         {active ? t('maintenanceExtend', { count: minutes ?? 0 }) : t('maintenanceEnable')}
       </button>
-    </section>
+    </Fold>
   )
 }
 
@@ -360,8 +398,7 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
 
   if (active) {
     return (
-      <section className="card">
-        <h2>{t('bannerOnTitle')}</h2>
+      <Fold title={t('bannerTitle')} state={t('bannerStateOn')}>
         <p className="hint">{active.text[lang]}</p>
         <p className="hint">{t('bannerUntil', { until: formatDateTime(active.until) })}</p>
         <button
@@ -372,13 +409,12 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
         >
           {t('bannerRemove')}
         </button>
-      </section>
+      </Fold>
     )
   }
 
   return (
-    <section className="card">
-      <h2>{t('bannerOffTitle')}</h2>
+    <Fold title={t('bannerTitle')} state={t('bannerStateOff')}>
       <p className="hint">{t('bannerHint')}</p>
       <div className="chips">
         {BANNER_PRESETS.map((item) => (
@@ -502,7 +538,7 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
         })}
       </div>
 
-      <div className="chips">
+      <div className="chips-grid">
         {BANNER_PERIODS.map(({ minutes, key }) => (
           <button
             key={minutes}
@@ -535,7 +571,7 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
           </button>
         ))}
       </div>
-    </section>
+    </Fold>
   )
 }
 
@@ -543,8 +579,12 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
   const disabled = new Set(state.disabledSections)
 
   return (
-    <section className="card">
-      <h2>{t('sectionsTitle')}</h2>
+    <Fold
+      title={t('sectionsTitle')}
+      state={
+        disabled.size > 0 ? t('sectionsStateOff', { count: disabled.size }) : t('sectionsStateAll')
+      }
+    >
       <p className="hint">{t('sectionsHint')}</p>
       <div className="list">
         {SECTIONS.map(({ key, labelKey }) => {
@@ -574,7 +614,7 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
           )
         })}
       </div>
-    </section>
+    </Fold>
   )
 }
 
@@ -582,8 +622,7 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
   const [version, setVersion] = useState('')
 
   return (
-    <section className="card">
-      <h2>{t('releaseTitle')}</h2>
+    <Fold title={t('releaseTitle')} state={state.announcedVersion ?? t('releaseStateNone')}>
       <p className="hint">
         {state.announcedVersion
           ? t('releaseAnnounced', { version: state.announcedVersion })
@@ -609,7 +648,7 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
       >
         {t('releaseAnnounce')}
       </button>
-    </section>
+    </Fold>
   )
 }
 
@@ -666,12 +705,18 @@ function NotificationsCard({
   }
 
   return (
-    <section className="card">
-      <h2>{t('notifTitle')}</h2>
+    <Fold
+      title={t('notifTitle')}
+      state={
+        current.quietFrom === null
+          ? t('notifStateAll')
+          : t('notifStateQuiet', { from: current.quietFrom, to: current.quietTo ?? 0 })
+      }
+    >
       <p className="hint">{t('notifHint')}</p>
 
       <p className="hint">{t('notifQuiet')}</p>
-      <div className="chips">
+      <div className="chips-grid">
         {quietOptions.map((option) => (
           <button
             key={option.labelKey}
@@ -690,7 +735,7 @@ function NotificationsCard({
       </div>
 
       <p className="hint">{t('notifKinds')}</p>
-      <div className="chips">
+      <div className="chips-grid">
         {NOTIFICATION_KINDS.map(({ key, labelKey }) => (
           <button
             key={key}
@@ -736,7 +781,7 @@ function NotificationsCard({
       </div>
 
       <p className="hint">{t('notifDigest')}</p>
-      <div className="chips">
+      <div className="chips-grid">
         {digestOptions.map((option) => (
           <button
             key={option.labelKey}
@@ -762,7 +807,7 @@ function NotificationsCard({
       >
         {t('notifSave')}
       </button>
-    </section>
+    </Fold>
   )
 }
 
@@ -774,10 +819,9 @@ function FontCard() {
   const [large, setLarge] = useState(isLargeFont)
 
   return (
-    <section className="card">
-      <h2>{t('fontTitle')}</h2>
+    <Fold title={t('fontTitle')} state={large ? t('fontStateLarge') : t('fontStateNormal')}>
       <p className="hint">{t('fontHint')}</p>
-      <div className="chips">
+      <div className="chips-grid">
         {[false, true].map((value) => (
           <button
             key={String(value)}
@@ -794,6 +838,6 @@ function FontCard() {
           </button>
         ))}
       </div>
-    </section>
+    </Fold>
   )
 }

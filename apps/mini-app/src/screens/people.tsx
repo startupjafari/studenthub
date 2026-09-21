@@ -176,7 +176,7 @@ export function PeopleScreen() {
       <p className="hint">{t('confirmCodeNeeded')}</p>
 
       {/* Срок блокировки. Разблокировки он не касается: вернуть доступ можно только сразу. */}
-      <div className="chips">
+      <div className="chips-grid">
         {BLOCK_TERMS.map((term) => (
           <button
             key={term.days}
