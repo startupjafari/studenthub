@@ -100,6 +100,9 @@ model User {
   // Релизы: до какой версии «Что нового» человек дочитал (28-releases.prisma).
   releaseView ReleaseView?
 
+  // Привязанный Telegram — вход в админский мини-апп (29-telegram.prisma).
+  telegramAccount TelegramAccount?
+
   // Расписание (Ф6): пары, которые ведёт преподаватель; изменения расписания, где он замена/автор.
   pairsTaught            Pair[]           @relation("PairTeacher")
   scheduleChangesAsNew   ScheduleChange[] @relation("ScheduleChangeNewTeacher")

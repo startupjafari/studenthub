@@ -63,6 +63,8 @@ import { HealthModule } from './modules/health/health.module'
 import { OpsNotifyModule } from './modules/ops-notify/ops-notify.module'
 import { MeModule } from './modules/me/me.module'
 import { ReleasesModule } from './modules/releases/releases.module'
+// Вход в админский мини-апп Telegram (docs/PROJECT.md §8.3).
+import { MiniModule } from './modules/mini/mini.module'
 import { AppController } from './app.controller'
 
 @Module({
@@ -144,6 +146,7 @@ import { AppController } from './app.controller'
     HealthModule,
     MeModule,
     ReleasesModule,
+    MiniModule,
     OpsNotifyModule.register(),
   ],
   controllers: [AppController],

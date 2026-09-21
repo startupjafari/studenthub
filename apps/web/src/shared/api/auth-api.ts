@@ -128,6 +128,22 @@ export async function disable2faRequest(code: string): Promise<void> {
   await api.post('/auth/2fa/disable', { code })
 }
 
+// ── Привязка Telegram для админского мини-аппа ───────────────────────────────
+//
+// Код запрашивается ЗДЕСЬ, в вебе, а не в самом мини-аппе: только здесь платформа знает,
+// кто человек — он прошёл логин и 2FA. Telegram в первом запросе может доказать лишь то,
+// что он Telegram (docs/PROJECT.md §Мини-апп).
+export interface MiniLinkCodeResponse {
+  code: string
+  /** Секунды до истечения — по нему в интерфейсе идёт обратный отсчёт. */
+  expiresIn: number
+}
+
+export async function miniLinkCodeRequest(): Promise<MiniLinkCodeResponse> {
+  const { data } = await api.post<MiniLinkCodeResponse>('/mini/link-code')
+  return data
+}
+
 // ── Вход по QR ───────────────────────────────────────────────────────────────
 export interface QrCreateResponse {
   qrId: string

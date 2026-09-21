@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -43,6 +44,7 @@ export class ComplaintsController {
 
   @Get()
   @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Очередь жалоб (по scope: модератор вуза — только свой вуз)' })
   @ApiResponse({ status: 200, description: 'Страница жалоб' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: ComplaintListQueryDto) {
@@ -51,6 +53,7 @@ export class ComplaintsController {
 
   @Get(':id')
   @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Жалоба (scope)' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND' })
@@ -60,6 +63,7 @@ export class ComplaintsController {
 
   @Get(':id/messages')
   @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Сообщения чата по жалобе (доступ только по жалобе, пишется в аудит)' })
   @ApiResponse({ status: 200, description: 'Сообщения чата' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — жалоба не на сообщение' })
@@ -73,6 +77,7 @@ export class ComplaintsController {
 
   @Patch(':id/resolve')
   @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Разрешить жалобу: удалить контент / заблокировать / отклонить' })
   @ApiResponse({ status: 200, description: 'Жалоба обработана' })
   @ApiResponse({ status: 409, description: 'CONFLICT — уже обработана' })
