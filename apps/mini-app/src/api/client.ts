@@ -89,6 +89,10 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (await request<T>('PATCH', path, body)).data
 }
 
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return (await request<T>('POST', path, body)).data
+}
+
 interface Envelope<T> {
   data: T
   meta?: { total?: number }

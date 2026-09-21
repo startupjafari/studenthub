@@ -30,6 +30,13 @@ model Chat {
   // Ответ адресата = принятие: писать в чат, который не принял, он иначе не может.
   requestPendingForId String? @map("request_pending_for_id")
 
+  // Закрытие обращения в поддержку платформы (SUPPORT_PLATFORM). NULL — обращение открыто.
+  // Отметкой времени, а не флагом: «когда закрыли» отвечает и на вопрос «сколько ждал
+  // человек», а флаг не отвечает ни на один вопрос сверх «закрыто ли».
+  // Закрытие не удаляет переписку и не мешает писать дальше: ответ на закрытое обращение
+  // открывает его снова — иначе человек с уточняющим вопросом остался бы без канала.
+  supportClosedAt DateTime? @map("support_closed_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -48,6 +55,8 @@ model Chat {
   @@index([groupId])
   // Непринятые запросы адресата — вкладка «Запросы» и её счётчик.
   @@index([requestPendingForId])
+  // Очередь поддержки: открытые обращения, свежие сверху.
+  @@index([type, supportClosedAt])
   @@map("chats")
 }
 
