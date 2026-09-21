@@ -262,7 +262,12 @@ export function ChatComposer({
           подсказка над полем. Превью — без markdown: звёздочки и обратные кавычки в
           однострочной справке не значат ничего, а строку засоряют. */}
       {editing && (
-        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 lg:rounded-md')}>
+        <div
+          className={cn(
+            island,
+            'flex items-center gap-2 rounded-2xl px-3 py-2 duration-200 animate-in fade-in slide-in-from-bottom-2 lg:rounded-md',
+          )}
+        >
           <Pencil className="size-4 shrink-0 text-primary" aria-hidden />
           <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
           <div className="min-w-0 flex-1">
@@ -284,7 +289,12 @@ export function ChatComposer({
 
       {/* Панель ответа — тот же строй, что у правки. */}
       {replyTo && !editing && (
-        <div className={cn(island, 'flex items-center gap-2 rounded-2xl px-3 py-2 lg:rounded-md')}>
+        <div
+          className={cn(
+            island,
+            'flex items-center gap-2 rounded-2xl px-3 py-2 duration-200 animate-in fade-in slide-in-from-bottom-2 lg:rounded-md',
+          )}
+        >
           <Reply className="size-4 shrink-0 text-primary" aria-hidden />
           <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
           <div className="min-w-0 flex-1">

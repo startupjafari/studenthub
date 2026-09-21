@@ -46,6 +46,7 @@ describe('JwtStrategy.validate', () => {
       groupId: 'grp-1',
       companyId: 'co-1',
       tfa: true,
+      client: 'mini',
     }
 
     // Сравниваем целиком: пропущенное поле видно в диффе по имени.

@@ -31,7 +31,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import type { CreateChatPollInput } from '@studenthub/shared-schemas'
+import { CHAT_FOLDER_LIMITS, type CreateChatPollInput } from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
@@ -79,6 +79,7 @@ import {
   type ChatMemberInfo,
   type ChatMessage,
   type MessageAttachment,
+  type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import { ChatDetailsPanel } from './chat-details-panel'
@@ -271,6 +272,8 @@ export function ChatWindow() {
     // Выделение снимаем при ОТКРЫТИИ меню: клик по пункту «Ответить» его уже сбросит,
     // и читать window.getSelection() позже поздно.
     selection: string | null
+    // Пузырь под пальцем — только у долгого нажатия: на телефоне меню строится вокруг него.
+    anchor?: MessageMenuAnchor
   } | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
@@ -305,10 +308,31 @@ export function ChatWindow() {
   // Свайп-действия на строке списка чатов (мобильный): вправо — «Прочитать · Закрепить»,
   // влево — «Без звука · Архив · Удалить». Жест и его физика — общий хук shared/lib
   // (та же механика у списка уведомлений).
+  // Долгое нажатие по строке открывает её меню. Жест — в том же хуке, что и свайп (он один
+  // видит движение пальца и умеет отменять удержание), а меню — состояние списка, поэтому хук
+  // зовёт обработчик через ref, который список туда кладёт.
+  const rowLongPressRef = useRef<((id: string, el: HTMLElement) => void) | null>(null)
   const chatRows = useSwipeRows({
     leftWidth: 2 * ROW_BTN_W, // Прочитать + Закрепить
     rightWidth: 3 * ROW_BTN_W, // Без звука + Архив + Удалить
+    onLongPress: (id, el) => rowLongPressRef.current?.(id, el),
   })
+
+  // Возврат из чата к списку: панель списка не монтируется заново (она всегда в дереве),
+  // поэтому «появление» ей даём флагом — на время анимации, а потом снимаем, иначе список
+  // въезжал бы при каждой перерисовке.
+  const [listReturning, setListReturning] = useState(false)
+  const prevActiveId = useRef(activeId)
+  useEffect(() => {
+    const had = prevActiveId.current
+    prevActiveId.current = activeId
+    // Только переход «чат был → чата нет»: при первом открытии экрана списку ехать неоткуда.
+    if (activeId || !had) return
+    setListReturning(true)
+    const timer = window.setTimeout(() => setListReturning(false), 320)
+    return () => window.clearTimeout(timer)
+  }, [activeId])
+
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
@@ -556,12 +580,40 @@ export function ChatWindow() {
     onSuccess: invalidateFolders,
     onError: folderError,
   })
+  // Правка папки применяется к кэшу сразу: галочку в меню строки жмут и смотрят на неё же,
+  // и ожидание ответа читалось бы как «не нажалось». Ответ сервера всё равно перезапросим.
   const updateFolder = useMutation({
     mutationFn: ({ id, ...input }: { id: string; name?: string; chatIds?: string[] }) =>
       updateChatFolderRequest(id, input),
-    onSuccess: invalidateFolders,
-    onError: folderError,
+    onMutate: async ({ id, ...input }) => {
+      await qc.cancelQueries({ queryKey: chatKeys.folders() })
+      const previous = qc.getQueryData<ChatFolder[]>(chatKeys.folders())
+      qc.setQueryData<ChatFolder[]>(chatKeys.folders(), (old) =>
+        old?.map((f) => (f.id === id ? { ...f, ...input } : f)),
+      )
+      return { previous }
+    },
+    onError: (e, _input, ctx) => {
+      if (ctx?.previous) qc.setQueryData(chatKeys.folders(), ctx.previous)
+      folderError(e)
+    },
+    onSettled: invalidateFolders,
   })
+
+  // Переключить чат в папке из меню строки: состав папки уходит целиком, как его и ждёт API.
+  const toggleChatFolder = (folderId: string, chatId: string): void => {
+    const folder = folderList.find((f) => f.id === folderId)
+    if (!folder) return
+    const inside = folder.chatIds.includes(chatId)
+    if (!inside && folder.chatIds.length >= CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER) {
+      toast.error(t('foldersLimitChats', { max: CHAT_FOLDER_LIMITS.MAX_CHATS_PER_FOLDER }))
+      return
+    }
+    updateFolder.mutate({
+      id: folderId,
+      chatIds: inside ? folder.chatIds.filter((id) => id !== chatId) : [...folder.chatIds, chatId],
+    })
+  }
   const deleteFolder = useMutation({
     mutationFn: deleteChatFolderRequest,
     onSuccess: invalidateFolders,
@@ -1746,7 +1798,22 @@ export function ChatWindow() {
       if (!s) return
       s.longFired = true
       resetBubble(s.bubble, true)
-      setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
+      // Геометрию снимаем ПОСЛЕ сброса сдвига: меню строится вокруг пузыря на его законном
+      // месте, а не там, куда его успел утащить начатый свайп.
+      const r = s.bubble?.getBoundingClientRect()
+      setMenu({
+        message: m,
+        x,
+        y,
+        selection: selectionWithin(m.id),
+        anchor:
+          s.bubble && r
+            ? {
+                node: s.bubble,
+                rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+              }
+            : undefined,
+      })
       hapticTick()
     }, LONG_PRESS_MS)
     msgTouch.current = {
@@ -1810,6 +1877,18 @@ export function ChatWindow() {
     // Свайп вправо дальше порога (и это не было долгим нажатием) → ответ на сообщение.
     if (!s.longFired && s.swiping && dx > SWIPE_REPLY_PX) setReplyTo(s.m)
     msgTouch.current = null
+  }
+
+  /**
+   * Открыть меню от указателя (правый клик на ПК, кнопка-шеврон). Долгое нажатие сюда не
+   * ходит: у него есть якорь-пузырь, и меню оно ставит само.
+   *
+   * Android поверх нашего долгого нажатия шлёт ещё и `contextmenu` — без этой заглушки второе
+   * открытие затирало бы якорь, и меню прыгало бы к точке касания без снимка сообщения.
+   */
+  function openMenuAt(m: ChatMessage, x: number, y: number): void {
+    if (msgTouch.current?.longFired) return
+    setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
   }
 
   // Единая навигация по закреплённым (клик по бару и стрелки ◀▶ используют её — без рассинхрона).
@@ -2133,6 +2212,7 @@ export function ChatWindow() {
     startReply,
     selection: selectionWithin,
     setMenu,
+    openMenuAt,
     setForwardMsg,
     focusMessage,
     copyText,
@@ -2149,6 +2229,7 @@ export function ChatWindow() {
     startReply,
     selection: selectionWithin,
     setMenu,
+    openMenuAt,
     setForwardMsg,
     focusMessage,
     copyText,
@@ -2163,13 +2244,7 @@ export function ChatWindow() {
   const messageActions = useMemo<MessageActions>(
     () => ({
       reply: (m) => msgHandlersRef.current.startReply(m, msgHandlersRef.current.selection(m.id)),
-      openMenu: (m, x, y) =>
-        msgHandlersRef.current.setMenu({
-          message: m,
-          x,
-          y,
-          selection: msgHandlersRef.current.selection(m.id),
-        }),
+      openMenu: (m, x, y) => msgHandlersRef.current.openMenuAt(m, x, y),
       focus: (id) => msgHandlersRef.current.focusMessage(id),
       copy: (m) => msgHandlersRef.current.copyText(m),
       forward: (m) => msgHandlersRef.current.setForwardMsg(m),
@@ -2193,6 +2268,7 @@ export function ChatWindow() {
       onBack={() => router.back()}
       folders={folderList}
       onManageFolders={() => setFoldersOpen(true)}
+      onToggleChatFolder={(folderId, chat) => toggleChatFolder(folderId, chat.id)}
       newChatOpen={newChatOpen}
       onToggleNewChat={() => setNewChatOpen((v) => !v)}
       onCloseNewChat={() => setNewChatOpen(false)}
@@ -2230,8 +2306,11 @@ export function ChatWindow() {
       chatsLoading={chats.isLoading}
       myId={myId}
       locale={locale}
+      returning={listReturning}
       swiped={chatRows.swiped}
       swipedFlagRef={chatRows.swipedFlagRef}
+      longPressedRef={chatRows.longPressedRef}
+      longPressRef={rowLongPressRef}
       rowElsRef={chatRows.rowElsRef}
       onRowTouchStart={chatRows.onRowTouchStart}
       onRowTouchMove={chatRows.onRowTouchMove}
@@ -2271,7 +2350,7 @@ export function ChatWindow() {
           >
             {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
             {selectMode && (
-              <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+              <header className="flex items-center gap-1 border-b border-border px-2 py-3 duration-200 animate-in fade-in slide-in-from-top-2">
                 <button
                   type="button"
                   aria-label={t('cancel')}
@@ -2935,7 +3014,7 @@ export function ChatWindow() {
                   type="button"
                   onClick={scrollToBottom}
                   aria-label={t('scrollToBottom')}
-                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform hover:bg-muted active:scale-95"
+                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 animate-in fade-in zoom-in-90 hover:bg-muted active:scale-95"
                   style={{ bottom: composerH + 12 }}
                 >
                   <ChevronDown className="size-5" aria-hidden />
@@ -3090,6 +3169,7 @@ export function ChatWindow() {
           mine={menu.message.senderId === myId}
           x={menu.x}
           y={menu.y}
+          anchor={menu.anchor}
           onClose={() => setMenu(null)}
           actions={{
             onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),

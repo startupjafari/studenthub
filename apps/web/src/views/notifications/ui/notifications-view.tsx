@@ -34,6 +34,8 @@ import {
   RowContextMenu,
   SegmentedTabs,
   Skeleton,
+  captureAnchor,
+  type MenuAnchor,
   type SegmentedTabItem,
 } from '../../../shared/ui'
 import { useSwipeRows } from '../../../shared/lib'
@@ -90,10 +92,23 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   const [filter, setFilter] = useState<Filter>('all')
   // Открытое меню действий строки: id уведомления + точка нажатия. Одно на список —
   // по этому же id подсвечивается строка, к которой меню относится.
-  const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [rowMenu, setRowMenu] = useState<{
+    id: string
+    x: number
+    y: number
+    // Строка под пальцем: на телефоне меню строится вокруг её снимка.
+    anchor?: MenuAnchor
+  } | null>(null)
   // Свайп по строке (мобильный, как в списке чатов): вправо — «Прочитать», влево — «Удалить».
-  // Физика жеста — общий хук shared/lib.
-  const rows = useSwipeRows({ leftWidth: ROW_BTN_W, rightWidth: ROW_BTN_W })
+  // Долгое нажатие открывает меню действий у самой строки. Физика жеста — общий хук shared/lib.
+  const rows = useSwipeRows({
+    leftWidth: ROW_BTN_W,
+    rightWidth: ROW_BTN_W,
+    onLongPress: (id, el) => {
+      const box = el.getBoundingClientRect()
+      setRowMenu({ id, x: box.left + 24, y: box.bottom, anchor: captureAnchor(el) })
+    },
+  })
 
   const list = useQuery({
     queryKey: notificationKeys.list(),
@@ -195,6 +210,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   function openRowMenu(e: React.MouseEvent<HTMLElement>, id: string): void {
     e.preventDefault()
     e.stopPropagation()
+    // Android шлёт `contextmenu` поверх нашего долгого нажатия — второе открытие потеряло бы
+    // якорь строки и дёрнуло меню к точке касания.
+    if (rows.longPressedRef.current) return
     // Клавиша «контекстное меню» (и Shift+F10) шлёт то же событие с координатами 0,0 —
     // там меню оказалось бы в углу экрана, а не у строки. Берём её прямоугольник.
     const box = e.currentTarget.getBoundingClientRect()
@@ -335,6 +353,9 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                     {/* Сама строка — она и едет под пальцем; фон непрозрачный, иначе панели
                         просвечивают сквозь неё. */}
                     <div
+                      // Метка для правила в globals.css: удержание открывает меню, а не
+                      // системное выделение текста строки.
+                      data-long-press=""
                       ref={(el) => {
                         if (el) rows.rowElsRef.current.set(n.id, el)
                         else rows.rowElsRef.current.delete(n.id)
@@ -430,6 +451,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
         <RowContextMenu
           x={rowMenu.x}
           y={rowMenu.y}
+          anchor={rowMenu.anchor}
           ariaLabel={t('actions')}
           onClose={() => setRowMenu(null)}
           items={[

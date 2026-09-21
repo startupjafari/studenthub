@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Copy, Eye, Forward, MoreVertical, Trash2 } from 'lucide-react'
 import { MediaViewer as BaseMediaViewer } from '../../../shared/ui'
@@ -9,6 +9,15 @@ import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import type { MessageAttachment } from '../model/types'
+
+/** Ссылка на вложение живёт дольше показа: вернулись к тому же кадру — второй раз не просим. */
+const URL_STALE_MS = 10 * 60 * 1000
+const URL_GC_MS = 15 * 60 * 1000
+
+const attachmentKey = (fileId: string | undefined): (string | undefined)[] => [
+  'chat-attachment',
+  fileId,
+]
 
 export interface MediaViewerMeta {
   senderName: string
@@ -48,13 +57,46 @@ export function MediaViewer({
   const [menuOpen, setMenuOpen] = useState(false)
   const cur = items[index]
 
+  const qc = useQueryClient()
+
   const { data: url } = useQuery({
-    queryKey: ['chat-attachment', cur?.id],
+    queryKey: attachmentKey(cur?.id),
     queryFn: () => fetchAttachmentUrl(cur?.id as string),
     enabled: !!cur,
-    staleTime: 10 * 60 * 1000,
-    gcTime: 15 * 60 * 1000,
+    staleTime: URL_STALE_MS,
+    gcTime: URL_GC_MS,
   })
+
+  /**
+   * Готовим соседние кадры заранее.
+   *
+   * Листание упиралось не в жест, а в сеть: у каждого вложения свой подписанный URL, и
+   * запрашивали мы его только когда кадр уже стал текущим. На мобильном интернете это
+   * означало запрос за ссылкой, потом загрузку самой картинки — и пустой экран со спиннером
+   * вместо мгновенного перелистывания. Ссылку соседей берём заранее, а картинку тут же
+   * прогреваем в кэш браузера, чтобы к моменту свайпа она уже лежала готовой.
+   */
+  useEffect(() => {
+    const around = [items[index - 1], items[index + 1]].filter(
+      (it): it is MessageAttachment => !!it,
+    )
+    for (const it of around) {
+      void qc
+        .fetchQuery({
+          queryKey: attachmentKey(it.id),
+          queryFn: () => fetchAttachmentUrl(it.id),
+          staleTime: URL_STALE_MS,
+          gcTime: URL_GC_MS,
+        })
+        .then((next) => {
+          // Видео целиком тянуть незачем — браузер возьмёт его потоком; греем только снимки.
+          if (!next || !it.mime.startsWith('image/')) return
+          const img = new Image()
+          img.src = next
+        })
+        .catch(() => undefined)
+    }
+  }, [items, index, qc])
 
   if (!cur) return null
 

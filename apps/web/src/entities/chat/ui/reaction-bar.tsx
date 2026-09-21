@@ -42,7 +42,7 @@ export function ReactionBar({
           title={names.join(', ')}
           onClick={() => onToggle(emoji)}
           className={cn(
-            'flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs font-medium transition-colors',
+            'flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs font-medium transition-colors duration-200 animate-in fade-in zoom-in-90 active:scale-95',
             ownBubble
               ? // На синем пузыре — светлые чипы (primary-foreground), иначе сливаются с фоном.
                 mine

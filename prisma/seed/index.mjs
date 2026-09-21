@@ -8,7 +8,7 @@
 // дописывается, иначе FK ссылается на строку, которой в БД ещё нет.
 
 import { fileURLToPath } from 'node:url'
-import { loadCities } from './data/universities.mjs'
+import { loadCities, resolveKzUniversities } from './data/universities.mjs'
 import { universityId } from './lib/ids.mjs'
 import { clearMarkers, loadDoneUniversities, markUniversityDone } from './lib/marker.mjs'
 import { runPool } from './lib/pool.mjs'
@@ -52,6 +52,8 @@ function estimateRows(plan, config) {
 
 export async function seedUniversities(prisma, { config, passwordHash, pool, companies, storage }) {
   const cities = loadCities(KATO_PATH)
+  // Реальные вузы Казахстана: индексы 1..130 берут названия оттуда, дальше — синтетика.
+  const realUniversities = resolveKzUniversities(KATO_PATH)
   const katoCount = await prisma.katoUnit.count()
   if (katoCount === 0) {
     // Не падаем: города в University.city хранятся кодом и без справочника, но селект
@@ -93,7 +95,7 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     const ctx = {
       index,
       random,
-      config: { ...config, cities },
+      config: { ...config, cities, realUniversities },
       passwordHash,
       pool,
       companies,
