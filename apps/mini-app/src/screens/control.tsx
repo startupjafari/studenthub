@@ -4,37 +4,53 @@ import {
   fetchPlatformState,
   setBanner,
   setMaintenance,
+  setNotifications,
   setSections,
+  setDuty,
+  fetchDuty,
+  fetchTeam,
+  undoLastChange,
+  BANNER_AUDIENCES,
   BANNER_PRESETS,
+  NOTIFICATION_KINDS,
   SECTIONS,
+  type Duty,
+  type NotificationKind,
+  type NotificationSettings,
   type PlatformState,
+  type TeamLink,
 } from '../api/platform'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
+import { t } from '../i18n'
+import { locale, type MessageKey } from '../i18n'
+import { formatDateTime } from '../lib/format'
+import { applyFontScale, isLargeFont } from '../lib/font-scale'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
 // Экран собран вокруг одного ограничения — это телефон. Поэтому здесь нет ни одного поля
-// свободного текста, кроме номера версии: сроки и формулировки выбираются тапом. Объявление
-// обязано существовать на трёх языках, и набирать их с телефона никто не станет — потому
-// вместо поля ввода готовые заготовки (см. BANNER_PRESETS).
+// свободного текста, кроме номера версии и кода подтверждения: сроки и формулировки
+// выбираются тапом. Объявление обязано существовать на трёх языках, и набирать их с
+// телефона никто не станет — потому вместо поля ввода готовые заготовки.
 //
 // Каждое действие проходит через нативное подтверждение Telegram: рычаги здесь меняют то,
 // что видят все пользователи платформы, и промах по экрану не должен этого делать.
 
 const MAINTENANCE_MINUTES = [15, 30, 60, 120]
-const BANNER_MINUTES = [
-  { minutes: 60, label: 'час' },
-  { minutes: 60 * 24, label: 'сутки' },
-  { minutes: 60 * 24 * 3, label: '3 дня' },
-]
 
-type Load =
-  | { status: 'loading' }
-  | { status: 'ready'; state: PlatformState }
-  | { status: 'error'; message: string }
+// Когда начать. Плановая остановка задаётся тем же действием, что и обычная: два
+// объявления об одном событии (баннер «сегодня в 22:00» и отдельно техработы) расходятся.
+const MAINTENANCE_STARTS = [0, 2, 6, 12]
+const BANNER_PERIODS = [
+  { minutes: 60, key: 'bannerPeriodHour' },
+  { minutes: 60 * 24, key: 'bannerPeriodDay' },
+  { minutes: 60 * 24 * 3, key: 'bannerPeriod3Days' },
+] as const
 
-export function ControlScreen() {
+type Load = { status: 'loading' } | { status: 'ready'; state: PlatformState } | { status: 'error' }
+
+export function ControlScreen({ userId }: { userId: string }) {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +60,7 @@ export function ControlScreen() {
     try {
       setLoad({ status: 'ready', state: await fetchPlatformState() })
     } catch {
-      setLoad({ status: 'error', message: 'Не удалось прочитать состояние' })
+      setLoad({ status: 'error' })
     }
   }, [])
 
@@ -70,7 +86,7 @@ export function ControlScreen() {
       } catch (err) {
         // Текст берём из ответа: сервер уже объяснил отказ по-человечески («Неверный код
         // подтверждения»), и подменять его своей формулировкой значило бы врать о причине.
-        setError(err instanceof ApiError ? err.message : 'Не удалось применить')
+        setError(err instanceof ApiError ? err.message : t('controlApplyError'))
       } finally {
         setBusy(false)
       }
@@ -78,15 +94,15 @@ export function ControlScreen() {
     [busy],
   )
 
-  if (load.status === 'loading') return <Head hint="Читаем состояние…" />
+  if (load.status === 'loading') return <Head hint={t('controlReading')} />
   if (load.status === 'error') {
     return (
       <div className="screen">
-        <Head hint="Управление платформой" />
+        <Head hint={t('controlSubtitle')} />
         <section className="card">
-          <p>{load.message}</p>
+          <p>{t('controlReadError')}</p>
           <button type="button" className="fallback-submit" onClick={() => void reload()}>
-            Повторить
+            {t('retry')}
           </button>
         </section>
       </div>
@@ -97,7 +113,7 @@ export function ControlScreen() {
 
   return (
     <div className="screen">
-      <Head hint="Управление платформой" />
+      <Head hint={t('controlSubtitle')} />
 
       {error && (
         <section className="card">
@@ -107,49 +123,157 @@ export function ControlScreen() {
 
       <MaintenanceCard state={state} busy={busy} run={run} />
       <BannerCard state={state} busy={busy} run={run} />
+      <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
       <SectionsCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
+      <DutyCard busy={busy} setError={setError} />
+      <FontCard />
+      <UndoCard busy={busy} run={run} />
+
+      {/* Какая сборка открыта. Не украшение: сервисы на Railway однажды разъехались по
+          веткам, и мини-апп неделю ходил в бэкенд за маршрутами, которых там не было. */}
+      <p className="footnote">{t('aboutVersion', { version: __APP_VERSION__ })}</p>
     </div>
   )
 }
 
 type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
 
-function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
-  const [code, setCode] = useState('')
-  const [minutes, setMinutes] = useState<number | null>(null)
-  const active = state.maintenance
+/**
+ * Дежурство по очереди.
+ *
+ * До него дежурного назначали руками — то есть он оставался прежним, пока кто-нибудь не
+ * вспоминал, что дежурит уже месяц. Порядок задаётся касаниями: номер у чипа и есть
+ * очередь, а передаёт её сервер по понедельникам.
+ *
+ * Список людей — те, кто привязал Telegram: дежурить может только тот, кому бот в
+ * принципе может написать. Заодно это и есть список привязок команды, которого на экране
+ * до сих пор не было, хотя ручка для него давно есть.
+ */
+function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string | null) => void }) {
+  const [team, setTeam] = useState<TeamLink[] | null>(null)
+  const [duty, setDutyState] = useState<Duty | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  if (active) {
-    return (
-      <section className="card">
-        <h2>Техработы идут</h2>
-        <p className="hint">
-          До {formatTime(active.until)}. Все, кроме платформенных ролей, видят заглушку.
-        </p>
-        <button
-          type="button"
-          className="fallback-submit"
-          disabled={busy}
-          onClick={() =>
-            void run('Снять режим техработ? Платформа снова откроется всем.', () =>
-              setMaintenance(null),
-            )
-          }
-        >
-          Снять
-        </button>
-      </section>
-    )
+  useEffect(() => {
+    void Promise.all([fetchTeam(), fetchDuty()])
+      .then(([people, current]) => {
+        setTeam(people)
+        setDutyState(current)
+      })
+      .catch(() => setTeam([]))
+  }, [])
+
+  if (team === null || duty === null) return null
+  if (team.length === 0) return null
+
+  const order = duty.rotation
+  const toggle = async (userId: string): Promise<void> => {
+    const next = order.includes(userId) ? order.filter((id) => id !== userId) : [...order, userId]
+    haptic.select()
+    setSaving(true)
+    setError(null)
+    try {
+      setDutyState(await setDuty(next))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('dutyError'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <section className="card">
-      <h2>Техработы</h2>
+      <h2>{t('dutyTitle')}</h2>
+      <p className="hint">{order.length > 1 ? t('dutyHint') : t('dutyHintSingle')}</p>
+      <div className="chips">
+        {team.map((person) => {
+          const place = order.indexOf(person.userId)
+          return (
+            <button
+              key={person.userId}
+              type="button"
+              className="chip"
+              aria-pressed={place >= 0}
+              disabled={busy || saving}
+              onClick={() => void toggle(person.userId)}
+            >
+              {place >= 0 ? `${place + 1}. ` : ''}
+              {person.name}
+              {person.userId === duty.dutyUserId ? ` · ${t('dutyNow')}` : ''}
+            </button>
+          )
+        })}
+      </div>
+      {/* Привязка, которой не пользовались месяцами, — это доступ, о котором забыли все,
+          включая её владельца. Видно её здесь же: список тот же самый. */}
+      {team.map((person) => (
+        <p key={person.userId} className="hint">
+          {person.name} ·{' '}
+          {person.lastSeenAt
+            ? t('dutySeen', { when: formatDateTime(person.lastSeenAt) })
+            : t('dutyNeverSeen')}
+        </p>
+      ))}
+    </section>
+  )
+}
+
+/**
+ * Верни как было. Стоит последней и намеренно скромно: это не рычаг, а исправление
+ * промаха по соседнему рычагу. Сервер сам откажет, если отменять нечего, изменение
+ * старше получаса или откат включил бы техработы, — и его отказ мы и покажем.
+ */
+function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
+  return (
+    <section className="card">
+      <h2>{t('undoTitle')}</h2>
+      <p className="hint">{t('undoHint')}</p>
+      <button
+        type="button"
+        className="fallback-submit"
+        disabled={busy}
+        onClick={() => void run(t('undoConfirm'), () => undoLastChange())}
+      >
+        {t('undoAction')}
+      </button>
+    </section>
+  )
+}
+
+function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
+  const [code, setCode] = useState('')
+  const [minutes, setMinutes] = useState<number | null>(null)
+  const [startsIn, setStartsIn] = useState(0)
+  const active = state.maintenance
+
+  return (
+    <section className="card">
+      <h2>{active ? t('maintenanceOnTitle') : t('maintenanceOffTitle')}</h2>
       <p className="hint">
-        Платформа закроется для всех, кроме платформенных ролей, и откроется сама, когда срок
-        выйдет.
+        {active
+          ? active.active
+            ? t('maintenanceOnHint', { until: formatDateTime(active.until) })
+            : t('maintenancePlannedHint', {
+                from: formatDateTime(active.startsAt ?? active.until),
+                until: formatDateTime(active.until),
+              })
+          : t('maintenanceOffHint')}
       </p>
+
+      {active && (
+        <button
+          type="button"
+          className="fallback-submit"
+          disabled={busy}
+          onClick={() => void run(t('maintenanceConfirmOff'), () => setMaintenance(null))}
+        >
+          {t('maintenanceDisable')}
+        </button>
+      )}
+
+      {/* Продление — тот же путь, что включение, и код 2FA нужен так же: платформа
+          остаётся остановленной дольше, а это ровно то действие, которое защищали. */}
       <div className="chips">
         {MAINTENANCE_MINUTES.map((value) => (
           <button
@@ -163,17 +287,36 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
               setMinutes(value)
             }}
           >
-            {value} мин
+            {t('maintenanceMinutes', { count: value })}
           </button>
         ))}
       </div>
-      {/* Код 2FA — единственное место в мини-аппе, где что-то набирают: остановка платформы
-          не должна быть возможна одним промахом по экрану. */}
+
+      {/* Код 2FA — одно из двух мест в мини-аппе, где что-то набирают: остановка
+          платформы не должна быть возможна одним промахом по экрану. */}
+      <div className="chips">
+        {MAINTENANCE_STARTS.map((value) => (
+          <button
+            key={value}
+            type="button"
+            className="chip"
+            aria-pressed={startsIn === value}
+            disabled={busy}
+            onClick={() => {
+              haptic.select()
+              setStartsIn(value)
+            }}
+          >
+            {value === 0 ? t('maintenanceStartNow') : t('maintenanceStartIn', { count: value })}
+          </button>
+        ))}
+      </div>
+
       <input
         className="field"
         inputMode="numeric"
         autoComplete="one-time-code"
-        placeholder="Код из приложения-аутентификатора"
+        placeholder={t('maintenanceCodePlaceholder')}
         value={code}
         onChange={(e) => setCode(e.target.value.trim())}
       />
@@ -182,12 +325,15 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
         className="fallback-submit danger"
         disabled={busy || minutes === null || code.length < 6}
         onClick={() =>
-          void run(`Остановить платформу на ${minutes} мин? Её увидят все пользователи.`, () =>
-            setMaintenance(minutes, code),
+          void run(
+            active
+              ? t('maintenanceConfirmExtend', { count: minutes ?? 0 })
+              : t('maintenanceConfirmOn', { count: minutes ?? 0 }),
+            () => setMaintenance(minutes, code, startsIn * 60),
           ).then(() => setCode(''))
         }
       >
-        Включить техработы
+        {active ? t('maintenanceExtend', { count: minutes ?? 0 }) : t('maintenanceEnable')}
       </button>
     </section>
   )
@@ -195,21 +341,36 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
 function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [preset, setPreset] = useState<(typeof BANNER_PRESETS)[number] | null>(null)
+  const [audience, setAudience] = useState<string[]>([])
+  // Свой текст. Заготовки остаются первыми и это не вкусовщина: набрать объявление на трёх
+  // языках с телефона — работа на несколько минут, а заготовка вешается одним касанием.
+  // Но случай «у нас своё, ни на что не похожее» существует, и раньше он упирался в ноутбук,
+  // которого у дежурного может не быть.
+  const [custom, setCustom] = useState<{ ru: string; kk: string; en: string } | null>(null)
+  const [level, setLevel] = useState<'INFO' | 'WARNING'>('INFO')
+  // Все три языка обязательны: строка на двух из трёх — дыра в интерфейсе у тех, кому не
+  // повезло с локалью. Проверяем здесь же, чтобы кнопка не предлагала заведомый отказ.
+  const customReady =
+    custom !== null &&
+    custom.ru.trim().length > 0 &&
+    custom.kk.trim().length > 0 &&
+    custom.en.trim().length > 0
   const active = state.banner
+  const lang = locale()
 
   if (active) {
     return (
       <section className="card">
-        <h2>Объявление висит</h2>
-        <p className="hint">{active.text.ru}</p>
-        <p className="hint">До {formatTime(active.until)}</p>
+        <h2>{t('bannerOnTitle')}</h2>
+        <p className="hint">{active.text[lang]}</p>
+        <p className="hint">{t('bannerUntil', { until: formatDateTime(active.until) })}</p>
         <button
           type="button"
           className="fallback-submit"
           disabled={busy}
-          onClick={() => void run('Снять объявление?', () => setBanner(null))}
+          onClick={() => void run(t('bannerConfirmOff'), () => setBanner(null))}
         >
-          Снять
+          {t('bannerRemove')}
         </button>
       </section>
     )
@@ -217,8 +378,8 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
 
   return (
     <section className="card">
-      <h2>Объявление</h2>
-      <p className="hint">Полоса над приложением у всех пользователей.</p>
+      <h2>{t('bannerOffTitle')}</h2>
+      <p className="hint">{t('bannerHint')}</p>
       <div className="chips">
         {BANNER_PRESETS.map((item) => (
           <button
@@ -232,24 +393,145 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
               setPreset(item)
             }}
           >
-            {item.label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
+
       <div className="chips">
-        {BANNER_MINUTES.map(({ minutes, label }) => (
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={custom !== null}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setPreset(null)
+            setCustom((prev) => (prev ? null : { ru: '', kk: '', en: '' }))
+          }}
+        >
+          {t('bannerCustom')}
+        </button>
+      </div>
+
+      {custom && (
+        <>
+          <p className="hint">{t('bannerCustomHint')}</p>
+          {(['ru', 'kk', 'en'] as const).map((code) => (
+            <input
+              key={code}
+              className="field"
+              maxLength={300}
+              placeholder={t(`bannerLang_${code}` as MessageKey)}
+              aria-label={t(`bannerLang_${code}` as MessageKey)}
+              value={custom[code]}
+              onChange={(event) => setCustom({ ...custom, [code]: event.target.value })}
+            />
+          ))}
+          <div className="chips">
+            {(['INFO', 'WARNING'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="chip"
+                aria-pressed={level === value}
+                disabled={busy}
+                onClick={() => {
+                  haptic.select()
+                  setLevel(value)
+                }}
+              >
+                {value === 'INFO' ? t('bannerLevelInfo') : t('bannerLevelWarning')}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Предпросмотр ровно тем же текстом, который увидят пользователи: объявление
+          вешают один раз и сразу всем, переделать его «как увидят» уже нельзя. */}
+      {preset && (
+        <>
+          <p className="hint">{t('bannerPreview')}</p>
+          <p className="preview">{preset.text[lang]}</p>
+        </>
+      )}
+      {customReady && (
+        <>
+          <p className="hint">{t('bannerPreview')}</p>
+          <p className="preview">{custom[lang]}</p>
+        </>
+      )}
+
+      {/* Прицел по ролям — тапом; по вузам их сотня, и такой список задаётся из веба. */}
+      <p className="hint">{t('bannerAudience')}</p>
+      <div className="chips">
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={audience.length === 0}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setAudience([])
+          }}
+        >
+          {t('bannerAudienceAll')}
+        </button>
+        {BANNER_AUDIENCES.map((item) => {
+          const chosen = item.roles.every((role) => audience.includes(role))
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className="chip"
+              aria-pressed={chosen}
+              disabled={busy}
+              onClick={() => {
+                haptic.select()
+                setAudience((prev) =>
+                  chosen
+                    ? prev.filter((role) => !item.roles.includes(role as never))
+                    : [...new Set([...prev, ...item.roles])],
+                )
+              }}
+            >
+              {t(item.labelKey)}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="chips">
+        {BANNER_PERIODS.map(({ minutes, key }) => (
           <button
             key={minutes}
             type="button"
             className="chip"
-            disabled={busy || preset === null}
+            disabled={busy || (preset === null && !customReady)}
             onClick={() =>
-              void run(`Повесить объявление «${preset?.label}» на ${label}?`, () =>
-                setBanner(minutes, preset ?? undefined),
-              ).then(() => setPreset(null))
+              void run(
+                t('bannerConfirmOn', {
+                  preset: preset ? t(preset.labelKey) : t('bannerCustom'),
+                  period: t(key),
+                }),
+                () =>
+                  setBanner(
+                    minutes,
+                    preset ?? undefined,
+                    audience,
+                    customReady ? custom : undefined,
+                    level,
+                  ),
+              ).then(() => {
+                setPreset(null)
+                setCustom(null)
+                setLevel('INFO')
+                setAudience([])
+              })
             }
           >
-            На {label}
+            {t('bannerFor', { period: t(key) })}
           </button>
         ))}
       </div>
@@ -262,11 +544,12 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
 
   return (
     <section className="card">
-      <h2>Разделы</h2>
-      <p className="hint">Погашенный раздел исчезает у всех до возвращения.</p>
+      <h2>{t('sectionsTitle')}</h2>
+      <p className="hint">{t('sectionsHint')}</p>
       <div className="list">
-        {SECTIONS.map(({ key, label }) => {
+        {SECTIONS.map(({ key, labelKey }) => {
           const off = disabled.has(key)
+          const name = t(labelKey)
           return (
             <button
               key={key}
@@ -278,14 +561,14 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
                 if (off) next.delete(key)
                 else next.add(key)
                 void run(
-                  off ? `Вернуть раздел «${label}»?` : `Погасить раздел «${label}» для всех?`,
+                  off ? t('sectionConfirmOn', { name }) : t('sectionConfirmOff', { name }),
                   () => setSections([...next]),
                 )
               }}
             >
-              <span>{label}</span>
+              <span>{name}</span>
               <span className={off ? 'toggle-state off' : 'toggle-state'}>
-                {off ? 'Погашен' : 'Работает'}
+                {off ? t('sectionOff') : t('sectionOn')}
               </span>
             </button>
           )
@@ -300,12 +583,12 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
 
   return (
     <section className="card">
-      <h2>«Что нового»</h2>
+      <h2>{t('releaseTitle')}</h2>
       <p className="hint">
         {state.announcedVersion
-          ? `Объявлена версия ${state.announcedVersion}.`
-          : 'Ни одна версия не объявлена.'}{' '}
-        Текст заметки едет в сборке веба — здесь только номер.
+          ? t('releaseAnnounced', { version: state.announcedVersion })
+          : t('releaseNone')}{' '}
+        {t('releaseHint')}
       </p>
       <input
         className="field"
@@ -319,12 +602,12 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
         className="fallback-submit"
         disabled={busy || !/^\d+\.\d+\.\d+$/.test(version)}
         onClick={() =>
-          void run(`Объявить версию ${version}?`, () => announceRelease(version)).then(() =>
+          void run(t('releaseConfirm', { version }), () => announceRelease(version)).then(() =>
             setVersion(''),
           )
         }
       >
-        Объявить
+        {t('releaseAnnounce')}
       </button>
     </section>
   )
@@ -333,19 +616,184 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
 function Head({ hint }: { hint: string }) {
   return (
     <header className="screen-head">
-      <h1>Управление</h1>
+      <h1>{t('controlTitle')}</h1>
       <p className="hint">{hint}</p>
     </header>
   )
 }
 
-/** Только время, если срок истекает сегодня; иначе с датой — «до 14:30» без дня врёт. */
-function formatTime(iso: string): string {
-  const date = new Date(iso)
-  const sameDay = date.toDateString() === new Date().toDateString()
-  return date.toLocaleString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(sameDay ? {} : { day: 'numeric', month: 'short' }),
-  })
+/**
+ * Уведомления команде. Четыре решения, каждое — выбор из готовых вариантов: часы тишины,
+ * что присылать, кто дежурит и когда приходит сводка.
+ *
+ * Произвольные часы не вводятся намеренно. «Не будить с 22 до 8» — решение о ночи, а не
+ * о минутах; поле ввода времени на телефоне стоит трёх тапов и даёт точность, которой
+ * здесь некуда деться.
+ */
+function NotificationsCard({
+  state,
+  busy,
+  run,
+  userId,
+}: {
+  state: PlatformState
+  busy: boolean
+  run: Run
+  userId: string
+}) {
+  const current = state.notifications
+  const [draft, setDraft] = useState<NotificationSettings>(current)
+
+  const quietOptions: { labelKey: MessageKey; from: number | null; to: number | null }[] = [
+    { labelKey: 'notifQuietOff', from: null, to: null },
+    { labelKey: 'notifQuietNight', from: 22, to: 8 },
+    { labelKey: 'notifQuietEvening', from: 19, to: 9 },
+  ]
+  const digestOptions: { labelKey: MessageKey; hour: number | null }[] = [
+    { labelKey: 'notifDigestOff', hour: null },
+    { labelKey: 'notifDigestMorning', hour: 9 },
+    { labelKey: 'notifDigestEvening', hour: 18 },
+  ]
+
+  const toggleKind = (kind: NotificationKind): void => {
+    haptic.select()
+    setDraft((prev) => ({
+      ...prev,
+      muted: prev.muted.includes(kind)
+        ? prev.muted.filter((item) => item !== kind)
+        : [...prev.muted, kind],
+    }))
+  }
+
+  return (
+    <section className="card">
+      <h2>{t('notifTitle')}</h2>
+      <p className="hint">{t('notifHint')}</p>
+
+      <p className="hint">{t('notifQuiet')}</p>
+      <div className="chips">
+        {quietOptions.map((option) => (
+          <button
+            key={option.labelKey}
+            type="button"
+            className="chip"
+            aria-pressed={draft.quietFrom === option.from && draft.quietTo === option.to}
+            disabled={busy}
+            onClick={() => {
+              haptic.select()
+              setDraft((prev) => ({ ...prev, quietFrom: option.from, quietTo: option.to }))
+            }}
+          >
+            {t(option.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <p className="hint">{t('notifKinds')}</p>
+      <div className="chips">
+        {NOTIFICATION_KINDS.map(({ key, labelKey }) => (
+          <button
+            key={key}
+            type="button"
+            className="chip"
+            // Нажатая фишка = «присылать». Хранится обратное (список выключенного),
+            // чтобы новый вид уведомления по умолчанию доходил.
+            aria-pressed={!draft.muted.includes(key)}
+            disabled={busy}
+            onClick={() => toggleKind(key)}
+          >
+            {t(labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <p className="hint">{t('notifDuty')}</p>
+      <div className="chips">
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={draft.dutyUserId === null}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setDraft((prev) => ({ ...prev, dutyUserId: null }))
+          }}
+        >
+          {t('notifDutyTeam')}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={draft.dutyUserId === userId}
+          disabled={busy}
+          onClick={() => {
+            haptic.select()
+            setDraft((prev) => ({ ...prev, dutyUserId: userId }))
+          }}
+        >
+          {t('notifDutyMe')}
+        </button>
+      </div>
+
+      <p className="hint">{t('notifDigest')}</p>
+      <div className="chips">
+        {digestOptions.map((option) => (
+          <button
+            key={option.labelKey}
+            type="button"
+            className="chip"
+            aria-pressed={draft.digestHour === option.hour}
+            disabled={busy}
+            onClick={() => {
+              haptic.select()
+              setDraft((prev) => ({ ...prev, digestHour: option.hour }))
+            }}
+          >
+            {t(option.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        className="fallback-submit"
+        disabled={busy}
+        onClick={() => void run(t('notifConfirm'), () => setNotifications(draft))}
+      >
+        {t('notifSave')}
+      </button>
+    </section>
+  )
+}
+
+/**
+ * Размер текста. Настройка устройства, а не человека: с телефона хочется крупнее, с
+ * планшета может и нет, — поэтому живёт в localStorage мини-аппа, а не на сервере.
+ */
+function FontCard() {
+  const [large, setLarge] = useState(isLargeFont)
+
+  return (
+    <section className="card">
+      <h2>{t('fontTitle')}</h2>
+      <p className="hint">{t('fontHint')}</p>
+      <div className="chips">
+        {[false, true].map((value) => (
+          <button
+            key={String(value)}
+            type="button"
+            className="chip"
+            aria-pressed={large === value}
+            onClick={() => {
+              haptic.select()
+              applyFontScale(value)
+              setLarge(value)
+            }}
+          >
+            {value ? t('fontLarge') : t('fontNormal')}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
 }

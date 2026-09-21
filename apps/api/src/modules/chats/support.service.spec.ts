@@ -34,10 +34,13 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
       findUnique: jest.fn().mockResolvedValue({ id: 'm1' }),
     },
     user: { findMany: jest.fn().mockResolvedValue([{ id: 'staff-1' }, { id: 'staff-2' }]) },
+    // Счётчики тегов считаются одним запросом: массив в GROUP BY Prisma не умеет.
+    $queryRaw: jest.fn().mockResolvedValue([]),
   }
   const chats = {
     createMessage: jest.fn().mockResolvedValue({ message: { id: 'msg-1' }, recipientIds: [] }),
     getMessages: jest.fn().mockResolvedValue({ items: [], meta: {} }),
+    sendMessageRest: jest.fn().mockResolvedValue({ id: 'voice-1' }),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
@@ -84,7 +87,7 @@ describe('SupportService.queue', () => {
     const { service } = setup()
 
     await expect(
-      service.queue(who(Role.STUDENT), { status: 'open', page: 1, limit: 30 }),
+      service.queue(who(Role.STUDENT), { status: 'open', assignee: 'any', page: 1, limit: 30 }),
     ).rejects.toThrow(AppException)
   })
 
@@ -95,6 +98,7 @@ describe('SupportService.queue', () => {
 
     await service.queue(who(Role.PLATFORM_MODERATOR, 'staff-9'), {
       status: 'open',
+      assignee: 'any',
       page: 1,
       limit: 30,
     })
@@ -176,9 +180,15 @@ describe('SupportService — уведомление команды', () => {
 
     await service.open(who(Role.STUDENT), { text: 'не приходит письмо на почту' })
 
+    // Последние аргументы — кнопка квитирования под уведомлением: без неё двое пишут
+    // один ответ, а третье обращение не берёт никто.
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'ticket',
       'Новое обращение в поддержку',
       'support_ticket-1',
+      expect.any(Date),
+      false,
+      { kind: 'ticket', id: 'ticket-1' },
     )
   })
 
@@ -190,5 +200,316 @@ describe('SupportService — уведомление команды', () => {
     await service.open(who(Role.STUDENT), { text: 'ещё вопрос' })
 
     expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupportService.reply — кого будить', () => {
+  it('ответ автора будит команду платформы', async () => {
+    const { service, telegram } = setup()
+
+    await service.reply(who(Role.STUDENT), 'ticket-1', { text: 'всё ещё не работает' })
+
+    expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'reply',
+      'Ответ в обращении поддержки',
+      'support_ticket-1',
+    )
+  })
+
+  // Иначе поддержка уведомляла бы сама себя на каждый свой ответ.
+  it('ответ команды никого не будит', async () => {
+    const { service, telegram } = setup()
+
+    await service.reply(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', { text: 'проверяем' })
+
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupportService.assign', () => {
+  /**
+   * Двое, разбирающие одно обращение и не знающие об этом, — та самая проблема, ради
+   * которой назначение и заводится. Перехват поэтому запрещён на уровне запроса:
+   * условие `supportAssigneeId: null` не даст двум одновременным «взять» победить обоим.
+   */
+  it('не даёт перехватить чужое обращение', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      service.assign(who(Role.PLATFORM_MODERATOR, 'staff-2'), 'ticket-1', true),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('берёт свободное обращение', async () => {
+    const { service, prisma } = setup()
+
+    await expect(
+      service.assign(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', true),
+    ).resolves.toEqual({ assigneeId: 'staff-1' })
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ticket-1', supportAssigneeId: null },
+      data: { supportAssigneeId: 'staff-1' },
+    })
+  })
+
+  it('отдать обратно можно только своё', async () => {
+    const { service, prisma } = setup()
+
+    await service.assign(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', false)
+
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ticket-1', supportAssigneeId: 'staff-1' },
+      data: { supportAssigneeId: null },
+    })
+  })
+
+  it('обычную роль не пускает', async () => {
+    const { service } = setup()
+
+    await expect(service.assign(who(Role.STUDENT), 'ticket-1', true)).rejects.toThrow(AppException)
+  })
+})
+
+describe('SupportService.reply — время первого ответа', () => {
+  // Отметка ставится один раз: повторное открытие обращения не делает первый ответ
+  // быстрее, и переписывать её значило бы улучшать метрику задним числом.
+  it('проставляется только при пустом значении', async () => {
+    const { service, prisma } = setup()
+
+    await service.reply(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', { text: 'смотрим' })
+
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ticket-1', supportFirstReplyAt: null },
+      data: { supportFirstReplyAt: expect.any(Date) },
+    })
+  })
+
+  it('ответ автора временем первого ответа не считается', async () => {
+    const { service, prisma } = setup()
+
+    await service.reply(who(Role.STUDENT), 'ticket-1', { text: 'жду' })
+
+    const calls = prisma.chat.updateMany.mock.calls.map((call) => call[0])
+    expect(calls.some((call) => 'supportFirstReplyAt' in (call.data ?? {}))).toBe(false)
+  })
+})
+
+describe('SupportService.closeStale', () => {
+  function staleSetup(lastSenderRole: Role) {
+    const base = setup()
+    base.prisma.chat.findMany.mockResolvedValue([
+      { id: 't1', messages: [{ sender: { role: lastSenderRole } }] },
+    ])
+    return base
+  }
+
+  /**
+   * Закрывается только то, где последнее слово было за КОМАНДОЙ: человек получил ответ и
+   * не вернулся. Обращение, где последним писал автор, — это неотвеченный вопрос, и
+   * закрывать его по таймеру значит прятать собственный долг.
+   */
+  it('закрывает обращение, где последним отвечала команда', async () => {
+    const { service, prisma } = staleSetup(Role.PLATFORM_ADMIN)
+
+    await expect(service.closeStale(new Date())).resolves.toBe(1)
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['t1'] } },
+      data: { supportClosedAt: expect.any(Date) },
+    })
+  })
+
+  it('не закрывает обращение, где последним писал автор', async () => {
+    const { service, prisma } = staleSetup(Role.STUDENT)
+
+    await expect(service.closeStale(new Date())).resolves.toBe(0)
+    expect(prisma.chat.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('на пустой выборке ничего не пишет', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValue([])
+
+    await expect(service.closeStale(new Date())).resolves.toBe(0)
+    expect(prisma.chat.updateMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupportService.escalate', () => {
+  /**
+   * Эскалируют ровно тогда, когда обычный путь не сработал: глушить её дежурством и
+   * тихими часами значило бы глушить именно тот сигнал, ради которого её и завели.
+   */
+  it('пишет администраторам мимо дежурства и тишины', async () => {
+    const { service, telegram } = setup()
+
+    await service.escalate(who(Role.PLATFORM_MODERATOR, 'staff-2'), 'ticket-1')
+
+    expect(telegram.notifyStaff).toHaveBeenCalledWith(
+      'ticket',
+      expect.stringContaining('эскалировано'),
+      'support_ticket-1',
+      expect.any(Date),
+      true,
+    )
+  })
+
+  it('обычную роль не пускает', async () => {
+    const { service } = setup()
+
+    await expect(service.escalate(who(Role.STUDENT), 'ticket-1')).rejects.toThrow(AppException)
+  })
+})
+
+// ── Теги обращений (пункт 33) ───────────────────────────────────────────────
+describe('SupportService — теги', () => {
+  const staff = who(Role.PLATFORM_ADMIN, 'staff-1')
+
+  it('набор заменяется целиком и чистится от дубликатов', async () => {
+    const { service, prisma } = setup()
+    await expect(service.setTags(staff, 'chat1', ['ACCESS', 'ACCESS', 'BUG'])).resolves.toEqual({
+      tags: ['ACCESS', 'BUG'],
+    })
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'chat1' },
+      data: { supportTags: ['ACCESS', 'BUG'] },
+    })
+  })
+
+  it('обычной роли теги не доверяем', async () => {
+    const { service } = setup()
+    const err = await service.setTags(who(Role.STUDENT), 'chat1', ['BUG']).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+  })
+
+  // Фильтр по тегу уходит на сервер: «все обращения про доступ» среди тридцати
+  // загруженных строк — это не «все».
+  it('фильтр по тегу попадает в запрос, а не режет страницу', async () => {
+    const { service, prisma } = setup()
+    await service.queue(staff, {
+      status: 'open',
+      assignee: 'any',
+      tag: 'ACCESS',
+      page: 1,
+      limit: 30,
+    })
+    // Первым findMany идёт `joinOpenTickets` (догоняет участие сотрудника) — очередь
+    // читается последним запросом.
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
+      supportTags: { has: 'ACCESS' },
+    })
+  })
+
+  it('счётчики отдаёт числами, а не bigint из базы', async () => {
+    const { service, prisma } = setup()
+    prisma.$queryRaw.mockResolvedValue([{ tag: 'ACCESS', count: 60n }])
+    await expect(service.tagCounts(staff)).resolves.toEqual([{ tag: 'ACCESS', count: 60 }])
+  })
+})
+
+// ── Склейка дублей (пункт 35) ───────────────────────────────────────────────
+describe('SupportService.merge', () => {
+  const staff = who(Role.PLATFORM_ADMIN, 'staff-1')
+
+  function ticket(authorId: string | null, mergedInto: string | null = null) {
+    return {
+      supportMergedIntoId: mergedInto,
+      members: [
+        ...(authorId ? [{ user: { id: authorId, role: Role.STUDENT } }] : []),
+        { user: { id: 'staff-1', role: Role.PLATFORM_ADMIN } },
+      ],
+    }
+  }
+
+  it('закрывает склеенную ветку и ставит указатель', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket('author-1'))
+    await expect(service.merge(staff, 'a', 'b')).resolves.toEqual({ mergedInto: 'b' })
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'a' },
+      data: { supportMergedIntoId: 'b', supportClosedAt: expect.any(Date) },
+    })
+  })
+
+  // Две ветки разных людей — это чужая переписка в чужом обращении: склейка показала бы
+  // каждому вопросы другого.
+  it('чужие обращения склеивать нельзя', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst
+      .mockResolvedValueOnce(ticket('author-1'))
+      .mockResolvedValueOnce(ticket('author-2'))
+    const err = await service.merge(staff, 'a', 'b').catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  // Цепочки запрещены: читатель идёт ровно на один шаг, и переписка ветки, склеенной
+  // в склеенное, не была бы видна нигде.
+  it('в уже склеенное обращение склеивать нельзя', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst
+      .mockResolvedValueOnce(ticket('author-1'))
+      .mockResolvedValueOnce(ticket('author-1', 'c'))
+    const err = await service.merge(staff, 'a', 'b').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('само с собой → BAD_REQUEST', async () => {
+    const { service } = setup()
+    const err = await service.merge(staff, 'a', 'a').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  // Склеенная ветка больше не самостоятельное обращение: в очереди её быть не должно
+  // ни среди открытых, ни среди закрытых.
+  it('очередь не показывает склеенные', async () => {
+    const { service, prisma } = setup()
+    await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
+      supportMergedIntoId: null,
+    })
+  })
+})
+
+// ── Голосовой ответ (пункт 39) ──────────────────────────────────────────────
+describe('SupportService.voiceReply', () => {
+  const staff = who(Role.PLATFORM_ADMIN, 'staff-1')
+
+  // Имя файла значимо: по нему чат распознаёт голосовое, потому что mime у webm-аудио
+  // браузеры отдают как `video/webm`.
+  it('отправляет аудио с именем голосового', async () => {
+    const { service, chats } = setup()
+    await service.voiceReply(staff, 'chat-1', { buffer: Buffer.from('x'), name: 'voice-msg.webm' })
+    expect(chats.sendMessageRest).toHaveBeenCalledWith('staff-1', { chatId: 'chat-1' }, [
+      { buffer: expect.any(Buffer), name: 'voice-msg.webm' },
+    ])
+  })
+
+  it('без имени подставляет своё, а не отправляет безымянный файл', async () => {
+    const { service, chats } = setup()
+    await service.voiceReply(staff, 'chat-1', { buffer: Buffer.from('x') })
+    expect(chats.sendMessageRest.mock.calls[0][2][0].name).toBe('voice-msg.webm')
+  })
+
+  // Правила текстового ответа обязаны действовать и здесь: иначе «первый ответ голосом»
+  // не попадал бы в метрику, а закрытое обращение оставалось бы закрытым.
+  it('открывает закрытое обращение и отмечает первый ответ', async () => {
+    const { service, prisma } = setup()
+    await service.voiceReply(staff, 'chat-1', { buffer: Buffer.from('x') })
+    const updates = prisma.chat.updateMany.mock.calls.map((call) => call[0])
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ data: { supportClosedAt: null } }),
+        expect.objectContaining({ data: { supportFirstReplyAt: expect.any(Date) } }),
+      ]),
+    )
+  })
+
+  it('обычную роль к голосовому ответу не подпускает', async () => {
+    const { service } = setup()
+    const err = await service
+      .voiceReply(who(Role.STUDENT), 'chat-1', { buffer: Buffer.from('x') })
+      .catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
   })
 })

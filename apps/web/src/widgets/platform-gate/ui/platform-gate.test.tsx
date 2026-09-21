@@ -63,7 +63,7 @@ describe('PlatformGate', () => {
   })
 
   it('во время техработ показывает заглушку вместо приложения', async () => {
-    show({ ...EMPTY, maintenance: { until: UNTIL, message: null } })
+    show({ ...EMPTY, maintenance: { until: UNTIL, message: null, startsAt: null, active: true } })
 
     expect(await screen.findByText('maintenanceTitle')).toBeInTheDocument()
     expect(screen.queryByText('Лента')).not.toBeInTheDocument()
@@ -74,6 +74,8 @@ describe('PlatformGate', () => {
       ...EMPTY,
       maintenance: {
         until: UNTIL,
+        startsAt: null,
+        active: true,
         message: { ru: 'Переезжаем на новый сервер', kk: 'Көшеміз', en: 'Migrating' },
       },
     })
@@ -85,7 +87,7 @@ describe('PlatformGate', () => {
   // Тот, кто чинит, обязан попасть внутрь — и обязан помнить, что режим включён.
   it('платформенного админа пускает в приложение, но предупреждает', async () => {
     currentRole = Role.PLATFORM_ADMIN
-    show({ ...EMPTY, maintenance: { until: UNTIL, message: null } })
+    show({ ...EMPTY, maintenance: { until: UNTIL, message: null, startsAt: null, active: true } })
 
     expect(await screen.findByText('maintenanceStaffNotice')).toBeInTheDocument()
     expect(screen.getByText('Лента')).toBeInTheDocument()
@@ -97,6 +99,8 @@ describe('PlatformGate', () => {
       banner: {
         until: UNTIL,
         level: 'INFO',
+        roles: [],
+        universityIds: [],
         text: { ru: 'Сегодня в 22:00 обновление', kk: 'Бүгін 22:00-де', en: 'Update at 22:00' },
       },
     })
@@ -157,5 +161,63 @@ describe('PlatformGate — погашенные разделы', () => {
     show({ ...EMPTY, disabledSections: ['chats'] })
 
     expect(await screen.findByText('sectionOffTitle')).toBeInTheDocument()
+  })
+})
+
+describe('PlatformGate — адресный баннер и плановые работы', () => {
+  beforeEach(() => {
+    currentRole = Role.STUDENT
+    pathname = '/'
+    vi.clearAllMocks()
+  })
+
+  const banner = (over: Partial<NonNullable<PlatformState['banner']>> = {}) => ({
+    until: UNTIL,
+    level: 'INFO' as const,
+    roles: [] as string[],
+    universityIds: [] as string[],
+    text: { ru: 'Объявление', kk: 'Хабарландыру', en: 'Notice' },
+    ...over,
+  })
+
+  it('показывает баннер без прицела всем', async () => {
+    show({ ...EMPTY, banner: banner() })
+    expect(await screen.findByText('Объявление')).toBeInTheDocument()
+  })
+
+  it('не показывает баннер чужой роли', async () => {
+    show({ ...EMPTY, banner: banner({ roles: ['TEACHER'] }) })
+
+    expect(await screen.findByText('Лента')).toBeInTheDocument()
+    expect(screen.queryByText('Объявление')).not.toBeInTheDocument()
+  })
+
+  it('показывает баннер своей роли', async () => {
+    currentRole = Role.TEACHER
+    show({ ...EMPTY, banner: banner({ roles: ['TEACHER'] }) })
+
+    expect(await screen.findByText('Объявление')).toBeInTheDocument()
+  })
+
+  // «Преподавателям такого-то вуза» — пересечение, а не объединение.
+  it('не показывает баннер чужого вуза даже своей роли', async () => {
+    currentRole = Role.STUDENT
+    show({ ...EMPTY, banner: banner({ universityIds: ['other-uni'] }) })
+
+    expect(await screen.findByText('Лента')).toBeInTheDocument()
+    expect(screen.queryByText('Объявление')).not.toBeInTheDocument()
+  })
+
+  // Предупреждение и остановка — разные состояния одного события.
+  it('о плановых работах предупреждает, но приложение не закрывает', async () => {
+    show({
+      ...EMPTY,
+      maintenance: { until: UNTIL, message: null, startsAt: UNTIL, active: false },
+    })
+
+    // Ждём именно уведомление: «Лента» рендерится сразу, ещё до ответа сервера,
+    // и ожидание по ней ничего не гарантирует.
+    expect(await screen.findByText('maintenancePlanned')).toBeInTheDocument()
+    expect(screen.getByText('Лента')).toBeInTheDocument()
   })
 })

@@ -1,13 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useFormatter, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Check, Copy, Send } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
-import { miniLinkCodeRequest } from '../../../shared/api'
-import { Button } from '../../../shared/ui'
+import {
+  miniLinkCodeRequest,
+  miniLinkRevokeRequest,
+  miniLinkStatusRequest,
+} from '../../../shared/api'
+import { Button, useConfirm } from '../../../shared/ui'
 
 // Привязка Telegram для админского мини-аппа (docs/PROJECT.md §Мини-апп).
 //
@@ -19,11 +23,30 @@ import { Button } from '../../../shared/ui'
 
 const MINI_APP_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
+const linkKeys = { status: ['mini', 'link'] as const }
+
 export function TelegramLinkRow({ role }: { role: Role }) {
   const t = useTranslations('Settings')
+  const format = useFormatter()
+  const confirm = useConfirm()
+  const queryClient = useQueryClient()
   const [code, setCode] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [copied, setCopied] = useState(false)
+
+  // Состояние привязки: без него на экране была одна кнопка «Получить код» и ни слова о
+  // том, привязан ли уже Telegram и какой. Потерянный телефон при этом отзывался только
+  // правкой в базе.
+  const status = useQuery({ queryKey: linkKeys.status, queryFn: miniLinkStatusRequest })
+
+  const revoke = useMutation({
+    mutationFn: miniLinkRevokeRequest,
+    onSuccess: () => {
+      toast.success(t('telegramRevoked'))
+      void queryClient.invalidateQueries({ queryKey: linkKeys.status })
+    },
+    onError: (error: unknown) => toast.error(errorText(error, t)),
+  })
 
   const issue = useMutation({
     mutationFn: miniLinkCodeRequest,
@@ -31,6 +54,7 @@ export function TelegramLinkRow({ role }: { role: Role }) {
       setCode(data.code)
       setSecondsLeft(data.expiresIn)
       setCopied(false)
+      void queryClient.invalidateQueries({ queryKey: linkKeys.status })
     },
     // Единственная ожидаемая ошибка — упереться в лимит: код выдаётся десять раз в час.
     onError: (error: unknown) => toast.error(errorText(error, t)),
@@ -69,17 +93,55 @@ export function TelegramLinkRow({ role }: { role: Role }) {
             <Send className="size-4 text-primary" aria-hidden />
             {t('telegramTitle')}
           </p>
-          <p className="text-xs text-muted-foreground">{t('telegramDesc')}</p>
+          {/* Привязан или нет — первое, что нужно знать: у кого-то Telegram привязан
+              годами, и «Получить код» без этой строки выглядит так, будто привязки нет. */}
+          <p className="text-xs text-muted-foreground">
+            {status.data?.linked
+              ? t('telegramLinkedAs', {
+                  account: status.data.username
+                    ? `@${status.data.username}`
+                    : t('telegramNoUsername'),
+                  date: status.data.linkedAt
+                    ? format.dateTime(new Date(status.data.linkedAt), {
+                        day: 'numeric',
+                        month: 'long',
+                      })
+                    : '',
+                })
+              : t('telegramDesc')}
+          </p>
+          {status.data?.linked && status.data.lastSeenAt && (
+            <p className="text-xs text-muted-foreground">
+              {t('telegramLastSeen', {
+                date: format.relativeTime(new Date(status.data.lastSeenAt)),
+              })}
+            </p>
+          )}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          loading={issue.isPending}
-          onClick={() => issue.mutate()}
-          className="shrink-0"
-        >
-          {code ? t('telegramNewCode') : t('telegramGetCode')}
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          {status.data?.linked && (
+            <Button
+              size="sm"
+              variant="outline"
+              loading={revoke.isPending}
+              onClick={async () => {
+                // Подтверждение обязательно: отзыв мгновенно закрывает доступ с телефона,
+                // и человек, нажавший мимо, обнаружит это уже в Telegram.
+                if (await confirm({ description: t('telegramRevokeConfirm') })) revoke.mutate()
+              }}
+            >
+              {t('telegramRevoke')}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            loading={issue.isPending}
+            onClick={() => issue.mutate()}
+          >
+            {code ? t('telegramNewCode') : t('telegramGetCode')}
+          </Button>
+        </div>
       </div>
 
       {code && (

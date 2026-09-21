@@ -1,6 +1,13 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -8,10 +15,14 @@ import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { readUploadWithFields } from '../../common/http/read-upload'
+import { AppException } from '../../common/exceptions/app.exception'
 import { SupportService } from './support.service'
 import { OpenSupportTicketDto } from './dto/open-support-ticket.dto'
 import { SupportReplyDto } from './dto/support-reply.dto'
 import { SupportQueueQueryDto } from './dto/support-queue-query.dto'
+import { SetSupportTagsDto } from './dto/set-support-tags.dto'
+import { MergeSupportDto } from './dto/merge-support.dto'
 
 // Поддержка платформы: личная линия человека к команде платформы.
 //
@@ -47,6 +58,18 @@ export class SupportController {
     return this.support.queue(user, query)
   }
 
+  /**
+   * Объявлен ДО `@Get(':id')` — иначе параметрический маршрут перехватил бы /support/tags
+   * и поддержка получала бы «обращение не найдено» вместо сводки.
+   */
+  @Get('tags')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'О чём спрашивают чаще: счётчики тегов за 30 дней' })
+  tagCounts(@CurrentUser() user: CurrentUserData) {
+    return this.support.tagCounts(user)
+  }
+
   @Get(':id')
   @MiniAllowed()
   @ApiOperation({ summary: 'Переписка обращения (команда платформы или автор)' })
@@ -65,6 +88,87 @@ export class SupportController {
     @Req() req: FastifyRequest,
   ) {
     return this.support.reply(user, id, dto, this.ctx(req))
+  }
+
+  @Patch(':id/assign')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Взять обращение себе (или отдать обратно: ?take=false)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — обращение уже разбирает другой' })
+  assign(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query('take') take: string | undefined,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.assign(user, id, take !== 'false', this.ctx(req))
+  }
+
+  @Patch(':id/tags')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Проставить теги обращению (набор заменяется целиком, до трёх)' })
+  setTags(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SetSupportTagsDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.setTags(user, id, dto.tags, this.ctx(req))
+  }
+
+  @Post(':id/voice')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({ summary: 'Голосовой ответ в обращение (multipart, одно аудио)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано' })
+  async voice(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    // Читаем те же поля, что и чат: имя файла здесь значимо — по нему распознаётся
+    // голосовое, а mime по содержимому браузеры отдают как `video/webm`.
+    const { files } = await readUploadWithFields(req)
+    const file = files[0]
+    if (!file) throw new AppException('BAD_REQUEST', 'Файл не передан')
+    return this.support.voiceReply(
+      user,
+      id,
+      { buffer: file.buffer, name: file.filename },
+      this.ctx(req),
+    )
+  }
+
+  @Post(':id/merge')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Склеить обращение с другим обращением того же человека' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — разные авторы или то же обращение' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — одно из обращений уже склеено' })
+  merge(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MergeSupportDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.merge(user, id, dto.intoId, this.ctx(req))
+  }
+
+  @Post(':id/escalate')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Эскалировать обращение администраторам (мимо дежурства и тишины)' })
+  escalate(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.escalate(user, id, this.ctx(req))
   }
 
   @Patch(':id/close')

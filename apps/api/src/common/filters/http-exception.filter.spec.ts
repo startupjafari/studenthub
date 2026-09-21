@@ -12,6 +12,11 @@ const { captureException } = require('../monitoring/sentry') as { captureExcepti
 
 // Порог отправки в Sentry (Ф13.8) — тот же, что у лога уровня error: 5xx = наш баг.
 // Если этот тест «починить» ослаблением, issue-лента утонет в 401/403/404.
+// Счётчик 5xx пишет в Redis; для фильтра это наблюдение, а не работа.
+const redisStub = {
+  multi: () => ({ incr: () => ({ expire: () => ({ exec: async () => [] }) }) }),
+} as never
+
 describe('HttpExceptionFilter — отправка в Sentry', () => {
   const logger = { error: jest.fn() } as unknown as PinoLogger
   const send = jest.fn()
@@ -30,7 +35,7 @@ describe('HttpExceptionFilter — отправка в Sentry', () => {
       }),
     }) as unknown as ArgumentsHost
 
-  const filter = new HttpExceptionFilter(logger)
+  const filter = new HttpExceptionFilter(logger, redisStub)
 
   it('неожиданная ошибка (500) уходит в трекер с requestId и id пользователя', () => {
     filter.catch(new TypeError('cannot read property of undefined'), hostWith({ sub: 'u-1' }))

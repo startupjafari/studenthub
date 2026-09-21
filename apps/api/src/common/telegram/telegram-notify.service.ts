@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Role } from '@studenthub/shared-types'
+import type { NotificationKind } from '@studenthub/shared-schemas'
 import { PrismaService } from '../prisma/prisma.service'
 import type { EnvVars } from '../../config/env.schema'
+import { PLATFORM_STATE, type PlatformStateReader } from '../../modules/platform/platform.constants'
 
 // Исходящие уведомления в Telegram команде платформы.
 //
@@ -20,6 +22,20 @@ const TELEGRAM_API = 'https://api.telegram.org'
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 const SEND_TIMEOUT_MS = 5_000
 
+/**
+ * Попадает ли момент в окно тишины. Окно задают как «с 22 до 8», то есть через полночь —
+ * поэтому сравнение не «между», а «вне диапазона» при from > to.
+ *
+ * `from === to` означает тишину круглые сутки: так уведомления выключают, не стирая
+ * настройку. Любое null — тишины нет.
+ */
+export function isQuiet(from: number | null, to: number | null, now: Date): boolean {
+  if (from === null || to === null) return false
+  if (from === to) return true
+  const hour = now.getHours()
+  return from < to ? hour >= from && hour < to : hour >= from || hour < to
+}
+
 @Injectable()
 export class TelegramNotifyService {
   private readonly logger = new Logger(TelegramNotifyService.name)
@@ -27,35 +43,99 @@ export class TelegramNotifyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<EnvVars, true>,
+    // По токену, а не по классу: импорт PlatformService втянул бы сюда домен auth
+    // целиком и замкнул кольцо импортов (см. platform.constants.ts).
+    @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
 
   /**
    * Сообщить команде платформы. `deepLink` — параметр `startapp`, по которому мини-апп
    * откроет нужную карточку сразу, без блуждания по очереди.
    */
-  async notifyStaff(text: string, deepLink?: string): Promise<void> {
+  async notifyStaff(
+    kind: NotificationKind,
+    text: string,
+    deepLink?: string,
+    now: Date = new Date(),
+    /**
+     * Эскалация: письмо уходит администраторам и МИМО дежурства и тихих часов.
+     * Эскалируют ровно тогда, когда обычный путь не сработал, — глушить её теми же
+     * правилами значило бы глушить именно тот сигнал, ради которого её и завели.
+     */
+    escalate = false,
+    /**
+     * Кнопка квитирования: «Беру в работу» прямо под уведомлением. Нажатие приходит
+     * обратно вебхуком и назначает нажавшего — команда видит, что работа занята, не
+     * открывая приложение. Без неё уведомление всей команде означает, что либо возьмутся
+     * двое, либо никто.
+     */
+    take?: { kind: 'ticket' | 'complaint'; id: string },
+  ): Promise<void> {
     const token = this.config.get('TELEGRAM_BOT_TOKEN', { infer: true })
     if (!token) return
 
+    // Настройки читаются перед каждой отправкой, а не кэшируются здесь: выключить
+    // уведомления обычно хотят прямо сейчас, а не «в течение часа».
+    const policy = escalate ? null : await this.platform.notificationPolicy().catch(() => null)
+    if (policy) {
+      if (policy.muted.includes(kind)) return
+      if (isQuiet(policy.quietFrom, policy.quietTo, now)) return
+    }
+
     const accounts = await this.prisma.telegramAccount.findMany({
-      where: { revokedAt: null, user: { role: { in: [...STAFF_ROLES] }, isBlocked: false } },
+      where: {
+        revokedAt: null,
+        user: {
+          role: { in: escalate ? [Role.PLATFORM_ADMIN] : [...STAFF_ROLES] },
+          isBlocked: false,
+        },
+        // Дежурный задан — пишем только ему: сообщение всей команде означает, что не
+        // среагирует никто, каждый решит, что возьмёт другой.
+        ...(policy?.dutyUserId ? { userId: policy.dutyUserId } : {}),
+      },
       select: { telegramId: true },
       take: 100,
     })
     if (accounts.length === 0) return
 
-    const markup = this.keyboard(deepLink)
+    const markup = this.keyboard(deepLink, take)
     await Promise.all(
       accounts.map((account) => this.send(token, account.telegramId.toString(), text, markup)),
     )
   }
 
-  /** Кнопка «открыть» — только если адрес мини-аппа задан; иначе уходит голый текст. */
-  private keyboard(deepLink?: string): unknown | undefined {
+  /**
+   * Сообщение конкретному человеку в Telegram.
+   *
+   * Политика тишины и дежурства сюда НЕ применяется: это не оповещение команды о работе,
+   * а подтверждение действия самому человеку — «твой Telegram только что привязали».
+   * Заглушить такое значило бы скрыть от него изменение доступа к его же аккаунту.
+   */
+  async notifyOne(telegramId: bigint | string, text: string): Promise<void> {
+    const token = this.config.get('TELEGRAM_BOT_TOKEN', { infer: true })
+    if (!token) return
+    await this.send(token, telegramId.toString(), text, this.keyboard())
+  }
+
+  /**
+   * Кнопки под уведомлением. «Открыть» — только если адрес мини-аппа задан; иначе уходит
+   * голый текст. «Беру в работу» — только если вебхук настроен: кнопка, нажатие которой
+   * некому принять, молча ничего не делает, а это хуже её отсутствия.
+   */
+  private keyboard(
+    deepLink?: string,
+    take?: { kind: 'ticket' | 'complaint'; id: string },
+  ): unknown | undefined {
+    const rows: unknown[] = []
     const base = this.config.get('MINI_APP_URL', { infer: true })
-    if (!base) return undefined
-    const url = deepLink ? `${base}?startapp=${encodeURIComponent(deepLink)}` : base
-    return { inline_keyboard: [[{ text: 'Открыть', web_app: { url } }]] }
+    if (base) {
+      const url = deepLink ? `${base}?startapp=${encodeURIComponent(deepLink)}` : base
+      rows.push([{ text: 'Открыть', web_app: { url } }])
+    }
+    if (take && this.config.get('TELEGRAM_WEBHOOK_SECRET', { infer: true })) {
+      rows.push([{ text: 'Беру в работу', callback_data: `take:${take.kind}:${take.id}` }])
+    }
+    return rows.length > 0 ? { inline_keyboard: rows } : undefined
   }
 
   private async send(

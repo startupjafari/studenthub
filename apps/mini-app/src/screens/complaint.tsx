@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   fetchComplaint,
+  fetchComplaintMessages,
+  reopenComplaint,
   resolveComplaint,
-  type Complaint,
+  takeComplaint,
+  type ComplaintCard,
+  type ComplaintMessage,
   type ResolveAction,
 } from '../api/complaints'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton } from '../telegram/use-telegram'
+import { t } from '../i18n'
+import { formatDateTime } from '../lib/format'
+import { PersonSummary } from './person-summary'
 
 // Карточка разбора жалобы: прочитать целиком и принять решение с телефона.
 //
@@ -15,27 +22,41 @@ import { useBackButton } from '../telegram/use-telegram'
 // контент», «заблокировать» и «отклонить» — это и есть работа модератора. Кнопки стоят
 // в потоке, разрушительные отличаются цветом.
 
-const TARGET_LABEL: Record<Complaint['targetType'], string> = {
-  USER: 'на пользователя',
-  MESSAGE: 'на сообщение',
-  POST: 'на пост',
-  STORY: 'на историю',
-  COMMENT: 'на комментарий',
-}
+const TARGET_KEY = {
+  USER: 'targetUser',
+  MESSAGE: 'targetMessage',
+  POST: 'targetPost',
+  STORY: 'targetStory',
+  COMMENT: 'targetComment',
+} as const
 
-const PRIORITY_LABEL: Record<Complaint['priority'], string> = {
-  HIGH: 'Срочно',
-  MEDIUM: 'Обычная',
-  LOW: 'Не срочно',
-}
+const PRIORITY_KEY = {
+  HIGH: 'priorityHigh',
+  MEDIUM: 'priorityMedium',
+  LOW: 'priorityLow',
+} as const
 
-type State =
-  | { status: 'loading' }
-  | { status: 'ready'; complaint: Complaint }
-  | { status: 'error'; message: string }
+// Сроки блокировки. Три значения вместо поля ввода: выбор из трёх делается одним касанием
+// и не даёт промахнуться разрядом. 0 — бессрочно, как было до появления сроков.
+const BLOCK_TERMS = [
+  { days: 0, key: 'blockForever' },
+  { days: 7, key: 'blockWeek' },
+  { days: 30, key: 'blockMonth' },
+] as const
+
+type Loaded = ComplaintCard
+
+type State = { status: 'loading' } | { status: 'ready'; complaint: Loaded } | { status: 'error' }
 
 export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const [state, setState] = useState<State>({ status: 'loading' })
+  const [context, setContext] = useState<ComplaintMessage[] | 'error' | null>(null)
+  const [comment, setComment] = useState('')
+  const [applyAll, setApplyAll] = useState(false)
+  const [code, setCode] = useState('')
+  // Срок блокировки: 0 — бессрочно. Выбор из трёх значений, а не поле ввода: на телефоне
+  // набирать число незачем, а «7» и «70» в поле различаются одним промахом.
+  const [blockDays, setBlockDays] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,9 +65,20 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      setState({ status: 'ready', complaint: await fetchComplaint(id) })
+      const complaint = await fetchComplaint(id)
+      setState({ status: 'ready', complaint })
+
+      // Переписка — только для жалоб на сообщение, и грузится отдельно: её отсутствие
+      // не должно мешать принять решение, а сервер на остальных типах отвечает отказом.
+      if (complaint.targetType === 'MESSAGE') {
+        try {
+          setContext(await fetchComplaintMessages(id))
+        } catch {
+          setContext('error')
+        }
+      }
     } catch {
-      setState({ status: 'error', message: 'Не удалось открыть жалобу' })
+      setState({ status: 'error' })
     }
   }, [id])
 
@@ -62,7 +94,13 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       setBusy(true)
       setError(null)
       try {
-        await resolveComplaint(id, action)
+        await resolveComplaint(id, action, {
+          comment: comment.trim() || undefined,
+          applyToDuplicates: applyAll,
+          // Код нужен только блокировке: предупреждение и «нарушения нет» обратимы.
+          code: action === 'BLOCK_USER' ? code : undefined,
+          blockDays: action === 'BLOCK_USER' && blockDays > 0 ? blockDays : undefined,
+        })
         haptic.success()
         // Возвращаемся в очередь: разобранной жалобы в ней уже нет, и оставаться
         // на карточке, которая больше ничего не ждёт, незачем.
@@ -70,20 +108,35 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       } catch (err) {
         // Текст от сервера: он знает, почему нельзя (например, «жалоба уже обработана»
         // другим модератором), а выдумывать свою формулировку значило бы врать.
-        setError(err instanceof ApiError ? err.message : 'Не удалось применить решение')
+        setError(err instanceof ApiError ? err.message : t('complaintApplyError'))
       } finally {
         setBusy(false)
       }
     },
-    [busy, id, onBack],
+    [applyAll, blockDays, busy, code, comment, id, onBack],
   )
+
+  const reopen = useCallback(async () => {
+    if (!(await confirmAction(t('complaintReopenConfirm')))) return
+    setBusy(true)
+    setError(null)
+    try {
+      await reopenComplaint(id)
+      haptic.success()
+      onBack()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('complaintReopenError'))
+    } finally {
+      setBusy(false)
+    }
+  }, [id, onBack])
 
   if (state.status === 'loading') {
     return (
       <div className="screen">
         <header className="screen-head">
-          <h1>Жалоба</h1>
-          <p className="hint">Открываем…</p>
+          <h1>{t('complaintTitle')}</h1>
+          <p className="hint">{t('complaintOpening')}</p>
         </header>
       </div>
     )
@@ -93,12 +146,12 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
     return (
       <div className="screen">
         <header className="screen-head">
-          <h1>Жалоба</h1>
+          <h1>{t('complaintTitle')}</h1>
         </header>
         <section className="card">
-          <p>{state.message}</p>
+          <p>{t('complaintOpenError')}</p>
           <button type="button" className="fallback-submit" onClick={() => void load()}>
-            Повторить
+            {t('retry')}
           </button>
         </section>
       </div>
@@ -111,23 +164,73 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   return (
     <div className="screen">
       <header className="screen-head">
-        <h1>Жалоба {TARGET_LABEL[complaint.targetType]}</h1>
+        <h1>{t(TARGET_KEY[complaint.targetType])}</h1>
         <p className="hint">
-          {PRIORITY_LABEL[complaint.priority]} · {formatDate(complaint.createdAt)}
+          {t(PRIORITY_KEY[complaint.priority])} · {formatDateTime(complaint.createdAt)}
         </p>
       </header>
 
       <section className="card">
-        <h2>Что написали</h2>
+        <h2>{t('complaintReasonTitle')}</h2>
         {/* Текст жалобы целиком: в очереди видна только первая строка, а решение
             принимается по всему тексту. */}
         <p>{complaint.reason}</p>
+        {/* Ссылка на карточку: передать коллеге конкретную жалобу, а не «посмотри
+            в очереди». Тот же формат, что в уведомлениях бота. */}
+        <button
+          type="button"
+          className="chip"
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(`${location.origin}${location.pathname}?startapp=complaint_${id}`)
+              .then(() => {
+                haptic.success()
+                setError(t('complaintShared'))
+              })
+              .catch(() => setError(t('complaintShareFailed')))
+          }}
+        >
+          {t('complaintShare')}
+        </button>
         <p className="hint">
           {complaint.reporter
-            ? `Пожаловался: ${complaint.reporter.lastName} ${complaint.reporter.firstName}`
-            : 'Автор жалобы удалён'}
+            ? t('complaintReporter', {
+                name: `${complaint.reporter.lastName} ${complaint.reporter.firstName}`,
+              })
+            : t('complaintReporterGone')}
         </p>
+        {/* Больше одной жалобы на ту же цель — признак, которого не видно в тексте:
+            единичная обида и травля выглядят одинаково, пока не посмотришь на счётчик. */}
+        {complaint.targetReports > 1 && (
+          <p className="hint hint-danger">
+            {t('complaintRepeats', { count: complaint.targetReports })}
+          </p>
+        )}
       </section>
+
+      {/* Кто нарушил. Решение принимается про человека, а в жалобе на пост или сообщение
+          видно только текст: студент первого курса и модератор вуза с одинаковой жалобой —
+          разные случаи, и «попадался раньше» меняет меру. */}
+      {complaint.targetOwnerId && (
+        <PersonSummary userId={complaint.targetOwnerId} title={t('complaintOffender')} />
+      )}
+
+      {complaint.targetType === 'MESSAGE' && (
+        <section className="card">
+          <h2>{t('complaintContextTitle')}</h2>
+          {context === null && <p className="hint">{t('complaintOpening')}</p>}
+          {context === 'error' && <p className="hint">{t('complaintContextError')}</p>}
+          {Array.isArray(context) && context.length === 0 && (
+            <p className="hint">{t('complaintContextEmpty')}</p>
+          )}
+          {Array.isArray(context) &&
+            context.map((message) => (
+              <p key={message.id} className="quote">
+                <b>{message.sender.firstName}</b> {message.content}
+              </p>
+            ))}
+        </section>
+      )}
 
       {error && (
         <section className="card">
@@ -135,51 +238,166 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         </section>
       )}
 
-      <section className="card">
-        <h2>Решение</h2>
-        {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
+      {/* Разобранную жалобу решать нечем — её можно только вернуть в очередь. */}
+      {complaint.status !== 'PENDING' && complaint.status !== 'REVIEWING' && (
+        <section className="card">
+          <h2>{t('complaintDecision')}</h2>
+          <p className="hint">
+            {complaint.resolvedAt
+              ? t('complaintResolvedAt', { when: formatDateTime(complaint.resolvedAt) })
+              : ''}
+          </p>
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void reopen()}
+          >
+            {t('complaintReopen')}
+          </button>
+        </section>
+      )}
+
+      {(complaint.status === 'PENDING' || complaint.status === 'REVIEWING') && (
+        <section className="card">
+          <h2>{t('complaintDecision')}</h2>
+          {/* Квитирование. То же самое делает кнопка под уведомлением в Telegram: без
+            отметки «я взял» двое открывают одну жалобу, а третью не берёт никто. */}
+          {complaint.reviewingBy ? (
+            <p className="hint">
+              {t('complaintTakenBy', {
+                name: `${complaint.reviewingBy.lastName} ${complaint.reviewingBy.firstName}`,
+              })}
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="chip"
+              disabled={busy}
+              onClick={() => {
+                void takeComplaint(id)
+                  .then(() => {
+                    haptic.success()
+                    void load()
+                  })
+                  .catch((err: unknown) =>
+                    setError(err instanceof ApiError ? err.message : t('complaintTakeError')),
+                  )
+              }}
+            >
+              {t('complaintTake')}
+            </button>
+          )}
+          {/* Комментарий необязателен, но уходит в журнал вместе с решением: через месяц
+            «почему заблокировали» отвечается только им. */}
+          <textarea
+            className="field"
+            rows={2}
+            maxLength={2000}
+            placeholder={t('complaintNotePlaceholder')}
+            aria-label={t('complaintNoteLabel')}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
             и кнопку здесь просто не рисуем, чтобы не предлагать заведомый отказ. */}
-        {!isUser && (
+          {!isUser && (
+            <button
+              type="button"
+              className="fallback-submit danger"
+              disabled={busy}
+              onClick={() => void decide('DELETE_CONTENT', t('complaintConfirmDelete'))}
+            >
+              {t('complaintDeleteContent')}
+            </button>
+          )}
+          {/* Промежуточная мера. До неё шкала шла от «нарушения нет» сразу к блокировке,
+            и на первый грубый комментарий приходилось выбирать между «ничего» и
+            отключением человека от платформы. Кода не требует: предупреждение обратимо
+            ровно в той мере, в какой обратим разговор. */}
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void decide('WARN_USER', t('complaintConfirmWarn'))}
+          >
+            {t('complaintWarnUser')}
+          </button>
+
+          {/* Срок блокировки. «Навсегда» остаётся первым и выбранным по умолчанию:
+            менять смысл кнопки молча нельзя. */}
+          <div className="chips">
+            {BLOCK_TERMS.map((term) => (
+              <button
+                key={term.days}
+                type="button"
+                className="chip"
+                aria-pressed={blockDays === term.days}
+                disabled={busy}
+                onClick={() => {
+                  haptic.select()
+                  setBlockDays(term.days)
+                }}
+              >
+                {t(term.key)}
+              </button>
+            ))}
+          </div>
+
+          {/* Код нужен только блокировке: «снять контент» и «нарушения нет» обратимы. */}
+          <input
+            className="field"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder={t('confirmCodeLabel')}
+            aria-label={t('confirmCodeLabel')}
+            value={code}
+            onChange={(event) => setCode(event.target.value.trim())}
+          />
+          {/* Срок стоит и в подтверждении, и на кнопке: диалог «заблокировать?» без срока
+            означал бы разное в зависимости от чипа выше, а это ровно то место, где
+            двусмысленность стоит человеку доступа. */}
           <button
             type="button"
             className="fallback-submit danger"
-            disabled={busy}
+            disabled={busy || code.length < 6}
             onClick={() =>
-              void decide('DELETE_CONTENT', 'Снять контент? Автор его больше не увидит.')
+              void decide(
+                'BLOCK_USER',
+                blockDays === 0
+                  ? t('complaintConfirmBlock')
+                  : t('complaintConfirmBlockFor', { days: blockDays }),
+              )
             }
           >
-            Снять контент
+            {blockDays === 0
+              ? t('complaintBlockUser')
+              : t('complaintBlockUserFor', { days: blockDays })}
           </button>
-        )}
-        <button
-          type="button"
-          className="fallback-submit danger"
-          disabled={busy}
-          onClick={() =>
-            void decide('BLOCK_USER', 'Заблокировать пользователя? Он потеряет доступ к платформе.')
-          }
-        >
-          Заблокировать автора
-        </button>
-        <button
-          type="button"
-          className="fallback-submit"
-          disabled={busy}
-          onClick={() => void decide('DISMISS', 'Отклонить жалобу? Нарушения нет.')}
-        >
-          Нарушения нет
-        </button>
-      </section>
+          <button
+            type="button"
+            className="fallback-submit"
+            disabled={busy}
+            onClick={() => void decide('DISMISS', t('complaintConfirmDismiss'))}
+          >
+            {t('complaintDismiss')}
+          </button>
+
+          {/* Десять жалоб на один пост — обычное дело. Побочное действие при этом
+            выполнится один раз, остальные жалобы просто получат тот же статус. */}
+          {complaint.targetReports > 1 && (
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={applyAll}
+              disabled={busy}
+              onClick={() => setApplyAll((value) => !value)}
+            >
+              {t('complaintApplyAll', { count: complaint.targetReports })}
+            </button>
+          )}
+        </section>
+      )}
     </div>
   )
-}
-
-function formatDate(iso: string): string {
-  const date = new Date(iso)
-  const sameDay = date.toDateString() === new Date().toDateString()
-  return date.toLocaleString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(sameDay ? {} : { day: 'numeric', month: 'short' }),
-  })
 }

@@ -5,6 +5,7 @@ import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Public } from '../../common/decorators/public.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -33,6 +34,9 @@ export class InvitesController {
 
   @Get()
   @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.STAROSTA)
+  // Отозвать ошибочный инвайт с телефона полезнее, чем выдать новый: выдача требует
+  // ввода почты и выбора scope — работа для клавиатуры, отзыв — один тап.
+  @MiniAllowed()
   @ApiOperation({ summary: 'Мои выданные инвайты' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: InviteListDto) {
     return this.invites.list(user, query)
@@ -69,6 +73,7 @@ export class InvitesController {
 
   @Patch(':id/revoke')
   @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.STAROSTA)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Отозвать ожидающий инвайт' })
   revoke(
     @CurrentUser() user: CurrentUserData,

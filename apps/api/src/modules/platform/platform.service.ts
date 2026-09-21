@@ -3,6 +3,7 @@ import type { PlatformState } from '@prisma/client'
 import type Redis from 'ioredis'
 import type {
   AnnounceReleaseInput,
+  SetNotificationsInput,
   SetBannerInput,
   SetMaintenanceInput,
   SetSectionsInput,
@@ -10,6 +11,8 @@ import type {
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import type { NotificationPolicy } from './platform.constants'
+import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID } from './platform.constants'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { TwoFactorService } from '../auth/two-factor.service'
 import type { RequestContext } from '../auth/auth.service'
@@ -17,8 +20,8 @@ import type { RequestContext } from '../auth/auth.service'
 // Состояние платформы: рычаги, которыми админ управляет вебом без деплоя.
 // Модель и мотивация полей — prisma/schema/30-platform.prisma.
 
-const SINGLETON_ID = 'singleton'
-const CACHE_KEY = 'platform:state'
+const SINGLETON_ID = PLATFORM_STATE_ID
+const CACHE_KEY = PLATFORM_STATE_CACHE_KEY
 
 // Состояние спрашивает каждая загрузка страницы каждого пользователя, поэтому оно
 // кэшируется. Запись кэш сбрасывает — значит 60 секунд это не задержка появления
@@ -44,8 +47,31 @@ export interface LocalizedText {
  * мини-апп и мобильный браузер с уехавшими часами решали бы этот вопрос по-разному.
  */
 export interface PublicPlatformState {
-  maintenance: { until: string; message: LocalizedText | null } | null
-  banner: { until: string; level: 'INFO' | 'WARNING'; text: LocalizedText } | null
+  /** Настройки уведомлений команде. Публичны намеренно: в них нет ничего о людях,
+      кроме id дежурного, а знание «сейчас тихие часы» не даёт постороннему ничего. */
+  notifications: {
+    quietFrom: number | null
+    quietTo: number | null
+    muted: string[]
+    dutyUserId: string | null
+    digestHour: number | null
+  }
+  maintenance: {
+    until: string
+    message: LocalizedText | null
+    /** Начало окна, если работы плановые: до него платформа ещё работает. */
+    startsAt: string | null
+    /** Уже идут или ещё только назначены. */
+    active: boolean
+  } | null
+  banner: {
+    until: string
+    level: 'INFO' | 'WARNING'
+    text: LocalizedText
+    /** Кому показывать. Пустые массивы — всем; фильтрует клиент, знающий свою роль. */
+    roles: string[]
+    universityIds: string[]
+  } | null
   disabledSections: string[]
   announcedVersion: string | null
 }
@@ -53,7 +79,24 @@ export interface PublicPlatformState {
 /** Что вообще можно записать: id, автор и время правки ставит сам сервис. */
 type StatePatch = Partial<Omit<PlatformState, 'id' | 'updatedById' | 'updatedAt'>>
 
+/**
+ * Окно отката. Полчаса — это «я только что промахнулся»; всё, что старше, было решением,
+ * и возвращать его молча одной кнопкой значило бы менять состояние платформы задним числом.
+ */
+const UNDO_WINDOW_MS = 30 * 60 * 1000
+
+/** Даты в журнале лежат строками ISO: поднимаем их обратно, остальное отдаём как есть. */
+function revivePatch(before: Record<string, unknown>): StatePatch {
+  const patch: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(before)) {
+    const isDateField = key.endsWith('At') || key.endsWith('Until') || key.endsWith('From')
+    patch[key] = isDateField && typeof value === 'string' ? new Date(value) : value
+  }
+  return patch as StatePatch
+}
+
 const EMPTY: PublicPlatformState = {
+  notifications: { quietFrom: null, quietTo: null, muted: [], dutyUserId: null, digestHour: null },
   maintenance: null,
   banner: null,
   disabledSections: [],
@@ -72,7 +115,7 @@ export class PlatformService {
   ) {}
 
   /** Память процесса под вопрос «идут ли техработы» (см. MAINTENANCE_MEMO_MS). */
-  private memo: { until: Date | null; readAt: number } | null = null
+  private memo: { from: Date | null; until: Date | null; readAt: number } | null = null
 
   /**
    * Идут ли техработы прямо сейчас. Отдельно от `publicState`, потому что вызывается на
@@ -81,9 +124,31 @@ export class PlatformService {
   async maintenanceActive(now: Date = new Date()): Promise<boolean> {
     if (this.memo === null || Date.now() - this.memo.readAt > MAINTENANCE_MEMO_MS) {
       const row = await this.read()
-      this.memo = { until: row?.maintenanceUntil ?? null, readAt: Date.now() }
+      this.memo = {
+        from: row?.maintenanceFrom ?? null,
+        until: row?.maintenanceUntil ?? null,
+        readAt: Date.now(),
+      }
     }
-    return alive(this.memo.until, now)
+    // Плановые работы платформу ещё не закрывают: пока окно не началось, guard пропускает.
+    const started = this.memo.from === null || this.memo.from.getTime() <= now.getTime()
+    return started && alive(this.memo.until, now)
+  }
+
+  /**
+   * Кого и когда уведомлять. Читается перед каждой отправкой в Telegram, поэтому идёт
+   * через тот же кэш, что и состояние: настройки меняют раз в месяц, а спрашивают их
+   * на каждую жалобу.
+   */
+  async notificationPolicy(): Promise<NotificationPolicy> {
+    const row = await this.read()
+    return {
+      quietFrom: row?.quietFrom ?? null,
+      quietTo: row?.quietTo ?? null,
+      muted: row?.mutedNotifications ?? [],
+      dutyUserId: row?.dutyUserId ?? null,
+      digestHour: row?.digestHour ?? null,
+    }
   }
 
   /** Публичное состояние платформы. Пока рычагов не трогали, строки нет — это норма. */
@@ -109,8 +174,13 @@ export class PlatformService {
       if (!ok) throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
     }
 
-    const until = input.minutes === null ? null : minutesFromNow(input.minutes)
-    const state = await this.write(userId, {
+    const startsIn = input.startsInMinutes ?? 0
+    const from = input.minutes === null || startsIn === 0 ? null : minutesFromNow(startsIn)
+    // Срок окончания считается от НАЧАЛА окна, а не от «сейчас»: иначе плановые работы,
+    // назначенные на вечер, кончались бы через час после нажатия кнопки.
+    const until = input.minutes === null ? null : minutesFromNow(startsIn + input.minutes)
+    const { state, before } = await this.write(userId, {
+      maintenanceFrom: from,
       maintenanceUntil: until,
       maintenanceMessageRu: input.message?.ru ?? null,
       maintenanceMessageKk: input.message?.kk ?? null,
@@ -123,7 +193,16 @@ export class PlatformService {
       entity: 'PlatformState',
       // Текст объявления в журнал не пишем: он и так виден всем, а место в метаданных
       // нужнее сроку — по нему потом считают длительность простоя.
-      metadata: until ? { until: until.toISOString(), minutes: input.minutes } : {},
+      metadata: {
+        before,
+        ...(until
+          ? {
+              until: until.toISOString(),
+              minutes: input.minutes,
+              ...(from ? { from: from.toISOString() } : {}),
+            }
+          : {}),
+      },
       ...ctx,
     })
     return state
@@ -140,9 +219,11 @@ export class PlatformService {
       throw new AppException('VALIDATION_ERROR', 'Баннеру нужен текст')
     }
 
-    const state = await this.write(userId, {
+    const { state, before } = await this.write(userId, {
       bannerUntil: until,
       bannerLevel: until ? input.level : null,
+      bannerRoles: until ? (input.roles ?? []) : [],
+      bannerUniversityIds: until ? (input.universityIds ?? []) : [],
       bannerTextRu: until ? (input.text?.ru ?? null) : null,
       bannerTextKk: until ? (input.text?.kk ?? null) : null,
       bannerTextEn: until ? (input.text?.en ?? null) : null,
@@ -152,7 +233,7 @@ export class PlatformService {
       userId,
       action: until ? 'platform.banner.on' : 'platform.banner.off',
       entity: 'PlatformState',
-      metadata: until ? { until: until.toISOString(), level: input.level } : {},
+      metadata: { before, ...(until ? { until: until.toISOString(), level: input.level } : {}) },
       ...ctx,
     })
     return state
@@ -164,12 +245,211 @@ export class PlatformService {
     input: SetSectionsInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
-    const state = await this.write(userId, { disabledSections: input.disabled })
+    const { state, before } = await this.write(userId, { disabledSections: input.disabled })
     await this.audit.record({
       userId,
       action: 'platform.sections.set',
       entity: 'PlatformState',
-      metadata: { disabled: input.disabled },
+      metadata: { before, disabled: input.disabled },
+      ...ctx,
+    })
+    return state
+  }
+
+  /**
+   * Объём файлов платформы. Считается по журналу `File`, а не по диску: S3-совместимое
+   * хранилище про своё свободное место не рассказывает, и обещать «осталось столько-то»
+   * было бы враньём. Зато рост этого числа виден, а он и есть то, что заканчивается.
+   */
+  async storageUsage(): Promise<{ files: number; bytes: number }> {
+    const [files, sum] = await Promise.all([
+      this.prisma.file.count(),
+      this.prisma.file.aggregate({ _sum: { size: true } }),
+    ])
+    return { files, bytes: sum._sum.size ?? 0 }
+  }
+
+  /**
+   * Последние изменения рычагов: кто, что и когда. Читается из журнала аудита — отдельной
+   * истории заводить не стали, она уже есть и заполняется теми же действиями.
+   */
+  async recentChanges(): Promise<
+    { action: string; at: Date; by: { id: string; firstName: string; lastName: string } | null }[]
+  > {
+    const rows = await this.prisma.auditLog.findMany({
+      where: { action: { startsWith: 'platform.' } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { action: true, createdAt: true, userId: true },
+    })
+
+    // У AuditLog нет связи с User намеренно (журнал переживает удаление аккаунта),
+    // поэтому имена добираем отдельным запросом по уникальным id.
+    const ids = [
+      ...new Set(rows.map((row) => row.userId).filter((id): id is string => id !== null)),
+    ]
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    const byId = new Map(users.map((user) => [user.id, user]))
+
+    return rows.map((row) => ({
+      action: row.action,
+      at: row.createdAt,
+      by: row.userId ? (byId.get(row.userId) ?? null) : null,
+    }))
+  }
+
+  /**
+   * Очередь дежурств: кто дежурит сейчас и в каком порядке меняются.
+   *
+   * Отдельно от публичного `GET /platform/state`: там нет ничего о людях, кроме id
+   * дежурного, а список всей команды — это уже данные о команде, и посетителю сайта их
+   * знать незачем.
+   */
+  async duty(): Promise<{ dutyUserId: string | null; rotation: string[] }> {
+    const row = await this.read()
+    return { dutyUserId: row?.dutyUserId ?? null, rotation: row?.dutyRotation ?? [] }
+  }
+
+  /**
+   * Задать очередь. Пустой список выключает ротацию, дежурного при этом не трогаем: он
+   * мог быть назначен руками, и молча снимать его вместе с расписанием — не то, о чём
+   * просили. Первым дежурным ставим первого в списке, если дежурного ещё нет: очередь,
+   * которая начнёт работать только через неделю, выглядит как сломанная.
+   */
+  async setDuty(
+    userId: string,
+    rotation: string[],
+    ctx: RequestContext = {},
+  ): Promise<{ dutyUserId: string | null; rotation: string[] }> {
+    const unique = [...new Set(rotation)]
+    const current = await this.read()
+    const duty = current?.dutyUserId ?? unique[0] ?? null
+
+    const { state: _state, before } = await this.write(userId, {
+      dutyRotation: unique,
+      dutyUserId: duty,
+    })
+    void _state
+    await this.audit.record({
+      userId,
+      action: 'platform.duty.set',
+      entity: 'PlatformState',
+      metadata: { before, size: unique.length },
+      ...ctx,
+    })
+    return { dutyUserId: duty, rotation: unique }
+  }
+
+  /**
+   * Передать дежурство следующему. Зовётся кроном по понедельникам.
+   *
+   * Позиция ищется по текущему дежурному, а не хранится числом: номер смены пришлось бы
+   * чинить руками каждый раз, когда список правят, а по имени всё сходится само. Дежурный
+   * не из списка (назначили руками на выходные) — начинаем с начала.
+   */
+  async rotateDuty(now: Date = new Date()): Promise<string | null> {
+    const row = await this.read()
+    const rotation = row?.dutyRotation ?? []
+    if (rotation.length < 2) return null
+
+    const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
+    const next = rotation[(index + 1) % rotation.length]
+    // `next` пуст только если очередь изменилась между чтением и этой строкой; передавать
+    // дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить команду без
+    // адресата уведомлений.
+    if (!next || next === row?.dutyUserId) return null
+
+    await this.write(row?.updatedById ?? next, { dutyUserId: next })
+    await this.audit.record({
+      action: 'platform.duty.rotate',
+      entity: 'PlatformState',
+      metadata: { to: next, at: now.toISOString() },
+    })
+    return next
+  }
+
+  /**
+   * Вернуть как было — откат последнего изменения рычагов.
+   *
+   * Ошибочное переключение — самый частый способ навредить с телефона: чипы стоят рядом,
+   * палец один. До этой кнопки «верни как было» означало вспомнить прежнее состояние и
+   * набрать его руками, а прежнее состояние нигде не показано.
+   *
+   * Откатывается ровно то, что трогало последнее действие: снимок в журнале содержит
+   * только переписанные поля, и возврат баннера не снимет техработы, включённые в ту же
+   * минуту кем-то другим. Запись об откате сама несёт снимок — второе нажатие вернёт всё
+   * обратно, и это честно называется «верни как было» дважды.
+   *
+   * Два ограничения. Срок: старше получаса — уже не промах, а решение, и тихо менять
+   * состояние платформы под этим предлогом нельзя. И направление: включить техработы
+   * откатом нельзя — включение спрашивает код 2FA, и обход этого требования кнопкой без
+   * кода сделал бы защиту декоративной.
+   */
+  async undoLast(userId: string, ctx: RequestContext = {}): Promise<PublicPlatformState> {
+    const entry = await this.prisma.auditLog.findFirst({
+      where: { action: { startsWith: 'platform.' } },
+      orderBy: { createdAt: 'desc' },
+      select: { action: true, metadata: true, createdAt: true },
+    })
+    const before = (entry?.metadata as { before?: Record<string, unknown> } | null)?.before
+    if (!entry || !before || Object.keys(before).length === 0) {
+      throw new AppException('NOT_FOUND', 'Отменять нечего')
+    }
+    if (Date.now() - entry.createdAt.getTime() > UNDO_WINDOW_MS) {
+      throw new AppException('CONFLICT', 'Изменение старше получаса — отмените его обычной кнопкой')
+    }
+
+    const patch = revivePatch(before)
+    const until = patch.maintenanceUntil
+    if (until instanceof Date && until.getTime() > Date.now()) {
+      throw new AppException(
+        'CONFLICT',
+        'Техработы включаются только своей кнопкой — она спросит код',
+      )
+    }
+
+    const { state } = await this.write(userId, patch)
+    await this.audit.record({
+      userId,
+      action: 'platform.state.undo',
+      entity: 'PlatformState',
+      // Снимок отката — тоже снимок: второе нажатие вернёт то, что было до отмены.
+      metadata: { of: entry.action, at: entry.createdAt.toISOString(), before },
+      ...ctx,
+    })
+    return state
+  }
+
+  /** Настройки уведомлений команде: тишина, дежурный, что слать, час сводки. */
+  async setNotifications(
+    userId: string,
+    input: SetNotificationsInput,
+    ctx: RequestContext = {},
+  ): Promise<PublicPlatformState> {
+    const { state, before } = await this.write(userId, {
+      quietFrom: input.quietFrom,
+      quietTo: input.quietTo,
+      mutedNotifications: input.muted,
+      dutyUserId: input.dutyUserId,
+      digestHour: input.digestHour,
+    })
+    await this.audit.record({
+      userId,
+      action: 'platform.notifications.set',
+      entity: 'PlatformState',
+      metadata: {
+        before,
+        quietFrom: input.quietFrom,
+        quietTo: input.quietTo,
+        muted: input.muted,
+        duty: input.dutyUserId !== null,
+        digestHour: input.digestHour,
+      },
       ...ctx,
     })
     return state
@@ -181,12 +461,12 @@ export class PlatformService {
     input: AnnounceReleaseInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
-    const state = await this.write(userId, { announcedVersion: input.version })
+    const { state, before } = await this.write(userId, { announcedVersion: input.version })
     await this.audit.record({
       userId,
       action: 'platform.release.announce',
       entity: 'PlatformState',
-      metadata: { version: input.version },
+      metadata: { before, version: input.version },
       ...ctx,
     })
     return state
@@ -196,7 +476,14 @@ export class PlatformService {
    * Запись строки-синглтона и сброс кэша. Сброс — сразу после записи и до ответа: человек,
    * нажавший тумблер, обязан увидеть результат при первом же обновлении, а не через минуту.
    */
-  private async write(userId: string, data: StatePatch): Promise<PublicPlatformState> {
+  private async write(
+    userId: string,
+    data: StatePatch,
+  ): Promise<{ state: PublicPlatformState; before: Record<string, unknown> }> {
+    // Снимок ровно тех полей, которые сейчас перепишем: он уходит в журнал и делает
+    // возможной кнопку «верни как было». Снимать состояние целиком незачем — откат
+    // баннера не должен трогать техработы, включённые в ту же минуту кем-то другим.
+    const before = await this.snapshot(Object.keys(data))
     const row = await this.prisma.platformState.upsert({
       where: { id: SINGLETON_ID },
       create: { id: SINGLETON_ID, ...data, updatedById: userId },
@@ -206,7 +493,21 @@ export class PlatformService {
     // И местную память тоже: инстанс, принявший команду, обязан подчиниться ей сразу, а не
     // через пять секунд — иначе админ увидит «включено», а следующий его же запрос пройдёт.
     this.memo = null
-    return project(row, new Date())
+    return { state: project(row, new Date()), before }
+  }
+
+  /** Текущие значения перечисленных полей. Нет строки — откатывать будет не к чему. */
+  private async snapshot(keys: string[]): Promise<Record<string, unknown>> {
+    const row = await this.read().catch(() => null)
+    if (!row) return {}
+    const source = row as unknown as Record<string, unknown>
+    const before: Record<string, unknown> = {}
+    for (const key of keys) {
+      const value = source[key]
+      // В журнал уходит JSON: даты — строками, иначе обратно они не поднимутся.
+      before[key] = value instanceof Date ? value.toISOString() : (value ?? null)
+    }
+    return before
   }
 
   /**
@@ -245,9 +546,20 @@ export class PlatformService {
 /** Применяет сроки и отбрасывает служебные поля (кто правил — не дело посетителя). */
 function project(row: PlatformState, now: Date): PublicPlatformState {
   return {
+    notifications: {
+      quietFrom: row.quietFrom,
+      quietTo: row.quietTo,
+      muted: row.mutedNotifications,
+      dutyUserId: row.dutyUserId,
+      digestHour: row.digestHour,
+    },
     maintenance: alive(row.maintenanceUntil, now)
       ? {
           until: row.maintenanceUntil!.toISOString(),
+          startsAt: row.maintenanceFrom?.toISOString() ?? null,
+          // Назначенные на будущее работы видны заранее, но платформу ещё не закрывают:
+          // предупреждение и остановка — разные состояния одного события.
+          active: row.maintenanceFrom === null || row.maintenanceFrom.getTime() <= now.getTime(),
           message: localized(
             row.maintenanceMessageRu,
             row.maintenanceMessageKk,
@@ -262,6 +574,8 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
             until: row.bannerUntil!.toISOString(),
             level: row.bannerLevel === 'WARNING' ? 'WARNING' : 'INFO',
             text: localized(row.bannerTextRu, row.bannerTextKk, row.bannerTextEn)!,
+            roles: row.bannerRoles,
+            universityIds: row.bannerUniversityIds,
           }
         : null,
     disabledSections: row.disabledSections,

@@ -1,4 +1,12 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common'
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+  HttpStatus,
+  Inject,
+} from '@nestjs/common'
+import type Redis from 'ioredis'
 import { Prisma } from '@prisma/client'
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino'
 import { ZodValidationException } from 'nestjs-zod'
@@ -12,13 +20,18 @@ import {
 import { AppException } from '../exceptions/app.exception'
 import type { CurrentUserData } from '../auth/jwt-payload.type'
 import { captureException } from '../monitoring/sentry'
+import { recordServerError } from '../monitoring/error-rate'
+import { REDIS_CLIENT } from '../redis/redis.constants'
 
 // Глобальный фильтр: любую ошибку приводит к контракту
 // { success:false, error:{ code, message, details? }, statusCode, timestamp, path }.
 // Stack trace наружу не отдаётся никогда (docs/BACKEND_RULES.md §4.2/§4.4).
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  constructor(@InjectPinoLogger(HttpExceptionFilter.name) private readonly logger: PinoLogger) {}
+  constructor(
+    @InjectPinoLogger(HttpExceptionFilter.name) private readonly logger: PinoLogger,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp()
@@ -76,6 +89,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
         method: request.method,
         code,
       })
+      // Счётчик всплеска ошибок (читает ежечасный cron). Только 5xx: на здоровой
+      // платформе это единицы в сутки, а не тысячи в минуту, как было у прежнего
+      // счётчика, который писал на каждый ответ и не имел читателя вовсе.
+      void recordServerError(this.redis)
       this.logger.error(
         {
           err: exception,
