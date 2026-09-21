@@ -1,6 +1,13 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -8,6 +15,8 @@ import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { readUploadWithFields } from '../../common/http/read-upload'
+import { AppException } from '../../common/exceptions/app.exception'
 import { SupportService } from './support.service'
 import { OpenSupportTicketDto } from './dto/open-support-ticket.dto'
 import { SupportReplyDto } from './dto/support-reply.dto'
@@ -106,6 +115,33 @@ export class SupportController {
     @Req() req: FastifyRequest,
   ) {
     return this.support.setTags(user, id, dto.tags, this.ctx(req))
+  }
+
+  @Post(':id/voice')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({ summary: 'Голосовой ответ в обращение (multipart, одно аудио)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано' })
+  async voice(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    // Читаем те же поля, что и чат: имя файла здесь значимо — по нему распознаётся
+    // голосовое, а mime по содержимому браузеры отдают как `video/webm`.
+    const { files } = await readUploadWithFields(req)
+    const file = files[0]
+    if (!file) throw new AppException('BAD_REQUEST', 'Файл не передан')
+    return this.support.voiceReply(
+      user,
+      id,
+      { buffer: file.buffer, name: file.filename },
+      this.ctx(req),
+    )
   }
 
   @Post(':id/merge')

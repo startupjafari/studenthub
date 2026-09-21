@@ -1,4 +1,4 @@
-import { apiGet, apiGetPaged, apiPatch, apiPost } from './client'
+import { apiGet, apiGetPaged, apiPatch, apiPost, apiUpload } from './client'
 
 // Обращения в поддержку платформы. Типы повторяют ответ `/support`.
 
@@ -136,4 +136,14 @@ export async function escalateTicket(id: string): Promise<{ escalated: boolean }
 
 export async function closeTicket(id: string): Promise<{ id: string; closed: boolean }> {
   return apiPatch<{ id: string; closed: boolean }>(`/support/${id}/close`, {})
+}
+
+/**
+ * Голосовой ответ. Уходит отдельной ручкой, а не общим маршрутом чатов: тот открыл бы
+ * токену мини-аппа все чаты сотрудника, включая личные.
+ */
+export async function sendVoiceReply(id: string, file: File): Promise<SupportMessage> {
+  const form = new FormData()
+  form.append('file', file)
+  return apiUpload<SupportMessage>(`/support/${id}/voice`, form)
 }

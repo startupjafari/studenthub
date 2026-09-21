@@ -8,6 +8,7 @@ import {
   fetchTagCounts,
   mergeTicket,
   replyToTicket,
+  sendVoiceReply,
   setTicketTags,
   REPLY_TEMPLATES,
   SUPPORT_TAGS,
@@ -25,6 +26,7 @@ import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
 import { formatDateTime, formatShortTime } from '../lib/format'
 import { PersonSummary } from './person-summary'
+import { useVoiceRecorder } from '../telegram/use-voice'
 
 // Поддержка платформы: очередь обращений и переписка.
 //
@@ -370,6 +372,23 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     [id, state],
   )
 
+  // Голосовой ответ: на телефоне надиктовать быстрее, чем набрать, и именно этим
+  // поддержка с телефона и занимается. Отправляем сразу по остановке записи — как в
+  // чатах платформы: предпрослушивание на этом экране означало бы третью кнопку.
+  const voice = useVoiceRecorder((file) => {
+    setBusy(true)
+    setError(null)
+    void sendVoiceReply(id, file)
+      .then(() => {
+        haptic.success()
+        return load()
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof ApiError ? err.message : t('supportVoiceError')),
+      )
+      .finally(() => setBusy(false))
+  })
+
   // Склейка дублей. Список веток того же человека приходит вместе с перепиской: искать
   // дубль в очереди по фамилии и запоминать id — работа, которую делать незачем.
   const merge = useCallback(
@@ -563,6 +582,32 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         >
           {t('supportReply')}
         </button>
+        {/* Запись идёт — на экране только «отправить» и «отменить»: любая третья кнопка
+            в этот момент нажимается случайно. */}
+        {voice.supported &&
+          (voice.recording ? (
+            <div className="chips">
+              <button type="button" className="chip" onClick={voice.stop}>
+                {t('supportVoiceSend', { seconds: voice.seconds })}
+              </button>
+              <button type="button" className="chip" onClick={voice.cancel}>
+                {t('supportVoiceCancel')}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="fallback-submit"
+              disabled={busy}
+              onClick={() => {
+                haptic.tap()
+                void voice.start().catch(() => setError(t('supportVoiceDenied')))
+              }}
+            >
+              {t('supportVoice')}
+            </button>
+          ))}
+
         {ticket && !ticket.assigneeId && !ticket.closedAt && (
           <button
             type="button"

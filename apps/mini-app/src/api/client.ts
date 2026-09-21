@@ -93,6 +93,28 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return (await request<T>('POST', path, body)).data
 }
 
+/**
+ * Загрузка файла. Отдельно от `request`: у multipart нельзя ставить `content-type` руками —
+ * его формирует браузер вместе с границей частей, и наш заголовок сломал бы разбор.
+ * Повтор после истечения токена тот же, но тело переиспользуемое: FormData читается один
+ * раз только у потоков, а этот объект можно отправить снова.
+ */
+export async function apiUpload<T>(path: string, form: FormData, retry = true): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+
+  if (response.status === 401 && retry && token) {
+    token = null
+    await openSession()
+    return apiUpload<T>(path, form, false)
+  }
+
+  return (await unwrap<T>(response)).data
+}
+
 interface Envelope<T> {
   data: T
   meta?: { total?: number }

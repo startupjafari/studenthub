@@ -319,6 +319,52 @@ export class SupportService {
   }
 
   /**
+   * Голосовой ответ.
+   *
+   * На телефоне надиктовать быстрее, чем набрать, — а поддержка с телефона только этим и
+   * занимается. Отдельная ручка, а не `@MiniAllowed()` на `POST /chats/:id/messages`:
+   * последнее открыло бы токену мини-аппа все чаты, в которых состоит сотрудник, включая
+   * его личные. Здесь же проверяется и тип чата, и роль отправителя.
+   *
+   * Голосовое распознаётся чатом по имени файла (`voice-msg.<ext>`) — так же, как в вебе:
+   * mime по содержимому непредсказуем, webm-аудио браузеры отдают как `video/webm`.
+   */
+  async voiceReply(
+    viewer: JwtPayload,
+    chatId: string,
+    file: { buffer: Buffer; name?: string },
+    ctx: RequestContext = {},
+  ) {
+    this.assertStaff(viewer)
+    await this.assertTicket(chatId)
+    await this.assertAccess(viewer, chatId)
+
+    const message = await this.chats.sendMessageRest(viewer.sub, { chatId }, [
+      { buffer: file.buffer, name: file.name ?? 'voice-msg.webm' },
+    ])
+
+    // Всё остальное — как у текстового ответа: закрытое обращение открывается снова,
+    // отметка первого ответа ставится один раз. Дублировать правила нельзя: иначе
+    // «первый ответ голосом» не попадал бы в метрику, а обращение оставалось закрытым.
+    await this.prisma.chat.updateMany({
+      where: { id: chatId, supportClosedAt: { not: null } },
+      data: { supportClosedAt: null },
+    })
+    await this.prisma.chat.updateMany({
+      where: { id: chatId, supportFirstReplyAt: null },
+      data: { supportFirstReplyAt: new Date() },
+    })
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'support.ticket.reply.voice',
+      entity: 'Chat',
+      entityId: chatId,
+      ...ctx,
+    })
+    return message
+  }
+
+  /**
    * Взять обращение себе или отдать обратно в общую очередь.
    *
    * Перехватить чужое нельзя: если обращение уже за кем-то, сервер отвечает отказом, а не
