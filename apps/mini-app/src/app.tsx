@@ -4,6 +4,7 @@ import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
 import { ControlScreen } from './screens/control'
+import { SupportScreen } from './screens/support'
 import { haptic } from './telegram/webapp'
 
 // Мини-апп для администраторов и модераторов платформы.
@@ -17,7 +18,16 @@ import { haptic } from './telegram/webapp'
 // единственное действие, которое способно помочь: ввести код. Нет доступа в принципе —
 // код не подойдёт, и об этом скажет уже сам ответ на привязку.
 
-type Tab = 'complaints' | 'control'
+type Tab = 'complaints' | 'support' | 'control'
+
+// Вкладки мини-аппа. «Управление» — только администратору: рычаги платформы пишет он
+// один, и показывать модератору вкладку, где сервер всё равно откажет, значило бы
+// обещать несуществующее действие.
+const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
+  { id: 'complaints', label: 'Жалобы' },
+  { id: 'support', label: 'Поддержка' },
+  { id: 'control', label: 'Управление', adminOnly: true },
+]
 
 type State =
   | { status: 'starting' }
@@ -55,46 +65,7 @@ export function App() {
         {state.status === 'link' && (
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
         )}
-        {state.status === 'ready' && (
-          <>
-            {/* Вкладки видит только администратор: рычаги платформы пишет он один, и
-                показывать модератору пустую вкладку «Управление» значило бы обещать
-                действие, которое сервер всё равно не выполнит. */}
-            {state.user.role === 'PLATFORM_ADMIN' && (
-              <div className="tabs" role="tablist">
-                <button
-                  type="button"
-                  role="tab"
-                  className="tab"
-                  aria-selected={tab === 'complaints'}
-                  onClick={() => {
-                    haptic.select()
-                    setTab('complaints')
-                  }}
-                >
-                  Жалобы
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className="tab"
-                  aria-selected={tab === 'control'}
-                  onClick={() => {
-                    haptic.select()
-                    setTab('control')
-                  }}
-                >
-                  Управление
-                </button>
-              </div>
-            )}
-            {tab === 'complaints' || state.user.role !== 'PLATFORM_ADMIN' ? (
-              <ComplaintsScreen />
-            ) : (
-              <ControlScreen />
-            )}
-          </>
-        )}
+        {state.status === 'ready' && <ReadyView role={state.user.role} tab={tab} onTab={setTab} />}
       </main>
     </div>
   )
@@ -127,5 +98,46 @@ function Outside() {
         </p>
       </section>
     </div>
+  )
+}
+
+function ReadyView({
+  role,
+  tab,
+  onTab,
+}: {
+  role: MiniUser['role']
+  tab: Tab
+  onTab: (tab: Tab) => void
+}) {
+  const isAdmin = role === 'PLATFORM_ADMIN'
+  const tabs = TABS.filter((item) => isAdmin || !item.adminOnly)
+  // Модератор, стоящий на вкладке администратора, получил бы пустой экран: сводим к
+  // первой доступной, а не рисуем заглушку «нет прав» там, где вкладки просто нет.
+  const active = tabs.some((item) => item.id === tab) ? tab : 'complaints'
+
+  return (
+    <>
+      <div className="tabs" role="tablist">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            className="tab"
+            aria-selected={active === item.id}
+            onClick={() => {
+              haptic.select()
+              onTab(item.id)
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {active === 'complaints' && <ComplaintsScreen />}
+      {active === 'support' && <SupportScreen />}
+      {active === 'control' && <ControlScreen />}
+    </>
   )
 }
