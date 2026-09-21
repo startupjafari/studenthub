@@ -1,4 +1,5 @@
-import { apiGet, apiPatch } from './client'
+import { apiGet, apiPatch, apiPost } from './client'
+import type { MessageKey } from '../i18n'
 
 // Рычаги управления вебом. Типы повторяют ответ `GET /platform/state`.
 //
@@ -12,21 +13,50 @@ export interface LocalizedText {
   en: string
 }
 
+export interface NotificationSettings {
+  quietFrom: number | null
+  quietTo: number | null
+  muted: string[]
+  dutyUserId: string | null
+  digestHour: number | null
+}
+
+export type NotificationKind = 'complaint' | 'ticket' | 'reply' | 'digest'
+
+export const NOTIFICATION_KINDS: { key: NotificationKind; labelKey: MessageKey }[] = [
+  { key: 'complaint', labelKey: 'notifKindComplaint' },
+  { key: 'ticket', labelKey: 'notifKindTicket' },
+  { key: 'reply', labelKey: 'notifKindReply' },
+  { key: 'digest', labelKey: 'notifKindDigest' },
+]
+
 export interface PlatformState {
-  maintenance: { until: string; message: LocalizedText | null } | null
-  banner: { until: string; level: 'INFO' | 'WARNING'; text: LocalizedText } | null
+  notifications: NotificationSettings
+  maintenance: {
+    until: string
+    message: LocalizedText | null
+    startsAt: string | null
+    active: boolean
+  } | null
+  banner: {
+    until: string
+    level: 'INFO' | 'WARNING'
+    text: LocalizedText
+    roles: string[]
+    universityIds: string[]
+  } | null
   disabledSections: string[]
   announcedVersion: string | null
 }
 
 /** Разделы, которые можно погасить. Совпадает с PLATFORM_SECTIONS в shared-schemas. */
 export const SECTIONS = [
-  { key: 'chats', label: 'Чаты' },
-  { key: 'events', label: 'События' },
-  { key: 'documents', label: 'Документы' },
-  { key: 'applications', label: 'Заявки' },
-  { key: 'portfolio', label: 'Портфолио' },
-  { key: 'career', label: 'Карьера' },
+  { key: 'chats', labelKey: 'sectionChats' },
+  { key: 'events', labelKey: 'sectionEvents' },
+  { key: 'documents', labelKey: 'sectionDocuments' },
+  { key: 'applications', labelKey: 'sectionApplications' },
+  { key: 'portfolio', labelKey: 'sectionPortfolio' },
+  { key: 'career', labelKey: 'sectionCareer' },
 ] as const
 
 /**
@@ -39,7 +69,7 @@ export const SECTIONS = [
 export const BANNER_PRESETS = [
   {
     key: 'planned',
-    label: 'Плановое обновление',
+    labelKey: 'presetPlanned',
     level: 'INFO' as const,
     text: {
       ru: 'Сегодня вечером платформа ненадолго остановится на обновление.',
@@ -49,7 +79,7 @@ export const BANNER_PRESETS = [
   },
   {
     key: 'degraded',
-    label: 'Работает медленно',
+    labelKey: 'presetDegraded',
     level: 'WARNING' as const,
     text: {
       ru: 'Платформа отвечает медленнее обычного. Мы уже разбираемся.',
@@ -59,7 +89,7 @@ export const BANNER_PRESETS = [
   },
   {
     key: 'resolved',
-    label: 'Сбой устранён',
+    labelKey: 'presetResolved',
     level: 'INFO' as const,
     text: {
       ru: 'Сбой устранён, всё работает как обычно. Спасибо за терпение.',
@@ -77,22 +107,47 @@ export async function fetchPlatformState(): Promise<PlatformState> {
 export async function setMaintenance(
   minutes: number | null,
   code?: string,
+  startsInMinutes = 0,
 ): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/maintenance', {
     minutes,
     message: null,
+    ...(startsInMinutes > 0 ? { startsInMinutes } : {}),
     ...(code ? { code } : {}),
   })
 }
 
+/**
+ * Роли, которым можно адресовать объявление. Список короткий и выбирается тапом —
+ * в отличие от вузов, которых сотня: их прицел задаётся из веба.
+ */
+export const BANNER_AUDIENCES = [
+  { key: 'students', labelKey: 'roleStudent', roles: ['STUDENT', 'STAROSTA'] },
+  { key: 'teachers', labelKey: 'roleTeacher', roles: ['TEACHER'] },
+  {
+    key: 'staff',
+    labelKey: 'roleStaff',
+    roles: ['DEAN', 'UNIVERSITY_ADMIN', 'UNIVERSITY_MODERATOR'],
+  },
+] as const
+
+/**
+ * Повесить или снять баннер. `custom` — свой текст вместо заготовки; сервер требует все
+ * три языка, и это не придирка: строка на двух языках из трёх — дыра в интерфейсе у тех,
+ * кому не повезло с локалью.
+ */
 export async function setBanner(
   minutes: number | null,
   preset?: (typeof BANNER_PRESETS)[number],
+  roles: string[] = [],
+  custom?: LocalizedText,
+  level: 'INFO' | 'WARNING' = 'INFO',
 ): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/banner', {
     minutes,
-    level: preset?.level ?? 'INFO',
-    text: preset?.text ?? null,
+    level: custom ? level : (preset?.level ?? 'INFO'),
+    text: custom ?? preset?.text ?? null,
+    roles,
   })
 }
 
@@ -102,4 +157,55 @@ export async function setSections(disabled: string[]): Promise<PlatformState> {
 
 export async function announceRelease(version: string | null): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/release', { version })
+}
+
+/** Настройки уведомлений команде. Отправляются целиком: это состояние, а не команда. */
+export async function setNotifications(input: NotificationSettings): Promise<PlatformState> {
+  return apiPatch<PlatformState>('/platform/notifications', input)
+}
+
+/**
+ * Верни как было — откат последнего переключения рычагов.
+ *
+ * Чипы стоят рядом, палец один, и промах по экрану меняет то, что видят все. Сервер
+ * откатывает только последнее изменение и только моложе получаса; включить техработы
+ * откатом нельзя — на это есть своя кнопка, и она спрашивает код.
+ */
+export async function undoLastChange(): Promise<PlatformState> {
+  return apiPost<PlatformState>('/platform/undo', {})
+}
+
+/**
+ * Кто из команды привязал Telegram. Пул для очереди дежурств: дежурить может только тот,
+ * кому бот в принципе может написать.
+ */
+export interface TeamLink {
+  userId: string
+  name: string
+  role: string
+  username: string | null
+  linkedAt: string
+  lastSeenAt: string | null
+}
+
+export async function fetchTeam(): Promise<TeamLink[]> {
+  return apiGet<TeamLink[]>('/mini/links')
+}
+
+/** Очередь дежурств: кто сейчас и в каком порядке меняются. */
+export interface Duty {
+  dutyUserId: string | null
+  rotation: string[]
+}
+
+export async function fetchDuty(): Promise<Duty> {
+  return apiGet<Duty>('/platform/duty')
+}
+
+/**
+ * Задать очередь. Порядок — тот, в котором люди отмечены: дежурство передаётся
+ * следующему по списку каждый понедельник.
+ */
+export async function setDuty(rotation: string[]): Promise<Duty> {
+  return apiPatch<Duty>('/platform/duty', { rotation })
 }

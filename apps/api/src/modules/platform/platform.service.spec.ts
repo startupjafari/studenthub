@@ -11,6 +11,7 @@ const NOW = new Date('2026-09-21T12:00:00Z')
 function row(patch: Partial<PlatformState> = {}): PlatformState {
   return {
     id: 'singleton',
+    maintenanceFrom: null,
     maintenanceUntil: null,
     maintenanceMessageRu: null,
     maintenanceMessageKk: null,
@@ -20,8 +21,16 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
     bannerTextKk: null,
     bannerTextEn: null,
     bannerLevel: null,
+    bannerRoles: [],
+    bannerUniversityIds: [],
     disabledSections: [],
     announcedVersion: null,
+    quietFrom: null,
+    quietTo: null,
+    mutedNotifications: [],
+    dutyUserId: null,
+    dutyRotation: [],
+    digestHour: null,
     updatedById: null,
     updatedAt: NOW,
     ...patch,
@@ -33,6 +42,17 @@ function setup(stored: PlatformState | null = null, cached: string | null = null
   // а не через матчер поверх аргументов мока.
   const updates: Partial<PlatformState>[] = []
   const prisma = {
+    // Наблюдение: объём файлов и журнал изменений.
+    file: {
+      count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { size: null } }),
+    },
+    auditLog: {
+      findMany: jest.fn().mockResolvedValue([]),
+      // Откат читает последнюю запись рычага и берёт из неё снимок «как было».
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
     platformState: {
       findUnique: jest.fn().mockResolvedValue(stored),
       // upsert отвечает записанным поверх текущей строки — как настоящая БД.
@@ -63,6 +83,13 @@ describe('PlatformService.publicState', () => {
     const { service } = setup(null)
 
     await expect(service.publicState(NOW)).resolves.toEqual({
+      notifications: {
+        quietFrom: null,
+        quietTo: null,
+        muted: [],
+        dutyUserId: null,
+        digestHour: null,
+      },
       maintenance: null,
       banner: null,
       disabledSections: [],
@@ -85,6 +112,8 @@ describe('PlatformService.publicState', () => {
 
     expect(state.maintenance).toEqual({
       until: until.toISOString(),
+      startsAt: null,
+      active: true,
       message: {
         ru: 'Обновляем платформу',
         kk: 'Платформаны жаңартамыз',
@@ -249,6 +278,8 @@ describe('PlatformService — запись рычагов', () => {
       bannerTextKk: null,
       bannerTextEn: null,
       bannerLevel: null,
+      bannerRoles: [],
+      bannerUniversityIds: [],
     })
   })
 
@@ -281,10 +312,210 @@ describe('PlatformService — отказ чтения состояния', () =>
     prisma.platformState.findUnique.mockRejectedValue(new Error('connection refused'))
 
     await expect(service.publicState(NOW)).resolves.toEqual({
+      notifications: {
+        quietFrom: null,
+        quietTo: null,
+        muted: [],
+        dutyUserId: null,
+        digestHour: null,
+      },
       maintenance: null,
       banner: null,
       disabledSections: [],
       announcedVersion: null,
     })
+  })
+})
+
+describe('PlatformService — плановые техработы', () => {
+  /**
+   * Предупреждение и остановка — разные состояния одного события: назначенные на вечер
+   * работы видны заранее, но платформу закрывать ещё не должны.
+   */
+  it('назначенные на будущее видны, но платформу не закрывают', async () => {
+    const from = new Date(NOW.getTime() + 60 * 60_000)
+    const until = new Date(NOW.getTime() + 120 * 60_000)
+    const { service } = setup(row({ maintenanceFrom: from, maintenanceUntil: until }))
+
+    const state = await service.publicState(NOW)
+
+    expect(state.maintenance).toMatchObject({ active: false, startsAt: from.toISOString() })
+    await expect(service.maintenanceActive(NOW)).resolves.toBe(false)
+  })
+
+  it('начавшиеся закрывают платформу', async () => {
+    const from = new Date(NOW.getTime() - 10 * 60_000)
+    const until = new Date(NOW.getTime() + 60 * 60_000)
+    const { service } = setup(row({ maintenanceFrom: from, maintenanceUntil: until }))
+
+    await expect(service.maintenanceActive(NOW)).resolves.toBe(true)
+  })
+
+  // Иначе плановые работы, назначенные на вечер, кончались бы через час после нажатия.
+  it('срок окончания считается от начала окна, а не от нажатия', async () => {
+    const { service, updates } = setup()
+
+    await service.setMaintenance('admin-1', {
+      startsInMinutes: 120,
+      minutes: 30,
+      message: null,
+      code: '123456',
+    })
+
+    const written = updates.at(0) ?? {}
+    const minutesAhead = (Number(written.maintenanceUntil) - Date.now()) / 60_000
+    expect(minutesAhead).toBeGreaterThan(149)
+    expect(minutesAhead).toBeLessThanOrEqual(150)
+  })
+})
+
+describe('PlatformService — адресный баннер', () => {
+  it('отдаёт аудиторию вместе с баннером', async () => {
+    const { service } = setup(
+      row({
+        bannerUntil: new Date(NOW.getTime() + 60 * 60_000),
+        bannerTextRu: 'р',
+        bannerTextKk: 'қ',
+        bannerTextEn: 'e',
+        bannerRoles: ['TEACHER'],
+        bannerUniversityIds: ['11111111-1111-1111-1111-111111111111'],
+      }),
+    )
+
+    await expect(service.publicState(NOW)).resolves.toMatchObject({
+      banner: expect.objectContaining({
+        roles: ['TEACHER'],
+        universityIds: ['11111111-1111-1111-1111-111111111111'],
+      }),
+    })
+  })
+
+  // Снимая баннер, аудиторию тоже стираем: иначе следующий унаследовал бы чужой прицел.
+  it('снятие баннера стирает аудиторию', async () => {
+    const { service, updates } = setup()
+
+    await service.setBanner('admin-1', { minutes: null, level: 'INFO' })
+
+    expect(updates.at(0) ?? {}).toMatchObject({ bannerRoles: [], bannerUniversityIds: [] })
+  })
+})
+
+describe('PlatformService — наблюдение', () => {
+  it('считает объём файлов по журналу, а не по диску', async () => {
+    const { service, prisma } = setup()
+    prisma.file.count.mockResolvedValue(12)
+    prisma.file.aggregate.mockResolvedValue({ _sum: { size: 4096 } })
+
+    await expect(service.storageUsage()).resolves.toEqual({ files: 12, bytes: 4096 })
+  })
+
+  // Prisma на пустой таблице возвращает `_sum.size: null`, а не 0 — экран показал бы
+  // «null Б», если бы это не сводилось к нулю здесь.
+  it('пустое хранилище отдаёт нулём, а не null', async () => {
+    const { service } = setup()
+
+    await expect(service.storageUsage()).resolves.toEqual({ files: 0, bytes: 0 })
+  })
+
+  // У AuditLog нет связи с User: журнал переживает удаление аккаунта, и имя может не найтись.
+  it('отдаёт изменение без автора, если аккаунт удалён', async () => {
+    const { service, prisma } = setup()
+    prisma.auditLog.findMany.mockResolvedValue([
+      { action: 'platform.maintenance.on', createdAt: NOW, userId: 'gone' },
+    ])
+
+    await expect(service.recentChanges()).resolves.toEqual([
+      { action: 'platform.maintenance.on', at: NOW, by: null },
+    ])
+  })
+})
+
+// ── Откат последнего изменения (пункт 53) ───────────────────────────────────
+describe('PlatformService.undoLast', () => {
+  function entry(before: Record<string, unknown>, ageMs = 0, action = 'platform.banner.on') {
+    return { action, metadata: { before }, createdAt: new Date(Date.now() - ageMs) }
+  }
+
+  it('возвращает поля к прежним значениям', async () => {
+    const { service, prisma, updates } = setup(row({ disabledSections: ['chats'] }))
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ disabledSections: [] }))
+
+    await service.undoLast('admin')
+    expect(updates.at(-1)).toMatchObject({ disabledSections: [] })
+  })
+
+  // Снимок в журнале — JSON: даты лежат строками, и вернуть их строками в БД нельзя.
+  it('поднимает даты из строк обратно', async () => {
+    const past = new Date(Date.now() - 60_000).toISOString()
+    const { service, prisma, updates } = setup(row())
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ bannerUntil: past }))
+
+    await service.undoLast('admin')
+    expect(updates.at(-1)?.bannerUntil).toBeInstanceOf(Date)
+  })
+
+  it('отменять нечего → NOT_FOUND', async () => {
+    const { service } = setup(row())
+    const err = await service.undoLast('admin').catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  // Полчаса — граница между «промахнулся» и «решил»: второе молча не отменяют.
+  it('старше получаса → CONFLICT', async () => {
+    const { service, prisma } = setup(row())
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ disabledSections: [] }, 31 * 60 * 1000))
+    const err = await service.undoLast('admin').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  // Включение техработ спрашивает код 2FA. Кнопка без кода, делающая то же самое,
+  // превратила бы эту защиту в декорацию.
+  it('не включает техработы откатом', async () => {
+    const future = new Date(Date.now() + 60 * 60_000).toISOString()
+    const { service, prisma } = setup(row())
+    prisma.auditLog.findFirst.mockResolvedValue(
+      entry({ maintenanceUntil: future }, 0, 'platform.maintenance.off'),
+    )
+    const err = await service.undoLast('admin').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+})
+
+// ── Очередь дежурств (пункт 90) ─────────────────────────────────────────────
+describe('PlatformService — дежурство по очереди', () => {
+  it('первый в списке становится дежурным сразу: очередь не должна ждать неделю', async () => {
+    const { service, updates } = setup(row())
+    await service.setDuty('admin', ['a', 'b', 'c'])
+    expect(updates.at(-1)).toMatchObject({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] })
+  })
+
+  // Назначенного руками дежурного расписание не снимает: его ставили осознанно.
+  it('не отбирает дежурство у назначенного руками', async () => {
+    const { service, updates } = setup(row({ dutyUserId: 'z' }))
+    await service.setDuty('admin', ['a', 'b'])
+    expect(updates.at(-1)?.dutyUserId).toBe('z')
+  })
+
+  it('передаёт дежурство следующему по списку', async () => {
+    const { service, updates } = setup(row({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] }))
+    await expect(service.rotateDuty()).resolves.toBe('b')
+    expect(updates.at(-1)?.dutyUserId).toBe('b')
+  })
+
+  it('с конца списка возвращается к началу', async () => {
+    const { service } = setup(row({ dutyUserId: 'c', dutyRotation: ['a', 'b', 'c'] }))
+    await expect(service.rotateDuty()).resolves.toBe('a')
+  })
+
+  // Дежурный не из очереди — его назначили руками на выходные; начинаем круг сначала.
+  it('дежурный вне списка → первый из очереди', async () => {
+    const { service } = setup(row({ dutyUserId: 'z', dutyRotation: ['a', 'b'] }))
+    await expect(service.rotateDuty()).resolves.toBe('a')
+  })
+
+  it('очередь короче двух — передавать некому', async () => {
+    const { service } = setup(row({ dutyUserId: 'a', dutyRotation: ['a'] }))
+    await expect(service.rotateDuty()).resolves.toBeNull()
   })
 })

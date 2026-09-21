@@ -404,3 +404,144 @@ body {
   color: var(--tg-theme-text-color);
   font: inherit;
 }
+
+/* Заголовок группы в списке (разделение по дням). */
+.list-day {
+  margin: 0;
+  padding: 10px 14px 4px;
+  color: var(--tg-theme-hint-color);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Счётчик на вкладке: число работы, видное без захода во вкладку. */
+.tab-badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Цитата чужого сообщения в карточке жалобы — отделена, чтобы её не спутали с нашим текстом. */
+.quote {
+  margin: 8px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--tg-theme-section-separator-color);
+  color: var(--tg-theme-text-color);
+  font-size: 14px;
+}
+
+/* Предпросмотр объявления — так, как его увидят пользователи. */
+.preview {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--tg-theme-secondary-bg-color);
+  font-size: 14px;
+}
+
+/* Четыре вкладки в ширину телефона не помещаются — ряд прокручивается, а не сжимает
+   надписи до нечитаемых. */
+.tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Разрушительное действие в строке списка. */
+.chip.danger-chip {
+  border-color: var(--tg-theme-destructive-text-color);
+  color: var(--tg-theme-destructive-text-color);
+}
+
+/* Спарклайн: подпись — кривая — последнее значение. */
+.spark-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.spark {
+  flex: 1;
+  height: 30px;
+  min-width: 0;
+}
+
+.spark path {
+  stroke: var(--tg-theme-button-color);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+/* Подпись сборки внизу экрана управления. */
+.footnote {
+  margin: 20px 0 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Индикатор потягивания: стрелка вниз, пока не хватает, и знак обновления, когда хватит. */
+.pull-hint {
+  margin: 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 18px;
+  text-align: center;
+}
+
+/* Тепловая карта 7×24. Клетки резиновые: на узком экране они сжимаются, но строка дня
+   остаётся одной строкой — перенос превратил бы карту в кашу. */
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.heatmap-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.heatmap-day {
+  flex: 0 0 22px;
+  color: var(--tg-theme-hint-color);
+  font-size: 11px;
+}
+
+.heatmap-cell {
+  flex: 1 1 0;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--tg-theme-button-color, #2ea6ff);
+}
+
+/* Три засечки вместо двадцати четырёх подписей: час с точностью до минуты здесь не нужен. */
+.heatmap-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 0 24px;
+  color: var(--tg-theme-hint-color);
+  font-size: 11px;
+}

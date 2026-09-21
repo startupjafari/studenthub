@@ -2283,7 +2283,13 @@
     "whatsNewTitle": "Что нового",
     "whatsNewDesc": "Что изменилось в версии {version}",
     "whatsNewOpen": "Открыть",
-    "navSupport": "Поддержка"
+    "navSupport": "Поддержка",
+    "telegramLinkedAs": "Привязан {account}, с {date}",
+    "telegramNoUsername": "аккаунт без имени",
+    "telegramLastSeen": "Последнее открытие: {date}",
+    "telegramRevoke": "Отозвать",
+    "telegramRevokeConfirm": "Отозвать привязку? Мини-апп на этом телефоне перестанет открываться. Привязать заново можно новым кодом.",
+    "telegramRevoked": "Привязка отозвана"
   },
   "Offline": {
     "title": "Нет соединения",
@@ -3597,7 +3603,8 @@
     "maintenanceUntil": "Ожидаемое окончание",
     "maintenanceStaffNotice": "Режим техработ включён до {until}. Остальные видят заглушку.",
     "sectionOffTitle": "Раздел временно закрыт",
-    "sectionOffText": "Мы ненадолго отключили его, чтобы починить. Остальные разделы работают как обычно."
+    "sectionOffText": "Мы ненадолго отключили его, чтобы починить. Остальные разделы работают как обычно.",
+    "maintenancePlanned": "Плановые техработы: с {from} до {until}. Платформа ненадолго закроется."
   },
   "Support": {
     "title": "Написать в поддержку",

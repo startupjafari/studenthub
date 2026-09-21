@@ -1,7 +1,14 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Версия сборки попадает в бандл константой. После случая, когда сервисы на Railway
+// разъехались по веткам и мини-апп неделю ходил в бэкенд без нужных маршрутов, вопрос
+// «какая сборка у меня открыта» перестал быть праздным.
+const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(version) },
   plugins: [react()],
   // Относительный base: мини-апп раздаётся статикой и может жить не в корне домена
   // (например, /mini/), а Telegram открывает ровно тот URL, что задан в BotFather.

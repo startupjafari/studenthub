@@ -32,6 +32,7 @@ const COMPLAINT_SELECT = {
   createdAt: true,
   reporter: USER_MINI,
   resolvedBy: USER_MINI,
+  reviewingBy: USER_MINI,
 } satisfies Prisma.ComplaintSelect
 
 type ComplaintRow = Prisma.ComplaintGetPayload<{ select: typeof COMPLAINT_SELECT }>
@@ -114,16 +115,137 @@ export class ComplaintsService {
       metadata: { targetType: input.targetType, targetId: input.targetId },
       ...ctx,
     })
-    // Срочные — в Telegram команде платформы: жалоба на человека или на личные сообщения
-    // означает, что кто-то страдает прямо сейчас, и ждать, пока модератор сам откроет
-    // очередь, не стоит. Обычные и несрочные ждут в очереди — иначе уведомления
-    // обесценятся, и первыми перестанут читать как раз срочные.
-    if (complaint.priority === ComplaintPriority.HIGH) {
-      await this.telegram.notifyStaff(
-        `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
-        `complaint_${complaint.id}`,
-      )
+    await this.announceIfUrgent(complaint)
+    return complaint
+  }
+
+  /**
+   * Срочные — в Telegram команде платформы: жалоба на человека или на личные сообщения
+   * означает, что кто-то страдает прямо сейчас, и ждать, пока модератор сам откроет
+   * очередь, не стоит. Обычные и несрочные ждут в очереди — иначе уведомления
+   * обесценятся, и первыми перестанут читать как раз срочные.
+   */
+  private async announceIfUrgent(complaint: ComplaintRow): Promise<void> {
+    if (complaint.priority !== ComplaintPriority.HIGH) return
+    await this.telegram.notifyStaff(
+      'complaint',
+      `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
+      `complaint_${complaint.id}`,
+      new Date(),
+      false,
+      // Кнопка квитирования прямо в уведомлении: открывать приложение, чтобы сказать
+      // «беру», — три лишних шага в момент, когда важна секунда.
+      { kind: 'complaint', id: complaint.id },
+    )
+  }
+
+  /**
+   * Взять жалобу в разбор — квитирование.
+   *
+   * Уведомление о срочной жалобе уходит всей команде, и без отметки «я взял» двое
+   * открывают одно и то же, а третья жалоба не достаётся никому: каждый решает, что её
+   * взял другой. Нажимают эту кнопку прямо в Telegram, не открывая мини-апп.
+   *
+   * Перехватить чужое нельзя: условие `reviewingById: null` стоит в самом запросе, и два
+   * одновременных «беру» не победят оба. Уже разобранная жалоба в разбор не берётся —
+   * брать нечего.
+   */
+  async take(actor: JwtPayload, id: string): Promise<{ takenBy: string }> {
+    const complaint = await this.findScoped(actor, id)
+    if (
+      complaint.status === ComplaintStatus.RESOLVED ||
+      complaint.status === ComplaintStatus.DISMISSED
+    ) {
+      throw new AppException('CONFLICT', 'Жалоба уже разобрана')
     }
+
+    const { count } = await this.prisma.complaint.updateMany({
+      where: { id, reviewingById: null },
+      data: { reviewingById: actor.sub, status: ComplaintStatus.REVIEWING },
+    })
+    if (count === 0) throw new AppException('CONFLICT', 'Жалобу уже разбирает другой человек')
+
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_taken',
+      entity: 'Complaint',
+      entityId: id,
+    })
+    return { takenBy: actor.sub }
+  }
+
+  /**
+   * Завести жалобу по обращению в поддержку (пункт 34 каталога мини-аппа).
+   *
+   * Люди жалуются на других людей через поддержку — это самый естественный путь: адрес
+   * известен, а кнопку «пожаловаться» рядом с обидчиком ещё надо найти. До этого путь
+   * кончался тупиком: поддержка читала жалобу, а передать её модерации было нечем, кроме
+   * пересказа своими словами в третьей системе.
+   *
+   * Автором жалобы остаётся автор обращения, а не модератор: жаловался он, и очередь
+   * должна показывать именно это — иначе по статистике окажется, что половину жалоб на
+   * платформе подаёт поддержка. Текст берётся из первого сообщения: это его собственные
+   * слова, а не их пересказ.
+   */
+  async createFromSupport(
+    actor: JwtPayload,
+    chatId: string,
+    targetUserId: string,
+    ctx: RequestContext,
+  ): Promise<ComplaintRow> {
+    const ticket = await this.prisma.chat.findFirst({
+      where: { id: chatId, type: 'SUPPORT_PLATFORM' },
+      select: {
+        id: true,
+        members: { select: { user: { select: { id: true, role: true } } } },
+        messages: {
+          where: { deletedAt: null },
+          orderBy: { seq: Prisma.SortOrder.asc },
+          take: 1,
+          select: { content: true },
+        },
+      },
+    })
+    if (!ticket) throw new AppException('NOT_FOUND', 'Обращение не найдено')
+
+    const author = ticket.members.find(
+      (member) =>
+        member.user.role !== Role.PLATFORM_ADMIN && member.user.role !== Role.PLATFORM_MODERATOR,
+    )?.user
+    if (!author) throw new AppException('BAD_REQUEST', 'У обращения нет автора')
+    if (author.id === targetUserId) {
+      throw new AppException('BAD_REQUEST', 'Нельзя пожаловаться на самого себя')
+    }
+
+    // Цель проверяем тем же способом, что и обычную жалобу: несуществующий или чужой
+    // человек отсеивается здесь, а не в очереди у модератора.
+    const target = await this.getTarget(ComplaintTargetType.USER, targetUserId)
+    const firstMessage = ticket.messages[0]?.content?.trim()
+    const reason = firstMessage
+      ? firstMessage.slice(0, 2000)
+      : 'Жалоба передана из обращения в поддержку'
+
+    const complaint = await this.prisma.complaint.create({
+      data: {
+        reporterId: author.id,
+        targetType: ComplaintTargetType.USER,
+        targetId: targetUserId,
+        reason,
+        priority: complaintPriorityFor('USER') as ComplaintPriority,
+        universityId: target.universityId,
+      },
+      select: COMPLAINT_SELECT,
+    })
+
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_from_support',
+      entity: 'Complaint',
+      entityId: complaint.id,
+      metadata: { chatId, targetId: targetUserId },
+      ...ctx,
+    })
+    await this.announceIfUrgent(complaint)
     return complaint
   }
 
@@ -132,6 +254,7 @@ export class ComplaintsService {
   async list(viewer: JwtPayload, query: ComplaintListQueryInput): Promise<Paginated<ComplaintRow>> {
     const where: Prisma.ComplaintWhereInput = {
       ...this.scopeWhere(viewer),
+      ...(query.targetId ? { targetId: query.targetId } : {}),
       ...(query.status ? { status: query.status as ComplaintStatus } : {}),
       ...(query.priority ? { priority: query.priority as ComplaintPriority } : {}),
     }
@@ -148,8 +271,26 @@ export class ComplaintsService {
     return new Paginated(rows, { total })
   }
 
-  async getById(viewer: JwtPayload, id: string): Promise<ComplaintRow> {
-    return this.findScoped(viewer, id)
+  /**
+   * Одна жалоба плюс счётчик: сколько раз на ту же цель жаловались вообще.
+   *
+   * Число отличает единичную обиду от травли, и без него модератор судит по одной строке
+   * текста. Считается по `targetId`, а не по автору жалобы: важно, сколько РАЗНЫХ людей
+   * пришло с одним и тем же, а не сколько раз пришёл один настойчивый.
+   */
+  async getById(
+    viewer: JwtPayload,
+    id: string,
+  ): Promise<ComplaintRow & { targetReports: number; targetOwnerId: string | null }> {
+    const complaint = await this.findScoped(viewer, id)
+    const targetReports = await this.prisma.complaint.count({
+      where: { targetType: complaint.targetType, targetId: complaint.targetId },
+    })
+    // Кто отвечает за цель. В жалобе на пост или сообщение автора не видно, а решение
+    // принимается про человека: заблокировать — значит заблокировать именно его.
+    // Снесённая цель отвечает null — карточку нарушителя тогда просто не показываем.
+    const targetOwnerId = await this.ownerOf(complaint)
+    return { ...complaint, targetReports, targetOwnerId }
   }
 
   // ── Разрешение (11.4) ────────────────────────────────────────────────────
@@ -170,12 +311,26 @@ export class ComplaintsService {
       }
       await this.softDeleteTarget(targetType, complaint.targetId)
     } else if (input.action === 'BLOCK_USER') {
-      const target = await this.getTarget(targetType, complaint.targetId).catch(() => null)
-      const ownerId = target?.ownerId
+      const ownerId = await this.ownerOf(complaint)
       if (!ownerId)
         throw new AppException('BAD_REQUEST', 'Не удалось определить пользователя для блокировки')
+      // Срок делает блокировку временной: её снимет крон, а не память модератора.
+      const until = input.blockDays
+        ? new Date(Date.now() + input.blockDays * 24 * 60 * 60 * 1000)
+        : null
       // UserService.setBlocked проверяет scope и рвёт сессии.
-      await this.users.setBlocked(actor, ownerId, true)
+      await this.users.setBlocked(actor, ownerId, true, until)
+    } else if (input.action === 'WARN_USER') {
+      const ownerId = await this.ownerOf(complaint)
+      if (!ownerId)
+        throw new AppException(
+          'BAD_REQUEST',
+          'Не удалось определить пользователя для предупреждения',
+        )
+      // Предупреждение не трогает ни контент, ни доступ: человеку уходит уведомление,
+      // а модерации остаётся запись — вторая жалоба на того же человека будет разбираться
+      // уже зная, что разговор был.
+      await this.users.warn(actor, ownerId, id)
     }
 
     const status = input.action === 'DISMISS' ? ComplaintStatus.DISMISSED : ComplaintStatus.RESOLVED
@@ -211,6 +366,86 @@ export class ComplaintsService {
       },
       { jobId: `complaint-resolved:${id}` },
     )
+
+    if (input.applyToDuplicates) await this.closeDuplicates(actor, complaint, status, id, ctx)
+    return updated
+  }
+
+  /**
+   * Закрыть остальные необработанные жалобы на ту же цель тем же статусом.
+   *
+   * Побочное действие (снять контент, заблокировать) здесь НЕ повторяется — оно уже
+   * выполнено для первой жалобы. Второе удаление того же поста было бы безобидным, а вот
+   * вторая блокировка того же человека записала бы в журнал события, которых не было.
+   */
+  private async closeDuplicates(
+    actor: JwtPayload,
+    complaint: { targetType: ComplaintTargetType; targetId: string },
+    status: ComplaintStatus,
+    exceptId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const where = {
+      id: { not: exceptId },
+      targetType: complaint.targetType,
+      targetId: complaint.targetId,
+      status: { in: [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING] },
+      // Чужой scope не трогаем: модератор вуза не должен закрывать жалобы другого вуза
+      // только потому, что цель у них общая.
+      ...this.scopeWhere(actor),
+    }
+    const { count } = await this.prisma.complaint.updateMany({
+      where,
+      data: { status, resolvedById: actor.sub, resolvedAt: new Date() },
+    })
+    if (count === 0) return
+
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_duplicates_closed',
+      entity: 'Complaint',
+      entityId: exceptId,
+      metadata: { count, targetType: complaint.targetType, targetId: complaint.targetId },
+      ...ctx,
+    })
+  }
+
+  /**
+   * Вернуть жалобу в очередь. Ошибка модератора до этого исправлялась только правкой в БД.
+   *
+   * Побочные действия решения НЕ отменяются: снятый контент не возвращается, а блокировка
+   * снимается отдельно, в разделе «Люди». Возврат в очередь означает «решение было
+   * неверным, нужен новый разбор», а не «ничего не было».
+   */
+  async reopen(actor: JwtPayload, id: string, ctx: RequestContext) {
+    const complaint = await this.findScoped(actor, id)
+    if (
+      complaint.status !== ComplaintStatus.RESOLVED &&
+      complaint.status !== ComplaintStatus.DISMISSED
+    ) {
+      throw new AppException('CONFLICT', 'Жалоба и так в очереди')
+    }
+
+    const updated = await this.prisma.complaint.update({
+      where: { id },
+      data: {
+        status: ComplaintStatus.PENDING,
+        resolvedById: null,
+        resolvedAt: null,
+        // Возврат в очередь снимает и «кто взял»: жалоба снова ничья, иначе она висела бы
+        // за человеком, который её уже закрыл.
+        reviewingById: null,
+        resolution: null,
+      },
+      select: COMPLAINT_SELECT,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'complaint_reopened',
+      entity: 'Complaint',
+      entityId: id,
+      ...ctx,
+    })
     return updated
   }
 
@@ -274,6 +509,12 @@ export class ComplaintsService {
   }
 
   /** Проверка существования цели и вычисление её вуза/владельца. */
+  /** Владелец цели: автор поста, отправитель сообщения или сам пользователь. */
+  private async ownerOf(complaint: { targetType: ComplaintTargetType; targetId: string }) {
+    const target = await this.getTarget(complaint.targetType, complaint.targetId).catch(() => null)
+    return target?.ownerId ?? null
+  }
+
   private async getTarget(type: ComplaintTargetType, targetId: string): Promise<TargetInfo> {
     switch (type) {
       case ComplaintTargetType.STORY:

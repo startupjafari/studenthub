@@ -3,6 +3,8 @@ import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestj
 import { Role } from '@studenthub/shared-types'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
+import { RequiresConfirmation } from '../../common/decorators/requires-confirmation.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { readSingleUpload } from '../../common/http/read-upload'
@@ -13,6 +15,7 @@ import { ChangePasswordDto } from './dto/change-password.dto'
 import { UpdateUsernameDto } from './dto/update-username.dto'
 import { UserListQueryDto } from './dto/user-list-query.dto'
 import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
+import { BlockUserDto } from './dto/block-user.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -110,6 +113,9 @@ export class UsersController {
     Role.UNIVERSITY_MODERATOR,
     Role.DEAN,
   )
+  // Мини-аппу открыт только поиск и карточка: с телефона человека находят, чтобы принять
+  // решение о доступе. Выгрузка, импорт и правка профиля остаются в вебе.
+  @MiniAllowed()
   @ApiOperation({
     summary: 'Список пользователей (Admin+, по scope; фильтры role/faculty/group/search)',
   })
@@ -168,9 +174,31 @@ export class UsersController {
   }
 
   @Get(':id')
+  @MiniAllowed()
   @ApiOperation({ summary: 'Профиль пользователя (email — по правам смотрящего)' })
   getById(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.users.getProfileForViewer(id, user)
+  }
+
+  /**
+   * Карточка для модератора: роль, вуз, доступ и счётчик жалоб на человека.
+   *
+   * Читается рядом с жалобой и обращением — там, где решение принимают про человека,
+   * а видно только имя. Полный профиль (`GET /users/:id`) для этого слишком широк.
+   */
+  @Get(':id/moderation')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Карточка пользователя для модератора (роль, вуз, блокировка, жалобы)' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — пользователь другого вуза' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
+  moderationCard(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.users.moderationCard(user, id)
   }
 
   @Get(':id/presence')
@@ -186,9 +214,37 @@ export class UsersController {
     Role.UNIVERSITY_ADMIN,
     Role.UNIVERSITY_MODERATOR,
   )
-  @ApiOperation({ summary: 'Заблокировать пользователя (в своём scope)' })
-  async block(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
-    await this.users.setBlocked(user, id, true)
+  @MiniAllowed()
+  // С телефона — только с кодом: отобрать человеку доступ нельзя промахом по экрану.
+  @RequiresConfirmation()
+  @ApiOperation({
+    summary: 'Заблокировать пользователя (из мини-аппа — с кодом 2FA; blockDays — срок)',
+  })
+  async block(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: BlockUserDto | undefined,
+  ): Promise<null> {
+    // Со сроком блокировка снимется сама, без него — бессрочная, как была. Считаем срок
+    // от момента блокировки: «на три дня», выданное вечером, кончается вечером через три дня.
+    const until = dto?.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
+    await this.users.setBlocked(user, id, true, until)
+    return null
+  }
+
+  @Patch(':id/logout')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @MiniAllowed()
+  // Угнанный аккаунт до этого останавливали только блокировкой целиком — то есть
+  // наказывали пострадавшего. Сброс сессий выгоняет чужого, оставляя доступ хозяину.
+  @ApiOperation({ summary: 'Завершить все сессии пользователя (в своём scope)' })
+  async logout(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
+    await this.users.revokeSessions(user, id)
     return null
   }
 
@@ -199,6 +255,7 @@ export class UsersController {
     Role.UNIVERSITY_ADMIN,
     Role.UNIVERSITY_MODERATOR,
   )
+  @MiniAllowed()
   @ApiOperation({ summary: 'Разблокировать пользователя (в своём scope)' })
   async unblock(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
     await this.users.setBlocked(user, id, false)

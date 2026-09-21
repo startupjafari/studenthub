@@ -45,6 +45,17 @@ export const BANNER_MAX_MINUTES = 30 * 24 * 60
  * `null` — снять режим немедленно.
  */
 export const SetMaintenanceSchema = z.object({
+  /**
+   * Через сколько минут НАЧАТЬ. 0 или отсутствие — начать сейчас. Плановая остановка
+   * задаётся одним действием вместе с длительностью: два объявления об одном событии
+   * (баннер «сегодня в 22:00» и отдельно техработы) неизбежно расходятся.
+   */
+  startsInMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(7 * 24 * 60)
+    .optional(),
   minutes: z.number().int().min(MAINTENANCE_MIN_MINUTES).max(MAINTENANCE_MAX_MINUTES).nullable(),
   message: localizedText.nullish(),
   /**
@@ -58,6 +69,9 @@ export type SetMaintenanceInput = z.infer<typeof SetMaintenanceSchema>
 
 export const SetBannerSchema = z.object({
   minutes: z.number().int().min(MAINTENANCE_MIN_MINUTES).max(BANNER_MAX_MINUTES).nullable(),
+  /** Кому показывать. Пустые массивы — всем. */
+  roles: z.array(z.string().min(1).max(40)).max(10).optional(),
+  universityIds: z.array(z.string().uuid()).max(50).optional(),
   level: z.enum(['INFO', 'WARNING']).default('INFO'),
   text: localizedText.nullish(),
 })
@@ -80,3 +94,38 @@ export const AnnounceReleaseSchema = z.object({
     .nullable(),
 })
 export type AnnounceReleaseInput = z.infer<typeof AnnounceReleaseSchema>
+
+/** Виды уведомлений, которые команда платформы получает в Telegram. */
+export const NOTIFICATION_KINDS = ['complaint', 'ticket', 'reply', 'digest'] as const
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
+
+const hour = z.number().int().min(0).max(23)
+
+/**
+ * Настройки уведомлений команде. Часы — по времени сервера и целые: «не будить с 22 до 8»
+ * это решение о ночи, а не о минутах, и половинчатая точность только усложнила бы ввод
+ * с телефона.
+ *
+ * `quietFrom === quietTo` схема не запрещает намеренно: это «тишина круглые сутки», то
+ * есть выключить уведомления, не стирая настройку.
+ */
+export const SetNotificationsSchema = z.object({
+  quietFrom: hour.nullable(),
+  quietTo: hour.nullable(),
+  muted: z.array(z.enum(NOTIFICATION_KINDS)).max(NOTIFICATION_KINDS.length),
+  /** id дежурного; null — уведомлять всю команду. */
+  dutyUserId: z.string().uuid().nullable(),
+  digestHour: hour.nullable(),
+})
+export type SetNotificationsInput = z.infer<typeof SetNotificationsSchema>
+
+/**
+ * Очередь дежурств: id людей по порядку. Десяти хватает любой команде платформы, а
+ * очередь длиннее означала бы, что до второго круга человек дойдёт через четверть года.
+ */
+export const SetDutySchema = z
+  .object({
+    rotation: z.array(z.string().uuid()).max(10),
+  })
+  .strict()
+export type SetDutyInput = z.infer<typeof SetDutySchema>

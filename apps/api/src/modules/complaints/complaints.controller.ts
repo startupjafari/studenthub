@@ -5,6 +5,7 @@ import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
+import { RequiresConfirmation } from '../../common/decorators/requires-confirmation.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -12,6 +13,7 @@ import { ComplaintsService } from './complaints.service'
 import { CreateComplaintDto } from './dto/create-complaint.dto'
 import { ResolveComplaintDto } from './dto/resolve-complaint.dto'
 import { ComplaintListQueryDto } from './dto/complaint-list-query.dto'
+import { ComplaintFromSupportDto } from './dto/complaint-from-support.dto'
 
 // Обрабатывают жалобы модераторы/админы (docs/PROJECT.md §2.2).
 const MODERATOR_ROLES = [
@@ -40,6 +42,28 @@ export class ComplaintsController {
     @Req() req: FastifyRequest,
   ) {
     return this.complaints.create(user, dto, this.ctx(req))
+  }
+
+  /**
+   * Жалоба из обращения в поддержку. Объявлен ДО `@Get(':id')`-соседей не по случайности:
+   * маршрут отдельный, потому что автором жалобы остаётся автор обращения, а подаёт её
+   * поддержка — обычный `POST /complaints` такого не умеет и уметь не должен.
+   */
+  @Post('from-support')
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @MiniAllowed()
+  @ApiOperation({
+    summary: 'Завести жалобу по обращению в поддержку (автор жалобы — автор обращения)',
+  })
+  @ApiResponse({ status: 201, description: 'Жалоба создана' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — у обращения нет автора' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — обращение или человек не найдены' })
+  fromSupport(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: ComplaintFromSupportDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.complaints.createFromSupport(user, dto.chatId, dto.targetId, this.ctx(req))
   }
 
   @Get()
@@ -75,6 +99,11 @@ export class ComplaintsController {
     return this.complaints.getMessageContext(user, id, this.ctx(req))
   }
 
+  // Код нужен, только когда решение блокирует человека: требовать подтверждение на
+  // прямой блокировке и не требовать на той же блокировке через жалобу значило бы
+  // оставить защиту декоративной, а спрашивать его на «нарушения нет» — приучить
+  // вводить код не глядя.
+  @RequiresConfirmation((body) => body.action === 'BLOCK_USER')
   @Patch(':id/resolve')
   @Roles(...MODERATOR_ROLES)
   @MiniAllowed()
@@ -88,6 +117,28 @@ export class ComplaintsController {
     @Req() req: FastifyRequest,
   ) {
     return this.complaints.resolve(user, id, dto, this.ctx(req))
+  }
+
+  @Patch(':id/take')
+  @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Взять жалобу в разбор (квитирование; перехватить чужую нельзя)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — уже разбирают или уже разобрана' })
+  take(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.complaints.take(user, id)
+  }
+
+  @Patch(':id/reopen')
+  @Roles(...MODERATOR_ROLES)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Вернуть жалобу в очередь (побочные действия не отменяются)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — жалоба и так в очереди' })
+  reopen(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.complaints.reopen(user, id, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {

@@ -9,6 +9,11 @@ function makeService() {
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     auditLog: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     file: { findMany: jest.fn() as Mock },
+    // Счётчики суточной сводки.
+    complaint: { count: jest.fn(async () => 0) as Mock },
+    chat: { count: jest.fn(async () => 0) as Mock },
+    // Снятие временных блокировок по сроку.
+    user: { findMany: jest.fn(async () => []) as Mock, updateMany: jest.fn() as Mock },
   }
   const minio = { listObjectsV2: jest.fn() as Mock, removeObject: jest.fn() as Mock }
   const config = { get: jest.fn((k: string) => k) as Mock } // возвращает имя ключа как имя бакета
@@ -34,6 +39,21 @@ function makeService() {
   // Доставка отложенных сообщений чатов: cron только делегирует, поэтому в тесте достаточно
   // счётчика — сама доставка проверяется в chats.service.spec.ts.
   const chats = { deliverDueScheduled: jest.fn(async () => 0) as Mock }
+  const audit = { record: jest.fn(async () => undefined) as Mock }
+  // Суточная сводка: cron спрашивает час отправки у состояния платформы и пишет в Telegram.
+  const support = { closeStale: jest.fn(async () => 0) as Mock }
+  const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
+  const platform = {
+    maintenanceActive: jest.fn(async () => false) as Mock,
+    rotateDuty: jest.fn(async () => null) as Mock,
+    notificationPolicy: jest.fn(async () => ({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: null,
+    })) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -43,9 +63,29 @@ function makeService() {
     documents as never,
     chats as never,
     locks as never,
+    audit as never,
     redis as never,
+    support as never,
+    telegram as never,
+    platform as never,
   )
-  return { service, prisma, minio, config, events, posts, documents, chats, locks, redis, store }
+  return {
+    service,
+    prisma,
+    audit,
+    minio,
+    config,
+    events,
+    posts,
+    documents,
+    chats,
+    locks,
+    redis,
+    store,
+    support,
+    telegram,
+    platform,
+  }
 }
 
 // Поток MinIO listObjectsV2 → синхронно эмитим data+end при подписке на 'end'
@@ -199,5 +239,102 @@ describe('CleanupService — Redis-лок задач (Ф13.9)', () => {
       'cleanAuditLogs',
       'cleanOrphanFiles',
     ])
+  })
+})
+
+describe('CleanupService.sendDailyDigest', () => {
+  /**
+   * Cron ходит ежечасно, а отправляет только в выбранный админом час: держать время в
+   * cron-выражении значило бы перезапускать приложение ради его смены.
+   */
+  it('молчит в чужой час', async () => {
+    const c = makeService()
+    c.platform.notificationPolicy.mockResolvedValue({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: (new Date().getHours() + 1) % 24,
+    })
+
+    await expect(c.service.sendDailyDigest()).resolves.toBe(0)
+    expect(c.telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+
+  it('не шлёт сводку, пока час не выбран', async () => {
+    const c = makeService()
+
+    await expect(c.service.sendDailyDigest()).resolves.toBe(0)
+    expect(c.telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+
+  // «Ноль и ноль» — тоже новость: по отсутствию сводки нельзя отличить спокойный день
+  // от сломавшейся отправки.
+  it('шлёт сводку и при пустой очереди', async () => {
+    const c = makeService()
+    c.platform.notificationPolicy.mockResolvedValue({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: new Date().getHours(),
+    })
+
+    await expect(c.service.sendDailyDigest()).resolves.toBe(1)
+    expect(c.telegram.notifyStaff).toHaveBeenCalledWith('digest', expect.stringContaining('0'))
+  })
+})
+
+// ── Временные блокировки ────────────────────────────────────────────────────
+describe('CleanupService.liftExpiredBlocks', () => {
+  it('снимает блокировки, у которых вышел срок, и стирает сам срок', async () => {
+    const c = makeService()
+    c.prisma.user.findMany.mockResolvedValueOnce([{ id: 'u1' }, { id: 'u2' }])
+    c.prisma.user.updateMany.mockResolvedValueOnce({ count: 2 })
+
+    await expect(c.service.liftExpiredBlocks()).resolves.toBe(2)
+    expect(c.prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['u1', 'u2'] } },
+      data: { isBlocked: false, blockedUntil: null },
+    })
+  })
+
+  // Снятие блокировки — событие того же веса, что и сама блокировка: без записи человек
+  // «разблокировался сам», и через месяц никто не объяснит, почему у него снова доступ.
+  it('пишет снятие в журнал по каждому человеку', async () => {
+    const c = makeService()
+    c.prisma.user.findMany.mockResolvedValueOnce([{ id: 'u1' }])
+    c.prisma.user.updateMany.mockResolvedValueOnce({ count: 1 })
+
+    await c.service.liftExpiredBlocks()
+    expect(c.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'user_unblocked_expired', entityId: 'u1' }),
+    )
+  })
+
+  // Бессрочная блокировка сроком не обладает: подмести её вместе с временными значило бы
+  // возвращать доступ тем, у кого его отобрали навсегда.
+  it('не трогает бессрочные: в выборке только те, у кого срок вышел', async () => {
+    const c = makeService()
+    await c.service.liftExpiredBlocks()
+    expect(c.prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          isBlocked: true,
+          blockedUntil: { lte: expect.any(Date) },
+        }),
+      }),
+    )
+  })
+})
+
+describe('CleanupService.rotateDuty', () => {
+  // Крон только зовёт владельца состояния: логика очереди живёт в PlatformService, и
+  // дублировать её в планировщике значило бы завести второе место, где она разъедется.
+  it('передаёт дежурство через состояние платформы', async () => {
+    const c = makeService()
+    c.platform.rotateDuty.mockResolvedValue('user-2')
+    await expect(c.service.rotateDuty()).resolves.toBe('user-2')
+    expect(c.platform.rotateDuty).toHaveBeenCalled()
   })
 })

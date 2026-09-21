@@ -2283,7 +2283,13 @@
     "whatsNewTitle": "Не жаңалық",
     "whatsNewDesc": "{version} нұсқасында не өзгерді",
     "whatsNewOpen": "Ашу",
-    "navSupport": "Қолдау"
+    "navSupport": "Қолдау",
+    "telegramLinkedAs": "{account} байланыстырылған, {date} бастап",
+    "telegramNoUsername": "аты жоқ аккаунт",
+    "telegramLastSeen": "Соңғы ашылуы: {date}",
+    "telegramRevoke": "Кері қайтару",
+    "telegramRevokeConfirm": "Байланысты кері қайтару керек пе? Бұл телефондағы мини-қосымша ашылмайды. Жаңа кодпен қайта байланыстыруға болады.",
+    "telegramRevoked": "Байланыс кері қайтарылды"
   },
   "Offline": {
     "title": "Байланыс жоқ",
@@ -3597,7 +3603,8 @@
     "maintenanceUntil": "Аяқталу уақыты",
     "maintenanceStaffNotice": "Техникалық жұмыс режимі {until} дейін қосулы. Қалғандары бітеу бетті көреді.",
     "sectionOffTitle": "Бөлім уақытша жабық",
-    "sectionOffText": "Жөндеу үшін оны қысқа уақытқа өшірдік. Қалған бөлімдер әдеттегідей жұмыс істеп тұр."
+    "sectionOffText": "Жөндеу үшін оны қысқа уақытқа өшірдік. Қалған бөлімдер әдеттегідей жұмыс істеп тұр.",
+    "maintenancePlanned": "Жоспарлы техникалық жұмыстар: {from} — {until}. Платформа қысқа уақытқа жабылады."
   },
   "Support": {
     "title": "Қолдауға жазу",
