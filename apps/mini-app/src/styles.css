@@ -1,0 +1,299 @@
+/*
+ * Стили мини-аппа.
+ *
+ * Цвета берутся ТОЛЬКО из переменных Telegram (их проставляет applyTheme): клиент меняет
+ * тему на лету, и своя палитра сразу же разошлась бы с окружением — мини-апп выглядел бы
+ * вставленным куском чужого сайта. Отсюда же отсутствие медиазапроса prefers-color-scheme:
+ * тему выбирает Telegram, а не система.
+ */
+
+:root {
+  --radius: 12px;
+  --gap: 12px;
+  --side: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-text-color);
+  font:
+    15px/1.4 -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.content {
+  flex: 1;
+  /* Запас снизу — под «шторку» жестов iPhone; MainButton Telegram рисует сам под областью
+     приложения и высоту не отнимает. */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+.back-fallback {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  padding: 10px var(--side);
+  border: 0;
+  border-bottom: 1px solid var(--tg-theme-section-separator-color);
+  background: var(--tg-theme-section-bg-color);
+  color: var(--tg-theme-link-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.screen {
+  padding: var(--side);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.screen-head h1 {
+  margin: 4px 0 2px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.screen-head p {
+  margin: 0;
+}
+
+.hint {
+  color: var(--tg-theme-hint-color);
+  font-size: 13px;
+}
+
+.hint-danger {
+  color: var(--tg-theme-destructive-text-color);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-hint-color);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* Карточки и строки — как секции в самом Telegram: сгруппированный блок со скруглением
+   по краям группы, а не у каждой строки. */
+.card {
+  background: var(--tg-theme-section-bg-color);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.card h2 {
+  margin: 6px 0 2px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.card-accent {
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1.5px var(--tg-theme-button-color);
+}
+
+.list {
+  background: var(--tg-theme-section-bg-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Синяя подсветка тапа в WebView выглядит чужеродно — Telegram её нигде не показывает. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.row + .row {
+  border-top: 1px solid var(--tg-theme-section-separator-color);
+}
+
+.row:active {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+.row-static {
+  cursor: default;
+}
+
+.row-static:active {
+  background: none;
+}
+
+.row-time {
+  display: flex;
+  flex-direction: column;
+  min-width: 48px;
+}
+
+.row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.row-chevron {
+  color: var(--tg-theme-hint-color);
+  font-size: 20px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 6px;
+  border-radius: var(--radius);
+  background: var(--tg-theme-section-bg-color);
+}
+
+.stat b {
+  font-size: 18px;
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.footnote {
+  margin: 4px 2px;
+  color: var(--tg-theme-hint-color);
+  font-size: 12px;
+}
+
+/* Шаги привязки: нумерация нужна — порядок действий тут не переставить. */
+.steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+/* Код набирают с экрана другого устройства: крупно, моноширинно, с разрядкой. */
+.code-input {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: var(--radius);
+  background: var(--tg-theme-section-bg-color);
+  color: var(--tg-theme-text-color);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  letter-spacing: 0.35em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.code-input:focus {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: -1px;
+}
+
+/*
+ * Запасная кнопка подтверждения — для браузера и для клиентов, где MainButton недоступен.
+ * В Telegram она дублирует главную кнопку внизу, и это осознанно: лучше две кнопки, чем
+ * экран, который нечем подтвердить.
+ */
+.fallback-submit {
+  width: 100%;
+  padding: 13px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Скелетон вместо спиннера: высота строк известна, список не прыгает при загрузке. */
+.skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--tg-theme-secondary-bg-color);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-title {
+  width: 45%;
+  height: 14px;
+}
+
+.skeleton-line {
+  width: 75%;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Уважение к настройке системы: мигающий плейсхолдер — тоже анимация. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

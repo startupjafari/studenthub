@@ -333,7 +333,9 @@ QR получается менее плотным (сканируется с б�
 studenthub/
 ├── apps/
 │   ├── web/                # Next.js frontend
-│   └── api/                # NestJS backend
+│   ├── api/                # NestJS backend
+│   ├── landing/            # публичный сайт (docs/LANDING.md)
+│   └── mini-app/           # Telegram Mini App (Vite + React)
 ├── packages/
 │   ├── shared-types/       # Role, DTO-интерфейсы, коды ошибок
 │   ├── shared-schemas/     # Zod-схемы — единый источник валидации
@@ -561,6 +563,14 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 **2FA (TOTP)** — `POST /auth/2fa/setup` (секрет + QR/otpauth, pending) · `POST /auth/2fa/enable` (`{ code }` → включить, вернуть backup-коды один раз) · `POST /auth/2fa/disable` (`{ code }` — TOTP или backup). Секрет хранится зашифрованным (AES-256-GCM), backup-коды — bcrypt-хэши; наружу отдаётся только `twoFactorEnabled` (в `/users/me`).
 
 **Форс 2FA для привилегированных ролей.** Ролям `PLATFORM_ADMIN`, `PLATFORM_MODERATOR`, `UNIVERSITY_ADMIN`, `UNIVERSITY_MODERATOR`, `DEAN` двухфакторная аутентификация обязательна. Глобальный `TwoFactorGuard` (после `JwtAuthGuard`) отдаёт `403 TWO_FACTOR_SETUP_REQUIRED` на все эндпоинты, кроме помеченных `@TwoFactorExempt()` (контроллер `auth/2fa/*`), пока 2FA не включена. Флаг `tfa` кладётся в access-токен (без обращения к БД на каждый запрос); при `refresh` payload пересобирается из БД, поэтому после включения 2FA следующая ротация токена снимает форс. Фронт: интерсептор по этому коду уводит на `/setup-2fa` (обязательная настройка); после включения — жёсткий переход на `/`, где `SessionInitializer` перевыпускает токен с `tfa=true`.
+
+**Мини-апп (Telegram, админский)** — `POST /mini/link-code` (авторизован, `PLATFORM_ADMIN`/`PLATFORM_MODERATOR`; → `{ code, expiresIn: 300 }`, код 8 символов живёт в Redis 5 минут, 10/час) · `POST /mini/link` (**публ.**; `{ initData, code }` → привязка + токен) · `POST /mini/session` (**публ.**; `{ initData }` → `{ token, expiresIn: 900, user }`).
+
+Публичны вынужденно: Telegram открывает мини-апп без нашего JWT, и предъявить в первом запросе нечего, кроме подписанного `initData`. Подпись проверяется по алгоритму Telegram (секрет — HMAC-SHA256 от токена бота с ключом `WebAppData`), сравнение постоянного времени, возраст `auth_date` — не более 5 минут в обе стороны. Отказ любой природы — одинаковый `401 UNAUTHORIZED` без подробностей: по разнице ответов «нет привязки» и «не та роль» вычислялось бы, кто из админов привязан.
+
+Привязка `telegram_id ↔ userId` хранится в `telegram_accounts`, оба идентификатора уникальны; перепривязка — только после явного отзыва (`409 CONFLICT`). Роль перечитывается из БД на каждую сессию, а не берётся из привязки.
+
+Токен мини-аппа несёт `client: 'mini'` и живёт 15 минут; refresh-токена нет — клиент присылает свежий `initData`. Такой токен допускается **только** на маршруты с `@MiniAllowed()` (`MiniAppGuard`), на остальных — `403 FORBIDDEN`, независимо от роли. Сейчас в белом списке: `GET /complaints`, `GET /complaints/:id`, `GET /complaints/:id/messages`, `PATCH /complaints/:id/resolve`.
 
 **Вход по QR** (стиль Telegram Web; телефон уже авторизован) — `POST /auth/qr/create` (публ.; → `{ qrId, qr, claimSecret, expiresIn }`, QR кодирует `${WEB}/qr?t=<approveToken>`) · `POST /auth/qr/approve` (авторизован; `{ approveToken }` — подтверждение с телефона) · `POST /auth/qr/claim` (публ.; `{ qrId, claimSecret }` → сессия). Состояние — в Redis (TTL 2 мин, одноразовое). WS: отдельный namespace `/qr-login` (без токена), клиент шлёт `qr:subscribe { qrId }`, сервер эмитит `qr:approved { qrId }` при подтверждении. `claimSecret` в QR не попадает — сессию заберёт только инициировавший десктоп.
 
