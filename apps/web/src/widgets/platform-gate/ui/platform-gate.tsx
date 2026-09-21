@@ -29,13 +29,15 @@ const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERAT
 export function PlatformGate({ children }: { children: React.ReactNode }) {
   const { maintenance, banner, disabledSections } = usePlatformState()
   const role = useAppSelector((s) => s.auth.role)
+  const universityId = useAppSelector((s) => s.auth.universityId)
   const pathname = usePathname()
   const locale = useLocale()
   const t = useTranslations('Platform')
 
   const isStaff = role !== null && STAFF_ROLES.includes(role)
 
-  if (maintenance && !isStaff) {
+  // Назначенные на будущее работы платформу ещё не закрывают — о них предупреждают.
+  if (maintenance?.active && !isStaff) {
     return (
       <StatusScreen
         icon={Wrench}
@@ -68,12 +70,17 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      {maintenance && isStaff && (
+      {maintenance && (isStaff || !maintenance.active) && (
         <Notice level="WARNING" icon={TriangleAlert}>
-          {t('maintenanceStaffNotice', { until: formatUntil(maintenance.until, locale) })}
+          {maintenance.active
+            ? t('maintenanceStaffNotice', { until: formatUntil(maintenance.until, locale) })
+            : t('maintenancePlanned', {
+                from: formatUntil(maintenance.startsAt ?? maintenance.until, locale),
+                until: formatUntil(maintenance.until, locale),
+              })}
         </Notice>
       )}
-      {banner && (
+      {banner && forAudience(banner, role, universityId) && (
         <Notice level={banner.level} icon={banner.level === 'WARNING' ? TriangleAlert : Info}>
           {pickPlatformText(banner.text, locale)}
         </Notice>
@@ -118,4 +125,25 @@ function formatUntil(iso: string, locale: string): string {
     minute: '2-digit',
     ...(sameDay ? {} : { day: 'numeric', month: 'short' }),
   })
+}
+
+/**
+ * Предназначено ли объявление этому человеку. Пустой прицел — всем.
+ *
+ * Роль и вуз проверяются независимо: «преподавателям такого-то вуза» — это пересечение,
+ * а не объединение, иначе объявление для одного вуза долетело бы до преподавателей всех.
+ */
+function forAudience(
+  banner: { roles: string[]; universityIds: string[] },
+  role: Role | null,
+  universityId: string | null,
+): boolean {
+  if (banner.roles.length > 0 && (role === null || !banner.roles.includes(role))) return false
+  if (
+    banner.universityIds.length > 0 &&
+    (universityId === null || !banner.universityIds.includes(universityId))
+  ) {
+    return false
+  }
+  return true
 }

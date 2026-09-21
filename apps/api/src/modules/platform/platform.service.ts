@@ -55,8 +55,22 @@ export interface PublicPlatformState {
     dutyUserId: string | null
     digestHour: number | null
   }
-  maintenance: { until: string; message: LocalizedText | null } | null
-  banner: { until: string; level: 'INFO' | 'WARNING'; text: LocalizedText } | null
+  maintenance: {
+    until: string
+    message: LocalizedText | null
+    /** Начало окна, если работы плановые: до него платформа ещё работает. */
+    startsAt: string | null
+    /** Уже идут или ещё только назначены. */
+    active: boolean
+  } | null
+  banner: {
+    until: string
+    level: 'INFO' | 'WARNING'
+    text: LocalizedText
+    /** Кому показывать. Пустые массивы — всем; фильтрует клиент, знающий свою роль. */
+    roles: string[]
+    universityIds: string[]
+  } | null
   disabledSections: string[]
   announcedVersion: string | null
 }
@@ -84,7 +98,7 @@ export class PlatformService {
   ) {}
 
   /** Память процесса под вопрос «идут ли техработы» (см. MAINTENANCE_MEMO_MS). */
-  private memo: { until: Date | null; readAt: number } | null = null
+  private memo: { from: Date | null; until: Date | null; readAt: number } | null = null
 
   /**
    * Идут ли техработы прямо сейчас. Отдельно от `publicState`, потому что вызывается на
@@ -93,9 +107,15 @@ export class PlatformService {
   async maintenanceActive(now: Date = new Date()): Promise<boolean> {
     if (this.memo === null || Date.now() - this.memo.readAt > MAINTENANCE_MEMO_MS) {
       const row = await this.read()
-      this.memo = { until: row?.maintenanceUntil ?? null, readAt: Date.now() }
+      this.memo = {
+        from: row?.maintenanceFrom ?? null,
+        until: row?.maintenanceUntil ?? null,
+        readAt: Date.now(),
+      }
     }
-    return alive(this.memo.until, now)
+    // Плановые работы платформу ещё не закрывают: пока окно не началось, guard пропускает.
+    const started = this.memo.from === null || this.memo.from.getTime() <= now.getTime()
+    return started && alive(this.memo.until, now)
   }
 
   /**
@@ -137,8 +157,13 @@ export class PlatformService {
       if (!ok) throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
     }
 
-    const until = input.minutes === null ? null : minutesFromNow(input.minutes)
+    const startsIn = input.startsInMinutes ?? 0
+    const from = input.minutes === null || startsIn === 0 ? null : minutesFromNow(startsIn)
+    // Срок окончания считается от НАЧАЛА окна, а не от «сейчас»: иначе плановые работы,
+    // назначенные на вечер, кончались бы через час после нажатия кнопки.
+    const until = input.minutes === null ? null : minutesFromNow(startsIn + input.minutes)
     const state = await this.write(userId, {
+      maintenanceFrom: from,
       maintenanceUntil: until,
       maintenanceMessageRu: input.message?.ru ?? null,
       maintenanceMessageKk: input.message?.kk ?? null,
@@ -151,7 +176,13 @@ export class PlatformService {
       entity: 'PlatformState',
       // Текст объявления в журнал не пишем: он и так виден всем, а место в метаданных
       // нужнее сроку — по нему потом считают длительность простоя.
-      metadata: until ? { until: until.toISOString(), minutes: input.minutes } : {},
+      metadata: until
+        ? {
+            until: until.toISOString(),
+            minutes: input.minutes,
+            ...(from ? { from: from.toISOString() } : {}),
+          }
+        : {},
       ...ctx,
     })
     return state
@@ -171,6 +202,8 @@ export class PlatformService {
     const state = await this.write(userId, {
       bannerUntil: until,
       bannerLevel: until ? input.level : null,
+      bannerRoles: until ? (input.roles ?? []) : [],
+      bannerUniversityIds: until ? (input.universityIds ?? []) : [],
       bannerTextRu: until ? (input.text?.ru ?? null) : null,
       bannerTextKk: until ? (input.text?.kk ?? null) : null,
       bannerTextEn: until ? (input.text?.en ?? null) : null,
@@ -312,6 +345,10 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
     maintenance: alive(row.maintenanceUntil, now)
       ? {
           until: row.maintenanceUntil!.toISOString(),
+          startsAt: row.maintenanceFrom?.toISOString() ?? null,
+          // Назначенные на будущее работы видны заранее, но платформу ещё не закрывают:
+          // предупреждение и остановка — разные состояния одного события.
+          active: row.maintenanceFrom === null || row.maintenanceFrom.getTime() <= now.getTime(),
           message: localized(
             row.maintenanceMessageRu,
             row.maintenanceMessageKk,
@@ -326,6 +363,8 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
             until: row.bannerUntil!.toISOString(),
             level: row.bannerLevel === 'WARNING' ? 'WARNING' : 'INFO',
             text: localized(row.bannerTextRu, row.bannerTextKk, row.bannerTextEn)!,
+            roles: row.bannerRoles,
+            universityIds: row.bannerUniversityIds,
           }
         : null,
     disabledSections: row.disabledSections,

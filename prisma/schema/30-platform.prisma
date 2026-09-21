@@ -20,6 +20,11 @@ model PlatformState {
   // до утра, — самый вероятный способ уронить платформу этой функцией; способ не
   // забыть его — не дать выразить состояние «навсегда».
   // null или прошедшее время = режим выключен.
+  // Начало окна техработ. NULL = «начать сейчас»; заданное будущее время означает
+  // плановую остановку: до него платформа работает, а веб показывает предупреждение.
+  // Без этого поля предупредить заранее можно было только отдельным баннером, и два
+  // объявления об одном событии неизбежно расходились.
+  maintenanceFrom      DateTime? @map("maintenance_from")
   maintenanceUntil     DateTime? @map("maintenance_until")
   maintenanceMessageRu String?   @map("maintenance_message_ru")
   maintenanceMessageKk String?   @map("maintenance_message_kk")
@@ -34,6 +39,12 @@ model PlatformState {
   bannerTextEn String?   @map("banner_text_en")
   /// INFO | WARNING — тон баннера. Строкой, как visibility у контента.
   bannerLevel  String?   @map("banner_level")
+
+  /// Кому показывать баннер. Пустой массив — всем.
+  /// Роли и вузы перечисляются, а не вычисляются: объявление для преподавателей не должно
+  /// висеть у студентов, а сообщение одному вузу — у остальных девяноста девяти.
+  bannerRoles         String[] @default([]) @map("banner_roles")
+  bannerUniversityIds String[] @default([]) @map("banner_university_ids")
 
   // ── Погашенные разделы ───────────────────────────────────────────────────────
   // Список выключенного, а не набор флагов «включено»: пустой массив = всё работает,

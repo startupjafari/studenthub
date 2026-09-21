@@ -45,6 +45,17 @@ export const BANNER_MAX_MINUTES = 30 * 24 * 60
  * `null` — снять режим немедленно.
  */
 export const SetMaintenanceSchema = z.object({
+  /**
+   * Через сколько минут НАЧАТЬ. 0 или отсутствие — начать сейчас. Плановая остановка
+   * задаётся одним действием вместе с длительностью: два объявления об одном событии
+   * (баннер «сегодня в 22:00» и отдельно техработы) неизбежно расходятся.
+   */
+  startsInMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(7 * 24 * 60)
+    .optional(),
   minutes: z.number().int().min(MAINTENANCE_MIN_MINUTES).max(MAINTENANCE_MAX_MINUTES).nullable(),
   message: localizedText.nullish(),
   /**
@@ -58,6 +69,9 @@ export type SetMaintenanceInput = z.infer<typeof SetMaintenanceSchema>
 
 export const SetBannerSchema = z.object({
   minutes: z.number().int().min(MAINTENANCE_MIN_MINUTES).max(BANNER_MAX_MINUTES).nullable(),
+  /** Кому показывать. Пустые массивы — всем. */
+  roles: z.array(z.string().min(1).max(40)).max(10).optional(),
+  universityIds: z.array(z.string().uuid()).max(50).optional(),
   level: z.enum(['INFO', 'WARNING']).default('INFO'),
   text: localizedText.nullish(),
 })

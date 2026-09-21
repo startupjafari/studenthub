@@ -267,6 +267,14 @@ const ru = {
   fontHint: 'Телефон в руке на ходу — не то же, что монитор на столе.',
   fontNormal: 'Обычный',
   fontLarge: 'Крупный',
+  maintenanceStartNow: 'Сейчас',
+  maintenanceStartIn: 'Через {count} ч',
+  maintenancePlannedHint: 'Начнутся {from}, до {until}.',
+  bannerAudience: 'Кому',
+  bannerAudienceAll: 'Всем',
+  roleStudent: 'Студентам',
+  roleTeacher: 'Преподавателям',
+  roleStaff: 'Сотрудникам',
   aboutVersion: 'Сборка {version}',
 } as const
 
@@ -523,6 +531,14 @@ const kk: Record<MessageKey, string> = {
   fontHint: 'Жүріп бара жатқандағы телефон — үстелдегі монитор емес.',
   fontNormal: 'Қалыпты',
   fontLarge: 'Ірі',
+  maintenanceStartNow: 'Қазір',
+  maintenanceStartIn: '{count} сағаттан кейін',
+  maintenancePlannedHint: '{from} басталады, {until} дейін.',
+  bannerAudience: 'Кімге',
+  bannerAudienceAll: 'Барлығына',
+  roleStudent: 'Студенттерге',
+  roleTeacher: 'Оқытушыларға',
+  roleStaff: 'Қызметкерлерге',
   aboutVersion: 'Жинақ {version}',
 }
 
@@ -777,6 +793,14 @@ const en: Record<MessageKey, string> = {
   fontHint: 'A phone in your hand on the move is not a monitor on a desk.',
   fontNormal: 'Normal',
   fontLarge: 'Large',
+  maintenanceStartNow: 'Now',
+  maintenanceStartIn: 'In {count} h',
+  maintenancePlannedHint: 'Starts {from}, until {until}.',
+  bannerAudience: 'Who sees it',
+  bannerAudienceAll: 'Everyone',
+  roleStudent: 'Students',
+  roleTeacher: 'Teachers',
+  roleStaff: 'Staff',
   aboutVersion: 'Build {version}',
 }
 
