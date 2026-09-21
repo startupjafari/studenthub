@@ -260,3 +260,31 @@ describe('PlatformService — запись рычагов', () => {
     expect(state.announcedVersion).toBe('1.3.0')
   })
 })
+
+describe('PlatformService — отказ чтения состояния', () => {
+  /**
+   * Регрессия по деплою: MaintenanceGuard спрашивает состояние на КАЖДЫЙ запрос к API.
+   * Если выкатить код раньше миграции, таблицы ещё нет — и без «падения в рабочую сторону»
+   * весь API отвечал бы 500 вместо «техработ не идёт».
+   */
+  it('считает платформу работающей, когда таблицы нет', async () => {
+    const { service, prisma } = setup()
+    prisma.platformState.findUnique.mockRejectedValue(
+      new Error('The table `public.platform_state` does not exist'),
+    )
+
+    await expect(service.maintenanceActive(NOW)).resolves.toBe(false)
+  })
+
+  it('отдаёт пустое состояние вместо ошибки, если БД недоступна', async () => {
+    const { service, prisma } = setup()
+    prisma.platformState.findUnique.mockRejectedValue(new Error('connection refused'))
+
+    await expect(service.publicState(NOW)).resolves.toEqual({
+      maintenance: null,
+      banner: null,
+      disabledSections: [],
+      announcedVersion: null,
+    })
+  })
+})

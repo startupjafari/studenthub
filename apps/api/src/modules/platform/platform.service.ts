@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import type { PlatformState } from '@prisma/client'
 import type Redis from 'ioredis'
 import type {
@@ -62,6 +62,8 @@ const EMPTY: PublicPlatformState = {
 
 @Injectable()
 export class PlatformService {
+  private readonly logger = new Logger(PlatformService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
@@ -215,7 +217,22 @@ export class PlatformService {
     const cached = await this.redis.get(CACHE_KEY).catch(() => null)
     if (cached) return reviveDates(JSON.parse(cached) as PlatformState)
 
-    const row = await this.prisma.platformState.findUnique({ where: { id: SINGLETON_ID } })
+    // Отказ чтения = «объявлений нет», а не исключение.
+    //
+    // Этот запрос идёт на КАЖДЫЙ запрос к API (MaintenanceGuard), и любая его ошибка
+    // иначе становится отказом всей платформы, а не одной функции. Самый близкий случай —
+    // выкатка нового кода раньше миграции: таблицы ещё нет, и без этого catch весь API
+    // начал бы отвечать 500 вместо «техработ не идёт».
+    //
+    // Сторона, в которую падаем, выбрана осознанно: не сумев прочитать состояние, платформа
+    // считает себя работающей. Обратное означало бы, что сбой БД запирает всех, включая тех,
+    // кто пришёл бы его чинить.
+    const row = await this.prisma.platformState
+      .findUnique({ where: { id: SINGLETON_ID } })
+      .catch((error: unknown) => {
+        this.logger.warn(`Состояние платформы не прочитано: ${String(error)}`)
+        return null
+      })
     if (row) {
       await this.redis
         .set(CACHE_KEY, JSON.stringify(row), 'EX', CACHE_TTL_SEC)
