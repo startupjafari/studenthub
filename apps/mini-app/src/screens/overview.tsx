@@ -3,17 +3,22 @@ import {
   fetchHealth,
   fetchInvitesFunnel,
   fetchOverview,
+  fetchChanges,
   fetchQueues,
+  fetchStorage,
   fetchTopActions,
   fetchUniversitySizes,
   type HealthReport,
   type InvitesFunnel,
   type PlatformOverview,
+  type PlatformChange,
   type QueueCount,
+  type StorageUsage,
   type TopAction,
   type UniversitySize,
 } from '../api/overview'
 import { t } from '../i18n'
+import { formatShortTime } from '../lib/format'
 
 // Сводка платформы: утренний взгляд «всё ли в порядке» до того, как открыть ноутбук.
 //
@@ -23,6 +28,8 @@ import { t } from '../i18n'
 // требующие сравнения и масштаба, остаются в вебе.
 
 interface Extras {
+  storage: StorageUsage | null
+  changes: PlatformChange[]
   queues: QueueCount[]
   invites: InvitesFunnel | null
   universities: UniversitySize[]
@@ -58,19 +65,22 @@ export function OverviewScreen() {
       // Разрезы и живость читаются параллельно, и отказ любого из них не ломает сводку:
       // главные числа обязаны показаться, даже если один агрегат не посчитался. Недоступный
       // /health — сам по себе ответ, а не причина прятать всё остальное.
-      const [overview, health, invites, universities, actions, queues] = await Promise.all([
-        fetchOverview(),
-        fetchHealth().catch(() => null),
-        fetchInvitesFunnel().catch(() => null),
-        fetchUniversitySizes().catch(() => []),
-        fetchTopActions().catch(() => []),
-        fetchQueues().catch(() => []),
-      ])
+      const [overview, health, invites, universities, actions, queues, storage, changes] =
+        await Promise.all([
+          fetchOverview(),
+          fetchHealth().catch(() => null),
+          fetchInvitesFunnel().catch(() => null),
+          fetchUniversitySizes().catch(() => []),
+          fetchTopActions().catch(() => []),
+          fetchQueues().catch(() => []),
+          fetchStorage().catch(() => null),
+          fetchChanges().catch(() => []),
+        ])
       setState({
         status: 'ready',
         overview,
         health,
-        extras: { invites, universities, actions, queues },
+        extras: { invites, universities, actions, queues, storage, changes },
       })
     } catch {
       setState({ status: 'error' })
@@ -199,6 +209,39 @@ export function OverviewScreen() {
         </section>
       )}
 
+      {extras.storage && (
+        <section className="card">
+          <h2>{t('storageTitle')}</h2>
+          <p className="hint">
+            {t('storageUsed', {
+              files: extras.storage.files.toLocaleString(),
+              size: formatBytes(extras.storage.bytes),
+            })}
+          </p>
+        </section>
+      )}
+
+      {/* Кто двигал рычаги: без ответа на «кто включил техработы» команда жить не может,
+          а публичное состояние его не отдаёт — посетителю знать незачем. */}
+      {extras.changes.length > 0 && (
+        <section className="card">
+          <h2>{t('changesTitle')}</h2>
+          <div className="list">
+            {extras.changes.slice(0, 5).map((change) => (
+              <div className="toggle-row" key={`${change.action}-${change.at}`}>
+                <span className="mono">{change.action}</span>
+                <span className="toggle-state">
+                  {t('changesBy', {
+                    who: change.by ? change.by.firstName : t('changesNobody'),
+                    when: formatShortTime(change.at),
+                  })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {health && (
         <section className="card">
           <h2>{t('healthTitle')}</h2>
@@ -248,4 +291,16 @@ function Spark({ points, label }: { points: number[]; label: string }) {
       <span className="hint">{points.at(-1)?.toLocaleString() ?? 0}</span>
     </div>
   )
+}
+
+/** Байты в человеческий вид. Точность до десятых: «1.4 ГБ» читается, «1.42 ГБ» — нет. */
+function formatBytes(bytes: number): string {
+  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }

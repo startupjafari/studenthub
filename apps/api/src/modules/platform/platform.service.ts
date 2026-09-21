@@ -236,6 +236,53 @@ export class PlatformService {
     return state
   }
 
+  /**
+   * Объём файлов платформы. Считается по журналу `File`, а не по диску: S3-совместимое
+   * хранилище про своё свободное место не рассказывает, и обещать «осталось столько-то»
+   * было бы враньём. Зато рост этого числа виден, а он и есть то, что заканчивается.
+   */
+  async storageUsage(): Promise<{ files: number; bytes: number }> {
+    const [files, sum] = await Promise.all([
+      this.prisma.file.count(),
+      this.prisma.file.aggregate({ _sum: { size: true } }),
+    ])
+    return { files, bytes: sum._sum.size ?? 0 }
+  }
+
+  /**
+   * Последние изменения рычагов: кто, что и когда. Читается из журнала аудита — отдельной
+   * истории заводить не стали, она уже есть и заполняется теми же действиями.
+   */
+  async recentChanges(): Promise<
+    { action: string; at: Date; by: { id: string; firstName: string; lastName: string } | null }[]
+  > {
+    const rows = await this.prisma.auditLog.findMany({
+      where: { action: { startsWith: 'platform.' } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { action: true, createdAt: true, userId: true },
+    })
+
+    // У AuditLog нет связи с User намеренно (журнал переживает удаление аккаунта),
+    // поэтому имена добираем отдельным запросом по уникальным id.
+    const ids = [
+      ...new Set(rows.map((row) => row.userId).filter((id): id is string => id !== null)),
+    ]
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    const byId = new Map(users.map((user) => [user.id, user]))
+
+    return rows.map((row) => ({
+      action: row.action,
+      at: row.createdAt,
+      by: row.userId ? (byId.get(row.userId) ?? null) : null,
+    }))
+  }
+
   /** Настройки уведомлений команде: тишина, дежурный, что слать, час сводки. */
   async setNotifications(
     userId: string,

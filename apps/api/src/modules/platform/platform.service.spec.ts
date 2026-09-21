@@ -41,6 +41,13 @@ function setup(stored: PlatformState | null = null, cached: string | null = null
   // а не через матчер поверх аргументов мока.
   const updates: Partial<PlatformState>[] = []
   const prisma = {
+    // Наблюдение: объём файлов и журнал изменений.
+    file: {
+      count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { size: null } }),
+    },
+    auditLog: { findMany: jest.fn().mockResolvedValue([]) },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
     platformState: {
       findUnique: jest.fn().mockResolvedValue(stored),
       // upsert отвечает записанным поверх текущей строки — как настоящая БД.
@@ -385,5 +392,35 @@ describe('PlatformService — адресный баннер', () => {
     await service.setBanner('admin-1', { minutes: null, level: 'INFO' })
 
     expect(updates.at(0) ?? {}).toMatchObject({ bannerRoles: [], bannerUniversityIds: [] })
+  })
+})
+
+describe('PlatformService — наблюдение', () => {
+  it('считает объём файлов по журналу, а не по диску', async () => {
+    const { service, prisma } = setup()
+    prisma.file.count.mockResolvedValue(12)
+    prisma.file.aggregate.mockResolvedValue({ _sum: { size: 4096 } })
+
+    await expect(service.storageUsage()).resolves.toEqual({ files: 12, bytes: 4096 })
+  })
+
+  // Prisma на пустой таблице возвращает `_sum.size: null`, а не 0 — экран показал бы
+  // «null Б», если бы это не сводилось к нулю здесь.
+  it('пустое хранилище отдаёт нулём, а не null', async () => {
+    const { service } = setup()
+
+    await expect(service.storageUsage()).resolves.toEqual({ files: 0, bytes: 0 })
+  })
+
+  // У AuditLog нет связи с User: журнал переживает удаление аккаунта, и имя может не найтись.
+  it('отдаёт изменение без автора, если аккаунт удалён', async () => {
+    const { service, prisma } = setup()
+    prisma.auditLog.findMany.mockResolvedValue([
+      { action: 'platform.maintenance.on', createdAt: NOW, userId: 'gone' },
+    ])
+
+    await expect(service.recentChanges()).resolves.toEqual([
+      { action: 'platform.maintenance.on', at: NOW, by: null },
+    ])
   })
 })

@@ -14,6 +14,7 @@ import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
+import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 
@@ -39,6 +40,7 @@ const LOCK_TTL_MS = {
   sendDailyDigest: 10 * 60 * 1000,
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
+  watchServices: 4 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -60,6 +62,17 @@ const QUEUE_BACKLOG_KEY = 'platform:queue-backlog-alerted'
 // человек успел вернуться с уточнением, и достаточно мало, чтобы очередь не превращалась
 // в кладбище отвеченного.
 const SUPPORT_STALE_DAYS = 14
+
+// Наблюдение за зависимостями и ошибками.
+//
+// Сигналим только на ПЕРЕХОД: «упало» и «поднялось». Повторять «всё ещё лежит» каждые
+// пять минут бессмысленно — починка идёт, а поток одинаковых сообщений учит их не читать.
+const SERVICES_STATE_KEY = 'platform:services-down'
+// Порог всплеска: столько серверных ошибок за час означает, что сломалось что-то общее,
+// а не один запрос одного человека.
+const ERROR_SPIKE_THRESHOLD = 25
+const ERROR_SPIKE_KEY = 'platform:error-spike-alerted'
+const ERROR_SPIKE_SILENCE_SEC = 60 * 60
 
 // Итог ночной уборки сирот живёт двое суток: сводка читает его раз в день, и пропуск
 // одного запуска не должен превращаться в пустую строку навсегда.
@@ -308,6 +321,64 @@ export class CleanupService {
       this.logger.log(`closeStaleTickets: закрыто ${closed}`)
       return closed
     })
+  }
+
+  /**
+   * Живость зависимостей и всплеск ошибок. Каждые пять минут.
+   *
+   * Проверяются те же три зависимости, что и в `/health`, но своими клиентами: расписание
+   * обязано жить здесь (§9.3), а тянуть сюда индикаторы terminus значило бы связать
+   * уборку с модулем здоровья ради трёх строк.
+   */
+  @Cron('*/5 * * * *', { name: 'watchServices' })
+  async watchServices(): Promise<number | null> {
+    return this.locks.run('watchServices', LOCK_TTL_MS.watchServices, () => this.watchTask())
+  }
+
+  private async watchTask(): Promise<number> {
+    const down: string[] = []
+    await this.prisma.$queryRaw`SELECT 1`.catch(() => down.push('база данных'))
+    await this.redis.ping().catch(() => down.push('Redis'))
+    await this.minio
+      .bucketExists(this.config.get('MINIO_BUCKET_AVATARS', { infer: true }))
+      .catch(() => down.push('хранилище'))
+
+    const wasDown = (await this.redis.get(SERVICES_STATE_KEY).catch(() => null)) !== null
+    if (down.length > 0 && !wasDown) {
+      await this.redis
+        .set(SERVICES_STATE_KEY, down.join(','), 'EX', DAY_MS / 1000)
+        .catch(() => undefined)
+      await this.telegram.notifyStaff(
+        'digest',
+        `Не отвечает: ${down.join(', ')}`,
+        undefined,
+        new Date(),
+        true,
+      )
+    } else if (down.length === 0 && wasDown) {
+      await this.redis.del(SERVICES_STATE_KEY).catch(() => undefined)
+      await this.telegram.notifyStaff(
+        'digest',
+        'Все сервисы снова отвечают',
+        undefined,
+        new Date(),
+        true,
+      )
+    }
+
+    // Всплеск серверных ошибок за последний час.
+    const errors = await countServerErrors(this.redis, 60)
+    if (errors >= ERROR_SPIKE_THRESHOLD) {
+      const first = await this.redis
+        .set(ERROR_SPIKE_KEY, String(errors), 'EX', ERROR_SPIKE_SILENCE_SEC, 'NX')
+        .catch(() => null)
+      if (first !== null) {
+        await this.telegram.notifyStaff('digest', `Всплеск ошибок: ${errors} за час`)
+      }
+    }
+
+    if (down.length > 0) this.logger.warn(`watchServices: не отвечают ${down.join(', ')}`)
+    return down.length
   }
 
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---

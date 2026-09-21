@@ -7,6 +7,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { ActionConfirmGuard } from '../../common/guards/action-confirm.guard'
+import { ACTION_CONFIRMATION } from '../../common/auth/confirmation.constants'
 import { MaintenanceGuard } from '../../common/guards/maintenance.guard'
 import { MiniAppGuard } from '../../common/guards/mini-app.guard'
 import { ScopeGuard } from '../../common/guards/scope.guard'
@@ -56,6 +57,8 @@ import { LocalStrategy } from './strategies/local.strategy'
     // После ролей: подтверждение спрашивается только у того, кому маршрут в принципе
     // разрешён, — иначе чужой перебирал бы коды на ручке, куда ему и так нельзя.
     { provide: APP_GUARD, useClass: ActionConfirmGuard },
+    // Токен подтверждения разрешается здесь — там же, где живёт сам TwoFactorService.
+    { provide: ACTION_CONFIRMATION, useExisting: TwoFactorService },
     { provide: APP_GUARD, useClass: ScopeGuard },
     { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],

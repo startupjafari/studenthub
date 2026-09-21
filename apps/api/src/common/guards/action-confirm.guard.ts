@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import type { FastifyRequest } from 'fastify'
 import { AppException } from '../exceptions/app.exception'
@@ -6,7 +6,7 @@ import {
   REQUIRES_CONFIRMATION_KEY,
   type ConfirmationRule,
 } from '../decorators/requires-confirmation.decorator'
-import { TwoFactorService } from '../../modules/auth/two-factor.service'
+import { ACTION_CONFIRMATION, type ActionConfirmation } from '../auth/confirmation.constants'
 import type { CurrentUserData } from '../auth/jwt-payload.type'
 
 // Подтверждение разрушительного действия вторым фактором (docs/PROJECT.md §Мини-апп).
@@ -22,7 +22,9 @@ import type { CurrentUserData } from '../auth/jwt-payload.type'
 export class ActionConfirmGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly twoFactor: TwoFactorService,
+    // По токену, а не по классу: прямой импорт TwoFactorService замыкает кольцо
+    // импортов домена auth и валит запуск (см. confirmation.constants.ts).
+    @Inject(ACTION_CONFIRMATION) private readonly twoFactor: ActionConfirmation,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

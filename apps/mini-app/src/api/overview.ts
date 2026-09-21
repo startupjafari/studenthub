@@ -69,6 +69,27 @@ export async function fetchQueues(): Promise<QueueCount[]> {
   return apiGet<QueueCount[]>('/platform/queues')
 }
 
+export interface StorageUsage {
+  files: number
+  bytes: number
+}
+
+export interface PlatformChange {
+  action: string
+  at: string
+  by: { id: string; firstName: string; lastName: string } | null
+}
+
+/** Объём наших файлов по журналу. Свободное место S3-хранилище не сообщает. */
+export async function fetchStorage(): Promise<StorageUsage> {
+  return apiGet<StorageUsage>('/platform/storage')
+}
+
+/** Кто двигал рычаги. Публичное состояние этого не отдаёт — посетителю знать незачем. */
+export async function fetchChanges(): Promise<PlatformChange[]> {
+  return apiGet<PlatformChange[]>('/platform/changes')
+}
+
 export async function fetchTopActions(): Promise<TopAction[]> {
   const page = await apiGet<{ items?: TopAction[] }>('/analytics/platform/top-actions')
   return page.items ?? []

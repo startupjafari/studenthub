@@ -54,6 +54,28 @@ export class PlatformController {
     return this.queue.counts()
   }
 
+  @Get('storage')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @MiniAllowed()
+  // Это объём НАШИХ файлов по журналу, а не свободное место на диске: S3-совместимое
+  // хранилище про свой диск не рассказывает, и обещать «осталось столько-то» было бы враньём.
+  @ApiOperation({ summary: 'Сколько занимают файлы платформы (по записям File)' })
+  storage() {
+    return this.platform.storageUsage()
+  }
+
+  @Get('changes')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
+  @MiniAllowed()
+  // Кто двигал рычаги. Публичное состояние этого не отдаёт намеренно — посетителю знать
+  // незачем, — а команде без ответа на «кто включил техработы» жить нельзя.
+  @ApiOperation({ summary: 'Последние изменения состояния платформы (журнал)' })
+  changes() {
+    return this.platform.recentChanges()
+  }
+
   @Patch('maintenance')
   @ApiBearerAuth()
   @Roles(Role.PLATFORM_ADMIN)
