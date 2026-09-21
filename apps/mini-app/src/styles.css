@@ -297,3 +297,110 @@ body {
     animation: none;
   }
 }
+
+/* ── Управление платформой ─────────────────────────────────────────────────── */
+
+/* Переключатель разделов. Вкладок всего две, поэтому ряд, а не выпадающий список:
+   нужный экран — один тап, а не два. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 16px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 10px;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tg-theme-hint-color);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+}
+
+/* Готовые варианты (сроки, формулировки): выбор тапом вместо ввода с клавиатуры. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chip {
+  padding: 8px 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tg-theme-text-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+}
+
+/* Разрушительное действие отличается цветом, а не только текстом: палитру для него
+   Telegram отдаёт отдельно (destructive_text_color). */
+.fallback-submit.danger {
+  background: transparent;
+  color: var(--tg-theme-destructive-text-color);
+  border: 1px solid var(--tg-theme-destructive-text-color);
+}
+
+/* Строка-переключатель раздела: подпись слева, состояние справа. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--tg-theme-text-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle-row + .toggle-row {
+  border-top: 1px solid var(--tg-theme-section-separator-color);
+}
+
+.toggle-state {
+  flex-shrink: 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 14px;
+}
+
+.toggle-state.off {
+  color: var(--tg-theme-destructive-text-color);
+}
+
+.field {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: 10px;
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  font: inherit;
+}

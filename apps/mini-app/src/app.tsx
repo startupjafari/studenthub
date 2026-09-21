@@ -3,6 +3,8 @@ import { initTelegram, isTelegram } from './telegram/webapp'
 import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
+import { ControlScreen } from './screens/control'
+import { haptic } from './telegram/webapp'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -15,6 +17,8 @@ import { ComplaintsScreen } from './screens/complaints'
 // единственное действие, которое способно помочь: ввести код. Нет доступа в принципе —
 // код не подойдёт, и об этом скажет уже сам ответ на привязку.
 
+type Tab = 'complaints' | 'control'
+
 type State =
   | { status: 'starting' }
   | { status: 'outside' }
@@ -23,6 +27,7 @@ type State =
 
 export function App() {
   const [state, setState] = useState<State>({ status: 'starting' })
+  const [tab, setTab] = useState<Tab>('complaints')
 
   useEffect(() => initTelegram(), [])
 
@@ -50,7 +55,46 @@ export function App() {
         {state.status === 'link' && (
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
         )}
-        {state.status === 'ready' && <ComplaintsScreen />}
+        {state.status === 'ready' && (
+          <>
+            {/* Вкладки видит только администратор: рычаги платформы пишет он один, и
+                показывать модератору пустую вкладку «Управление» значило бы обещать
+                действие, которое сервер всё равно не выполнит. */}
+            {state.user.role === 'PLATFORM_ADMIN' && (
+              <div className="tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  className="tab"
+                  aria-selected={tab === 'complaints'}
+                  onClick={() => {
+                    haptic.select()
+                    setTab('complaints')
+                  }}
+                >
+                  Жалобы
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className="tab"
+                  aria-selected={tab === 'control'}
+                  onClick={() => {
+                    haptic.select()
+                    setTab('control')
+                  }}
+                >
+                  Управление
+                </button>
+              </div>
+            )}
+            {tab === 'complaints' || state.user.role !== 'PLATFORM_ADMIN' ? (
+              <ComplaintsScreen />
+            ) : (
+              <ControlScreen />
+            )}
+          </>
+        )}
       </main>
     </div>
   )
