@@ -31,7 +31,7 @@ describe('HttpExceptionFilter — отправка в Sentry', () => {
       }),
     }) as unknown as ArgumentsHost
 
-  // Счётчик ответов (docs/TELEGRAM_BOT.md §2.3) — сайд-эффект на пути ответа, поэтому
+  // Счётчик ответов — сайд-эффект на пути ответа, поэтому
   // в тесте он просто мок: важно, что фильтр его зовёт и не ждёт.
   const statusCounter = { record: jest.fn() }
   const filter = new HttpExceptionFilter(logger, statusCounter as unknown as HttpStatusCounter)

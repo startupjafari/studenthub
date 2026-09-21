@@ -37,7 +37,7 @@ export class LoggingInterceptor implements NestInterceptor {
         next: () => {
           const statusCode = http.getResponse<FastifyReply>().statusCode
           log(statusCode)
-          // Знаменатель доли 5xx в суточной сводке (docs/TELEGRAM_BOT.md §2.3).
+          // Знаменатель доли 5xx за окно.
           // Ошибки считает фильтр исключений — он видит и отказы guard'ов.
           this.statusCounter.record(statusCode)
         },
