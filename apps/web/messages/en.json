@@ -1737,6 +1737,8 @@
     "edit": "Edit",
     "delete": "Delete",
     "copyText": "Copy text",
+    "copyImage": "Copy image",
+    "copiedImage": "Image copied",
     "copy": "Copy",
     "copied": "Text copied",
     "copyLink": "Copy link",

@@ -57,6 +57,8 @@ export type MessageActions = {
   toggleSelect: (id: string) => void
   /** Ctrl/Cmd + клик по сообщению — вход в режим выделения прямо с него (§5 карты). */
   startSelect: (m: ChatMessage) => void
+  /** Снимок лёг в буфер обмена (или не лёг) — сообщить об этом умеет только приложение. */
+  copiedImage: (ok: boolean) => void
   react: (id: string, emoji: string) => void
   touchStart: (e: React.TouchEvent<HTMLDivElement>, m: ChatMessage) => void
   touchMove: (e: React.TouchEvent<HTMLDivElement>) => void
@@ -298,6 +300,7 @@ function MessageItemInner({
                 viewerActions={{
                   onGoTo: () => actions.focus(m.id),
                   onCopy: () => actions.copy(m),
+                  onCopiedImage: (ok) => actions.copiedImage(ok),
                   onForward: () => actions.forward(m),
                   onDelete: () => actions.del(m),
                 }}
