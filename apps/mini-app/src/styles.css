@@ -11,6 +11,16 @@
   --radius: 12px;
   --gap: 12px;
   --side: 16px;
+  /*
+   * Четыре ступени текста на всё приложение. До них размеры расставлялись по месту —
+   * 24, 17, 15, 14, 13, 12, 11, — и каждая правка добавляла к списку ещё одну.
+   * В em, а не в px: режим крупного шрифта меняет базовый размер документа, и шкала
+   * обязана ехать вместе с ним.
+   */
+  --text-title: 1.6em;
+  --text-head: 1.13em;
+  --text-body: 1em;
+  --text-small: 0.87em;
   /* Минимальная высота того, во что попадают пальцем. Меньше 44 промахиваются — это не
      догадка, а нижняя граница, на которой сходятся и Apple, и Material. */
   --tap: 44px;
@@ -84,7 +94,7 @@ body {
 
 .screen-head h1 {
   margin: 4px 0 2px;
-  font-size: 24px;
+  font-size: var(--text-title);
   font-weight: 600;
 }
 
@@ -94,7 +104,7 @@ body {
 
 .hint {
   color: var(--tg-theme-hint-color);
-  font-size: 13px;
+  font-size: var(--text-small);
 }
 
 .hint-danger {
@@ -122,7 +132,7 @@ body {
 
 .card h2 {
   margin: 6px 0 2px;
-  font-size: 17px;
+  font-size: var(--text-head);
   font-weight: 600;
 }
 
@@ -195,7 +205,7 @@ body {
  */
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(6.2em, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
@@ -294,6 +304,7 @@ body {
 /* Скелетон вместо спиннера: высота строк известна, список не прыгает при загрузке. */
 .skeleton {
   display: block;
+  margin-top: 10px;
   height: 12px;
   border-radius: 6px;
   background: var(--tg-theme-secondary-bg-color);
@@ -402,7 +413,7 @@ body {
  */
 .chips-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(5.4em, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
@@ -433,12 +444,43 @@ body {
   opacity: 0.5;
 }
 
+/*
+ * Три уровня действия, а не два.
+ *
+ * Раньше кнопки были либо залиты акцентом, либо красные: «Предупредить», «Заблокировать»
+ * и «Нарушения нет» стояли рядом одинаково громкими, хотя одно из трёх отбирает человеку
+ * доступ. Теперь громкость соответствует последствиям — залитая у главного действия
+ * экрана, приглушённая у второстепенных, красная у разрушительных.
+ */
+.fallback-submit.secondary {
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+  color: var(--tg-theme-button-color);
+  font-weight: 500;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .fallback-submit.secondary {
+    background: var(--tg-theme-secondary-bg-color);
+    color: var(--tg-theme-link-color);
+  }
+}
+
 /* Разрушительное действие отличается цветом, а не только текстом: палитру для него
    Telegram отдаёт отдельно (destructive_text_color). */
 .fallback-submit.danger {
   background: transparent;
   color: var(--tg-theme-destructive-text-color);
   border: 1px solid var(--tg-theme-destructive-text-color);
+}
+
+/* Отклик на касание есть у строк списка — у кнопок его не было, и нажатие выглядело
+   как «не сработало», пока не приедет ответ сервера. */
+.fallback-submit:active {
+  opacity: 0.72;
+}
+
+.fallback-submit:disabled {
+  opacity: 0.45;
 }
 
 /* Строка-переключатель раздела: подпись слева, состояние справа. */
@@ -664,14 +706,14 @@ body {
 
 .fold-title {
   flex: 1;
-  font-size: 17px;
+  font-size: var(--text-head);
   font-weight: 600;
 }
 
 /* Состояние — справа и серым: это ответ на «что там сейчас», а не заголовок. */
 .fold-state {
   color: var(--tg-theme-hint-color);
-  font-size: 14px;
+  font-size: var(--text-small);
   text-align: right;
 }
 
@@ -699,7 +741,7 @@ body {
    Селектор с .card — иначе отступ проигрывает общему правилу `.card h2`. */
 .card .fold-sub {
   margin: 10px 0 2px;
-  font-size: 15px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 
@@ -713,4 +755,107 @@ body {
    в отличие от разделов, между этими двумя ходят редко. */
 .subtabs {
   margin: 12px var(--side) 0;
+}
+
+/*
+ * Кружок с инициалами в списках.
+ *
+ * Слева от строки глазу нужна точка опоры: сплошная колонка текста читается как таблица,
+ * а список людей — это список людей. Цвет один на всех, без «уникального по хэшу имени»:
+ * палитра Telegram не про радугу, а разные оттенки здесь означали бы разницу, которой нет.
+ */
+.avatar-sm {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--tg-theme-button-color) 18%, transparent);
+  color: var(--tg-theme-button-color);
+  font-size: var(--text-small);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .avatar-sm {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+/*
+ * Приоритет жалобы — точкой.
+ *
+ * Слово «Срочно» в строке стоит рядом со временем и читается наравне с ним: чтобы понять,
+ * что горит, приходилось прочитывать каждую строку. Цвет считывается до чтения, а слово
+ * остаётся в подписи — для читалок и для тех, кто цвет не различает.
+ */
+.priority-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tg-theme-hint-color);
+}
+
+.priority-dot.high {
+  background: var(--tg-theme-destructive-text-color);
+}
+
+.priority-dot.medium {
+  background: var(--tg-theme-button-color);
+}
+
+/*
+ * Переписка поддержки — пузырями.
+ *
+ * Строками списка диалог выглядел таблицей «имя — текст — время»: кто кому отвечает,
+ * приходилось восстанавливать по именам. Своё справа акцентом, чужое слева — та же
+ * раскладка, в которой человек читает переписку везде, включая сам Telegram.
+ */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--tg-theme-section-bg-color);
+  color: var(--tg-theme-text-color);
+  font-size: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* Свои реплики — справа и акцентом. «Свои» здесь значит «от команды платформы»: экран
+   читает поддержка, и её слова должны отличаться от слов человека, которому отвечают. */
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  border-bottom-right-radius: 6px;
+}
+
+.bubble.theirs {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+}
+
+.bubble-author {
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--text-small);
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.bubble-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-small);
+  opacity: 0.7;
+  text-align: right;
 }

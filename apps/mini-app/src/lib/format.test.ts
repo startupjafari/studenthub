@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { resetLocale } from '../i18n'
-import { dayLabel, formatAge, sameDay } from './format'
+import { dayLabel, formatAge, initials, sameDay } from './format'
 
 describe('formatAge', () => {
   beforeEach(() => resetLocale('ru'))
@@ -47,5 +47,25 @@ describe('dayLabel', () => {
 describe('sameDay', () => {
   it('различает соседние дни', () => {
     expect(sameDay(new Date('2026-09-21T23:59:00'), new Date('2026-09-22T00:01:00'))).toBe(false)
+  })
+})
+
+// Кружок в списке: две буквы там, где есть фамилия и имя, и ничего осмысленного там,
+// где имени нет вовсе — пустой кружок читался бы как «загружается».
+describe('initials', () => {
+  it('берёт первые буквы фамилии и имени', () => {
+    expect(initials('Серикова Айгуль')).toBe('СА')
+  })
+
+  it('из одного слова — одну букву', () => {
+    expect(initials('Айгуль')).toBe('А')
+  })
+
+  it('лишние пробелы не создают пустых букв', () => {
+    expect(initials('  Серикова   Айгуль  ')).toBe('СА')
+  })
+
+  it('пустое имя — вопросительный знак, а не пустота', () => {
+    expect(initials('   ')).toBe('?')
   })
 })

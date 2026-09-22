@@ -36,6 +36,13 @@ const TARGET_KEY = {
 
 const PRIORITIES: ComplaintPriority[] = ['HIGH', 'MEDIUM', 'LOW']
 
+// Три уровня — три цвета: красный у срочного, акцентный у обычного, серый у низкого.
+const PRIORITY_TONE: Record<ComplaintPriority, string> = {
+  HIGH: 'high',
+  MEDIUM: 'medium',
+  LOW: '',
+}
+
 type Tab = 'open' | 'done'
 
 type State = { status: 'loading' } | { status: 'ready'; page: ComplaintPage } | { status: 'error' }
@@ -195,6 +202,10 @@ function ComplaintList({ items, onOpen }: { items: Complaint[]; onOpen: (id: str
                 onOpen(complaint.id)
               }}
             >
+              {/* Цвет считывается до чтения: «что горит» видно, не читая строку.
+                  Слово «Срочно» остаётся ниже — для читалок и для тех, кто цвет не
+                  различает, точка ничего не значит. */}
+              <span className={`priority-dot ${PRIORITY_TONE[complaint.priority]}`} aria-hidden />
               <span className="row-body">
                 <b>{t(TARGET_KEY[complaint.targetType])}</b>
                 {/* Текст жалобы — чужие слова о третьем лице: показываем первую строку,

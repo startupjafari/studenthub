@@ -147,12 +147,23 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   }, [id, onBack])
 
   if (state.status === 'loading') {
+    // Скелетон, а не строка «Открываем…»: форма будущей карточки известна заранее, и
+    // экран не прыгает, когда данные приезжают.
     return (
       <div className="screen">
         <header className="screen-head">
           <h1>{t('complaintTitle')}</h1>
           <p className="hint">{t('complaintOpening')}</p>
         </header>
+        <section className="card" aria-hidden="true">
+          <span className="skeleton skeleton-title" />
+          <span className="skeleton skeleton-line" />
+          <span className="skeleton skeleton-line" />
+        </section>
+        <section className="card" aria-hidden="true">
+          <span className="skeleton skeleton-title" />
+          <span className="skeleton skeleton-line" />
+        </section>
       </div>
     )
   }
@@ -264,7 +275,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
           </p>
           <button
             type="button"
-            className="fallback-submit"
+            className="fallback-submit secondary"
             disabled={busy}
             onClick={() => void reopen()}
           >
@@ -332,7 +343,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
             ровно в той мере, в какой обратим разговор. */}
           <button
             type="button"
-            className="fallback-submit"
+            className="fallback-submit secondary"
             disabled={busy}
             onClick={() => void decide('WARN_USER', t('complaintConfirmWarn'))}
           >

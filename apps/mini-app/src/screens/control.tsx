@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   announceRelease,
   fetchPlatformState,
@@ -26,6 +26,7 @@ import { t } from '../i18n'
 import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { applyFontScale, isLargeFont } from '../lib/font-scale'
+import { Fold } from '../ui/fold'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
@@ -141,31 +142,6 @@ export function ControlScreen({ userId }: { userId: string }) {
 type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
 
 /**
- * Складной раздел пульта.
- *
- * Рычагов восемь, и развёрнутые сразу все они давали ленту в три экрана: чтобы дойти до
- * «Релиза», приходилось пролистать техработы, баннер, уведомления и разделы. Свёрнутый
- * раздел показывает главное — своё состояние прямо в заголовке, — и раскрывается касанием.
- *
- * `state` не украшение: ради ответа «идут ли сейчас техработы» раздел и открывали чаще
- * всего, а теперь его видно, не открывая.
- */
-function Fold({ title, state, children }: { title: string; state?: string; children: ReactNode }) {
-  return (
-    <details className="card fold">
-      <summary>
-        <span className="fold-title">{title}</span>
-        {state && <span className="fold-state">{state}</span>}
-        <span className="fold-chevron" aria-hidden>
-          ›
-        </span>
-      </summary>
-      <div className="fold-body">{children}</div>
-    </details>
-  )
-}
-
-/**
  * Дежурство по очереди.
  *
  * До него дежурного назначали руками — то есть он оставался прежним, пока кто-нибудь не
@@ -258,7 +234,7 @@ function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
       <p className="hint">{t('undoHint')}</p>
       <button
         type="button"
-        className="fallback-submit"
+        className="fallback-submit secondary"
         disabled={busy}
         onClick={() => void run(t('undoConfirm'), () => undoLastChange())}
       >
