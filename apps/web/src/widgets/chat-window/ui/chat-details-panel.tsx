@@ -6,6 +6,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  BadgeCheck,
   Ban,
   Bell,
   BellOff,
@@ -74,6 +75,7 @@ import {
 import { cn } from '../../../shared/lib/utils'
 
 import { identityColor, identityInitials } from '../../../shared/lib'
+import { isOfficialChat } from '../lib/format'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { PeerProfileTab } from './peer-profile-tab'
 import { EditGroupDialog } from './edit-group-dialog'
@@ -1075,6 +1077,9 @@ export function ChatDetailsPanel({
 
         <div className="flex min-w-0 max-w-full items-center gap-1.5">
           <p className="min-w-0 truncate text-lg font-semibold">{title}</p>
+          {isOfficialChat(chat.type) && (
+            <BadgeCheck className="size-4 shrink-0 text-info" aria-label={t('officialChat')} />
+          )}
           {canEdit && (
             <button
               type="button"

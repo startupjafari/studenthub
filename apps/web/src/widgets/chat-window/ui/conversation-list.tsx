@@ -6,6 +6,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowLeft,
+  BadgeCheck,
   Bell,
   BellOff,
   Bookmark,
@@ -45,7 +46,15 @@ import {
   type SegmentedTabItem,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
+import {
+  avatarColor,
+  chatInitials,
+  chatTitle,
+  isOfficialChat,
+  listTime,
+  senderName,
+  TYPE_TAG,
+} from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
@@ -785,7 +794,16 @@ export function ConversationList({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+                      <span className="min-w-0 truncate text-sm font-semibold">{title}</span>
+                      {/* Знак подлинности официального чата (§7 карты) — синий, как ссылки
+                          и всё прочее «настоящее»: он утверждает происхождение, а не статус. */}
+                      {isOfficialChat(c.type) && (
+                        <BadgeCheck
+                          className="size-3.5 shrink-0 text-info"
+                          aria-label={t('officialChat')}
+                        />
+                      )}
+                      <span className="flex-1" aria-hidden />
                       {c.muted && (
                         <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                       )}

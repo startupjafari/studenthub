@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import {
   Archive,
   ArchiveRestore,
+  BadgeCheck,
   Bell,
   BellOff,
   ChevronDown,
@@ -119,7 +120,14 @@ import {
 } from '../../../shared/lib'
 
 import { ConversationList } from './conversation-list'
-import { avatarColor, chatInitials, chatTitle, listTime, senderName } from '../lib/format'
+import {
+  avatarColor,
+  chatInitials,
+  chatTitle,
+  isOfficialChat,
+  listTime,
+  senderName,
+} from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
@@ -2751,8 +2759,16 @@ export function ChatWindow() {
                   )}
                 </span>
                 <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-semibold">
-                    {activeChat ? chatTitle(activeChat, t) : ''}
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate text-sm font-semibold">
+                      {activeChat ? chatTitle(activeChat, t) : ''}
+                    </span>
+                    {activeChat && isOfficialChat(activeChat.type) && (
+                      <BadgeCheck
+                        className="size-3.5 shrink-0 text-info"
+                        aria-label={t('officialChat')}
+                      />
+                    )}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
                     {typingCount > 0 ? (
