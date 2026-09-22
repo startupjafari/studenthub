@@ -99,6 +99,7 @@ import {
   DateJumpPicker,
   formatYmd,
   Modal,
+  RowContextMenu,
   Skeleton,
   useConfirm,
   type RichTextHandle,
@@ -131,6 +132,10 @@ const ROW_BTN_W = 72
 // бессмысленно: значит, поля на экране нет (входящая заявка, блокировка).
 const FOCUS_RETRY_MS = 50
 const FOCUS_TRIES = 10
+
+// Сколько закреплений полоса показывает шкалой. Дальше деления тоньше волоса и читаются
+// как сплошная линия — там честнее число «3/12».
+const PINNED_SCALE_MAX = 6
 
 // Высота пометки дня в потоке ленты: строка 20 px + вертикальные отступы my-2 (8+8).
 // По ней понимаем, ушла ли пометка под верх — тогда её подменяет прилипший заголовок.
@@ -260,6 +265,16 @@ export function ChatWindow() {
   const [listSearchTerm, setListSearchTerm] = useState('')
   const [pinnedIndex, setPinnedIndex] = useState(0)
   const [pinnedTouched, setPinnedTouched] = useState(false)
+  /**
+   * Полоса закреплённого спрятана «до следующего раза» (§2 карты): помним набор закреплений,
+   * который прятали. Изменился набор — подсказка снова нужна и полоса возвращается. Набор,
+   * а не «самое новое»: сервер отдаёт закреплённые списком без обещания порядка, и по одному
+   * его краю «появилось новое» не отличить от «сняли старое».
+   */
+  const [pinnedHiddenKey, setPinnedHiddenKey] = useState<string | null>(null)
+  // Меню полосы закреплённого (правый клик) и окно со списком всех закреплений чата.
+  const [pinnedMenu, setPinnedMenu] = useState<{ x: number; y: number } | null>(null)
+  const [pinnedListOpen, setPinnedListOpen] = useState(false)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   // Время, до которого другие участники прочитали чат — для статусов ✓/✓✓ своих сообщений.
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
@@ -2179,6 +2194,8 @@ export function ChatWindow() {
   }, [list, listSearchTerm, t])
   const msgMatches = listMsgResults.data?.items ?? []
   const pinnedList = pinned.data ?? []
+  const pinnedKey = pinnedList.map((p) => p.id).join(',')
+  const pinnedHidden = pinnedHiddenKey !== null && pinnedHiddenKey === pinnedKey
   const hasText = text.trim().length > 0
   // Кнопка отправки показывается при вводе/вложениях/правке; иначе — микрофон (Telegram-стиль).
   const showSend = !!editing || hasText
@@ -2913,38 +2930,87 @@ export function ChatWindow() {
               </div>
             </header>
 
-            {/* Закреплённое сообщение (Telegram-стиль): одна строка, клик — переход + цикл */}
+            {/* Закреплённое сообщение (§2 карты): подпись, первая строка текста и шкала
+                закреплений слева. Крестик справа ПРЯЧЕТ полосу до следующего закрепления —
+                это подсказка, а не само закрепление; снять его можно из меню полосы. */}
             {pinnedList.length > 0 &&
+              !pinnedHidden &&
               (() => {
                 const idx = pinnedIndex % pinnedList.length
                 const cur = pinnedList[idx]
                 if (!cur) return null
                 return (
-                  <div className="flex items-center gap-2 border-b border-border bg-background px-3 py-1.5">
+                  <div
+                    className="flex items-center gap-2 border-b border-border bg-background px-3 py-1.5"
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      const box = e.currentTarget.getBoundingClientRect()
+                      const keyboard = e.clientX === 0 && e.clientY === 0
+                      setPinnedMenu({
+                        x: keyboard ? box.left + 24 : e.clientX,
+                        y: keyboard ? box.bottom : e.clientY,
+                      })
+                    }}
+                  >
                     {/* Клик по строке циклически переходит к следующему закреплённому (navigatePinned). */}
                     <button
                       type="button"
                       onClick={() => navigatePinned(pinnedList, 1)}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      <span className="h-4 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                      {/* Шкала закреплений: по делению на каждое, текущее — сплошным акцентом.
+                          Считать «2/7» глазами дольше, чем увидеть положение на шкале. Сверх
+                          PINNED_SCALE_MAX делений полоска превращается в штриховку, и вместо
+                          неё честнее показать число. */}
+                      {pinnedList.length > 1 && pinnedList.length <= PINNED_SCALE_MAX ? (
+                        <span className="flex h-7 w-0.5 shrink-0 flex-col gap-px" aria-hidden>
+                          {pinnedList.map((p, i) => (
+                            <span
+                              key={p.id}
+                              className={cn(
+                                'flex-1 rounded-full',
+                                i === idx ? 'bg-primary' : 'bg-primary/25',
+                              )}
+                            />
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="h-7 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                      )}
                       <Pin className="size-3.5 shrink-0 text-primary" aria-hidden />
-                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {cur.content || (cur.media.length ? t('attachment') : '')}
+                      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                        <span className="truncate text-[0.7rem] font-semibold text-primary">
+                          {t('pinnedMessage')}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {cur.content || (cur.media.length ? t('attachment') : '')}
+                        </span>
                       </span>
-                      {pinnedList.length > 1 && (
+                      {pinnedList.length > PINNED_SCALE_MAX && (
                         <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
                           {idx + 1}/{pinnedList.length}
                         </span>
                       )}
                     </button>
+                    {pinnedList.length > 1 && (
+                      <button
+                        type="button"
+                        aria-label={t('pinnedMessages')}
+                        title={t('pinnedMessages')}
+                        onClick={() => setPinnedListOpen(true)}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <ListIcon className="size-3.5" aria-hidden />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      aria-label={t('unpin')}
-                      onClick={() => setPin.mutate({ id: cur.id, pinned: false })}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label={t('pinnedHide')}
+                      title={t('pinnedHide')}
+                      onClick={() => setPinnedHiddenKey(pinnedKey)}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
-                      <PinOff className="size-3.5" aria-hidden />
+                      <X className="size-3.5" aria-hidden />
                     </button>
                   </div>
                 )
@@ -3283,6 +3349,98 @@ export function ChatWindow() {
             setActiveId(chatId)
           }}
         />
+      )}
+
+      {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
+      {pinnedMenu &&
+        (() => {
+          const cur = pinnedList[pinnedIndex % pinnedList.length]
+          if (!cur) return null
+          return (
+            <RowContextMenu
+              x={pinnedMenu.x}
+              y={pinnedMenu.y}
+              ariaLabel={t('pinnedMessage')}
+              onClose={() => setPinnedMenu(null)}
+              items={[
+                {
+                  key: 'pinned-all',
+                  icon: ListIcon,
+                  label: t('pinnedMessages'),
+                  onClick: () => setPinnedListOpen(true),
+                },
+                {
+                  key: 'unpin',
+                  icon: PinOff,
+                  label: t('unpin'),
+                  // Закрепление в чате общее: снимая его, человек меняет шапку всем
+                  // участникам — отсюда подтверждение, а не молчаливое действие.
+                  onClick: () => {
+                    void confirm({ title: t('unpinConfirm'), destructive: true }).then((ok) => {
+                      if (ok) setPin.mutate({ id: cur.id, pinned: false })
+                    })
+                  },
+                  danger: true,
+                },
+              ]}
+            />
+          )
+        })()}
+
+      {/* Все закрепления чата отдельным списком — из полосы или из её меню. */}
+      {pinnedListOpen && (
+        <Modal
+          onClose={() => setPinnedListOpen(false)}
+          title={t('pinnedMessages')}
+          size="md"
+          bodyClassName="p-0"
+        >
+          <div className="flex max-h-[min(70vh,32rem)] flex-col overflow-y-auto p-2">
+            {pinnedList.map((m, i) => (
+              <div
+                key={m.id}
+                className="flex items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPinnedIndex(i)
+                    setPinnedTouched(true)
+                    setPinnedListOpen(false)
+                    focusMessage(m.id)
+                  }}
+                  className="flex min-w-0 flex-1 flex-col items-start text-left"
+                >
+                  <span className="text-xs font-semibold text-primary">{senderName(m)}</span>
+                  <span className="line-clamp-2 text-sm text-foreground/90">
+                    {m.content || (m.media.length ? t('attachment') : '')}
+                  </span>
+                  <span className="mt-0.5 text-[0.7rem] text-muted-foreground">
+                    {new Date(m.createdAt).toLocaleString(locale, {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('unpin')}
+                  title={t('unpin')}
+                  onClick={() => {
+                    void confirm({ title: t('unpinConfirm'), destructive: true }).then((ok) => {
+                      if (ok) setPin.mutate({ id: m.id, pinned: false })
+                    })
+                  }}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <PinOff className="size-4" aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
 
       <ChatFoldersDialog
