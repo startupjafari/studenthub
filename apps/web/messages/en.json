@@ -1733,6 +1733,7 @@
     "forwardTo": "Forward to chat",
     "forwardedFrom": "Forwarded from {name}",
     "forwarded": "Forwarded",
+    "forwardCaption": "Add a caption…",
     "edit": "Edit",
     "delete": "Delete",
     "copyText": "Copy text",

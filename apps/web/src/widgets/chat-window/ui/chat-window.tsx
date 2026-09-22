@@ -120,6 +120,7 @@ import {
 
 import { ConversationList } from './conversation-list'
 import { avatarColor, chatInitials, chatTitle, listTime, senderName } from '../lib/format'
+import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
@@ -564,15 +565,40 @@ export function ChatWindow() {
     },
   })
 
-  const forward = useMutation({
-    mutationFn: ({ targetChatId, messageId }: { targetChatId: string; messageId: string }) =>
-      forwardMessageRequest(targetChatId, messageId),
-    onSuccess: () => {
+  /**
+   * Пересылка (§5 карты): выбранные сообщения уходят в каждый отмеченный чат, следом за ними —
+   * подпись «от себя» отдельным сообщением. Последовательно и через await, а не пачкой мутаций:
+   * подпись обязана прийти ПОСЛЕ пересланного, иначе комментарий стоит раньше того, что
+   * комментирует. Своего поля для подписи у `POST /chats/:id/forward` нет — отсюда второе
+   * сообщение, а не изменение контракта.
+   */
+  async function sendForward(
+    targetChatIds: string[],
+    messageIds: string[],
+    caption: string,
+  ): Promise<void> {
+    try {
+      for (const targetChatId of targetChatIds) {
+        for (const messageId of messageIds) {
+          await forwardMessageRequest(targetChatId, messageId)
+        }
+        if (caption) await sendMessageWithAttachments(targetChatId, { content: caption }, [])
+      }
       setForwardMsg(null)
       toast.success(t('forwarded'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
+    } catch (e) {
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    }
+  }
+
+  /** «Избранное» как цель пересылки: чат может ещё не существовать — заводим по требованию. */
+  async function resolveSavedChatId(): Promise<string> {
+    const existing = (chats.data ?? []).find((c) => c.type === 'SAVED')
+    if (existing) return existing.id
+    const { id } = await fetchSavedChat()
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    return id
+  }
 
   // Создание опроса (§38): сообщение-опрос придёт по WS message:new — оптимистично не добавляем.
   const createPoll = useMutation({
@@ -2194,6 +2220,18 @@ export function ChatWindow() {
   }, [list, listSearchTerm, t])
   const msgMatches = listMsgResults.data?.items ?? []
   const pinnedList = pinned.data ?? []
+  // Вкладки папок для окна пересылки: те же, что над списком чатов, но готовым составом —
+  // сам диалог живёт в entities и о папках знать не может (слои FSD).
+  const forwardTabs = useMemo(
+    () =>
+      buildFolderTabs(list, folderList).map((tab) => ({
+        id: tab.id,
+        label: folderTabLabel(tab, t),
+        chatIds: tab.id === 'folderAll' ? null : filterChatsByTab(list, tab).map((c) => c.id),
+      })),
+    [list, folderList, t],
+  )
+
   const pinnedKey = pinnedList.map((p) => p.id).join(',')
   const pinnedHidden = pinnedHiddenKey !== null && pinnedHiddenKey === pinnedKey
   const hasText = text.trim().length > 0
@@ -3325,7 +3363,11 @@ export function ChatWindow() {
           chats={list}
           currentChatId={activeId}
           titleOf={(c) => chatTitle(c, t)}
-          onPick={(targetChatId) => forward.mutate({ targetChatId, messageId: forwardMsg.id })}
+          tabs={forwardTabs}
+          onResolveSaved={resolveSavedChatId}
+          onSubmit={(targetChatIds, caption) =>
+            sendForward(targetChatIds, [forwardMsg.id], caption)
+          }
           onClose={() => setForwardMsg(null)}
         />
       )}
@@ -3336,9 +3378,9 @@ export function ChatWindow() {
           chats={list}
           currentChatId={activeId}
           titleOf={(c) => chatTitle(c, t)}
-          onPick={(targetChatId) =>
-            forwardIds.forEach((messageId) => forward.mutate({ targetChatId, messageId }))
-          }
+          tabs={forwardTabs}
+          onResolveSaved={resolveSavedChatId}
+          onSubmit={(targetChatIds, caption) => sendForward(targetChatIds, forwardIds, caption)}
           onClose={() => {
             setForwardIds(null)
             exitSelect()

@@ -160,7 +160,7 @@ export function SharePostMenu({ postId, className }: { postId: string; className
           chats={chats.data ?? []}
           currentChatId={null}
           titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(chatId) => sendMut.mutate(chatId)}
+          onSubmit={(chatIds) => chatIds.forEach((chatId) => sendMut.mutate(chatId))}
           onClose={() => setPicking(false)}
         />
       )}

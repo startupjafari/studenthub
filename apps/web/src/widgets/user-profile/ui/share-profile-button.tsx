@@ -167,7 +167,7 @@ export function ShareProfileButton({
           chats={chats.data ?? []}
           currentChatId={null}
           titleOf={(c) => chatLabel(c, tChats)}
-          onPick={(id) => sendMut.mutate(id)}
+          onSubmit={(ids) => ids.forEach((id) => sendMut.mutate(id))}
           onClose={() => setPicking(false)}
         />
       )}
