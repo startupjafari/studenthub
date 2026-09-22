@@ -88,7 +88,7 @@ export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'
-export { ForwardDialog } from './ui/forward-dialog'
+export { ForwardDialog, type ForwardTab } from './ui/forward-dialog'
 export { SharedPostCard } from './ui/shared-post-card'
 export { AttachmentDialog } from './ui/attachment-dialog'
 export {

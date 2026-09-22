@@ -1733,6 +1733,7 @@
     "forwardTo": "Переслать в чат",
     "forwardedFrom": "Переслано от {name}",
     "forwarded": "Переслано",
+    "forwardCaption": "Добавить подпись…",
     "edit": "Изменить",
     "delete": "Удалить",
     "copyText": "Копировать текст",
