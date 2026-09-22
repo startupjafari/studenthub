@@ -71,6 +71,7 @@ import {
   TabsList,
   TabsTrigger,
   useConfirm,
+  MediaViewer as PlainMediaViewer,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -1031,6 +1032,9 @@ export function ChatDetailsPanel({
   // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
   const peer = isPrivate && peerId && onToggleBlock ? { id: peerId, onToggleBlock } : null
 
+  // Аватар чата во весь экран.
+  const [avatarOpen, setAvatarOpen] = useState(false)
+
   // Адрес приглашения строим на клиенте: страница /join-chat/<id> публичная и одинакова
   // для всех, отдельной ручки за ним нет. origin читается лениво — на сервере его нет.
   const inviteLink =
@@ -1062,12 +1066,33 @@ export function ChatDetailsPanel({
       )}
 
       <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border p-5">
-        <Avatar className="size-20">
-          {chat.avatarUrl && <AvatarImage src={chat.avatarUrl} alt={title} />}
-          <AvatarFallback className={cn('text-2xl font-medium text-white', identityColor(chat.id))}>
-            {identityInitials(title)}
-          </AvatarFallback>
-        </Avatar>
+        {/* Аватар открывается во весь экран (§3 карты) — только настоящая картинка:
+            разглядывать кружок с инициалами не за чем. */}
+        {chat.avatarUrl ? (
+          <button
+            type="button"
+            aria-label={title}
+            onClick={() => setAvatarOpen(true)}
+            className="cursor-zoom-in rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+          >
+            <Avatar className="size-20">
+              <AvatarImage src={chat.avatarUrl} alt={title} />
+              <AvatarFallback
+                className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
+              >
+                {identityInitials(title)}
+              </AvatarFallback>
+            </Avatar>
+          </button>
+        ) : (
+          <Avatar className="size-20">
+            <AvatarFallback
+              className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
+            >
+              {identityInitials(title)}
+            </AvatarFallback>
+          </Avatar>
+        )}
 
         <div className="flex min-w-0 max-w-full items-center gap-1.5">
           <p className="min-w-0 truncate text-lg font-semibold">{title}</p>
@@ -1253,6 +1278,17 @@ export function ChatDetailsPanel({
       </Tabs>
 
       {editOpen && <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />}
+
+      {avatarOpen && chat.avatarUrl && (
+        <PlainMediaViewer
+          items={[{ mime: 'image/*', name: title }]}
+          index={0}
+          src={chat.avatarUrl}
+          onIndexChange={() => undefined}
+          onClose={() => setAvatarOpen(false)}
+          downloadName={title}
+        />
+      )}
     </div>
   )
 }
