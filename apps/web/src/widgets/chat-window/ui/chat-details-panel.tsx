@@ -50,6 +50,7 @@ import {
   transferOwnershipRequest,
   unbanChatMemberRequest,
   unblockUserRequest,
+  fileKind,
   MediaViewer,
   type ChatLinkItem,
   type ChatListItem,
@@ -254,6 +255,7 @@ function FileRow({
     day: '2-digit',
     month: 'short',
   })
+  const kind = fileKind(item.name, item.mime)
   return (
     <div className="flex items-center gap-3 px-3 py-2">
       <button
@@ -261,9 +263,20 @@ function FileRow({
         onClick={() => onJump(item.messageId)}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        {/* Тот же значок расширения, что в ленте (§7 карты): один и тот же файл нельзя
+            показывать двумя разными способами в двух местах одного экрана. */}
+        <span
+          className={cn(
+            'flex size-9 shrink-0 items-center justify-center rounded-lg text-white',
+            voice ? 'bg-muted text-muted-foreground' : kind.className,
+          )}
+        >
           {voice ? (
             <Mic className="size-4" aria-hidden />
+          ) : kind.ext ? (
+            <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
+              {kind.ext}
+            </span>
           ) : (
             <FileText className="size-4" aria-hidden />
           )}
