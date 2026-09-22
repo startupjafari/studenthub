@@ -10,6 +10,7 @@ import type {
   ChatUpdatesQueryInput,
   CreateChatPollInput,
   CursorPaginationInput,
+  EditChatInput,
   MessageSearchQueryInput,
   MessageSendInput,
   PollVoteInput,
@@ -300,6 +301,7 @@ export class ChatsService {
         id: true,
         type: true,
         title: true,
+        description: true,
         avatarUrl: true,
         createdById: true,
         groupId: true,
@@ -449,6 +451,9 @@ export class ChatsService {
           title: c.type === ChatType.PRIVATE ? otherNameMap.get(c.id) || c.title : c.title,
           // Личный чат — аватар собеседника; групповой — аватар группы.
           avatarUrl: c.type === ChatType.PRIVATE ? (otherAvatarMap.get(c.id) ?? null) : c.avatarUrl,
+          // Описание есть только у пользовательских групп; в личном чате поле всегда пустое
+          // и в панели информации не рисуется.
+          description: c.type === ChatType.GROUP ? c.description : null,
           subject: c.subject,
           memberCount: c._count.members,
           lastMessage,
@@ -2323,7 +2328,7 @@ export class ChatsService {
       throw new AppException('WRONG_SCOPE', 'Вы не участник этого чата')
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      select: { id: true, type: true, avatarUrl: true, createdById: true },
+      select: { id: true, type: true, title: true, avatarUrl: true, createdById: true },
     })
     if (!chat) throw new AppException('NOT_FOUND', 'Чат не найден')
     if (chat.type !== ChatType.GROUP) {
@@ -2443,24 +2448,41 @@ export class ChatsService {
   }
 
   /** Изменить название группы (любой админ). */
-  async editChatTitle(
+  /**
+   * Название и описание группы (админ). Системное сообщение — только о смене названия:
+   * его видят в списке чатов все, а правка описания — тихая работа по шапке, и лента,
+   * заваленная «поправил описание», перестаёт читаться.
+   */
+  async editChat(
     actor: JwtPayload,
     chatId: string,
-    title: string,
-  ): Promise<{ id: string; title: string }> {
-    await this.assertGroupAdmin(actor, chatId)
+    input: EditChatInput,
+  ): Promise<{ id: string; title: string; description: string | null }> {
+    const before = await this.assertGroupAdmin(actor, chatId)
     const updated = await this.prisma.chat.update({
       where: { id: chatId },
-      data: { title },
-      select: { id: true, title: true },
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        // Пустая строка убирает описание: отдельного «удалить» для одного поля заводить незачем.
+        ...(input.description !== undefined
+          ? { description: input.description.trim() || null }
+          : {}),
+      },
+      select: { id: true, title: true, description: true },
     })
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, title: updated.title })
     await this.pingChatList(chatId)
-    await this.emitSystemMessage(chatId, actor.sub, 'title_changed', {
-      title: updated.title ?? title,
-    })
-    return { id: updated.id, title: updated.title ?? title }
+    if (input.title !== undefined && input.title !== before.title) {
+      await this.emitSystemMessage(chatId, actor.sub, 'title_changed', {
+        title: updated.title ?? input.title,
+      })
+    }
+    return {
+      id: updated.id,
+      title: updated.title ?? input.title ?? '',
+      description: updated.description,
+    }
   }
 
   /** Назначить/снять админа (только создатель группы). Создателя понижать нельзя. */

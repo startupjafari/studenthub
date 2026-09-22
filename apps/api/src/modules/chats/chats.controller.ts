@@ -581,13 +581,13 @@ export class ChatsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Изменить название группы (админ)' })
-  editTitle(
+  @ApiOperation({ summary: 'Изменить название и описание группы (админ)' })
+  editChat(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Body() dto: EditChatDto,
   ) {
-    return this.chats.editChatTitle(user, id, dto.title)
+    return this.chats.editChat(user, id, dto)
   }
 
   @Delete(':id')

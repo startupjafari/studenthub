@@ -40,7 +40,7 @@ export {
   unblockUserRequest,
   setChatAvatarRequest,
   removeChatAvatarRequest,
-  editChatTitleRequest,
+  editChatRequest,
   deleteChatRequest,
   clearChatRequest,
   setChatAdminRequest,
