@@ -37,6 +37,8 @@ import { ChatListQueryDto } from './dto/chat-list-query.dto'
 import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
 import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
+import { ChatMediaCalendarQueryDto } from './dto/chat-media-calendar-query.dto'
+import { ClearChatDto } from './dto/clear-chat.dto'
 import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
 import { CreateChatPollDto } from './dto/create-chat-poll.dto'
 import { PollVoteDto } from './dto/poll-vote.dto'
@@ -146,6 +148,18 @@ export class ChatsController {
     @Query() query: ChatMediaQueryDto,
   ) {
     return this.chats.listChatMedia(user, id, query)
+  }
+
+  @Get(':id/media/calendar')
+  @ApiOperation({ summary: 'Снимки по дням для календаря перехода по дате (только участник)' })
+  @ApiResponse({ status: 200, description: 'По одной миниатюре на день окна' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  mediaCalendar(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ChatMediaCalendarQueryDto,
+  ) {
+    return this.chats.getMediaCalendar(user, id, query)
   }
 
   @Get(':id/links')
@@ -599,9 +613,13 @@ export class ChatsController {
   }
 
   @Post(':id/clear')
-  @ApiOperation({ summary: 'Очистить историю чата «для меня»' })
-  clearChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.clearChat(user, id)
+  @ApiOperation({ summary: 'Очистить историю чата «для меня» (целиком или за период)' })
+  clearChat(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ClearChatDto,
+  ) {
+    return this.chats.clearChat(user, id, dto)
   }
 
   @Post(':id/members/:userId/admin')

@@ -61,6 +61,7 @@ import {
   blockUserRequest,
   unblockUserRequest,
   clearChatRequest,
+  fetchChatMediaCalendar,
   createChatRequest,
   deleteChatRequest,
   acceptChatRequestRequest,
@@ -830,6 +831,51 @@ export function ChatWindow() {
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
+
+  /**
+   * Очистка истории за период (§5 карты, режим диапазона в календаре). Скрытие «у себя»:
+   * у остальных участников переписка остаётся целой — чужие сообщения не удаляют.
+   * Календарь тоже инвалидируем: снимки очищенных дней из него должны уйти.
+   */
+  const clearPeriod = useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      clearChatRequest(activeId as string, {
+        // Границы включительны: сервер сравнивает по createdAt, поэтому конец —
+        // последняя миллисекунда выбранного дня, а не его полночь.
+        from: new Date(`${from}T00:00:00`).toISOString(),
+        to: new Date(`${to}T23:59:59.999`).toISOString(),
+      }),
+    onSuccess: () => {
+      if (!activeId) return
+      void qc.invalidateQueries({ queryKey: chatKeys.messages(activeId) })
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: ['chats', activeId, 'media-calendar'] })
+      toast.success(t('historyCleared'))
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  /**
+   * Миниатюры для календаря: грузим ровно тот месяц, который открыт. Пока попап закрыт,
+   * месяца нет и запроса тоже — календарь открывают редко, а окно у него всегда одно.
+   */
+  const [calendarMonth, setCalendarMonth] = useState<string | null>(null)
+  const calendarMedia = useQuery({
+    queryKey: chatKeys.mediaCalendar(activeId ?? '', calendarMonth ?? ''),
+    queryFn: () => {
+      const [y, m] = (calendarMonth as string).split('-').map(Number)
+      const from = new Date(y as number, (m as number) - 1, 1)
+      const to = new Date(y as number, m as number, 0, 23, 59, 59, 999)
+      return fetchChatMediaCalendar(activeId as string, from.toISOString(), to.toISOString())
+    },
+    enabled: !!activeId && !!calendarMonth,
+    staleTime: 5 * 60 * 1000,
+  })
+  const dayThumbs = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const it of calendarMedia.data ?? []) out[it.day] = it.url
+    return out
+  }, [calendarMedia.data])
 
   const deleteChat = useMutation({
     mutationFn: (chatId: string) => deleteChatRequest(chatId),
@@ -2852,6 +2898,22 @@ export function ChatWindow() {
                   }}
                   max={formatYmd(new Date())}
                   aria-label={t('jumpToDate')}
+                  dayThumbs={dayThumbs}
+                  onViewChange={(y, m) =>
+                    setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
+                  }
+                  rangeAction={{
+                    label: t('clearHistory'),
+                    destructive: true,
+                    onSubmit: (from, to) => {
+                      void confirm({
+                        title: t('clearPeriodConfirm', { from, to }),
+                        destructive: true,
+                      }).then((ok) => {
+                        if (ok) clearPeriod.mutate({ from, to })
+                      })
+                    },
+                  }}
                 />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
