@@ -2258,6 +2258,7 @@ export function ChatWindow() {
     deleteMessage,
     retrySend,
     toggleSelect,
+    enterSelect,
     react,
     onMsgTouchStart,
     onMsgTouchMove,
@@ -2275,6 +2276,7 @@ export function ChatWindow() {
     deleteMessage,
     retrySend,
     toggleSelect,
+    enterSelect,
     react,
     onMsgTouchStart,
     onMsgTouchMove,
@@ -2290,6 +2292,7 @@ export function ChatWindow() {
       del: (m) => msgHandlersRef.current.deleteMessage(m),
       retry: (m) => msgHandlersRef.current.retrySend(m),
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
+      startSelect: (m) => msgHandlersRef.current.enterSelect(m),
       react: (id, emoji) => msgHandlersRef.current.react.mutate({ messageId: id, emoji }),
       touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
@@ -3180,6 +3183,9 @@ export function ChatWindow() {
                       setReplyTo(null)
                       setReplyQuote(null)
                     }}
+                    onViewReplyTarget={() => {
+                      if (replyTo) focusMessage(replyTo.id)
+                    }}
                     silent={silentSend}
                     onToggleSilent={() => setSilentSend((v) => !v)}
                     onScheduleSend={() => setScheduleOpen(true)}
@@ -3292,7 +3298,19 @@ export function ChatWindow() {
             onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
             onReply: () => startReply(menu.message, menu.selection),
             onEdit: () => startEdit(menu.message),
-            onPin: () => setPin.mutate({ id: menu.message.id, pinned: !menu.message.pinnedAt }),
+            // Закрепление видят все участники чата, поэтому спрашиваем в обе стороны (§4 карты):
+            // «закрепить» — обычное подтверждение, «открепить» — красное.
+            onPin: () => {
+              const pinned = !!menu.message.pinnedAt
+              const id = menu.message.id
+              void confirm({
+                title: pinned ? t('unpinConfirm') : t('pinConfirm'),
+                confirmLabel: pinned ? t('unpin') : t('pin'),
+                destructive: pinned,
+              }).then((ok) => {
+                if (ok) setPin.mutate({ id, pinned: !pinned })
+              })
+            },
             onCopy: () => copyText(menu.message),
             onCopyLink: () => copyLink(menu.message),
             onForward: () => setForwardMsg(menu.message),
