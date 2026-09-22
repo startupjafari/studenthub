@@ -1775,6 +1775,7 @@
     "pinnedMessage": "Pinned message",
     "pinnedHide": "Hide the bar",
     "unpinConfirm": "Unpin this message? It stays in the conversation.",
+    "pinConfirm": "Pin this message in the chat? Everyone in it will see it.",
     "openInNewTab": "Open in new tab",
     "openWithoutReading": "Open without reading",
     "clearHistoryConfirm": "Clear this chat's history for yourself?",
