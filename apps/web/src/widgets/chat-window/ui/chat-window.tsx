@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -178,6 +178,7 @@ export function ChatWindow() {
   const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const router = useRouter()
+  const pathname = usePathname()
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
   const me = useAppSelector((s) => s.auth.user)
@@ -568,6 +569,8 @@ export function ChatWindow() {
   // Пользовательские папки чатов (§2): вкладки списка. Держим здесь, потому что список чатов
   // порталится в сайдбар и своего состояния не имеет.
   const [foldersOpen, setFoldersOpen] = useState(false)
+  // Папка, на которой диалог должен открыться («Настроить папку» из меню вкладки).
+  const [foldersEditId, setFoldersEditId] = useState<string | null>(null)
   const folders = useQuery({ queryKey: chatKeys.folders(), queryFn: fetchChatFolders })
   const folderList: ChatFolder[] = folders.data ?? []
 
@@ -1360,14 +1363,14 @@ export function ChatWindow() {
         toBottom('auto')
         window.setTimeout(() => toBottom('auto'), 120)
       })
-      if (last) socket.emit('message:read', { chatId: activeId, messageId: last.id })
+      if (last) emitRead(activeId, last.id)
       return
     }
 
     if (last && last.id !== prevLastId) {
       if (last.senderId === myId || nearBottom()) {
         toBottom('smooth')
-        socket.emit('message:read', { chatId: activeId, messageId: last.id })
+        emitRead(activeId, last.id)
       } else {
         setNewSinceScroll((n) => n + 1)
         setShowScrollDown(true)
@@ -1438,8 +1441,7 @@ export function ChatWindow() {
     if (atBottom && !wasAtBottomRef.current) {
       setNewSinceScroll(0)
       const last = messages.data?.[messages.data.length - 1]
-      if (last && socket && activeId)
-        socket.emit('message:read', { chatId: activeId, messageId: last.id })
+      if (last && socket && activeId) emitRead(activeId, last.id)
     }
     wasAtBottomRef.current = atBottom
     // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
@@ -1515,12 +1517,32 @@ export function ChatWindow() {
     exitSelect()
   }
 
+  /**
+   * «Открыть без прочтения» (§4 карты): чат открыт, но отметка о прочтении наружу не уходит
+   * и счётчик непрочитанного остаётся. Флаг — ref, а не состояние: его читают обработчики
+   * прокрутки и приёма сообщений, и лишняя перерисовка ленты на каждое переключение ни к чему.
+   * Снимается при уходе из чата — вернувшись в него обычным способом, человек его и прочитал.
+   */
+  const peekChatIdRef = useRef<string | null>(null)
+  // Сравнение с активным чатом, а не очистка в размонтировании эффекта: пункт меню сначала
+  // ставит флаг и лишь потом переключает чат, и «снять при уходе» стёрло бы его на том же клике.
+  useEffect(() => {
+    if (peekChatIdRef.current && peekChatIdRef.current !== activeId) peekChatIdRef.current = null
+  }, [activeId])
+  /** Единая точка отправки отметки о прочтении: молчит, пока чат открыт «без прочтения». */
+  function emitRead(chatId: string, messageId: string): void {
+    if (peekChatIdRef.current === chatId) return
+    socket?.emit('message:read', { chatId, messageId })
+  }
+
   function markChatRead(chatId: string): void {
     const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
       (c) => c.id === chatId,
     )
     if (!chat || chat.unreadCount === 0) return
     const lastId = chat.lastMessage?.id
+    // Явное «прочитать» снимает режим подглядывания: человек сам сказал, что прочёл.
+    if (peekChatIdRef.current === chatId) peekChatIdRef.current = null
     if (socket && lastId) socket.emit('message:read', { chatId, messageId: lastId })
     qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
       (old ?? []).map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c)),
@@ -2267,8 +2289,23 @@ export function ChatWindow() {
       onOpenChat={setActiveId}
       onBack={() => router.back()}
       folders={folderList}
-      onManageFolders={() => setFoldersOpen(true)}
+      onManageFolders={() => {
+        setFoldersEditId(null)
+        setFoldersOpen(true)
+      }}
       onToggleChatFolder={(folderId, chat) => toggleChatFolder(folderId, chat.id)}
+      onEditFolder={(folderId) => {
+        setFoldersEditId(folderId)
+        setFoldersOpen(true)
+      }}
+      onDeleteFolder={(folder) => {
+        void confirm({
+          title: t('foldersDeleteConfirm', { name: folder.name }),
+          destructive: true,
+        }).then((ok) => {
+          if (ok) deleteFolder.mutate(folder.id)
+        })
+      }}
       newChatOpen={newChatOpen}
       onToggleNewChat={() => setNewChatOpen((v) => !v)}
       onCloseNewChat={() => setNewChatOpen(false)}
@@ -2317,6 +2354,20 @@ export function ChatWindow() {
       onRowTouchEnd={chatRows.onRowTouchEnd}
       onCloseSwiped={chatRows.closeRow}
       onMarkRead={markChatRead}
+      onOpenInNewTab={(c) => {
+        // Тот же адрес, что и у «Написать» из профиля (?chat=<id>) — второе окно открывается
+        // готовым на нужной переписке, а не на списке.
+        window.open(`${pathname}?chat=${c.id}`, '_blank', 'noopener')
+      }}
+      onOpenUnread={(c) => {
+        peekChatIdRef.current = c.id
+        setActiveId(c.id)
+      }}
+      onClearHistory={(c) => {
+        void confirm({ title: t('clearHistoryConfirm'), destructive: true }).then((ok) => {
+          if (ok) clearChat.mutate(c.id)
+        })
+      }}
       onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
       onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
       onToggleArchive={(c) => archive.mutate({ chatId: c.id, archived: !c.archived })}
@@ -3240,6 +3291,7 @@ export function ChatWindow() {
         folders={folderList}
         chats={chats.data ?? []}
         busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
+        editId={foldersEditId}
         onCreate={(input) => createFolder.mutate(input)}
         onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
         onDelete={(id) => deleteFolder.mutate(id)}
