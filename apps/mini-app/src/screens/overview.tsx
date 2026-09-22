@@ -20,6 +20,7 @@ import {
   type UniversitySize,
 } from '../api/overview'
 import { t } from '../i18n'
+import { Fold } from '../ui/fold'
 import { formatShortTime } from '../lib/format'
 
 // Сводка платформы: утренний взгляд «всё ли в порядке» до того, как открыть ноутбук.
@@ -120,6 +121,25 @@ export function OverviewScreen() {
 
   return (
     <>
+      {/* Живость сервисов — первым блоком. Сводку открывают утром с одним вопросом:
+          всё ли работает. Внизу, под тепловой картой и журналом изменений, ответ лежал
+          дальше, чем этот вопрос задают. */}
+      {health && (
+        <section className="card">
+          <h2>{t('healthTitle')}</h2>
+          <div className="list">
+            {(Object.keys(HEALTH_LABEL) as (keyof HealthReport)[]).map((key) => (
+              <div className="toggle-row" key={key}>
+                <span>{t(HEALTH_LABEL[key])}</span>
+                <span className={health[key] === 'ok' ? 'toggle-state' : 'toggle-state off'}>
+                  {health[key] === 'ok' ? t('healthOk') : t('healthFail')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="card">
         <h2>{t('overviewTitle')}</h2>
         <p className="hint">{t('overviewHint')}</p>
@@ -157,8 +177,7 @@ export function OverviewScreen() {
       )}
 
       {extras.universities.length > 0 && (
-        <section className="card">
-          <h2>{t('overviewTopUniversities')}</h2>
+        <Fold title={t('overviewTopUniversities')} state={String(extras.universities.length)}>
           <div className="list">
             {[...extras.universities]
               .sort((a, b) => b.total - a.total)
@@ -172,12 +191,11 @@ export function OverviewScreen() {
                 </div>
               ))}
           </div>
-        </section>
+        </Fold>
       )}
 
       {extras.actions.length > 0 && (
-        <section className="card">
-          <h2>{t('overviewTopActions')}</h2>
+        <Fold title={t('overviewTopActions')}>
           <div className="list">
             {extras.actions.slice(0, TOP_ACTIONS).map((action) => (
               <div className="toggle-row" key={action.action}>
@@ -188,14 +206,18 @@ export function OverviewScreen() {
               </div>
             ))}
           </div>
-        </section>
+        </Fold>
       )}
 
       {/* Очереди показываем только когда в них что-то есть: пустая таблица нулей
           каждое утро приучает не смотреть на этот блок вовсе. */}
       {extras.queues.some((queue) => queue.waiting > 0 || queue.failed > 0) && (
-        <section className="card">
-          <h2>{t('queuesTitle')}</h2>
+        <Fold
+          title={t('queuesTitle')}
+          state={t('queuesWaiting', {
+            count: extras.queues.reduce((sum, queue) => sum + queue.waiting, 0),
+          })}
+        >
           <div className="list">
             {extras.queues
               .filter((queue) => queue.waiting > 0 || queue.failed > 0)
@@ -210,19 +232,18 @@ export function OverviewScreen() {
                 </div>
               ))}
           </div>
-        </section>
+        </Fold>
       )}
 
       {extras.storage && (
-        <section className="card">
-          <h2>{t('storageTitle')}</h2>
+        <Fold title={t('storageTitle')} state={formatBytes(extras.storage.bytes)}>
           <p className="hint">
             {t('storageUsed', {
               files: extras.storage.files.toLocaleString(),
               size: formatBytes(extras.storage.bytes),
             })}
           </p>
-        </section>
+        </Fold>
       )}
 
       {extras.activity && extras.activity.max > 0 && <ActivityCard grid={extras.activity} />}
@@ -230,8 +251,7 @@ export function OverviewScreen() {
       {/* Кто двигал рычаги: без ответа на «кто включил техработы» команда жить не может,
           а публичное состояние его не отдаёт — посетителю знать незачем. */}
       {extras.changes.length > 0 && (
-        <section className="card">
-          <h2>{t('changesTitle')}</h2>
+        <Fold title={t('changesTitle')}>
           <div className="list">
             {extras.changes.slice(0, 5).map((change) => (
               <div className="toggle-row" key={`${change.action}-${change.at}`}>
@@ -245,23 +265,7 @@ export function OverviewScreen() {
               </div>
             ))}
           </div>
-        </section>
-      )}
-
-      {health && (
-        <section className="card">
-          <h2>{t('healthTitle')}</h2>
-          <div className="list">
-            {(Object.keys(HEALTH_LABEL) as (keyof HealthReport)[]).map((key) => (
-              <div className="toggle-row" key={key}>
-                <span>{t(HEALTH_LABEL[key])}</span>
-                <span className={health[key] === 'ok' ? 'toggle-state' : 'toggle-state off'}>
-                  {health[key] === 'ok' ? t('healthOk') : t('healthFail')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+        </Fold>
       )}
     </>
   )
@@ -333,8 +337,7 @@ function ActivityCard({ grid }: { grid: ActivityGrid }) {
   ]
 
   return (
-    <section className="card">
-      <h2>{t('activityTitle')}</h2>
+    <Fold title={t('activityTitle')}>
       <p className="hint">{t('activityHint')}</p>
       <div className="heatmap">
         {grid.cells.map((hours, dow) => (
@@ -358,6 +361,6 @@ function ActivityCard({ grid }: { grid: ActivityGrid }) {
         <span>{t('activityNoon')}</span>
         <span>{t('activityEvening')}</span>
       </div>
-    </section>
+    </Fold>
   )
 }

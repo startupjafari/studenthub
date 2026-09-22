@@ -21,10 +21,10 @@ import {
 import { ApiError } from '../api/client'
 import { createComplaintFromSupport } from '../api/complaints'
 import { searchPeople, type Person } from '../api/people'
-import { confirmAction, haptic } from '../telegram/webapp'
+import { confirmAction, haptic, setClosingConfirmation } from '../telegram/webapp'
 import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
-import { formatDateTime, formatShortTime } from '../lib/format'
+import { formatDateTime, formatShortTime, initials } from '../lib/format'
 import { PersonSummary } from './person-summary'
 import { useVoiceRecorder } from '../telegram/use-voice'
 
@@ -203,6 +203,9 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
                 onOpen(ticket)
               }}
             >
+              <span className="avatar-sm" aria-hidden>
+                {initials(authorName(ticket))}
+              </span>
               <span className="row-body">
                 <b>{authorName(ticket)}</b>
                 <span className="hint">{firstLine(ticket.lastMessage?.text ?? '')}</span>
@@ -430,6 +433,13 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     }
   }, [onBack, id])
 
+  // Набранный, но не отправленный ответ свайп вниз стирал молча — а набирают его на
+  // телефоне долго. Спрашиваем подтверждение, только пока в поле что-то есть.
+  useEffect(() => {
+    setClosingConfirmation(text.trim().length > 0)
+    return () => setClosingConfirmation(false)
+  }, [text])
+
   // Главная кнопка Telegram под областью приложения: она не отнимает высоту у переписки,
   // а «Ответить» — единственное главное действие этого экрана. Пустой текст кнопку
   // убирает: кнопка, которая ничего не сделает, хуже её отсутствия.
@@ -522,23 +532,27 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       )}
 
       {state.status === 'ready' && (
-        <section className="list">
-          {state.messages.map((message) => (
-            <div key={message.id} className="row row-static">
-              <span className="row-body">
-                <b>{message.sender.firstName}</b>
+        <section className="thread">
+          {state.messages.map((message) => {
+            // «Своё» здесь — сказанное командой платформы: экран читает поддержка, и её
+            // реплики должны отличаться от реплик человека, которому отвечают. Автор
+            // обращения известен из карточки, остальные участники — команда.
+            const fromStaff = ticket?.author ? message.sender.id !== ticket.author.id : false
+            return (
+              <div key={message.id} className={fromStaff ? 'bubble mine' : 'bubble theirs'}>
+                {!fromStaff && <span className="bubble-author">{message.sender.firstName}</span>}
                 <span>{message.content}</span>
                 {/* Вложение объясняет больше абзаца текста; скачать его из мини-аппа
                     нельзя, но знать, что оно есть, модератор обязан. */}
                 {message.media && message.media.length > 0 && (
-                  <span className="hint">
+                  <span className="bubble-meta">
                     {t('supportAttachments', { count: message.media.length })}
                   </span>
                 )}
-                <span className="hint">{formatShortTime(message.createdAt)}</span>
-              </span>
-            </div>
-          ))}
+                <span className="bubble-meta">{formatShortTime(message.createdAt)}</span>
+              </div>
+            )
+          })}
         </section>
       )}
 
@@ -597,7 +611,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
           ) : (
             <button
               type="button"
-              className="fallback-submit"
+              className="fallback-submit secondary"
               disabled={busy}
               onClick={() => {
                 haptic.tap()
@@ -611,7 +625,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         {ticket && !ticket.assigneeId && !ticket.closedAt && (
           <button
             type="button"
-            className="fallback-submit"
+            className="fallback-submit secondary"
             disabled={busy}
             onClick={() => void take()}
           >
@@ -623,7 +637,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
             {/* Эскалация — действие, а не состояние: ответ на неё человек, а не флаг. */}
             <button
               type="button"
-              className="fallback-submit"
+              className="fallback-submit secondary"
               disabled={busy}
               onClick={() => void escalate()}
             >
@@ -633,7 +647,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
                 поддержку — жаловался он, и в очереди должно быть видно именно это. */}
             <button
               type="button"
-              className="fallback-submit"
+              className="fallback-submit secondary"
               disabled={busy}
               onClick={() => {
                 haptic.tap()

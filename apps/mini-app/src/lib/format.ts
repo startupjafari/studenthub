@@ -73,3 +73,10 @@ export function formatAge(since: number | string, now: number = Date.now()): str
 
   return t('ageDays', { count: Math.round(hours / 24) })
 }
+
+/** Две буквы для кружка в списке: фамилия и имя; из одного слова — одна буква. */
+export function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` || '?'
+}
