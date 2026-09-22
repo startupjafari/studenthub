@@ -7,6 +7,7 @@ import { FileText, ImageOff, Loader2, Play } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
 import { Skeleton } from '../../../shared/ui'
 import { fetchAttachmentUrl } from '../api/chat-api'
+import { fileKind } from '../lib/file-kind'
 import type { MessageAttachment } from '../model/types'
 import { VoiceMessage } from './voice-message'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
@@ -136,6 +137,7 @@ function Single({
   const [painted, setPainted] = useState(false)
   // Сам файл не отрисовался (чаще всего протухшая ссылка) — показываем «Повторить».
   const [broken, setBroken] = useState(false)
+  const kind = fileKind(att.name, att.mime)
   // Картинка и видео занимают место кадром, голосовые и файлы — узкой строкой.
   const framed = !isVoice(att) && (att.mime.startsWith('image/') || att.mime.startsWith('video/'))
 
@@ -295,14 +297,20 @@ function Single({
         uploading && 'pointer-events-none',
       )}
     >
+      {/* Значок расширения (§7 карты): цвет задаёт тип документа — в переписке с десятком
+          вложений он различает архив, таблицу и картинку раньше, чем прочитано имя. */}
       <span
         className={cn(
-          'relative flex size-10 shrink-0 items-center justify-center rounded-full',
-          mine ? 'bg-primary-foreground text-primary' : 'bg-primary text-primary-foreground',
+          'relative flex size-10 shrink-0 items-center justify-center rounded-full text-white',
+          uploading ? 'bg-muted-foreground' : kind.className,
         )}
       >
         {uploading ? (
           <Loader2 className="size-5 animate-spin" aria-hidden />
+        ) : kind.ext ? (
+          <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
+            {kind.ext}
+          </span>
         ) : (
           <FileText className="size-5" aria-hidden />
         )}
