@@ -120,6 +120,12 @@ export type ConversationListProps = {
   onRowTouchMove: (e: React.TouchEvent<HTMLElement>) => void
   onRowTouchEnd: (e: React.TouchEvent<HTMLElement>, id: string) => void
   onCloseSwiped: (id: string) => void
+  /**
+   * Кто набирает, по чатам (§1 карты). Имён здесь нет и не будет: список знает только сами
+   * чаты, а тянуть справочник участников ради подписи в строке — запрос на каждое нажатие
+   * клавиши у собеседника. В личном чате имя и так очевидно, в группе хватает «печатают…».
+   */
+  typingByChat: Record<string, Record<string, number>>
   onMarkRead: (id: string) => void
   onTogglePin: (c: ChatListItem) => void
   onToggleMute: (c: ChatListItem) => void
@@ -178,6 +184,7 @@ export function ConversationList({
   onRowTouchMove,
   onRowTouchEnd,
   onCloseSwiped,
+  typingByChat,
   onMarkRead,
   onTogglePin,
   onToggleMute,
@@ -657,6 +664,9 @@ export function ConversationList({
               !!c.othersReadAt &&
               new Date(c.othersReadAt).getTime() >= new Date(lm!.createdAt).getTime()
             const tag = TYPE_TAG[c.type]
+            // «Печатает» вытесняет превью последнего сообщения: пока собеседник набирает,
+            // это и есть самое свежее, что происходит в чате.
+            const typingHere = Object.keys(typingByChat[c.id] ?? {}).length
             return (
               <div
                 key={c.id}
@@ -820,10 +830,16 @@ export function ConversationList({
                       )}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5">
-                      <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {previewWho && <span className="text-foreground/70">{previewWho}</span>}
-                        {preview}
-                      </p>
+                      {typingHere > 0 ? (
+                        <p className="min-w-0 flex-1 truncate text-xs text-primary">
+                          {typingHere > 1 ? t('typingMany') : t('typingStatus')}
+                        </p>
+                      ) : (
+                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                          {previewWho && <span className="text-foreground/70">{previewWho}</span>}
+                          {preview}
+                        </p>
+                      )}
                       {c.unreadCount > 0 ? (
                         <span
                           className={cn(
