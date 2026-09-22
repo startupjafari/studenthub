@@ -12,6 +12,7 @@ import {
   BadgeCheck,
   Bell,
   BellOff,
+  CheckCheck,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -2868,6 +2869,20 @@ export function ChatWindow() {
                           <span className="flex-1 text-left">
                             {activeChat?.muted ? t('unmute') : t('mute')}
                           </span>
+                        </button>
+                        {/* «Выбрать» есть в меню сообщения, но включать режим оттуда можно
+                            только зная, с какого сообщения начать; из шапки — над чатом целиком. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectMode(true)
+                            setSelectedIds(new Set())
+                            setHeaderMenuOpen(false)
+                          }}
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                        >
+                          <CheckCheck className="size-4 shrink-0 opacity-80" aria-hidden />
+                          <span className="flex-1 text-left">{t('select')}</span>
                         </button>
                         <button
                           type="button"

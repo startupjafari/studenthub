@@ -824,17 +824,6 @@ function ParticipantsTab({
           {t('participants', { count: list.length || chat.memberCount })}
         </span>
         <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            aria-label={t('inviteLink')}
-            onClick={() => {
-              void navigator.clipboard?.writeText(`${window.location.origin}/join-chat/${chat.id}`)
-              toast.success(t('linkCopied'))
-            }}
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Link2 className="size-4" aria-hidden />
-          </button>
           {chat.isAdmin && (
             <button
               type="button"
@@ -1042,6 +1031,11 @@ export function ChatDetailsPanel({
   // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
   const peer = isPrivate && peerId && onToggleBlock ? { id: peerId, onToggleBlock } : null
 
+  // Адрес приглашения строим на клиенте: страница /join-chat/<id> публичная и одинакова
+  // для всех, отдельной ручки за ним нет. origin читается лениво — на сервере его нет.
+  const inviteLink =
+    typeof window === 'undefined' ? '' : `${window.location.origin}/join-chat/${chat.id}`
+
   // Вкладка по умолчанию: участники в группе, профиль в личном чате, иначе медиа.
   const firstTab = isGroup ? 'participants' : peer ? 'profile' : 'media'
   // Тип — string, а не объединение литералов: Radix отдаёт в onValueChange обычную
@@ -1182,6 +1176,27 @@ export function ChatDetailsPanel({
           )}
         </div>
       </div>
+
+      {/* Ссылка-приглашение видимой строкой (§3 карты), а не иконкой в углу вкладки
+          участников: ссылку зовут «скинуть» устно, и человек должен видеть, ЧТО именно
+          ложится в буфер, прежде чем отправить это в чужой чат. */}
+      {isGroup && (
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard?.writeText(inviteLink)
+            toast.success(t('linkCopied'))
+          }}
+          className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
+        >
+          <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+            <span className="truncate text-sm text-info">{inviteLink}</span>
+            <span className="text-xs text-muted-foreground">{t('inviteLink')}</span>
+          </span>
+          <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+      )}
 
       {/* Первой открывается вкладка о самом собеседнике (в группе — её участники):
           «кто это» — вопрос раньше, чем «что здесь присылали». */}
