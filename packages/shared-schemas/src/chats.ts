@@ -73,6 +73,54 @@ export const EditChatSchema = z
   })
 export type EditChatInput = z.infer<typeof EditChatSchema>
 
+/**
+ * Снимки по дням для календаря перехода по дате (§5 карты интерфейса).
+ *
+ * `tzOffset` — минуты из `Date.getTimezoneOffset()` браузера: календарь рисует местные даты,
+ * и сервер должен разложить снимки по тем же дням, которые видит человек. Диапазон ±14 часов
+ * покрывает все существующие пояса вместе с летним временем.
+ */
+export const ChatMediaCalendarQuerySchema = z
+  .object({
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+    tzOffset: z.coerce.number().int().min(-840).max(840).default(0),
+  })
+  .strict()
+  .refine((v) => new Date(v.from) <= new Date(v.to), {
+    path: ['to'],
+    message: 'Конец окна раньше его начала',
+  })
+export type ChatMediaCalendarQueryInput = z.infer<typeof ChatMediaCalendarQuerySchema>
+
+/**
+ * Сколько очищенных периодов помнит участник чата. Диапазоны хранятся слитыми, так что
+ * пятьдесят — это пятьдесят разрозненных кусков истории; дальше человек не «чистит период»,
+ * а хочет очистить чат целиком, и предлагать это честнее, чем молча склеивать его периоды
+ * и прятать то, о чём он не просил.
+ */
+export const CLEARED_RANGES_MAX = 50
+
+/**
+ * Очистка истории «для меня». Без полей — всё до текущего момента (прежнее поведение).
+ * С `from`/`to` — только этот период (§5 карты интерфейса: режим диапазона в календаре).
+ * Границы включительны и задаются целыми днями со стороны клиента.
+ */
+export const ClearChatSchema = z
+  .object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+  })
+  .strict()
+  .refine((v) => (v.from === undefined) === (v.to === undefined), {
+    message: 'Период задаётся обеими границами',
+  })
+  .refine((v) => !v.from || !v.to || new Date(v.from) <= new Date(v.to), {
+    path: ['to'],
+    message: 'Конец периода раньше его начала',
+  })
+export type ClearChatInput = z.infer<typeof ClearChatSchema>
+
 // Черновик сообщения (Ф9+, синхронизация между устройствами). Пустой текст очищает черновик.
 export const SaveDraftSchema = z.object({ text: z.string().max(4000) }).strict()
 export type SaveDraftInput = z.infer<typeof SaveDraftSchema>

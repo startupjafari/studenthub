@@ -43,6 +43,7 @@ export {
   editChatRequest,
   deleteChatRequest,
   clearChatRequest,
+  fetchChatMediaCalendar,
   setChatAdminRequest,
   transferOwnershipRequest,
   fetchBlockedUsers,

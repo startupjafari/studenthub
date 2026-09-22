@@ -7,9 +7,11 @@ import type {
   ChatListQueryInput,
   ChatMessagesQueryInput,
   ChatMediaQueryInput,
+  ChatMediaCalendarQueryInput,
   ChatUpdatesQueryInput,
   CreateChatPollInput,
   CursorPaginationInput,
+  ClearChatInput,
   EditChatInput,
   MessageSearchQueryInput,
   MessageSendInput,
@@ -17,6 +19,7 @@ import type {
   ScheduleMessageInput,
   UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
+import { CLEARED_RANGES_MAX } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
@@ -77,6 +80,82 @@ interface ChatMemberNotifyRow {
 
 // С какого момента сообщения считаются непрочитанными: позднее из «последнего прочтения»
 // и «очистки истории у себя». Оба могут быть null — тогда непрочитано всё, что есть.
+/**
+ * Сколько снимков просматривает календарь медиа за один запрос. Окно календаря — месяц-два,
+ * и тысячи вложений в нём ничего не добавят: на день всё равно попадает один кружок.
+ */
+const MEDIA_CALENDAR_SCAN = 500
+
+/** Дата в поясе смотрящего как `YYYY-MM-DD`. `tzOffset` — минуты из `getTimezoneOffset`. */
+function localDayKey(at: Date, tzOffset: number): string {
+  return new Date(at.getTime() - tzOffset * 60_000).toISOString().slice(0, 10)
+}
+
+/** Состояние очистки истории «для меня»: водораздел + отдельно вырезанные периоды. */
+interface ClearedState {
+  clearedAt: Date | null
+  clearedRanges: Prisma.JsonValue | null
+}
+
+/** Поля, которыми читается состояние очистки. Один объект на все места — чтобы не разъехались. */
+const CLEARED_SELECT = { clearedAt: true, clearedRanges: true } as const
+
+/**
+ * Разобрать `ChatMember.clearedRanges`. Молча пропускаем всё, что не похоже на `{from, to}`
+ * с разбираемыми датами: колонка Json, и строка, пережившая ручную правку в БД или старый
+ * формат, не должна ронять выдачу истории — худшее, что может случиться, это лишний
+ * показанный период.
+ */
+function parseClearedRanges(raw: Prisma.JsonValue | null): { from: Date; to: Date }[] {
+  if (!Array.isArray(raw)) return []
+  const out: { from: Date; to: Date }[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue
+    const { from, to } = item as { from?: unknown; to?: unknown }
+    if (typeof from !== 'string' || typeof to !== 'string') continue
+    const a = new Date(from)
+    const b = new Date(to)
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || a > b) continue
+    out.push({ from: a, to: b })
+  }
+  return out
+}
+
+/**
+ * Условия «не отдавать очищенное мной» для запроса по сообщениям.
+ *
+ * Возвращает фрагмент where со всеми условиями в `AND`, а не отдельный ключ `createdAt`:
+ * вырезанных периодов может быть несколько, и каждому нужен свой `NOT`. Отдельным ключом
+ * они бы затирали друг друга и границу `clearedAt`.
+ */
+function clearedWhere(mem: ClearedState | null): Prisma.MessageWhereInput {
+  const conditions: Prisma.MessageWhereInput[] = []
+  if (mem?.clearedAt) conditions.push({ createdAt: { gt: mem.clearedAt } })
+  for (const r of parseClearedRanges(mem?.clearedRanges ?? null)) {
+    conditions.push({ NOT: { createdAt: { gte: r.from, lte: r.to } } })
+  }
+  return conditions.length > 0 ? { AND: conditions } : {}
+}
+
+/**
+ * Слить диапазоны: сортируем по началу и склеиваем пересекающиеся и соприкасающиеся.
+ * Без слияния список рос бы на каждую очистку одного и того же месяца, а в where уходило
+ * бы столько же лишних `NOT`.
+ */
+function mergeRanges(ranges: { from: Date; to: Date }[]): { from: Date; to: Date }[] {
+  const sorted = [...ranges].sort((a, b) => a.from.getTime() - b.from.getTime())
+  const out: { from: Date; to: Date }[] = []
+  for (const r of sorted) {
+    const last = out[out.length - 1]
+    if (last && r.from.getTime() <= last.to.getTime()) {
+      if (r.to > last.to) last.to = r.to
+      continue
+    }
+    out.push({ from: r.from, to: r.to })
+  }
+  return out
+}
+
 function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
   if (!m.lastReadAt) return m.clearedAt
   if (!m.clearedAt) return m.lastReadAt
@@ -773,15 +852,15 @@ export class ChatsService {
     query: ChatMessagesQueryInput,
   ): Promise<Paginated<MessageRow>> {
     await this.assertMembership(viewer.sub, chatId)
-    // Очистка истории «для меня»: не отдаём сообщения старше clearedAt.
+    // Очистка истории «для меня»: не отдаём ни то, что старше clearedAt, ни вырезанные периоды.
     const mem = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: viewer.sub } },
-      select: { clearedAt: true },
+      select: CLEARED_SELECT,
     })
     const baseWhere: Prisma.MessageWhereInput = {
       chatId,
       deletedAt: null,
-      ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+      ...clearedWhere(mem),
     }
     const limit = query.limit
 
@@ -862,15 +941,12 @@ export class ChatsService {
     overflow: boolean
   }> {
     await this.assertMembership(viewer.sub, chatId)
-    // Очистка истории «для меня» — та же граница, что и в getMessages.
+    // Очистка истории «для меня» — те же границы, что и в getMessages.
     const mem = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: viewer.sub } },
-      select: { clearedAt: true },
+      select: CLEARED_SELECT,
     })
-    const baseWhere: Prisma.MessageWhereInput = {
-      chatId,
-      ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
-    }
+    const baseWhere: Prisma.MessageWhereInput = { chatId, ...clearedWhere(mem) }
     const sinceTs = query.sinceTs ? new Date(query.sinceTs) : undefined
 
     // Уже известные клиенту сообщения — только они могут «мутировать» с его точки зрения.
@@ -982,12 +1058,12 @@ export class ChatsService {
     await this.assertMembership(viewer.sub, chatId)
     const mem = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: viewer.sub } },
-      select: { clearedAt: true },
+      select: CLEARED_SELECT,
     })
     const messageWhere: Prisma.MessageWhereInput = {
       chatId,
       deletedAt: null,
-      ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+      ...clearedWhere(mem),
     }
     const rows = await this.prisma.file.findMany({
       where: { message: messageWhere, ...mediaMimeWhere(query.type) },
@@ -1032,14 +1108,14 @@ export class ChatsService {
     await this.assertMembership(viewer.sub, chatId)
     const mem = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: viewer.sub } },
-      select: { clearedAt: true },
+      select: CLEARED_SELECT,
     })
     const rows = await this.prisma.message.findMany({
       where: {
         chatId,
         deletedAt: null,
         linkPreview: { not: Prisma.DbNull },
-        ...(mem?.clearedAt ? { createdAt: { gt: mem.clearedAt } } : {}),
+        ...clearedWhere(mem),
       },
       select: {
         id: true,
@@ -1831,6 +1907,58 @@ export class ChatsService {
     return this.files.getPresignedUrl(fileId)
   }
 
+  /**
+   * Снимки по дням для календаря перехода по дате (§5 карты интерфейса): на дне, где есть
+   * медиа, кружок числа заполняется миниатюрой.
+   *
+   * День считается в часовом поясе смотрящего (`tzOffset` — то, что даёт `getTimezoneOffset`):
+   * календарь рисует местные даты, и снимок, отправленный в 23:40, обязан лечь в тот же день,
+   * что и в ленте. Раскладку делаем в JS после выборки, а не в SQL: группировка по усечённой
+   * дате со сдвигом требует сырого запроса ради украшения, которого видно тридцать одну штуку.
+   *
+   * Выборка ограничена MEDIA_CALENDAR_SCAN: в чате с тысячей снимков за месяц читать их все
+   * ради одной миниатюры на день незачем. Идём от новых к старым, поэтому при упоре в потолок
+   * миниатюр лишаются самые ранние дни окна — они же дальше всего от того, что ищут.
+   */
+  async getMediaCalendar(
+    viewer: JwtPayload,
+    chatId: string,
+    query: ChatMediaCalendarQueryInput,
+  ): Promise<{ items: { day: string; url: string }[] }> {
+    await this.assertMembership(viewer.sub, chatId)
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: viewer.sub } },
+      select: CLEARED_SELECT,
+    })
+    const rows = await this.prisma.file.findMany({
+      where: {
+        mime: { startsWith: 'image/' },
+        message: {
+          chatId,
+          deletedAt: null,
+          createdAt: { gte: new Date(query.from), lte: new Date(query.to) },
+          ...clearedWhere(mem),
+        },
+      },
+      select: { id: true, createdAt: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: MEDIA_CALENDAR_SCAN,
+    })
+    // Первый встреченный на день и есть самый свежий: выборка идёт от новых к старым.
+    const perDay = new Map<string, string>()
+    for (const row of rows) {
+      const day = localDayKey(row.createdAt, query.tzOffset)
+      if (!perDay.has(day)) perDay.set(day, row.id)
+    }
+    const urls = await this.files.getPresignedUrls([...perDay.values()])
+    const items: { day: string; url: string }[] = []
+    for (const [day, fileId] of perDay) {
+      const url = urls.get(fileId)
+      if (url) items.push({ day, url })
+    }
+    return { items }
+  }
+
   // ── Поиск сообщений (Ф9+) ─────────────────────────────────────────────────────
 
   /**
@@ -2536,15 +2664,51 @@ export class ChatsService {
     return { chatId, ownerId: userId }
   }
 
-  /** Очистить историю чата «для меня» (сообщения старше момента очистки скрываются). */
+  /**
+   * Очистить историю чата «для меня».
+   *
+   * Без периода — всё до текущего момента (`clearedAt`), как и раньше; накопленные диапазоны
+   * при этом сбрасываются: они целиком оказываются под новой границей и в `where` были бы
+   * лишними условиями ни о чём.
+   *
+   * С периодом (§5 карты, режим диапазона в календаре) — вырезается только он. Это скрытие
+   * «у себя», а не удаление: чужие сообщения удалять нельзя, и у остальных участников
+   * переписка остаётся целой.
+   */
   async clearChat(
     actor: JwtPayload,
     chatId: string,
+    input: ClearChatInput = {},
   ): Promise<{ chatId: string; cleared: boolean }> {
     await this.assertMembership(actor.sub, chatId)
+    if (!input.from || !input.to) {
+      await this.prisma.chatMember.updateMany({
+        where: { chatId, userId: actor.sub },
+        data: { clearedAt: new Date(), clearedRanges: Prisma.DbNull },
+      })
+      return { chatId, cleared: true }
+    }
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: actor.sub } },
+      select: CLEARED_SELECT,
+    })
+    const merged = mergeRanges([
+      ...parseClearedRanges(mem?.clearedRanges ?? null),
+      { from: new Date(input.from), to: new Date(input.to) },
+    ])
+    // Уже скрытое границей clearedAt держать отдельным диапазоном незачем.
+    const kept = mem?.clearedAt ? merged.filter((r) => r.to > mem.clearedAt!) : merged
+    if (kept.length > CLEARED_RANGES_MAX) {
+      throw new AppException(
+        'BAD_REQUEST',
+        'Слишком много очищенных периодов — очистите историю целиком',
+      )
+    }
     await this.prisma.chatMember.updateMany({
       where: { chatId, userId: actor.sub },
-      data: { clearedAt: new Date() },
+      data: {
+        clearedRanges: kept.map((r) => ({ from: r.from.toISOString(), to: r.to.toISOString() })),
+      },
     })
     return { chatId, cleared: true }
   }
