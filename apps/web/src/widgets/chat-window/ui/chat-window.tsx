@@ -143,6 +143,9 @@ const ROW_BTN_W = 72
 const FOCUS_RETRY_MS = 50
 const FOCUS_TRIES = 10
 
+/** Пустая карта набирающих: общая ссылка, чтобы отсутствие набора не перерисовывало ленту. */
+const NO_TYPING: Record<string, number> = {}
+
 // Сколько закреплений полоса показывает шкалой. Дальше деления тоньше волоса и читаются
 // как сплошная линия — там честнее число «3/12».
 const PINNED_SCALE_MAX = 6
@@ -241,7 +244,14 @@ export function ChatWindow() {
   const draftsRef = useRef<Map<string, string>>(new Map())
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [text, setText] = useState('')
-  const [typingUsers, setTypingUsers] = useState<Record<string, number>>({})
+  /**
+   * Кто сейчас набирает, по чатам: `{ chatId: { userId: когда пришло событие } }`.
+   *
+   * Карта по всем чатам, а не только по открытому: подпись «печатает» нужна и в строке списка
+   * (§1 карты интерфейса), а события теперь приходят в личную комнату по всем чатам, где
+   * состоит смотрящий, а не только по открытому.
+   */
+  const [typingByChat, setTypingByChat] = useState<Record<string, Record<string, number>>>({})
   const [connected, setConnected] = useState(true)
   // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
   // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
@@ -1309,28 +1319,38 @@ export function ChatWindow() {
     },
   )
   useRealtimeEvent<{ chatId: string; userId: string }>('typing:started', ({ chatId, userId }) => {
-    if (chatId === activeId && userId !== myId) {
-      setTypingUsers((prev) => ({ ...prev, [userId]: Date.now() }))
-    }
+    if (userId === myId) return
+    setTypingByChat((prev) => ({ ...prev, [chatId]: { ...prev[chatId], [userId]: Date.now() } }))
   })
   useRealtimeEvent<{ chatId: string; userId: string }>('typing:stopped', ({ chatId, userId }) => {
-    if (chatId === activeId) {
-      setTypingUsers((prev) => {
-        const next = { ...prev }
-        delete next[userId]
-        return next
-      })
-    }
+    setTypingByChat((prev) => {
+      const inChat = prev[chatId]
+      if (!inChat || !(userId in inChat)) return prev
+      const rest = { ...inChat }
+      delete rest[userId]
+      const next = { ...prev }
+      if (Object.keys(rest).length === 0) delete next[chatId]
+      else next[chatId] = rest
+      return next
+    })
   })
 
-  // Автоочистка «печатает» через 4с без обновления.
+  // Автоочистка «печатает» через 4с без обновления. Нужна не только от потерянного
+  // `typing:stopped`: набирающий мог закрыть вкладку, и подпись висела бы вечно — в строке
+  // списка это заметнее, чем в шапке, потому что туда никто не заходит её сбрасывать.
   useEffect(() => {
     const timer = setInterval(() => {
-      setTypingUsers((prev) => {
+      setTypingByChat((prev) => {
         const now = Date.now()
-        const next: Record<string, number> = {}
-        for (const [uid, ts] of Object.entries(prev)) if (now - ts < 4000) next[uid] = ts
-        return Object.keys(next).length === Object.keys(prev).length ? prev : next
+        const next: Record<string, Record<string, number>> = {}
+        let changed = false
+        for (const [chatId, users] of Object.entries(prev)) {
+          const alive: Record<string, number> = {}
+          for (const [uid, ts] of Object.entries(users)) if (now - ts < 4000) alive[uid] = ts
+          if (Object.keys(alive).length !== Object.keys(users).length) changed = true
+          if (Object.keys(alive).length > 0) next[chatId] = alive
+        }
+        return changed ? next : prev
       })
     }, 2000)
     return () => clearInterval(timer)
@@ -2197,6 +2217,7 @@ export function ChatWindow() {
     searchJumpedFor.current = null
   }
 
+  const typingUsers = (activeId ? typingByChat[activeId] : undefined) ?? NO_TYPING
   const typingCount = Object.keys(typingUsers).length
   // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
   const firstTyperId = Object.keys(typingUsers)[0]
@@ -2429,6 +2450,7 @@ export function ChatWindow() {
       onRowTouchMove={chatRows.onRowTouchMove}
       onRowTouchEnd={chatRows.onRowTouchEnd}
       onCloseSwiped={chatRows.closeRow}
+      typingByChat={typingByChat}
       onMarkRead={markChatRead}
       onOpenInNewTab={(c) => {
         // Тот же адрес, что и у «Написать» из профиля (?chat=<id>) — второе окно открывается
