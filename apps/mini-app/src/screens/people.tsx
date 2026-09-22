@@ -11,7 +11,7 @@ import {
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
-import { formatShortTime } from '../lib/format'
+import { formatShortTime, initials } from '../lib/format'
 
 // Люди: найти человека и решить, оставить ли ему доступ.
 //
@@ -222,6 +222,9 @@ export function PeopleScreen() {
         <section className="list">
           {state.items.map((person) => (
             <div className="toggle-row" key={person.id}>
+              <span className="avatar-sm" aria-hidden>
+                {initials(`${person.lastName} ${person.firstName}`)}
+              </span>
               <span className="row-body">
                 <b>
                   {person.lastName} {person.firstName}

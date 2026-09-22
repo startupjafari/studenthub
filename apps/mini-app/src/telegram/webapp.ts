@@ -42,9 +42,19 @@ export function initTelegram(): () => void {
   // Свайп вниз внутри скроллящегося списка иначе закрывает мини-апп — частая жалоба
   // на приложения, которые этот вызов пропустили. Метод появился в 7.7, отсюда `?.`.
   tg.disableVerticalSwipes?.()
-  tg.setHeaderColor?.(tg.themeParams.bg_color ?? '#ffffff')
+  // Шапку и подложку красим в ФОН СТРАНИЦЫ, а не в bg_color: страница у нас лежит на
+  // secondary_bg_color, и шапка цвета bg_color рисовала над приложением полосу другого
+  // оттенка — мини-апп выглядел вставленным в чужую рамку.
+  const surface = tg.themeParams.secondary_bg_color ?? tg.themeParams.bg_color ?? '#ffffff'
+  tg.setHeaderColor?.(surface)
+  tg.setBackgroundColor?.(surface)
 
-  const onThemeChanged = (): void => applyTheme(tg.themeParams, tg.colorScheme)
+  const onThemeChanged = (): void => {
+    applyTheme(tg.themeParams, tg.colorScheme)
+    const next = tg.themeParams.secondary_bg_color ?? tg.themeParams.bg_color ?? '#ffffff'
+    tg.setHeaderColor?.(next)
+    tg.setBackgroundColor?.(next)
+  }
   tg.onEvent('themeChanged', onThemeChanged)
   return () => tg.offEvent('themeChanged', onThemeChanged)
 }
@@ -118,4 +128,18 @@ export function startParam(): { kind: 'complaint' | 'support'; id: string } | nu
   const id = raw.slice(at + 1)
   if (id.length === 0) return null
   return kind === 'complaint' || kind === 'support' ? { kind, id } : null
+}
+
+/**
+ * Предупреждать ли при закрытии свайпом.
+ *
+ * Набранный ответ в поддержке или введённый код 2FA свайп вниз стирал молча — а набирают
+ * их на телефоне долго. Включаем, только когда в полях что-то есть: постоянный вопрос
+ * «точно закрыть?» на пустом экране учит отвечать «да» не глядя.
+ */
+export function setClosingConfirmation(on: boolean): void {
+  const tg = webApp()
+  if (!tg) return
+  if (on) tg.enableClosingConfirmation?.()
+  else tg.disableClosingConfirmation?.()
 }
