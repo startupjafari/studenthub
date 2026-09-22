@@ -55,6 +55,10 @@ export type MessageActions = {
   del: (m: ChatMessage) => void
   retry: (m: ChatMessage) => void
   toggleSelect: (id: string) => void
+  /** Ctrl/Cmd + клик по сообщению — вход в режим выделения прямо с него (§5 карты). */
+  startSelect: (m: ChatMessage) => void
+  /** Снимок лёг в буфер обмена (или не лёг) — сообщить об этом умеет только приложение. */
+  copiedImage: (ok: boolean) => void
   react: (id: string, emoji: string) => void
   touchStart: (e: React.TouchEvent<HTMLDivElement>, m: ChatMessage) => void
   touchMove: (e: React.TouchEvent<HTMLDivElement>) => void
@@ -168,6 +172,18 @@ function MessageItemInner({
               : (e) => {
                   e.preventDefault()
                   actions.openMenu(m, e.clientX, e.clientY)
+                }
+          }
+          onClick={
+            selecting
+              ? undefined
+              : (e) => {
+                  if (!e.ctrlKey && !e.metaKey) return
+                  // Ctrl/Cmd по ссылке или кнопке внутри пузыря — это «открыть в новой
+                  // вкладке» и скачивание вложения; забирать их себе нельзя.
+                  if ((e.target as HTMLElement).closest('a,button')) return
+                  e.preventDefault()
+                  actions.startSelect(m)
                 }
           }
           onTouchStart={selecting ? undefined : (e) => actions.touchStart(e, m)}
@@ -284,6 +300,7 @@ function MessageItemInner({
                 viewerActions={{
                   onGoTo: () => actions.focus(m.id),
                   onCopy: () => actions.copy(m),
+                  onCopiedImage: (ok) => actions.copiedImage(ok),
                   onForward: () => actions.forward(m),
                   onDelete: () => actions.del(m),
                 }}

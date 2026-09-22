@@ -6,11 +6,15 @@ import {
   Archive,
   ArchiveRestore,
   ArrowLeft,
+  BadgeCheck,
   Bell,
   BellOff,
   Bookmark,
   Check,
   CheckCheck,
+  Eraser,
+  ExternalLink,
+  EyeOff,
   Folder,
   FolderCog,
   FolderPlus,
@@ -42,7 +46,15 @@ import {
   type SegmentedTabItem,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { avatarColor, chatInitials, chatTitle, listTime, senderName, TYPE_TAG } from '../lib/format'
+import {
+  avatarColor,
+  chatInitials,
+  chatTitle,
+  isOfficialChat,
+  listTime,
+  senderName,
+  TYPE_TAG,
+} from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
@@ -108,6 +120,12 @@ export type ConversationListProps = {
   onRowTouchMove: (e: React.TouchEvent<HTMLElement>) => void
   onRowTouchEnd: (e: React.TouchEvent<HTMLElement>, id: string) => void
   onCloseSwiped: (id: string) => void
+  /**
+   * Кто набирает, по чатам (§1 карты). Имён здесь нет и не будет: список знает только сами
+   * чаты, а тянуть справочник участников ради подписи в строке — запрос на каждое нажатие
+   * клавиши у собеседника. В личном чате имя и так очевидно, в группе хватает «печатают…».
+   */
+  typingByChat: Record<string, Record<string, number>>
   onMarkRead: (id: string) => void
   onTogglePin: (c: ChatListItem) => void
   onToggleMute: (c: ChatListItem) => void
@@ -117,6 +135,14 @@ export type ConversationListProps = {
   onManageFolders: () => void
   // Положить чат в папку или вынуть его оттуда — прямо из меню строки, без диалога.
   onToggleChatFolder: (folderId: string, chat: ChatListItem) => void
+  // Правый клик по вкладке своей папки (§1 карты): настроить её состав или удалить саму папку.
+  onEditFolder: (folderId: string) => void
+  onDeleteFolder: (folder: ChatFolder) => void
+  // §4 карты: открыть переписку второй вкладкой браузера и открыть её, не сбрасывая
+  // счётчик непрочитанного.
+  onOpenInNewTab: (c: ChatListItem) => void
+  onOpenUnread: (c: ChatListItem) => void
+  onClearHistory: (c: ChatListItem) => void
   onDeleteChat: (c: ChatListItem) => void
 }
 
@@ -158,14 +184,20 @@ export function ConversationList({
   onRowTouchMove,
   onRowTouchEnd,
   onCloseSwiped,
+  typingByChat,
   onMarkRead,
   onTogglePin,
   onToggleMute,
   onToggleArchive,
+  onOpenInNewTab,
+  onOpenUnread,
+  onClearHistory,
   onDeleteChat,
   folders,
   onManageFolders,
   onToggleChatFolder,
+  onEditFolder,
+  onDeleteFolder,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
   const tRoles = useTranslations('Roles')
@@ -182,6 +214,24 @@ export function ConversationList({
     // Строка под пальцем: на телефоне меню строится вокруг её снимка.
     anchor?: MenuAnchor
   } | null>(null)
+  // Меню вкладки папки (§1 карты). Отдельно от `rowMenu`: у строки чата и у вкладки разные
+  // наборы пунктов, а одновременно открытыми они не бывают — но и делить одно состояние на
+  // две сущности значило бы каждый раз выяснять, что именно сейчас под курсором.
+  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const openTabMenu = (value: string, e: React.MouseEvent<HTMLElement>): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Клавиша «контекстное меню» шлёт событие с координатами 0,0 — там меню встало бы
+    // в угол экрана. Берём прямоугольник самой вкладки, как и в меню строки.
+    const box = e.currentTarget.getBoundingClientRect()
+    const keyboard = e.clientX === 0 && e.clientY === 0
+    setTabMenu({
+      id: value,
+      x: keyboard ? box.left : e.clientX,
+      y: keyboard ? box.bottom : e.clientY,
+    })
+  }
+
   const openRowMenu = (e: React.MouseEvent<HTMLElement>, id: string): void => {
     e.preventDefault()
     e.stopPropagation()
@@ -204,6 +254,9 @@ export function ConversationList({
     setRowMenu({ id, x: box.left + 24, y: box.bottom, anchor: captureAnchor(el) })
   }
   const menuChat = rowMenu ? chats.find((c) => c.id === rowMenu.id) : undefined
+  // Своя папка под курсором — по ней меню полное; у встроенных вкладок настраивать нечего,
+  // кроме самого списка папок.
+  const menuFolder = tabMenu ? folders.find((f) => f.id === tabMenu.id) : undefined
 
   const folderTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
   // Непринятые запросы (§50) в счётчик «Непрочитанные» не идут: у них своя вкладка.
@@ -352,6 +405,7 @@ export function ConversationList({
             items={folderItems}
             value={folder}
             onChange={setFolder}
+            onItemContextMenu={openTabMenu}
             // Полоса над списком чатов, а не шапка страницы: высоту забирает список.
             compact
             // Сворачивать нечего: колонка чатов на узком экране занимает весь экран,
@@ -610,6 +664,9 @@ export function ConversationList({
               !!c.othersReadAt &&
               new Date(c.othersReadAt).getTime() >= new Date(lm!.createdAt).getTime()
             const tag = TYPE_TAG[c.type]
+            // «Печатает» вытесняет превью последнего сообщения: пока собеседник набирает,
+            // это и есть самое свежее, что происходит в чате.
+            const typingHere = Object.keys(typingByChat[c.id] ?? {}).length
             return (
               <div
                 key={c.id}
@@ -747,7 +804,16 @@ export function ConversationList({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+                      <span className="min-w-0 truncate text-sm font-semibold">{title}</span>
+                      {/* Знак подлинности официального чата (§7 карты) — синий, как ссылки
+                          и всё прочее «настоящее»: он утверждает происхождение, а не статус. */}
+                      {isOfficialChat(c.type) && (
+                        <BadgeCheck
+                          className="size-3.5 shrink-0 text-info"
+                          aria-label={t('officialChat')}
+                        />
+                      )}
+                      <span className="flex-1" aria-hidden />
                       {c.muted && (
                         <BellOff className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                       )}
@@ -764,10 +830,16 @@ export function ConversationList({
                       )}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5">
-                      <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {previewWho && <span className="text-foreground/70">{previewWho}</span>}
-                        {preview}
-                      </p>
+                      {typingHere > 0 ? (
+                        <p className="min-w-0 flex-1 truncate text-xs text-primary">
+                          {typingHere > 1 ? t('typingMany') : t('typingStatus')}
+                        </p>
+                      ) : (
+                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                          {previewWho && <span className="text-foreground/70">{previewWho}</span>}
+                          {preview}
+                        </p>
+                      )}
                       {c.unreadCount > 0 ? (
                         <span
                           className={cn(
@@ -801,6 +873,43 @@ export function ConversationList({
         )}
       </div>
 
+      {tabMenu && (
+        <RowContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          ariaLabel={t('foldersTitle')}
+          onClose={() => setTabMenu(null)}
+          items={
+            menuFolder
+              ? [
+                  {
+                    key: 'folder-edit',
+                    icon: FolderCog,
+                    label: t('folderEdit'),
+                    onClick: () => onEditFolder(menuFolder.id),
+                  },
+                  {
+                    key: 'folder-delete',
+                    icon: Trash2,
+                    label: t('foldersDelete'),
+                    onClick: () => onDeleteFolder(menuFolder),
+                    danger: true,
+                  },
+                ]
+              : [
+                  // Встроенную вкладку не удалить и не переименовать — её состав задаёт тип
+                  // чата. Единственное осмысленное действие отсюда — общий экран папок.
+                  {
+                    key: 'folders-manage',
+                    icon: FolderCog,
+                    label: t('foldersManage'),
+                    onClick: onManageFolders,
+                  },
+                ]
+          }
+        />
+      )}
+
       {rowMenu && menuChat && (
         <RowContextMenu
           x={rowMenu.x}
@@ -809,8 +918,21 @@ export function ConversationList({
           ariaLabel={t('chatActions')}
           onClose={() => setRowMenu(null)}
           items={[
+            {
+              key: 'openNewTab',
+              icon: ExternalLink,
+              label: t('openInNewTab'),
+              onClick: () => onOpenInNewTab(menuChat),
+            },
+            // «Посмотреть и не прочитать» имеет смысл только там, где есть что не читать.
             ...(menuChat.unreadCount > 0
               ? [
+                  {
+                    key: 'openUnread',
+                    icon: EyeOff,
+                    label: t('openWithoutReading'),
+                    onClick: () => onOpenUnread(menuChat),
+                  },
                   {
                     key: 'markRead',
                     icon: CheckCheck,
@@ -867,6 +989,12 @@ export function ConversationList({
               icon: menuChat.archived ? ArchiveRestore : Archive,
               label: menuChat.archived ? t('unarchive') : t('archive'),
               onClick: () => onToggleArchive(menuChat),
+            },
+            {
+              key: 'clear',
+              icon: Eraser,
+              label: t('clearHistory'),
+              onClick: () => onClearHistory(menuChat),
             },
             {
               key: 'delete',

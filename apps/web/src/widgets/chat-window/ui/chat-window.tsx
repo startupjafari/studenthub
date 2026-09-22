@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   Archive,
   ArchiveRestore,
+  BadgeCheck,
   Bell,
   BellOff,
+  CheckCheck,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -59,6 +61,7 @@ import {
   blockUserRequest,
   unblockUserRequest,
   clearChatRequest,
+  fetchChatMediaCalendar,
   createChatRequest,
   deleteChatRequest,
   acceptChatRequestRequest,
@@ -99,6 +102,7 @@ import {
   DateJumpPicker,
   formatYmd,
   Modal,
+  RowContextMenu,
   Skeleton,
   useConfirm,
   type RichTextHandle,
@@ -118,7 +122,15 @@ import {
 } from '../../../shared/lib'
 
 import { ConversationList } from './conversation-list'
-import { avatarColor, chatInitials, chatTitle, listTime, senderName } from '../lib/format'
+import {
+  avatarColor,
+  chatInitials,
+  chatTitle,
+  isOfficialChat,
+  listTime,
+  senderName,
+} from '../lib/format'
+import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
@@ -131,6 +143,13 @@ const ROW_BTN_W = 72
 // бессмысленно: значит, поля на экране нет (входящая заявка, блокировка).
 const FOCUS_RETRY_MS = 50
 const FOCUS_TRIES = 10
+
+/** Пустая карта набирающих: общая ссылка, чтобы отсутствие набора не перерисовывало ленту. */
+const NO_TYPING: Record<string, number> = {}
+
+// Сколько закреплений полоса показывает шкалой. Дальше деления тоньше волоса и читаются
+// как сплошная линия — там честнее число «3/12».
+const PINNED_SCALE_MAX = 6
 
 // Высота пометки дня в потоке ленты: строка 20 px + вертикальные отступы my-2 (8+8).
 // По ней понимаем, ушла ли пометка под верх — тогда её подменяет прилипший заголовок.
@@ -178,6 +197,7 @@ export function ChatWindow() {
   const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const router = useRouter()
+  const pathname = usePathname()
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
   const me = useAppSelector((s) => s.auth.user)
@@ -225,7 +245,14 @@ export function ChatWindow() {
   const draftsRef = useRef<Map<string, string>>(new Map())
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [text, setText] = useState('')
-  const [typingUsers, setTypingUsers] = useState<Record<string, number>>({})
+  /**
+   * Кто сейчас набирает, по чатам: `{ chatId: { userId: когда пришло событие } }`.
+   *
+   * Карта по всем чатам, а не только по открытому: подпись «печатает» нужна и в строке списка
+   * (§1 карты интерфейса), а события теперь приходят в личную комнату по всем чатам, где
+   * состоит смотрящий, а не только по открытому.
+   */
+  const [typingByChat, setTypingByChat] = useState<Record<string, Record<string, number>>>({})
   const [connected, setConnected] = useState(true)
   // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
   // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
@@ -259,6 +286,16 @@ export function ChatWindow() {
   const [listSearchTerm, setListSearchTerm] = useState('')
   const [pinnedIndex, setPinnedIndex] = useState(0)
   const [pinnedTouched, setPinnedTouched] = useState(false)
+  /**
+   * Полоса закреплённого спрятана «до следующего раза» (§2 карты): помним набор закреплений,
+   * который прятали. Изменился набор — подсказка снова нужна и полоса возвращается. Набор,
+   * а не «самое новое»: сервер отдаёт закреплённые списком без обещания порядка, и по одному
+   * его краю «появилось новое» не отличить от «сняли старое».
+   */
+  const [pinnedHiddenKey, setPinnedHiddenKey] = useState<string | null>(null)
+  // Меню полосы закреплённого (правый клик) и окно со списком всех закреплений чата.
+  const [pinnedMenu, setPinnedMenu] = useState<{ x: number; y: number } | null>(null)
+  const [pinnedListOpen, setPinnedListOpen] = useState(false)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   // Время, до которого другие участники прочитали чат — для статусов ✓/✓✓ своих сообщений.
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
@@ -548,15 +585,40 @@ export function ChatWindow() {
     },
   })
 
-  const forward = useMutation({
-    mutationFn: ({ targetChatId, messageId }: { targetChatId: string; messageId: string }) =>
-      forwardMessageRequest(targetChatId, messageId),
-    onSuccess: () => {
+  /**
+   * Пересылка (§5 карты): выбранные сообщения уходят в каждый отмеченный чат, следом за ними —
+   * подпись «от себя» отдельным сообщением. Последовательно и через await, а не пачкой мутаций:
+   * подпись обязана прийти ПОСЛЕ пересланного, иначе комментарий стоит раньше того, что
+   * комментирует. Своего поля для подписи у `POST /chats/:id/forward` нет — отсюда второе
+   * сообщение, а не изменение контракта.
+   */
+  async function sendForward(
+    targetChatIds: string[],
+    messageIds: string[],
+    caption: string,
+  ): Promise<void> {
+    try {
+      for (const targetChatId of targetChatIds) {
+        for (const messageId of messageIds) {
+          await forwardMessageRequest(targetChatId, messageId)
+        }
+        if (caption) await sendMessageWithAttachments(targetChatId, { content: caption }, [])
+      }
       setForwardMsg(null)
       toast.success(t('forwarded'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
+    } catch (e) {
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    }
+  }
+
+  /** «Избранное» как цель пересылки: чат может ещё не существовать — заводим по требованию. */
+  async function resolveSavedChatId(): Promise<string> {
+    const existing = (chats.data ?? []).find((c) => c.type === 'SAVED')
+    if (existing) return existing.id
+    const { id } = await fetchSavedChat()
+    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    return id
+  }
 
   // Создание опроса (§38): сообщение-опрос придёт по WS message:new — оптимистично не добавляем.
   const createPoll = useMutation({
@@ -568,6 +630,8 @@ export function ChatWindow() {
   // Пользовательские папки чатов (§2): вкладки списка. Держим здесь, потому что список чатов
   // порталится в сайдбар и своего состояния не имеет.
   const [foldersOpen, setFoldersOpen] = useState(false)
+  // Папка, на которой диалог должен открыться («Настроить папку» из меню вкладки).
+  const [foldersEditId, setFoldersEditId] = useState<string | null>(null)
   const folders = useQuery({ queryKey: chatKeys.folders(), queryFn: fetchChatFolders })
   const folderList: ChatFolder[] = folders.data ?? []
 
@@ -767,6 +831,51 @@ export function ChatWindow() {
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
+
+  /**
+   * Очистка истории за период (§5 карты, режим диапазона в календаре). Скрытие «у себя»:
+   * у остальных участников переписка остаётся целой — чужие сообщения не удаляют.
+   * Календарь тоже инвалидируем: снимки очищенных дней из него должны уйти.
+   */
+  const clearPeriod = useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      clearChatRequest(activeId as string, {
+        // Границы включительны: сервер сравнивает по createdAt, поэтому конец —
+        // последняя миллисекунда выбранного дня, а не его полночь.
+        from: new Date(`${from}T00:00:00`).toISOString(),
+        to: new Date(`${to}T23:59:59.999`).toISOString(),
+      }),
+    onSuccess: () => {
+      if (!activeId) return
+      void qc.invalidateQueries({ queryKey: chatKeys.messages(activeId) })
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: ['chats', activeId, 'media-calendar'] })
+      toast.success(t('historyCleared'))
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  /**
+   * Миниатюры для календаря: грузим ровно тот месяц, который открыт. Пока попап закрыт,
+   * месяца нет и запроса тоже — календарь открывают редко, а окно у него всегда одно.
+   */
+  const [calendarMonth, setCalendarMonth] = useState<string | null>(null)
+  const calendarMedia = useQuery({
+    queryKey: chatKeys.mediaCalendar(activeId ?? '', calendarMonth ?? ''),
+    queryFn: () => {
+      const [y, m] = (calendarMonth as string).split('-').map(Number)
+      const from = new Date(y as number, (m as number) - 1, 1)
+      const to = new Date(y as number, m as number, 0, 23, 59, 59, 999)
+      return fetchChatMediaCalendar(activeId as string, from.toISOString(), to.toISOString())
+    },
+    enabled: !!activeId && !!calendarMonth,
+    staleTime: 5 * 60 * 1000,
+  })
+  const dayThumbs = useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const it of calendarMedia.data ?? []) out[it.day] = it.url
+    return out
+  }, [calendarMedia.data])
 
   const deleteChat = useMutation({
     mutationFn: (chatId: string) => deleteChatRequest(chatId),
@@ -1256,28 +1365,38 @@ export function ChatWindow() {
     },
   )
   useRealtimeEvent<{ chatId: string; userId: string }>('typing:started', ({ chatId, userId }) => {
-    if (chatId === activeId && userId !== myId) {
-      setTypingUsers((prev) => ({ ...prev, [userId]: Date.now() }))
-    }
+    if (userId === myId) return
+    setTypingByChat((prev) => ({ ...prev, [chatId]: { ...prev[chatId], [userId]: Date.now() } }))
   })
   useRealtimeEvent<{ chatId: string; userId: string }>('typing:stopped', ({ chatId, userId }) => {
-    if (chatId === activeId) {
-      setTypingUsers((prev) => {
-        const next = { ...prev }
-        delete next[userId]
-        return next
-      })
-    }
+    setTypingByChat((prev) => {
+      const inChat = prev[chatId]
+      if (!inChat || !(userId in inChat)) return prev
+      const rest = { ...inChat }
+      delete rest[userId]
+      const next = { ...prev }
+      if (Object.keys(rest).length === 0) delete next[chatId]
+      else next[chatId] = rest
+      return next
+    })
   })
 
-  // Автоочистка «печатает» через 4с без обновления.
+  // Автоочистка «печатает» через 4с без обновления. Нужна не только от потерянного
+  // `typing:stopped`: набирающий мог закрыть вкладку, и подпись висела бы вечно — в строке
+  // списка это заметнее, чем в шапке, потому что туда никто не заходит её сбрасывать.
   useEffect(() => {
     const timer = setInterval(() => {
-      setTypingUsers((prev) => {
+      setTypingByChat((prev) => {
         const now = Date.now()
-        const next: Record<string, number> = {}
-        for (const [uid, ts] of Object.entries(prev)) if (now - ts < 4000) next[uid] = ts
-        return Object.keys(next).length === Object.keys(prev).length ? prev : next
+        const next: Record<string, Record<string, number>> = {}
+        let changed = false
+        for (const [chatId, users] of Object.entries(prev)) {
+          const alive: Record<string, number> = {}
+          for (const [uid, ts] of Object.entries(users)) if (now - ts < 4000) alive[uid] = ts
+          if (Object.keys(alive).length !== Object.keys(users).length) changed = true
+          if (Object.keys(alive).length > 0) next[chatId] = alive
+        }
+        return changed ? next : prev
       })
     }, 2000)
     return () => clearInterval(timer)
@@ -1360,14 +1479,14 @@ export function ChatWindow() {
         toBottom('auto')
         window.setTimeout(() => toBottom('auto'), 120)
       })
-      if (last) socket.emit('message:read', { chatId: activeId, messageId: last.id })
+      if (last) emitRead(activeId, last.id)
       return
     }
 
     if (last && last.id !== prevLastId) {
       if (last.senderId === myId || nearBottom()) {
         toBottom('smooth')
-        socket.emit('message:read', { chatId: activeId, messageId: last.id })
+        emitRead(activeId, last.id)
       } else {
         setNewSinceScroll((n) => n + 1)
         setShowScrollDown(true)
@@ -1438,8 +1557,7 @@ export function ChatWindow() {
     if (atBottom && !wasAtBottomRef.current) {
       setNewSinceScroll(0)
       const last = messages.data?.[messages.data.length - 1]
-      if (last && socket && activeId)
-        socket.emit('message:read', { chatId: activeId, messageId: last.id })
+      if (last && socket && activeId) emitRead(activeId, last.id)
     }
     wasAtBottomRef.current = atBottom
     // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
@@ -1515,12 +1633,32 @@ export function ChatWindow() {
     exitSelect()
   }
 
+  /**
+   * «Открыть без прочтения» (§4 карты): чат открыт, но отметка о прочтении наружу не уходит
+   * и счётчик непрочитанного остаётся. Флаг — ref, а не состояние: его читают обработчики
+   * прокрутки и приёма сообщений, и лишняя перерисовка ленты на каждое переключение ни к чему.
+   * Снимается при уходе из чата — вернувшись в него обычным способом, человек его и прочитал.
+   */
+  const peekChatIdRef = useRef<string | null>(null)
+  // Сравнение с активным чатом, а не очистка в размонтировании эффекта: пункт меню сначала
+  // ставит флаг и лишь потом переключает чат, и «снять при уходе» стёрло бы его на том же клике.
+  useEffect(() => {
+    if (peekChatIdRef.current && peekChatIdRef.current !== activeId) peekChatIdRef.current = null
+  }, [activeId])
+  /** Единая точка отправки отметки о прочтении: молчит, пока чат открыт «без прочтения». */
+  function emitRead(chatId: string, messageId: string): void {
+    if (peekChatIdRef.current === chatId) return
+    socket?.emit('message:read', { chatId, messageId })
+  }
+
   function markChatRead(chatId: string): void {
     const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
       (c) => c.id === chatId,
     )
     if (!chat || chat.unreadCount === 0) return
     const lastId = chat.lastMessage?.id
+    // Явное «прочитать» снимает режим подглядывания: человек сам сказал, что прочёл.
+    if (peekChatIdRef.current === chatId) peekChatIdRef.current = null
     if (socket && lastId) socket.emit('message:read', { chatId, messageId: lastId })
     qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
       (old ?? []).map((c) => (c.id === chatId ? { ...c, unreadCount: 0 } : c)),
@@ -1718,6 +1856,12 @@ export function ChatWindow() {
 
   function deleteMessage(m: ChatMessage): void {
     if (socket) socket.emit('message:delete', { messageId: m.id })
+  }
+
+  // Копирование снимка в буфер делает сам просмотрщик; наше дело — сказать, вышло или нет.
+  function onCopiedImage(ok: boolean): void {
+    if (ok) toast.success(t('copiedImage'))
+    else toast.error(tErr('INTERNAL_ERROR'))
   }
 
   function copyText(m: ChatMessage): void {
@@ -2119,6 +2263,7 @@ export function ChatWindow() {
     searchJumpedFor.current = null
   }
 
+  const typingUsers = (activeId ? typingByChat[activeId] : undefined) ?? NO_TYPING
   const typingCount = Object.keys(typingUsers).length
   // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
   const firstTyperId = Object.keys(typingUsers)[0]
@@ -2157,6 +2302,20 @@ export function ChatWindow() {
   }, [list, listSearchTerm, t])
   const msgMatches = listMsgResults.data?.items ?? []
   const pinnedList = pinned.data ?? []
+  // Вкладки папок для окна пересылки: те же, что над списком чатов, но готовым составом —
+  // сам диалог живёт в entities и о папках знать не может (слои FSD).
+  const forwardTabs = useMemo(
+    () =>
+      buildFolderTabs(list, folderList).map((tab) => ({
+        id: tab.id,
+        label: folderTabLabel(tab, t),
+        chatIds: tab.id === 'folderAll' ? null : filterChatsByTab(list, tab).map((c) => c.id),
+      })),
+    [list, folderList, t],
+  )
+
+  const pinnedKey = pinnedList.map((p) => p.id).join(',')
+  const pinnedHidden = pinnedHiddenKey !== null && pinnedHiddenKey === pinnedKey
   const hasText = text.trim().length > 0
   // Кнопка отправки показывается при вводе/вложениях/правке; иначе — микрофон (Telegram-стиль).
   const showSend = !!editing || hasText
@@ -2219,6 +2378,8 @@ export function ChatWindow() {
     deleteMessage,
     retrySend,
     toggleSelect,
+    enterSelect,
+    onCopiedImage,
     react,
     onMsgTouchStart,
     onMsgTouchMove,
@@ -2236,6 +2397,8 @@ export function ChatWindow() {
     deleteMessage,
     retrySend,
     toggleSelect,
+    enterSelect,
+    onCopiedImage,
     react,
     onMsgTouchStart,
     onMsgTouchMove,
@@ -2251,6 +2414,8 @@ export function ChatWindow() {
       del: (m) => msgHandlersRef.current.deleteMessage(m),
       retry: (m) => msgHandlersRef.current.retrySend(m),
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
+      startSelect: (m) => msgHandlersRef.current.enterSelect(m),
+      copiedImage: (ok) => msgHandlersRef.current.onCopiedImage(ok),
       react: (id, emoji) => msgHandlersRef.current.react.mutate({ messageId: id, emoji }),
       touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
@@ -2267,8 +2432,23 @@ export function ChatWindow() {
       onOpenChat={setActiveId}
       onBack={() => router.back()}
       folders={folderList}
-      onManageFolders={() => setFoldersOpen(true)}
+      onManageFolders={() => {
+        setFoldersEditId(null)
+        setFoldersOpen(true)
+      }}
       onToggleChatFolder={(folderId, chat) => toggleChatFolder(folderId, chat.id)}
+      onEditFolder={(folderId) => {
+        setFoldersEditId(folderId)
+        setFoldersOpen(true)
+      }}
+      onDeleteFolder={(folder) => {
+        void confirm({
+          title: t('foldersDeleteConfirm', { name: folder.name }),
+          destructive: true,
+        }).then((ok) => {
+          if (ok) deleteFolder.mutate(folder.id)
+        })
+      }}
       newChatOpen={newChatOpen}
       onToggleNewChat={() => setNewChatOpen((v) => !v)}
       onCloseNewChat={() => setNewChatOpen(false)}
@@ -2316,7 +2496,22 @@ export function ChatWindow() {
       onRowTouchMove={chatRows.onRowTouchMove}
       onRowTouchEnd={chatRows.onRowTouchEnd}
       onCloseSwiped={chatRows.closeRow}
+      typingByChat={typingByChat}
       onMarkRead={markChatRead}
+      onOpenInNewTab={(c) => {
+        // Тот же адрес, что и у «Написать» из профиля (?chat=<id>) — второе окно открывается
+        // готовым на нужной переписке, а не на списке.
+        window.open(`${pathname}?chat=${c.id}`, '_blank', 'noopener')
+      }}
+      onOpenUnread={(c) => {
+        peekChatIdRef.current = c.id
+        setActiveId(c.id)
+      }}
+      onClearHistory={(c) => {
+        void confirm({ title: t('clearHistoryConfirm'), destructive: true }).then((ok) => {
+          if (ok) clearChat.mutate(c.id)
+        })
+      }}
       onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
       onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
       onToggleArchive={(c) => archive.mutate({ chatId: c.id, archived: !c.archived })}
@@ -2642,8 +2837,16 @@ export function ChatWindow() {
                   )}
                 </span>
                 <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-semibold">
-                    {activeChat ? chatTitle(activeChat, t) : ''}
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate text-sm font-semibold">
+                      {activeChat ? chatTitle(activeChat, t) : ''}
+                    </span>
+                    {activeChat && isOfficialChat(activeChat.type) && (
+                      <BadgeCheck
+                        className="size-3.5 shrink-0 text-info"
+                        aria-label={t('officialChat')}
+                      />
+                    )}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
                     {typingCount > 0 ? (
@@ -2695,6 +2898,22 @@ export function ChatWindow() {
                   }}
                   max={formatYmd(new Date())}
                   aria-label={t('jumpToDate')}
+                  dayThumbs={dayThumbs}
+                  onViewChange={(y, m) =>
+                    setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
+                  }
+                  rangeAction={{
+                    label: t('clearHistory'),
+                    destructive: true,
+                    onSubmit: (from, to) => {
+                      void confirm({
+                        title: t('clearPeriodConfirm', { from, to }),
+                        destructive: true,
+                      }).then((ok) => {
+                        if (ok) clearPeriod.mutate({ from, to })
+                      })
+                    },
+                  }}
                 />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
@@ -2743,6 +2962,20 @@ export function ChatWindow() {
                           <span className="flex-1 text-left">
                             {activeChat?.muted ? t('unmute') : t('mute')}
                           </span>
+                        </button>
+                        {/* «Выбрать» есть в меню сообщения, но включать режим оттуда можно
+                            только зная, с какого сообщения начать; из шапки — над чатом целиком. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectMode(true)
+                            setSelectedIds(new Set())
+                            setHeaderMenuOpen(false)
+                          }}
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                        >
+                          <CheckCheck className="size-4 shrink-0 opacity-80" aria-hidden />
+                          <span className="flex-1 text-left">{t('select')}</span>
                         </button>
                         <button
                           type="button"
@@ -2862,38 +3095,87 @@ export function ChatWindow() {
               </div>
             </header>
 
-            {/* Закреплённое сообщение (Telegram-стиль): одна строка, клик — переход + цикл */}
+            {/* Закреплённое сообщение (§2 карты): подпись, первая строка текста и шкала
+                закреплений слева. Крестик справа ПРЯЧЕТ полосу до следующего закрепления —
+                это подсказка, а не само закрепление; снять его можно из меню полосы. */}
             {pinnedList.length > 0 &&
+              !pinnedHidden &&
               (() => {
                 const idx = pinnedIndex % pinnedList.length
                 const cur = pinnedList[idx]
                 if (!cur) return null
                 return (
-                  <div className="flex items-center gap-2 border-b border-border bg-background px-3 py-1.5">
+                  <div
+                    className="flex items-center gap-2 border-b border-border bg-background px-3 py-1.5"
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      const box = e.currentTarget.getBoundingClientRect()
+                      const keyboard = e.clientX === 0 && e.clientY === 0
+                      setPinnedMenu({
+                        x: keyboard ? box.left + 24 : e.clientX,
+                        y: keyboard ? box.bottom : e.clientY,
+                      })
+                    }}
+                  >
                     {/* Клик по строке циклически переходит к следующему закреплённому (navigatePinned). */}
                     <button
                       type="button"
                       onClick={() => navigatePinned(pinnedList, 1)}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      <span className="h-4 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                      {/* Шкала закреплений: по делению на каждое, текущее — сплошным акцентом.
+                          Считать «2/7» глазами дольше, чем увидеть положение на шкале. Сверх
+                          PINNED_SCALE_MAX делений полоска превращается в штриховку, и вместо
+                          неё честнее показать число. */}
+                      {pinnedList.length > 1 && pinnedList.length <= PINNED_SCALE_MAX ? (
+                        <span className="flex h-7 w-0.5 shrink-0 flex-col gap-px" aria-hidden>
+                          {pinnedList.map((p, i) => (
+                            <span
+                              key={p.id}
+                              className={cn(
+                                'flex-1 rounded-full',
+                                i === idx ? 'bg-primary' : 'bg-primary/25',
+                              )}
+                            />
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="h-7 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                      )}
                       <Pin className="size-3.5 shrink-0 text-primary" aria-hidden />
-                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {cur.content || (cur.media.length ? t('attachment') : '')}
+                      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                        <span className="truncate text-[0.7rem] font-semibold text-primary">
+                          {t('pinnedMessage')}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {cur.content || (cur.media.length ? t('attachment') : '')}
+                        </span>
                       </span>
-                      {pinnedList.length > 1 && (
+                      {pinnedList.length > PINNED_SCALE_MAX && (
                         <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
                           {idx + 1}/{pinnedList.length}
                         </span>
                       )}
                     </button>
+                    {pinnedList.length > 1 && (
+                      <button
+                        type="button"
+                        aria-label={t('pinnedMessages')}
+                        title={t('pinnedMessages')}
+                        onClick={() => setPinnedListOpen(true)}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <ListIcon className="size-3.5" aria-hidden />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      aria-label={t('unpin')}
-                      onClick={() => setPin.mutate({ id: cur.id, pinned: false })}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label={t('pinnedHide')}
+                      title={t('pinnedHide')}
+                      onClick={() => setPinnedHiddenKey(pinnedKey)}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     >
-                      <PinOff className="size-3.5" aria-hidden />
+                      <X className="size-3.5" aria-hidden />
                     </button>
                   </div>
                 )
@@ -3063,6 +3345,9 @@ export function ChatWindow() {
                       setReplyTo(null)
                       setReplyQuote(null)
                     }}
+                    onViewReplyTarget={() => {
+                      if (replyTo) focusMessage(replyTo.id)
+                    }}
                     silent={silentSend}
                     onToggleSilent={() => setSilentSend((v) => !v)}
                     onScheduleSend={() => setScheduleOpen(true)}
@@ -3175,7 +3460,19 @@ export function ChatWindow() {
             onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
             onReply: () => startReply(menu.message, menu.selection),
             onEdit: () => startEdit(menu.message),
-            onPin: () => setPin.mutate({ id: menu.message.id, pinned: !menu.message.pinnedAt }),
+            // Закрепление видят все участники чата, поэтому спрашиваем в обе стороны (§4 карты):
+            // «закрепить» — обычное подтверждение, «открепить» — красное.
+            onPin: () => {
+              const pinned = !!menu.message.pinnedAt
+              const id = menu.message.id
+              void confirm({
+                title: pinned ? t('unpinConfirm') : t('pinConfirm'),
+                confirmLabel: pinned ? t('unpin') : t('pin'),
+                destructive: pinned,
+              }).then((ok) => {
+                if (ok) setPin.mutate({ id, pinned: !pinned })
+              })
+            },
             onCopy: () => copyText(menu.message),
             onCopyLink: () => copyLink(menu.message),
             onForward: () => setForwardMsg(menu.message),
@@ -3190,7 +3487,11 @@ export function ChatWindow() {
           chats={list}
           currentChatId={activeId}
           titleOf={(c) => chatTitle(c, t)}
-          onPick={(targetChatId) => forward.mutate({ targetChatId, messageId: forwardMsg.id })}
+          tabs={forwardTabs}
+          onResolveSaved={resolveSavedChatId}
+          onSubmit={(targetChatIds, caption) =>
+            sendForward(targetChatIds, [forwardMsg.id], caption)
+          }
           onClose={() => setForwardMsg(null)}
         />
       )}
@@ -3201,9 +3502,9 @@ export function ChatWindow() {
           chats={list}
           currentChatId={activeId}
           titleOf={(c) => chatTitle(c, t)}
-          onPick={(targetChatId) =>
-            forwardIds.forEach((messageId) => forward.mutate({ targetChatId, messageId }))
-          }
+          tabs={forwardTabs}
+          onResolveSaved={resolveSavedChatId}
+          onSubmit={(targetChatIds, caption) => sendForward(targetChatIds, forwardIds, caption)}
           onClose={() => {
             setForwardIds(null)
             exitSelect()
@@ -3234,12 +3535,105 @@ export function ChatWindow() {
         />
       )}
 
+      {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
+      {pinnedMenu &&
+        (() => {
+          const cur = pinnedList[pinnedIndex % pinnedList.length]
+          if (!cur) return null
+          return (
+            <RowContextMenu
+              x={pinnedMenu.x}
+              y={pinnedMenu.y}
+              ariaLabel={t('pinnedMessage')}
+              onClose={() => setPinnedMenu(null)}
+              items={[
+                {
+                  key: 'pinned-all',
+                  icon: ListIcon,
+                  label: t('pinnedMessages'),
+                  onClick: () => setPinnedListOpen(true),
+                },
+                {
+                  key: 'unpin',
+                  icon: PinOff,
+                  label: t('unpin'),
+                  // Закрепление в чате общее: снимая его, человек меняет шапку всем
+                  // участникам — отсюда подтверждение, а не молчаливое действие.
+                  onClick: () => {
+                    void confirm({ title: t('unpinConfirm'), destructive: true }).then((ok) => {
+                      if (ok) setPin.mutate({ id: cur.id, pinned: false })
+                    })
+                  },
+                  danger: true,
+                },
+              ]}
+            />
+          )
+        })()}
+
+      {/* Все закрепления чата отдельным списком — из полосы или из её меню. */}
+      {pinnedListOpen && (
+        <Modal
+          onClose={() => setPinnedListOpen(false)}
+          title={t('pinnedMessages')}
+          size="md"
+          bodyClassName="p-0"
+        >
+          <div className="flex max-h-[min(70vh,32rem)] flex-col overflow-y-auto p-2">
+            {pinnedList.map((m, i) => (
+              <div
+                key={m.id}
+                className="flex items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPinnedIndex(i)
+                    setPinnedTouched(true)
+                    setPinnedListOpen(false)
+                    focusMessage(m.id)
+                  }}
+                  className="flex min-w-0 flex-1 flex-col items-start text-left"
+                >
+                  <span className="text-xs font-semibold text-primary">{senderName(m)}</span>
+                  <span className="line-clamp-2 text-sm text-foreground/90">
+                    {m.content || (m.media.length ? t('attachment') : '')}
+                  </span>
+                  <span className="mt-0.5 text-[0.7rem] text-muted-foreground">
+                    {new Date(m.createdAt).toLocaleString(locale, {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('unpin')}
+                  title={t('unpin')}
+                  onClick={() => {
+                    void confirm({ title: t('unpinConfirm'), destructive: true }).then((ok) => {
+                      if (ok) setPin.mutate({ id: m.id, pinned: false })
+                    })
+                  }}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <PinOff className="size-4" aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       <ChatFoldersDialog
         open={foldersOpen}
         onOpenChange={setFoldersOpen}
         folders={folderList}
         chats={chats.data ?? []}
         busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
+        editId={foldersEditId}
         onCreate={(input) => createFolder.mutate(input)}
         onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
         onDelete={(id) => deleteFolder.mutate(id)}

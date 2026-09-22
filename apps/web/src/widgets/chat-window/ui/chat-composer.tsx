@@ -16,6 +16,7 @@ import {
   Pause,
   Pencil,
   Play,
+  Eye,
   Reply,
   Send,
   Smile,
@@ -34,6 +35,7 @@ import {
   EmojiPicker,
   MARKDOWN_ACTIONS_INLINE,
   RichTextField,
+  RowContextMenu,
   type RichTextHandle,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -149,6 +151,8 @@ export type ChatComposerProps = {
   // а не начало оригинала — человек выделил конкретное место.
   replyQuote: string | null
   onCancelReply: () => void
+  /** «Просмотр сообщения» из меню полосы ответа (§5 карты): перемотать ленту к оригиналу. */
+  onViewReplyTarget: () => void
   // «Без звука»: залипающий переключатель у кнопки отправки.
   silent: boolean
   onToggleSilent: () => void
@@ -187,6 +191,7 @@ export function ChatComposer({
   replyToName,
   replyQuote,
   onCancelReply,
+  onViewReplyTarget,
   silent,
   onToggleSilent,
   onScheduleSend,
@@ -211,6 +216,8 @@ export function ChatComposer({
   recMMSS,
 }: ChatComposerProps) {
   const t = useTranslations('Chats')
+  // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
+  const [replyMenu, setReplyMenu] = useState<{ x: number; y: number } | null>(null)
   const attachMenu = useHoverMenu()
   const sendMenu = useHoverMenu()
   const emoji = useHoverMenu()
@@ -287,13 +294,23 @@ export function ChatComposer({
         </div>
       )}
 
-      {/* Панель ответа — тот же строй, что у правки. */}
+      {/* Панель ответа — тот же строй, что у правки. Правый клик даёт то же, что в Telegram:
+          посмотреть оригинал и отвязать цитату (§5 карты). */}
       {replyTo && !editing && (
         <div
           className={cn(
             island,
             'flex items-center gap-2 rounded-2xl px-3 py-2 duration-200 animate-in fade-in slide-in-from-bottom-2 lg:rounded-md',
           )}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            const box = e.currentTarget.getBoundingClientRect()
+            const keyboard = e.clientX === 0 && e.clientY === 0
+            setReplyMenu({
+              x: keyboard ? box.left + 24 : e.clientX,
+              y: keyboard ? box.top : e.clientY,
+            })
+          }}
         >
           <Reply className="size-4 shrink-0 text-primary" aria-hidden />
           <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -322,6 +339,29 @@ export function ChatComposer({
           >
             <X className="size-4" aria-hidden />
           </button>
+          {replyMenu && (
+            <RowContextMenu
+              x={replyMenu.x}
+              y={replyMenu.y}
+              ariaLabel={t('replyingTo', { name: replyToName })}
+              onClose={() => setReplyMenu(null)}
+              items={[
+                {
+                  key: 'view',
+                  icon: Eye,
+                  label: t('goToMessage'),
+                  onClick: onViewReplyTarget,
+                },
+                {
+                  key: 'remove',
+                  icon: X,
+                  label: t('cancelReply'),
+                  onClick: onCancelReply,
+                  danger: true,
+                },
+              ]}
+            />
+          )}
         </div>
       )}
 

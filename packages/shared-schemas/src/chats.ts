@@ -30,6 +30,13 @@ export const ChatListQuerySchema = z
   .strict()
 export type ChatListQueryInput = z.infer<typeof ChatListQuerySchema>
 
+/**
+ * Потолок описания группы. Тысяча знаков — это правила чата, пара ссылок и список админов,
+ * то есть всё, ради чего описание заводят; дальше начинается документ, которому место в
+ * закреплённом сообщении, а не в шапке.
+ */
+export const CHAT_DESCRIPTION_MAX = 1000
+
 // Пользователь создаёт только PRIVATE/GROUP; официальные чаты создаются автоматически (§3.6).
 export const CreateChatSchema = z
   .object({
@@ -51,9 +58,68 @@ export type CreateChatInput = z.infer<typeof CreateChatSchema>
 export const AddChatMemberSchema = z.object({ userId: z.string().min(1) }).strict()
 export type AddChatMemberInput = z.infer<typeof AddChatMemberSchema>
 
-// Изменение названия группы (Ф9+, только админ).
-export const EditChatSchema = z.object({ title: z.string().min(1).max(150) }).strict()
+// Изменение названия и описания группы (Ф9+, только админ). Оба поля необязательны, но пустое
+// тело отклоняется: запрос, который ничего не меняет, — это ошибка вызывающего, а не «ок».
+// Пустая строка в description — способ убрать описание; у title такого смысла нет (чат без
+// названия нельзя ни найти, ни назвать), поэтому там min(1).
+export const EditChatSchema = z
+  .object({
+    title: z.string().min(1).max(150).optional(),
+    description: z.string().max(CHAT_DESCRIPTION_MAX).optional(),
+  })
+  .strict()
+  .refine((v) => v.title !== undefined || v.description !== undefined, {
+    message: 'Нечего менять: укажите название или описание',
+  })
 export type EditChatInput = z.infer<typeof EditChatSchema>
+
+/**
+ * Снимки по дням для календаря перехода по дате (§5 карты интерфейса).
+ *
+ * `tzOffset` — минуты из `Date.getTimezoneOffset()` браузера: календарь рисует местные даты,
+ * и сервер должен разложить снимки по тем же дням, которые видит человек. Диапазон ±14 часов
+ * покрывает все существующие пояса вместе с летним временем.
+ */
+export const ChatMediaCalendarQuerySchema = z
+  .object({
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+    tzOffset: z.coerce.number().int().min(-840).max(840).default(0),
+  })
+  .strict()
+  .refine((v) => new Date(v.from) <= new Date(v.to), {
+    path: ['to'],
+    message: 'Конец окна раньше его начала',
+  })
+export type ChatMediaCalendarQueryInput = z.infer<typeof ChatMediaCalendarQuerySchema>
+
+/**
+ * Сколько очищенных периодов помнит участник чата. Диапазоны хранятся слитыми, так что
+ * пятьдесят — это пятьдесят разрозненных кусков истории; дальше человек не «чистит период»,
+ * а хочет очистить чат целиком, и предлагать это честнее, чем молча склеивать его периоды
+ * и прятать то, о чём он не просил.
+ */
+export const CLEARED_RANGES_MAX = 50
+
+/**
+ * Очистка истории «для меня». Без полей — всё до текущего момента (прежнее поведение).
+ * С `from`/`to` — только этот период (§5 карты интерфейса: режим диапазона в календаре).
+ * Границы включительны и задаются целыми днями со стороны клиента.
+ */
+export const ClearChatSchema = z
+  .object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+  })
+  .strict()
+  .refine((v) => (v.from === undefined) === (v.to === undefined), {
+    message: 'Период задаётся обеими границами',
+  })
+  .refine((v) => !v.from || !v.to || new Date(v.from) <= new Date(v.to), {
+    path: ['to'],
+    message: 'Конец периода раньше его начала',
+  })
+export type ClearChatInput = z.infer<typeof ClearChatSchema>
 
 // Черновик сообщения (Ф9+, синхронизация между устройствами). Пустой текст очищает черновик.
 export const SaveDraftSchema = z.object({ text: z.string().max(4000) }).strict()

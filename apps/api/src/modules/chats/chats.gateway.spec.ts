@@ -102,12 +102,46 @@ describe('ChatGateway.onMessageSend — рассылка по комнате (9.
 })
 
 describe('ChatGateway.typing — только другим участникам', () => {
-  it('typing:start шлёт другим (client.to), не серверу', async () => {
-    const { gateway, server } = setup({})
+  it('небольшой чат → в личные комнаты остальных, себе не шлём', async () => {
+    const typingAudience = jest.fn().mockResolvedValue({ kind: 'users', userIds: ['u2', 'u3'] })
+    const { gateway, server, serverEmit } = setup({ typingAudience })
+    const { client } = makeClient('u1')
+    await gateway.onTypingStart(client as unknown as Socket, { chatId: 'c1' })
+    expect(typingAudience).toHaveBeenCalledWith('u1', 'c1')
+    expect(server.to).toHaveBeenCalledWith('user:u2')
+    expect(server.to).toHaveBeenCalledWith('user:u3')
+    expect(server.to).not.toHaveBeenCalledWith('user:u1')
+    expect(serverEmit).toHaveBeenCalledWith('typing:started', { chatId: 'c1', userId: 'u1' })
+  })
+
+  it('большой чат → прежняя рассылка по комнате чата', async () => {
+    const { gateway, server } = setup({
+      typingAudience: jest.fn().mockResolvedValue({ kind: 'room' }),
+    })
     const { client, roomEmit } = makeClient('u1')
-    gateway.onTypingStart(client as unknown as Socket, { chatId: 'c1' })
+    await gateway.onTypingStart(client as unknown as Socket, { chatId: 'c1' })
     expect(client.to).toHaveBeenCalledWith('chat:c1')
     expect(roomEmit).toHaveBeenCalledWith('typing:started', { chatId: 'c1', userId: 'u1' })
     expect(server.to).not.toHaveBeenCalled()
+  })
+
+  it('не участник → молчим', async () => {
+    const { gateway, server } = setup({
+      typingAudience: jest.fn().mockResolvedValue({ kind: 'denied' }),
+    })
+    const { client, roomEmit } = makeClient('u1')
+    await gateway.onTypingStart(client as unknown as Socket, { chatId: 'c1' })
+    expect(roomEmit).not.toHaveBeenCalled()
+    expect(server.to).not.toHaveBeenCalled()
+  })
+
+  it('typing:stop идёт тем же путём', async () => {
+    const { gateway, server, serverEmit } = setup({
+      typingAudience: jest.fn().mockResolvedValue({ kind: 'users', userIds: ['u2'] }),
+    })
+    const { client } = makeClient('u1')
+    await gateway.onTypingStop(client as unknown as Socket, { chatId: 'c1' })
+    expect(server.to).toHaveBeenCalledWith('user:u2')
+    expect(serverEmit).toHaveBeenCalledWith('typing:stopped', { chatId: 'c1', userId: 'u1' })
   })
 })

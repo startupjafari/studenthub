@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Check, FolderPlus, Folders, Pencil, Trash2, X } from 'lucide-react'
 import { CHAT_FOLDER_LIMITS } from '@studenthub/shared-schemas'
@@ -20,6 +20,7 @@ export function ChatFoldersDialog({
   folders,
   chats,
   busy,
+  editId,
   onCreate,
   onUpdate,
   onDelete,
@@ -29,6 +30,11 @@ export function ChatFoldersDialog({
   folders: ChatFolder[]
   chats: ChatListItem[]
   busy?: boolean
+  /**
+   * Открыть сразу на правке этой папки — «Настроить папку» из меню вкладки (§1 карты).
+   * Пришли без неё — обычный список папок.
+   */
+  editId?: string | null
   onCreate: (input: { name: string; chatIds: string[] }) => void
   onUpdate: (id: string, input: { name?: string; chatIds?: string[] }) => void
   onDelete: (id: string) => void
@@ -38,6 +44,23 @@ export function ChatFoldersDialog({
   const [editing, setEditing] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
+
+  // Открытие на конкретной папке. Зависимость — `open`, а не только `editId`: то же меню
+  // могут вызвать для той же папки второй раз, и по одному лишь `editId` эффект бы не сработал.
+  useEffect(() => {
+    if (!open) return
+    if (!editId) {
+      setEditing(null)
+      return
+    }
+    const target = folders.find((f) => f.id === editId)
+    if (!target) return
+    setEditing(target.id)
+    setName(target.name)
+    setPicked(new Set(target.chatIds))
+    // folders в зависимостях нет намеренно: список обновляется после каждой правки состава,
+    // и эффект сбрасывал бы незавершённую правку обратно к сохранённому набору.
+  }, [open, editId])
 
   function startNew() {
     setEditing('new')
