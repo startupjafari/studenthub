@@ -123,7 +123,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
         ))}
       </div>
 
-      <div className="chips">
+      <div className="chips-grid">
         <button
           type="button"
           className="chip"

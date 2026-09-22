@@ -69,6 +69,9 @@ export function LinkScreen({ onLinked }: { onLinked: (user: MiniUser) => void })
         autoCapitalize="characters"
         autoCorrect="off"
         spellCheck={false}
+        // Экран открывается ради одного действия — ввести код. Фокус ставим сразу:
+        // лишнее касание по полю здесь ничего не решает, а клавиатуру всё равно откроют.
+        autoFocus
         placeholder="XXXXXXXX"
         aria-label={t('linkCodeLabel')}
       />

@@ -38,6 +38,21 @@ const PRIORITY_KEY = {
 
 // Сроки блокировки. Три значения вместо поля ввода: выбор из трёх делается одним касанием
 // и не даёт промахнуться разрядом. 0 — бессрочно, как было до появления сроков.
+/**
+ * Ссылка на карточку для коллеги.
+ *
+ * `https://t.me/<бот>/<приложение>?startapp=complaint_<id>` открывает мини-апп сразу на
+ * этой жалобе. Адрес самой страницы для этого не годится: по нему коллега попадёт в
+ * браузер без подписи Telegram и увидит «откройте из Telegram». Имя бота приходит
+ * сборкой — в initData его нет; не задано, делимся тем, что есть.
+ */
+function shareLink(id: string): string {
+  const base = import.meta.env.VITE_TG_APP_LINK
+  return base
+    ? `${base}?startapp=complaint_${id}`
+    : `${location.origin}${location.pathname}?startapp=complaint_${id}`
+}
+
 const BLOCK_TERMS = [
   { days: 0, key: 'blockForever' },
   { days: 7, key: 'blockWeek' },
@@ -182,7 +197,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
           className="chip"
           onClick={() => {
             void navigator.clipboard
-              ?.writeText(`${location.origin}${location.pathname}?startapp=complaint_${id}`)
+              ?.writeText(shareLink(id))
               .then(() => {
                 haptic.success()
                 setError(t('complaintShared'))

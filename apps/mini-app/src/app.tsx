@@ -225,6 +225,11 @@ function Outside() {
   return (
     <div className="screen">
       <header className="screen-head">
+        {/* Замок вместо иллюстрации: картинку пришлось бы тащить файлом и красить под
+            тему, а смысл экрана — «сюда нельзя снаружи» — он передаёт и так. */}
+        <p className="screen-emblem" aria-hidden>
+          🔒
+        </p>
         <h1>{t('outsideTitle')}</h1>
         <p className="hint">{t('outsideHint')}</p>
       </header>
