@@ -30,6 +30,13 @@ export const ChatListQuerySchema = z
   .strict()
 export type ChatListQueryInput = z.infer<typeof ChatListQuerySchema>
 
+/**
+ * Потолок описания группы. Тысяча знаков — это правила чата, пара ссылок и список админов,
+ * то есть всё, ради чего описание заводят; дальше начинается документ, которому место в
+ * закреплённом сообщении, а не в шапке.
+ */
+export const CHAT_DESCRIPTION_MAX = 1000
+
 // Пользователь создаёт только PRIVATE/GROUP; официальные чаты создаются автоматически (§3.6).
 export const CreateChatSchema = z
   .object({
@@ -51,8 +58,19 @@ export type CreateChatInput = z.infer<typeof CreateChatSchema>
 export const AddChatMemberSchema = z.object({ userId: z.string().min(1) }).strict()
 export type AddChatMemberInput = z.infer<typeof AddChatMemberSchema>
 
-// Изменение названия группы (Ф9+, только админ).
-export const EditChatSchema = z.object({ title: z.string().min(1).max(150) }).strict()
+// Изменение названия и описания группы (Ф9+, только админ). Оба поля необязательны, но пустое
+// тело отклоняется: запрос, который ничего не меняет, — это ошибка вызывающего, а не «ок».
+// Пустая строка в description — способ убрать описание; у title такого смысла нет (чат без
+// названия нельзя ни найти, ни назвать), поэтому там min(1).
+export const EditChatSchema = z
+  .object({
+    title: z.string().min(1).max(150).optional(),
+    description: z.string().max(CHAT_DESCRIPTION_MAX).optional(),
+  })
+  .strict()
+  .refine((v) => v.title !== undefined || v.description !== undefined, {
+    message: 'Нечего менять: укажите название или описание',
+  })
 export type EditChatInput = z.infer<typeof EditChatSchema>
 
 // Черновик сообщения (Ф9+, синхронизация между устройствами). Пустой текст очищает черновик.

@@ -53,6 +53,7 @@ import {
   unblockUserRequest,
   fileKind,
   MediaViewer,
+  MessageContent,
   type ChatLinkItem,
   type ChatListItem,
   type ChatMediaItem,
@@ -80,6 +81,13 @@ import { isOfficialChat } from '../lib/format'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { PeerProfileTab } from './peer-profile-tab'
 import { EditGroupDialog } from './edit-group-dialog'
+
+/**
+ * Длина описания, после которой оно сворачивается до четырёх строк. Совпадать со `line-clamp-4`
+ * точно не может — строки разной длины; это порог «текст заведомо длиннее четырёх строк узкой
+ * колонки», и кнопка «Ещё» не появляется там, где разворачивать нечего.
+ */
+const DESCRIPTION_CLAMP = 220
 
 // §17: варианты «заглушить на время».
 const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
@@ -1034,6 +1042,9 @@ export function ChatDetailsPanel({
 
   // Аватар чата во весь экран.
   const [avatarOpen, setAvatarOpen] = useState(false)
+  // Описание развёрнуто целиком. Сбрасывать при смене чата не нужно: панель монтируется
+  // заново на каждый чат (key={chat.id} у вызывающего).
+  const [descriptionOpen, setDescriptionOpen] = useState(false)
 
   // Адрес приглашения строим на клиенте: страница /join-chat/<id> публичная и одинакова
   // для всех, отдельной ручки за ним нет. origin читается лениво — на сервере его нет.
@@ -1201,6 +1212,27 @@ export function ChatDetailsPanel({
           )}
         </div>
       </div>
+
+      {/* Описание группы (§3 карты): назначение, правила, ссылки. Рендерим тем же
+          markdown-компонентом, что и сообщения — ссылки и переносы строк работают так же,
+          как везде в чате, а сырой HTML он не пускает. Длинный текст свёрнут: панель узкая,
+          и полотно правил вытолкнуло бы вкладки с медиа за нижний край. */}
+      {isGroup && chat.description && (
+        <div className="shrink-0 border-b border-border px-4 py-3">
+          <div className={cn(!descriptionOpen && 'line-clamp-4')}>
+            <MessageContent content={chat.description} />
+          </div>
+          {chat.description.length > DESCRIPTION_CLAMP && (
+            <button
+              type="button"
+              onClick={() => setDescriptionOpen((v) => !v)}
+              className="mt-1 text-xs font-medium text-primary transition-colors hover:underline"
+            >
+              {descriptionOpen ? t('descriptionLess') : t('descriptionMore')}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Ссылка-приглашение видимой строкой (§3 карты), а не иконкой в углу вкладки
           участников: ссылку зовут «скинуть» устно, и человек должен видеть, ЧТО именно

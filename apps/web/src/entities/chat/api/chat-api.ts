@@ -489,9 +489,12 @@ export async function removeChatAvatarRequest(chatId: string): Promise<void> {
   await api.delete(`/chats/${chatId}/avatar`)
 }
 
-// Название группы (админ).
-export async function editChatTitleRequest(chatId: string, title: string): Promise<void> {
-  await api.patch(`/chats/${chatId}`, { title })
+// Название и описание группы (админ). Оба поля необязательны; пустое описание его убирает.
+export async function editChatRequest(
+  chatId: string,
+  input: { title?: string; description?: string },
+): Promise<void> {
+  await api.patch(`/chats/${chatId}`, input)
 }
 
 // Удалить чат / покинуть группу.
