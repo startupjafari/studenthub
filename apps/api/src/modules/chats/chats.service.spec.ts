@@ -287,8 +287,9 @@ describe('ChatsService.getMessages — cursor + членство', () => {
 
     const where = prisma.message.findFirst.mock.calls[0][0].where
     // Оба условия обязаны дожить до запроса: и граница очистки, и искомая дата.
+    // Граница лежит во вложенном AND — там же, где и вырезанные периоды (clearedWhere).
     expect(where.AND).toEqual([
-      expect.objectContaining({ createdAt: { gt: clearedAt } }),
+      expect.objectContaining({ AND: [{ createdAt: { gt: clearedAt } }] }),
       { createdAt: { gte: new Date('2026-08-12T00:00:00.000Z') } },
     ])
   })
@@ -309,7 +310,7 @@ describe('ChatsService.getMessages — cursor + членство', () => {
     expect(where).toMatchObject({
       id: 'mT',
       deletedAt: null,
-      createdAt: { gt: clearedAt },
+      AND: [{ createdAt: { gt: clearedAt } }],
     })
     // Выборка по одному id мимо фильтров вернула бы очищенное сообщение.
     expect(prisma.message.findUnique).not.toHaveBeenCalled()
@@ -1141,7 +1142,7 @@ describe('ChatsService.getUpdates — дельта догона', () => {
 
     expect(prisma.message.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ createdAt: { gt: clearedAt } }),
+        where: expect.objectContaining({ AND: [{ createdAt: { gt: clearedAt } }] }),
       }),
     )
   })
