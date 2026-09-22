@@ -1792,6 +1792,12 @@ export function ChatWindow() {
     if (socket) socket.emit('message:delete', { messageId: m.id })
   }
 
+  // Копирование снимка в буфер делает сам просмотрщик; наше дело — сказать, вышло или нет.
+  function onCopiedImage(ok: boolean): void {
+    if (ok) toast.success(t('copiedImage'))
+    else toast.error(tErr('INTERNAL_ERROR'))
+  }
+
   function copyText(m: ChatMessage): void {
     void navigator.clipboard?.writeText(m.content)
     toast.success(t('copied'))
@@ -2306,6 +2312,7 @@ export function ChatWindow() {
     retrySend,
     toggleSelect,
     enterSelect,
+    onCopiedImage,
     react,
     onMsgTouchStart,
     onMsgTouchMove,
@@ -2324,6 +2331,7 @@ export function ChatWindow() {
     retrySend,
     toggleSelect,
     enterSelect,
+    onCopiedImage,
     react,
     onMsgTouchStart,
     onMsgTouchMove,
@@ -2340,6 +2348,7 @@ export function ChatWindow() {
       retry: (m) => msgHandlersRef.current.retrySend(m),
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
       startSelect: (m) => msgHandlersRef.current.enterSelect(m),
+      copiedImage: (ok) => msgHandlersRef.current.onCopiedImage(ok),
       react: (id, emoji) => msgHandlersRef.current.react.mutate({ messageId: id, emoji }),
       touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),

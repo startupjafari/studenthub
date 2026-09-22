@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { Copy, Eye, Forward, MoreVertical, Trash2 } from 'lucide-react'
+import { Copy, Eye, Forward, ImageDown, MoreVertical, Trash2 } from 'lucide-react'
 import { MediaViewer as BaseMediaViewer } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
@@ -13,6 +13,27 @@ import type { MessageAttachment } from '../model/types'
 /** Ссылка на вложение живёт дольше показа: вернулись к тому же кадру — второй раз не просим. */
 const URL_STALE_MS = 10 * 60 * 1000
 const URL_GC_MS = 15 * 60 * 1000
+
+/**
+ * Положить сам снимок в буфер обмена (§6 карты).
+ *
+ * Через canvas и всегда в PNG: буфер обмена браузера принимает узкий список типов, и JPEG или
+ * WebP в него не кладутся — а вставляют снимок обычно в письмо или в документ, где формат
+ * исходника значения не имеет. Отказ возможен (нет разрешения, Safari вне жеста) — зовущий
+ * сообщает о нём сам.
+ */
+async function copyImageToClipboard(url: string): Promise<void> {
+  const blob = await fetch(url).then((r) => r.blob())
+  const bitmap = await createImageBitmap(blob)
+  const canvas = document.createElement('canvas')
+  canvas.width = bitmap.width
+  canvas.height = bitmap.height
+  canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+  bitmap.close()
+  const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  if (!png) throw new Error('canvas')
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+}
 
 const attachmentKey = (fileId: string | undefined): (string | undefined)[] => [
   'chat-attachment',
@@ -30,6 +51,8 @@ export interface MediaViewerMeta {
 export interface MediaViewerActions {
   onGoTo: () => void
   onCopy: () => void
+  /** Сообщить об исходе копирования снимка: тост принадлежит приложению, а не просмотрщику. */
+  onCopiedImage?: (ok: boolean) => void
   onForward: () => void
   onDelete: () => void
 }
@@ -164,6 +187,24 @@ export function MediaViewer({
           <Copy className="size-4 shrink-0 opacity-80" aria-hidden />
           {t('copyText')}
         </button>
+        {/* Копировать сам снимок — отдельным пунктом от «копировать текст»: в буфер кладут
+            либо подпись, либо картинку, и одна кнопка на оба случая всегда не та. */}
+        {cur.mime.startsWith('image/') && url && (
+          <button
+            type="button"
+            onClick={() => {
+              void copyImageToClipboard(url).then(
+                () => actions.onCopiedImage?.(true),
+                () => actions.onCopiedImage?.(false),
+              )
+              setMenuOpen(false)
+            }}
+            className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-white/10"
+          >
+            <ImageDown className="size-4 shrink-0 opacity-80" aria-hidden />
+            {t('copyImage')}
+          </button>
+        )}
         <button
           type="button"
           onClick={run(actions.onForward)}
