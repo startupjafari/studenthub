@@ -75,9 +75,16 @@ body {
   gap: var(--gap);
 }
 
+/* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
+.screen-emblem {
+  margin: 8px 0 4px;
+  font-size: 40px;
+  line-height: 1;
+}
+
 .screen-head h1 {
   margin: 4px 0 2px;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 600;
 }
 
@@ -331,9 +338,22 @@ body {
 .tabbar {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 100;
   padding: 8px var(--side);
-  background: var(--tg-theme-secondary-bg-color);
+  /* Полупрозрачно с размытием: под полосой проезжает содержимое, и непрозрачная плашка
+     обрубала бы его как ножом. Цвет — тот же фон страницы, чтобы в любой теме Telegram
+     полоса читалась её продолжением, а не наклейкой. */
+  background: color-mix(in srgb, var(--tg-theme-secondary-bg-color) 80%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Клиенты без color-mix (старые WebView) получают непрозрачный фон — это хуже по виду,
+   но текст под полосой не просвечивает. */
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar {
+    background: var(--tg-theme-secondary-bg-color);
+  }
 }
 
 .tabs {
@@ -341,7 +361,7 @@ body {
   gap: 4px;
   padding: 4px;
   background: var(--tg-theme-bg-color);
-  border-radius: 10px;
+  border-radius: 16px;
 }
 
 .tab {
@@ -349,7 +369,7 @@ body {
   min-height: 36px;
   padding: 8px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent;
   color: var(--tg-theme-hint-color);
   font: inherit;
