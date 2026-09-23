@@ -373,7 +373,7 @@ export function ChatComposer({
         <div
           className={cn(
             island,
-            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:rounded-md',
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:h-10 lg:rounded-md lg:py-0',
           )}
         >
           <Ban className="size-4 shrink-0" aria-hidden />
@@ -392,7 +392,7 @@ export function ChatComposer({
         <div
           className={cn(
             island,
-            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:rounded-md',
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:h-10 lg:rounded-md lg:py-0',
           )}
         >
           <Clock className="size-4 shrink-0" aria-hidden />

@@ -3586,8 +3586,9 @@ export function ChatWindow() {
                     'absolute inset-x-0 bottom-0 z-30',
                     'pointer-events-none px-3 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]',
                     // Плашка ловит указатель сама: прокручивать ленту «сквозь» непрозрачную
-                    // поверхность всё равно негде.
-                    'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2',
+                    // поверхность всё равно негде. py-2.5 вокруг 40-px ряда — та же высота, что
+                    // у плашки профиля внизу сайдбара: их верхние границы идут одной линией.
+                    'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2.5',
                   )}
                 >
                   <ChatComposer
