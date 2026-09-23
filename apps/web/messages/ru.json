@@ -696,7 +696,11 @@
     "endAfterStart": "Конец должен быть позже начала",
     "numberRange": "Введите число от {min} до {max}",
     "urlInvalid": "Ссылка должна начинаться с http:// или https://",
-    "endNotBeforeStart": "Дата окончания не может быть раньше начала"
+    "endNotBeforeStart": "Дата окончания не может быть раньше начала",
+    "byteUnitB": "Б",
+    "byteUnitKb": "КБ",
+    "byteUnitMb": "МБ",
+    "byteUnitGb": "ГБ"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -1753,6 +1757,15 @@
     "pinnedNext": "Следующее закреплённое",
     "sendPhotosTitle": "{count, plural, one {Отправить # фото} other {Отправить # фото}}",
     "sendFilesTitle": "{count, plural, one {Отправить # файл} few {Отправить # файла} other {Отправить # файлов}}",
+    "sendVideosTitle": "{count, plural, one {Отправить # видео} other {Отправить # видео}}",
+    "sendUncompressed": "Отправить без сжатия",
+    "sendCompressed": "Отправить со сжатием",
+    "groupAsAlbum": "Объединить в альбом",
+    "ungroupAlbum": "Разъединить альбом",
+    "spoilerOff": "Отменить скрытие",
+    "spoilerAll": "Скрыть все",
+    "albumStacks": "{count, plural, one {Уйдёт # сообщением} few {Уйдёт # сообщениями} other {Уйдёт # сообщениями}}",
+    "separateMessages": "{count, plural, one {Уйдёт # сообщением} few {Уйдёт # сообщениями} other {Уйдёт # сообщениями}}",
     "cancel": "Отмена",
     "addMore": "Добавить",
     "captionPlaceholder": "Подпись…",
@@ -1909,7 +1922,8 @@
     "pause": "Пауза",
     "chatActions": "Действия с чатом",
     "typeSupportPlatform": "Поддержка StudentHub",
-    "tagSupportPlatform": "Поддержка"
+    "tagSupportPlatform": "Поддержка",
+    "cancelUpload": "Отменить загрузку"
   },
   "Events": {
     "title": "События",

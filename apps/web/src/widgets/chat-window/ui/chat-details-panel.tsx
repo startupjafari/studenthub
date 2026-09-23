@@ -76,7 +76,7 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
-import { identityColor, identityInitials } from '../../../shared/lib'
+import { formatBytes, identityColor, identityInitials, useByteUnitLabel } from '../../../shared/lib'
 import { isOfficialChat } from '../lib/format'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { PeerProfileTab } from './peer-profile-tab'
@@ -117,12 +117,6 @@ function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) =>
   const hr = Math.floor(min / 60)
   if (hr < 24) return t('lastSeenHour', { count: hr })
   return t('lastSeenDay', { count: Math.floor(hr / 24) })
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 // presigned-URL вложения (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
@@ -258,6 +252,7 @@ function FileRow({
   onJump: (id: string) => void
   locale: string
 }) {
+  const unit = useByteUnitLabel()
   const t = useTranslations('Chats')
   // Для голосовых сразу подгружаем URL (нативный плеер); для файлов — по клику на скачивание.
   const url = useFileUrl(item.id, voice)
@@ -295,7 +290,7 @@ function FileRow({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{item.name ?? t('attachment')}</span>
           <span className="block truncate text-xs text-muted-foreground">
-            {formatBytes(item.size)} · {date}
+            {formatBytes(item.size, unit)} · {date}
           </span>
         </span>
       </button>
@@ -337,6 +332,7 @@ function VoicePlaylist({
   locale: string
 }) {
   const t = useTranslations('Chats')
+  const unit = useByteUnitLabel()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -453,7 +449,7 @@ function VoicePlaylist({
                 {it.sender ? `${it.sender.lastName} ${it.sender.firstName}` : t('attachment')}
               </span>
               <span className="block truncate text-xs text-muted-foreground">
-                {formatBytes(it.size)} · {date}
+                {formatBytes(it.size, unit)} · {date}
               </span>
               {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
               {active && (
