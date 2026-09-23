@@ -11,6 +11,19 @@
   --radius: 12px;
   --gap: 12px;
   --side: 16px;
+  /*
+   * Четыре ступени текста на всё приложение. До них размеры расставлялись по месту —
+   * 24, 17, 15, 14, 13, 12, 11, — и каждая правка добавляла к списку ещё одну.
+   * В em, а не в px: режим крупного шрифта меняет базовый размер документа, и шкала
+   * обязана ехать вместе с ним.
+   */
+  --text-title: 1.6em;
+  --text-head: 1.13em;
+  --text-body: 1em;
+  --text-small: 0.87em;
+  /* Минимальная высота того, во что попадают пальцем. Меньше 44 промахиваются — это не
+     догадка, а нижняя граница, на которой сходятся и Apple, и Material. */
+  --tap: 44px;
 }
 
 * {
@@ -45,8 +58,9 @@ body {
 .content {
   flex: 1;
   /* Запас снизу — под «шторку» жестов iPhone; MainButton Telegram рисует сам под областью
-     приложения и высоту не отнимает. */
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+     приложения и высоту не отнимает. Полсотни пикселей, а не двадцать: последняя кнопка
+     экрана упиралась в самый край, и нажать её, не задев жест закрытия, было нельзя. */
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
 }
 
 .back-fallback {
@@ -71,9 +85,16 @@ body {
   gap: var(--gap);
 }
 
+/* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
+.screen-emblem {
+  margin: 8px 0 4px;
+  font-size: 40px;
+  line-height: 1;
+}
+
 .screen-head h1 {
   margin: 4px 0 2px;
-  font-size: 22px;
+  font-size: var(--text-title);
   font-weight: 600;
 }
 
@@ -83,7 +104,7 @@ body {
 
 .hint {
   color: var(--tg-theme-hint-color);
-  font-size: 13px;
+  font-size: var(--text-small);
 }
 
 .hint-danger {
@@ -111,7 +132,7 @@ body {
 
 .card h2 {
   margin: 6px 0 2px;
-  font-size: 17px;
+  font-size: var(--text-head);
   font-weight: 600;
 }
 
@@ -177,20 +198,35 @@ body {
   font-size: 20px;
 }
 
+/*
+ * Плитки сводки. Колонок не три фиксированных, а сколько влезет: пять чисел в сетке 3×2
+ * оставляли в последнем ряду одну плитку и дыру рядом с ней, а подпись «Жалоб в очереди»
+ * ломалась на две строки и делала эту плитку выше остальных.
+ */
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--gap);
+  grid-template-columns: repeat(auto-fit, minmax(6.2em, 1fr));
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .stat {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
+  min-height: 72px;
   padding: 12px 6px;
   border-radius: var(--radius);
-  background: var(--tg-theme-section-bg-color);
+  background: var(--tg-theme-secondary-bg-color);
+  text-align: center;
+}
+
+.stat span {
+  color: var(--tg-theme-hint-color);
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .stat b {
@@ -252,6 +288,8 @@ body {
  */
 .fallback-submit {
   width: 100%;
+  min-height: var(--tap);
+  margin-top: 12px;
   padding: 13px;
   border: 0;
   border-radius: var(--radius);
@@ -266,6 +304,7 @@ body {
 /* Скелетон вместо спиннера: высота строк известна, список не прыгает при загрузке. */
 .skeleton {
   display: block;
+  margin-top: 10px;
   height: 12px;
   border-radius: 6px;
   background: var(--tg-theme-secondary-bg-color);
@@ -296,4 +335,527 @@ body {
   .skeleton {
     animation: none;
   }
+}
+
+/* ── Управление платформой ─────────────────────────────────────────────────── */
+
+/*
+ * Переключатель разделов.
+ *
+ * Прилипает к верху: экраны здесь длинные, и уехавшая наверх навигация означает, что
+ * сменить раздел можно только домотав до начала. Фон непрозрачный — под ним проезжает
+ * содержимое, и просвечивающая полоса читалась бы как артефакт.
+ */
+.tabbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 8px var(--side);
+  /* Полупрозрачно с размытием: под полосой проезжает содержимое, и непрозрачная плашка
+     обрубала бы его как ножом. Цвет — тот же фон страницы, чтобы в любой теме Telegram
+     полоса читалась её продолжением, а не наклейкой. */
+  background: color-mix(in srgb, var(--tg-theme-secondary-bg-color) 80%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Клиенты без color-mix (старые WebView) получают непрозрачный фон — это хуже по виду,
+   но текст под полосой не просвечивает. */
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--tg-theme-bg-color);
+  border-radius: 16px;
+}
+
+.tab {
+  flex: 1;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--tg-theme-hint-color);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Активная вкладка — акцентом, а не сменой серого на чёрный: в тёмной теме Telegram
+   фон приложения почти сливается с фоном полосы, и выбранный раздел был неразличим. */
+.tab[aria-selected='true'] {
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+}
+
+/* Готовые варианты (сроки, формулировки): выбор тапом вместо ввода с клавиатуры. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/*
+ * Ряд однородных вариантов — равной шириной, а не по длине надписи.
+ *
+ * «15 мин / 30 мин / 60 мин / 120 мин» переносом давало три чипа в строке и один под
+ * ними: рваный край читается как «здесь что-то сломалось», а попадать пальцем в разные
+ * по ширине цели дольше. Сетка выравнивает и то и другое.
+ */
+.chips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.4em, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chip {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tg-theme-text-color);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chip:active {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+}
+
+/*
+ * Три уровня действия, а не два.
+ *
+ * Раньше кнопки были либо залиты акцентом, либо красные: «Предупредить», «Заблокировать»
+ * и «Нарушения нет» стояли рядом одинаково громкими, хотя одно из трёх отбирает человеку
+ * доступ. Теперь громкость соответствует последствиям — залитая у главного действия
+ * экрана, приглушённая у второстепенных, красная у разрушительных.
+ */
+.fallback-submit.secondary {
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+  color: var(--tg-theme-button-color);
+  font-weight: 500;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .fallback-submit.secondary {
+    background: var(--tg-theme-secondary-bg-color);
+    color: var(--tg-theme-link-color);
+  }
+}
+
+/* Разрушительное действие отличается цветом, а не только текстом: палитру для него
+   Telegram отдаёт отдельно (destructive_text_color). */
+.fallback-submit.danger {
+  background: transparent;
+  color: var(--tg-theme-destructive-text-color);
+  border: 1px solid var(--tg-theme-destructive-text-color);
+}
+
+/* Отклик на касание есть у строк списка — у кнопок его не было, и нажатие выглядело
+   как «не сработало», пока не приедет ответ сервера. */
+.fallback-submit:active {
+  opacity: 0.72;
+}
+
+.fallback-submit:disabled {
+  opacity: 0.45;
+}
+
+/* Строка-переключатель раздела: подпись слева, состояние справа. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--tg-theme-text-color);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle-row + .toggle-row {
+  border-top: 1px solid var(--tg-theme-section-separator-color);
+}
+
+.toggle-state {
+  flex-shrink: 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 14px;
+}
+
+.toggle-state.off {
+  color: var(--tg-theme-destructive-text-color);
+}
+
+.field {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: 10px;
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  font: inherit;
+}
+
+/* Заголовок группы в списке (разделение по дням). */
+.list-day {
+  margin: 0;
+  padding: 10px 14px 4px;
+  color: var(--tg-theme-hint-color);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Счётчик на вкладке: число работы, видное без захода во вкладку. */
+.tab[aria-selected='true'] .tab-badge {
+  background: var(--tg-theme-button-text-color);
+  color: var(--tg-theme-button-color);
+}
+
+.tab-badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Цитата чужого сообщения в карточке жалобы — отделена, чтобы её не спутали с нашим текстом. */
+.quote {
+  margin: 8px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--tg-theme-section-separator-color);
+  color: var(--tg-theme-text-color);
+  font-size: 14px;
+}
+
+/* Предпросмотр объявления — так, как его увидят пользователи. */
+.preview {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--tg-theme-secondary-bg-color);
+  font-size: 14px;
+}
+
+/* Четыре вкладки в ширину телефона не помещаются — ряд прокручивается, а не сжимает
+   надписи до нечитаемых. */
+.tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Разрушительное действие в строке списка. */
+.chip.danger-chip {
+  border-color: var(--tg-theme-destructive-text-color);
+  color: var(--tg-theme-destructive-text-color);
+}
+
+/* Спарклайн: подпись — кривая — последнее значение. */
+.spark-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.spark {
+  flex: 1;
+  height: 30px;
+  min-width: 0;
+}
+
+.spark path {
+  stroke: var(--tg-theme-button-color);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+/* Подпись сборки внизу экрана управления. */
+.footnote {
+  margin: 20px 0 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Индикатор потягивания: стрелка вниз, пока не хватает, и знак обновления, когда хватит. */
+.pull-hint {
+  margin: 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 18px;
+  text-align: center;
+}
+
+/* Тепловая карта 7×24. Клетки резиновые: на узком экране они сжимаются, но строка дня
+   остаётся одной строкой — перенос превратил бы карту в кашу. */
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.heatmap-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.heatmap-day {
+  flex: 0 0 22px;
+  color: var(--tg-theme-hint-color);
+  font-size: 11px;
+}
+
+.heatmap-cell {
+  flex: 1 1 0;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--tg-theme-button-color, #2ea6ff);
+}
+
+/* Три засечки вместо двадцати четырёх подписей: час с точностью до минуты здесь не нужен. */
+.heatmap-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 0 24px;
+  color: var(--tg-theme-hint-color);
+  font-size: 11px;
+}
+
+/*
+ * Складные разделы пульта.
+ *
+ * Рычагов восемь, и развёрнутые сразу все они давали ленту в три экрана: чтобы дойти до
+ * «Релиза», приходилось пролистать техработы, баннер, уведомления и разделы. Свёрнутый
+ * раздел показывает главное — своё текущее состояние, — и раскрывается одним касанием.
+ *
+ * Нативный <details>, а не своё состояние: он умеет клавиатуру, поиск по странице и
+ * читалки, и переписывать это руками ради той же кнопки незачем.
+ */
+.fold {
+  padding: 0;
+}
+
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold > summary:active {
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: var(--radius);
+}
+
+.fold-title {
+  flex: 1;
+  font-size: var(--text-head);
+  font-weight: 600;
+}
+
+/* Состояние — справа и серым: это ответ на «что там сейчас», а не заголовок. */
+.fold-state {
+  color: var(--tg-theme-hint-color);
+  font-size: var(--text-small);
+  text-align: right;
+}
+
+.fold-chevron {
+  flex-shrink: 0;
+  color: var(--tg-theme-hint-color);
+  font-size: 18px;
+  transition: transform 0.15s ease;
+}
+
+.fold[open] > summary .fold-chevron {
+  transform: rotate(90deg);
+}
+
+.fold[open] > summary {
+  border-bottom: 1px solid var(--tg-theme-section-separator-color);
+}
+
+.fold-body {
+  padding: 2px 14px 14px;
+}
+
+/* Подзаголовок внутри развёрнутого раздела: у техработ он меняется вместе с состоянием
+   («Платформа работает» / «Идут техработы») и потому не может жить в самой шапке.
+   Селектор с .card — иначе отступ проигрывает общему правилу `.card h2`. */
+.card .fold-sub {
+  margin: 10px 0 2px;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold-chevron {
+    transition: none;
+  }
+}
+
+/* Переключатель «Сводка / Рычаги» внутри раздела: та же полоса, но своя, не липкая —
+   в отличие от разделов, между этими двумя ходят редко. */
+.subtabs {
+  margin: 12px var(--side) 0;
+}
+
+/*
+ * Кружок с инициалами в списках.
+ *
+ * Слева от строки глазу нужна точка опоры: сплошная колонка текста читается как таблица,
+ * а список людей — это список людей. Цвет один на всех, без «уникального по хэшу имени»:
+ * палитра Telegram не про радугу, а разные оттенки здесь означали бы разницу, которой нет.
+ */
+.avatar-sm {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--tg-theme-button-color) 18%, transparent);
+  color: var(--tg-theme-button-color);
+  font-size: var(--text-small);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .avatar-sm {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+/*
+ * Приоритет жалобы — точкой.
+ *
+ * Слово «Срочно» в строке стоит рядом со временем и читается наравне с ним: чтобы понять,
+ * что горит, приходилось прочитывать каждую строку. Цвет считывается до чтения, а слово
+ * остаётся в подписи — для читалок и для тех, кто цвет не различает.
+ */
+.priority-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tg-theme-hint-color);
+}
+
+.priority-dot.high {
+  background: var(--tg-theme-destructive-text-color);
+}
+
+.priority-dot.medium {
+  background: var(--tg-theme-button-color);
+}
+
+/*
+ * Переписка поддержки — пузырями.
+ *
+ * Строками списка диалог выглядел таблицей «имя — текст — время»: кто кому отвечает,
+ * приходилось восстанавливать по именам. Своё справа акцентом, чужое слева — та же
+ * раскладка, в которой человек читает переписку везде, включая сам Telegram.
+ */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--tg-theme-section-bg-color);
+  color: var(--tg-theme-text-color);
+  font-size: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+/* Свои реплики — справа и акцентом. «Свои» здесь значит «от команды платформы»: экран
+   читает поддержка, и её слова должны отличаться от слов человека, которому отвечают. */
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  border-bottom-right-radius: 6px;
+}
+
+.bubble.theirs {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+}
+
+.bubble-author {
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--text-small);
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.bubble-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-small);
+  opacity: 0.7;
+  text-align: right;
 }

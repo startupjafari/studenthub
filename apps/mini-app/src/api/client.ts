@@ -37,9 +37,6 @@ export class ApiError extends Error {
 }
 
 let token: string | null = null
-let user: MiniUser | null = null
-
-export const currentUser = (): MiniUser | null => user
 
 /** Строка от Telegram. Вне клиента её нет — и это не ошибка сети, а другой сценарий. */
 function initData(): string | null {
@@ -60,7 +57,6 @@ export async function openSession(): Promise<MiniUser> {
 
   const session = await post<SessionResponse>('/mini/session', { initData: data }, false)
   token = session.token
-  user = session.user
   return session.user
 }
 
@@ -71,7 +67,6 @@ export async function linkAccount(code: string): Promise<MiniUser> {
 
   const session = await post<SessionResponse>('/mini/link', { initData: data, code }, false)
   token = session.token
-  user = session.user
   return session.user
 }
 
@@ -92,6 +87,32 @@ export async function apiGetPaged<T>(path: string): Promise<{ items: T[]; total:
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (await request<T>('PATCH', path, body)).data
+}
+
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return (await request<T>('POST', path, body)).data
+}
+
+/**
+ * Загрузка файла. Отдельно от `request`: у multipart нельзя ставить `content-type` руками —
+ * его формирует браузер вместе с границей частей, и наш заголовок сломал бы разбор.
+ * Повтор после истечения токена тот же, но тело переиспользуемое: FormData читается один
+ * раз только у потоков, а этот объект можно отправить снова.
+ */
+export async function apiUpload<T>(path: string, form: FormData, retry = true): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+
+  if (response.status === 401 && retry && token) {
+    token = null
+    await openSession()
+    return apiUpload<T>(path, form, false)
+  }
+
+  return (await unwrap<T>(response)).data
 }
 
 interface Envelope<T> {

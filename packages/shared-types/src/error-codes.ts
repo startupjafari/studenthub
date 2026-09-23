@@ -26,6 +26,9 @@ export const ErrorCode = {
   // Имя пользователя занято другим аккаунтом. Отдельно от CONFLICT: форма подсвечивает
   // именно поле «имя пользователя» и предлагает выбрать другое.
   USERNAME_TAKEN: 'USERNAME_TAKEN',
+  // Платформа остановлена на техработы. Отдаётся всем, кроме платформенных ролей и
+  // маршрутов, без которых режим не снять (вход, мини-апп, состояние, health).
+  MAINTENANCE: 'MAINTENANCE',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -55,6 +58,9 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   INVALID_2FA_CODE: 401,
   TWO_FACTOR_SETUP_REQUIRED: 403,
   USERNAME_TAKEN: 409,
+  // 503 Service Unavailable — ровно тот случай, для которого статус придуман: сервис
+  // временно недоступен и вернётся. Поисковики и мониторинги понимают его без пояснений.
+  MAINTENANCE: 503,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

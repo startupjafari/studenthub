@@ -56,10 +56,17 @@ export interface TelegramWebApp {
   expand: () => void
   close: () => void
   setHeaderColor?: (color: string) => void
+  /** Подложка под приложением: видна при оттяжке списка за край. Bot API 6.1. */
+  setBackgroundColor?: (color: string) => void
   disableVerticalSwipes?: () => void
+  /** Спросить «точно закрыть?» на свайпе вниз. Включаем только при несохранённом вводе. */
+  enableClosingConfirmation?: () => void
+  disableClosingConfirmation?: () => void
   onEvent: (event: string, handler: () => void) => void
   offEvent: (event: string, handler: () => void) => void
   showAlert: (message: string, callback?: () => void) => void
+  /** Нативное подтверждение. `ok` — нажал ли человек согласие. */
+  showConfirm: (message: string, callback: (ok: boolean) => void) => void
   MainButton: TelegramMainButton
   BackButton: TelegramButton
   HapticFeedback: {

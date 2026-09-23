@@ -6,9 +6,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Camera, Trash2 } from 'lucide-react'
+import { CHAT_DESCRIPTION_MAX } from '@studenthub/shared-schemas'
 import {
   chatKeys,
-  editChatTitleRequest,
+  editChatRequest,
   removeChatAvatarRequest,
   setChatAvatarRequest,
   type ChatListItem,
@@ -21,6 +22,7 @@ import {
   Input,
   Label,
   Modal,
+  Textarea,
 } from '../../../shared/ui'
 import { identityColor, identityInitials } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -52,6 +54,7 @@ export function EditGroupDialog({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const [name, setName] = useState(title)
+  const [description, setDescription] = useState(chat.description ?? '')
   const fileRef = useRef<HTMLInputElement>(null)
   // Аватар группы круглый — без кадрирования в него попадала бы середина произвольного снимка.
   const [cropFile, setCropFile] = useState<File | null>(null)
@@ -81,8 +84,11 @@ export function EditGroupDialog({
     onError: err,
   })
 
-  const rename = useMutation({
-    mutationFn: (next: string) => editChatTitleRequest(chat.id, next),
+  // Название и описание сохраняются одной правкой: человек открыл окно «изменить группу»
+  // и жмёт «Сохранить» один раз — два запроса на одну кнопку означали бы и два исхода.
+  const save = useMutation({
+    mutationFn: (input: { title?: string; description?: string }) =>
+      editChatRequest(chat.id, input),
     onSuccess: () => {
       invalidateChat()
       toast.success(t('titleUpdated'))
@@ -94,7 +100,20 @@ export function EditGroupDialog({
   // Фото меняет владелец, название — любой админ. Окно открывается по любому из двух прав.
   const canEditAvatar = chat.isOwner
   const trimmed = name.trim()
-  const canSave = trimmed.length > 0 && trimmed !== title && !rename.isPending
+  const trimmedDescription = description.trim()
+  const nameChanged = trimmed.length > 0 && trimmed !== title
+  const descriptionChanged = trimmedDescription !== (chat.description ?? '')
+  const canSave = trimmed.length > 0 && (nameChanged || descriptionChanged) && !save.isPending
+
+  function submit(): void {
+    if (!canSave) return
+    // Отправляем только изменившееся: иначе правка описания каждый раз переписывала бы
+    // название тем же значением и рождала системное сообщение «название изменено».
+    save.mutate({
+      ...(nameChanged ? { title: trimmed } : {}),
+      ...(descriptionChanged ? { description: trimmedDescription } : {}),
+    })
+  }
 
   // Кадрирование показываем ВМЕСТО окна, а не поверх него. Наложить не выйдет:
   // содержимое Modal центрируется через transform, а он делает элемент системой
@@ -177,8 +196,22 @@ export function EditGroupDialog({
             maxLength={150}
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && canSave) rename.mutate(trimmed)
+              if (e.key === 'Enter') submit()
             }}
+          />
+        </div>
+
+        {/* Описание группы (§3 карты): назначение чата, правила, ссылки. Многострочное —
+            в него пишут список правил, а не одну фразу. */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="edit-group-description">{t('groupDescriptionLabel')}</Label>
+          <Textarea
+            id="edit-group-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={CHAT_DESCRIPTION_MAX}
+            rows={4}
+            placeholder={t('groupDescriptionPlaceholder')}
           />
         </div>
 
@@ -186,12 +219,7 @@ export function EditGroupDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button
-            type="button"
-            loading={rename.isPending}
-            disabled={!canSave}
-            onClick={() => rename.mutate(trimmed)}
-          >
+          <Button type="button" loading={save.isPending} disabled={!canSave} onClick={submit}>
             {t('save')}
           </Button>
         </div>

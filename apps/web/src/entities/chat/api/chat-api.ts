@@ -32,6 +32,9 @@ export const chatKeys = {
   reads: (id: string) => ['chats', id, 'reads'] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
   media: (id: string, type: string) => ['chats', id, 'media', type] as const,
+  // Ключ по месяцу: календарь листают туда-сюда, и уже виденный месяц не должен
+  // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
+  mediaCalendar: (id: string, month: string) => ['chats', id, 'media-calendar', month] as const,
   links: (id: string) => ['chats', id, 'links'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
   blocked: () => ['chats', 'blocked'] as const,
@@ -489,9 +492,12 @@ export async function removeChatAvatarRequest(chatId: string): Promise<void> {
   await api.delete(`/chats/${chatId}/avatar`)
 }
 
-// Название группы (админ).
-export async function editChatTitleRequest(chatId: string, title: string): Promise<void> {
-  await api.patch(`/chats/${chatId}`, { title })
+// Название и описание группы (админ). Оба поля необязательны; пустое описание его убирает.
+export async function editChatRequest(
+  chatId: string,
+  input: { title?: string; description?: string },
+): Promise<void> {
+  await api.patch(`/chats/${chatId}`, input)
 }
 
 // Удалить чат / покинуть группу.
@@ -501,8 +507,27 @@ export async function deleteChatRequest(chatId: string): Promise<{ deleted: bool
 }
 
 // Очистить историю «для меня».
-export async function clearChatRequest(chatId: string): Promise<void> {
-  await api.post(`/chats/${chatId}/clear`)
+export async function clearChatRequest(
+  chatId: string,
+  range?: { from: string; to: string },
+): Promise<void> {
+  await api.post(`/chats/${chatId}/clear`, range ?? {})
+}
+
+/**
+ * Снимки по дням для календаря (§5 карты): по одной миниатюре на день окна.
+ * `tzOffset` — местный сдвиг браузера: день считает сервер, а рисуем мы местные даты.
+ */
+export async function fetchChatMediaCalendar(
+  chatId: string,
+  from: string,
+  to: string,
+): Promise<{ day: string; url: string }[]> {
+  const { data } = await api.get<{ items: { day: string; url: string }[] }>(
+    `/chats/${chatId}/media/calendar`,
+    { params: { from, to, tzOffset: new Date().getTimezoneOffset() } },
+  )
+  return data.items
 }
 
 // Назначить/снять админа (только создатель).

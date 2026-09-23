@@ -41,6 +41,13 @@ const MAX_SCALE = 5
 /** Во сколько раз приближает двойной тап. */
 const DOUBLE_TAP_SCALE = 2.5
 const DOUBLE_TAP_MS = 300
+/**
+ * Шаг колеса: множитель показателя экспоненты. Один «щелчок» мыши — это обычно deltaY ≈ 100,
+ * то есть приближение примерно на четверть. Трекпад шлёт «щипок» тем же событием с ctrlKey,
+ * но deltaY там на порядок мельче — иначе пальцы сводились бы в упор за миллиметр.
+ */
+const WHEEL_STEP = 0.0022
+const WHEEL_PINCH_STEP = 0.01
 const DOUBLE_TAP_SLOP = 30
 /** Гистерезис: движение короче этого — тап, а не жест (§10). */
 const MOVE_SLOP = 6
@@ -421,6 +428,35 @@ export function useMediaGestures({
       panY.to(y)
     }
 
+    /**
+     * Колесо мыши масштабирует снимок (§6 карты). Без пружины и мгновенно: колесо крутят
+     * непрерывно, и доводка на каждый щелчок отставала бы от руки — жест перестал бы
+     * чувствоваться прямым. Трекпадный «щипок» браузер шлёт тем же событием с ctrlKey,
+     * только шагом мельче, поэтому множитель у него свой.
+     */
+    const onWheel = (e: WheelEvent): void => {
+      const el = content.current
+      if (!el || zoomDisabled) return
+      const r = el.getBoundingClientRect()
+      const inside =
+        e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+      // Вне снимка колесо принадлежит странице: перехватывать его там не за что.
+      if (!inside || !e.cancelable) return
+      e.preventDefault()
+      measure()
+      const step = e.ctrlKey ? WHEEL_PINCH_STEP : WHEEL_STEP
+      // Экспонента, а не сложение: шаг «на четверть» одинаков и у 1×, и у 3×, иначе
+      // приближение идёт рывками, а возврат — ползком.
+      const target = Math.min(maxScale, Math.max(1, sc * Math.exp(-e.deltaY * step)))
+      if (target === sc) return
+      const p = local(e.clientX, e.clientY)
+      const u = { x: (p.x - px) / sc, y: (p.y - py) / sc }
+      const bound = limit(target)
+      const x = target === 1 ? 0 : clamp(p.x - u.x * target, bound.x)
+      const y = target === 1 ? 0 : clamp(p.y - u.y * target, bound.y)
+      apply(target, x, y)
+    }
+
     /** Тап по снимку: второй подряд — приблизить/вернуть. Тап по пустому полю не наш. */
     const onTap = (e: PointerEvent): void => {
       const el = content.current
@@ -497,6 +533,8 @@ export function useMediaGestures({
     surface.addEventListener('pointercancel', onPointerUp)
     surface.addEventListener('click', onClickCapture, true)
     surface.addEventListener('touchmove', blockScroll, { passive: false })
+    // non-passive: иначе preventDefault игнорируется и страница зумится вместе со снимком.
+    surface.addEventListener('wheel', onWheel, { passive: false })
     surface.addEventListener('gesturestart', blockNativeZoom)
     surface.addEventListener('gesturechange', blockNativeZoom)
     return () => {
@@ -510,6 +548,7 @@ export function useMediaGestures({
       surface.removeEventListener('pointercancel', onPointerUp)
       surface.removeEventListener('click', onClickCapture, true)
       surface.removeEventListener('touchmove', blockScroll)
+      surface.removeEventListener('wheel', onWheel)
       surface.removeEventListener('gesturestart', blockNativeZoom)
       surface.removeEventListener('gesturechange', blockNativeZoom)
     }

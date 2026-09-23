@@ -14,14 +14,6 @@ export interface JobMeta {
 // Payload job'а = данные + служебные _meta. Процессоры читают _meta для логирования.
 export type JobPayload<T extends object = Record<string, unknown>> = T & { _meta: JobMeta }
 
-/** Агрегаты по очереди для служебных проверок. */
-export interface QueueCounts {
-  waiting: number
-  active: number
-  delayed: number
-  failed: number
-}
-
 export interface EnqueueOptions extends JobsOptions {
   // Сквозной идентификатор запроса; если не передан — генерируем, чтобы job всегда был трассируем.
   requestId?: string
@@ -55,6 +47,28 @@ export class QueueService {
    * Ставит job в очередь. Для идемпотентности передавайте детерминированный `jobId`
    * в опциях — BullMQ отбросит дубликат с тем же id.
    */
+  /**
+   * Размеры очередей. Возвращён вместе с экраном, который его читает, — метод с тем же
+   * именем однажды уже удаляли как мёртвый код именно потому, что читателя у него не было.
+   *
+   * Интересуют два числа: `waiting` — сколько задач стоит, `failed` — сколько упало.
+   * Растущее первое означает, что воркер не справляется; ненулевое второе — что часть
+   * работы потеряна молча.
+   */
+  async counts(): Promise<{ name: string; waiting: number; failed: number }[]> {
+    const names = Object.keys(this.queues) as QueueName[]
+    return Promise.all(
+      names.map(async (name) => {
+        const queue = this.queues[name]
+        const [waiting, failed] = await Promise.all([
+          queue.getWaitingCount(),
+          queue.getFailedCount(),
+        ])
+        return { name, waiting, failed }
+      }),
+    )
+  }
+
   async enqueue<T extends object>(
     queue: QueueName,
     jobName: string,
@@ -92,22 +106,6 @@ export class QueueService {
         { err: error, queue, jobName, requestId: meta.requestId },
         `Не удалось поставить job ${queue}/${jobName} (Redis недоступен?) — сайд-эффект пропущен`,
       )
-    }
-  }
-
-  /**
-   * Глубина очереди — агрегаты для диагностики.
-   *
-   * Живёт здесь: очереди — зона ответственности этого сервиса, и второй источник тех же
-   * чисел разошёлся бы с первым. Только чтение агрегатов, без выгрузки job'ов в приложение.
-   */
-  async counts(queue: QueueName): Promise<QueueCounts> {
-    const counts = await this.queues[queue].getJobCounts('waiting', 'active', 'delayed', 'failed')
-    return {
-      waiting: counts.waiting ?? 0,
-      active: counts.active ?? 0,
-      delayed: counts.delayed ?? 0,
-      failed: counts.failed ?? 0,
     }
   }
 

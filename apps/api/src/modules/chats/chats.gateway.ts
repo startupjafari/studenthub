@@ -159,19 +159,52 @@ export class ChatGateway {
   }
 
   @SubscribeMessage('typing:start')
-  onTypingStart(@ConnectedSocket() client: Socket, @MessageBody() raw: unknown): void {
-    const uid = this.userId(client)
-    const data = this.parse(client, 'typing:start', TypingSchema, raw)
-    if (!uid || !data) return
-    // Остальным участникам комнаты (кроме себя).
-    client.to(`chat:${data.chatId}`).emit('typing:started', { chatId: data.chatId, userId: uid })
+  async onTypingStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    await this.relayTyping(client, 'typing:start', 'typing:started', raw)
   }
 
   @SubscribeMessage('typing:stop')
-  onTypingStop(@ConnectedSocket() client: Socket, @MessageBody() raw: unknown): void {
+  async onTypingStop(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    await this.relayTyping(client, 'typing:stop', 'typing:stopped', raw)
+  }
+
+  /**
+   * «Печатает» уходит в личные комнаты участников, а не только в `chat:{id}`: подпись нужна и
+   * в строке списка чатов, а в комнату чата входят только с открытой перепиской (§1 карты
+   * интерфейса). В больших чатах служба возвращает `room` — там подпись остаётся прежней,
+   * видимой только с открытым чатом; причины — в `ChatsService.typingAudience`.
+   *
+   * Отправитель исключён в обоих путях: `client.to(...)` не шлёт самому себе, а в веерном
+   * списке его id отфильтрован — иначе своя же подпись «печатает» встала бы в свою строку.
+   */
+  private async relayTyping(
+    client: Socket,
+    event: 'typing:start' | 'typing:stop',
+    out: 'typing:started' | 'typing:stopped',
+    raw: unknown,
+  ): Promise<void> {
     const uid = this.userId(client)
-    const data = this.parse(client, 'typing:stop', TypingSchema, raw)
+    const data = this.parse(client, event, TypingSchema, raw)
     if (!uid || !data) return
-    client.to(`chat:${data.chatId}`).emit('typing:stopped', { chatId: data.chatId, userId: uid })
+    try {
+      const payload = { chatId: data.chatId, userId: uid }
+      const audience = await this.chats.typingAudience(uid, data.chatId)
+      if (audience.kind === 'denied') return
+      if (audience.kind === 'room') {
+        client.to(`chat:${data.chatId}`).emit(out, payload)
+        return
+      }
+      for (const userId of audience.userIds) {
+        this.server.to(`user:${userId}`).emit(out, payload)
+      }
+    } catch (error) {
+      this.fail(client, event, error)
+    }
   }
 }

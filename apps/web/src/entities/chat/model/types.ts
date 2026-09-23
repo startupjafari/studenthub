@@ -168,6 +168,9 @@ export interface ChatListItem {
   id: string
   type: ChatTypeValue
   title: string | null
+  // Описание группы: назначение чата, правила, ссылки. Показывается в панели информации.
+  // Есть только у пользовательских GROUP — в остальных типах сервер всегда отдаёт null.
+  description: string | null
   // Аватар группы (публичный URL) или null → показываем цветной кружок с инициалами.
   avatarUrl: string | null
   subject: string | null

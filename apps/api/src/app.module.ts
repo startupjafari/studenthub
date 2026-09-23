@@ -17,6 +17,7 @@ import { QueueModule } from './common/queue/queue.module'
 import { RealtimeModule } from './common/realtime/realtime.module'
 import { MinioModule } from './common/minio/minio.module'
 import { AuditModule } from './common/audit/audit.module'
+import { TelegramModule } from './common/telegram/telegram.module'
 import { ExportBrandingModule } from './common/export/export-branding.module'
 import { SecurityModule } from './common/security/security.module'
 import { AuthModule } from './modules/auth/auth.module'
@@ -48,6 +49,7 @@ import { PostsModule } from './modules/posts/posts.module'
 import { ChatsModule } from './modules/chats/chats.module'
 import { EventsModule } from './modules/events/events.module'
 import { ComplaintsModule } from './modules/complaints/complaints.module'
+import { TelegramHookModule } from './modules/telegram-hook/telegram-hook.module'
 import { MaterialsModule } from './modules/materials/materials.module'
 import { ProfileContentModule } from './modules/profile-content/profile-content.module'
 import { PollsModule } from './modules/polls/polls.module'
@@ -60,6 +62,7 @@ import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
 import { MeModule } from './modules/me/me.module'
 import { ReleasesModule } from './modules/releases/releases.module'
+import { PlatformModule } from './modules/platform/platform.module'
 // Вход в админский мини-апп Telegram (docs/PROJECT.md §8.3).
 import { MiniModule } from './modules/mini/mini.module'
 import { AppController } from './app.controller'
@@ -101,6 +104,7 @@ import { AppController } from './app.controller'
     RealtimeModule,
     MinioModule,
     AuditModule,
+    TelegramModule,
     ExportBrandingModule,
     SecurityModule,
     AuthModule,
@@ -131,6 +135,7 @@ import { AppController } from './app.controller'
     ChatsModule,
     EventsModule,
     ComplaintsModule,
+    TelegramHookModule,
     MaterialsModule,
     ProfileContentModule,
     PollsModule,
@@ -143,6 +148,7 @@ import { AppController } from './app.controller'
     HealthModule,
     MeModule,
     ReleasesModule,
+    PlatformModule,
     MiniModule,
   ],
   controllers: [AppController],

@@ -7,12 +7,17 @@ import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import { CronLockService } from '../../common/redis/cron-lock.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
+import { SupportService } from '../chats/support.service'
+import { countServerErrors } from '../../common/monitoring/error-rate'
+import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
+import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
 // Разбрасывать @Cron по модулям запрещено. Все задачи работают батчами и логируют счётчик.
@@ -33,6 +38,12 @@ const LOCK_TTL_MS = {
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
+  sendDailyDigest: 10 * 60 * 1000,
+  alertQueueBacklog: 10 * 60 * 1000,
+  closeStaleTickets: 10 * 60 * 1000,
+  liftExpiredBlocks: 4 * 60 * 1000,
+  rotateDuty: 10 * 60 * 1000,
+  watchServices: 4 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -41,10 +52,33 @@ const ORPHAN_SAFETY_MINUTES = 60
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+// Сигнал о накоплении очереди жалоб.
+//
+// Порог и пауза подобраны так, чтобы уведомление означало «очередь вышла из-под контроля»,
+// а не «пришло ещё три жалобы». Сигналить на каждый час превышения бессмысленно: разгрести
+// два десятка жалоб за час нельзя, и пять одинаковых сообщений подряд учат их не читать.
+const QUEUE_BACKLOG_THRESHOLD = 20
+const QUEUE_BACKLOG_SILENCE_SEC = 6 * 60 * 60
+const QUEUE_BACKLOG_KEY = 'platform:queue-backlog-alerted'
+
+// Через сколько молчания обращение закрывается само. Две недели — достаточно, чтобы
+// человек успел вернуться с уточнением, и достаточно мало, чтобы очередь не превращалась
+// в кладбище отвеченного.
+const SUPPORT_STALE_DAYS = 14
+
+// Наблюдение за зависимостями и ошибками.
+//
+// Сигналим только на ПЕРЕХОД: «упало» и «поднялось». Повторять «всё ещё лежит» каждые
+// пять минут бессмысленно — починка идёт, а поток одинаковых сообщений учит их не читать.
+const SERVICES_STATE_KEY = 'platform:services-down'
+// Порог всплеска: столько серверных ошибок за час означает, что сломалось что-то общее,
+// а не один запрос одного человека.
+const ERROR_SPIKE_THRESHOLD = 25
+const ERROR_SPIKE_KEY = 'platform:error-spike-alerted'
+const ERROR_SPIKE_SILENCE_SEC = 60 * 60
+
 // Итог ночной уборки сирот живёт двое суток: сводка читает его раз в день, и пропуск
 // одного запуска не должен превращаться в пустую строку навсегда.
-const ORPHAN_SWEEP_KEY = 'ops:cleanup:orphans'
-const ORPHAN_SWEEP_TTL_SEC = 48 * 60 * 60
 
 @Injectable()
 export class CleanupService {
@@ -59,7 +93,11 @@ export class CleanupService {
     private readonly documents: DocumentsService,
     private readonly chats: ChatsService,
     private readonly locks: CronLockService,
+    private readonly audit: AuditService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly support: SupportService,
+    private readonly telegram: TelegramNotifyService,
+    @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
@@ -95,6 +133,54 @@ export class CleanupService {
     return this.locks.run('sweepDocumentExpiry', LOCK_TTL_MS.sweepDocumentExpiry, () =>
       this.documents.sweepExpiry(),
     )
+  }
+
+  // Временные блокировки: снимаем те, у которых вышел срок. Каждые пять минут — так же,
+  // как техработы: человек, отсидевший сутки, не должен ждать до ночного прогона.
+  @Cron('*/5 * * * *', { name: 'liftExpiredBlocks' })
+  async liftExpiredBlocks(): Promise<number | null> {
+    return this.locks.run('liftExpiredBlocks', LOCK_TTL_MS.liftExpiredBlocks, () =>
+      this.liftExpiredBlocksTask(),
+    )
+  }
+
+  private async liftExpiredBlocksTask(): Promise<number> {
+    const now = new Date()
+    let total = 0
+    for (;;) {
+      const batch = await this.prisma.user.findMany({
+        where: { isBlocked: true, blockedUntil: { lte: now } },
+        select: { id: true },
+        take: BATCH_SIZE,
+      })
+      if (batch.length === 0) break
+      const ids = batch.map((row) => row.id)
+      const { count } = await this.prisma.user.updateMany({
+        where: { id: { in: ids } },
+        data: { isBlocked: false, blockedUntil: null },
+      })
+      total += count
+      // Снятие блокировки — событие того же веса, что и сама блокировка: без записи в
+      // журнале человек «разблокировался сам», и через месяц никто не объяснит, почему.
+      for (const id of ids) {
+        await this.audit.record({ action: 'user_unblocked_expired', entity: 'User', entityId: id })
+      }
+      if (batch.length < BATCH_SIZE) break
+    }
+    if (total > 0) this.logger.log(`liftExpiredBlocks: снято блокировок ${total}`)
+    return total
+  }
+
+  // Передача дежурства: по понедельникам в 9 утра дежурным становится следующий в
+  // очереди. Раньше дежурного назначали руками — то есть он оставался прежним, пока
+  // кто-нибудь не вспоминал, что дежурит уже месяц.
+  @Cron('0 9 * * 1', { name: 'rotateDuty' })
+  async rotateDuty(): Promise<string | null> {
+    return this.locks.run('rotateDuty', LOCK_TTL_MS.rotateDuty, async () => {
+      const next = await this.platform.rotateDuty()
+      if (next) this.logger.log('rotateDuty: дежурство передано следующему')
+      return next
+    })
   }
 
   // Просроченные PENDING-инвайты → EXPIRED. Ежечасно.
@@ -215,31 +301,136 @@ export class CleanupService {
       }
     }
     this.logger.log(`cleanOrphanFiles: удалено осиротевших объектов ${removed}`)
-    await this.rememberOrphanSweep(removed)
     return removed
   }
 
-  /**
-   * Итог последней уборки сирот — для админ-сводки. В Redis, а не в памяти: задача идёт
-   * ночью на одной реплике, а число читает, возможно, другая.
-   */
-  private async rememberOrphanSweep(removed: number): Promise<void> {
-    try {
-      await this.redis.set(ORPHAN_SWEEP_KEY, String(removed), 'EX', ORPHAN_SWEEP_TTL_SEC)
-    } catch (error) {
-      // Не смогли запомнить — сводка покажет «нет данных». Уборка при этом отработала.
-      this.logger.warn(`cleanOrphanFiles: итог не сохранён: ${(error as Error).message}`)
-    }
+  // Ежедневная сводка команде платформы. Ежечасно, а отправляет только в тот час,
+  // который админ выбрал: хранить расписание в cron-выражении значило бы перезапускать
+  // приложение ради смены времени.
+  @Cron('5 * * * *', { name: 'sendDailyDigest' })
+  async sendDailyDigest(): Promise<number | null> {
+    return this.locks.run('sendDailyDigest', LOCK_TTL_MS.sendDailyDigest, () =>
+      this.sendDailyDigestTask(),
+    )
   }
 
-  /** Сколько сирот нашла последняя ночная уборка. `null` — уборки ещё не было. */
-  async lastOrphanSweep(): Promise<number | null> {
-    try {
-      const raw = await this.redis.get(ORPHAN_SWEEP_KEY)
-      return raw === null ? null : Number(raw)
-    } catch {
-      return null
+  private async sendDailyDigestTask(): Promise<number> {
+    const policy = await this.platform.notificationPolicy()
+    if (policy.digestHour === null || policy.digestHour !== new Date().getHours()) return 0
+
+    const [complaints, tickets] = await Promise.all([
+      this.prisma.complaint.count({ where: { status: { in: ['PENDING', 'REVIEWING'] } } }),
+      this.prisma.chat.count({ where: { type: 'SUPPORT_PLATFORM', supportClosedAt: null } }),
+    ])
+
+    // Сводку шлём, даже когда всё разобрано: «ноль и ноль» — это тоже новость, и по её
+    // отсутствию нельзя отличить спокойный день от сломавшейся отправки.
+    await this.telegram.notifyStaff(
+      'digest',
+      `Сводка за день: жалоб в очереди ${complaints}, открытых обращений ${tickets}`,
+    )
+    this.logger.log(`sendDailyDigest: жалоб ${complaints}, обращений ${tickets}`)
+    return 1
+  }
+
+  // Очередь жалоб выросла сверх порога. Ежечасно, с паузой между сигналами.
+  @Cron('15 * * * *', { name: 'alertQueueBacklog' })
+  async alertQueueBacklog(): Promise<number | null> {
+    return this.locks.run('alertQueueBacklog', LOCK_TTL_MS.alertQueueBacklog, () =>
+      this.alertQueueBacklogTask(),
+    )
+  }
+
+  private async alertQueueBacklogTask(): Promise<number> {
+    const pending = await this.prisma.complaint.count({
+      where: { status: { in: ['PENDING', 'REVIEWING'] } },
+    })
+    if (pending < QUEUE_BACKLOG_THRESHOLD) {
+      // Очередь разгребли — снимаем паузу, чтобы следующий всплеск не пропустить.
+      await this.redis.del(QUEUE_BACKLOG_KEY).catch(() => undefined)
+      return 0
     }
+
+    // SET NX: между инстансами побеждает один, и повторного сигнала не будет даже если
+    // задача каким-то образом выполнится дважды.
+    const first = await this.redis
+      .set(QUEUE_BACKLOG_KEY, String(pending), 'EX', QUEUE_BACKLOG_SILENCE_SEC, 'NX')
+      .catch(() => null)
+    if (first === null) return 0
+
+    await this.telegram.notifyStaff('complaint', `В очереди накопилось жалоб: ${pending}`)
+    this.logger.log(`alertQueueBacklog: жалоб ${pending}`)
+    return pending
+  }
+
+  // Обращения без движения. Ежедневно в 05:00, после уборки файлов.
+  @Cron('0 5 * * *', { name: 'closeStaleTickets' })
+  async closeStaleTickets(): Promise<number | null> {
+    return this.locks.run('closeStaleTickets', LOCK_TTL_MS.closeStaleTickets, async () => {
+      const closed = await this.support.closeStale(
+        new Date(Date.now() - SUPPORT_STALE_DAYS * DAY_MS),
+      )
+      this.logger.log(`closeStaleTickets: закрыто ${closed}`)
+      return closed
+    })
+  }
+
+  /**
+   * Живость зависимостей и всплеск ошибок. Каждые пять минут.
+   *
+   * Проверяются те же три зависимости, что и в `/health`, но своими клиентами: расписание
+   * обязано жить здесь (§9.3), а тянуть сюда индикаторы terminus значило бы связать
+   * уборку с модулем здоровья ради трёх строк.
+   */
+  @Cron('*/5 * * * *', { name: 'watchServices' })
+  async watchServices(): Promise<number | null> {
+    return this.locks.run('watchServices', LOCK_TTL_MS.watchServices, () => this.watchTask())
+  }
+
+  private async watchTask(): Promise<number> {
+    const down: string[] = []
+    await this.prisma.$queryRaw`SELECT 1`.catch(() => down.push('база данных'))
+    await this.redis.ping().catch(() => down.push('Redis'))
+    await this.minio
+      .bucketExists(this.config.get('MINIO_BUCKET_AVATARS', { infer: true }))
+      .catch(() => down.push('хранилище'))
+
+    const wasDown = (await this.redis.get(SERVICES_STATE_KEY).catch(() => null)) !== null
+    if (down.length > 0 && !wasDown) {
+      await this.redis
+        .set(SERVICES_STATE_KEY, down.join(','), 'EX', DAY_MS / 1000)
+        .catch(() => undefined)
+      await this.telegram.notifyStaff(
+        'digest',
+        `Не отвечает: ${down.join(', ')}`,
+        undefined,
+        new Date(),
+        true,
+      )
+    } else if (down.length === 0 && wasDown) {
+      await this.redis.del(SERVICES_STATE_KEY).catch(() => undefined)
+      await this.telegram.notifyStaff(
+        'digest',
+        'Все сервисы снова отвечают',
+        undefined,
+        new Date(),
+        true,
+      )
+    }
+
+    // Всплеск серверных ошибок за последний час.
+    const errors = await countServerErrors(this.redis, 60)
+    if (errors >= ERROR_SPIKE_THRESHOLD) {
+      const first = await this.redis
+        .set(ERROR_SPIKE_KEY, String(errors), 'EX', ERROR_SPIKE_SILENCE_SEC, 'NX')
+        .catch(() => null)
+      if (first !== null) {
+        await this.telegram.notifyStaff('digest', `Всплеск ошибок: ${errors} за час`)
+      }
+    }
+
+    if (down.length > 0) this.logger.warn(`watchServices: не отвечают ${down.join(', ')}`)
+    return down.length
   }
 
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---

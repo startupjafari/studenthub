@@ -7,6 +7,7 @@ const OFFICIAL_LABEL: Partial<Record<ChatTypeValue, string>> = {
   FACULTY: 'typeFaculty',
   DEAN: 'typeDean',
   SUPPORT: 'typeSupport',
+  SUPPORT_PLATFORM: 'typeSupportPlatform',
   SUBJECT: 'typeSubject',
 }
 
@@ -26,6 +27,25 @@ export function senderName(m: { sender: { firstName: string; lastName: string } 
   return `${m.sender.lastName} ${m.sender.firstName}`.trim()
 }
 
+/**
+ * Официальный чат вуза или платформы — тот, который завела не переписка людей, а сама
+ * система: деканат, факультет, предмет, поддержка, официальная группа. Рядом с его названием
+ * стоит знак подлинности (§7 карты): под деканат или поддержку проще всего подделаться
+ * названием обычной группы, и отличать их должен интерфейс, а не внимательность читающего.
+ */
+const OFFICIAL_TYPES: ChatTypeValue[] = [
+  'GROUP_OFFICIAL',
+  'SUBJECT',
+  'FACULTY',
+  'DEAN',
+  'SUPPORT',
+  'SUPPORT_PLATFORM',
+]
+
+export function isOfficialChat(type: ChatTypeValue): boolean {
+  return OFFICIAL_TYPES.includes(type)
+}
+
 // Тег-категория чата под превью (Telegram-стиль «папок»): i18n-ключ + приглушённая точка-цвет по типу.
 export const TYPE_TAG: Record<ChatTypeValue, { key: string; dot: string }> = {
   PRIVATE: { key: 'tagPrivate', dot: 'bg-sky-500' },
@@ -35,6 +55,7 @@ export const TYPE_TAG: Record<ChatTypeValue, { key: string; dot: string }> = {
   FACULTY: { key: 'tagFaculty', dot: 'bg-violet-500' },
   DEAN: { key: 'tagDean', dot: 'bg-amber-500' },
   SUPPORT: { key: 'tagSupport', dot: 'bg-rose-500' },
+  SUPPORT_PLATFORM: { key: 'tagSupportPlatform', dot: 'bg-rose-500' },
   EVENT: { key: 'tagEvent', dot: 'bg-teal-500' },
   SAVED: { key: 'tagSaved', dot: 'bg-amber-500' },
 }

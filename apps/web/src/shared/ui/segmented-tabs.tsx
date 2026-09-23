@@ -51,6 +51,12 @@ export interface SegmentedTabsProps<T extends string> {
    * уведомлений: там таб соседствует со строками списка, и рост в 52 px съедает экран.
    */
   compact?: boolean
+  /**
+   * Правый клик (и клавиша «контекстное меню») по вкладке. Ряд сам меню не рисует — он
+   * только сообщает, по какой вкладке нажали: содержимое меню зависит от того, что за ряд,
+   * а разбирать это внутри общего компонента значило бы тянуть в него чужие домены.
+   */
+  onItemContextMenu?: (value: T, event: React.MouseEvent<HTMLElement>) => void
   className?: string
 }
 
@@ -61,6 +67,7 @@ export function SegmentedTabs<T extends string>({
   'aria-label': ariaLabel,
   collapsible = true,
   compact = false,
+  onItemContextMenu,
   className,
 }: SegmentedTabsProps<T>) {
   const row = useScrollRow<HTMLDivElement>()
@@ -160,6 +167,14 @@ export function SegmentedTabs<T extends string>({
                         setMenuOpen(false)
                         onChange(item.value)
                       }}
+                      onContextMenu={
+                        onItemContextMenu
+                          ? (e) => {
+                              setMenuOpen(false)
+                              onItemContextMenu(item.value, e)
+                            }
+                          : undefined
+                      }
                       className={cn(
                         'flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-2xl px-3 text-left text-sm font-medium transition-colors hover:bg-foreground/[0.06] active:bg-foreground/[0.09]',
                         isActive && 'bg-primary/10 text-primary',
@@ -213,6 +228,7 @@ export function SegmentedTabs<T extends string>({
             // tabpanel-области с id здесь нет — неполная tab-семантика хуже честной кнопки.
             aria-pressed={isActive}
             onClick={() => onChange(item.value)}
+            onContextMenu={onItemContextMenu ? (e) => onItemContextMenu(item.value, e) : undefined}
             className={cn(
               // 44 px под палец (§13) и компактные 32 px там, где курсор: одна и та же
               // строка табов служит и шапкой мобильного экрана, и фильтром на десктопе.

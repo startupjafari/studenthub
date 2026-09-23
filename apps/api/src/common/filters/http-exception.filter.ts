@@ -1,4 +1,12 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common'
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+  HttpStatus,
+  Inject,
+} from '@nestjs/common'
+import type Redis from 'ioredis'
 import { Prisma } from '@prisma/client'
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino'
 import { ZodValidationException } from 'nestjs-zod'
@@ -12,7 +20,8 @@ import {
 import { AppException } from '../exceptions/app.exception'
 import type { CurrentUserData } from '../auth/jwt-payload.type'
 import { captureException } from '../monitoring/sentry'
-import { HttpStatusCounter } from '../monitoring/http-status.counter'
+import { recordServerError } from '../monitoring/error-rate'
+import { REDIS_CLIENT } from '../redis/redis.constants'
 
 // Глобальный фильтр: любую ошибку приводит к контракту
 // { success:false, error:{ code, message, details? }, statusCode, timestamp, path }.
@@ -21,7 +30,7 @@ import { HttpStatusCounter } from '../monitoring/http-status.counter'
 export class HttpExceptionFilter implements ExceptionFilter {
   constructor(
     @InjectPinoLogger(HttpExceptionFilter.name) private readonly logger: PinoLogger,
-    private readonly statusCounter: HttpStatusCounter,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
@@ -63,11 +72,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
-    // Считаем здесь все отказы: guard'ы отрабатывают ДО интерцепторов, поэтому 401 от
-    // JwtAuthGuard и 403 от ScopeGuard до `LoggingInterceptor` не доходят — фильтр
-    // единственный, кто видит их все.
-    this.statusCounter.record(status, request.ip)
-
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       // Необработанное/серверное — логируем с полным контекстом (но не в ответ)
       // и отправляем в Sentry (Ф13.8). Порог тот же, что у лога: 5xx = наш баг,
@@ -85,6 +89,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
         method: request.method,
         code,
       })
+      // Счётчик всплеска ошибок (читает ежечасный cron). Только 5xx: на здоровой
+      // платформе это единицы в сутки, а не тысячи в минуту, как было у прежнего
+      // счётчика, который писал на каждый ответ и не имел читателя вовсе.
+      void recordServerError(this.redis)
       this.logger.error(
         {
           err: exception,

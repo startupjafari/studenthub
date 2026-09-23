@@ -40,6 +40,8 @@ export const NOTIFICATION_JOBS = {
   EVENT_CREATED: 'event-created',
   EVENT_REMINDER: 'event-reminder',
   COMPLAINT_RESOLVED: 'complaint-resolved',
+  // Предупреждение модерации: промежуточная мера между «нарушения нет» и блокировкой.
+  MODERATION_WARNING: 'moderation-warning',
   DOCUMENT_EXPIRING: 'document-expiring',
   DOCUMENT_REQUEST: 'document-request',
   DOCUMENT_RESULT: 'document-result',

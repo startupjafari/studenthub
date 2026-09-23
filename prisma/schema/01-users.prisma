@@ -28,6 +28,11 @@ model User {
   facultyId            String?   @map("faculty_id")
   groupId              String?   @map("group_id")
   isBlocked            Boolean   @default(false) @map("is_blocked")
+  // Срок временной блокировки. Заполнен — блокировка снимется сама (крон CleanupService),
+  // пуст при isBlocked=true — блокировка бессрочная. Отдельное поле, а не статус: снятие
+  // по сроку обязано выглядеть так же, как снятие руками, иначе «разблокирован» означало
+  // бы разное в двух местах.
+  blockedUntil         DateTime? @map("blocked_until")
   // Двухфакторная аутентификация (TOTP). Секрет хранится зашифрованным (AES-256-GCM),
   // backup-коды — bcrypt-хэши. Наружу (PROFILE_SELECT) уходит только флаг twoFactorEnabled.
   twoFactorEnabled     Boolean   @default(false) @map("two_factor_enabled")
@@ -132,8 +137,13 @@ model User {
   eventParticipations EventParticipant[]
 
   // Жалобы (Ф11): поданные и разрешённые пользователем.
-  complaintsReported Complaint[] @relation("ComplaintReporter")
-  complaintsResolved Complaint[] @relation("ComplaintResolver")
+  complaintsReported  Complaint[] @relation("ComplaintReporter")
+  complaintsResolved  Complaint[] @relation("ComplaintResolver")
+  complaintsReviewing Complaint[] @relation("ComplaintReviewer")
+
+  // Предупреждения модерации: полученные и вынесенные.
+  warnings       ModerationWarning[] @relation("WarnedUser")
+  warningsIssued ModerationWarning[] @relation("WarningAuthor")
 
   // Материалы (Ф12): опубликованные преподавателем.
   materials             Material[]           @relation("MaterialAuthor")

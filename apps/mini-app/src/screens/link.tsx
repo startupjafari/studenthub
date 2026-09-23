@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMainButton } from '../telegram/use-telegram'
 import { haptic } from '../telegram/webapp'
 import { ApiError, linkAccount, type MiniUser } from '../api/client'
+import { t } from '../i18n'
 
 // Экран привязки.
 //
@@ -34,20 +35,20 @@ export function LinkScreen({ onLinked }: { onLinked: (user: MiniUser) => void })
     }
   }
 
-  useMainButton(code.length === CODE_LENGTH ? 'Привязать' : null, () => void submit())
+  useMainButton(code.length === CODE_LENGTH ? t('linkSubmit') : null, () => void submit())
 
   return (
     <div className="screen">
       <header className="screen-head">
-        <h1>Привязка аккаунта</h1>
-        <p className="hint">Мини-апп для администраторов и модераторов платформы</p>
+        <h1>{t('linkTitle')}</h1>
+        <p className="hint">{t('linkSubtitle')}</p>
       </header>
 
       <section className="card">
         <ol className="steps">
-          <li>Откройте StudentHub в браузере, раздел «Настройки» → «Безопасность».</li>
-          <li>Нажмите «Получить код» в блоке «Мини-апп в Telegram».</li>
-          <li>Введите код здесь — он действует пять минут.</li>
+          <li>{t('linkStep1')}</li>
+          <li>{t('linkStep2')}</li>
+          <li>{t('linkStep3')}</li>
         </ol>
       </section>
 
@@ -68,15 +69,18 @@ export function LinkScreen({ onLinked }: { onLinked: (user: MiniUser) => void })
         autoCapitalize="characters"
         autoCorrect="off"
         spellCheck={false}
+        // Экран открывается ради одного действия — ввести код. Фокус ставим сразу:
+        // лишнее касание по полю здесь ничего не решает, а клавиатуру всё равно откроют.
+        autoFocus
         placeholder="XXXXXXXX"
-        aria-label="Код привязки"
+        aria-label={t('linkCodeLabel')}
       />
 
       {error && <p className="hint hint-danger">{error}</p>}
 
       {/* Вне Telegram главной кнопки нет — нужна своя, иначе экран нечем подтвердить. */}
       <button type="button" className="fallback-submit" onClick={() => void submit()}>
-        {pending ? 'Привязываем…' : 'Привязать'}
+        {pending ? t('linkPending') : t('linkSubmit')}
       </button>
     </div>
   )
@@ -87,16 +91,16 @@ function message(cause: unknown): string {
   const code = cause instanceof ApiError ? cause.code : ''
   switch (code) {
     case 'BAD_REQUEST':
-      return 'Код неверен или истёк. Получите новый в веб-версии'
+      return t('linkErrBadCode')
     case 'CONFLICT':
-      return 'Этот Telegram уже привязан к другому аккаунту'
+      return t('linkErrConflict')
     case 'UNAUTHORIZED':
-      return 'Аккаунт не допущен в мини-апп'
+      return t('linkErrForbidden')
     case 'RATE_LIMIT':
-      return 'Слишком много попыток. Попробуйте позже'
+      return t('linkErrRateLimit')
     case 'NO_TELEGRAM':
-      return 'Привязка возможна только из Telegram'
+      return t('linkErrNoTelegram')
     default:
-      return 'Не удалось привязать. Попробуйте ещё раз'
+      return t('linkErrUnknown')
   }
 }

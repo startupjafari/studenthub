@@ -6,6 +6,8 @@ import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
 import { MINI_LINK_CODE_LENGTH } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
+import type { RequestContext } from '../auth/auth.service'
+import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -58,6 +60,7 @@ export class MiniService {
     private readonly audit: AuditService,
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly telegram: TelegramNotifyService,
   ) {}
 
   /** Настроен ли бот. Без токена проверять подпись нечем — мини-апп просто выключен. */
@@ -112,7 +115,7 @@ export class MiniService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, firstName: true, role: true, isBlocked: true },
+      select: { id: true, firstName: true, role: true, isBlocked: true, twoFactorEnabled: true },
     })
     if (!user || user.isBlocked || !ALLOWED_ROLES.includes(user.role as Role)) {
       throw this.denied(`link: роль ${user?.role ?? 'нет пользователя'}`)
@@ -145,7 +148,19 @@ export class MiniService {
       metadata: { source: 'telegram' },
     })
 
-    return this.issueSession({ id: user.id, firstName: user.firstName, role: user.role as Role })
+    // Подтверждение в сам привязанный Telegram: человек видит, что доступ появился
+    // именно здесь, а если сообщение пришло неожиданно — что кто-то привязал его аккаунт.
+    // Отправка не должна мешать привязке, поэтому её отказ не пробрасывается.
+    await this.telegram
+      .notifyOne(telegramId, 'Telegram привязан к аккаунту StudentHub')
+      .catch(() => undefined)
+
+    return this.issueSession({
+      id: user.id,
+      firstName: user.firstName,
+      role: user.role as Role,
+      twoFactorEnabled: user.twoFactorEnabled,
+    })
   }
 
   /**
@@ -162,7 +177,15 @@ export class MiniService {
       select: {
         id: true,
         revokedAt: true,
-        user: { select: { id: true, firstName: true, role: true, isBlocked: true } },
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            role: true,
+            isBlocked: true,
+            twoFactorEnabled: true,
+          },
+        },
       },
     })
 
@@ -179,12 +202,124 @@ export class MiniService {
       .update({ where: { id: account.id }, data: { lastSeenAt: new Date() } })
       .catch((error: unknown) => this.logger.warn(`lastSeenAt не обновлён: ${String(error)}`))
 
-    return this.issueSession({ id: user.id, firstName: user.firstName, role: user.role as Role })
+    return this.issueSession({
+      id: user.id,
+      firstName: user.firstName,
+      role: user.role as Role,
+      twoFactorEnabled: user.twoFactorEnabled,
+    })
   }
 
-  private issueSession(user: { id: string; firstName: string; role: Role }): MiniSession {
+  /**
+   * Кто из команды пользуется мини-аппом. Только для администратора платформы.
+   *
+   * Отвечает на два вопроса сразу: «у кого вообще есть доступ с телефона» и «чья привязка
+   * заброшена». Второе важнее: привязка, которой не пользовались полгода, — это доступ,
+   * о котором забыли все, включая её владельца.
+   */
+  async listLinks(): Promise<
+    {
+      userId: string
+      name: string
+      role: Role
+      username: string | null
+      linkedAt: Date
+      lastSeenAt: Date | null
+    }[]
+  > {
+    const rows = await this.prisma.telegramAccount.findMany({
+      where: { revokedAt: null },
+      select: {
+        userId: true,
+        username: true,
+        linkedAt: true,
+        lastSeenAt: true,
+        user: { select: { firstName: true, lastName: true, role: true } },
+      },
+      orderBy: { linkedAt: 'asc' },
+      take: 100,
+    })
+    return rows.map((row) => ({
+      userId: row.userId,
+      name: `${row.user.lastName} ${row.user.firstName}`,
+      role: row.user.role as Role,
+      username: row.username,
+      linkedAt: row.linkedAt,
+      lastSeenAt: row.lastSeenAt,
+    }))
+  }
+
+  /**
+   * Состояние привязки для веба: к какому Telegram привязан аккаунт и когда им пользовались.
+   *
+   * `username` здесь только для показа — он в Telegram меняется и переиспользуется, и
+   * искать по нему нельзя (см. 29-telegram.prisma). Но узнать «это точно мой телефон»
+   * человек может только по нему.
+   */
+  async linkStatus(userId: string): Promise<{
+    linked: boolean
+    username: string | null
+    linkedAt: Date | null
+    lastSeenAt: Date | null
+  }> {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { userId },
+      select: { username: true, linkedAt: true, lastSeenAt: true, revokedAt: true },
+    })
+    if (!account || account.revokedAt) {
+      return { linked: false, username: null, linkedAt: null, lastSeenAt: null }
+    }
+    return {
+      linked: true,
+      username: account.username,
+      linkedAt: account.linkedAt,
+      lastSeenAt: account.lastSeenAt,
+    }
+  }
+
+  /**
+   * Отозвать привязку. Единственный способ отобрать доступ у потерянного телефона:
+   * токен мини-аппа живёт в памяти 15 минут и не отзывается сам, а следующая сессия по
+   * отозванной привязке уже не выдаётся.
+   *
+   * Строка остаётся с проставленным `revokedAt`, а не удаляется: перепривязка должна быть
+   * осознанным действием, и история «этот Telegram здесь уже был» для этого нужна.
+   */
+  async revoke(userId: string, ctx: RequestContext = {}): Promise<{ revoked: boolean }> {
+    const { count } = await this.prisma.telegramAccount.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    if (count === 0) return { revoked: false }
+
+    await this.audit.record({
+      userId,
+      action: 'mini.link.revoke',
+      entity: 'TelegramAccount',
+      entityId: userId,
+      ...ctx,
+    })
+    return { revoked: true }
+  }
+
+  private issueSession(user: {
+    id: string
+    firstName: string
+    role: Role
+    twoFactorEnabled: boolean
+  }): MiniSession {
     // Признак `client` отличает токен мини-аппа от обычного access-токена: с ним
     // MiniAppGuard пускает только на маршруты из белого списка (§4).
+    //
+    // `tfa` обязателен, хотя мини-апп второй фактор не спрашивает. Глобальный
+    // TwoFactorGuard отдаёт 403 любой привилегированной роли без этого признака, а
+    // платформенные роли привилегированные все — без него мини-апп получал бы отказ на
+    // каждом рабочем запросе, выдав перед этим рабочую сессию (`/mini/session` публичный,
+    // пользователя в запросе ещё нет, и guard до него не доходит).
+    //
+    // Значение берётся из БД, а не ставится в `true`: признак означает «у человека
+    // включена 2FA», и врать в нём нельзя. Администратор, у которого её нет, получит тот
+    // же отказ, что и в вебе, — это и есть задуманное поведение.
     const payload: JwtPayload = {
       sub: user.id,
       role: user.role,
@@ -192,6 +327,7 @@ export class MiniService {
       facultyId: null,
       groupId: null,
       client: 'mini',
+      tfa: user.twoFactorEnabled,
     }
 
     return {

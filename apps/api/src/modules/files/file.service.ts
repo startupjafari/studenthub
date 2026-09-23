@@ -337,6 +337,38 @@ export class FileService {
    * На `<img>`/`<video>` заголовок не влияет (он действует только на навигацию),
    * поэтому просмотрщику по-прежнему нужна обычная ссылка.
    */
+  /**
+   * Пачка ссылок на чтение по id. Владение НЕ проверяется — как и у `getPresignedUrl` без
+   * `requesterId`, scope остаётся на вызывающем модуле (календарь медиа чата подписывает
+   * файлы уже проверенного чата).
+   *
+   * Отдельный метод, а не цикл из `getPresignedUrl`: тот на каждый файл ходит в БД, а здесь
+   * строки читаются одним запросом — подпись сама по себе локальная и стоит ничего.
+   * Возвращается Map, потому что порядок и полнота не гарантированы: файл мог исчезнуть.
+   */
+  async getPresignedUrls(fileIds: string[]): Promise<Map<string, string>> {
+    if (fileIds.length === 0) return new Map()
+    const files = await this.prisma.file.findMany({
+      where: { id: { in: fileIds } },
+      select: { id: true, bucket: true, key: true },
+      take: fileIds.length,
+    })
+    const out = new Map<string, string>()
+    await Promise.all(
+      files.map(async (f) => {
+        out.set(
+          f.id,
+          await this.minioPublic.presignedGetObject(
+            f.bucket,
+            f.key,
+            TTL.PRESIGNED_URL_MINUTES * 60,
+          ),
+        )
+      }),
+    )
+    return out
+  }
+
   async getPresignedUrl(
     fileId: string,
     requesterId?: string,
@@ -428,28 +460,5 @@ export class FileService {
     if (requesterId !== undefined && file.ownerId !== requesterId) {
       throw new AppException('WRONG_SCOPE', 'Файл принадлежит другому пользователю')
     }
-  }
-  /**
-   * Объём хранилища по бакетам — агрегат для админ-сводки.
-   *
-   * Считается по таблице `File`, а не листингом MinIO: перебрать все объекты бакета ради
-   * одного числа — это минуты работы и тысячи запросов к хранилищу. Расхождение с реальным
-   * объёмом закрывает ночная `cleanOrphanFiles`, которая как раз ищет объекты без записи.
-   *
-   * Только агрегат: `groupBy` без выгрузки строк (§7.4.4).
-   */
-  async storageStats(): Promise<{ bucket: string; files: number; bytes: number }[]> {
-    const rows = await this.prisma.file.groupBy({
-      by: ['bucket'],
-      _count: { _all: true },
-      _sum: { size: true },
-    })
-    return rows
-      .map((row) => ({
-        bucket: row.bucket,
-        files: row._count._all,
-        bytes: row._sum.size ?? 0,
-      }))
-      .sort((a, b) => b.bytes - a.bytes)
   }
 }

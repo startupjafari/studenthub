@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { PlatformAnalyticsService } from './platform-analytics.service'
 import { PlatformActivityQueryDto } from './dto/platform-activity-query.dto'
 import { PlatformRangeQueryDto } from './dto/platform-range-query.dto'
@@ -19,6 +20,9 @@ export class PlatformAnalyticsController {
 
   @Get('overview')
   @Roles(...PLATFORM_ROLES)
+  // Единственная ручка аналитики, открытая мини-аппу: сводка отвечает на вопрос «всё ли в
+  // порядке», который задают с телефона. Остальные — графики и разрезы, их читают за столом.
+  @MiniAllowed()
   @ApiOperation({ summary: 'Плитки дашборда: вузы, пользователи, жалобы, DAU/WAU' })
   overview() {
     return this.analytics.overview()
@@ -40,6 +44,7 @@ export class PlatformAnalyticsController {
 
   @Get('universities-size')
   @Roles(...PLATFORM_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Размер вузов: студенты и преподаватели по каждому' })
   universitiesSize() {
     return this.analytics.universitiesSize()
@@ -54,6 +59,10 @@ export class PlatformAnalyticsController {
 
   @Get('complaints-latency')
   @Roles(...PLATFORM_ROLES)
+  // Мини-апп берёт отсюда одну медиану и показывает её над разобранными жалобами: это
+  // единственная цифра, которая говорит модератору, быстро ли разбирает команда. Корзины
+  // распределения он не рисует — их читают в вебе.
+  @MiniAllowed()
   @ApiOperation({ summary: 'Время разбора жалоб: распределение по корзинам и медиана' })
   complaintsLatency(@Query() query: PlatformRangeQueryDto) {
     return this.analytics.complaintsLatency(query)
@@ -61,6 +70,7 @@ export class PlatformAnalyticsController {
 
   @Get('invites-funnel')
   @Roles(...PLATFORM_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Воронка инвайтов: конверсия и статусы по корзинам' })
   invitesFunnel(@Query() query: PlatformRangeQueryDto) {
     return this.analytics.invitesFunnel(query)
@@ -68,6 +78,9 @@ export class PlatformAnalyticsController {
 
   @Get('activity-heatmap')
   @Roles(...PLATFORM_ROLES)
+  // Открыта мини-аппу: карта отвечает на «когда платформу нельзя останавливать», а решение
+  // о техработах принимают ровно с телефона — рядом с рычагом, который их включает.
+  @MiniAllowed()
   @ApiOperation({
     summary: 'Активность по дням недели и часам, 7×24 + число дат каждого дня недели',
     description:
@@ -81,6 +94,7 @@ export class PlatformAnalyticsController {
 
   @Get('top-actions')
   @Roles(...PLATFORM_ROLES)
+  @MiniAllowed()
   @ApiOperation({ summary: 'Топ действий в аудите за период' })
   topActions(@Query() query: PlatformTopActionsQueryDto) {
     return this.analytics.topActions(query)

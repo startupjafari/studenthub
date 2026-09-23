@@ -26,6 +26,11 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    complaint: { count: jest.fn().mockResolvedValue(0) },
+    moderationWarning: {
+      create: jest.fn().mockResolvedValue({ id: 'w1' }),
+      count: jest.fn().mockResolvedValue(1),
+    },
     friendship: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
@@ -529,9 +534,122 @@ describe('UserService — setBlocked', () => {
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true)
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 't' },
-      data: { isBlocked: true },
+      // Срока нет — блокировка бессрочная, и поле явно затирается: иначе снятая и
+      // выданная заново блокировка унаследовала бы чужой срок.
+      data: { isBlocked: true, blockedUntil: null },
     })
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('t')
+  })
+})
+
+// ── Предупреждение и временная блокировка ───────────────────────────────────
+describe('UserService — предупреждение', () => {
+  it('чужой вуз (модератор вуза) → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    await expect(
+      service.warn(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't'),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  // Предупреждение, о котором человек не узнал, — это не мера, а запись в базе.
+  it('уведомляет предупреждённого и возвращает счётчик', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.moderationWarning.count.mockResolvedValue(2)
+
+    await expect(service.warn(viewer(Role.PLATFORM_ADMIN), 't', 'c1')).resolves.toEqual({
+      total: 2,
+    })
+    expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['t'])
+  })
+
+  // Комментарий к решению — внутренняя записка модератора: её писали не нарушителю.
+  it('не пересылает нарушителю внутренний текст', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    await service.warn(viewer(Role.PLATFORM_ADMIN), 't', 'c1')
+    const payload = queue.enqueue.mock.calls[0][2]
+    expect(payload.data).toEqual({ warningId: 'w1' })
+  })
+
+  it('доступ ни у кого не отбирает', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    await service.warn(viewer(Role.PLATFORM_ADMIN), 't')
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('UserService — временная блокировка', () => {
+  it('со сроком пишет blockedUntil', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.update.mockResolvedValue({})
+    const until = new Date('2026-10-01T00:00:00.000Z')
+
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true, until)
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 't' },
+      data: { isBlocked: true, blockedUntil: until },
+    })
+  })
+
+  // Снятая руками блокировка не должна «сниматься» второй раз кроном — и не должна
+  // оставлять в карточке срок, которого больше нет.
+  it('разблокировка стирает срок', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.update.mockResolvedValue({})
+
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', false)
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 't' },
+      data: { isBlocked: false, blockedUntil: null },
+    })
+  })
+})
+
+// ── Карточка человека для модератора ────────────────────────────────────────
+describe('UserService.moderationCard', () => {
+  const target = {
+    id: 't',
+    firstName: 'Айгуль',
+    lastName: 'Серикова',
+    role: Role.STUDENT,
+    isBlocked: false,
+    createdAt: new Date('2025-09-14T10:00:00.000Z'),
+    universityId: 'uni-B',
+    university: { id: 'uni-B', name: 'КазНУ' },
+  }
+
+  it('чужой вуз (модератор вуза) → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    await expect(
+      service.moderationCard(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't'),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  it('считает жалобы на человека и отдельно подтверждённые', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    prisma.complaint.count.mockResolvedValueOnce(4).mockResolvedValueOnce(2)
+    const card = await service.moderationCard(viewer(Role.PLATFORM_ADMIN), 't')
+    expect(card.complaints).toEqual({ total: 4, upheld: 2 })
+    expect(card.university).toEqual({ id: 'uni-B', name: 'КазНУ' })
+  })
+
+  // Карточку читают с телефона: лишние ПДн в ней — это ПДн, уехавшие в Telegram.
+  it('не отдаёт ни почты, ни телефона', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    const card = await service.moderationCard(viewer(Role.PLATFORM_ADMIN), 't')
+    expect(card).not.toHaveProperty('email')
+    expect(card).not.toHaveProperty('phone')
+    const select = prisma.user.findFirst.mock.calls[0][0].select
+    expect(select.email).toBeUndefined()
+    expect(select.phone).toBeUndefined()
   })
 })
 

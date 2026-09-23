@@ -6,6 +6,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  BadgeCheck,
   Ban,
   Bell,
   BellOff,
@@ -50,7 +51,9 @@ import {
   transferOwnershipRequest,
   unbanChatMemberRequest,
   unblockUserRequest,
+  fileKind,
   MediaViewer,
+  MessageContent,
   type ChatLinkItem,
   type ChatListItem,
   type ChatMediaItem,
@@ -69,13 +72,22 @@ import {
   TabsList,
   TabsTrigger,
   useConfirm,
+  MediaViewer as PlainMediaViewer,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 import { identityColor, identityInitials } from '../../../shared/lib'
+import { isOfficialChat } from '../lib/format'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { PeerProfileTab } from './peer-profile-tab'
 import { EditGroupDialog } from './edit-group-dialog'
+
+/**
+ * Длина описания, после которой оно сворачивается до четырёх строк. Совпадать со `line-clamp-4`
+ * точно не может — строки разной длины; это порог «текст заведомо длиннее четырёх строк узкой
+ * колонки», и кнопка «Ещё» не появляется там, где разворачивать нечего.
+ */
+const DESCRIPTION_CLAMP = 220
 
 // §17: варианты «заглушить на время».
 const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
@@ -254,6 +266,7 @@ function FileRow({
     day: '2-digit',
     month: 'short',
   })
+  const kind = fileKind(item.name, item.mime)
   return (
     <div className="flex items-center gap-3 px-3 py-2">
       <button
@@ -261,9 +274,20 @@ function FileRow({
         onClick={() => onJump(item.messageId)}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        {/* Тот же значок расширения, что в ленте (§7 карты): один и тот же файл нельзя
+            показывать двумя разными способами в двух местах одного экрана. */}
+        <span
+          className={cn(
+            'flex size-9 shrink-0 items-center justify-center rounded-lg text-white',
+            voice ? 'bg-muted text-muted-foreground' : kind.className,
+          )}
+        >
           {voice ? (
             <Mic className="size-4" aria-hidden />
+          ) : kind.ext ? (
+            <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
+              {kind.ext}
+            </span>
           ) : (
             <FileText className="size-4" aria-hidden />
           )}
@@ -809,17 +833,6 @@ function ParticipantsTab({
           {t('participants', { count: list.length || chat.memberCount })}
         </span>
         <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            aria-label={t('inviteLink')}
-            onClick={() => {
-              void navigator.clipboard?.writeText(`${window.location.origin}/join-chat/${chat.id}`)
-              toast.success(t('linkCopied'))
-            }}
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Link2 className="size-4" aria-hidden />
-          </button>
           {chat.isAdmin && (
             <button
               type="button"
@@ -1027,6 +1040,17 @@ export function ChatDetailsPanel({
   // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
   const peer = isPrivate && peerId && onToggleBlock ? { id: peerId, onToggleBlock } : null
 
+  // Аватар чата во весь экран.
+  const [avatarOpen, setAvatarOpen] = useState(false)
+  // Описание развёрнуто целиком. Сбрасывать при смене чата не нужно: панель монтируется
+  // заново на каждый чат (key={chat.id} у вызывающего).
+  const [descriptionOpen, setDescriptionOpen] = useState(false)
+
+  // Адрес приглашения строим на клиенте: страница /join-chat/<id> публичная и одинакова
+  // для всех, отдельной ручки за ним нет. origin читается лениво — на сервере его нет.
+  const inviteLink =
+    typeof window === 'undefined' ? '' : `${window.location.origin}/join-chat/${chat.id}`
+
   // Вкладка по умолчанию: участники в группе, профиль в личном чате, иначе медиа.
   const firstTab = isGroup ? 'participants' : peer ? 'profile' : 'media'
   // Тип — string, а не объединение литералов: Radix отдаёт в onValueChange обычную
@@ -1053,15 +1077,39 @@ export function ChatDetailsPanel({
       )}
 
       <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border p-5">
-        <Avatar className="size-20">
-          {chat.avatarUrl && <AvatarImage src={chat.avatarUrl} alt={title} />}
-          <AvatarFallback className={cn('text-2xl font-medium text-white', identityColor(chat.id))}>
-            {identityInitials(title)}
-          </AvatarFallback>
-        </Avatar>
+        {/* Аватар открывается во весь экран (§3 карты) — только настоящая картинка:
+            разглядывать кружок с инициалами не за чем. */}
+        {chat.avatarUrl ? (
+          <button
+            type="button"
+            aria-label={title}
+            onClick={() => setAvatarOpen(true)}
+            className="cursor-zoom-in rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+          >
+            <Avatar className="size-20">
+              <AvatarImage src={chat.avatarUrl} alt={title} />
+              <AvatarFallback
+                className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
+              >
+                {identityInitials(title)}
+              </AvatarFallback>
+            </Avatar>
+          </button>
+        ) : (
+          <Avatar className="size-20">
+            <AvatarFallback
+              className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
+            >
+              {identityInitials(title)}
+            </AvatarFallback>
+          </Avatar>
+        )}
 
         <div className="flex min-w-0 max-w-full items-center gap-1.5">
           <p className="min-w-0 truncate text-lg font-semibold">{title}</p>
+          {isOfficialChat(chat.type) && (
+            <BadgeCheck className="size-4 shrink-0 text-info" aria-label={t('officialChat')} />
+          )}
           {canEdit && (
             <button
               type="button"
@@ -1165,6 +1213,48 @@ export function ChatDetailsPanel({
         </div>
       </div>
 
+      {/* Описание группы (§3 карты): назначение, правила, ссылки. Рендерим тем же
+          markdown-компонентом, что и сообщения — ссылки и переносы строк работают так же,
+          как везде в чате, а сырой HTML он не пускает. Длинный текст свёрнут: панель узкая,
+          и полотно правил вытолкнуло бы вкладки с медиа за нижний край. */}
+      {isGroup && chat.description && (
+        <div className="shrink-0 border-b border-border px-4 py-3">
+          <div className={cn(!descriptionOpen && 'line-clamp-4')}>
+            <MessageContent content={chat.description} />
+          </div>
+          {chat.description.length > DESCRIPTION_CLAMP && (
+            <button
+              type="button"
+              onClick={() => setDescriptionOpen((v) => !v)}
+              className="mt-1 text-xs font-medium text-primary transition-colors hover:underline"
+            >
+              {descriptionOpen ? t('descriptionLess') : t('descriptionMore')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Ссылка-приглашение видимой строкой (§3 карты), а не иконкой в углу вкладки
+          участников: ссылку зовут «скинуть» устно, и человек должен видеть, ЧТО именно
+          ложится в буфер, прежде чем отправить это в чужой чат. */}
+      {isGroup && (
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard?.writeText(inviteLink)
+            toast.success(t('linkCopied'))
+          }}
+          className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
+        >
+          <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+            <span className="truncate text-sm text-info">{inviteLink}</span>
+            <span className="text-xs text-muted-foreground">{t('inviteLink')}</span>
+          </span>
+          <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+      )}
+
       {/* Первой открывается вкладка о самом собеседнике (в группе — её участники):
           «кто это» — вопрос раньше, чем «что здесь присылали». */}
       <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
@@ -1220,6 +1310,17 @@ export function ChatDetailsPanel({
       </Tabs>
 
       {editOpen && <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />}
+
+      {avatarOpen && chat.avatarUrl && (
+        <PlainMediaViewer
+          items={[{ mime: 'image/*', name: title }]}
+          index={0}
+          src={chat.avatarUrl}
+          onIndexChange={() => undefined}
+          onClose={() => setAvatarOpen(false)}
+          downloadName={title}
+        />
+      )}
     </div>
   )
 }

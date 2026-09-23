@@ -1,0 +1,185 @@
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger'
+import { Role } from '@studenthub/shared-types'
+import type { FastifyRequest } from 'fastify'
+import { Roles } from '../../common/decorators/roles.decorator'
+import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import type { RequestContext } from '../auth/auth.service'
+import { readUploadWithFields } from '../../common/http/read-upload'
+import { AppException } from '../../common/exceptions/app.exception'
+import { SupportService } from './support.service'
+import { OpenSupportTicketDto } from './dto/open-support-ticket.dto'
+import { SupportReplyDto } from './dto/support-reply.dto'
+import { SupportQueueQueryDto } from './dto/support-queue-query.dto'
+import { SetSupportTagsDto } from './dto/set-support-tags.dto'
+import { MergeSupportDto } from './dto/merge-support.dto'
+
+// Поддержка платформы: личная линия человека к команде платформы.
+//
+// Обращение открывает любая роль — вопрос к платформе может быть у кого угодно. Очередь и
+// закрытие — команда платформы; они же помечены @MiniAllowed(), потому что разбирать
+// обращения с телефона и есть смысл мини-аппа.
+const STAFF = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR] as const
+
+@ApiTags('Поддержка платформы')
+@ApiBearerAuth()
+@Controller('support')
+export class SupportController {
+  constructor(private readonly support: SupportService) {}
+
+  @Post()
+  // Лимит на открытие: обращение создаёт чат и будит всю команду платформы.
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
+  @ApiOperation({ summary: 'Открыть обращение (или дописать в уже открытое)' })
+  @ApiResponse({ status: 201, description: '{ id, created }' })
+  open(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: OpenSupportTicketDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.open(user, dto, this.ctx(req))
+  }
+
+  @Get()
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Очередь обращений (по умолчанию открытые)' })
+  queue(@CurrentUser() user: CurrentUserData, @Query() query: SupportQueueQueryDto) {
+    return this.support.queue(user, query)
+  }
+
+  /**
+   * Объявлен ДО `@Get(':id')` — иначе параметрический маршрут перехватил бы /support/tags
+   * и поддержка получала бы «обращение не найдено» вместо сводки.
+   */
+  @Get('tags')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'О чём спрашивают чаще: счётчики тегов за 30 дней' })
+  tagCounts(@CurrentUser() user: CurrentUserData) {
+    return this.support.tagCounts(user)
+  }
+
+  @Get(':id')
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Переписка обращения (команда платформы или автор)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого обращения или нет доступа' })
+  thread(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.support.thread(user, id)
+  }
+
+  @Post(':id/reply')
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Ответить (ответ в закрытое обращение открывает его снова)' })
+  reply(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SupportReplyDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.reply(user, id, dto, this.ctx(req))
+  }
+
+  @Patch(':id/assign')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Взять обращение себе (или отдать обратно: ?take=false)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — обращение уже разбирает другой' })
+  assign(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query('take') take: string | undefined,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.assign(user, id, take !== 'false', this.ctx(req))
+  }
+
+  @Patch(':id/tags')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Проставить теги обращению (набор заменяется целиком, до трёх)' })
+  setTags(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: SetSupportTagsDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.setTags(user, id, dto.tags, this.ctx(req))
+  }
+
+  @Post(':id/voice')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({ summary: 'Голосовой ответ в обращение (multipart, одно аудио)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано' })
+  async voice(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    // Читаем те же поля, что и чат: имя файла здесь значимо — по нему распознаётся
+    // голосовое, а mime по содержимому браузеры отдают как `video/webm`.
+    const { files } = await readUploadWithFields(req)
+    const file = files[0]
+    if (!file) throw new AppException('BAD_REQUEST', 'Файл не передан')
+    return this.support.voiceReply(
+      user,
+      id,
+      { buffer: file.buffer, name: file.filename },
+      this.ctx(req),
+    )
+  }
+
+  @Post(':id/merge')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Склеить обращение с другим обращением того же человека' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — разные авторы или то же обращение' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — одно из обращений уже склеено' })
+  merge(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MergeSupportDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.merge(user, id, dto.intoId, this.ctx(req))
+  }
+
+  @Post(':id/escalate')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Эскалировать обращение администраторам (мимо дежурства и тишины)' })
+  escalate(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.support.escalate(user, id, this.ctx(req))
+  }
+
+  @Patch(':id/close')
+  @Roles(...STAFF)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Закрыть обращение (переписка остаётся)' })
+  close(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
+    return this.support.close(user, id, this.ctx(req))
+  }
+
+  private ctx(req: FastifyRequest): RequestContext {
+    return { ip: req.ip, userAgent: req.headers['user-agent'] }
+  }
+}
