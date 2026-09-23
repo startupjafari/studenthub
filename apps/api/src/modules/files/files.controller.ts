@@ -22,6 +22,12 @@ import type { EnvVars } from '../../config/env.schema'
 import { FileService } from './file.service'
 import { UploadFileDto } from './dto/upload-file.dto'
 import { ConfirmUploadDto, PresignUploadDto } from './dto/presign-upload.dto'
+import {
+  MultipartAbortDto,
+  MultipartCompleteDto,
+  MultipartStartDto,
+  MultipartUrlsDto,
+} from './dto/multipart-upload.dto'
 
 // Логический вид бакета → имя переменной окружения с реальным именем бакета.
 const BUCKET_ENV: Record<FileBucketKind, keyof EnvVars> = {
@@ -93,6 +99,73 @@ export class FilesController {
       key: dto.key,
       ownerId: user.sub,
       name: dto.name,
+    })
+  }
+
+  // ── Многочастная загрузка (Фаза 19) ────────────────────────────────────────
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES: start → urls → PUT частей → complete.
+  // Троттлинг тот же, что у одиночного presign, и по той же причине: подписанная ссылка не
+  // ограничивает размер объекта, а за незавершённые загрузки платит хранилище.
+
+  @Post('multipart/start')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Открыть многочастную загрузку крупного файла (шаг 1 из 4)' })
+  @ApiResponse({ status: 201, description: 'key + uploadId + размер и число частей' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — файл или число частей за пределом' })
+  async multipartStart(@CurrentUser() user: CurrentUserData, @Body() dto: MultipartStartDto) {
+    return this.files.startMultipart({
+      bucket: this.bucketName(dto.bucket),
+      mime: dto.mime,
+      size: dto.size,
+      ownerId: user.sub,
+    })
+  }
+
+  @Post('multipart/urls')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Подписанные ссылки на диапазон частей (шаг 2 из 4)' })
+  @ApiResponse({ status: 201, description: 'Ссылки по номерам частей + срок действия' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  async multipartUrls(@CurrentUser() user: CurrentUserData, @Body() dto: MultipartUrlsDto) {
+    return this.files.presignParts({
+      bucket: this.bucketName(dto.bucket),
+      key: dto.key,
+      uploadId: dto.uploadId,
+      ownerId: user.sub,
+      from: dto.from,
+      to: dto.to,
+    })
+  }
+
+  @Post('multipart/complete')
+  @ApiOperation({ summary: 'Собрать файл из частей и создать File (шаг 4 из 4)' })
+  @ApiResponse({ status: 201, description: 'Запись File' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — части не сходятся' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  async multipartComplete(@CurrentUser() user: CurrentUserData, @Body() dto: MultipartCompleteDto) {
+    return this.files.completeMultipart({
+      bucket: this.bucketName(dto.bucket),
+      key: dto.key,
+      uploadId: dto.uploadId,
+      ownerId: user.sub,
+      parts: dto.parts,
+      name: dto.name,
+    })
+  }
+
+  @Post('multipart/abort')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить многочастную загрузку — MinIO удалит залитые части' })
+  async multipartAbort(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: MultipartAbortDto,
+  ): Promise<void> {
+    await this.files.abortMultipart({
+      bucket: this.bucketName(dto.bucket),
+      key: dto.key,
+      uploadId: dto.uploadId,
+      ownerId: user.sub,
     })
   }
 
