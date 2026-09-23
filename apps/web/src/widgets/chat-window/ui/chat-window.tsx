@@ -137,6 +137,17 @@ import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folder
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
 
+/** Что уходит одной multipart-отправкой: поля сообщения + сами файлы. */
+interface UploadPayload {
+  content?: string
+  replyToId?: string
+  replyQuote?: string
+  files: File[]
+  spoiler?: boolean
+  asFiles?: boolean
+  silent?: boolean
+}
+
 /** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
 function isMediaFile(f: File): boolean {
   return f.type.startsWith('image/') || f.type.startsWith('video/')
@@ -964,7 +975,14 @@ export function ChatWindow() {
   const mediaRetry = useRef<
     Map<
       string,
-      { chatId: string; content?: string; replyToId?: string; files: File[]; spoiler?: boolean }
+      {
+        chatId: string
+        content?: string
+        replyToId?: string
+        files: File[]
+        spoiler?: boolean
+        asFiles?: boolean
+      }
     >
   >(new Map())
 
@@ -1034,20 +1052,13 @@ export function ChatWindow() {
   async function uploadFiles(
     tempId: string,
     chatId: string,
-    content: string | undefined,
-    replyToId: string | undefined,
-    files: File[],
-    spoiler?: boolean,
-    replyQuote?: string,
-    silent?: boolean,
+    payload: UploadPayload,
   ): Promise<void> {
+    const { files, ...fields } = payload
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
     try {
-      const real = await sendMessageWithAttachments(
-        chatId,
-        { content, replyToId, spoiler, replyQuote, silent },
-        files,
-        (f) => setUploadProgress(chatId, tempId, f),
+      const real = await sendMessageWithAttachments(chatId, fields, files, (f) =>
+        setUploadProgress(chatId, tempId, f),
       )
       mediaRetry.current.delete(tempId)
       // Обычно примиряет эхо message:new; страховка на случай гонки/фонового чата.
@@ -1077,6 +1088,7 @@ export function ChatWindow() {
     replyQuote?: string
     files: File[]
     spoiler?: boolean
+    asFiles?: boolean
     silent?: boolean
   }): void {
     if (!activeId || !me || payload.files.length === 0) return
@@ -1094,6 +1106,7 @@ export function ChatWindow() {
       size: f.size,
       name: f.name,
       spoiler: payload.spoiler,
+      asDocument: payload.asFiles,
       localUrl: localUrls[i],
       uploading: true,
       progress: 0,
@@ -1144,6 +1157,7 @@ export function ChatWindow() {
       replyToId: payload.replyToId,
       files: payload.files,
       spoiler: payload.spoiler,
+      asFiles: payload.asFiles,
     })
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
     // Сбрасываем композер/диалог сразу — как в Telegram (пузырь уже в ленте, грузится в фоне).
@@ -1151,16 +1165,15 @@ export function ChatWindow() {
     setAttachFiles([])
     setAttachOpen(false)
     setReplyTo(null)
-    void uploadFiles(
-      tempId,
-      chatId,
-      payload.content,
-      payload.replyToId,
-      payload.files,
-      payload.spoiler,
-      payload.replyQuote,
-      payload.silent,
-    )
+    void uploadFiles(tempId, chatId, {
+      content: payload.content,
+      replyToId: payload.replyToId,
+      replyQuote: payload.replyQuote,
+      files: payload.files,
+      spoiler: payload.spoiler,
+      asFiles: payload.asFiles,
+      silent: payload.silent,
+    })
   }
 
   /**
@@ -1191,6 +1204,7 @@ export function ChatWindow() {
         replyQuote: i === 0 ? (replyQuote ?? undefined) : undefined,
         files: batch,
         spoiler: options.spoiler,
+        asFiles: options.asFiles,
         silent: silentSend,
       })
     })
@@ -1776,14 +1790,13 @@ export function ChatWindow() {
             : x,
         ),
       )
-      void uploadFiles(
-        m.id,
-        media.chatId,
-        media.content,
-        media.replyToId,
-        media.files,
-        media.spoiler,
-      )
+      void uploadFiles(m.id, media.chatId, {
+        content: media.content,
+        replyToId: media.replyToId,
+        files: media.files,
+        spoiler: media.spoiler,
+        asFiles: media.asFiles,
+      })
       return
     }
     emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined, {

@@ -21,8 +21,12 @@ function isVoice(att: MessageAttachment): boolean {
 }
 
 // Открывается ли вложение в полноэкранном просмотрщике (картинка или реальное видео, не голосовое).
+//
+// `asDocument` перевешивает mime: снимок, отправленный «без сжатия», получатель видит строкой
+// файла — ровно так, как выбрал отправитель. Иначе выбор способа отправки не доезжал бы дальше
+// окна отправки, а картинка всё равно приходила бы превью.
 function isViewable(att: MessageAttachment): boolean {
-  if (isVoice(att)) return false
+  if (isVoice(att) || att.asDocument) return false
   return att.mime.startsWith('image/') || att.mime.startsWith('video/')
 }
 
@@ -139,7 +143,7 @@ function Single({
   const [broken, setBroken] = useState(false)
   const kind = fileKind(att.name, att.mime)
   // Картинка и видео занимают место кадром, голосовые и файлы — узкой строкой.
-  const framed = !isVoice(att) && (att.mime.startsWith('image/') || att.mime.startsWith('video/'))
+  const framed = isViewable(att)
 
   if (isError || broken) {
     return (
@@ -178,7 +182,7 @@ function Single({
     )
   }
 
-  if (att.mime.startsWith('image/')) {
+  if (isViewable(att) && att.mime.startsWith('image/')) {
     // GIF (image/gif) автопроигрывается нативно как <img>; для остальных — lazy-загрузка (§30).
     const isGif = att.mime === 'image/gif'
     // Размеры с сервера: браузер по width/height считает пропорцию и держит место сам —
@@ -243,7 +247,7 @@ function Single({
       </span>
     )
   }
-  if (att.mime.startsWith('video/')) {
+  if (isViewable(att) && att.mime.startsWith('video/')) {
     // Превью-кадр с кнопкой play; клик открывает полноэкранный просмотрщик (как в Telegram).
     return (
       <button

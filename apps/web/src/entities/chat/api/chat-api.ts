@@ -215,6 +215,7 @@ export async function sendMessageWithAttachments(
     replyToId?: string
     replyQuote?: string
     spoiler?: boolean
+    asFiles?: boolean
     silent?: boolean
   },
   files: File[],
@@ -226,6 +227,7 @@ export async function sendMessageWithAttachments(
   // Цитата без ответа схемой запрещена — отправляем только парой.
   if (input.replyToId && input.replyQuote) form.append('replyQuote', input.replyQuote)
   if (input.spoiler) form.append('spoiler', 'true')
+  if (input.asFiles) form.append('asFiles', 'true')
   if (input.silent) form.append('silent', 'true')
   for (const file of files) form.append('file', file)
   const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
