@@ -69,6 +69,7 @@ import {
   toggleReactionRequest,
   unpinMessageRequest,
   AttachmentDialog,
+  ALBUM_MAX_ITEMS,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -81,6 +82,7 @@ import {
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
+  type AttachmentSendOptions,
   type MessageAttachment,
   type MessageMenuAnchor,
 } from '../../../entities/chat'
@@ -134,6 +136,19 @@ import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folder
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
+
+/** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
+function isMediaFile(f: File): boolean {
+  return f.type.startsWith('image/') || f.type.startsWith('video/')
+}
+
+/** Разрезать вложения по потолку одного сообщения. Пустой список даёт пустой результат. */
+function chunkFiles(files: File[]): File[][] {
+  const out: File[][] = []
+  for (let i = 0; i < files.length; i += ALBUM_MAX_ITEMS)
+    out.push(files.slice(i, i + ALBUM_MAX_ITEMS))
+  return out
+}
 
 // Ширина одной кнопки свайп-панели строки списка (w-[4.5rem]).
 const ROW_BTN_W = 72
@@ -1146,6 +1161,39 @@ export function ChatWindow() {
       payload.replyQuote,
       payload.silent,
     )
+  }
+
+  /**
+   * Отправка выбранных вложений выбранным в диалоге способом.
+   *
+   * Альбом режется на стопки по {@link ALBUM_MAX_ITEMS} — столько вложений несёт одно
+   * сообщение; без группировки каждый снимок уходит своим. Подпись, ответ и цитата достаются
+   * только первому сообщению: отвечают один раз, а повторённая у одиннадцати снимков подпись
+   * превратилась бы в одиннадцать одинаковых строк подряд.
+   */
+  function sendAttachments(caption: string, options: AttachmentSendOptions): void {
+    const files = attachFiles
+    if (files.length === 0) return
+    const media = files.filter(isMediaFile)
+    const docs = files.filter((f) => !isMediaFile(f))
+    // Как файлы уходит всё вместе списком; иначе медиа собирается по правилу группировки,
+    // а документы, выбранные заодно со снимками, идут своей пачкой.
+    const batches: File[][] = options.asFiles
+      ? chunkFiles(files)
+      : [...(options.grouped ? chunkFiles(media) : media.map((f) => [f])), ...chunkFiles(docs)]
+
+    batches.forEach((batch, i) => {
+      sendFiles({
+        content: i === 0 ? caption || undefined : undefined,
+        replyToId: i === 0 ? replyTo?.id : undefined,
+        // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
+        // отправки, а не текста.
+        replyQuote: i === 0 ? (replyQuote ?? undefined) : undefined,
+        files: batch,
+        spoiler: options.spoiler,
+        silent: silentSend,
+      })
+    })
   }
 
   // Вход/выход из комнаты чата при смене активного чата.
@@ -3653,18 +3701,7 @@ export function ChatWindow() {
         <AttachmentDialog
           files={attachFiles}
           sending={false}
-          onSend={(caption, spoiler) =>
-            sendFiles({
-              content: caption || undefined,
-              replyToId: replyTo?.id,
-              // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
-              // отправки, а не текста.
-              replyQuote: replyQuote ?? undefined,
-              files: attachFiles,
-              spoiler,
-              silent: silentSend,
-            })
-          }
+          onSend={(caption, options) => sendAttachments(caption, options)}
           onAddMore={() => fileInputRef.current?.click()}
           onRemove={(i) =>
             setAttachFiles((prev) => {
