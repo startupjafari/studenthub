@@ -114,6 +114,7 @@ import {
   Button,
   DateJumpPicker,
   formatYmd,
+  MenuSeparator,
   Modal,
   RowContextMenu,
   Skeleton,
@@ -150,7 +151,7 @@ import {
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
-const PEOPLE_IN_SEARCH = 8
+const PEOPLE_IN_SEARCH = 20
 
 /**
  * Вложение не влезло в лимит категории. Отдельный тип, потому что сообщение об этом
@@ -547,22 +548,20 @@ export function ChatWindow() {
 
   // Люди своего вуза — в той же выдаче, что чаты и сообщения (Telegram-стиль): отдельного
   // входа «написать человеку» нет, переписка начинается прямо из строки поиска.
-  // Восемь строк, а не вся выдача: люди стоят между чатами и сообщениями, и полный список
-  // на два десятка однофамильцев увёл бы секцию «Сообщения» за пределы экрана. Кому мало —
-  // дописывает запрос, об этом говорит подсказка в конце секции.
+  // Не больше двадцати строк: люди стоят между чатами и сообщениями, и полная выдача
+  // увела бы секцию «Сообщения» далеко за пределы экрана.
   const listPeopleResults = useQuery({
     queryKey: directoryKeys.search(listSearchTerm, PEOPLE_IN_SEARCH),
     queryFn: () => fetchUserDirectory(listSearchTerm, PEOPLE_IN_SEARCH),
     enabled: listSearchTerm.length >= 2,
   })
 
-  // Клик по человеку: находим/заводим личный чат и открываем его. Не-другу это отправит
-  // запрос на переписку (§50) — говорим об этом тостом, потому что чат откроется одинаково.
+  // Клик по человеку: находим/заводим личный чат и открываем его. Запрос на переписку
+  // не-другу (§50) это ещё не отправляет — он уйдёт с первым сообщением (см. requestWaiting).
   const startDirect = useMutation({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (chat) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      if (chat.requestPendingForId) toast.success(t('requestSent'))
       setListSearchRaw('')
       setListSearchTerm('')
       setActiveId(chat.id)
@@ -2583,6 +2582,25 @@ export function ChatWindow() {
   const onlineOthers = memberIds.filter((id) => id !== myId && presence[id]).length
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
+  // Запрос на переписку ушёл и ждёт ответа — поле ввода закрывает плашка. Уходит запрос
+  // первым сообщением, поэтому до него поле открыто. Пока запрос висит, писать может
+  // только инициатор, так что любое сообщение в чате — его: lastMessage хватает, пока
+  // лента не загрузилась, а лента — сразу после отправки, до обновления списка чатов.
+  const requestWaiting =
+    !!activeChat?.requestOutgoing && (!!activeChat.lastMessage || (messages.data?.length ?? 0) > 0)
+  // Тост «запрос отправлен» — в момент, когда запрос правда ушёл: в этом же чате ожидания не
+  // было и появилось. Смотрим на переход, а не на отправку, потому что путей у первого
+  // сообщения несколько (текст, медиа, голос). Смена чата — не переход: открыть чат с уже
+  // висящим запросом не значит отправить его снова.
+  const requestWaitingRef = useRef<{ chatId: string | null; waiting: boolean }>({
+    chatId: null,
+    waiting: false,
+  })
+  useEffect(() => {
+    const prev = requestWaitingRef.current
+    if (prev.chatId === activeId && !prev.waiting && requestWaiting) toast.success(t('requestSent'))
+    requestWaitingRef.current = { chatId: activeId, waiting: requestWaiting }
+  }, [activeId, requestWaiting, t])
 
   // Пропсы панели деталей чата — одни и те же для колонки (ПК) и модалки (планшет/мобильный),
   // чтобы презентация решалась одним `isWide`, а не двумя разными экранами.
@@ -2737,7 +2755,6 @@ export function ChatWindow() {
       msgResultsLoading={listMsgResults.isLoading}
       peopleMatches={listPeopleResults.data?.items ?? []}
       peopleLoading={listPeopleResults.isLoading}
-      peopleHasMore={listPeopleResults.data?.hasMore ?? false}
       onOpenPerson={(u) => startDirect.mutate(u.id)}
       startingPersonId={startDirect.isPending ? (startDirect.variables ?? null) : null}
       chatById={chatById}
@@ -2783,6 +2800,30 @@ export function ChatWindow() {
       }}
     />
   )
+
+  // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
+  // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
+  // снятие блокировки — среди обычных пунктов.
+  const headerBlockItem =
+    isPrivate && otherId && activeChat ? (
+      <button
+        type="button"
+        disabled={block.isPending}
+        onClick={() => {
+          block.mutate({ userId: otherId, blocked: activeChat.blocked })
+          setHeaderMenuOpen(false)
+        }}
+        className={cn(
+          'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
+          !activeChat.blocked && 'text-destructive',
+        )}
+      >
+        <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
+        <span className="flex-1 text-left">
+          {activeChat.blocked ? t('unblockUser') : t('blockUser')}
+        </span>
+      </button>
+    ) : null
 
   return (
     <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
@@ -2859,7 +2900,8 @@ export function ChatWindow() {
                 список найденных сообщений. Список — главное: без него единственным
                 способом добраться до нужного совпадения было жать ↓ и смотреть, куда
                 прыгнула переписка. Он лежит поверх ленты (absolute), чтобы прыжок к
-                сообщению был виден за ним и переписка не сжималась. */}
+                сообщению был виден за ним и переписка не сжималась, и открывается
+                под самим полем ввода, а не во всю ширину шапки. */}
             {chatSearchOpen &&
               (() => {
                 const found = chatSearchResults.data?.items ?? []
@@ -2884,6 +2926,10 @@ export function ChatWindow() {
                           autoFocus
                           value={chatSearchRaw}
                           onChange={(e) => setChatSearchRaw(e.target.value)}
+                          // Кнопки «показать список» нет: выдача, закрытая выбором
+                          // совпадения, снова открывается возвратом в поле.
+                          onFocus={() => setSearchListOpen(true)}
+                          onClick={() => setSearchListOpen(true)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault()
@@ -2896,6 +2942,41 @@ export function ChatWindow() {
                           placeholder={t('searchInChat')}
                           className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
                         />
+                        {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
+                          <ul
+                            aria-label={t('searchResults')}
+                            className="absolute inset-x-0 top-full z-10 mt-1 max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
+                          >
+                            {found.map((m, i) => (
+                              <li key={m.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => pickSearchResult(i)}
+                                  className={cn(
+                                    'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
+                                    i === searchIdx && 'bg-primary/10',
+                                  )}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-baseline gap-1.5">
+                                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                                        {m.senderId === myId ? t('you') : senderName(m)}
+                                      </span>
+                                      <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                                        {listTime(m.createdAt, locale)}
+                                      </span>
+                                    </div>
+                                    {/* Совпавший кусок подсвечен: из строки в две строки видно,
+                                      то ли это сообщение, ещё до перехода к нему. */}
+                                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                      {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
+                                    </p>
+                                  </div>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                       {/* Фильтр «От кого» (§4) — только в группах. */}
                       {activeIsGroup && (
@@ -2990,59 +3071,7 @@ export function ChatWindow() {
                       >
                         <ChevronDown className="size-5" aria-hidden />
                       </button>
-                      {/* Вернуть список, когда из него уже выбрали сообщение. */}
-                      <button
-                        type="button"
-                        aria-label={t('searchResults')}
-                        title={t('searchResults')}
-                        disabled={total === 0}
-                        aria-expanded={searchListOpen}
-                        onClick={() => setSearchListOpen((v) => !v)}
-                        className={cn(
-                          HEADER_ICON_BTN,
-                          'disabled:opacity-40',
-                          searchListOpen && 'bg-primary/10 text-primary',
-                        )}
-                      >
-                        <ListIcon className="size-5" aria-hidden />
-                      </button>
                     </header>
-
-                    {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
-                      <ul
-                        aria-label={t('searchResults')}
-                        className="absolute inset-x-0 top-full max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain border-b border-border bg-background shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
-                      >
-                        {found.map((m, i) => (
-                          <li key={m.id}>
-                            <button
-                              type="button"
-                              onClick={() => pickSearchResult(i)}
-                              className={cn(
-                                'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
-                                i === searchIdx && 'bg-primary/10',
-                              )}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-baseline gap-1.5">
-                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-                                    {m.senderId === myId ? t('you') : senderName(m)}
-                                  </span>
-                                  <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
-                                    {listTime(m.createdAt, locale)}
-                                  </span>
-                                </div>
-                                {/* Совпавший кусок подсвечен: из строки в две строки видно,
-                                  то ли это сообщение, ещё до перехода к нему. */}
-                                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                                  {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
-                                </p>
-                              </div>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
                   </div>
                 )
               })()}
@@ -3287,25 +3316,8 @@ export function ChatWindow() {
                           )}
                           <span className="flex-1 text-left">{t('export')}</span>
                         </button>
-                        {isPrivate && otherId && activeChat && (
-                          <button
-                            type="button"
-                            disabled={block.isPending}
-                            onClick={() => {
-                              block.mutate({ userId: otherId, blocked: activeChat.blocked })
-                              setHeaderMenuOpen(false)
-                            }}
-                            className={cn(
-                              'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
-                              !activeChat.blocked && 'text-destructive',
-                            )}
-                          >
-                            <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
-                            <span className="flex-1 text-left">
-                              {activeChat.blocked ? t('unblockUser') : t('blockUser')}
-                            </span>
-                          </button>
-                        )}
+                        {/* «Разблокировать» не красный — остаётся среди обычных пунктов. */}
+                        {activeChat?.blocked && headerBlockItem}
                         {activeChat && (
                           <button
                             type="button"
@@ -3324,6 +3336,10 @@ export function ChatWindow() {
                             <span className="flex-1 text-left">{t('clearHistory')}</span>
                           </button>
                         )}
+                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть
+                            всегда, когда есть чат, поэтому линия зависит только от него. */}
+                        {activeChat && <MenuSeparator />}
+                        {!activeChat?.blocked && headerBlockItem}
                         {activeChat && (
                           <button
                             type="button"
@@ -3582,15 +3598,11 @@ export function ChatWindow() {
                     'absolute inset-x-0 bottom-0 z-30',
                     'pointer-events-none px-3 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]',
                     // Плашка ловит указатель сама: прокручивать ленту «сквозь» непрозрачную
-                    // поверхность всё равно негде.
+                    // поверхность всё равно негде. py-2 вокруг 44-px ряда — та же высота, что
+                    // у плашки профиля внизу сайдбара: их верхние границы идут одной линией.
                     'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2',
                   )}
                 >
-                  {activeChat?.requestOutgoing && (
-                    <p className="mx-auto mb-1 w-fit rounded-full bg-muted/80 px-2 py-0.5 text-center text-xs text-muted-foreground backdrop-blur">
-                      {t('requestPending')}
-                    </p>
-                  )}
                   <ChatComposer
                     editing={editing}
                     onCancelEdit={() => {
@@ -3612,6 +3624,7 @@ export function ChatWindow() {
                     onScheduleSend={() => setScheduleOpen(true)}
                     blocked={!!blockedActive}
                     iBlocked={!!activeChat?.blocked}
+                    requestPending={requestWaiting}
                     otherId={otherId}
                     onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
                     text={text}

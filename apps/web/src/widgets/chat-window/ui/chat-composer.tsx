@@ -164,6 +164,9 @@ export type ChatComposerProps = {
   iBlocked: boolean
   otherId: string | undefined
   onUnblock: () => void
+  // Мой запрос на переписку отправлен и ещё не принят: вместо поля ввода — плашка в строе
+  // баннера блокировки. Дописывать, пока собеседник не ответил, нечего.
+  requestPending: boolean
   text: string
   onType: (v: string) => void
   onSend: () => void
@@ -199,6 +202,7 @@ export function ChatComposer({
   iBlocked,
   otherId,
   onUnblock,
+  requestPending,
   text,
   onType,
   onSend,
@@ -242,13 +246,14 @@ export function ChatComposer({
   // остальных: раньше каждая кнопка перечисляла свои классы заново, и любая правка
   // расходилась по трём местам.
   //
-  // Размера два: 56 px под палец и 40 px под курсор. 56 — правило плавающих островов у
+  // Размера два: 56 px под палец и 44 px под курсор. 56 — правило плавающих островов у
   // нижнего края (§4): панель ввода стоит там в одном ряду с нижней навигацией и обязана
   // совпадать с ней по высоте. На десктопе нижней навигации нет вовсе — панель остаётся у
   // края одна, равняться ей не на что, и тот же остров читается просто как огромный.
-  // 40 px — обычный размер контрола (`lg` шкалы) и та же высота, что у иконочных кнопок
-  // шапки чата: на десктопе панель ввода встаёт с ними в один рост.
-  const ROUND = 'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-10 lg:rounded-md' // prettier-ignore
+  // 44 px — на ступень выше обычного контрола (`lg` шкалы, 40): поле ввода — главный
+  // контрол экрана, и в 40 px оно выглядело тесным. Ряд вместе с отступами плашки даёт ту
+  // же высоту, что у плашки профиля внизу сайдбара (см. ChatWindow).
+  const ROUND = 'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-11 lg:rounded-md' // prettier-ignore
   const roundBtn = cn(
     island,
     ROUND,
@@ -369,7 +374,7 @@ export function ChatComposer({
         <div
           className={cn(
             island,
-            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:rounded-md',
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:h-11 lg:rounded-md lg:py-0',
           )}
         >
           <Ban className="size-4 shrink-0" aria-hidden />
@@ -383,6 +388,16 @@ export function ChatComposer({
               {t('unblockUser')}
             </button>
           )}
+        </div>
+      ) : requestPending ? (
+        <div
+          className={cn(
+            island,
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:h-11 lg:rounded-md lg:py-0',
+          )}
+        >
+          <Clock className="size-4 shrink-0" aria-hidden />
+          <span>{t('requestPending')}</span>
         </div>
       ) : (
         // items-end, а не items-center: поле растёт вверх под многострочный текст, а
@@ -459,7 +474,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-10 lg:rounded-md',
+                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-11 lg:rounded-md',
                 )}
               >
                 <span
@@ -579,7 +594,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-10 lg:rounded-md',
+                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-11 lg:rounded-md',
                 )}
               >
                 <RichTextField

@@ -5,9 +5,17 @@ import { useTranslations } from 'next-intl'
 import { Check, FolderPlus, Folders, Pencil, Trash2, X } from 'lucide-react'
 import { CHAT_FOLDER_LIMITS } from '@studenthub/shared-schemas'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
-import { Button, EmptyState, Input, Modal } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  EmptyState,
+  Input,
+  Modal,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { chatTitle } from '../lib/format'
+import { avatarColor, chatInitials, chatTitle } from '../lib/format'
 
 // Управление пользовательскими папками (§2). Модальное окно, а не инлайн в списке чатов:
 // сборка папки — это работа с галочками по всему списку, в узкой колонке она не помещается.
@@ -194,6 +202,7 @@ export function ChatFoldersDialog({
           <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
             {chats.map((c) => {
               const on = picked.has(c.id)
+              const title = chatTitle(c, t)
               return (
                 <button
                   key={c.id}
@@ -210,7 +219,17 @@ export function ChatFoldersDialog({
                   >
                     {on && <Check className="size-3" />}
                   </span>
-                  <span className="truncate">{chatTitle(c, t)}</span>
+                  {/* Аватар — как в списке чатов: по одному имени однофамильцев и чаты с одинаковым
+                      названием не отличить. */}
+                  <Avatar className="size-8 shrink-0">
+                    {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt="" />}
+                    <AvatarFallback
+                      className={cn('text-xs font-medium text-white', avatarColor(c.id))}
+                    >
+                      {chatInitials(title)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="truncate">{title}</span>
                 </button>
               )
             })}

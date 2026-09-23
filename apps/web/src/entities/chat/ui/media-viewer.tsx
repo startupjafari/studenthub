@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Copy, Eye, Forward, ImageDown, MoreVertical, Trash2 } from 'lucide-react'
-import { MediaViewer as BaseMediaViewer } from '../../../shared/ui'
+import { MediaViewer as BaseMediaViewer, MenuSeparator } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { fetchAttachmentUrl } from '../api/chat-api'
@@ -213,15 +213,19 @@ export function MediaViewer({
           <Forward className="size-4 shrink-0 opacity-80" aria-hidden />
           {t('forward')}
         </button>
+        {/* Удаление — красное, поэтому в самом конце и за линией (цвет линии — под тёмное меню). */}
         {meta?.mine && (
-          <button
-            type="button"
-            onClick={run(actions.onDelete)}
-            className="flex h-9 w-full items-center gap-2 px-3 text-sm text-red-400 transition-colors hover:bg-white/10"
-          >
-            <Trash2 className="size-4 shrink-0" aria-hidden />
-            {t('delete')}
-          </button>
+          <>
+            <MenuSeparator className="bg-white/10" />
+            <button
+              type="button"
+              onClick={run(actions.onDelete)}
+              className="flex h-9 w-full items-center gap-2 px-3 text-sm text-red-400 transition-colors hover:bg-white/10"
+            >
+              <Trash2 className="size-4 shrink-0" aria-hidden />
+              {t('delete')}
+            </button>
+          </>
         )}
       </div>
     </div>

@@ -6,6 +6,7 @@ import { useBodyScrollLock } from '../lib/use-body-scroll-lock'
 import { useDismissAnimation } from '../lib/use-dismiss-animation'
 import { cn } from '../lib/utils'
 import { AnchoredMenuLayer, MENU_EXIT_MS, type MenuAnchor } from './anchored-menu'
+import { MenuSeparator, splitDanger } from './menu-separator'
 
 export interface RowContextMenuItem {
   key: string
@@ -108,54 +109,59 @@ export function RowContextMenu({
   const open = openKey ? items.find((it) => it.key === openKey) : undefined
   const shown = open?.items ?? items
 
-  const list = (variant: 'menu' | 'card'): React.ReactNode => (
-    <>
-      {open && (
+  const list = (variant: 'menu' | 'card'): React.ReactNode => {
+    const row = (it: RowContextMenuItem): React.ReactNode => {
+      const Icon = it.icon
+      return (
         <button
+          key={it.key}
           type="button"
-          onClick={() => setOpenKey(null)}
+          role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+          aria-checked={it.checked}
+          aria-haspopup={it.items ? 'menu' : undefined}
+          onClick={run(it)}
           className={cn(
-            'flex w-full cursor-pointer items-center border-b border-border text-left font-medium text-foreground transition-colors hover:bg-muted active:bg-muted',
+            'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
             variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
+            it.danger ? 'text-destructive' : 'text-foreground',
           )}
         >
-          <ChevronLeft
+          <Icon
             className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
             aria-hidden
           />
-          <span className="truncate">{open.label}</span>
+          <span className="truncate">{it.label}</span>
+          {it.items && <ChevronRight className="ml-auto size-4 shrink-0 opacity-60" aria-hidden />}
+          {it.checked && <Check className="ml-auto size-4 shrink-0 text-primary" aria-hidden />}
         </button>
-      )}
-      {shown.map((it) => {
-        const Icon = it.icon
-        return (
+      )
+    }
+    // Опасные пункты — всегда в конце и за линией (см. MenuSeparator).
+    const { safe, danger } = splitDanger(shown)
+    return (
+      <>
+        {open && (
           <button
-            key={it.key}
             type="button"
-            role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-            aria-checked={it.checked}
-            aria-haspopup={it.items ? 'menu' : undefined}
-            onClick={run(it)}
+            onClick={() => setOpenKey(null)}
             className={cn(
-              'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
+              'flex w-full cursor-pointer items-center border-b border-border text-left font-medium text-foreground transition-colors hover:bg-muted active:bg-muted',
               variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
-              it.danger ? 'text-destructive' : 'text-foreground',
             )}
           >
-            <Icon
+            <ChevronLeft
               className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
               aria-hidden
             />
-            <span className="truncate">{it.label}</span>
-            {it.items && (
-              <ChevronRight className="ml-auto size-4 shrink-0 opacity-60" aria-hidden />
-            )}
-            {it.checked && <Check className="ml-auto size-4 shrink-0 text-primary" aria-hidden />}
+            <span className="truncate">{open.label}</span>
           </button>
-        )
-      })}
-    </>
-  )
+        )}
+        {safe.map(row)}
+        {safe.length > 0 && danger.length > 0 && <MenuSeparator />}
+        {danger.map(row)}
+      </>
+    )
+  }
 
   return (
     <div

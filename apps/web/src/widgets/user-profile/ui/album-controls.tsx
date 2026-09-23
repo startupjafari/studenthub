@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { FolderPlus, Images, MoreHorizontal, Pencil, Star, Trash2, X } from 'lucide-react'
 import type { Album } from '../../../entities/profile-content'
-import { Button } from '../../../shared/ui'
+import { Button, MenuSeparator } from '../../../shared/ui'
 import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
@@ -126,6 +126,10 @@ export function PhotoAlbumMenu({
 
   const item =
     'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-muted'
+  const assignable = albums.filter((a) => a.id !== inAlbumId)
+  // «Сделать обложкой» бывает только у фото в альбоме, поэтому хватает `inAlbumId`:
+  // есть ли над «Удалить» обычные пункты — иначе линия-разделитель не нужна.
+  const hasSafe = inAlbumId !== null || assignable.length > 0
 
   return (
     <div ref={ref} className="absolute left-1.5 top-1.5 z-10">
@@ -168,22 +172,22 @@ export function PhotoAlbumMenu({
               {t('albumRemovePhoto')}
             </button>
           )}
-          {albums
-            .filter((a) => a.id !== inAlbumId)
-            .map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                className={item}
-                onClick={() => {
-                  onAssign(a.id)
-                  setOpen(false)
-                }}
-              >
-                <Images className="size-4 text-muted-foreground" aria-hidden />
-                <span className="truncate">{t('albumAddTo', { title: a.title })}</span>
-              </button>
-            ))}
+          {assignable.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className={item}
+              onClick={() => {
+                onAssign(a.id)
+                setOpen(false)
+              }}
+            >
+              <Images className="size-4 text-muted-foreground" aria-hidden />
+              <span className="truncate">{t('albumAddTo', { title: a.title })}</span>
+            </button>
+          ))}
+          {/* Удаление — опасное: последним и за линией (правило для всех меню). */}
+          {hasSafe && <MenuSeparator />}
           <button
             type="button"
             className={cn(item, 'text-destructive hover:bg-destructive/10')}

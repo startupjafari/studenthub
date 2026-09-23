@@ -67,7 +67,6 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
-  const tChats = useTranslations('Chats')
   const router = useRouter()
 
   const q = useQuery({
@@ -96,10 +95,9 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const canWrite = !!chatsHref && !!me.data && me.data.id !== userId
   const openChat = useMutation({
     mutationFn: () => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
+    // «Запрос отправлен» здесь не говорим: не-другу (§50) запрос уходит только с первым
+    // сообщением, а открытие чата — ещё не он. Тост покажет сам чат, когда сообщение уйдёт.
     onSuccess: (chat) => {
-      // Не-другу уходит запрос на переписку (§50) — в чате это видно только пометкой над
-      // полем ввода, поэтому говорим прямо здесь, сразу после нажатия.
-      if (chat.requestPendingForId) toast.success(tChats('requestSent'))
       router.push(`${chatsHref}?chat=${chat.id}`)
     },
     // Личный чат заводится только внутри своего вуза — молчаливая неудача выглядела бы

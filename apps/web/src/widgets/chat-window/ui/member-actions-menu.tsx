@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
+import { MenuSeparator, splitDanger } from '../../../shared/ui'
 
 export interface MemberMenuItem {
   key: string
@@ -56,6 +57,29 @@ export function MemberActionsMenu({
     }
   }, [onClose])
 
+  const row = (it: MemberMenuItem): React.ReactNode => {
+    const Icon = it.icon
+    return (
+      <button
+        key={it.key}
+        type="button"
+        onClick={() => {
+          it.onClick()
+          onClose()
+        }}
+        className={cn(
+          'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
+          it.danger ? 'text-destructive' : 'text-foreground',
+        )}
+      >
+        <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
+        {it.label}
+      </button>
+    )
+  }
+  // Опасные пункты — всегда в конце и за линией (см. MenuSeparator).
+  const { safe, danger } = splitDanger(items)
+
   return (
     <div className="fixed inset-0 z-[120]" role="menu">
       <div
@@ -63,26 +87,9 @@ export function MemberActionsMenu({
         style={{ left: pos.left, top: pos.top }}
         className="absolute w-52 overflow-hidden rounded-2xl border border-border bg-popover py-1 shadow-lg"
       >
-        {items.map((it) => {
-          const Icon = it.icon
-          return (
-            <button
-              key={it.key}
-              type="button"
-              onClick={() => {
-                it.onClick()
-                onClose()
-              }}
-              className={cn(
-                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
-                it.danger ? 'text-destructive' : 'text-foreground',
-              )}
-            >
-              <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
-              {it.label}
-            </button>
-          )
-        })}
+        {safe.map(row)}
+        {safe.length > 0 && danger.length > 0 && <MenuSeparator />}
+        {danger.map(row)}
       </div>
     </div>
   )

@@ -710,8 +710,8 @@ function ParticipantsTab({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      // Не-другу (в т.ч. декану, старосте, админу вуза) уходит запрос на переписку — §50.
-      if (created.requestPendingForId) toast.success(t('requestSent'))
+      // Про запрос на переписку (§50) не говорим: он уйдёт только с первым сообщением,
+      // и тост о нём покажет сам чат.
       onOpenChat(created.id)
     },
     onError: err,
@@ -1059,12 +1059,14 @@ export function ChatDetailsPanel({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       {variant === 'column' && (
+        // Кнопка того же размера, что кнопки шапки чата (lg:size-10): тогда обе шапки
+        // одной высоты и их нижние границы идут одной линией.
         <div className="flex items-center gap-1 border-b border-border px-2 py-3">
           <button
             type="button"
             aria-label={t('cancel')}
             onClick={onClose}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
           >
             <X className="size-5" aria-hidden />
           </button>

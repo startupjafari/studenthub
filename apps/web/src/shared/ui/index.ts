@@ -54,6 +54,7 @@ export { ConfirmProvider, useConfirm, type ConfirmOptions } from './confirm-dial
 export { PromptDialog } from './prompt-dialog'
 export { ScrollRow, type ScrollRowProps } from './scroll-row'
 export { RowContextMenu, type RowContextMenuItem } from './row-context-menu'
+export { MenuSeparator, splitDanger } from './menu-separator'
 export { AnchoredMenuLayer, captureAnchor, MENU_EXIT_MS, type MenuAnchor } from './anchored-menu'
 export { Skeleton } from './skeleton'
 export { Avatar, AvatarImage, AvatarFallback } from './avatar'
