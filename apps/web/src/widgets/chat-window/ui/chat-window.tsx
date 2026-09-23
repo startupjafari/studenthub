@@ -2857,7 +2857,8 @@ export function ChatWindow() {
                 список найденных сообщений. Список — главное: без него единственным
                 способом добраться до нужного совпадения было жать ↓ и смотреть, куда
                 прыгнула переписка. Он лежит поверх ленты (absolute), чтобы прыжок к
-                сообщению был виден за ним и переписка не сжималась. */}
+                сообщению был виден за ним и переписка не сжималась, и открывается
+                под самим полем ввода, а не во всю ширину шапки. */}
             {chatSearchOpen &&
               (() => {
                 const found = chatSearchResults.data?.items ?? []
@@ -2882,6 +2883,10 @@ export function ChatWindow() {
                           autoFocus
                           value={chatSearchRaw}
                           onChange={(e) => setChatSearchRaw(e.target.value)}
+                          // Кнопки «показать список» нет: выдача, закрытая выбором
+                          // совпадения, снова открывается возвратом в поле.
+                          onFocus={() => setSearchListOpen(true)}
+                          onClick={() => setSearchListOpen(true)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault()
@@ -2894,6 +2899,41 @@ export function ChatWindow() {
                           placeholder={t('searchInChat')}
                           className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
                         />
+                        {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
+                          <ul
+                            aria-label={t('searchResults')}
+                            className="absolute inset-x-0 top-full z-10 mt-1 max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
+                          >
+                            {found.map((m, i) => (
+                              <li key={m.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => pickSearchResult(i)}
+                                  className={cn(
+                                    'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
+                                    i === searchIdx && 'bg-primary/10',
+                                  )}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-baseline gap-1.5">
+                                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                                        {m.senderId === myId ? t('you') : senderName(m)}
+                                      </span>
+                                      <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                                        {listTime(m.createdAt, locale)}
+                                      </span>
+                                    </div>
+                                    {/* Совпавший кусок подсвечен: из строки в две строки видно,
+                                      то ли это сообщение, ещё до перехода к нему. */}
+                                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                      {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
+                                    </p>
+                                  </div>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                       {/* Фильтр «От кого» (§4) — только в группах. */}
                       {activeIsGroup && (
@@ -2988,59 +3028,7 @@ export function ChatWindow() {
                       >
                         <ChevronDown className="size-5" aria-hidden />
                       </button>
-                      {/* Вернуть список, когда из него уже выбрали сообщение. */}
-                      <button
-                        type="button"
-                        aria-label={t('searchResults')}
-                        title={t('searchResults')}
-                        disabled={total === 0}
-                        aria-expanded={searchListOpen}
-                        onClick={() => setSearchListOpen((v) => !v)}
-                        className={cn(
-                          HEADER_ICON_BTN,
-                          'disabled:opacity-40',
-                          searchListOpen && 'bg-primary/10 text-primary',
-                        )}
-                      >
-                        <ListIcon className="size-5" aria-hidden />
-                      </button>
                     </header>
-
-                    {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
-                      <ul
-                        aria-label={t('searchResults')}
-                        className="absolute inset-x-0 top-full max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain border-b border-border bg-background shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
-                      >
-                        {found.map((m, i) => (
-                          <li key={m.id}>
-                            <button
-                              type="button"
-                              onClick={() => pickSearchResult(i)}
-                              className={cn(
-                                'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
-                                i === searchIdx && 'bg-primary/10',
-                              )}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-baseline gap-1.5">
-                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-                                    {m.senderId === myId ? t('you') : senderName(m)}
-                                  </span>
-                                  <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
-                                    {listTime(m.createdAt, locale)}
-                                  </span>
-                                </div>
-                                {/* Совпавший кусок подсвечен: из строки в две строки видно,
-                                  то ли это сообщение, ещё до перехода к нему. */}
-                                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                                  {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
-                                </p>
-                              </div>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
                   </div>
                 )
               })()}
