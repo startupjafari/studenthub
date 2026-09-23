@@ -1710,6 +1710,7 @@
     "attachPhoto": "Фото или видео",
     "attachCamera": "Камера",
     "attachFile": "Файл",
+    "attachTooLarge": "«{name}» больше {max} — файл не отправлен",
     "emoji": "Эмодзи",
     "emojiSearch": "Поиск эмодзи",
     "mediaFailed": "Не удалось загрузить",

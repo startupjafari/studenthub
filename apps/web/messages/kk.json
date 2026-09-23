@@ -1710,6 +1710,7 @@
     "attachPhoto": "Фото немесе бейне",
     "attachCamera": "Камера",
     "attachFile": "Файл",
+    "attachTooLarge": "«{name}» {max} шамасынан үлкен — жіберілмеді",
     "emoji": "Эмодзи",
     "emojiSearch": "Эмодзи іздеу",
     "mediaFailed": "Жүктеу мүмкін болмады",
