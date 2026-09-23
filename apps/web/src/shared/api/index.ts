@@ -40,3 +40,11 @@ export {
   type MultipartTarget,
   type UploadedPart,
 } from './multipart-upload'
+export { uploadResumable } from './resumable-upload'
+export {
+  fingerprintOf,
+  indexedDbResumeStore,
+  isResumable,
+  type ResumeRecord,
+  type ResumeStore,
+} from './upload-resume'
