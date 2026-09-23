@@ -178,6 +178,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
               <Archive aria-hidden /> {t('actionArchive')}
             </DropdownMenuItem>
           )}
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
             onSelect={() => {

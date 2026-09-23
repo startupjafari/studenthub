@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
@@ -243,6 +244,10 @@ export function TeacherAssignmentsView() {
                             <XCircle aria-hidden />
                             {t('close')}
                           </DropdownMenuItem>
+                        )}
+                        {/* Линия перед «Удалить» — только если над ним есть обычный пункт. */}
+                        {(a.status === 'DRAFT' || a.status === 'PUBLISHED') && (
+                          <DropdownMenuSeparator />
                         )}
                         <DropdownMenuItem variant="destructive" onClick={() => onDelete(a)}>
                           <Trash2 aria-hidden />
