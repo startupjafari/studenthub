@@ -38,6 +38,7 @@ const LOCK_TTL_MS = {
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
+  sweepIncompleteUploads: 60 * 60 * 1000,
   sendDailyDigest: 10 * 60 * 1000,
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
@@ -49,6 +50,13 @@ const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
 // Не трогаем свежие объекты MinIO — они могут быть в процессе загрузки (запись File ещё не создана).
 const ORPHAN_SAFETY_MINUTES = 60
+
+// Через сколько часов брошенная многочастная загрузка считается мусором (Фаза 19).
+//
+// Незавершённая загрузка НЕ ВИДНА как объект: `cleanOrphanFiles` перечисляет объекты бакета и
+// её не найдёт, а место её части занимают. Сутки — потолок осмысленной докачки: клиент хранит
+// состояние ровно столько же, дальше продолжать всё равно нечего.
+const INCOMPLETE_UPLOAD_TTL_HOURS = 24
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -267,12 +275,10 @@ export class CleanupService {
   }
 
   private async cleanOrphanFilesTask(): Promise<number> {
-    const buckets = [
-      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
-      this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
-      this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
-      this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
-    ]
+    // Все бакеты, а не четыре исторических: с прямой загрузкой вложений чата (Ф19.0) объект
+    // попадает в `chat-media` ДО создания сообщения, и не дошедшая до отправки загрузка
+    // осталась бы там навсегда — этот бакет в списке не значился.
+    const buckets = this.mediaBuckets()
     const safetyBefore = new Date(Date.now() - ORPHAN_SAFETY_MINUTES * 60 * 1000)
     let removed = 0
 
@@ -302,6 +308,84 @@ export class CleanupService {
     }
     this.logger.log(`cleanOrphanFiles: удалено осиротевших объектов ${removed}`)
     return removed
+  }
+
+  // Брошенные многочастные загрузки (Фаза 19). Ежедневно, 04:30 — следом за чисткой сирот.
+  @Cron('30 4 * * *', { name: 'sweepIncompleteUploads' })
+  async sweepIncompleteUploads(): Promise<number | null> {
+    return this.locks.run('sweepIncompleteUploads', LOCK_TTL_MS.sweepIncompleteUploads, () =>
+      this.sweepIncompleteUploadsTask(),
+    )
+  }
+
+  /**
+   * Отменить многочастные загрузки, начатые больше суток назад.
+   *
+   * Почему отдельной задачей, а не внутри `cleanOrphanFiles`: тот перечисляет ОБЪЕКТЫ, а
+   * незавершённая загрузка объектом ещё не стала — её части лежат в хранилище отдельно и в
+   * листинге не показываются. Найти их можно только запросом списка загрузок.
+   *
+   * Это второй рубеж. Первый — правило `AbortIncompleteMultipartUpload` на самом бакете:
+   * оно работает, даже когда приложение лежит. Дублирование намеренное — место кончается
+   * молча, и заметно это становится, когда уже поздно.
+   */
+  private async sweepIncompleteUploadsTask(): Promise<number> {
+    const buckets = this.mediaBuckets()
+    const before = new Date(Date.now() - INCOMPLETE_UPLOAD_TTL_HOURS * 60 * 60 * 1000)
+    let aborted = 0
+
+    for (const bucket of buckets) {
+      try {
+        let keyMarker = ''
+        let uploadIdMarker = ''
+        for (;;) {
+          // Постраничный запрос, а не поток `listIncompleteUploads`: тот отдаёт только ключ,
+          // uploadId и размер, а нам нужна дата начала — без неё свежую загрузку не отличить
+          // от брошенной, и мы бы рвали то, что прямо сейчас грузится.
+          const page = await this.minio.listIncompleteUploadsQuery(
+            bucket,
+            '',
+            keyMarker,
+            uploadIdMarker,
+            '',
+          )
+          for (const upload of page.uploads) {
+            if (upload.initiated >= before) continue
+            await this.minio.abortMultipartUpload(bucket, upload.key, upload.uploadId)
+            aborted += 1
+          }
+          if (!page.isTruncated) break
+          keyMarker = page.nextKeyMarker
+          uploadIdMarker = page.nextUploadIdMarker
+        }
+      } catch (err) {
+        // MinIO недоступен/бакета нет — логируем и продолжаем (graceful degradation).
+        this.logger.warn(
+          `sweepIncompleteUploads: бакет ${bucket} пропущен: ${(err as Error).message}`,
+        )
+      }
+    }
+    this.logger.log(`sweepIncompleteUploads: отменено брошенных загрузок ${aborted}`)
+    return aborted
+  }
+
+  /**
+   * Все бакеты с пользовательскими медиа. Многочастная загрузка возможна в любой из них,
+   * поэтому список шире, чем у `cleanOrphanFiles` (тот исторически знает только четыре —
+   * его расширение это отдельная задача, а не побочный эффект этой).
+   */
+  private mediaBuckets(): string[] {
+    return [
+      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
+      this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+      this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
+      this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
+      this.config.get('MINIO_BUCKET_CHAT', { infer: true }),
+      this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }),
+      this.config.get('MINIO_BUCKET_DOCUMENTS', { infer: true }),
+      this.config.get('MINIO_BUCKET_PROFILE_MEDIA', { infer: true }),
+      this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true }),
+    ]
   }
 
   // Ежедневная сводка команде платформы. Ежечасно, а отправляет только в тот час,

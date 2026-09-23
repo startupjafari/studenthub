@@ -1,6 +1,7 @@
 import type { AxiosProgressEvent } from 'axios'
 import type { FileBucketKind } from '@studenthub/shared-schemas'
 import { api } from './instance'
+import type { MultipartTarget, UploadedPart } from './multipart-upload'
 
 // Ответ POST /files/upload (envelope разворачивается интерцептором в чистую сущность).
 // Отдельного типа File в shared-* нет — это форма ответа API, объявляется здесь.
@@ -34,4 +35,51 @@ export async function uploadFileRequest(
     },
   })
   return res.data
+}
+
+// ── Многочастная загрузка через общий /files (Фаза 19) ───────────────────────
+// Доменные модули (документы, материалы, чат) при необходимости заводят свои пары так же,
+// как у одиночного presign: бакет там неявный и определяется самим модулем.
+
+/** Шаг 1: открыть загрузку. Число и размер частей считает сервер. */
+export async function multipartStartRequest(
+  bucket: FileBucketKind,
+  mime: string,
+  size: number,
+): Promise<MultipartTarget> {
+  const { data } = await api.post<MultipartTarget>('/files/multipart/start', {
+    bucket,
+    mime,
+    size,
+  })
+  return data
+}
+
+/** Шаг 2: подписи на диапазон частей. Диапазоном, потому что их полсотни. */
+export async function multipartUrlsRequest(
+  bucket: FileBucketKind,
+  input: { key: string; uploadId: string; from: number; to: number },
+): Promise<{ part: number; url: string }[]> {
+  const { data } = await api.post<{ parts: { part: number; url: string }[]; expiresAt: string }>(
+    '/files/multipart/urls',
+    { bucket, ...input },
+  )
+  return data.parts
+}
+
+/** Шаг 4: сборка. Сервер склеивает части и проверяет объект так же, как обычный confirm. */
+export async function multipartCompleteRequest(
+  bucket: FileBucketKind,
+  input: { key: string; uploadId: string; parts: UploadedPart[]; name?: string },
+): Promise<UploadedFile> {
+  const { data } = await api.post<UploadedFile>('/files/multipart/complete', { bucket, ...input })
+  return data
+}
+
+/** Отмена: хранилище удаляет уже залитые части. */
+export async function multipartAbortRequest(
+  bucket: FileBucketKind,
+  input: { key: string; uploadId: string },
+): Promise<void> {
+  await api.post('/files/multipart/abort', { bucket, ...input })
 }
