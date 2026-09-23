@@ -13,6 +13,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
 import {
   ApiBearerAuth,
   ApiBody,
@@ -31,6 +32,12 @@ import { ExportBrandingService } from '../../common/export/export-branding.servi
 import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
 import { ChatsService } from './chats.service'
 import { CreateChatDto } from './dto/create-chat.dto'
+import {
+  ChatAttachmentMultipartStartDto,
+  ChatAttachmentMultipartUrlsDto,
+  ChatAttachmentPresignDto,
+  MessageSendUploadedDto,
+} from './dto/chat-attachment.dto'
 import { AddChatMemberDto } from './dto/add-chat-member.dto'
 import { EditChatDto } from './dto/edit-chat.dto'
 import { ChatListQueryDto } from './dto/chat-list-query.dto'
@@ -241,6 +248,63 @@ export class ChatsController {
       parsed.data,
       files.map(({ buffer, filename }) => ({ buffer, name: filename })),
     )
+  }
+
+  // ── Крупные вложения: прямая загрузка в хранилище (Фаза 19.0) ──────────────
+  // Файлы больше порога буферной загрузки через multipart-запрос не проходят — тело целиком
+  // ложится в память процесса. Такие уходят в хранилище напрямую, а сообщение создаётся по
+  // ключам уже загруженных объектов. Членство проверяется на каждом шаге: общий маршрут
+  // /files о чатах ничего не знает и пустил бы кого угодно писать в chat-media.
+
+  @Post(':id/attachments/presign')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Ссылка для прямой загрузки вложения (только участник)' })
+  async presignAttachment(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatAttachmentPresignDto,
+  ) {
+    return this.chats.presignAttachment(user.sub, id, dto.mime)
+  }
+
+  @Post(':id/attachments/multipart/start')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Открыть многочастную загрузку вложения (только участник)' })
+  async startAttachmentMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatAttachmentMultipartStartDto,
+  ) {
+    return this.chats.startAttachmentMultipart(user.sub, id, dto.mime, dto.size)
+  }
+
+  @Post(':id/attachments/multipart/urls')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Подписи на диапазон частей вложения (только участник)' })
+  async attachmentPartUrls(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatAttachmentMultipartUrlsDto,
+  ) {
+    return this.chats.attachmentPartUrls(user.sub, id, {
+      key: dto.key,
+      uploadId: dto.uploadId,
+      from: dto.from,
+      to: dto.to,
+    })
+  }
+
+  @Post(':id/messages/uploaded')
+  @ApiOperation({ summary: 'Сообщение по уже загруженным вложениям (только участник)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  async sendUploaded(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MessageSendUploadedDto,
+  ) {
+    return this.chats.sendMessageFromUploads(user.sub, id, dto)
   }
 
   @Get(':id/pinned')

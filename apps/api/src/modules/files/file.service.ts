@@ -267,6 +267,8 @@ export class FileService {
     ownerId: string
     parts: { part: number; etag: string }[]
     name?: string
+    /** Привязка собранного объекта к сообщению чата (Ф19.0). */
+    messageId?: string
     expectedCategory?: FileCategory
     allowedMimes?: ReadonlySet<string>
   }) {
@@ -285,6 +287,7 @@ export class FileService {
       key: params.key,
       ownerId: params.ownerId,
       name: params.name,
+      messageId: params.messageId,
       expectedCategory: params.expectedCategory,
       allowedMimes: params.allowedMimes,
     })
@@ -341,6 +344,8 @@ export class FileService {
     /** Если задано — реальный MIME обязан входить в набор (напр. документ → PDF/JPG/PNG). */
     allowedMimes?: ReadonlySet<string>
     materialId?: string
+    /** Вложение сообщения чата: объект уже в бакете, запись создаётся сразу привязанной. */
+    messageId?: string
     name?: string
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
@@ -387,6 +392,7 @@ export class FileService {
         size,
         ownerId: params.ownerId,
         materialId: params.materialId,
+        messageId: params.messageId,
         name: params.name?.slice(0, 255) || null,
       },
       select: FILE_SELECT,
