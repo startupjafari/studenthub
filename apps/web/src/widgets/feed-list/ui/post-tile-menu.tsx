@@ -14,7 +14,7 @@ import {
 } from '../../../entities/post'
 import { EditPostModal } from '../../../features/edit-post'
 import { ReportModal } from '../../../features/report-content'
-import { useConfirm } from '../../../shared/ui'
+import { MenuSeparator, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Меню действий на своей карточке публикации: закрепить/открепить + удалить — через «•••»
@@ -99,6 +99,8 @@ export function PostTileMenu({
   // Править можно только свою публикацию — модератору правка чужого текста
   // не положена, в отличие от удаления.
   if (!canModerate && !canDelete && !canReport && !isMine) return null
+  // Есть ли над «Удалить» хоть один обычный пункт — иначе линия-разделитель повисла бы.
+  const hasSafe = canModerate || isMine || canReport
   const item =
     'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted'
 
@@ -171,6 +173,8 @@ export function PostTileMenu({
               {t('report')}
             </button>
           )}
+          {/* Удаление — опасное, поэтому последним и за линией (правило для всех меню). */}
+          {canDelete && hasSafe && <MenuSeparator />}
           {canDelete && (
             <button
               type="button"
