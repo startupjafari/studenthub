@@ -33,7 +33,12 @@ export {
   multipartAbortRequest,
   type UploadedFile,
 } from './files-api'
-export { needsDirectUpload, uploadDirect, type PresignedTarget } from './direct-upload'
+export {
+  needsDirectUpload,
+  uploadDirect,
+  putPresigned,
+  type PresignedTarget,
+} from './direct-upload'
 export {
   needsMultipartUpload,
   uploadMultipart,
