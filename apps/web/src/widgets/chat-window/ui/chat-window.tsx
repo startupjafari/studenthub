@@ -555,13 +555,12 @@ export function ChatWindow() {
     enabled: listSearchTerm.length >= 2,
   })
 
-  // Клик по человеку: находим/заводим личный чат и открываем его. Не-другу это отправит
-  // запрос на переписку (§50) — говорим об этом тостом, потому что чат откроется одинаково.
+  // Клик по человеку: находим/заводим личный чат и открываем его. Запрос на переписку
+  // не-другу (§50) это ещё не отправляет — он уйдёт с первым сообщением (см. requestWaiting).
   const startDirect = useMutation({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (chat) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      if (chat.requestPendingForId) toast.success(t('requestSent'))
       setListSearchRaw('')
       setListSearchTerm('')
       setActiveId(chat.id)
@@ -2582,6 +2581,25 @@ export function ChatWindow() {
   const onlineOthers = memberIds.filter((id) => id !== myId && presence[id]).length
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
+  // Запрос на переписку ушёл и ждёт ответа — поле ввода закрывает плашка. Уходит запрос
+  // первым сообщением, поэтому до него поле открыто. Пока запрос висит, писать может
+  // только инициатор, так что любое сообщение в чате — его: lastMessage хватает, пока
+  // лента не загрузилась, а лента — сразу после отправки, до обновления списка чатов.
+  const requestWaiting =
+    !!activeChat?.requestOutgoing && (!!activeChat.lastMessage || (messages.data?.length ?? 0) > 0)
+  // Тост «запрос отправлен» — в момент, когда запрос правда ушёл: в этом же чате ожидания не
+  // было и появилось. Смотрим на переход, а не на отправку, потому что путей у первого
+  // сообщения несколько (текст, медиа, голос). Смена чата — не переход: открыть чат с уже
+  // висящим запросом не значит отправить его снова.
+  const requestWaitingRef = useRef<{ chatId: string | null; waiting: boolean }>({
+    chatId: null,
+    waiting: false,
+  })
+  useEffect(() => {
+    const prev = requestWaitingRef.current
+    if (prev.chatId === activeId && !prev.waiting && requestWaiting) toast.success(t('requestSent'))
+    requestWaitingRef.current = { chatId: activeId, waiting: requestWaiting }
+  }, [activeId, requestWaiting, t])
 
   // Пропсы панели деталей чата — одни и те же для колонки (ПК) и модалки (планшет/мобильный),
   // чтобы презентация решалась одним `isWide`, а не двумя разными экранами.
@@ -3572,11 +3590,6 @@ export function ChatWindow() {
                     'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2',
                   )}
                 >
-                  {activeChat?.requestOutgoing && (
-                    <p className="mx-auto mb-1 w-fit rounded-full bg-muted/80 px-2 py-0.5 text-center text-xs text-muted-foreground backdrop-blur">
-                      {t('requestPending')}
-                    </p>
-                  )}
                   <ChatComposer
                     editing={editing}
                     onCancelEdit={() => {
@@ -3598,6 +3611,7 @@ export function ChatWindow() {
                     onScheduleSend={() => setScheduleOpen(true)}
                     blocked={!!blockedActive}
                     iBlocked={!!activeChat?.blocked}
+                    requestPending={requestWaiting}
                     otherId={otherId}
                     onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
                     text={text}

@@ -164,6 +164,9 @@ export type ChatComposerProps = {
   iBlocked: boolean
   otherId: string | undefined
   onUnblock: () => void
+  // Мой запрос на переписку отправлен и ещё не принят: вместо поля ввода — плашка в строе
+  // баннера блокировки. Дописывать, пока собеседник не ответил, нечего.
+  requestPending: boolean
   text: string
   onType: (v: string) => void
   onSend: () => void
@@ -199,6 +202,7 @@ export function ChatComposer({
   iBlocked,
   otherId,
   onUnblock,
+  requestPending,
   text,
   onType,
   onSend,
@@ -383,6 +387,16 @@ export function ChatComposer({
               {t('unblockUser')}
             </button>
           )}
+        </div>
+      ) : requestPending ? (
+        <div
+          className={cn(
+            island,
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:rounded-md',
+          )}
+        >
+          <Clock className="size-4 shrink-0" aria-hidden />
+          <span>{t('requestPending')}</span>
         </div>
       ) : (
         // items-end, а не items-center: поле растёт вверх под многострочный текст, а

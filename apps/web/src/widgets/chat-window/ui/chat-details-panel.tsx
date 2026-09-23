@@ -710,8 +710,8 @@ function ParticipantsTab({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      // Не-другу (в т.ч. декану, старосте, админу вуза) уходит запрос на переписку — §50.
-      if (created.requestPendingForId) toast.success(t('requestSent'))
+      // Про запрос на переписку (§50) не говорим: он уйдёт только с первым сообщением,
+      // и тост о нём покажет сам чат.
       onOpenChat(created.id)
     },
     onError: err,
