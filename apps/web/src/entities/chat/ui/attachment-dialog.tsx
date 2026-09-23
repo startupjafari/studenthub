@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Eye,
@@ -11,6 +11,7 @@ import {
   ImagePlus,
   MoreVertical,
   Play,
+  Smile,
   Trash2,
   X,
 } from 'lucide-react'
@@ -21,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  EmojiPicker,
   Modal,
 } from '../../../shared/ui'
 import { formatBytes, useByteUnitLabel } from '../../../shared/lib'
@@ -368,6 +370,35 @@ export function AttachmentDialog({
   const [spoilered, setSpoilered] = useState<Set<File>>(() => new Set())
   const [grouped, setGrouped] = useState(true)
   const [asFiles, setAsFiles] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const captionRef = useRef<HTMLInputElement>(null)
+  const emojiBoxRef = useRef<HTMLDivElement>(null)
+
+  // Клик мимо панели закрывает её. Слушаем на фазе перехвата: клик по плитке или пункту меню
+  // иначе успевал бы отработать раньше, и панель закрывалась бы «через раз».
+  useEffect(() => {
+    if (!emojiOpen) return
+    const onDown = (e: PointerEvent): void => {
+      if (!emojiBoxRef.current?.contains(e.target as Node)) setEmojiOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [emojiOpen])
+
+  /**
+   * Вставка смайла в позицию курсора, а не в конец строки: подпись правят и в середине.
+   * Каретку возвращаем на место сразу после вставки — иначе следующий смайл уедет в хвост.
+   */
+  function insertEmoji(emoji: string): void {
+    const el = captionRef.current
+    const at = el?.selectionStart ?? caption.length
+    setCaption(`${caption.slice(0, at)}${emoji}${caption.slice(el?.selectionEnd ?? at)}`)
+    requestAnimationFrame(() => {
+      const pos = at + emoji.length
+      el?.focus()
+      el?.setSelectionRange(pos, pos)
+    })
+  }
 
   // Индексы сохраняем: onRemove работает по позиции в исходном списке, а мы его делим надвое.
   const indexed: Indexed[] = files.map((file, index) => ({ file, index }))
@@ -523,19 +554,46 @@ export function AttachmentDialog({
           </p>
         )}
 
-        <input
-          autoFocus
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              send()
-            }
-          }}
-          placeholder={t('captionPlaceholder')}
-          className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15"
-        />
+        {/* Подпись со смайлами — как в композере: панель вставляет в позицию курсора и
+            остаётся открытой, потому что смайлов подряд ставят несколько. */}
+        <div ref={emojiBoxRef} className="relative flex items-center gap-1">
+          <button
+            type="button"
+            aria-label={t('emoji')}
+            aria-expanded={emojiOpen}
+            onClick={() => setEmojiOpen((v) => !v)}
+            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Smile className="size-5" aria-hidden />
+          </button>
+          <input
+            ref={captionRef}
+            autoFocus
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            onKeyDown={(e) => {
+              // Esc при открытой панели закрывает панель, а не всё окно: иначе выбор смайла
+              // стоил бы заново собранного списка файлов.
+              if (e.key === 'Escape' && emojiOpen) {
+                e.preventDefault()
+                e.stopPropagation()
+                setEmojiOpen(false)
+                return
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                send()
+              }
+            }}
+            placeholder={t('captionPlaceholder')}
+            className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15"
+          />
+          {emojiOpen && (
+            <div className="absolute bottom-full left-0 z-50 pb-2">
+              <EmojiPicker size="lg" searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
