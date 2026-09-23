@@ -103,5 +103,6 @@ export {
 } from './ui/message-context-menu'
 export { useVoiceRecorder, type VoiceRecorderController } from './lib/use-voice-recorder'
 export { fileKind, type FileKind } from './lib/file-kind'
+export { compressImage, compressImages } from './lib/compress-image'
 export { sortChats } from './lib/sort-chats'
 export { useChatsUnread } from './lib/use-chats-unread'

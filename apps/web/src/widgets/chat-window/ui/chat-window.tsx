@@ -70,6 +70,7 @@ import {
   unpinMessageRequest,
   AttachmentDialog,
   ALBUM_MAX_ITEMS,
+  compressImages,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -1057,7 +1058,11 @@ export function ChatWindow() {
     const { files, ...fields } = payload
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
     try {
-      const real = await sendMessageWithAttachments(chatId, fields, files, (f) =>
+      // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
+      // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
+      // единственный режим, где байты уходят ровно те, что выбрали.
+      const payloadFiles = fields.asFiles ? files : await compressImages(files)
+      const real = await sendMessageWithAttachments(chatId, fields, payloadFiles, (f) =>
         setUploadProgress(chatId, tempId, f),
       )
       mediaRetry.current.delete(tempId)
