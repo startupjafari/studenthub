@@ -38,6 +38,12 @@ export interface ModalProps {
   /** Кнопка «назад» слева от заголовка (шаговые сценарии). Не показывать на первом шаге. */
   onBack?: () => void
   backLabel?: string
+  /**
+   * Действие в шапке справа от заголовка, перед крестиком: меню «…» окна отправки вложений.
+   * Отдельным слотом, а не внутри `title`: заголовок обрезается по `truncate`, и вложенная в
+   * него кнопка уезжала бы вместе с длинным текстом.
+   */
+  headerAction?: ReactNode
   size?: keyof typeof SIZE
   /**
    * Высота окна: `auto` (по умолчанию) — по содержимому, до `max-h-[90vh]`; `stable` —
@@ -63,6 +69,7 @@ export function Modal({
   title,
   onBack,
   backLabel,
+  headerAction,
   size = 'xl',
   height = 'auto',
   children,
@@ -109,6 +116,7 @@ export function Modal({
                 {title ?? t('close')}
               </DialogPrimitive.Title>
             </div>
+            {headerAction}
             <DialogPrimitive.Close
               aria-label={t('close')}
               className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

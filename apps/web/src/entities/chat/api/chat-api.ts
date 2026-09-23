@@ -215,10 +215,15 @@ export async function sendMessageWithAttachments(
     replyToId?: string
     replyQuote?: string
     spoiler?: boolean
+    /** Номера вложений под спойлером в порядке отправки. Пусто — скрытых нет. */
+    spoilerIndexes?: number[]
+    asFiles?: boolean
     silent?: boolean
   },
   files: File[],
   onProgress?: (fraction: number) => void,
+  /** Прерывание отправки по крестику в пузыре: сообщение уходит одним запросом. */
+  signal?: AbortSignal,
 ): Promise<ChatMessage> {
   const form = new FormData()
   if (input.content) form.append('content', input.content)
@@ -226,12 +231,15 @@ export async function sendMessageWithAttachments(
   // Цитата без ответа схемой запрещена — отправляем только парой.
   if (input.replyToId && input.replyQuote) form.append('replyQuote', input.replyQuote)
   if (input.spoiler) form.append('spoiler', 'true')
+  if (input.spoilerIndexes?.length) form.append('spoilerIndexes', input.spoilerIndexes.join(','))
+  if (input.asFiles) form.append('asFiles', 'true')
   if (input.silent) form.append('silent', 'true')
   for (const file of files) form.append('file', file)
   const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
     onUploadProgress: onProgress
       ? (e) => onProgress(e.total ? Math.min(1, e.loaded / e.total) : 0)
       : undefined,
+    signal,
   })
   return data
 }

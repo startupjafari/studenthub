@@ -226,6 +226,7 @@ const MESSAGE_SELECT = {
       size: true,
       name: true,
       spoiler: true,
+      asDocument: true,
       width: true,
       height: true,
     },
@@ -1625,6 +1626,8 @@ export class ChatsService {
       replyToId?: string
       replyQuote?: string
       spoiler?: boolean
+      spoilerIndexes?: string
+      asFiles?: boolean
       silent?: boolean
     },
     files: { buffer: Buffer; name?: string }[],
@@ -1651,20 +1654,35 @@ export class ChatsService {
         select: { id: true },
       }),
     )
+    // Порядок загрузки = порядок вложений в сообщении, и по нему же приходят номера
+    // спойлеров: скрыть могут один снимок из десяти, а не весь альбом.
+    const uploaded: { id: string }[] = []
     for (const file of files) {
-      await this.files.upload({
-        buffer: file.buffer,
-        bucket,
-        ownerId: senderId,
-        messageId: created.id,
-        name: file.name,
+      uploaded.push(
+        await this.files.upload({
+          buffer: file.buffer,
+          bucket,
+          ownerId: senderId,
+          messageId: created.id,
+          name: file.name,
+        }),
+      )
+    }
+    // §34: спойлер — свойство отдельного вложения. `spoiler: true` скрывает всё сообщение,
+    // `spoilerIndexes` — перечисленные номера; номера вне диапазона просто игнорируются.
+    const spoilerAt = new Set((input.spoilerIndexes ?? '').split(',').filter(Boolean).map(Number))
+    const spoilerIds = uploaded.filter((_, i) => input.spoiler || spoilerAt.has(i)).map((f) => f.id)
+    if (spoilerIds.length > 0) {
+      await this.prisma.file.updateMany({
+        where: { id: { in: spoilerIds } },
+        data: { spoiler: true },
       })
     }
-    // §34: помечаем все вложения сообщения спойлером (размытие до клика на клиенте).
-    if (input.spoiler && files.length > 0) {
+    // §9 «без сжатия», в отличие от спойлера, выбирают один раз на всю отправку.
+    if (input.asFiles && uploaded.length > 0) {
       await this.prisma.file.updateMany({
         where: { messageId: created.id },
-        data: { spoiler: true },
+        data: { asDocument: true },
       })
     }
     const message = await this.prisma.message.findUniqueOrThrow({
