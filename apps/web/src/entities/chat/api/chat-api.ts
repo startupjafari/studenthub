@@ -5,7 +5,7 @@ import type {
   ScheduleMessageInput,
   UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, type MultipartTarget, type PresignedTarget } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import { sortChats } from '../lib/sort-chats'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
@@ -557,4 +557,66 @@ export async function transferOwnershipRequest(chatId: string, userId: string): 
 export async function fetchBlockedUsers(): Promise<BlockedUser[]> {
   const { data } = await api.get<BlockedUser[]>('/chats/blocks')
   return data
+}
+
+/**
+ * Отправка сообщения по уже загруженным вложениям (Ф19.0).
+ *
+ * Крупные файлы через multipart-запрос не проходят — тело целиком ложится в память процесса
+ * API. Они уходят в хранилище напрямую, а сюда приходят только ключи объектов; многочастные
+ * ещё и со списком частей, которые сервер склеит.
+ */
+export async function sendMessageWithUploaded(
+  chatId: string,
+  input: {
+    content?: string
+    replyToId?: string
+    replyQuote?: string
+    silent?: boolean
+    asFiles?: boolean
+    attachments: {
+      key: string
+      uploadId?: string
+      name?: string
+      spoiler?: boolean
+      parts?: { part: number; etag: string }[]
+    }[]
+  },
+): Promise<ChatMessage> {
+  const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages/uploaded`, input)
+  return data
+}
+
+/** Шаг 1 одиночной прямой загрузки вложения. */
+export async function presignChatAttachment(
+  chatId: string,
+  mime: string,
+): Promise<PresignedTarget> {
+  const { data } = await api.post<PresignedTarget>(`/chats/${chatId}/attachments/presign`, { mime })
+  return data
+}
+
+/** Шаг 1 многочастной загрузки вложения. */
+export async function startChatAttachmentMultipart(
+  chatId: string,
+  mime: string,
+  size: number,
+): Promise<MultipartTarget> {
+  const { data } = await api.post<MultipartTarget>(`/chats/${chatId}/attachments/multipart/start`, {
+    mime,
+    size,
+  })
+  return data
+}
+
+/** Шаг 2 многочастной загрузки: подписи на диапазон частей. */
+export async function chatAttachmentPartUrls(
+  chatId: string,
+  input: { key: string; uploadId: string; from: number; to: number },
+): Promise<{ part: number; url: string }[]> {
+  const { data } = await api.post<{ parts: { part: number; url: string }[]; expiresAt: string }>(
+    `/chats/${chatId}/attachments/multipart/urls`,
+    input,
+  )
+  return data.parts
 }

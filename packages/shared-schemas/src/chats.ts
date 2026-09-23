@@ -356,3 +356,81 @@ export type TypingInput = z.infer<typeof TypingSchema>
 
 export const AuthRefreshSchema = z.object({ token: z.string().min(1) }).strict()
 export type AuthRefreshInput = z.infer<typeof AuthRefreshSchema>
+
+// ── Крупные вложения чата: прямая загрузка в хранилище (Фаза 19.0) ───────────
+// Файлы больше FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES через multipart-запрос не проходят:
+// тело целиком ложится в память процесса. Такие уходят в хранилище напрямую, а сообщение
+// создаётся уже по ключам загруженных объектов.
+//
+// Пара presign/multipart своя, а не общая из /files, по тому же принципу, что у документов и
+// материалов: бакет определяет модуль, а членство в чате проверяется на каждом шаге.
+
+/** Подписанная ссылка на одиночный PUT вложения чата. */
+export const ChatAttachmentPresignSchema = z.object({ mime: z.string().min(1).max(120) }).strict()
+export type ChatAttachmentPresignInput = z.infer<typeof ChatAttachmentPresignSchema>
+
+/** Открыть многочастную загрузку вложения чата. */
+export const ChatAttachmentMultipartStartSchema = z
+  .object({ mime: z.string().min(1).max(120), size: z.number().int().positive() })
+  .strict()
+export type ChatAttachmentMultipartStartInput = z.infer<typeof ChatAttachmentMultipartStartSchema>
+
+/** Подписи на диапазон частей вложения чата. */
+export const ChatAttachmentMultipartUrlsSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    uploadId: z.string().min(1).max(300),
+    from: z.number().int().min(1),
+    to: z.number().int().min(1),
+  })
+  .strict()
+  .refine((v) => v.to >= v.from, {
+    path: ['to'],
+    message: 'Конец диапазона частей не может быть меньше начала',
+  })
+export type ChatAttachmentMultipartUrlsInput = z.infer<typeof ChatAttachmentMultipartUrlsSchema>
+
+/**
+ * Отправка сообщения по уже загруженным объектам.
+ *
+ * Спойлер здесь у каждого вложения свой, а не номерами, как в multipart-варианте: там номер —
+ * единственный способ сослаться на файл внутри одного тела запроса, а тут вложения и так
+ * перечислены поштучно.
+ *
+ * `parts` заполнены — объект собирается из частей; пусто — он уже лежит целиком (одиночный PUT).
+ */
+export const MessageSendUploadedSchema = z
+  .object({
+    content: z.string().max(4000).optional(),
+    replyToId: z.string().min(1).optional(),
+    replyQuote: z.string().min(1).max(500).optional(),
+    silent: z.boolean().optional(),
+    // §9: показывать вложения строками файлов, а не превью.
+    asFiles: z.boolean().optional(),
+    attachments: z
+      .array(
+        z
+          .object({
+            key: z.string().min(1).max(300),
+            uploadId: z.string().min(1).max(300).optional(),
+            name: z.string().min(1).max(255).optional(),
+            spoiler: z.boolean().optional(),
+            parts: z
+              .array(
+                z
+                  .object({ part: z.number().int().min(1), etag: z.string().min(1).max(200) })
+                  .strict(),
+              )
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+  })
+  .strict()
+  .refine((v) => !v.replyQuote || !!v.replyToId, {
+    path: ['replyQuote'],
+    message: 'Цитата возможна только вместе с ответом на сообщение',
+  })
+export type MessageSendUploadedInput = z.infer<typeof MessageSendUploadedSchema>

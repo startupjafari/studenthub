@@ -1613,6 +1613,142 @@ export class ChatsService {
     )
   }
 
+  /** Бакет вложений чата. Имя приходит из конфигурации, а не зашито строкой. */
+  private chatBucket(): string {
+    return this.config.get('MINIO_BUCKET_CHAT', { infer: true })
+  }
+
+  /**
+   * Подписанная ссылка на прямую загрузку вложения (Фаза 19.0).
+   *
+   * Своя пара, а не общая из `/files`, по тому же принципу, что у документов и материалов:
+   * бакет определяет модуль, а членство в чате проверяется здесь — общий маршрут о чатах
+   * ничего не знает и пустил бы кого угодно писать в `chat-media`.
+   */
+  async presignAttachment(userId: string, chatId: string, mime: string) {
+    await this.assertMembership(userId, chatId)
+    await this.assertCanSend(chatId, userId)
+    return this.files.presignPut(this.chatBucket(), mime, userId)
+  }
+
+  /** Открыть многочастную загрузку вложения (файлы больше порога одиночного PUT). */
+  async startAttachmentMultipart(userId: string, chatId: string, mime: string, size: number) {
+    await this.assertMembership(userId, chatId)
+    await this.assertCanSend(chatId, userId)
+    return this.files.startMultipart({ bucket: this.chatBucket(), mime, size, ownerId: userId })
+  }
+
+  /** Подписи на диапазон частей вложения. */
+  async attachmentPartUrls(
+    userId: string,
+    chatId: string,
+    input: { key: string; uploadId: string; from: number; to: number },
+  ) {
+    await this.assertMembership(userId, chatId)
+    return this.files.presignParts({ bucket: this.chatBucket(), ownerId: userId, ...input })
+  }
+
+  /**
+   * Сообщение по уже загруженным объектам (Фаза 19.0).
+   *
+   * Отличие от multipart-пути ровно одно: байтов через API не проходит вовсе — они уже в
+   * хранилище. Всё остальное то же самое, и проверки те же: членство, право писать, владение
+   * ключом и реальный тип по содержимому. Объявленному клиентом не верим и здесь: подтверждение
+   * читает объект из хранилища само.
+   *
+   * Сообщение создаётся ПЕРЕД привязкой файлов, потому что `File.messageId` требует
+   * существующего сообщения. Если ни один объект не подтвердился, пустое сообщение удаляем —
+   * иначе в ленте оставался бы пузырь без содержимого.
+   */
+  async sendMessageFromUploads(
+    senderId: string,
+    chatId: string,
+    input: {
+      content?: string
+      replyToId?: string
+      replyQuote?: string
+      silent?: boolean
+      asFiles?: boolean
+      attachments: {
+        key: string
+        uploadId?: string
+        name?: string
+        spoiler?: boolean
+        parts?: { part: number; etag: string }[]
+      }[]
+    },
+  ): Promise<MessageRow> {
+    await this.assertMembership(senderId, chatId)
+    await this.assertCanSend(chatId, senderId)
+    await this.assertReplyInChat(chatId, input.replyToId)
+    const bucket = this.chatBucket()
+    const content = input.content?.trim() ?? ''
+
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId,
+          seq: await this.allocateSeq(chatId, tx),
+          senderId,
+          content,
+          replyToId: input.replyToId,
+          replyQuote: input.replyQuote,
+          silent: input.silent ?? false,
+        },
+        select: { id: true },
+      }),
+    )
+
+    let attached = 0
+    for (const attachment of input.attachments) {
+      // Многочастная загрузка сначала собирается, одиночная уже лежит объектом целиком.
+      const file =
+        attachment.parts && attachment.uploadId
+          ? await this.files.completeMultipart({
+              bucket,
+              key: attachment.key,
+              uploadId: attachment.uploadId,
+              ownerId: senderId,
+              parts: attachment.parts,
+              name: attachment.name,
+              messageId: created.id,
+            })
+          : await this.files.confirmDirectUpload({
+              bucket,
+              key: attachment.key,
+              ownerId: senderId,
+              name: attachment.name,
+              messageId: created.id,
+            })
+      attached += 1
+      if (attachment.spoiler || input.asFiles) {
+        await this.prisma.file.update({
+          where: { id: file.id },
+          data: {
+            ...(attachment.spoiler ? { spoiler: true } : {}),
+            ...(input.asFiles ? { asDocument: true } : {}),
+          },
+        })
+      }
+    }
+
+    if (attached === 0 && content.length === 0) {
+      await this.prisma.message.delete({ where: { id: created.id } })
+      throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
+    }
+
+    const message = await this.prisma.message.findUniqueOrThrow({
+      where: { id: created.id },
+      select: MESSAGE_SELECT,
+    })
+    await this.bumpChat(chatId)
+    await this.enqueueLinkPreview(created.id, chatId, content)
+    await this.notifyNewMessage(chatId, senderId, message)
+    // REST-путь не проходит через ChatGateway — эмитим сами, ровно один раз (§10).
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+    return message
+  }
+
   /**
    * Отправка сообщения с вложениями через REST (multipart, 9+). Текст опционален, если есть файлы.
    * Порядок: создать сообщение → загрузить файлы в приватный бакет chat-media с привязкой к

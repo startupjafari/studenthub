@@ -275,12 +275,10 @@ export class CleanupService {
   }
 
   private async cleanOrphanFilesTask(): Promise<number> {
-    const buckets = [
-      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
-      this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
-      this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
-      this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
-    ]
+    // Все бакеты, а не четыре исторических: с прямой загрузкой вложений чата (Ф19.0) объект
+    // попадает в `chat-media` ДО создания сообщения, и не дошедшая до отправки загрузка
+    // осталась бы там навсегда — этот бакет в списке не значился.
+    const buckets = this.mediaBuckets()
     const safetyBefore = new Date(Date.now() - ORPHAN_SAFETY_MINUTES * 60 * 1000)
     let removed = 0
 
