@@ -33,6 +33,13 @@ export { safeNextPath } from './safe-next'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
 export { relativeTime } from './relative-time'
 export {
+  formatBytes,
+  formatBytesProgress,
+  toByteSize,
+  useByteUnitLabel,
+  type ByteUnit,
+} from './format-bytes'
+export {
   usePwaInstall,
   promptPwaInstall,
   type PwaInstallState,

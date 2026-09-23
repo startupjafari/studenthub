@@ -696,7 +696,11 @@
     "endAfterStart": "Аяқталу уақыты басталудан кеш болуы керек",
     "numberRange": "{min} мен {max} аралығындағы санды енгізіңіз",
     "urlInvalid": "Сілтеме http:// немесе https:// деп басталуы керек",
-    "endNotBeforeStart": "Аяқталу күні басталу күнінен ерте болмауы керек"
+    "endNotBeforeStart": "Аяқталу күні басталу күнінен ерте болмауы керек",
+    "byteUnitB": "Б",
+    "byteUnitKb": "КБ",
+    "byteUnitMb": "МБ",
+    "byteUnitGb": "ГБ"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -1753,6 +1757,15 @@
     "pinnedNext": "Келесі бекітілген",
     "sendPhotosTitle": "{count, plural, one {# фото жіберу} other {# фото жіберу}}",
     "sendFilesTitle": "{count, plural, one {# файл жіберу} other {# файл жіберу}}",
+    "sendVideosTitle": "{count, plural, one {# бейнені жіберу} other {# бейнені жіберу}}",
+    "sendUncompressed": "Қысусыз жіберу",
+    "sendCompressed": "Қысып жіберу",
+    "groupAsAlbum": "Албомға біріктіру",
+    "ungroupAlbum": "Албомды ажырату",
+    "spoilerOff": "Жасыруды болдырмау",
+    "spoilerAll": "Барлығын жасыру",
+    "albumStacks": "{count, plural, one {# хабарламамен кетеді} other {# хабарламамен кетеді}}",
+    "separateMessages": "{count, plural, one {# хабарламамен кетеді} other {# хабарламамен кетеді}}",
     "cancel": "Болдырмау",
     "addMore": "Қосу",
     "captionPlaceholder": "Қолтаңба…",
@@ -1909,7 +1922,8 @@
     "pause": "Кідірту",
     "chatActions": "Чат әрекеттері",
     "typeSupportPlatform": "StudentHub қолдауы",
-    "tagSupportPlatform": "Қолдау"
+    "tagSupportPlatform": "Қолдау",
+    "cancelUpload": "Жүктеуді тоқтату"
   },
   "Events": {
     "title": "Іс-шаралар",

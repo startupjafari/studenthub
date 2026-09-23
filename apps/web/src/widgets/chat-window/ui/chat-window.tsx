@@ -69,6 +69,8 @@ import {
   toggleReactionRequest,
   unpinMessageRequest,
   AttachmentDialog,
+  ALBUM_MAX_ITEMS,
+  compressImages,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -81,6 +83,7 @@ import {
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
+  type AttachmentSendOptions,
   type MessageAttachment,
   type MessageMenuAnchor,
 } from '../../../entities/chat'
@@ -134,6 +137,31 @@ import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folder
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
+
+/** Что уходит одной multipart-отправкой: поля сообщения + сами файлы. */
+interface UploadPayload {
+  content?: string
+  replyToId?: string
+  replyQuote?: string
+  files: File[]
+  /** Номера вложений под спойлером внутри этой пачки. */
+  spoilerIndexes?: number[]
+  asFiles?: boolean
+  silent?: boolean
+}
+
+/** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
+function isMediaFile(f: File): boolean {
+  return f.type.startsWith('image/') || f.type.startsWith('video/')
+}
+
+/** Разрезать вложения по потолку одного сообщения. Пустой список даёт пустой результат. */
+function chunkFiles(files: File[]): File[][] {
+  const out: File[][] = []
+  for (let i = 0; i < files.length; i += ALBUM_MAX_ITEMS)
+    out.push(files.slice(i, i + ALBUM_MAX_ITEMS))
+  return out
+}
 
 // Ширина одной кнопки свайп-панели строки списка (w-[4.5rem]).
 const ROW_BTN_W = 72
@@ -946,10 +974,20 @@ export function ChatWindow() {
     { tempId: string; chatId: string; sig: string; localUrls: string[] }[]
   >([])
   const createdObjectUrls = useRef<string[]>([])
+  // Прерыватели загрузок: сообщение уходит одним multipart-запросом, значит и отменяется
+  // он целиком. Ключ — tempId оптимистичного пузыря, крестик на котором нажали.
+  const uploadAborts = useRef(new Map<string, AbortController>())
   const mediaRetry = useRef<
     Map<
       string,
-      { chatId: string; content?: string; replyToId?: string; files: File[]; spoiler?: boolean }
+      {
+        chatId: string
+        content?: string
+        replyToId?: string
+        files: File[]
+        spoilerIndexes?: number[]
+        asFiles?: boolean
+      }
     >
   >(new Map())
 
@@ -1019,20 +1057,23 @@ export function ChatWindow() {
   async function uploadFiles(
     tempId: string,
     chatId: string,
-    content: string | undefined,
-    replyToId: string | undefined,
-    files: File[],
-    spoiler?: boolean,
-    replyQuote?: string,
-    silent?: boolean,
+    payload: UploadPayload,
   ): Promise<void> {
+    const { files, ...fields } = payload
+    const abort = new AbortController()
+    uploadAborts.current.set(tempId, abort)
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
     try {
+      // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
+      // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
+      // единственный режим, где байты уходят ровно те, что выбрали.
+      const payloadFiles = fields.asFiles ? files : await compressImages(files)
       const real = await sendMessageWithAttachments(
         chatId,
-        { content, replyToId, spoiler, replyQuote, silent },
-        files,
+        fields,
+        payloadFiles,
         (f) => setUploadProgress(chatId, tempId, f),
+        abort.signal,
       )
       mediaRetry.current.delete(tempId)
       // Обычно примиряет эхо message:new; страховка на случай гонки/фонового чата.
@@ -1048,12 +1089,43 @@ export function ChatWindow() {
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     } catch (e) {
-      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+      // Отменил сам пользователь — пузырь уже убран, и ни ошибки, ни предложения повторить
+      // быть не должно: он именно этого и добивался.
+      if (abort.signal.aborted) return
+      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       setSendState((s) => ({ ...s, [tempId]: 'failed' }))
       setUploadProgress(chatId, tempId, 0)
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    } finally {
+      uploadAborts.current.delete(tempId)
     }
+  }
+
+  /**
+   * Отмена загрузки по крестику: рвём запрос и убираем пузырь совсем.
+   *
+   * Именно убираем, а не оставляем «не отправлено» с предложением повторить: отмену нажимают,
+   * когда файл улетел не в тот чат или не тот файл, и висящий после этого пузырь с кнопкой
+   * «ещё раз» предлагает ровно то, от чего отказались.
+   */
+  function cancelUpload(m: ChatMessage): void {
+    const tempId = m.id
+    uploadAborts.current.get(tempId)?.abort()
+    uploadAborts.current.delete(tempId)
+    mediaRetry.current.delete(tempId)
+    const pending = pendingMedia.current.find((p) => p.tempId === tempId)
+    pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+    // Локальные превью больше не нужны — освобождаем, иначе объекты висят до перезагрузки.
+    for (const url of pending?.localUrls ?? []) URL.revokeObjectURL(url)
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(m.chatId), (old) =>
+      (old ?? []).filter((x) => x.id !== tempId),
+    )
+    setSendState((s) => {
+      const next = { ...s }
+      delete next[tempId]
+      return next
+    })
   }
 
   function sendFiles(payload: {
@@ -1061,7 +1133,8 @@ export function ChatWindow() {
     replyToId?: string
     replyQuote?: string
     files: File[]
-    spoiler?: boolean
+    spoilerIndexes?: number[]
+    asFiles?: boolean
     silent?: boolean
   }): void {
     if (!activeId || !me || payload.files.length === 0) return
@@ -1078,7 +1151,8 @@ export function ChatWindow() {
       mime: f.type || 'application/octet-stream',
       size: f.size,
       name: f.name,
-      spoiler: payload.spoiler,
+      spoiler: payload.spoilerIndexes?.includes(i),
+      asDocument: payload.asFiles,
       localUrl: localUrls[i],
       uploading: true,
       progress: 0,
@@ -1128,7 +1202,8 @@ export function ChatWindow() {
       content: payload.content,
       replyToId: payload.replyToId,
       files: payload.files,
-      spoiler: payload.spoiler,
+      spoilerIndexes: payload.spoilerIndexes,
+      asFiles: payload.asFiles,
     })
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
     // Сбрасываем композер/диалог сразу — как в Telegram (пузырь уже в ленте, грузится в фоне).
@@ -1136,16 +1211,51 @@ export function ChatWindow() {
     setAttachFiles([])
     setAttachOpen(false)
     setReplyTo(null)
-    void uploadFiles(
-      tempId,
-      chatId,
-      payload.content,
-      payload.replyToId,
-      payload.files,
-      payload.spoiler,
-      payload.replyQuote,
-      payload.silent,
-    )
+    void uploadFiles(tempId, chatId, {
+      content: payload.content,
+      replyToId: payload.replyToId,
+      replyQuote: payload.replyQuote,
+      files: payload.files,
+      spoilerIndexes: payload.spoilerIndexes,
+      asFiles: payload.asFiles,
+      silent: payload.silent,
+    })
+  }
+
+  /**
+   * Отправка выбранных вложений выбранным в диалоге способом.
+   *
+   * Альбом режется на стопки по {@link ALBUM_MAX_ITEMS} — столько вложений несёт одно
+   * сообщение; без группировки каждый снимок уходит своим. Подпись, ответ и цитата достаются
+   * только первому сообщению: отвечают один раз, а повторённая у одиннадцати снимков подпись
+   * превратилась бы в одиннадцать одинаковых строк подряд.
+   */
+  function sendAttachments(caption: string, options: AttachmentSendOptions): void {
+    const files = attachFiles
+    if (files.length === 0) return
+    const media = files.filter(isMediaFile)
+    const docs = files.filter((f) => !isMediaFile(f))
+    // Как файлы уходит всё вместе списком; иначе медиа собирается по правилу группировки,
+    // а документы, выбранные заодно со снимками, идут своей пачкой.
+    const batches: File[][] = options.asFiles
+      ? chunkFiles(files)
+      : [...(options.grouped ? chunkFiles(media) : media.map((f) => [f])), ...chunkFiles(docs)]
+
+    // Спойлеры выбраны по снимкам, а уходят пачками — номер считается внутри своей пачки.
+    const spoilered = new Set(options.spoilered)
+    batches.forEach((batch, i) => {
+      sendFiles({
+        content: i === 0 ? caption || undefined : undefined,
+        replyToId: i === 0 ? replyTo?.id : undefined,
+        // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
+        // отправки, а не текста.
+        replyQuote: i === 0 ? (replyQuote ?? undefined) : undefined,
+        files: batch,
+        spoilerIndexes: batch.flatMap((f, j) => (spoilered.has(f) ? [j] : [])),
+        asFiles: options.asFiles,
+        silent: silentSend,
+      })
+    })
   }
 
   // Вход/выход из комнаты чата при смене активного чата.
@@ -1728,14 +1838,13 @@ export function ChatWindow() {
             : x,
         ),
       )
-      void uploadFiles(
-        m.id,
-        media.chatId,
-        media.content,
-        media.replyToId,
-        media.files,
-        media.spoiler,
-      )
+      void uploadFiles(m.id, media.chatId, {
+        content: media.content,
+        replyToId: media.replyToId,
+        files: media.files,
+        spoilerIndexes: media.spoilerIndexes,
+        asFiles: media.asFiles,
+      })
       return
     }
     emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined, {
@@ -2377,6 +2486,7 @@ export function ChatWindow() {
     copyText,
     deleteMessage,
     retrySend,
+    cancelUpload,
     toggleSelect,
     enterSelect,
     onCopiedImage,
@@ -2396,6 +2506,7 @@ export function ChatWindow() {
     copyText,
     deleteMessage,
     retrySend,
+    cancelUpload,
     toggleSelect,
     enterSelect,
     onCopiedImage,
@@ -2413,6 +2524,7 @@ export function ChatWindow() {
       forward: (m) => msgHandlersRef.current.setForwardMsg(m),
       del: (m) => msgHandlersRef.current.deleteMessage(m),
       retry: (m) => msgHandlersRef.current.retrySend(m),
+      cancelUpload: (m) => msgHandlersRef.current.cancelUpload(m),
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
       startSelect: (m) => msgHandlersRef.current.enterSelect(m),
       copiedImage: (ok) => msgHandlersRef.current.onCopiedImage(ok),
@@ -3653,18 +3765,7 @@ export function ChatWindow() {
         <AttachmentDialog
           files={attachFiles}
           sending={false}
-          onSend={(caption, spoiler) =>
-            sendFiles({
-              content: caption || undefined,
-              replyToId: replyTo?.id,
-              // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
-              // отправки, а не текста.
-              replyQuote: replyQuote ?? undefined,
-              files: attachFiles,
-              spoiler,
-              silent: silentSend,
-            })
-          }
+          onSend={(caption, options) => sendAttachments(caption, options)}
           onAddMore={() => fileInputRef.current?.click()}
           onRemove={(i) =>
             setAttachFiles((prev) => {
