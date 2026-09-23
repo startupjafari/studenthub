@@ -302,18 +302,22 @@ function Tile({
  * быть главный кадр.
  */
 function AlbumMosaic({ items, common }: { items: Indexed[]; common: TileCommon }) {
+  const [lead, ...rest] = items
   const n = items.length
+  // Пустая стопка не рисуется: её неоткуда взять (toStacks режет непустой список), но тип
+  // первого элемента без этой проверки остаётся «может быть undefined».
+  if (!lead) return null
 
   if (n === 1) {
-    return <Tile item={items[0]} common={common} className="max-h-72 w-full" fit="contain" />
+    return <Tile item={lead} common={common} className="max-h-72 w-full" fit="contain" />
   }
 
   // Три снимка: крупный слева на всю высоту, два малых столбиком справа.
   if (n === 3) {
     return (
       <div className="grid h-56 grid-cols-2 grid-rows-2 gap-1">
-        <Tile item={items[0]} common={common} className="row-span-2 size-full" />
-        {items.slice(1).map((item) => (
+        <Tile item={lead} common={common} className="row-span-2 size-full" />
+        {rest.map((item) => (
           <Tile
             key={`${item.file.name}-${item.index}`}
             item={item}
@@ -516,7 +520,7 @@ export function AttachmentDialog({
               {grouped
                 ? toStacks(media).map((stack) => (
                     <AlbumMosaic
-                      key={`stack-${stack[0].index}`}
+                      key={`stack-${stack[0]?.index ?? 0}`}
                       items={stack}
                       common={tileCommon}
                     />
