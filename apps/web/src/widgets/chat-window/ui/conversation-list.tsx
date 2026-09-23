@@ -313,10 +313,11 @@ export function ConversationList({
       )}
     >
       {/* Шапка — одна строка: заголовок, справа поиск и меню «три точки». Поиск раскрывается
-          на месте заголовка, а не отдельной строкой под ним. Высота — как у шапки чата
+          на всю строку, а не отдельной строкой под ней: «назад» и меню на это время уходят,
+          закрывает поиск крестик в поле. Высота — как у шапки чата
           (py-3 вокруг 40-px кнопок): нижние границы списка и переписки идут одной линией. */}
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-3">
-        {embedded && (
+        {embedded && !searchExpanded && (
           <button
             type="button"
             onClick={onBack}
@@ -374,7 +375,7 @@ export function ConversationList({
             </button>
           </>
         )}
-        <div className="relative shrink-0">
+        <div className={cn('relative shrink-0', searchExpanded && 'hidden')}>
           <button
             type="button"
             aria-label={t('listMenu')}
