@@ -144,7 +144,8 @@ interface UploadPayload {
   replyToId?: string
   replyQuote?: string
   files: File[]
-  spoiler?: boolean
+  /** Номера вложений под спойлером внутри этой пачки. */
+  spoilerIndexes?: number[]
   asFiles?: boolean
   silent?: boolean
 }
@@ -981,7 +982,7 @@ export function ChatWindow() {
         content?: string
         replyToId?: string
         files: File[]
-        spoiler?: boolean
+        spoilerIndexes?: number[]
         asFiles?: boolean
       }
     >
@@ -1092,7 +1093,7 @@ export function ChatWindow() {
     replyToId?: string
     replyQuote?: string
     files: File[]
-    spoiler?: boolean
+    spoilerIndexes?: number[]
     asFiles?: boolean
     silent?: boolean
   }): void {
@@ -1110,7 +1111,7 @@ export function ChatWindow() {
       mime: f.type || 'application/octet-stream',
       size: f.size,
       name: f.name,
-      spoiler: payload.spoiler,
+      spoiler: payload.spoilerIndexes?.includes(i),
       asDocument: payload.asFiles,
       localUrl: localUrls[i],
       uploading: true,
@@ -1161,7 +1162,7 @@ export function ChatWindow() {
       content: payload.content,
       replyToId: payload.replyToId,
       files: payload.files,
-      spoiler: payload.spoiler,
+      spoilerIndexes: payload.spoilerIndexes,
       asFiles: payload.asFiles,
     })
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
@@ -1175,7 +1176,7 @@ export function ChatWindow() {
       replyToId: payload.replyToId,
       replyQuote: payload.replyQuote,
       files: payload.files,
-      spoiler: payload.spoiler,
+      spoilerIndexes: payload.spoilerIndexes,
       asFiles: payload.asFiles,
       silent: payload.silent,
     })
@@ -1200,6 +1201,8 @@ export function ChatWindow() {
       ? chunkFiles(files)
       : [...(options.grouped ? chunkFiles(media) : media.map((f) => [f])), ...chunkFiles(docs)]
 
+    // Спойлеры выбраны по снимкам, а уходят пачками — номер считается внутри своей пачки.
+    const spoilered = new Set(options.spoilered)
     batches.forEach((batch, i) => {
       sendFiles({
         content: i === 0 ? caption || undefined : undefined,
@@ -1208,7 +1211,7 @@ export function ChatWindow() {
         // отправки, а не текста.
         replyQuote: i === 0 ? (replyQuote ?? undefined) : undefined,
         files: batch,
-        spoiler: options.spoiler,
+        spoilerIndexes: batch.flatMap((f, j) => (spoilered.has(f) ? [j] : [])),
         asFiles: options.asFiles,
         silent: silentSend,
       })
@@ -1799,7 +1802,7 @@ export function ChatWindow() {
         content: media.content,
         replyToId: media.replyToId,
         files: media.files,
-        spoiler: media.spoiler,
+        spoilerIndexes: media.spoilerIndexes,
         asFiles: media.asFiles,
       })
       return

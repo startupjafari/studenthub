@@ -1759,6 +1759,7 @@
     "groupAsAlbum": "Group into album",
     "ungroupAlbum": "Ungroup album",
     "spoilerOff": "Remove spoiler",
+    "spoilerAll": "Hide all",
     "albumStacks": "{count, plural, one {Will be sent as # message} other {Will be sent as # messages}}",
     "separateMessages": "{count, plural, one {Will be sent as # message} other {Will be sent as # messages}}",
     "cancel": "Cancel",

@@ -215,6 +215,8 @@ export async function sendMessageWithAttachments(
     replyToId?: string
     replyQuote?: string
     spoiler?: boolean
+    /** Номера вложений под спойлером в порядке отправки. Пусто — скрытых нет. */
+    spoilerIndexes?: number[]
     asFiles?: boolean
     silent?: boolean
   },
@@ -227,6 +229,7 @@ export async function sendMessageWithAttachments(
   // Цитата без ответа схемой запрещена — отправляем только парой.
   if (input.replyToId && input.replyQuote) form.append('replyQuote', input.replyQuote)
   if (input.spoiler) form.append('spoiler', 'true')
+  if (input.spoilerIndexes?.length) form.append('spoilerIndexes', input.spoilerIndexes.join(','))
   if (input.asFiles) form.append('asFiles', 'true')
   if (input.silent) form.append('silent', 'true')
   for (const file of files) form.append('file', file)

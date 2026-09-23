@@ -1759,6 +1759,7 @@
     "groupAsAlbum": "Объединить в альбом",
     "ungroupAlbum": "Разъединить альбом",
     "spoilerOff": "Отменить скрытие",
+    "spoilerAll": "Скрыть все",
     "albumStacks": "{count, plural, one {Уйдёт # сообщением} few {Уйдёт # сообщениями} other {Уйдёт # сообщениями}}",
     "separateMessages": "{count, plural, one {Уйдёт # сообщением} few {Уйдёт # сообщениями} other {Уйдёт # сообщениями}}",
     "cancel": "Отмена",

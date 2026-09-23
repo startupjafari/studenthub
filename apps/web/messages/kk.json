@@ -1759,6 +1759,7 @@
     "groupAsAlbum": "Албомға біріктіру",
     "ungroupAlbum": "Албомды ажырату",
     "spoilerOff": "Жасыруды болдырмау",
+    "spoilerAll": "Барлығын жасыру",
     "albumStacks": "{count, plural, one {# хабарламамен кетеді} other {# хабарламамен кетеді}}",
     "separateMessages": "{count, plural, one {# хабарламамен кетеді} other {# хабарламамен кетеді}}",
     "cancel": "Болдырмау",

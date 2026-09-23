@@ -23,8 +23,11 @@ export const ALBUM_MAX_ITEMS = 10
 
 /** Как уходят выбранные файлы. Выбор живёт в диалоге и передаётся наружу вместе с подписью. */
 export interface AttachmentSendOptions {
-  /** Скрыть медиа под спойлер (§34). Общий для всех вложений отправки. */
-  spoiler: boolean
+  /**
+   * Снимки под спойлером (§34) — ссылками на файлы, а не номерами: отправляются они пачками
+   * по альбомам, и номер внутри пачки считает уже отправитель.
+   */
+  spoilered: File[]
   /** Собрать медиа в альбомы по {@link ALBUM_MAX_ITEMS}. Выключено — каждый снимок отдельным сообщением. */
   grouped: boolean
   /** Отправить как файлы: без превью-плиток, строками файлового менеджера. */
@@ -119,17 +122,26 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
   )
 }
 
-/** Плитка фото или видео: превью, длительность ролика, размер, крестик. */
+/** Плитка фото или видео: превью, длительность ролика, размер, спойлер, крестик. */
 function MediaTile({
   file,
   onRemove,
   removeLabel,
+  spoiler,
+  onToggleSpoiler,
+  spoilerOnLabel,
+  spoilerOffLabel,
   className,
   fit = 'cover',
 }: {
   file: File
   onRemove: () => void
   removeLabel: string
+  /** Снимок уйдёт скрытым: в диалоге он тоже размыт — видно, что получит собеседник. */
+  spoiler: boolean
+  onToggleSpoiler: () => void
+  spoilerOnLabel: string
+  spoilerOffLabel: string
   className?: string
   /** `contain` — одиночный снимок показывается целиком; в мозаике плитки кадрируются. */
   fit?: 'cover' | 'contain'
@@ -141,7 +153,15 @@ function MediaTile({
   const [duration, setDuration] = useState<number | null>(null)
 
   return (
-    <div className={cn('group relative overflow-hidden rounded-lg bg-muted', className)}>
+    <div
+      className={cn(
+        'group relative overflow-hidden rounded-lg bg-muted',
+        // Размытие на самой плитке, а не только пометка уголком: спойлер выбирают, чтобы
+        // снимок не было видно, и проверить это надо здесь, до отправки.
+        spoiler && '[&>img]:blur-md [&>video]:blur-md',
+        className,
+      )}
+    >
       {url &&
         (isVideo ? (
           <video
@@ -174,6 +194,27 @@ function MediaTile({
         </span>
       )}
       <RemoveButton label={removeLabel} onClick={onRemove} />
+      {/* Спойлер ставится на снимок, а не на отправку целиком: скрыть могут один кадр из
+          десяти. Кнопка живёт на плитке — там же, где решают, что именно прятать. */}
+      <button
+        type="button"
+        aria-label={spoiler ? spoilerOffLabel : spoilerOnLabel}
+        title={spoiler ? spoilerOffLabel : spoilerOnLabel}
+        aria-pressed={spoiler}
+        onClick={onToggleSpoiler}
+        className={cn(
+          'absolute bottom-1 right-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75',
+          // Скрытая плитка держит кнопку на виду и на ПК: иначе размытие выглядит сбоем
+          // загрузки, и непонятно, чем его снять.
+          !spoiler && 'lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100',
+        )}
+      >
+        {spoiler ? (
+          <Eye className="size-3.5" aria-hidden />
+        ) : (
+          <EyeOff className="size-3.5" aria-hidden />
+        )}
+      </button>
       <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-1.5 pb-1 pt-4 text-[0.65rem] text-white/90">
         {humanSize(file.size)}
       </span>
@@ -223,50 +264,69 @@ function toStacks<T>(items: T[]): T[][] {
 }
 
 /**
+ * Общее для всех плиток окна: подписи и обработчики по номеру вложения. Собрано в один объект,
+ * потому что плитка рисуется из четырёх мест раскладки, и протаскивать шесть одинаковых пропсов
+ * через каждое — верный способ рано или поздно забыть один.
+ */
+interface TileCommon {
+  removeLabel: string
+  spoilerOnLabel: string
+  spoilerOffLabel: string
+  /** Скрытые снимки — по ссылке на файл: удаление соседа сдвигает номера, а ссылка живёт. */
+  spoilered: Set<File>
+  onRemove: (index: number) => void
+  onToggleSpoiler: (file: File) => void
+}
+
+function Tile({
+  item,
+  common,
+  className,
+  fit,
+}: {
+  item: Indexed
+  common: TileCommon
+  className?: string
+  fit?: 'cover' | 'contain'
+}) {
+  return (
+    <MediaTile
+      file={item.file}
+      removeLabel={common.removeLabel}
+      onRemove={() => common.onRemove(item.index)}
+      spoiler={common.spoilered.has(item.file)}
+      onToggleSpoiler={() => common.onToggleSpoiler(item.file)}
+      spoilerOnLabel={common.spoilerOnLabel}
+      spoilerOffLabel={common.spoilerOffLabel}
+      className={className}
+      fit={fit}
+    />
+  )
+}
+
+/**
  * Мозаика одного альбома — тем же принципом, что и пузырь с медиа в ленте: одиночный снимок
  * показывается целиком, дальше плитки кадрируются в сетку. Раскладка зависит от числа снимков,
  * потому что три квадрата в ряд и три разного размера читаются по-разному: у альбома должен
  * быть главный кадр.
  */
-function AlbumMosaic({
-  items,
-  removeLabel,
-  onRemove,
-}: {
-  items: Indexed[]
-  removeLabel: string
-  onRemove: (index: number) => void
-}) {
+function AlbumMosaic({ items, common }: { items: Indexed[]; common: TileCommon }) {
   const n = items.length
 
   if (n === 1) {
-    return (
-      <MediaTile
-        file={items[0].file}
-        removeLabel={removeLabel}
-        onRemove={() => onRemove(items[0].index)}
-        className="max-h-72 w-full"
-        fit="contain"
-      />
-    )
+    return <Tile item={items[0]} common={common} className="max-h-72 w-full" fit="contain" />
   }
 
   // Три снимка: крупный слева на всю высоту, два малых столбиком справа.
   if (n === 3) {
     return (
       <div className="grid h-56 grid-cols-2 grid-rows-2 gap-1">
-        <MediaTile
-          file={items[0].file}
-          removeLabel={removeLabel}
-          onRemove={() => onRemove(items[0].index)}
-          className="row-span-2 size-full"
-        />
-        {items.slice(1).map(({ file, index }) => (
-          <MediaTile
-            key={`${file.name}-${index}`}
-            file={file}
-            removeLabel={removeLabel}
-            onRemove={() => onRemove(index)}
+        <Tile item={items[0]} common={common} className="row-span-2 size-full" />
+        {items.slice(1).map((item) => (
+          <Tile
+            key={`${item.file.name}-${item.index}`}
+            item={item}
+            common={common}
             className="size-full"
           />
         ))}
@@ -276,12 +336,11 @@ function AlbumMosaic({
 
   return (
     <div className={cn('grid gap-1', n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3')}>
-      {items.map(({ file, index }) => (
-        <MediaTile
-          key={`${file.name}-${index}`}
-          file={file}
-          removeLabel={removeLabel}
-          onRemove={() => onRemove(index)}
+      {items.map((item) => (
+        <Tile
+          key={`${item.file.name}-${item.index}`}
+          item={item}
+          common={common}
           className="aspect-square w-full"
         />
       ))}
@@ -317,7 +376,7 @@ export function AttachmentDialog({
 }) {
   const t = useTranslations('Chats')
   const [caption, setCaption] = useState('')
-  const [spoiler, setSpoiler] = useState(false)
+  const [spoilered, setSpoilered] = useState<Set<File>>(() => new Set())
   const [grouped, setGrouped] = useState(true)
   const [asFiles, setAsFiles] = useState(false)
 
@@ -332,6 +391,31 @@ export function AttachmentDialog({
   const showAsFiles = asFiles || !hasMedia
   const allVideo = hasMedia && media.every((f) => f.file.type.startsWith('video/'))
 
+  // «Скрыть всё» / «Отменить скрытие» — одно и то же действие в двух положениях: пока скрыто
+  // не всё, пункт предлагает скрыть; когда скрыто всё — снять.
+  const allSpoilered = hasMedia && media.every((m) => spoilered.has(m.file))
+
+  function toggleSpoiler(file: File): void {
+    setSpoilered((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(file)) next.add(file)
+      return next
+    })
+  }
+
+  function toggleSpoilerAll(): void {
+    setSpoilered(allSpoilered ? new Set() : new Set(media.map((m) => m.file)))
+  }
+
+  const tileCommon: TileCommon = {
+    removeLabel,
+    spoilerOnLabel: t('spoilerToggle'),
+    spoilerOffLabel: t('spoilerOff'),
+    spoilered,
+    onRemove,
+    onToggleSpoiler: toggleSpoiler,
+  }
+
   const title = showAsFiles
     ? t('sendFilesTitle', { count: files.length })
     : allVideo
@@ -340,7 +424,12 @@ export function AttachmentDialog({
 
   function send(): void {
     if (files.length === 0 || sending) return
-    onSend(caption, { spoiler, grouped, asFiles: showAsFiles })
+    // Файлами уходит всё скопом и без спойлеров: размывать строку файлового менеджера нечего.
+    onSend(caption, {
+      spoilered: showAsFiles ? [] : media.filter((m) => spoilered.has(m.file)).map((m) => m.file),
+      grouped,
+      asFiles: showAsFiles,
+    })
   }
 
   return (
@@ -378,9 +467,9 @@ export function AttachmentDialog({
                   </DropdownMenuItem>
                 )}
                 {!showAsFiles && (
-                  <DropdownMenuItem onClick={() => setSpoiler((v) => !v)}>
-                    {spoiler ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
-                    {spoiler ? t('spoilerOff') : t('spoilerToggle')}
+                  <DropdownMenuItem onClick={toggleSpoilerAll}>
+                    {allSpoilered ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
+                    {allSpoilered ? t('spoilerOff') : t('spoilerAll')}
                   </DropdownMenuItem>
                 )}
               </>
@@ -409,16 +498,14 @@ export function AttachmentDialog({
                     <AlbumMosaic
                       key={`stack-${stack[0].index}`}
                       items={stack}
-                      removeLabel={removeLabel}
-                      onRemove={onRemove}
+                      common={tileCommon}
                     />
                   ))
-                : media.map(({ file, index }) => (
-                    <MediaTile
-                      key={`${file.name}-${index}`}
-                      file={file}
-                      removeLabel={removeLabel}
-                      onRemove={() => onRemove(index)}
+                : media.map((item) => (
+                    <Tile
+                      key={`${item.file.name}-${item.index}`}
+                      item={item}
+                      common={tileCommon}
                       className="max-h-56 w-full"
                       fit="contain"
                     />
