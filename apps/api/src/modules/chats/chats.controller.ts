@@ -229,6 +229,7 @@ export class ChatsController {
       replyToId: fields.replyToId,
       replyQuote: fields.replyQuote,
       spoiler: fields.spoiler,
+      spoilerIndexes: fields.spoilerIndexes,
       asFiles: fields.asFiles,
       silent: fields.silent,
     })
