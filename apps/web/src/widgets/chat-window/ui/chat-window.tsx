@@ -124,12 +124,16 @@ import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
 import {
   createSpring,
+  formatBytes,
   hapticTick,
+  isOversizeOnPick,
+  maxUploadBytes,
   prefersReducedMotion,
   rubberband,
   saveFile,
   useChatListSlot,
   useMediaQuery,
+  useByteUnitLabel,
   useSetChatOpen,
   useSwipeRows,
 } from '../../../shared/lib'
@@ -147,6 +151,16 @@ import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folder
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 8
+
+/**
+ * Вложение не влезло в лимит категории. Отдельный тип, потому что сообщение об этом
+ * называет файл и его предел, а не переводится по коду ошибки сервера.
+ */
+class OversizeAttachmentError extends Error {
+  constructor(readonly file: File) {
+    super('attachment is too large')
+  }
+}
 
 /** Что уходит одной multipart-отправкой: поля сообщения + сами файлы. */
 interface UploadPayload {
@@ -232,6 +246,7 @@ function highlightTerm(text: string, term: string): React.ReactNode {
 export function ChatWindow() {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
+  const unitLabel = useByteUnitLabel()
   const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const router = useRouter()
@@ -1164,6 +1179,12 @@ export function ChatWindow() {
       // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
       // единственный режим, где байты уходят ровно те, что выбрали.
       const payloadFiles = fields.asFiles ? files : await compressImages(files)
+      // Повторная проверка размера уже по итоговым байтам: при выборе снимок мерился самым
+      // мягким лимитом, потому что сжатие ещё впереди, — здесь видно, помогло ли оно.
+      const oversize = payloadFiles.find((f) => f.size > maxUploadBytes(f.type))
+      if (oversize) {
+        throw new OversizeAttachmentError(oversize)
+      }
       // Крупные вложения через API не проходят: тело multipart-запроса целиком ложится в
       // память процесса. Хоть один такой файл — и всё сообщение уходит прямым путём, потому
       // что сообщение создаётся одним запросом, и делить его между двумя путями некуда.
@@ -1197,7 +1218,11 @@ export function ChatWindow() {
       // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       setSendState((s) => ({ ...s, [tempId]: 'failed' }))
       setUploadProgress(chatId, tempId, 0)
-      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      if (e instanceof OversizeAttachmentError) {
+        warnOversize(e.file)
+      } else {
+        toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      }
     } finally {
       uploadAborts.current.delete(tempId)
     }
@@ -2311,10 +2336,31 @@ export function ChatWindow() {
           .slice(0, 6)
 
   // Выбор файлов открывает диалог отправки; повторный выбор при открытом диалоге — добавляет.
+  /**
+   * Сообщить, что файл не влезает в лимит своей категории, и назвать сам лимит: «больше»
+   * без числа оставляет человека гадать, до скольки сжимать.
+   */
+  function warnOversize(file: File): void {
+    toast.error(
+      t('attachTooLarge', {
+        name: file.name,
+        max: formatBytes(maxUploadBytes(file.type), unitLabel),
+      }),
+    )
+  }
+
   function addFiles(list: FileList | null): void {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
-    setAttachFiles((prev) => (attachOpen ? [...prev, ...arr] : arr))
+    // Отсекаем неподъёмное сразу при выборе: иначе файл сначала уезжал на сервер целиком и
+    // только там получал 413 — полминуты ожидания ради ошибки.
+    const accepted = arr.filter((f) => {
+      if (!isOversizeOnPick(f)) return true
+      warnOversize(f)
+      return false
+    })
+    if (accepted.length === 0) return
+    setAttachFiles((prev) => (attachOpen ? [...prev, ...accepted] : accepted))
     setAttachOpen(true)
   }
 

@@ -39,6 +39,7 @@ export {
   useByteUnitLabel,
   type ByteUnit,
 } from './format-bytes'
+export { fileCategoryOfMime, maxUploadBytes, isOversizeOnPick } from './file-limits'
 export {
   usePwaInstall,
   promptPwaInstall,

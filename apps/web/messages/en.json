@@ -1710,6 +1710,7 @@
     "attachPhoto": "Photo or video",
     "attachCamera": "Camera",
     "attachFile": "File",
+    "attachTooLarge": "“{name}” is larger than {max} — not sent",
     "emoji": "Emoji",
     "emojiSearch": "Search emoji",
     "mediaFailed": "Couldn't load",
