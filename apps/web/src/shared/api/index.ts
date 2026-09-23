@@ -25,5 +25,18 @@ export {
   type MiniLinkStatus,
   type MiniLinkCodeResponse,
 } from './auth-api'
-export { uploadFileRequest, type UploadedFile } from './files-api'
+export {
+  uploadFileRequest,
+  multipartStartRequest,
+  multipartUrlsRequest,
+  multipartCompleteRequest,
+  multipartAbortRequest,
+  type UploadedFile,
+} from './files-api'
 export { needsDirectUpload, uploadDirect, type PresignedTarget } from './direct-upload'
+export {
+  needsMultipartUpload,
+  uploadMultipart,
+  type MultipartTarget,
+  type UploadedPart,
+} from './multipart-upload'
