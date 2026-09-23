@@ -226,6 +226,7 @@ const MESSAGE_SELECT = {
       size: true,
       name: true,
       spoiler: true,
+      asDocument: true,
       width: true,
       height: true,
     },
@@ -1625,6 +1626,7 @@ export class ChatsService {
       replyToId?: string
       replyQuote?: string
       spoiler?: boolean
+      asFiles?: boolean
       silent?: boolean
     },
     files: { buffer: Buffer; name?: string }[],
@@ -1660,12 +1662,14 @@ export class ChatsService {
         name: file.name,
       })
     }
-    // §34: помечаем все вложения сообщения спойлером (размытие до клика на клиенте).
-    if (input.spoiler && files.length > 0) {
-      await this.prisma.file.updateMany({
-        where: { messageId: created.id },
-        data: { spoiler: true },
-      })
+    // §34 спойлер и §9 «без сжатия» — свойства всей отправки, поэтому помечаются одним
+    // проходом по вложениям созданного сообщения, а не по файлу за раз.
+    const mark = {
+      ...(input.spoiler ? { spoiler: true } : {}),
+      ...(input.asFiles ? { asDocument: true } : {}),
+    }
+    if (files.length > 0 && Object.keys(mark).length > 0) {
+      await this.prisma.file.updateMany({ where: { messageId: created.id }, data: mark })
     }
     const message = await this.prisma.message.findUniqueOrThrow({
       where: { id: created.id },
