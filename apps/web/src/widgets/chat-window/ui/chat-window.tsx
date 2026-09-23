@@ -150,7 +150,7 @@ import {
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
-const PEOPLE_IN_SEARCH = 8
+const PEOPLE_IN_SEARCH = 20
 
 /**
  * Вложение не влезло в лимит категории. Отдельный тип, потому что сообщение об этом
@@ -547,9 +547,8 @@ export function ChatWindow() {
 
   // Люди своего вуза — в той же выдаче, что чаты и сообщения (Telegram-стиль): отдельного
   // входа «написать человеку» нет, переписка начинается прямо из строки поиска.
-  // Восемь строк, а не вся выдача: люди стоят между чатами и сообщениями, и полный список
-  // на два десятка однофамильцев увёл бы секцию «Сообщения» за пределы экрана. Кому мало —
-  // дописывает запрос, об этом говорит подсказка в конце секции.
+  // Не больше двадцати строк: люди стоят между чатами и сообщениями, и полная выдача
+  // увела бы секцию «Сообщения» далеко за пределы экрана.
   const listPeopleResults = useQuery({
     queryKey: directoryKeys.search(listSearchTerm, PEOPLE_IN_SEARCH),
     queryFn: () => fetchUserDirectory(listSearchTerm, PEOPLE_IN_SEARCH),
@@ -2737,7 +2736,6 @@ export function ChatWindow() {
       msgResultsLoading={listMsgResults.isLoading}
       peopleMatches={listPeopleResults.data?.items ?? []}
       peopleLoading={listPeopleResults.isLoading}
-      peopleHasMore={listPeopleResults.data?.hasMore ?? false}
       onOpenPerson={(u) => startDirect.mutate(u.id)}
       startingPersonId={startDirect.isPending ? (startDirect.variables ?? null) : null}
       chatById={chatById}

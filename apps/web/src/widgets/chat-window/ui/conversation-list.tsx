@@ -90,8 +90,6 @@ export type ConversationListProps = {
   // «написать человеку» нет — переписка начинается прямо отсюда.
   peopleMatches: DirectoryUser[]
   peopleLoading: boolean
-  // Выдача упёрлась в лимит секции — просим уточнить запрос (курсора у справочника нет).
-  peopleHasMore: boolean
   onOpenPerson: (user: DirectoryUser) => void
   startingPersonId: string | null
   chatById: Map<string, ChatListItem>
@@ -166,7 +164,6 @@ export function ConversationList({
   msgResultsLoading,
   peopleMatches,
   peopleLoading,
-  peopleHasMore,
   onOpenPerson,
   startingPersonId,
   chatById,
@@ -556,11 +553,6 @@ export function ConversationList({
                           </button>
                         )
                       })
-                    )}
-                    {peopleHasMore && (
-                      <p className="px-3 pb-1 pt-1 text-xs text-muted-foreground">
-                        {t('refineSearch')}
-                      </p>
                     )}
                   </div>
                 )}
