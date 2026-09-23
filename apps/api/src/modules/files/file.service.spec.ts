@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream'
 import type { Client as MinioClient } from 'minio'
+import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { FileService } from './file.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 
@@ -40,6 +41,14 @@ function setup(options: { head?: Buffer; size?: number; statFails?: boolean } = 
     getPartialObject: jest.fn().mockResolvedValue(Readable.from([options.head ?? PDF])),
     removeObject: jest.fn().mockResolvedValue(undefined),
     presignedPutObject: jest.fn().mockResolvedValue('http://minio/put?sig=1'),
+    presignedUrl: jest
+      .fn()
+      .mockImplementation((_m: string, _b: string, _k: string, _t: number, q: object) =>
+        Promise.resolve(`http://minio/put?${new URLSearchParams(q as Record<string, string>)}`),
+      ),
+    initiateNewMultipartUpload: jest.fn().mockResolvedValue('upload-1'),
+    completeMultipartUpload: jest.fn().mockResolvedValue({ etag: 'final', versionId: null }),
+    abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
   }
   const prisma = {
     file: { create: jest.fn().mockImplementation(({ data }) => ({ id: 'f1', ...data })) },
@@ -154,5 +163,126 @@ describe('FileService.confirmDirectUpload', () => {
 
     expect(file.materialId).toBe('mat-1')
     expect(file.name).toBe('Лекция 1.pdf')
+  })
+})
+
+describe('FileService — многочастная загрузка', () => {
+  const started = { bucket: 'chat-media', mime: 'video/mp4', ownerId: 'user-1' }
+
+  it('считает число частей и префиксует ключ владельцем', async () => {
+    const { service } = setup()
+
+    const res = await service.startMultipart({ ...started, size: 100 * 1024 * 1024 })
+
+    expect(res.key.startsWith('user-1/')).toBe(true)
+    expect(res.uploadId).toBe('upload-1')
+    expect(res.partSize).toBe(FILE_UPLOAD.MULTIPART_PART_BYTES)
+    expect(res.partCount).toBe(10)
+  })
+
+  it('отказывает файлу больше общего потолка, не открывая загрузку', async () => {
+    const { service, minio } = setup()
+
+    await expect(
+      service.startMultipart({ ...started, size: 2 * 1024 * 1024 * 1024 }),
+    ).rejects.toThrow()
+    expect(minio.initiateNewMultipartUpload).not.toHaveBeenCalled()
+  })
+
+  it('отказывает, когда частей больше предела: подписи на них стоят хранилища', async () => {
+    const { service, minio } = setup()
+    const tooMany = FILE_UPLOAD.MULTIPART_PART_BYTES * (FILE_UPLOAD.MULTIPART_MAX_PARTS + 1)
+
+    await expect(service.startMultipart({ ...started, size: tooMany })).rejects.toThrow()
+    expect(minio.initiateNewMultipartUpload).not.toHaveBeenCalled()
+  })
+
+  it('подписывает каждую часть своим номером и uploadId', async () => {
+    const { service } = setup()
+
+    const res = await service.presignParts({
+      bucket: 'chat-media',
+      key: 'user-1/a.mp4',
+      uploadId: 'upload-1',
+      ownerId: 'user-1',
+      from: 2,
+      to: 4,
+    })
+
+    expect(res.parts.map((p) => p.part)).toEqual([2, 3, 4])
+    expect(res.parts[0]?.url).toContain('partNumber=2')
+    expect(res.parts[0]?.url).toContain('uploadId=upload-1')
+  })
+
+  it('не подписывает части чужого ключа — иначе дописали бы в чужой объект', async () => {
+    const { service, minio } = setup()
+
+    await expect(
+      service.presignParts({
+        bucket: 'chat-media',
+        key: 'user-2/a.mp4',
+        uploadId: 'upload-1',
+        ownerId: 'user-1',
+        from: 1,
+        to: 1,
+      }),
+    ).rejects.toThrow()
+    expect(minio.presignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('склеивает части по возрастанию номера, как бы их ни прислали', async () => {
+    const { service, minio } = setup({ head: PNG, size: 1024 })
+
+    await service.completeMultipart({
+      bucket: 'chat-media',
+      key: 'user-1/a.png',
+      uploadId: 'upload-1',
+      ownerId: 'user-1',
+      parts: [
+        { part: 3, etag: 'c' },
+        { part: 1, etag: 'a' },
+        { part: 2, etag: 'b' },
+      ],
+    })
+
+    expect(minio.completeMultipartUpload).toHaveBeenCalledWith(
+      'chat-media',
+      'user-1/a.png',
+      'upload-1',
+      [
+        { part: 1, etag: 'a' },
+        { part: 2, etag: 'b' },
+        { part: 3, etag: 'c' },
+      ],
+    )
+  })
+
+  it('собранный объект проходит ту же проверку типа: SVG под видом видео не пройдёт', async () => {
+    const { service, minio } = setup({ head: SVG, size: 1024 })
+
+    await expect(
+      service.completeMultipart({
+        bucket: 'chat-media',
+        key: 'user-1/a.mp4',
+        uploadId: 'upload-1',
+        ownerId: 'user-1',
+        parts: [{ part: 1, etag: 'a' }],
+      }),
+    ).rejects.toThrow()
+    expect(minio.removeObject).toHaveBeenCalledWith('chat-media', 'user-1/a.mp4')
+  })
+
+  it('отмена не бросает, если отменять уже нечего: её зовут и повторно', async () => {
+    const { service, minio } = setup()
+    minio.abortMultipartUpload.mockRejectedValueOnce(new Error('NoSuchUpload'))
+
+    await expect(
+      service.abortMultipart({
+        bucket: 'chat-media',
+        key: 'user-1/a.mp4',
+        uploadId: 'upload-1',
+        ownerId: 'user-1',
+      }),
+    ).resolves.toBeUndefined()
   })
 })
