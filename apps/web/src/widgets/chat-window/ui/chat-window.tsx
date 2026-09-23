@@ -974,6 +974,9 @@ export function ChatWindow() {
     { tempId: string; chatId: string; sig: string; localUrls: string[] }[]
   >([])
   const createdObjectUrls = useRef<string[]>([])
+  // Прерыватели загрузок: сообщение уходит одним multipart-запросом, значит и отменяется
+  // он целиком. Ключ — tempId оптимистичного пузыря, крестик на котором нажали.
+  const uploadAborts = useRef(new Map<string, AbortController>())
   const mediaRetry = useRef<
     Map<
       string,
@@ -1057,14 +1060,20 @@ export function ChatWindow() {
     payload: UploadPayload,
   ): Promise<void> {
     const { files, ...fields } = payload
+    const abort = new AbortController()
+    uploadAborts.current.set(tempId, abort)
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
     try {
       // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
       // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
       // единственный режим, где байты уходят ровно те, что выбрали.
       const payloadFiles = fields.asFiles ? files : await compressImages(files)
-      const real = await sendMessageWithAttachments(chatId, fields, payloadFiles, (f) =>
-        setUploadProgress(chatId, tempId, f),
+      const real = await sendMessageWithAttachments(
+        chatId,
+        fields,
+        payloadFiles,
+        (f) => setUploadProgress(chatId, tempId, f),
+        abort.signal,
       )
       mediaRetry.current.delete(tempId)
       // Обычно примиряет эхо message:new; страховка на случай гонки/фонового чата.
@@ -1080,12 +1089,43 @@ export function ChatWindow() {
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     } catch (e) {
-      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+      // Отменил сам пользователь — пузырь уже убран, и ни ошибки, ни предложения повторить
+      // быть не должно: он именно этого и добивался.
+      if (abort.signal.aborted) return
+      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       setSendState((s) => ({ ...s, [tempId]: 'failed' }))
       setUploadProgress(chatId, tempId, 0)
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    } finally {
+      uploadAborts.current.delete(tempId)
     }
+  }
+
+  /**
+   * Отмена загрузки по крестику: рвём запрос и убираем пузырь совсем.
+   *
+   * Именно убираем, а не оставляем «не отправлено» с предложением повторить: отмену нажимают,
+   * когда файл улетел не в тот чат или не тот файл, и висящий после этого пузырь с кнопкой
+   * «ещё раз» предлагает ровно то, от чего отказались.
+   */
+  function cancelUpload(m: ChatMessage): void {
+    const tempId = m.id
+    uploadAborts.current.get(tempId)?.abort()
+    uploadAborts.current.delete(tempId)
+    mediaRetry.current.delete(tempId)
+    const pending = pendingMedia.current.find((p) => p.tempId === tempId)
+    pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+    // Локальные превью больше не нужны — освобождаем, иначе объекты висят до перезагрузки.
+    for (const url of pending?.localUrls ?? []) URL.revokeObjectURL(url)
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(m.chatId), (old) =>
+      (old ?? []).filter((x) => x.id !== tempId),
+    )
+    setSendState((s) => {
+      const next = { ...s }
+      delete next[tempId]
+      return next
+    })
   }
 
   function sendFiles(payload: {
@@ -2446,6 +2486,7 @@ export function ChatWindow() {
     copyText,
     deleteMessage,
     retrySend,
+    cancelUpload,
     toggleSelect,
     enterSelect,
     onCopiedImage,
@@ -2465,6 +2506,7 @@ export function ChatWindow() {
     copyText,
     deleteMessage,
     retrySend,
+    cancelUpload,
     toggleSelect,
     enterSelect,
     onCopiedImage,
@@ -2482,6 +2524,7 @@ export function ChatWindow() {
       forward: (m) => msgHandlersRef.current.setForwardMsg(m),
       del: (m) => msgHandlersRef.current.deleteMessage(m),
       retry: (m) => msgHandlersRef.current.retrySend(m),
+      cancelUpload: (m) => msgHandlersRef.current.cancelUpload(m),
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
       startSelect: (m) => msgHandlersRef.current.enterSelect(m),
       copiedImage: (ok) => msgHandlersRef.current.onCopiedImage(ok),

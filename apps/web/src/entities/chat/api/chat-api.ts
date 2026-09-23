@@ -222,6 +222,8 @@ export async function sendMessageWithAttachments(
   },
   files: File[],
   onProgress?: (fraction: number) => void,
+  /** Прерывание отправки по крестику в пузыре: сообщение уходит одним запросом. */
+  signal?: AbortSignal,
 ): Promise<ChatMessage> {
   const form = new FormData()
   if (input.content) form.append('content', input.content)
@@ -237,6 +239,7 @@ export async function sendMessageWithAttachments(
     onUploadProgress: onProgress
       ? (e) => onProgress(e.total ? Math.min(1, e.loaded / e.total) : 0)
       : undefined,
+    signal,
   })
   return data
 }

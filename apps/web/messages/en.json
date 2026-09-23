@@ -696,7 +696,11 @@
     "endAfterStart": "End must be later than start",
     "numberRange": "Enter a number between {min} and {max}",
     "urlInvalid": "The link must start with http:// or https://",
-    "endNotBeforeStart": "The end date cannot be earlier than the start date"
+    "endNotBeforeStart": "The end date cannot be earlier than the start date",
+    "byteUnitB": "B",
+    "byteUnitKb": "KB",
+    "byteUnitMb": "MB",
+    "byteUnitGb": "GB"
   },
   "Auth": {
     "loginTitle": "Sign in",
@@ -1918,7 +1922,8 @@
     "pause": "Pause",
     "chatActions": "Chat actions",
     "typeSupportPlatform": "StudentHub support",
-    "tagSupportPlatform": "Support"
+    "tagSupportPlatform": "Support",
+    "cancelUpload": "Cancel upload"
   },
   "Events": {
     "title": "Events",

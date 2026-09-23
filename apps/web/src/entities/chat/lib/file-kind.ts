@@ -56,17 +56,24 @@ const GROUPS: { className: string; exts: string[] }[] = [
   },
 ]
 
+/** Длиннее этого хвост имени после точки — уже не расширение, а часть названия. */
+const EXT_MAX = 8
+
+/** Столько символов помещается на значке; остальное режем, но группу ищем по полному. */
+const EXT_LABEL_MAX = 4
+
 /** Расширение по имени файла, иначе — по mime. Пусто — значит показываем общий значок. */
 function extOf(name: string | null | undefined, mime: string | null | undefined): string {
   const fromName = (name ?? '').split('.').pop() ?? ''
-  // «Расширение» длиннее четырёх букв — это не расширение, а хвост имени без точки.
-  if (fromName && fromName !== name && fromName.length <= 4) return fromName.toLowerCase()
+  if (fromName && fromName !== name && fromName.length <= EXT_MAX) return fromName.toLowerCase()
   const sub = (mime ?? '').split('/')[1] ?? ''
-  return sub.length <= 4 ? sub.toLowerCase() : ''
+  return sub.length <= EXT_MAX ? sub.toLowerCase() : ''
 }
 
 export function fileKind(name: string | null | undefined, mime?: string | null): FileKind {
   const ext = extOf(name, mime)
   const group = GROUPS.find((g) => g.exts.includes(ext))
-  return { ext, className: group?.className ?? 'bg-muted-foreground' }
+  // Подпись режется, поиск группы — нет: у `.sqlite3` на значке уместится «sqli», но цвет
+  // должен подбираться по полному расширению, иначе обрезок не совпадёт ни с одной группой.
+  return { ext: ext.slice(0, EXT_LABEL_MAX), className: group?.className ?? 'bg-muted-foreground' }
 }

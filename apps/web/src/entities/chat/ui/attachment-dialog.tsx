@@ -2,7 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Eye, EyeOff, FileUp, Images, ImagePlus, MoreVertical, Play, Trash2, X } from 'lucide-react'
+import {
+  Eye,
+  EyeOff,
+  FileText,
+  FileUp,
+  Images,
+  ImagePlus,
+  MoreVertical,
+  Play,
+  Trash2,
+  X,
+} from 'lucide-react'
 import {
   Button,
   DropdownMenu,
@@ -12,7 +23,9 @@ import {
   DropdownMenuTrigger,
   Modal,
 } from '../../../shared/ui'
+import { formatBytes, useByteUnitLabel } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { fileKind } from '../lib/file-kind'
 
 /**
  * Потолок вложений в одном альбоме. Столько же держит Telegram, и причина та же: мозаика из
@@ -34,36 +47,8 @@ export interface AttachmentSendOptions {
   asFiles: boolean
 }
 
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function isMedia(f: File): boolean {
   return f.type.startsWith('image/') || f.type.startsWith('video/')
-}
-
-/** Расширение из имени файла — то, что идёт после последней точки. Без точки — пусто. */
-function extensionOf(name: string): string {
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0 || dot === name.length - 1) return ''
-  return name.slice(dot + 1).toLowerCase()
-}
-
-/**
- * Цвет иконки по роду файла. Расширение на плитке узнают в лицо, но одинаково зелёные
- * квадраты в списке из десяти файлов сливаются — цвет разводит архив, таблицу и документ
- * с одного взгляда, как в файловом менеджере.
- */
-function extensionTone(ext: string): string {
-  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return 'bg-orange-500'
-  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'bg-emerald-600'
-  if (['doc', 'docx', 'rtf', 'odt'].includes(ext)) return 'bg-sky-600'
-  if (['pdf'].includes(ext)) return 'bg-rose-600'
-  if (['mp4', 'mov', 'mkv', 'avi', 'webm'].includes(ext)) return 'bg-violet-600'
-  if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) return 'bg-amber-600'
-  return 'bg-primary'
 }
 
 /** `0:55`, `1:02:30` — как на плитке видео в Telegram. */
@@ -88,21 +73,23 @@ function useObjectUrl(file: File, enabled: boolean): string | null {
   return url
 }
 
-/** Квадратная иконка с расширением — замена безликому листу бумаги. */
-function ExtensionIcon({ name, className }: { name: string; className?: string }) {
-  const ext = extensionOf(name)
+/** Квадратная иконка с расширением — та же палитра, что у вложения в пузыре сообщения. */
+function ExtensionIcon({ name, mime }: { name: string; mime: string }) {
+  const kind = fileKind(name, mime)
   return (
     <span
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-lg text-white',
-        extensionTone(ext),
-        className ?? 'size-10',
+        'flex size-10 shrink-0 items-center justify-center rounded-lg text-white',
+        kind.className,
       )}
     >
-      {/* Длинное расширение (`.sqlite3`) не влезает — режем, иначе текст выдавливает квадрат. */}
-      <span className="max-w-full truncate px-1 text-[0.65rem] font-semibold uppercase">
-        {ext || '•'}
-      </span>
+      {kind.ext ? (
+        <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
+          {kind.ext}
+        </span>
+      ) : (
+        <FileText className="size-5" aria-hidden />
+      )}
     </span>
   )
 }
@@ -147,6 +134,7 @@ function MediaTile({
   fit?: 'cover' | 'contain'
 }) {
   const url = useObjectUrl(file, true)
+  const unit = useByteUnitLabel()
   const isVideo = file.type.startsWith('video/')
   // Длительность читаем из самого элемента: метаданные уже грузятся ради первого кадра,
   // второй скрытый <video> ради одной цифры был бы лишней загрузкой тех же байтов.
@@ -216,7 +204,7 @@ function MediaTile({
         )}
       </button>
       <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-1.5 pb-1 pt-4 text-[0.65rem] text-white/90">
-        {humanSize(file.size)}
+        {formatBytes(file.size, unit)}
       </span>
     </div>
   )
@@ -232,12 +220,13 @@ function FileRow({
   onRemove: () => void
   removeLabel: string
 }) {
+  const unit = useByteUnitLabel()
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border p-2">
-      <ExtensionIcon name={file.name} />
+      <ExtensionIcon name={file.name} mime={file.type} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{file.name}</span>
-        <span className="block text-xs text-muted-foreground">{humanSize(file.size)}</span>
+        <span className="block text-xs text-muted-foreground">{formatBytes(file.size, unit)}</span>
       </span>
       <button
         type="button"

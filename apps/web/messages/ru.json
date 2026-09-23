@@ -696,7 +696,11 @@
     "endAfterStart": "Конец должен быть позже начала",
     "numberRange": "Введите число от {min} до {max}",
     "urlInvalid": "Ссылка должна начинаться с http:// или https://",
-    "endNotBeforeStart": "Дата окончания не может быть раньше начала"
+    "endNotBeforeStart": "Дата окончания не может быть раньше начала",
+    "byteUnitB": "Б",
+    "byteUnitKb": "КБ",
+    "byteUnitMb": "МБ",
+    "byteUnitGb": "ГБ"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -1918,7 +1922,8 @@
     "pause": "Пауза",
     "chatActions": "Действия с чатом",
     "typeSupportPlatform": "Поддержка StudentHub",
-    "tagSupportPlatform": "Поддержка"
+    "tagSupportPlatform": "Поддержка",
+    "cancelUpload": "Отменить загрузку"
   },
   "Events": {
     "title": "События",

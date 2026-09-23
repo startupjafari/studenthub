@@ -696,7 +696,11 @@
     "endAfterStart": "Аяқталу уақыты басталудан кеш болуы керек",
     "numberRange": "{min} мен {max} аралығындағы санды енгізіңіз",
     "urlInvalid": "Сілтеме http:// немесе https:// деп басталуы керек",
-    "endNotBeforeStart": "Аяқталу күні басталу күнінен ерте болмауы керек"
+    "endNotBeforeStart": "Аяқталу күні басталу күнінен ерте болмауы керек",
+    "byteUnitB": "Б",
+    "byteUnitKb": "КБ",
+    "byteUnitMb": "МБ",
+    "byteUnitGb": "ГБ"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -1918,7 +1922,8 @@
     "pause": "Кідірту",
     "chatActions": "Чат әрекеттері",
     "typeSupportPlatform": "StudentHub қолдауы",
-    "tagSupportPlatform": "Қолдау"
+    "tagSupportPlatform": "Қолдау",
+    "cancelUpload": "Жүктеуді тоқтату"
   },
   "Events": {
     "title": "Іс-шаралар",

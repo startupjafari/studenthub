@@ -54,6 +54,8 @@ export type MessageActions = {
   forward: (m: ChatMessage) => void
   del: (m: ChatMessage) => void
   retry: (m: ChatMessage) => void
+  /** Прервать загрузку вложений ещё не отправленного сообщения (крестик в оверлее). */
+  cancelUpload: (m: ChatMessage) => void
   toggleSelect: (id: string) => void
   /** Ctrl/Cmd + клик по сообщению — вход в режим выделения прямо с него (§5 карты). */
   startSelect: (m: ChatMessage) => void
@@ -291,6 +293,12 @@ function MessageItemInner({
               <MessageAttachments
                 media={m.media}
                 mine={mine}
+                // Отменять есть что только у своего, ещё не доехавшего сообщения.
+                onCancel={
+                  m.id.startsWith('tmp:') && m.media.some((a) => a.uploading)
+                    ? () => actions.cancelUpload(m)
+                    : undefined
+                }
                 viewerMeta={{
                   senderName: senderNameText,
                   createdAt: m.createdAt,
