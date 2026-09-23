@@ -114,6 +114,7 @@ import {
   Button,
   DateJumpPicker,
   formatYmd,
+  MenuSeparator,
   Modal,
   RowContextMenu,
   Skeleton,
@@ -2800,6 +2801,30 @@ export function ChatWindow() {
     />
   )
 
+  // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
+  // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
+  // снятие блокировки — среди обычных пунктов.
+  const headerBlockItem =
+    isPrivate && otherId && activeChat ? (
+      <button
+        type="button"
+        disabled={block.isPending}
+        onClick={() => {
+          block.mutate({ userId: otherId, blocked: activeChat.blocked })
+          setHeaderMenuOpen(false)
+        }}
+        className={cn(
+          'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
+          !activeChat.blocked && 'text-destructive',
+        )}
+      >
+        <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
+        <span className="flex-1 text-left">
+          {activeChat.blocked ? t('unblockUser') : t('blockUser')}
+        </span>
+      </button>
+    ) : null
+
   return (
     <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
       {embedded && listSlot ? createPortal(chatList, listSlot) : chatList}
@@ -3291,25 +3316,8 @@ export function ChatWindow() {
                           )}
                           <span className="flex-1 text-left">{t('export')}</span>
                         </button>
-                        {isPrivate && otherId && activeChat && (
-                          <button
-                            type="button"
-                            disabled={block.isPending}
-                            onClick={() => {
-                              block.mutate({ userId: otherId, blocked: activeChat.blocked })
-                              setHeaderMenuOpen(false)
-                            }}
-                            className={cn(
-                              'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
-                              !activeChat.blocked && 'text-destructive',
-                            )}
-                          >
-                            <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
-                            <span className="flex-1 text-left">
-                              {activeChat.blocked ? t('unblockUser') : t('blockUser')}
-                            </span>
-                          </button>
-                        )}
+                        {/* «Разблокировать» не красный — остаётся среди обычных пунктов. */}
+                        {activeChat?.blocked && headerBlockItem}
                         {activeChat && (
                           <button
                             type="button"
@@ -3328,6 +3336,10 @@ export function ChatWindow() {
                             <span className="flex-1 text-left">{t('clearHistory')}</span>
                           </button>
                         )}
+                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть
+                            всегда, когда есть чат, поэтому линия зависит только от него. */}
+                        {activeChat && <MenuSeparator />}
+                        {!activeChat?.blocked && headerBlockItem}
                         {activeChat && (
                           <button
                             type="button"
