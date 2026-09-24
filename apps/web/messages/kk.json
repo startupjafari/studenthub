@@ -1166,7 +1166,7 @@
     "INVITE_EXPIRED": "Шақыру мерзімі бітті",
     "INVITE_USED": "Шақыру пайдаланылған",
     "INVITE_REVOKED": "Шақыру қайтарып алынды",
-    "FILE_TYPE_NOT_ALLOWED": "Файл түрі қолданылмайды",
+    "FILE_TYPE_NOT_ALLOWED": "Файл түрі қолданылмайды: фото, бейне, PDF және Office құжаттары қабылданады",
     "FILE_TOO_LARGE": "Файл рұқсат етілген өлшемнен асып тұр",
     "FILE_DIRECT_UPLOAD_REQUIRED": "Файл сервер арқылы жүктеуге тым үлкен",
     "VALIDATION_ERROR": "Өрістерді тексеріңіз",

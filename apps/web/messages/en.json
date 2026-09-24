@@ -1166,7 +1166,7 @@
     "INVITE_EXPIRED": "Invite has expired",
     "INVITE_USED": "Invite already used",
     "INVITE_REVOKED": "Invite was revoked",
-    "FILE_TYPE_NOT_ALLOWED": "File type is not supported",
+    "FILE_TYPE_NOT_ALLOWED": "File type is not supported: photos, video, PDF and Office documents are accepted",
     "FILE_TOO_LARGE": "File exceeds the allowed size",
     "FILE_DIRECT_UPLOAD_REQUIRED": "File is too large to upload via the server",
     "VALIDATION_ERROR": "Check the form fields",
