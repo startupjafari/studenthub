@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -75,6 +75,7 @@ import {
   AttachmentDialog,
   ALBUM_MAX_ITEMS,
   compressImages,
+  convertUnsupportedImages,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -323,6 +324,9 @@ export function ChatWindow() {
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  // Перетаскивание файлов в переписку: подсветка зоны и счётчик вложенных dragenter/dragleave.
+  const [dropActive, setDropActive] = useState(false)
+  const dragDepth = useRef(0)
   // Создание опроса (§38) — диалог из attachment-меню композера.
   const [pollCreatorOpen, setPollCreatorOpen] = useState(false)
   // Единый поиск в панели чатов: по названиям чатов + по сообщениям (глобально).
@@ -1191,7 +1195,11 @@ export function ChatWindow() {
       // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
       // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
       // единственный режим, где байты уходят ровно те, что выбрали.
-      const payloadFiles = fields.asFiles ? files : await compressImages(files)
+      // «Без сжатия» отправляет байты как есть — но HEIC так не дойдёт вовсе: сервер не
+      // принимает этот тип. Его переводим в JPEG в обоих режимах, остальное не трогаем.
+      const payloadFiles = fields.asFiles
+        ? await convertUnsupportedImages(files)
+        : await compressImages(files)
       // Повторная проверка размера уже по итоговым байтам: при выборе снимок мерился самым
       // мягким лимитом, потому что сжатие ещё впереди, — здесь видно, помогло ли оно.
       const oversize = payloadFiles.find((f) => f.size > maxUploadBytes(f.type))
@@ -2362,6 +2370,15 @@ export function ChatWindow() {
     )
   }
 
+  /**
+   * Перетаскивание принимаем, только когда тащат файлы и в открытый чат, куда вообще можно
+   * писать. Текст и ссылки из других вкладок сюда ронять незачем — их вставляют в поле.
+   */
+  function canDropFiles(e: DragEvent): boolean {
+    if (!activeId || !connected || editing) return false
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+  }
+
   function addFiles(list: FileList | null): void {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
@@ -2901,8 +2918,43 @@ export function ChatWindow() {
         return embedded && listSlot ? createPortal(column, listSlot) : column
       })()}
 
-      {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран. */}
-      <section className={cn('min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
+      {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран.
+          Она же зона перетаскивания: файл роняют в переписку целиком, а не точно в поле
+          ввода. Счётчик dragDepth — чтобы подсветка не мигала, когда курсор проходит над
+          вложенными элементами: dragleave прилетает на каждый из них. */}
+      <section
+        className={cn('relative min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}
+        onDragEnter={(e) => {
+          if (!canDropFiles(e)) return
+          dragDepth.current += 1
+          setDropActive(true)
+        }}
+        onDragOver={(e) => {
+          if (!canDropFiles(e)) return
+          // Без preventDefault браузер откроет файл вместо того, чтобы отдать его нам.
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDragLeave={(e) => {
+          if (!canDropFiles(e)) return
+          dragDepth.current = Math.max(0, dragDepth.current - 1)
+          if (dragDepth.current === 0) setDropActive(false)
+        }}
+        onDrop={(e) => {
+          if (!canDropFiles(e)) return
+          e.preventDefault()
+          dragDepth.current = 0
+          setDropActive(false)
+          addFiles(e.dataTransfer.files)
+        }}
+      >
+        {dropActive && (
+          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 duration-150 animate-in fade-in">
+            <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
+              {t('dropHint')}
+            </span>
+          </div>
+        )}
         {!activeId ? (
           <div className="flex flex-1 items-center justify-center p-6 duration-300 animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">

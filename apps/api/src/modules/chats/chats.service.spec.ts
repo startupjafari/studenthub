@@ -1,4 +1,5 @@
 import { Role } from '@studenthub/shared-types'
+import { MessageSendRestSchema } from '@studenthub/shared-schemas'
 import { ChatsService } from './chats.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { QueueService } from '../../common/queue'
@@ -434,10 +435,19 @@ describe('ChatsService.sendMessageRest — сообщение с вложени�
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
     const err = await service
-      .sendMessageRest('u1', { chatId: 'c1', content: '  ' }, [])
+      .sendMessageRest('u1', { chatId: 'c1', content: '' }, [])
       .catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
     expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  // Сюда текст приходит уже нормализованным: обрезку и вырезание невидимых символов делает
+  // схема на границе, а сервис проверяет только бизнес-правило «ни текста, ни файлов».
+  // Раньше обрезка была и здесь, и в схеме — пара разъехалась, и по WS проходили пробелы.
+  it('текст из одних пробелов схема приводит к пустому ещё до сервиса', () => {
+    const parsed = MessageSendRestSchema.safeParse({ chatId: 'c1', content: '   ' })
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.content).toBe('')
   })
 
   it('файлы загружаются с messageId и message:new эмитится один раз', async () => {
