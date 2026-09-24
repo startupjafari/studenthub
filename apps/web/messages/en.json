@@ -1820,7 +1820,6 @@
     "blockedTitle": "Blocked users",
     "blockedEmpty": "You haven't blocked anyone",
     "blockedAdd": "Block a user",
-    "blockedDescription": "Blocked users cannot message you or invite you to groups. They also cannot see your photo, stories and last seen time.",
     "addMembers": "Add members",
     "next": "Next",
     "createGroup": "Create group",

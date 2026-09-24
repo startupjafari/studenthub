@@ -12,7 +12,7 @@ import {
   unblockUserRequest,
 } from '../../../entities/chat'
 import { directoryKeys, fetchUserDirectory, type DirectoryUser } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage, RowContextMenu, Skeleton } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, RowContextMenu } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { identityColor } from '../../../shared/lib'
 import { ColumnPanel, PanelHeader, PanelHeaderButton, PanelSearch } from './column-panel'
@@ -107,16 +107,11 @@ export function BlockedUsersPanel({
         }
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4">
-        <p className="shrink-0 pb-4 text-sm text-muted-foreground">{t('blockedDescription')}</p>
         {/* Блок держит всю оставшуюся высоту колонки и прокручивается внутри рамки: список
             блокировок то пустой, то в полсотни строк, и рамка не должна за ним прыгать. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
           {blocked.isLoading ? (
-            <div className="flex flex-col gap-2 p-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-xl" />
-              ))}
-            </div>
+            <div className="flex-1" />
           ) : list.length === 0 ? (
             <p className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground">
               <UserX className="size-6" aria-hidden />
@@ -212,11 +207,7 @@ function BlockPickScreen({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
           {people.isLoading ? (
-            <div className="flex flex-col gap-2 p-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-xl" />
-              ))}
-            </div>
+            <div className="flex-1" />
           ) : items.length === 0 ? (
             <p className="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted-foreground">
               {t('noResults')}

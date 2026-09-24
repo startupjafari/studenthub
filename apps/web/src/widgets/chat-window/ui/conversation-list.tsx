@@ -40,7 +40,6 @@ import {
   EmptyState,
   RowContextMenu,
   SegmentedTabs,
-  Skeleton,
   captureAnchor,
   type MenuAnchor,
   type SegmentedTabItem,
@@ -647,11 +646,11 @@ export function ConversationList({
             )}
           </div>
         ) : chatsLoading ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full shrink-0 rounded-xl" />
-            ))}
-          </div>
+          // Пока список едет — пусто. Скелетон-заглушка рисовала десять несуществующих
+          // строк, которые тут же сменялись настоящими: мельтешение вместо ожидания.
+          // Ветку всё равно держим отдельно от «чатов нет»: иначе на секунду загрузки
+          // показывалось бы пустое состояние, и человек успевал бы поверить, что чатов нет.
+          <div className="min-h-0 flex-1" />
         ) : visibleChats.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col p-3">
             <EmptyState

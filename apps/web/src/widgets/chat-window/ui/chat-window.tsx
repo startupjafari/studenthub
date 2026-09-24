@@ -117,7 +117,6 @@ import {
   MenuSeparator,
   Modal,
   RowContextMenu,
-  Skeleton,
   useConfirm,
   type RichTextHandle,
 } from '../../../shared/ui'
@@ -210,15 +209,6 @@ const DAY_LABEL_H = 36
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
-const MESSAGE_SKELETONS = [
-  { mine: false, size: 'h-10 w-48' },
-  { mine: true, size: 'h-14 w-56' },
-  { mine: false, size: 'h-10 w-36' },
-  { mine: true, size: 'h-10 w-44' },
-  { mine: false, size: 'h-20 w-52' },
-  { mine: true, size: 'h-10 w-32' },
-]
-
 // Иконочные кнопки шапок чата (обычная, поиск, выбор сообщений) — одна геометрия на все три
 // режима: 44 px под палец (§13) и 40 px под курсор, иконка внутри size-5. Раньше в одном ряду
 // стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
@@ -3568,19 +3558,10 @@ export function ChatWindow() {
                 // по его высоте, иначе последнее сообщение уезжает под панель.
                 style={{ paddingBottom: composerH + 8 }}
               >
-                {messages.isLoading ? (
-                  <div className="flex flex-col gap-3">
-                    {MESSAGE_SKELETONS.map((bubble, i) => (
-                      <div
-                        key={i}
-                        className={cn('flex', bubble.mine ? 'justify-end' : 'justify-start')}
-                        aria-hidden
-                      >
-                        <Skeleton className={cn('rounded-2xl', bubble.size)} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+                {/* Пока лента едет — пусто. Пузыри-заглушки читались как настоящие
+                    сообщения: человек начинал их читать ровно в тот момент, когда они
+                    сменялись реальной перепиской. */}
+                {messages.isLoading ? null : (
                   <Virtualizer ref={virtualizerRef} scrollRef={messagesScrollRef} shift={shiftMode}>
                     {(messages.data ?? []).map((m, i) => {
                       const mine = m.senderId === myId

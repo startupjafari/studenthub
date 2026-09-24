@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ArrowRight, Camera, Check, X } from 'lucide-react'
+import { Camera, Check, X } from 'lucide-react'
 import { chatKeys, createChatRequest, setChatAvatarRequest } from '../../../entities/chat'
 import { directoryKeys, fetchUserDirectory, type DirectoryUser } from '../../../entities/user'
 import {
@@ -15,18 +15,11 @@ import {
   Checkbox,
   ImageCropModal,
   Input,
-  Skeleton,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { identityColor, useErrorToast } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
-import {
-  ColumnPanel,
-  PanelHeader,
-  PanelHeaderButton,
-  PanelSearch,
-  SectionTitle,
-} from './column-panel'
+import { ColumnPanel, PanelHeader, PanelSearch, SectionTitle } from './column-panel'
 
 const TITLE_MAX = 150
 
@@ -270,26 +263,14 @@ function MembersScreen({
 
   return (
     <>
-      <PanelHeader
-        title={t('addMembers')}
-        onBack={onBack}
-        action={
-          // Группа без участников не создаётся (сервер требует хотя бы одного), поэтому
-          // «далее» до первой галочки выключено.
-          <PanelHeaderButton label={t('next')} disabled={picked.length === 0} onClick={onNext}>
-            <ArrowRight className="size-5" aria-hidden />
-          </PanelHeaderButton>
-        }
-      />
+      {/* Кнопки в шапке нет: «далее» на экране одна, и дублировать её сверху значило бы
+          дважды спрашивать одно и то же на одном экране. */}
+      <PanelHeader title={t('addMembers')} onBack={onBack} />
       <PanelSearch value={query} onChange={setQuery} placeholder={t('search')} />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
           {people.isLoading ? (
-            <div className="flex flex-col gap-2 p-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-xl" />
-              ))}
-            </div>
+            <div className="flex-1" />
           ) : items.length === 0 ? (
             <p className="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted-foreground">
               {t('noResults')}
@@ -321,9 +302,10 @@ function MembersScreen({
             </ul>
           )}
         </div>
-        <Button className="mt-4 shrink-0 gap-2" disabled={picked.length === 0} onClick={onNext}>
+        {/* Группа без участников не создаётся (сервер требует хотя бы одного), поэтому
+            «далее» до первой галочки выключено. */}
+        <Button className="mt-4 shrink-0" disabled={picked.length === 0} onClick={onNext}>
           {t('next')}
-          <ArrowRight className="size-4" aria-hidden />
         </Button>
       </div>
     </>
