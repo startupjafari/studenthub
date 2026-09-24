@@ -980,30 +980,25 @@ export function ConversationList({
               icon: FolderPlus,
               label: t('folderAdd'),
               // Папок ещё нет — вести в пустой список некуда, открываем их настройку.
+              // Когда папки есть, в списке только они: «Настроить папки» жили бы последней
+              // строкой там, где взгляд ищет имя папки, а сама настройка и так под рукой
+              // в меню шапки списка.
               ...(folders.length === 0
                 ? { onClick: onManageFolders }
                 : {
-                    items: [
-                      ...[...folders]
-                        .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
-                        .map((f) => ({
-                          key: `folder-${f.id}`,
-                          icon: Folder,
-                          label: f.name,
-                          // Галочка = чат уже в папке; повторное нажатие вынимает его.
-                          checked: f.chatIds.includes(menuChat.id),
-                          // Меню остаётся открытым: папок обычно несколько, и после
-                          // каждого нажатия заново вызывать его было бы мучением.
-                          keepOpen: true,
-                          onClick: () => onToggleChatFolder(f.id, menuChat),
-                        })),
-                      {
-                        key: 'folders-manage',
-                        icon: FolderCog,
-                        label: t('foldersManage'),
-                        onClick: onManageFolders,
-                      },
-                    ],
+                    items: [...folders]
+                      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+                      .map((f) => ({
+                        key: `folder-${f.id}`,
+                        icon: Folder,
+                        label: f.name,
+                        // Галочка = чат уже в папке; повторное нажатие вынимает его.
+                        checked: f.chatIds.includes(menuChat.id),
+                        // Меню остаётся открытым: папок обычно несколько, и после
+                        // каждого нажатия заново вызывать его было бы мучением.
+                        keepOpen: true,
+                        onClick: () => onToggleChatFolder(f.id, menuChat),
+                      })),
                   }),
             },
             {
