@@ -99,7 +99,7 @@ import {
 } from '../../../shared/api'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import { ChatDetailsPanel } from './chat-details-panel'
-import { ChatFoldersDialog } from './chat-folders-dialog'
+import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
@@ -735,6 +735,30 @@ export function ChatWindow() {
     onSuccess: invalidateFolders,
     onError: folderError,
   })
+
+  /**
+   * Новый порядок вкладок после перетаскивания папки.
+   *
+   * Отдельной ручки «переставить всё» у API нет — уезжает по PATCH на каждую сдвинувшуюся
+   * папку. Кэш переписываем сразу: порядок правят перетаскиванием, и вернуться на секунду
+   * к старому читалось бы как «не получилось».
+   */
+  const reorderFolders = (ids: string[]): void => {
+    const byId = new Map(folderList.map((f) => [f.id, f]))
+    const next = ids.flatMap((id, position) => {
+      const f = byId.get(id)
+      return f ? [{ ...f, position }] : []
+    })
+    const previous = folderList
+    qc.setQueryData<ChatFolder[]>(chatKeys.folders(), next)
+    const moved = next.filter((f) => byId.get(f.id)?.position !== f.position)
+    void Promise.all(moved.map((f) => updateChatFolderRequest(f.id, { position: f.position })))
+      .catch((e) => {
+        qc.setQueryData<ChatFolder[]>(chatKeys.folders(), previous)
+        folderError(e)
+      })
+      .finally(invalidateFolders)
+  }
 
   const mute = useMutation({
     mutationFn: ({
@@ -2801,6 +2825,33 @@ export function ChatWindow() {
     />
   )
 
+  // Настройка папок (§2) — панель на месте списка чатов, а не окно поверх него: сборка
+  // папки идёт по всему списку диалогов, и в окне ей всегда было тесно.
+  const foldersPanel = (
+    <ChatFoldersPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      folders={folderList}
+      chats={chats.data ?? []}
+      busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
+      editId={foldersEditId}
+      onClose={() => setFoldersOpen(false)}
+      onCreate={(input) => createFolder.mutate(input)}
+      onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
+      onDelete={(id) => {
+        const folder = folderList.find((f) => f.id === id)
+        if (!folder) return
+        void confirm({
+          title: t('foldersDeleteConfirm', { name: folder.name }),
+          destructive: true,
+        }).then((ok) => {
+          if (ok) deleteFolder.mutate(id)
+        })
+      }}
+      onReorder={reorderFolders}
+    />
+  )
+
   // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
   // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
   // снятие блокировки — среди обычных пунктов.
@@ -2827,7 +2878,12 @@ export function ChatWindow() {
 
   return (
     <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
-      {embedded && listSlot ? createPortal(chatList, listSlot) : chatList}
+      {/* Колонка одна: пока настраивают папки, список чатов уступает ей место — и на
+          телефоне во весь экран, и в сайдбаре десктопа. */}
+      {(() => {
+        const column = foldersOpen ? foldersPanel : chatList
+        return embedded && listSlot ? createPortal(column, listSlot) : column
+      })()}
 
       {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран. */}
       <section className={cn('min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
@@ -3898,18 +3954,6 @@ export function ChatWindow() {
           </div>
         </Modal>
       )}
-
-      <ChatFoldersDialog
-        open={foldersOpen}
-        onOpenChange={setFoldersOpen}
-        folders={folderList}
-        chats={chats.data ?? []}
-        busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
-        editId={foldersEditId}
-        onCreate={(input) => createFolder.mutate(input)}
-        onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
-        onDelete={(id) => deleteFolder.mutate(id)}
-      />
 
       {pollCreatorOpen && (
         <PollCreator
