@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
-  ArrowLeft,
   BookOpen,
   Building2,
   Check,
@@ -11,7 +10,6 @@ import {
   GraduationCap,
   GripVertical,
   Plus,
-  Search,
   Trash2,
   User,
   Users,
@@ -24,6 +22,13 @@ import { Avatar, AvatarFallback, AvatarImage, Button, Checkbox, Input } from '..
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, TYPE_TAG } from '../lib/format'
 import { BUILTIN_FOLDERS } from '../lib/folders'
+import {
+  ColumnPanel,
+  PanelHeader,
+  PanelHeaderButton,
+  PanelSearch,
+  SectionTitle,
+} from './column-panel'
 
 // Настройка папок чатов (§2) — не модальное окно, а панель на месте списка чатов.
 //
@@ -135,17 +140,7 @@ export function ChatFoldersPanel({
   }
 
   return (
-    <aside
-      className={cn(
-        embedded
-          ? 'flex h-full w-full flex-col'
-          : cn(
-              // Те же классы, что у списка чатов: панель встаёт на его место, а не рядом.
-              'w-full shrink-0 flex-col border-r border-border md:flex md:w-80 lg:hidden',
-              hidden ? 'hidden md:flex' : 'flex',
-            ),
-      )}
-    >
+    <ColumnPanel embedded={embedded} hidden={hidden}>
       {screen === 'list' ? (
         <FoldersScreen
           folders={ordered}
@@ -182,45 +177,7 @@ export function ChatFoldersPanel({
           }}
         />
       ) : null}
-    </aside>
-  )
-}
-
-// ── Шапка панели ─────────────────────────────────────────────────────────────
-// Высота та же, что у шапки списка чатов и шапки переписки (py-3 вокруг 40-px кнопок):
-// нижние границы всех трёх идут одной линией, и переход между экранами не дёргает вёрстку.
-function PanelHeader({
-  title,
-  onBack,
-  action,
-}: {
-  title: string
-  onBack: () => void
-  action?: React.ReactNode
-}) {
-  const t = useTranslations('Chats')
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-3">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label={t('back')}
-        className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-      >
-        <ArrowLeft className="size-5" aria-hidden />
-      </button>
-      <span className="min-w-0 flex-1 truncate text-lg font-bold">{title}</span>
-      {action}
-    </div>
-  )
-}
-
-/** Заголовок блока — как «Папки» и «Выбранные чаты» в макете. */
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
-      {children}
-    </p>
+    </ColumnPanel>
   )
 }
 
@@ -351,16 +308,13 @@ function EditScreen({
         title={draft.id === 'new' ? t('foldersCreate') : t('foldersSettings')}
         onBack={onBack}
         action={
-          <button
-            type="button"
-            aria-label={t('foldersSave')}
-            title={t('foldersSave')}
+          <PanelHeaderButton
+            label={t('foldersSave')}
             disabled={!draft.name.trim() || busy}
             onClick={onSave}
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Check className="size-5" aria-hidden />
-          </button>
+          </PanelHeaderButton>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-3 py-4">
@@ -501,32 +455,12 @@ function PickScreen({
         title={t('foldersPickTitle')}
         onBack={onCancel}
         action={
-          <button
-            type="button"
-            aria-label={t('foldersDone')}
-            title={t('foldersDone')}
-            onClick={() => onApply(sel)}
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 active:scale-90"
-          >
+          <PanelHeaderButton label={t('foldersDone')} onClick={() => onApply(sel)}>
             <Check className="size-5" aria-hidden />
-          </button>
+          </PanelHeaderButton>
         }
       />
-      <div className="shrink-0 border-b border-border px-3 py-2">
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('search')}
-            aria-label={t('search')}
-            className="h-10 w-full rounded-lg border border-input bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-          />
-        </div>
-      </div>
+      <PanelSearch value={query} onChange={setQuery} placeholder={t('search')} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-3 py-4">
         <div className="shrink-0">

@@ -103,8 +103,8 @@ import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
-import { BlockedUsersDialog } from './blocked-users-dialog'
-import { CreateGroupDialog } from './create-group-dialog'
+import { BlockedUsersPanel } from './blocked-users-panel'
+import { CreateGroupPanel } from './create-group-panel'
 import { ScheduleSendDialog } from './schedule-send-dialog'
 import { ScheduledPanel } from './scheduled-panel'
 import {
@@ -2852,6 +2852,26 @@ export function ChatWindow() {
     />
   )
 
+  const blockedPanel = (
+    <BlockedUsersPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      onClose={() => setBlockedOpen(false)}
+    />
+  )
+
+  const createGroupPanel = (
+    <CreateGroupPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      onClose={() => setCreateGroupOpen(false)}
+      onCreated={(chatId) => {
+        setCreateGroupOpen(false)
+        setActiveId(chatId)
+      }}
+    />
+  )
+
   // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
   // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
   // снятие блокировки — среди обычных пунктов.
@@ -2878,10 +2898,16 @@ export function ChatWindow() {
 
   return (
     <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
-      {/* Колонка одна: пока настраивают папки, список чатов уступает ей место — и на
-          телефоне во весь экран, и в сайдбаре десктопа. */}
+      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, список
+          чатов уступает ему место — и на телефоне во весь экран, и в сайдбаре десктопа. */}
       {(() => {
-        const column = foldersOpen ? foldersPanel : chatList
+        const column = foldersOpen
+          ? foldersPanel
+          : blockedOpen
+            ? blockedPanel
+            : createGroupOpen
+              ? createGroupPanel
+              : chatList
         return embedded && listSlot ? createPortal(column, listSlot) : column
       })()}
 
@@ -3853,16 +3879,6 @@ export function ChatWindow() {
         <ScheduledPanel chatId={activeId} onClose={() => setScheduledOpen(false)} />
       )}
 
-      {createGroupOpen && (
-        <CreateGroupDialog
-          onClose={() => setCreateGroupOpen(false)}
-          onCreated={(chatId) => {
-            setCreateGroupOpen(false)
-            setActiveId(chatId)
-          }}
-        />
-      )}
-
       {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
       {pinnedMenu &&
         (() => {
@@ -3962,8 +3978,6 @@ export function ChatWindow() {
           pending={createPoll.isPending}
         />
       )}
-
-      {blockedOpen && <BlockedUsersDialog onClose={() => setBlockedOpen(false)} />}
 
       {attachOpen && (
         <AttachmentDialog
