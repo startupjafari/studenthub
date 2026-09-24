@@ -15,7 +15,6 @@ import {
   Checkbox,
   ImageCropModal,
   Input,
-  Skeleton,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { identityColor, useErrorToast } from '../../../shared/lib'
@@ -271,11 +270,7 @@ function MembersScreen({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
           {people.isLoading ? (
-            <div className="flex flex-col gap-2 p-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-xl" />
-              ))}
-            </div>
+            <div className="flex-1" />
           ) : items.length === 0 ? (
             <p className="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted-foreground">
               {t('noResults')}

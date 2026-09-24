@@ -6,7 +6,6 @@ import { useTranslations } from 'next-intl'
 import { FileText, ImageOff, Loader2, Play, X } from 'lucide-react'
 import { formatBytes, formatBytesProgress, useByteUnitLabel } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { Skeleton } from '../../../shared/ui'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import { fileKind } from '../lib/file-kind'
 import type { MessageAttachment } from '../model/types'
@@ -216,12 +215,15 @@ function Single({
   }
 
   if (isLoading || !url) {
-    // Пока едет presigned-ссылка, скелетон уже знает форму будущего снимка (если размеры есть).
+    // Пока едет presigned-ссылка, место под снимок уже знает его форму (если размеры есть).
+    // Заливка без пульсации: мигающий прямоугольник посреди переписки притягивал взгляд
+    // сильнее самих сообщений, а держать место надо — иначе лента прыгает под руками.
     const frame = frameProps(att)
     return (
-      <Skeleton
+      <div
         className={cn('rounded-lg', MEDIA_TINT, framed ? frame.className : 'h-10 w-40')}
         style={framed ? frame.style : undefined}
+        aria-hidden
       />
     )
   }
@@ -285,7 +287,7 @@ function Single({
           )}
           onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         />
-        {!painted && <Skeleton className={cn('absolute inset-0 rounded-lg', MEDIA_TINT)} />}
+        {!painted && <span className={cn('absolute inset-0 rounded-lg', MEDIA_TINT)} aria-hidden />}
         {blurred && painted && (
           <button
             type="button"
@@ -441,7 +443,7 @@ function GridTile({
           <ImageOff className="size-5 opacity-60" aria-hidden />
         </span>
       ) : isLoading || !url ? (
-        <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />
+        <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />
       ) : isVid ? (
         <>
           <video
@@ -486,7 +488,7 @@ function GridTile({
               blurred && 'scale-105 blur-xl',
             )}
           />
-          {!painted && <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />}
+          {!painted && <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />}
         </>
       )}
       {blurred && painted && (
