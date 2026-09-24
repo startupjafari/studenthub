@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
-  ArrowLeft,
   BookOpen,
   Building2,
   Check,
@@ -11,7 +10,6 @@ import {
   GraduationCap,
   GripVertical,
   Plus,
-  Search,
   Trash2,
   User,
   Users,
@@ -24,6 +22,13 @@ import { Avatar, AvatarFallback, AvatarImage, Button, Checkbox, Input } from '..
 import { cn } from '../../../shared/lib/utils'
 import { avatarColor, chatInitials, chatTitle, TYPE_TAG } from '../lib/format'
 import { BUILTIN_FOLDERS } from '../lib/folders'
+import {
+  ColumnPanel,
+  PanelHeader,
+  PanelHeaderButton,
+  PanelSearch,
+  SectionTitle,
+} from './column-panel'
 
 // Настройка папок чатов (§2) — не модальное окно, а панель на месте списка чатов.
 //
@@ -135,21 +140,10 @@ export function ChatFoldersPanel({
   }
 
   return (
-    <aside
-      className={cn(
-        embedded
-          ? 'flex h-full w-full flex-col'
-          : cn(
-              // Те же классы, что у списка чатов: панель встаёт на его место, а не рядом.
-              'w-full shrink-0 flex-col border-r border-border md:flex md:w-80 lg:hidden',
-              hidden ? 'hidden md:flex' : 'flex',
-            ),
-      )}
-    >
+    <ColumnPanel embedded={embedded} hidden={hidden}>
       {screen === 'list' ? (
         <FoldersScreen
           folders={ordered}
-          chats={pickable}
           onBack={onClose}
           onOpen={openFolder}
           onNew={openNew}
@@ -183,59 +177,19 @@ export function ChatFoldersPanel({
           }}
         />
       ) : null}
-    </aside>
-  )
-}
-
-// ── Шапка панели ─────────────────────────────────────────────────────────────
-// Высота та же, что у шапки списка чатов и шапки переписки (py-3 вокруг 40-px кнопок):
-// нижние границы всех трёх идут одной линией, и переход между экранами не дёргает вёрстку.
-function PanelHeader({
-  title,
-  onBack,
-  action,
-}: {
-  title: string
-  onBack: () => void
-  action?: React.ReactNode
-}) {
-  const t = useTranslations('Chats')
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-3">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label={t('back')}
-        className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-      >
-        <ArrowLeft className="size-5" aria-hidden />
-      </button>
-      <span className="min-w-0 flex-1 truncate text-lg font-bold">{title}</span>
-      {action}
-    </div>
-  )
-}
-
-/** Заголовок блока — как «Папки» и «Выбранные чаты» в макете. */
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
-      {children}
-    </p>
+    </ColumnPanel>
   )
 }
 
 // ── Экран 1: список папок ────────────────────────────────────────────────────
 function FoldersScreen({
   folders,
-  chats,
   onBack,
   onOpen,
   onNew,
   onReorder,
 }: {
   folders: ChatFolder[]
-  chats: ChatListItem[]
   onBack: () => void
   onOpen: (f: ChatFolder) => void
   onNew: () => void
@@ -254,8 +208,8 @@ function FoldersScreen({
   return (
     <>
       <PanelHeader title={t('foldersTitle')} onBack={onBack} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4">
-        <div className="flex flex-col items-center gap-3 pb-5 text-center">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4">
+        <div className="flex shrink-0 flex-col items-center gap-3 pb-5 text-center">
           <span className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Folders className="size-8" aria-hidden />
           </span>
@@ -272,65 +226,52 @@ function FoldersScreen({
         </div>
 
         <SectionTitle>{t('foldersSection')}</SectionTitle>
-        {/* `overflow-hidden` снимается на время перетаскивания: иначе верхняя строка,
-            уезжающая за край контейнера, обрезалась бы ровно в тот момент, когда за ней
-            следят. */}
-        <div
-          className={cn(
-            'rounded-2xl border border-border',
-            !reorder.draggingId && 'overflow-hidden',
-          )}
-        >
-          {/* «Все чаты» — встроенная вкладка: её не переименовать, не удалить и не подвинуть,
-              она всегда первая. Строкой она здесь не ради действия, а ради ориентира: без неё
-              список папок начинался бы со второй вкладки ряда. */}
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{t('foldersAllChats')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('foldersChatCount', { count: chats.length })}
-              </p>
-            </div>
-          </div>
+        {/* Блок держит всю оставшуюся высоту колонки, а не растёт от числа папок: список
+            папок — главное на экране, и его рамка не должна прыгать после каждой созданной
+            или удалённой папки. Прокручивается он сам, внутри рамки. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
           {folders.length === 0 ? (
-            <p className="border-t border-border px-3 py-4 text-sm text-muted-foreground">
+            <p className="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted-foreground">
               {t('foldersEmpty')}
             </p>
           ) : (
-            view.map((f) => (
-              <div
-                key={f.id}
-                ref={reorder.rowRef(f.id)}
-                style={reorder.rowStyle(f.id)}
-                className={cn(
-                  'group relative flex items-center gap-2 border-t border-border bg-background pr-2 transition-colors',
-                  reorder.draggingId === f.id && 'z-10 shadow-lg',
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => onOpen(f)}
-                  className="min-w-0 flex-1 cursor-pointer px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {view.map((f, i) => (
+                <div
+                  key={f.id}
+                  ref={reorder.rowRef(f.id)}
+                  style={reorder.rowStyle(f.id)}
+                  className={cn(
+                    'group relative flex items-center gap-2 bg-background pr-2 transition-colors',
+                    i > 0 && 'border-t border-border',
+                    reorder.draggingId === f.id && 'z-10 shadow-lg',
+                  )}
                 >
-                  <p className="truncate text-sm font-medium">{f.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('foldersChatCount', { count: f.chatIds.length })}
-                  </p>
-                </button>
-                {/* Ручка сортировки. На десктопе появляется при наведении — постоянная
-                    колонка точек в спокойном списке только шумит; на тач-устройствах
-                    наведения нет, поэтому там она видна всегда. */}
-                <button
-                  type="button"
-                  aria-label={t('foldersReorder')}
-                  title={t('foldersReorder')}
-                  onPointerDown={(e) => reorder.start(e, f.id)}
-                  className="flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground opacity-100 transition-opacity hover:text-foreground active:cursor-grabbing lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
-                >
-                  <GripVertical className="size-4" aria-hidden />
-                </button>
-              </div>
-            ))
+                  <button
+                    type="button"
+                    onClick={() => onOpen(f)}
+                    className="min-w-0 flex-1 cursor-pointer px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                  >
+                    <p className="truncate text-sm font-medium">{f.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('foldersChatCount', { count: f.chatIds.length })}
+                    </p>
+                  </button>
+                  {/* Ручка сортировки. На десктопе появляется при наведении — постоянная
+                      колонка точек в спокойном списке только шумит; на тач-устройствах
+                      наведения нет, поэтому там она видна всегда. */}
+                  <button
+                    type="button"
+                    aria-label={t('foldersReorder')}
+                    title={t('foldersReorder')}
+                    onPointerDown={(e) => reorder.start(e, f.id)}
+                    className="flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground opacity-100 transition-opacity hover:text-foreground active:cursor-grabbing lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
+                  >
+                    <GripVertical className="size-4" aria-hidden />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -367,20 +308,17 @@ function EditScreen({
         title={draft.id === 'new' ? t('foldersCreate') : t('foldersSettings')}
         onBack={onBack}
         action={
-          <button
-            type="button"
-            aria-label={t('foldersSave')}
-            title={t('foldersSave')}
+          <PanelHeaderButton
+            label={t('foldersSave')}
             disabled={!draft.name.trim() || busy}
             onClick={onSave}
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Check className="size-5" aria-hidden />
-          </button>
+          </PanelHeaderButton>
         }
       />
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
-        <div>
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-3 py-4">
+        <div className="shrink-0">
           <SectionTitle>{t('foldersNameLabel')}</SectionTitle>
           <Input
             autoFocus
@@ -392,58 +330,63 @@ function EditScreen({
           />
         </div>
 
-        <div>
+        <div className="flex min-h-0 flex-1 flex-col">
           <SectionTitle>{t('foldersSelectedChats')}</SectionTitle>
-          {/* Весь состав без пагинации и без «показать ещё»: папку собирают глазами по
-              всему списку, и спрятанный хвост пришлось бы раскрывать каждый раз. */}
-          <div className="overflow-hidden rounded-2xl border border-border">
+          {/* Блок во всю оставшуюся высоту: рамка стоит на месте, а состав прокручивается
+              внутри неё. Весь состав без пагинации и без «показать ещё» — папку собирают
+              глазами по всему списку, и спрятанный хвост пришлось бы раскрывать каждый раз. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
             <button
               type="button"
               onClick={onAddChats}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+              className="flex w-full shrink-0 cursor-pointer items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-primary transition-colors hover:bg-primary/5"
             >
               <Plus className="size-4 shrink-0" aria-hidden />
               {t('foldersAddChats')}
             </button>
-            {draft.chatIds.map((id) => {
-              const c = chatById.get(id)
-              if (!c) return null
-              const title = chatTitle(c, t)
-              return (
-                <div key={id} className="flex items-center gap-2 border-t border-border px-3 py-2">
-                  <Avatar className="size-8 shrink-0">
-                    {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt="" />}
-                    <AvatarFallback
-                      className={cn('text-xs font-medium text-white', avatarColor(c.id))}
-                    >
-                      {chatInitials(title)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
-                  <button
-                    type="button"
-                    aria-label={t('foldersRemoveChat')}
-                    title={t('foldersRemoveChat')}
-                    onClick={() => onRemoveChat(id)}
-                    className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {draft.chatIds.map((id) => {
+                const c = chatById.get(id)
+                if (!c) return null
+                const title = chatTitle(c, t)
+                return (
+                  <div
+                    key={id}
+                    className="flex items-center gap-2 border-t border-border px-3 py-2"
                   >
-                    <X className="size-4" aria-hidden />
-                  </button>
-                </div>
-              )
-            })}
+                    <Avatar className="size-8 shrink-0">
+                      {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt="" />}
+                      <AvatarFallback
+                        className={cn('text-xs font-medium text-white', avatarColor(c.id))}
+                      >
+                        {chatInitials(title)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+                    <button
+                      type="button"
+                      aria-label={t('foldersRemoveChat')}
+                      title={t('foldersRemoveChat')}
+                      onClick={() => onRemoveChat(id)}
+                      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-          <p className="px-1 pt-1.5 text-xs text-muted-foreground">
-            {t('foldersPickChats', { count: draft.chatIds.length })}
-          </p>
         </div>
 
+        {/* Удаление прижато к низу колонки: это не продолжение состава, а выход из папки
+            совсем, и стоять вплотную к последнему чату ему нельзя. */}
         {onDelete && (
           <button
             type="button"
             disabled={busy}
             onClick={onDelete}
-            className="flex cursor-pointer items-center gap-2 rounded-2xl border border-border px-3 py-2.5 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
+            className="flex shrink-0 cursor-pointer items-center gap-2 rounded-2xl border border-border px-3 py-2.5 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
           >
             <Trash2 className="size-4 shrink-0" aria-hidden />
             {t('foldersDelete')}
@@ -512,35 +455,15 @@ function PickScreen({
         title={t('foldersPickTitle')}
         onBack={onCancel}
         action={
-          <button
-            type="button"
-            aria-label={t('foldersDone')}
-            title={t('foldersDone')}
-            onClick={() => onApply(sel)}
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10 active:scale-90"
-          >
+          <PanelHeaderButton label={t('foldersDone')} onClick={() => onApply(sel)}>
             <Check className="size-5" aria-hidden />
-          </button>
+          </PanelHeaderButton>
         }
       />
-      <div className="shrink-0 border-b border-border px-3 py-2">
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('search')}
-            aria-label={t('search')}
-            className="h-10 w-full rounded-lg border border-input bg-background pl-8 pr-2 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-          />
-        </div>
-      </div>
+      <PanelSearch value={query} onChange={setQuery} placeholder={t('search')} />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
-        <div>
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-3 py-4">
+        <div className="shrink-0">
           <SectionTitle>{t('foldersChatTypes')}</SectionTitle>
           <div className="overflow-hidden rounded-2xl border border-border">
             {TYPE_GROUPS.map((g, i) => {
@@ -565,45 +488,51 @@ function PickScreen({
           </div>
         </div>
 
-        <div>
+        <div className="flex min-h-0 flex-1 flex-col">
           <SectionTitle>{t('foldersChatsSection')}</SectionTitle>
-          <div className="overflow-hidden rounded-2xl border border-border">
+          {/* Блок во всю оставшуюся высоту: по мере набора в поиске рамка не должна
+              схлопываться до одной строки и снова разъезжаться. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
             {visible.length === 0 ? (
-              <p className="px-3 py-4 text-sm text-muted-foreground">{t('noResults')}</p>
+              <p className="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted-foreground">
+                {t('noResults')}
+              </p>
             ) : (
-              visible.map((c, i) => {
-                const title = chatTitle(c, t)
-                const tag = TYPE_TAG[c.type]
-                return (
-                  <label
-                    key={c.id}
-                    className={cn(
-                      'flex cursor-pointer items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
-                      i > 0 && 'border-t border-border',
-                    )}
-                  >
-                    <Avatar className="size-9 shrink-0">
-                      {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt="" />}
-                      <AvatarFallback
-                        className={cn('text-xs font-medium text-white', avatarColor(c.id))}
-                      >
-                        {chatInitials(title)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">{title}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {t(tag.key)}
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {visible.map((c, i) => {
+                  const title = chatTitle(c, t)
+                  const tag = TYPE_TAG[c.type]
+                  return (
+                    <label
+                      key={c.id}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+                        i > 0 && 'border-t border-border',
+                      )}
+                    >
+                      <Avatar className="size-9 shrink-0">
+                        {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt="" />}
+                        <AvatarFallback
+                          className={cn('text-xs font-medium text-white', avatarColor(c.id))}
+                        >
+                          {chatInitials(title)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {t(tag.key)}
+                        </span>
                       </span>
-                    </span>
-                    <Checkbox
-                      checked={selSet.has(c.id)}
-                      onCheckedChange={() => toggle(c.id)}
-                      aria-label={title}
-                    />
-                  </label>
-                )
-              })
+                      <Checkbox
+                        checked={selSet.has(c.id)}
+                        onCheckedChange={() => toggle(c.id)}
+                        aria-label={title}
+                      />
+                    </label>
+                  )
+                })}
+              </div>
             )}
           </div>
         </div>
