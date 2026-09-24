@@ -107,7 +107,6 @@ export function BlockedUsersPanel({
         }
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4">
-        <p className="shrink-0 pb-4 text-sm text-muted-foreground">{t('blockedDescription')}</p>
         {/* Блок держит всю оставшуюся высоту колонки и прокручивается внутри рамки: список
             блокировок то пустой, то в полсотни строк, и рамка не должна за ним прыгать. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border">
