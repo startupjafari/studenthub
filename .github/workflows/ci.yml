@@ -82,19 +82,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # MinIO нельзя поднять через `services:` — образу нужен аргумент `server /data`,
-      # который в service-контейнере не передать. Поэтому запускаем шагом.
-      # Образ тянем с quay.io: на Docker Hub репозиторий `minio/minio` больше не
-      # публикуется (pull отдаёт «pull access denied ... repository does not exist»),
-      # quay.io — официальный источник MinIO. Тег пришпилен, чтобы CI не зависел от
-      # свежего `latest`.
+      # MinIO поднимаем шагом, а не через `services:`: там нельзя дождаться готовности
+      # так, как это делает цикл ниже, а стартует сервер не мгновенно.
+      #
+      # Образ — сборка Bitnami, а не официальный `minio/minio`. Официальный больше не
+      # раздаётся публично ни с Docker Hub, ни с quay.io: оба реестра отдают 401
+      # («unauthorized: access to the requested resource is not authorized») даже на
+      # старые пришпиленные теги, и CI упал на ровном месте, без единой правки у нас.
+      # Внутри это тот же сервер MinIO — presigned PUT/GET, `response-content-disposition`
+      # и отказ на запрос без подписи проверены на нашем же SDK.
+      #
+      # `bitnamilegacy` — архив Bitnami: с 28.08.2025 бесплатно остаётся только он, зато
+      # теги там уже не двигаются. Аргумент `server /data` не нужен — его подставляет
+      # точка входа образа, а каталог данных у него свой.
       - name: Start MinIO
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=ci-access \
             -e MINIO_ROOT_PASSWORD=ci-secret \
-            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
