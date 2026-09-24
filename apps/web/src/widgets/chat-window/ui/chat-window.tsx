@@ -75,6 +75,7 @@ import {
   AttachmentDialog,
   ALBUM_MAX_ITEMS,
   compressImages,
+  convertUnsupportedImages,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -1180,7 +1181,11 @@ export function ChatWindow() {
       // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
       // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
       // единственный режим, где байты уходят ровно те, что выбрали.
-      const payloadFiles = fields.asFiles ? files : await compressImages(files)
+      // «Без сжатия» отправляет байты как есть — но HEIC так не дойдёт вовсе: сервер не
+      // принимает этот тип. Его переводим в JPEG в обоих режимах, остальное не трогаем.
+      const payloadFiles = fields.asFiles
+        ? await convertUnsupportedImages(files)
+        : await compressImages(files)
       // Повторная проверка размера уже по итоговым байтам: при выборе снимок мерился самым
       // мягким лимитом, потому что сжатие ещё впереди, — здесь видно, помогло ли оно.
       const oversize = payloadFiles.find((f) => f.size > maxUploadBytes(f.type))
