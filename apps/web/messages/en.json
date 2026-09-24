@@ -1617,9 +1617,21 @@
     "select": "Select",
     "selectedCount": "Selected: {count}",
     "deleteSelectedConfirm": "Delete selected messages ({count})?",
-    "typingStatus": "typing…",
-    "typingStatusName": "{name} is typing…",
-    "typingMany": "typing…",
+    "actions": {
+      "TYPING": "{count, plural, one {is typing…} other {are typing…}}",
+      "RECORDING_VOICE": "{count, plural, one {is recording a voice message…} other {are recording voice messages…}}",
+      "UPLOADING_PHOTO": "{count, plural, one {is sending a photo…} other {are sending photos…}}",
+      "UPLOADING_VIDEO": "{count, plural, one {is sending a video…} other {are sending videos…}}",
+      "UPLOADING_FILE": "{count, plural, one {is sending a file…} other {are sending files…}}"
+    },
+    "actionsNamed": {
+      "TYPING": "{name} is typing…",
+      "RECORDING_VOICE": "{name} is recording a voice message…",
+      "UPLOADING_PHOTO": "{name} is sending a photo…",
+      "UPLOADING_VIDEO": "{name} is sending a video…",
+      "UPLOADING_FILE": "{name} is sending a file…"
+    },
+    "actionsMany": "{count, plural, one {# participant is doing something…} other {# participants are doing something…}}",
     "unreadMessages": "Unread",
     "memberActions": "Actions",
     "openProfile": "Open profile",
@@ -1631,7 +1643,6 @@
     "messagePlaceholder": "Message…",
     "send": "Send",
     "edited": "edited",
-    "typing": "{count, plural, one {is typing} other {are typing}}",
     "typePrivate": "Private chat",
     "typeGroupOfficial": "Group chat",
     "typeFaculty": "Faculty chat",

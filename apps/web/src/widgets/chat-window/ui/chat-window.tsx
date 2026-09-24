@@ -33,7 +33,11 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { CHAT_FOLDER_LIMITS, type CreateChatPollInput } from '@studenthub/shared-schemas'
+import {
+  CHAT_FOLDER_LIMITS,
+  type ChatAction,
+  type CreateChatPollInput,
+} from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
@@ -98,6 +102,16 @@ import {
   uploadResumable,
 } from '../../../shared/api'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
+import {
+  applyAction,
+  summarizeActors,
+  sweepActions,
+  uploadActionOf,
+  UPLOAD_ACTION_DELAY_MS,
+  type ActionsByChat,
+} from '../lib/chat-actions'
+import { useChatActionSender, useEndChatActionOnUnmount } from '../lib/use-chat-action'
+import { useChatActionLabel } from '../lib/use-chat-action-label'
 import { ChatDetailsPanel } from './chat-details-panel'
 import { ChatFoldersDialog } from './chat-folders-dialog'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
@@ -197,9 +211,6 @@ const ROW_BTN_W = 72
 const FOCUS_RETRY_MS = 50
 const FOCUS_TRIES = 10
 
-/** Пустая карта набирающих: общая ссылка, чтобы отсутствие набора не перерисовывало ленту. */
-const NO_TYPING: Record<string, number> = {}
-
 // Сколько закреплений полоса показывает шкалой. Дальше деления тоньше волоса и читаются
 // как сплошная линия — там честнее число «3/12».
 const PINNED_SCALE_MAX = 6
@@ -246,6 +257,7 @@ function highlightTerm(text: string, term: string): React.ReactNode {
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
+  const actionLabelOf = useChatActionLabel()
   const tErr = useTranslations('Errors')
   const unitLabel = useByteUnitLabel()
   const tRoles = useTranslations('Roles')
@@ -254,6 +266,17 @@ export function ChatWindow() {
   const pathname = usePathname()
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
+  // Отправка «я сейчас это делаю». Сокет читаем через ref внутри хука, поэтому пересоздания
+  // соединения не роняют уже идущее действие.
+  const chatActions = useChatActionSender((chatId, action) => {
+    socket?.emit('chat:action', { chatId, action })
+  })
+  useEndChatActionOnUnmount(chatActions)
+  // Для эффектов, которым нужен только «стоп»: сам отправитель стабилен, но линтеру об этом
+  // не известно, а тащить его в зависимости эффекта по смене чата нельзя — эффект должен
+  // срабатывать ровно на смену чата.
+  const chatActionsRef = useRef(chatActions)
+  chatActionsRef.current = chatActions
   const me = useAppSelector((s) => s.auth.user)
   const myId = me?.id
   const confirm = useConfirm()
@@ -306,7 +329,8 @@ export function ChatWindow() {
    * (§1 карты интерфейса), а события теперь приходят в личную комнату по всем чатам, где
    * состоит смотрящий, а не только по открытому.
    */
-  const [typingByChat, setTypingByChat] = useState<Record<string, Record<string, number>>>({})
+  // Кто что делает в чатах прямо сейчас (§9.1). Состояние эфемерное — только в памяти вкладки.
+  const [actionsByChat, setActionsByChat] = useState<ActionsByChat>({})
   const [connected, setConnected] = useState(true)
   // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
   // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
@@ -460,7 +484,6 @@ export function ChatWindow() {
   const loadingOlderRef = useRef(false)
   // Был ли пользователь у нижнего края при прошлом событии скролла (для отметки прочтения по факту).
   const wasAtBottomRef = useRef(true)
-  const typingSentAt = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<RichTextHandle>(null)
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
@@ -981,11 +1004,20 @@ export function ChatWindow() {
   // Запись голосового: по завершению отправляем сразу как вложение (Telegram-стиль).
   const voice = useVoiceRecorder({
     onRecorded: (file) => {
+      chatActions.end()
       if (!activeId) return
       sendFiles({ replyToId: replyTo?.id, files: [file], silent: silentSend })
     },
-    onError: (kind) =>
-      toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied')),
+    // Собеседник видит «записывает голосовое…» всё время записи — это самый длинный
+    // промежуток в чате, когда снаружи не происходит ничего.
+    onStart: () => {
+      if (activeId) chatActions.begin(activeId, 'RECORDING_VOICE')
+    },
+    onStop: () => chatActions.end(),
+    onError: (kind) => {
+      chatActions.end()
+      toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied'))
+    },
   })
 
   // ── Оптимистичная отправка медиа (Telegram-стиль) ─────────────────────────────
@@ -1173,6 +1205,15 @@ export function ChatWindow() {
     const abort = new AbortController()
     uploadAborts.current.set(tempId, abort)
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
+
+    // «Отправляет фото…» показываем не сразу: сжатый снимок улетает за доли секунды, и подпись
+    // успела бы только мигнуть. Ждём UPLOAD_ACTION_DELAY_MS — за это время короткая загрузка
+    // успевает закончиться, и собеседник ничего лишнего не увидит.
+    const uploadAction = uploadActionOf(files)
+    const actionDelay = uploadAction
+      ? setTimeout(() => chatActions.begin(chatId, uploadAction), UPLOAD_ACTION_DELAY_MS)
+      : null
+
     try {
       // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
       // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
@@ -1223,6 +1264,10 @@ export function ChatWindow() {
         toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
       }
     } finally {
+      // Подпись снимаем в finally: отмена, ошибка сети и успешная отправка должны гасить её
+      // одинаково, иначе у собеседника останется «отправляет файл…» от загрузки, которой нет.
+      if (actionDelay) clearTimeout(actionDelay)
+      if (uploadAction) chatActions.end()
       uploadAborts.current.delete(tempId)
     }
   }
@@ -1599,43 +1644,29 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
-  useRealtimeEvent<{ chatId: string; userId: string }>('typing:started', ({ chatId, userId }) => {
-    if (userId === myId) return
-    setTypingByChat((prev) => ({ ...prev, [chatId]: { ...prev[chatId], [userId]: Date.now() } }))
-  })
-  useRealtimeEvent<{ chatId: string; userId: string }>('typing:stopped', ({ chatId, userId }) => {
-    setTypingByChat((prev) => {
-      const inChat = prev[chatId]
-      if (!inChat || !(userId in inChat)) return prev
-      const rest = { ...inChat }
-      delete rest[userId]
-      const next = { ...prev }
-      if (Object.keys(rest).length === 0) delete next[chatId]
-      else next[chatId] = rest
-      return next
-    })
-  })
+  // Только `chat:action`: сервер шлёт рядом и старые typing:started/typing:stopped, но они
+  // для клиентов прошлой версии — здесь это был бы тот же факт вторым путём.
+  useRealtimeEvent<{ chatId: string; userId: string; action: ChatAction | null }>(
+    'chat:action',
+    ({ chatId, userId, action }) => {
+      if (userId === myId) return
+      setActionsByChat((prev) => applyAction(prev, chatId, userId, action))
+    },
+  )
 
-  // Автоочистка «печатает» через 4с без обновления. Нужна не только от потерянного
-  // `typing:stopped`: набирающий мог закрыть вкладку, и подпись висела бы вечно — в строке
-  // списка это заметнее, чем в шапке, потому что туда никто не заходит её сбрасывать.
+  // Автоочистка подписей без подтверждения (см. ACTION_TTL_MS). Нужна не только от потерянного
+  // «стоп»: человек мог закрыть вкладку, и подпись висела бы вечно — в строке списка это
+  // заметнее, чем в шапке, потому что туда никто не заходит её сбрасывать.
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTypingByChat((prev) => {
-        const now = Date.now()
-        const next: Record<string, Record<string, number>> = {}
-        let changed = false
-        for (const [chatId, users] of Object.entries(prev)) {
-          const alive: Record<string, number> = {}
-          for (const [uid, ts] of Object.entries(users)) if (now - ts < 4000) alive[uid] = ts
-          if (Object.keys(alive).length !== Object.keys(users).length) changed = true
-          if (Object.keys(alive).length > 0) next[chatId] = alive
-        }
-        return changed ? next : prev
-      })
-    }, 2000)
+    const timer = setInterval(() => setActionsByChat((prev) => sweepActions(prev)), 2000)
     return () => clearInterval(timer)
   }, [])
+
+  // Ушли из чата — действие закончилось. Без этого «печатает…» висело бы в покинутом диалоге
+  // до таймаута: набор текста явного «стоп» не шлёт.
+  useEffect(() => {
+    return () => chatActionsRef.current.end()
+  }, [activeId])
 
   // Сообщаем оболочке, открыт ли чат (полноэкранный режим → скрыть нижнюю навигацию на мобильном).
   useEffect(() => {
@@ -2040,7 +2071,7 @@ export function ChatWindow() {
       replyQuote: replyQuote ?? undefined,
       silent: silentSend,
     })
-    socket.emit('typing:stop', { chatId: activeId })
+    chatActions.end()
     setText('')
     draftsRef.current.delete(activeId)
     // #3: отправили — гасим серверный черновик (и локальный таймер сохранения).
@@ -2302,11 +2333,9 @@ export function ChatWindow() {
     const m = before.match(/(?:^|\s)@(\S*)$/)
     setMentionQuery(m ? (m[1] ?? '') : null)
     if (!socket || !activeId) return
-    const now = Date.now()
-    if (now - typingSentAt.current > 3000) {
-      typingSentAt.current = now
-      socket.emit('typing:start', { chatId: activeId })
-    }
+    // Явного «перестал печатать» нет намеренно: подпись гаснет у получателя по таймауту.
+    // Это дешевле лишнего события и переживает закрытие вкладки и потерю сети.
+    chatActions.ping(activeId, 'TYPING')
   }
 
   // Вставка упоминания: заменяет «@запрос» перед курсором на «@Имя Фамилия ».
@@ -2518,12 +2547,14 @@ export function ChatWindow() {
     searchJumpedFor.current = null
   }
 
-  const typingUsers = (activeId ? typingByChat[activeId] : undefined) ?? NO_TYPING
-  const typingCount = Object.keys(typingUsers).length
-  // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
-  const firstTyperId = Object.keys(typingUsers)[0]
-  const firstTyperName = firstTyperId
-    ? membersQuery.data?.find((u) => u.id === firstTyperId)?.firstName
+  // Подпись действия для шапки (Telegram-стиль): в группе — с именем начавшего раньше всех.
+  const actionSummary = summarizeActors(activeId ? actionsByChat[activeId] : undefined)
+  const actorName = actionSummary
+    ? membersQuery.data?.find(
+        (u) =>
+          u.id ===
+          (actionSummary.kind === 'single' ? actionSummary.userId : actionSummary.firstUserId),
+      )?.firstName
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
   const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
@@ -2576,6 +2607,8 @@ export function ChatWindow() {
   const showSend = !!editing || hasText
   const recMMSS = `${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`
   const isPrivate = activeChat?.type === 'PRIVATE'
+  // Имя показываем только в групповом чате: в личном собеседник и так один.
+  const actionLabel = actionLabelOf(actionSummary, { name: actorName, withName: !isPrivate })
   const memberIds = Object.keys(presence)
   const otherId = memberIds.find((id) => id !== myId)
   const otherOnline = isPrivate && otherId ? presence[otherId] === true : false
@@ -2772,7 +2805,7 @@ export function ChatWindow() {
       onRowTouchMove={chatRows.onRowTouchMove}
       onRowTouchEnd={chatRows.onRowTouchEnd}
       onCloseSwiped={chatRows.closeRow}
-      typingByChat={typingByChat}
+      actionsByChat={actionsByChat}
       onMarkRead={markChatRead}
       onOpenInNewTab={(c) => {
         // Тот же адрес, что и у «Написать» из профиля (?chat=<id>) — второе окно открывается
@@ -3137,14 +3170,8 @@ export function ChatWindow() {
                     )}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {typingCount > 0 ? (
-                      <span className="text-primary">
-                        {isPrivate || typingCount > 1 || !firstTyperName
-                          ? isPrivate
-                            ? t('typingStatus')
-                            : t('typingMany')
-                          : t('typingStatusName', { name: firstTyperName })}
-                      </span>
+                    {actionLabel ? (
+                      <span className="text-primary">{actionLabel}</span>
                     ) : isPrivate ? (
                       otherOnline ? (
                         t('online')

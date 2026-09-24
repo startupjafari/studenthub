@@ -1617,9 +1617,21 @@
     "select": "Таңдау",
     "selectedCount": "Таңдалды: {count}",
     "deleteSelectedConfirm": "Таңдалған хабарламаларды жою ({count})?",
-    "typingStatus": "теруде…",
-    "typingStatusName": "{name} теруде…",
-    "typingMany": "теруде…",
+    "actions": {
+      "TYPING": "{count, plural, one {теріп жатыр…} other {теріп жатыр…}}",
+      "RECORDING_VOICE": "{count, plural, one {дауыстық жазып жатыр…} other {дауыстық жазып жатыр…}}",
+      "UPLOADING_PHOTO": "{count, plural, one {фото жіберіп жатыр…} other {фото жіберіп жатыр…}}",
+      "UPLOADING_VIDEO": "{count, plural, one {бейне жіберіп жатыр…} other {бейне жіберіп жатыр…}}",
+      "UPLOADING_FILE": "{count, plural, one {файл жіберіп жатыр…} other {файл жіберіп жатыр…}}"
+    },
+    "actionsNamed": {
+      "TYPING": "{name} теріп жатыр…",
+      "RECORDING_VOICE": "{name} дауыстық жазып жатыр…",
+      "UPLOADING_PHOTO": "{name} фото жіберіп жатыр…",
+      "UPLOADING_VIDEO": "{name} бейне жіберіп жатыр…",
+      "UPLOADING_FILE": "{name} файл жіберіп жатыр…"
+    },
+    "actionsMany": "{count, plural, one {# қатысушы бірдеңе істеп жатыр…} other {# қатысушы бірдеңе істеп жатыр…}}",
     "unreadMessages": "Оқылмаған",
     "memberActions": "Әрекеттер",
     "openProfile": "Профильді ашу",
@@ -1631,7 +1643,6 @@
     "messagePlaceholder": "Хабарлама…",
     "send": "Жіберу",
     "edited": "өзгертілді",
-    "typing": "{count, plural, one {теруде} other {теруде}}",
     "typePrivate": "Жеке чат",
     "typeGroupOfficial": "Топ чаты",
     "typeFaculty": "Факультет чаты",

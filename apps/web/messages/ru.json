@@ -1617,9 +1617,21 @@
     "select": "Выбрать",
     "selectedCount": "Выбрано: {count}",
     "deleteSelectedConfirm": "Удалить выбранные сообщения ({count})?",
-    "typingStatus": "печатает…",
-    "typingStatusName": "{name} печатает…",
-    "typingMany": "печатают…",
+    "actions": {
+      "TYPING": "{count, plural, one {печатает…} other {печатают…}}",
+      "RECORDING_VOICE": "{count, plural, one {записывает голосовое…} other {записывают голосовое…}}",
+      "UPLOADING_PHOTO": "{count, plural, one {отправляет фото…} other {отправляют фото…}}",
+      "UPLOADING_VIDEO": "{count, plural, one {отправляет видео…} other {отправляют видео…}}",
+      "UPLOADING_FILE": "{count, plural, one {отправляет файл…} other {отправляют файл…}}"
+    },
+    "actionsNamed": {
+      "TYPING": "{name} печатает…",
+      "RECORDING_VOICE": "{name} записывает голосовое…",
+      "UPLOADING_PHOTO": "{name} отправляет фото…",
+      "UPLOADING_VIDEO": "{name} отправляет видео…",
+      "UPLOADING_FILE": "{name} отправляет файл…"
+    },
+    "actionsMany": "{count, plural, one {# участник что-то делает…} few {# участника что-то делают…} other {# участников что-то делают…}}",
     "unreadMessages": "Непрочитанные",
     "memberActions": "Действия",
     "openProfile": "Открыть профиль",
@@ -1631,7 +1643,6 @@
     "messagePlaceholder": "Сообщение…",
     "send": "Отправить",
     "edited": "изменено",
-    "typing": "{count, plural, one {печатает} other {печатают}}",
     "typePrivate": "Личный чат",
     "typeGroupOfficial": "Чат группы",
     "typeFaculty": "Чат факультета",
