@@ -40,6 +40,10 @@ function pickAudioFormat(): { mimeType?: string; ext: string } {
 // Поддерживает паузу/возобновление и отдаёт уровень громкости для анимации волн.
 export function useVoiceRecorder(opts: {
   onRecorded: (file: File) => void
+  /** Запись пошла. Чат сообщает об этом собеседнику подписью «записывает голосовое…». */
+  onStart?: () => void
+  /** Запись кончилась — отправкой, отменой или ошибкой. Зовётся ровно один раз на запись. */
+  onStop?: () => void
   onError?: (kind: 'unsupported' | 'denied') => void
 }): VoiceRecorderController {
   const [recording, setRecording] = useState(false)
@@ -56,6 +60,10 @@ export function useVoiceRecorder(opts: {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const onRecordedRef = useRef(opts.onRecorded)
   onRecordedRef.current = opts.onRecorded
+  // Через ref, как и onRecorded: обработчик `recorder.onstop` замыкается на момент старта
+  // записи, и прямой вызов звал бы колбэк той версии компонента, которой уже нет.
+  const onStopRef = useRef(opts.onStop)
+  onStopRef.current = opts.onStop
 
   const stopTimer = (): void => {
     if (timerRef.current) {
@@ -117,6 +125,9 @@ export function useVoiceRecorder(opts: {
         teardown()
         setRecording(false)
         setPaused(false)
+        // Раньше onRecorded: подпись «записывает голосовое…» должна погаснуть до того, как
+        // начнётся отправка, иначе на мгновение показываются два действия сразу.
+        onStopRef.current?.()
         if (!cancelled && blob.size > 0) {
           // Имя всегда `voice-msg.<ext>` — по префиксу `voice-` чат распознаёт голосовое.
           onRecordedRef.current(new File([blob], `voice-msg.${formatRef.current.ext}`, { type }))
@@ -128,6 +139,7 @@ export function useVoiceRecorder(opts: {
       setPaused(false)
       setRecording(true)
       startTimer()
+      opts.onStart?.()
     } catch {
       teardown()
       opts.onError?.('denied')

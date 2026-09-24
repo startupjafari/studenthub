@@ -55,6 +55,8 @@ import {
   TYPE_TAG,
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
+import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
+import { useChatActionLabel } from '../lib/use-chat-action-label'
 
 // Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
 type MsgSearchItem = {
@@ -122,7 +124,7 @@ export type ConversationListProps = {
    * чаты, а тянуть справочник участников ради подписи в строке — запрос на каждое нажатие
    * клавиши у собеседника. В личном чате имя и так очевидно, в группе хватает «печатают…».
    */
-  typingByChat: Record<string, Record<string, number>>
+  actionsByChat: ActionsByChat
   onMarkRead: (id: string) => void
   onTogglePin: (c: ChatListItem) => void
   onToggleMute: (c: ChatListItem) => void
@@ -180,7 +182,7 @@ export function ConversationList({
   onRowTouchMove,
   onRowTouchEnd,
   onCloseSwiped,
-  typingByChat,
+  actionsByChat,
   onMarkRead,
   onTogglePin,
   onToggleMute,
@@ -196,6 +198,7 @@ export function ConversationList({
   onDeleteFolder,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
+  const actionLabelOf = useChatActionLabel()
   const tRoles = useTranslations('Roles')
   const [folder, setFolder] = useState<string>('folderAll')
   // Единственный вход к человеку — это поле: пустое состояние не уводит в отдельное окно,
@@ -688,7 +691,8 @@ export function ConversationList({
             const tag = TYPE_TAG[c.type]
             // «Печатает» вытесняет превью последнего сообщения: пока собеседник набирает,
             // это и есть самое свежее, что происходит в чате.
-            const typingHere = Object.keys(typingByChat[c.id] ?? {}).length
+            // Имя в строке списка не показываем: места на него нет, строка и так обрезается.
+            const actionHere = actionLabelOf(summarizeActors(actionsByChat[c.id]))
             return (
               <div
                 key={c.id}
@@ -852,10 +856,8 @@ export function ConversationList({
                       )}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5">
-                      {typingHere > 0 ? (
-                        <p className="min-w-0 flex-1 truncate text-xs text-primary">
-                          {typingHere > 1 ? t('typingMany') : t('typingStatus')}
-                        </p>
+                      {actionHere ? (
+                        <p className="min-w-0 flex-1 truncate text-xs text-primary">{actionHere}</p>
                       ) : (
                         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                           {previewWho && <span className="text-foreground/70">{previewWho}</span>}
