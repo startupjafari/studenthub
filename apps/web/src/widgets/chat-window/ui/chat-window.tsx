@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -79,6 +79,7 @@ import {
   AttachmentDialog,
   ALBUM_MAX_ITEMS,
   compressImages,
+  convertUnsupportedImages,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -113,12 +114,12 @@ import {
 import { useChatActionSender, useEndChatActionOnUnmount } from '../lib/use-chat-action'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
 import { ChatDetailsPanel } from './chat-details-panel'
-import { ChatFoldersDialog } from './chat-folders-dialog'
+import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
-import { BlockedUsersDialog } from './blocked-users-dialog'
-import { CreateGroupDialog } from './create-group-dialog'
+import { BlockedUsersPanel } from './blocked-users-panel'
+import { CreateGroupPanel } from './create-group-panel'
 import { ScheduleSendDialog } from './schedule-send-dialog'
 import { ScheduledPanel } from './scheduled-panel'
 import {
@@ -131,7 +132,6 @@ import {
   MenuSeparator,
   Modal,
   RowContextMenu,
-  Skeleton,
   useConfirm,
   type RichTextHandle,
 } from '../../../shared/ui'
@@ -221,15 +221,6 @@ const DAY_LABEL_H = 36
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
-const MESSAGE_SKELETONS = [
-  { mine: false, size: 'h-10 w-48' },
-  { mine: true, size: 'h-14 w-56' },
-  { mine: false, size: 'h-10 w-36' },
-  { mine: true, size: 'h-10 w-44' },
-  { mine: false, size: 'h-20 w-52' },
-  { mine: true, size: 'h-10 w-32' },
-]
-
 // Иконочные кнопки шапок чата (обычная, поиск, выбор сообщений) — одна геометрия на все три
 // режима: 44 px под палец (§13) и 40 px под курсор, иконка внутри size-5. Раньше в одном ряду
 // стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
@@ -357,6 +348,9 @@ export function ChatWindow() {
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  // Перетаскивание файлов в переписку: подсветка зоны и счётчик вложенных dragenter/dragleave.
+  const [dropActive, setDropActive] = useState(false)
+  const dragDepth = useRef(0)
   // Создание опроса (§38) — диалог из attachment-меню композера.
   const [pollCreatorOpen, setPollCreatorOpen] = useState(false)
   // Единый поиск в панели чатов: по названиям чатов + по сообщениям (глобально).
@@ -758,6 +752,30 @@ export function ChatWindow() {
     onSuccess: invalidateFolders,
     onError: folderError,
   })
+
+  /**
+   * Новый порядок вкладок после перетаскивания папки.
+   *
+   * Отдельной ручки «переставить всё» у API нет — уезжает по PATCH на каждую сдвинувшуюся
+   * папку. Кэш переписываем сразу: порядок правят перетаскиванием, и вернуться на секунду
+   * к старому читалось бы как «не получилось».
+   */
+  const reorderFolders = (ids: string[]): void => {
+    const byId = new Map(folderList.map((f) => [f.id, f]))
+    const next = ids.flatMap((id, position) => {
+      const f = byId.get(id)
+      return f ? [{ ...f, position }] : []
+    })
+    const previous = folderList
+    qc.setQueryData<ChatFolder[]>(chatKeys.folders(), next)
+    const moved = next.filter((f) => byId.get(f.id)?.position !== f.position)
+    void Promise.all(moved.map((f) => updateChatFolderRequest(f.id, { position: f.position })))
+      .catch((e) => {
+        qc.setQueryData<ChatFolder[]>(chatKeys.folders(), previous)
+        folderError(e)
+      })
+      .finally(invalidateFolders)
+  }
 
   const mute = useMutation({
     mutationFn: ({
@@ -1218,7 +1236,11 @@ export function ChatWindow() {
       // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
       // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
       // единственный режим, где байты уходят ровно те, что выбрали.
-      const payloadFiles = fields.asFiles ? files : await compressImages(files)
+      // «Без сжатия» отправляет байты как есть — но HEIC так не дойдёт вовсе: сервер не
+      // принимает этот тип. Его переводим в JPEG в обоих режимах, остальное не трогаем.
+      const payloadFiles = fields.asFiles
+        ? await convertUnsupportedImages(files)
+        : await compressImages(files)
       // Повторная проверка размера уже по итоговым байтам: при выборе снимок мерился самым
       // мягким лимитом, потому что сжатие ещё впереди, — здесь видно, помогло ли оно.
       const oversize = payloadFiles.find((f) => f.size > maxUploadBytes(f.type))
@@ -2377,6 +2399,15 @@ export function ChatWindow() {
     )
   }
 
+  /**
+   * Перетаскивание принимаем, только когда тащат файлы и в открытый чат, куда вообще можно
+   * писать. Текст и ссылки из других вкладок сюда ронять незачем — их вставляют в поле.
+   */
+  function canDropFiles(e: DragEvent): boolean {
+    if (!activeId || !connected || editing) return false
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+  }
+
   function addFiles(list: FileList | null): void {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
@@ -2834,6 +2865,53 @@ export function ChatWindow() {
     />
   )
 
+  // Настройка папок (§2) — панель на месте списка чатов, а не окно поверх него: сборка
+  // папки идёт по всему списку диалогов, и в окне ей всегда было тесно.
+  const foldersPanel = (
+    <ChatFoldersPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      folders={folderList}
+      chats={chats.data ?? []}
+      busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
+      editId={foldersEditId}
+      onClose={() => setFoldersOpen(false)}
+      onCreate={(input) => createFolder.mutate(input)}
+      onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
+      onDelete={(id) => {
+        const folder = folderList.find((f) => f.id === id)
+        if (!folder) return
+        void confirm({
+          title: t('foldersDeleteConfirm', { name: folder.name }),
+          destructive: true,
+        }).then((ok) => {
+          if (ok) deleteFolder.mutate(id)
+        })
+      }}
+      onReorder={reorderFolders}
+    />
+  )
+
+  const blockedPanel = (
+    <BlockedUsersPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      onClose={() => setBlockedOpen(false)}
+    />
+  )
+
+  const createGroupPanel = (
+    <CreateGroupPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      onClose={() => setCreateGroupOpen(false)}
+      onCreated={(chatId) => {
+        setCreateGroupOpen(false)
+        setActiveId(chatId)
+      }}
+    />
+  )
+
   // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
   // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
   // снятие блокировки — среди обычных пунктов.
@@ -2860,10 +2938,56 @@ export function ChatWindow() {
 
   return (
     <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
-      {embedded && listSlot ? createPortal(chatList, listSlot) : chatList}
+      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, список
+          чатов уступает ему место — и на телефоне во весь экран, и в сайдбаре десктопа. */}
+      {(() => {
+        const column = foldersOpen
+          ? foldersPanel
+          : blockedOpen
+            ? blockedPanel
+            : createGroupOpen
+              ? createGroupPanel
+              : chatList
+        return embedded && listSlot ? createPortal(column, listSlot) : column
+      })()}
 
-      {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран. */}
-      <section className={cn('min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
+      {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран.
+          Она же зона перетаскивания: файл роняют в переписку целиком, а не точно в поле
+          ввода. Счётчик dragDepth — чтобы подсветка не мигала, когда курсор проходит над
+          вложенными элементами: dragleave прилетает на каждый из них. */}
+      <section
+        className={cn('relative min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}
+        onDragEnter={(e) => {
+          if (!canDropFiles(e)) return
+          dragDepth.current += 1
+          setDropActive(true)
+        }}
+        onDragOver={(e) => {
+          if (!canDropFiles(e)) return
+          // Без preventDefault браузер откроет файл вместо того, чтобы отдать его нам.
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDragLeave={(e) => {
+          if (!canDropFiles(e)) return
+          dragDepth.current = Math.max(0, dragDepth.current - 1)
+          if (dragDepth.current === 0) setDropActive(false)
+        }}
+        onDrop={(e) => {
+          if (!canDropFiles(e)) return
+          e.preventDefault()
+          dragDepth.current = 0
+          setDropActive(false)
+          addFiles(e.dataTransfer.files)
+        }}
+      >
+        {dropActive && (
+          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 duration-150 animate-in fade-in">
+            <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
+              {t('dropHint')}
+            </span>
+          </div>
+        )}
         {!activeId ? (
           <div className="flex flex-1 items-center justify-center p-6 duration-300 animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">
@@ -3513,19 +3637,10 @@ export function ChatWindow() {
                 // по его высоте, иначе последнее сообщение уезжает под панель.
                 style={{ paddingBottom: composerH + 8 }}
               >
-                {messages.isLoading ? (
-                  <div className="flex flex-col gap-3">
-                    {MESSAGE_SKELETONS.map((bubble, i) => (
-                      <div
-                        key={i}
-                        className={cn('flex', bubble.mine ? 'justify-end' : 'justify-start')}
-                        aria-hidden
-                      >
-                        <Skeleton className={cn('rounded-2xl', bubble.size)} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+                {/* Пока лента едет — пусто. Пузыри-заглушки читались как настоящие
+                    сообщения: человек начинал их читать ровно в тот момент, когда они
+                    сменялись реальной перепиской. */}
+                {messages.isLoading ? null : (
                   <Virtualizer ref={virtualizerRef} scrollRef={messagesScrollRef} shift={shiftMode}>
                     {(messages.data ?? []).map((m, i) => {
                       const mine = m.senderId === myId
@@ -3824,16 +3939,6 @@ export function ChatWindow() {
         <ScheduledPanel chatId={activeId} onClose={() => setScheduledOpen(false)} />
       )}
 
-      {createGroupOpen && (
-        <CreateGroupDialog
-          onClose={() => setCreateGroupOpen(false)}
-          onCreated={(chatId) => {
-            setCreateGroupOpen(false)
-            setActiveId(chatId)
-          }}
-        />
-      )}
-
       {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
       {pinnedMenu &&
         (() => {
@@ -3926,18 +4031,6 @@ export function ChatWindow() {
         </Modal>
       )}
 
-      <ChatFoldersDialog
-        open={foldersOpen}
-        onOpenChange={setFoldersOpen}
-        folders={folderList}
-        chats={chats.data ?? []}
-        busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
-        editId={foldersEditId}
-        onCreate={(input) => createFolder.mutate(input)}
-        onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
-        onDelete={(id) => deleteFolder.mutate(id)}
-      />
-
       {pollCreatorOpen && (
         <PollCreator
           onClose={() => setPollCreatorOpen(false)}
@@ -3945,8 +4038,6 @@ export function ChatWindow() {
           pending={createPoll.isPending}
         />
       )}
-
-      {blockedOpen && <BlockedUsersDialog onClose={() => setBlockedOpen(false)} />}
 
       {attachOpen && (
         <AttachmentDialog

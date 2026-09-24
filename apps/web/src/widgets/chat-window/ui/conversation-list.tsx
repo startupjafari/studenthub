@@ -19,11 +19,11 @@ import {
   FolderCog,
   FolderPlus,
   Loader2,
-  MoreVertical,
   MessagesSquare,
   Pin,
   PinOff,
   Search,
+  Settings,
   ShieldBan,
   Trash2,
   UserRoundSearch,
@@ -40,7 +40,6 @@ import {
   EmptyState,
   RowContextMenu,
   SegmentedTabs,
-  Skeleton,
   captureAnchor,
   type MenuAnchor,
   type SegmentedTabItem,
@@ -389,7 +388,7 @@ export function ConversationList({
               newChatOpen && 'bg-muted text-foreground',
             )}
           >
-            <MoreVertical className="size-5" aria-hidden />
+            <Settings className="size-5" aria-hidden />
           </button>
           {newChatOpen && (
             <>
@@ -415,6 +414,17 @@ export function ConversationList({
                   type="button"
                   onClick={() => {
                     onCloseNewChat()
+                    onManageFolders()
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <FolderCog className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('foldersManage')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCloseNewChat()
                     onOpenBlocked()
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
@@ -433,7 +443,10 @@ export function ConversationList({
           у краёв, доводка активной вкладки) приходит вместе с ним. Свои чипы были
           отдельным языком: заливка `bg-primary` целиком и цель в 28px на десктопе. */}
       {searchTerm.length < 2 && chats.length > 0 && (
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+        <div className="flex items-center border-b border-border px-2 py-1">
+          {/* Кнопки настройки рядом с рядом нет: «Настроить папки» живёт в меню шапки.
+              Ряд вкладок — навигация, и постоянная кнопка-шестерёнка на его краю отъедала
+              место у самих папок ровно там, где их и не хватает — на телефоне. */}
           <SegmentedTabs
             className="min-w-0 flex-1"
             items={folderItems}
@@ -447,23 +460,6 @@ export function ConversationList({
             collapsible={false}
             aria-label={t('foldersTitle')}
           />
-          {/* Свои папки настраиваются здесь же: вкладки — единственное место, где они видны.
-              `self-stretch` — высота берётся от ряда табов, а не задаётся числом: у табов
-              своя шкала (в `compact` — 40px под палец, 28px под курсор) плюс отступы
-              контейнера, и повторять её здесь константой значило бы ломать пару при любой
-              правке табов. Ширина же задаётся руками и держит квадрат: w-11 под 44px ряда
-              на телефоне, lg:w-8 под 32px на десктопе.
-              Поверхность тоже общая с рядом — иначе рядом с обведённым контейнером
-              висела бы голая иконка. */}
-          <button
-            type="button"
-            onClick={onManageFolders}
-            aria-label={t('foldersManage')}
-            title={t('foldersManage')}
-            className="flex w-11 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:w-8 lg:rounded-xl"
-          >
-            <FolderCog className="size-4" aria-hidden />
-          </button>
         </div>
       )}
       <div
@@ -653,11 +649,11 @@ export function ConversationList({
             )}
           </div>
         ) : chatsLoading ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full shrink-0 rounded-xl" />
-            ))}
-          </div>
+          // Пока список едет — пусто. Скелетон-заглушка рисовала десять несуществующих
+          // строк, которые тут же сменялись настоящими: мельтешение вместо ожидания.
+          // Ветку всё равно держим отдельно от «чатов нет»: иначе на секунду загрузки
+          // показывалось бы пустое состояние, и человек успевал бы поверить, что чатов нет.
+          <div className="min-h-0 flex-1" />
         ) : visibleChats.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col p-3">
             <EmptyState

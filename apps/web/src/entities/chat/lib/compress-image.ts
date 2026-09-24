@@ -22,8 +22,23 @@ const QUALITY = 0.82
  */
 const MIN_GAIN = 0.9
 
+/**
+ * HEIC/HEIF — формат по умолчанию у камеры iPhone, и в белый список сервера он не входит:
+ * такой снимок отправить нельзя вовсе. Здесь он не «сжимается ради трафика», а переводится
+ * в JPEG, чтобы дойти до чата и открыться у получателя (Chrome и Firefox HEIC не рисуют).
+ *
+ * Тип смотрим и по расширению: для HEIC браузер нередко отдаёт пустой `file.type`, и одной
+ * проверки MIME не хватает.
+ */
+function isHeic(file: File): boolean {
+  const mime = file.type.toLowerCase()
+  if (mime.startsWith('image/heic') || mime.startsWith('image/heif')) return true
+  return /\.hei[cf]$/i.test(file.name)
+}
+
 /** Снимки, которые сжимать нельзя: анимация и вектор потеряют себя в растровом JPEG. */
 function isCompressible(file: File): boolean {
+  if (isHeic(file)) return true
   if (!file.type.startsWith('image/')) return false
   return file.type !== 'image/gif' && file.type !== 'image/svg+xml'
 }
@@ -45,12 +60,16 @@ export async function compressImage(file: File): Promise<File> {
   if (!isCompressible(file)) return file
   if (typeof createImageBitmap !== 'function') return file
 
+  // HEIC переводим всегда: для него это не экономия трафика, а единственный способ дойти
+  // до чата, поэтому ни «уже маленький», ни «выигрыш мал» его не останавливают.
+  const mustConvert = isHeic(file)
+
   let bitmap: ImageBitmap | null = null
   try {
     bitmap = await createImageBitmap(file)
     const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height))
     // Снимок и так меньше потолка: пережимать его в JPEG значит только потерять качество.
-    if (scale === 1 && file.type === 'image/jpeg') return file
+    if (!mustConvert && scale === 1 && file.type === 'image/jpeg') return file
 
     const width = Math.max(1, Math.round(bitmap.width * scale))
     const height = Math.max(1, Math.round(bitmap.height * scale))
@@ -64,14 +83,17 @@ export async function compressImage(file: File): Promise<File> {
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob(resolve, 'image/jpeg', QUALITY)
     })
-    if (!blob || blob.size >= file.size * MIN_GAIN) return file
+    if (!blob) return file
+    if (!mustConvert && blob.size >= file.size * MIN_GAIN) return file
 
     return new File([blob], toJpegName(file.name), {
       type: 'image/jpeg',
       lastModified: file.lastModified,
     })
   } catch {
-    // Битый файл, нехватка памяти, снимок в неподдерживаемом формате — отправляем оригинал.
+    // Битый файл, нехватка памяти, формат, который браузер не декодирует, — отправляем
+    // оригинал. Для HEIC это означает отказ сервера по типу: декодировать его умеют
+    // только Safari и Edge, и заменить это в браузере нечем.
     return file
   } finally {
     bitmap?.close()
@@ -81,4 +103,15 @@ export async function compressImage(file: File): Promise<File> {
 /** Сжать всё, что сжимается, параллельно. Несжимаемое проходит насквозь. */
 export async function compressImages(files: File[]): Promise<File[]> {
   return Promise.all(files.map((f) => compressImage(f)))
+}
+
+/**
+ * Перевести в JPEG только то, что иначе не дойдёт до чата, — сейчас это HEIC с айфона.
+ *
+ * Нужно для отправки «без сжатия»: там байты сознательно уходят как есть, но HEIC в белый
+ * список сервера не входит, и «как есть» для него означает отказ по типу. Остальные файлы
+ * проходят нетронутыми, как и задумано этим режимом.
+ */
+export async function convertUnsupportedImages(files: File[]): Promise<File[]> {
+  return Promise.all(files.map((f) => (isHeic(f) ? compressImage(f) : Promise.resolve(f))))
 }

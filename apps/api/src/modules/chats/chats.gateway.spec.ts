@@ -271,3 +271,62 @@ describe('ChatGateway.onChatAction — действия в чате', () => {
     })
   })
 })
+
+describe('ChatGateway.onMessageSend — «пустой» текст', () => {
+  // Проверка нормализации из MessageSendSchema: композер обрезает текст сам, и в браузере
+  // правило соблюдалось, но по WS напрямую проходили и строка из пробелов, и один U+200B.
+  it.each([
+    ['только пробелы', '     '],
+    ['неразрывные пробелы и табы', ' \t  '],
+    ['нулевой ширины пробел', '​'],
+    ['word joiner и BOM', '⁠﻿'],
+    ['одни переводы строки', '\n\n\n'],
+  ])('%s → VALIDATION_ERROR, сообщение не создаётся', async (_label, content) => {
+    const createMessage = jest.fn()
+    const { gateway, serverEmit } = setup({ createMessage })
+    const { client } = makeClient('u1')
+    await gateway.onMessageSend(client as unknown as Socket, { chatId: 'c1', content })
+    expect(createMessage).not.toHaveBeenCalled()
+    expect(client.emit).toHaveBeenCalledWith('error', {
+      event: 'message:send',
+      code: 'VALIDATION_ERROR',
+    })
+    expect(serverEmit).not.toHaveBeenCalled()
+  })
+
+  it('пробелы по краям обрезаются до сохранения', async () => {
+    const message = { id: 'm1', chatId: 'c1', senderId: 'u1', content: 'привет' }
+    const createMessage = jest.fn().mockResolvedValue({ message, recipientIds: [] })
+    const { gateway } = setup({ createMessage })
+    const { client } = makeClient('u1')
+    await gateway.onMessageSend(client as unknown as Socket, {
+      chatId: 'c1',
+      content: '   привет   ',
+    })
+    expect(createMessage).toHaveBeenCalledWith('u1', { chatId: 'c1', content: 'привет' })
+  })
+
+  it('текст на 4000 символов с пробелами по краям проходит: длина считается после обрезки', async () => {
+    const message = { id: 'm1', chatId: 'c1', senderId: 'u1', content: 'x'.repeat(4000) }
+    const createMessage = jest.fn().mockResolvedValue({ message, recipientIds: [] })
+    const { gateway } = setup({ createMessage })
+    const { client } = makeClient('u1')
+    await gateway.onMessageSend(client as unknown as Socket, {
+      chatId: 'c1',
+      content: `  ${'x'.repeat(4000)}  `,
+    })
+    expect(createMessage).toHaveBeenCalledWith('u1', { chatId: 'c1', content: 'x'.repeat(4000) })
+  })
+
+  it('правка сообщения подчиняется тому же правилу', async () => {
+    const editMessage = jest.fn()
+    const { gateway } = setup({ editMessage })
+    const { client } = makeClient('u1')
+    await gateway.onMessageEdit(client as unknown as Socket, { messageId: 'm1', content: '  ​ ' })
+    expect(editMessage).not.toHaveBeenCalled()
+    expect(client.emit).toHaveBeenCalledWith('error', {
+      event: 'message:edit',
+      code: 'VALIDATION_ERROR',
+    })
+  })
+})

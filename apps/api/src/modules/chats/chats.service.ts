@@ -1683,7 +1683,8 @@ export class ChatsService {
     await this.assertCanSend(chatId, senderId)
     await this.assertReplyInChat(chatId, input.replyToId)
     const bucket = this.chatBucket()
-    const content = input.content?.trim() ?? ''
+    // Нормализацию текста делает схема (MessageSendUploadedSchema → messageText).
+    const content = input.content ?? ''
 
     const created = await this.prisma.$transaction(async (tx) =>
       tx.message.create({
@@ -1772,7 +1773,9 @@ export class ChatsService {
     await this.assertMembership(senderId, input.chatId)
     await this.assertCanSend(input.chatId, senderId)
     await this.assertReplyInChat(input.chatId, input.replyToId)
-    const content = input.content?.trim() ?? ''
+    // Текст уже нормализован схемой (обрезан, без невидимых символов) — здесь только
+    // проверка, что сообщение не пустое совсем: без текста оно осмысленно лишь с вложением.
+    const content = input.content ?? ''
     if (content.length === 0 && files.length === 0) {
       throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
     }

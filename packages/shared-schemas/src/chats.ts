@@ -17,6 +17,38 @@ export const ChatTypeSchema = z.enum([
 ])
 export type ChatTypeValue = z.infer<typeof ChatTypeSchema>
 
+/**
+ * Текст сообщения: нормализуем ДО проверки длины.
+ *
+ * Без этого «пустое» сообщение проходило в обход интерфейса. Композер сам делает `trim()`
+ * перед отправкой, и в браузере правило соблюдалось, но по WS напрямую уезжали и строка из
+ * одних пробелов, и один U+200B, и три перевода строки: `min(1)` считает их непустыми, а
+ * обрезки в схеме не было. REST-путь обрезал текст сам (`sendMessageRest`), WS-путь — нет,
+ * и два пути расходились в поведении.
+ *
+ * Чиним в схеме, а не в сервисе: она общая для REST, WS и отложенной отправки, поэтому
+ * правило перестаёт зависеть от того, каким путём пришло сообщение.
+ *
+ * Невидимые символы `trim()` не берёт — вырезаем их отдельно: нулевой ширины пробелы
+ * (U+200B–U+200D), word joiner (U+2060) и BOM (U+FEFF). Длина считается уже по очищенному
+ * тексту: сообщение из 4000 символов и пробелов по краям отклонять незачем.
+ */
+const INVISIBLE_RE = /[\u200b-\u200d\u2060\ufeff]/g
+
+const messageText = (max = 4000) =>
+  z
+    .string()
+    .transform((v) => v.replace(INVISIBLE_RE, '').trim())
+    .pipe(z.string().min(1, 'Сообщение не может быть пустым').max(max))
+
+/** То же, но текст необязателен: у сообщения с вложениями его может не быть вовсе. */
+const optionalMessageText = (max = 4000) =>
+  z
+    .string()
+    .transform((v) => v.replace(INVISIBLE_RE, '').trim())
+    .pipe(z.string().max(max))
+    .optional()
+
 // ── REST ─────────────────────────────────────────────────────────────────────
 
 // Список чатов (cursor). Потолок страницы выше общего курсорного (50) намеренно: клиент
@@ -227,7 +259,7 @@ export type ChatMediaQueryInput = z.infer<typeof ChatMediaQuerySchema>
 export const MessageSendRestSchema = z
   .object({
     chatId: z.string().min(1),
-    content: z.string().max(4000).optional(),
+    content: optionalMessageText(),
     replyToId: z.string().min(1).optional(),
     // Ответ с цитатой фрагмента: выделенный кусок исходного сообщения. Хранится копией —
     // оригинал могут отредактировать, и смещения в тексте поехали бы. Без replyToId
@@ -262,7 +294,7 @@ export type MessageSendRestInput = z.infer<typeof MessageSendRestSchema>
 // его до отправки). Время — строго в будущем и не дальше года.
 export const ScheduleMessageSchema = z
   .object({
-    content: z.string().min(1).max(4000),
+    content: messageText(),
     replyToId: z.string().min(1).optional(),
     replyQuote: z.string().min(1).max(500).optional(),
     silent: z.boolean().optional(),
@@ -282,7 +314,7 @@ export type ScheduleMessageInput = z.infer<typeof ScheduleMessageSchema>
 // Правка отложенного до отправки: текст и/или новое время.
 export const UpdateScheduledMessageSchema = z
   .object({
-    content: z.string().min(1).max(4000).optional(),
+    content: messageText().optional(),
     scheduledAt: z.string().datetime().optional(),
   })
   .strict()
@@ -318,7 +350,7 @@ export type ChatJoinInput = z.infer<typeof ChatJoinSchema>
 export const MessageSendSchema = z
   .object({
     chatId: z.string().min(1),
-    content: z.string().min(1).max(4000),
+    content: messageText(),
     replyToId: z.string().min(1).optional(),
     // Ответ с цитатой фрагмента: выделенный кусок исходного сообщения. Хранится копией —
     // оригинал могут отредактировать, и смещения в тексте поехали бы. Без replyToId
@@ -339,7 +371,7 @@ export const MessageSendSchema = z
 export type MessageSendInput = z.infer<typeof MessageSendSchema>
 
 export const MessageEditSchema = z
-  .object({ messageId: z.string().min(1), content: z.string().min(1).max(4000) })
+  .object({ messageId: z.string().min(1), content: messageText() })
   .strict()
 export type MessageEditInput = z.infer<typeof MessageEditSchema>
 
@@ -441,7 +473,7 @@ export type ChatAttachmentMultipartUrlsInput = z.infer<typeof ChatAttachmentMult
  */
 export const MessageSendUploadedSchema = z
   .object({
-    content: z.string().max(4000).optional(),
+    content: optionalMessageText(),
     replyToId: z.string().min(1).optional(),
     replyQuote: z.string().min(1).max(500).optional(),
     silent: z.boolean().optional(),

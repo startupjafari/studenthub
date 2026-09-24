@@ -66,7 +66,6 @@ import {
   AvatarImage,
   Button,
   EmptyState,
-  Skeleton,
   Tabs,
   TabsContent,
   TabsList,
@@ -106,8 +105,6 @@ const TAB_PANE = 'mt-0 min-h-full flex-col data-[state=active]:flex'
 
 // Плейсхолдеров рисуем с запасом на любую высоту панели: контейнер скелетона —
 // `flex-1 overflow-hidden`, поэтому лишние строки обрезаются, а пустоты снизу нет.
-const SKELETON_ROWS = 16
-const SKELETON_TILES = 24
 
 // §49: относительное «был N назад» из ISO last-seen.
 function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) => string): string {
@@ -196,15 +193,9 @@ function MediaTab({ chatId }: { chatId: string }) {
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) {
-    return (
-      <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-1 overflow-hidden p-1">
-        {Array.from({ length: SKELETON_TILES }).map((_, i) => (
-          <Skeleton key={i} className="aspect-square rounded-md" />
-        ))}
-      </div>
-    )
-  }
+  // Пока вкладка едет — пусто. Ветка нужна не ради заглушки, а чтобы на секунду загрузки
+  // не показывалось «здесь пока пусто»: это разные сообщения, и путать их нельзя.
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
   if (items.length === 0)
     return <Empty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   // Для fullscreen-viewer маппим ChatMediaItem → MessageAttachment (viewer сам тянет presigned-URL).
@@ -487,18 +478,7 @@ function FileTab({
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) {
-    return (
-      <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
-        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-2 py-2">
-            <Skeleton className="size-9 shrink-0 rounded-lg" />
-            <Skeleton className="h-4 w-40" />
-          </div>
-        ))}
-      </div>
-    )
-  }
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
   if (items.length === 0) {
     const icon = voice ? (
       <Mic className="size-6" aria-hidden />
@@ -590,18 +570,7 @@ function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => 
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) {
-    return (
-      <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
-        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-2 py-2">
-            <Skeleton className="size-9 shrink-0 rounded-lg" />
-            <Skeleton className="h-4 w-44" />
-          </div>
-        ))}
-      </div>
-    )
-  }
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
   if (items.length === 0)
     return <Empty icon={<Link2 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   return (
@@ -852,14 +821,7 @@ function ParticipantsTab({
       )}
 
       {members.isLoading ? (
-        <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
-          {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-2 py-2">
-              <Skeleton className="size-9 shrink-0 rounded-full" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-          ))}
-        </div>
+        <div className="min-h-0 flex-1" />
       ) : list.length === 0 ? (
         <Empty icon={<Users className="size-6" aria-hidden />} title={t('sharedEmpty')} />
       ) : (
@@ -1197,6 +1159,25 @@ export function ChatDetailsPanel({
             </Button>
           )}
 
+          {/* Приглашение — иконкой в одном ряду со звуком и выходом. Раньше здесь во всю
+              ширину лежал сам адрес: он занимал две строки панели, а прочитать в нём было
+              нечего — это UUID чата. Что именно ложится в буфер, объясняет подпись кнопки. */}
+          {isGroup && (
+            <Button
+              icon
+              variant="outline"
+              size="sm"
+              aria-label={t('inviteLink')}
+              title={t('inviteLink')}
+              onClick={() => {
+                void navigator.clipboard?.writeText(inviteLink)
+                toast.success(t('linkCopied'))
+              }}
+            >
+              <Link2 aria-hidden />
+            </Button>
+          )}
+
           {isGroup && (
             <Button
               variant="outline"
@@ -1230,27 +1211,6 @@ export function ChatDetailsPanel({
             </button>
           )}
         </div>
-      )}
-
-      {/* Ссылка-приглашение видимой строкой (§3 карты), а не иконкой в углу вкладки
-          участников: ссылку зовут «скинуть» устно, и человек должен видеть, ЧТО именно
-          ложится в буфер, прежде чем отправить это в чужой чат. */}
-      {isGroup && (
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard?.writeText(inviteLink)
-            toast.success(t('linkCopied'))
-          }}
-          className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
-        >
-          <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-            <span className="truncate text-sm text-info">{inviteLink}</span>
-            <span className="text-xs text-muted-foreground">{t('inviteLink')}</span>
-          </span>
-          <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        </button>
       )}
 
       {/* Первой открывается вкладка о самом собеседнике (в группе — её участники):

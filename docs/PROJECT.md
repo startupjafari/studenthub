@@ -823,8 +823,8 @@ Excel: книга из двух листов — **«Данные» первым
 |---|---|
 | `chat:join` | `{ chatId }` — только после серверной проверки членства |
 | `chat:leave` | `{ chatId }` |
-| `message:send` | `{ chatId, content, replyToId? }` |
-| `message:edit` | `{ messageId, content }` |
+| `message:send` | `{ chatId, content, replyToId? }` — `content` обрезается по краям и чистится от невидимых символов до проверки длины; пустой после этого текст отклоняется |
+| `message:edit` | `{ messageId, content }` — `content` по тем же правилам |
 | `message:delete` | `{ messageId }` |
 | `message:read` | `{ chatId, messageId }` |
 | `chat:action` | `{ chatId, action }` — что человек делает сейчас; `action: null` — закончил. Значения: `TYPING`, `RECORDING_VOICE`, `UPLOADING_PHOTO`, `UPLOADING_VIDEO`, `UPLOADING_FILE`. Отправитель повторяет подтверждение не чаще раза в 3 с |
