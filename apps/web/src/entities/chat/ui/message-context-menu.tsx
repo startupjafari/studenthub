@@ -201,7 +201,10 @@ export function MessageContextMenu({
       left: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
       top: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
     })
-  }, [x, y])
+    // `pickerOpen` в зависимостях: полный emoji-picker в разы шире и выше ряда действий,
+    // и без пересчёта он вставал по старой рамке — у правого края экрана половина
+    // таблицы эмодзи оказывалась за его пределами.
+  }, [x, y, pickerOpen])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
