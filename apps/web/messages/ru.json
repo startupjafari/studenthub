@@ -1710,6 +1710,7 @@
     "attachPhoto": "Фото или видео",
     "attachCamera": "Камера",
     "attachFile": "Файл",
+    "dropHint": "Отпустите файлы, чтобы прикрепить их к сообщению",
     "attachTooLarge": "«{name}» больше {max} — файл не отправлен",
     "emoji": "Эмодзи",
     "emojiSearch": "Поиск эмодзи",
