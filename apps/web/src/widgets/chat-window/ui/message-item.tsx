@@ -2,16 +2,7 @@
 
 import { memo } from 'react'
 import { useTranslations } from 'next-intl'
-import {
-  AlertCircle,
-  Check,
-  CheckCheck,
-  ChevronDown,
-  Forward,
-  Loader2,
-  Pin,
-  Reply,
-} from 'lucide-react'
+import { AlertCircle, Check, CheckCheck, ChevronDown, Forward, Loader2, Pin } from 'lucide-react'
 import {
   ChatPollView,
   LinkPreviewCard,
@@ -24,6 +15,10 @@ import {
 import { ProfileLink } from '../../../entities/user'
 import { Avatar, AvatarFallback } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+
+// Эмодзи быстрой реакции в углу пузыря. Один на весь продукт: кнопка одна, и выбирать
+// «свой» эмодзи здесь негде — остальные ставятся из контекстного меню сообщения.
+const QUICK_REACTION = '🔥'
 
 // Системные события группы (§20) → i18n-ключ. Текст строит клиент из actor/target/title.
 const SYSTEM_KEY: Record<string, string> = {
@@ -233,17 +228,22 @@ function MessageItemInner({
               mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
             )}
           >
-            {/* Быстрая кнопка «Ответить» при наведении. У своих — слева, у чужих — справа. */}
+            {/* Быстрая реакция при наведении: один клик — «огонь», повторный снимает её.
+                У своих — слева, у чужих — справа. Раньше здесь была кнопка «Ответить», но
+                ответ и так висит на свайпе и в контекстном меню, а поставить реакцию мышью
+                было больше некуда, кроме как через то же меню. Остальные эмодзи — там же
+                (CHAT_REACTION_EMOJIS), в углу пузыря стоит первый из них по частоте. */}
             <button
               type="button"
-              aria-label={t('reply')}
-              onClick={() => actions.reply(m)}
+              aria-label={t('quickReaction', { emoji: QUICK_REACTION })}
+              title={t('quickReaction', { emoji: QUICK_REACTION })}
+              onClick={() => actions.react(m.id, QUICK_REACTION)}
               className={cn(
-                'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100',
+                'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
                 mine ? '-left-2' : '-right-2',
               )}
             >
-              <Reply className="size-3.5" aria-hidden />
+              <span aria-hidden>{QUICK_REACTION}</span>
             </button>
             {!mine && firstOfRun && (
               <p className="mb-0.5 flex items-center gap-1.5 text-xs">

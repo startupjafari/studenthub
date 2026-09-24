@@ -1648,6 +1648,7 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "reply": "Reply",
+    "quickReaction": "React with {emoji}",
     "replyingTo": "Reply to {name}",
     "cancelReply": "Cancel reply",
     "attach": "Attach file",

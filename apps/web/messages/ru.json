@@ -1648,6 +1648,7 @@
     "pin": "Закрепить",
     "unpin": "Открепить",
     "reply": "Ответить",
+    "quickReaction": "Реакция {emoji}",
     "replyingTo": "Ответ {name}",
     "cancelReply": "Отменить ответ",
     "attach": "Прикрепить файл",
