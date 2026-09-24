@@ -354,6 +354,46 @@ export type MessageReadInput = z.infer<typeof MessageReadSchema>
 export const TypingSchema = z.object({ chatId: z.string().min(1) }).strict()
 export type TypingInput = z.infer<typeof TypingSchema>
 
+/**
+ * Что человек делает в чате прямо сейчас (§9.1). Показывается остальным участникам короткой
+ * подписью вместо статуса — «печатает…», «записывает голосовое…».
+ *
+ * Это НЕ тип сообщения. Тип сообщения в проекте вообще не хранится: вид вложения выводится
+ * при рендере из mime, имени файла (`voice-…`) и флага asDocument. Действие живёт секунды,
+ * никуда не сохраняется и существует только пока идёт.
+ *
+ * Список намеренно короткий — ровно то, что в продукте есть и что заметно длится:
+ *
+ * - `TYPING` — набор текста;
+ * - `RECORDING_VOICE` — запись голосового (самый длинный «немой» промежуток: 10–60 секунд);
+ * - `UPLOADING_PHOTO` / `UPLOADING_VIDEO` / `UPLOADING_FILE` — отправка вложения.
+ *
+ * Аудиофайла отдельным действием нет: mp3 уходит обычным вложением через скрепку, и для
+ * получателя это «отправляет файл…». Стикеров, GIF, геолокации и контактов в продукте нет —
+ * действий под них не заводим.
+ */
+export const CHAT_ACTIONS = [
+  'TYPING',
+  'RECORDING_VOICE',
+  'UPLOADING_PHOTO',
+  'UPLOADING_VIDEO',
+  'UPLOADING_FILE',
+] as const
+export type ChatAction = (typeof CHAT_ACTIONS)[number]
+export const ChatActionSchema = z.enum(CHAT_ACTIONS)
+
+/**
+ * Payload события `chat:action`. `action: null` — «действие закончилось».
+ *
+ * Полей `startedAt`/`expiresAt`/`messageId` здесь нет намеренно. Время жизни подписи держит
+ * получатель (сбрасывает через несколько секунд без обновления), поэтому серверные часы не
+ * нужны, а сообщения в момент действия ещё не существует.
+ */
+export const ChatActionPayloadSchema = z
+  .object({ chatId: z.string().min(1), action: ChatActionSchema.nullable() })
+  .strict()
+export type ChatActionPayloadInput = z.infer<typeof ChatActionPayloadSchema>
+
 export const AuthRefreshSchema = z.object({ token: z.string().min(1) }).strict()
 export type AuthRefreshInput = z.infer<typeof AuthRefreshSchema>
 
