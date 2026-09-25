@@ -13,15 +13,19 @@ import type { ReactNode } from 'react'
 export function Fold({
   title,
   state,
+  icon,
   children,
 }: {
   title: string
   state?: string
+  /** Цветная плитка слева: по ней раздел находят взглядом раньше, чем читают подпись. */
+  icon?: ReactNode
   children: ReactNode
 }) {
   return (
     <details className="card fold">
       <summary>
+        {icon}
         <span className="fold-title">{title}</span>
         {state && <span className="fold-state">{state}</span>}
         <span className="fold-chevron" aria-hidden>

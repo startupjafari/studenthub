@@ -71,14 +71,48 @@
   --shadow-float: 0 10px 30px -12px rgb(0 0 0 / 0.3), 0 2px 8px -5px rgb(0 0 0 / 0.16);
   --shadow-rest: 0 1px 3px -1px rgb(0 0 0 / 0.1);
   /*
+   * Палитра значков — единственные свои цвета в приложении.
+   *
+   * Всё остальное берётся из переменных Telegram, и это правило не меняется: фон, текст,
+   * поверхности и акцент по-прежнему принадлежат клиенту. Но строка списка без цветного
+   * квадратика со значком не опознаётся с одного взгляда — глаз ищет строку по цвету
+   * раньше, чем читает подпись, и в монохромном списке приходится прочитывать все восемь.
+   *
+   * Цвета взяты системные: они проверены на обоих фонах и ни с какой темой Telegram не
+   * спорят, потому что живут внутри квадратика 30×30 и наружу не выходят.
+   */
+  --tint-red: #ff3b30;
+  --tint-orange: #ff9500;
+  --tint-green: #34c759;
+  --tint-teal: #30b0c7;
+  --tint-blue: #007aff;
+  --tint-indigo: #5856d6;
+  --tint-purple: #af52de;
+  --tint-pink: #ff2d55;
+  --tint-gray: #8e8e93;
+  /*
    * Одна кривая отклика на всё приложение: быстро уходит, мягко приезжает. Разнобой
    * таймингов между экранами читается как неаккуратность, даже когда его не замечают.
    */
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --press: 120ms;
-  /* Высота нижней панели разделов. Держим числом, потому что место под неё резервирует
-     содержимое: панель вынута из потока. */
-  --tabbar-h: 50px;
+  /* Высота нижней панели разделов вместе с её полями. Держим числом, потому что место
+     под неё резервирует содержимое: панель вынута из потока. */
+  --tabbar-h: 64px;
+}
+
+/* В тёмной теме системные цвета берутся светлее: иначе синий и фиолетовый тонут в фоне.
+   Схему проставляет applyTheme — она приходит от Telegram, а не от системы. */
+:root[data-scheme='dark'] {
+  --tint-red: #ff453a;
+  --tint-orange: #ff9f0a;
+  --tint-green: #30d158;
+  --tint-teal: #40c8e0;
+  --tint-blue: #0a84ff;
+  --tint-indigo: #5e5ce6;
+  --tint-purple: #bf5af2;
+  --tint-pink: #ff375f;
+  --tint-gray: #98989d;
 }
 
 * {
@@ -545,50 +579,54 @@ body {
 /* ── Управление платформой ─────────────────────────────────────────────────── */
 
 /*
- * Нижняя панель разделов.
+ * Нижняя панель разделов — плавающая капсула.
  *
  * Внизу, а не вверху: телефон держат одной рукой, и до верхнего края большой палец не
  * достаёт — за разделами, между которыми ходят весь день, тянуться не должно.
  *
- * Во всю ширину и низкая. Плавающая капсула забирала под себя полосу в 64 пикселя и всё
- * равно не помещала четыре раздела — «Управление» уезжало за край. Панель по всей ширине
- * делит её на равные доли, и ни один раздел не оказывается наполовину за экраном.
+ * Капсула, а не полоса во всю ширину: панель не забирает себе нижний край экрана, а лежит
+ * над содержимым — по краям от неё видно, что список продолжается. Четыре раздела при
+ * этом помещаются, потому что подпись мелкая, а значок над ней, а не рядом.
  *
- * Стекло тут плотнее, чем у капсулы: под панелью проезжает список, и сквозь лёгкое стекло
- * подписи разделов читались поверх чужих строк.
+ * Сама обёртка касаний не ловит: невидимая полоса во всю ширину съедала бы нажатия по
+ * строкам, которые видно рядом с капсулой.
  */
 .tabbar {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(6px + env(safe-area-inset-bottom));
   z-index: 100;
-  /* Отступ «шторке» жестов iPhone — снизу панели, а не под ней: сама панель должна
-     доходить до края экрана, иначе под ней видна полоса фона. */
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: 0 var(--side);
+  pointer-events: none;
+}
+
+.tabbar-row {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: var(--radius-pill);
+  pointer-events: auto;
+  /* Стекло плотнее, чем у переключателей в потоке: под капсулой проезжает список, и
+     сквозь лёгкое стекло подписи разделов читались поверх чужих строк. */
   background: var(--glass-strong);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
-  /* Волосяная линия сверху вместо тени: панель не висит над содержимым, она его граница.
-     Полпикселя, а не пиксель: на телефоне это ровно та толщина, которой системные панели
-     отделяются от содержимого, — линия в целый пиксель читается как рамка. */
-  box-shadow: inset 0 0.5px 0 0 color-mix(in srgb, var(--tg-theme-hint-color) 40%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
 }
 
 @supports not (backdrop-filter: blur(1px)) {
-  .tabbar {
+  .tabbar-row {
     background: var(--tg-theme-bg-color);
   }
 }
 
 @supports not (background: color-mix(in srgb, red 50%, transparent)) {
-  .tabbar {
+  .tabbar-row {
     background: var(--tg-theme-bg-color);
   }
-}
-
-.tabbar-row {
-  display: flex;
 }
 
 .tabbar-item {
@@ -598,9 +636,10 @@ body {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  min-height: 50px;
-  padding: 6px 2px 5px;
+  min-height: 46px;
+  padding: 5px 2px;
   border: 0;
+  border-radius: var(--radius-control);
   background: none;
   color: var(--tg-theme-hint-color);
   font: inherit;
@@ -611,10 +650,22 @@ body {
     transform var(--press) var(--ease-out);
 }
 
-/* Выбранный раздел — цветом значка и подписи, без плашки. Плашка под значком с подписью
-   выглядит наклейкой, а цвет читается мгновенно и не занимает места. */
+/*
+ * Выбранный раздел — цветом и плашкой под значком с подписью.
+ *
+ * Плашка нужна ровно затем же, зачем залитый значок: цвет различает, только пока его
+ * видно. На капсуле со стеклом, под которой проезжает содержимое, одного цвета мало —
+ * подложка держит выбор независимо от того, что оказалось под панелью.
+ */
 .tabbar-item[aria-selected='true'] {
   color: var(--tg-theme-button-color);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar-item[aria-selected='true'] {
+    background: var(--tg-theme-secondary-bg-color);
+  }
 }
 
 .tabbar-item:active {
@@ -657,7 +708,7 @@ body {
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
   box-shadow: 0 0 0 2px var(--tg-theme-bg-color);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   line-height: 17px;
   text-align: center;
@@ -1220,6 +1271,93 @@ body {
   padding: 0;
 }
 
+/*
+ * Группа рычагов: одна карточка, внутри — строки с волосяными разделителями.
+ *
+ * Карточка-на-строку давала девять одинаковых прямоугольников с одинаковым зазором:
+ * лента читалась как девять равнозначных экранов, а не как раздел с устройством.
+ * Внутри группы строки теряют собственный фон, скругление и тень — их держит группа.
+ */
+.fold-group {
+  padding: 0;
+  overflow: hidden;
+}
+
+.fold-group .fold {
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.fold-group .fold + .fold > summary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 56px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
+}
+
+/* Отступ линии — под плиткой значка, а не под её краем: линия должна начинаться там,
+   где начинается текст, иначе она режет колонку значков. */
+.fold-group .fold > summary {
+  position: relative;
+}
+
+/*
+ * Цветной квадратик со значком в строке.
+ *
+ * Скруглённый квадрат, а не круг: круг в списке читается как аватар, то есть как человек,
+ * — а это раздел настроек. Значок белый поверх заливки: цвет несёт сам квадратик.
+ */
+.tile {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--tile-color, var(--tint-gray));
+  color: #fff;
+}
+
+.tile-red {
+  --tile-color: var(--tint-red);
+}
+
+.tile-orange {
+  --tile-color: var(--tint-orange);
+}
+
+.tile-green {
+  --tile-color: var(--tint-green);
+}
+
+.tile-teal {
+  --tile-color: var(--tint-teal);
+}
+
+.tile-blue {
+  --tile-color: var(--tint-blue);
+}
+
+.tile-indigo {
+  --tile-color: var(--tint-indigo);
+}
+
+.tile-purple {
+  --tile-color: var(--tint-purple);
+}
+
+.tile-pink {
+  --tile-color: var(--tint-pink);
+}
+
+.tile-gray {
+  --tile-color: var(--tint-gray);
+}
+
 .fold > summary {
   display: flex;
   align-items: center;
@@ -1242,13 +1380,26 @@ body {
 
 .fold-title {
   flex: 1;
+  min-width: 0;
   font-size: var(--text-head);
   font-weight: 600;
+  /* Длинное название («Уведомления команде») подпирало значение справа вплотную.
+     Обрезаем название, а не значение: значение — это ответ, ради которого строку читают. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Состояние — справа и серым: это ответ на «что там сейчас», а не заголовок. */
+/*
+ * Состояние — справа и акцентом.
+ *
+ * Серым оно читалось как подпись к заголовку, хотя это ОТВЕТ: «выключены», «нет», «Base».
+ * В системных настройках значение справа тоже подаётся цветом ссылки — по нему видно, что
+ * строка показывает текущий выбор, а не просто называет раздел.
+ */
 .fold-state {
-  color: var(--tg-theme-hint-color);
+  flex: 0 0 auto;
+  color: var(--tg-theme-link-color);
   font-size: var(--text-small);
   text-align: right;
 }
