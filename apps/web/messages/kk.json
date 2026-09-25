@@ -1604,7 +1604,9 @@
     "postUpdated": "Жарияланым өзгертілді",
     "save": "Сақтау",
     "edited": "өзгертілді",
-    "commentAuthorTag": "Автор"
+    "commentAuthorTag": "Автор",
+    "filterSaved": "Сақталған",
+    "bookmark": "Таңдаулыға"
   },
   "Chats": {
     "title": "Чаттар",

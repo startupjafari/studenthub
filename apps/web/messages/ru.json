@@ -1604,7 +1604,9 @@
     "postUpdated": "Публикация изменена",
     "save": "Сохранить",
     "edited": "изменено",
-    "commentAuthorTag": "Автор"
+    "commentAuthorTag": "Автор",
+    "filterSaved": "Сохранённое",
+    "bookmark": "В избранное"
   },
   "Chats": {
     "title": "Чаты",

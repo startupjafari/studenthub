@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  Bookmark,
   ChevronLeft,
   ChevronRight,
   CornerDownRight,
@@ -39,6 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/u
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
+import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
@@ -310,6 +312,7 @@ function PostView({
   const canDelete = post.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
   const comments = useQuery({
     queryKey: postKeys.comments(post.id),
@@ -416,6 +419,13 @@ function PostView({
             postId={post.id}
             className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
           />
+          {/* Избранное без счётчика: личная полка, а не вовлечение. */}
+          <BarButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
+            <Bookmark
+              className={cn('size-5', bookmarked && 'fill-primary text-primary')}
+              aria-hidden
+            />
+          </BarButton>
           {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
           {/* Справа только просмотры: дата переехала в шапку, под имя автора —
               в записи «ВКонтакте» она стоит там, а не в строке действий. */}

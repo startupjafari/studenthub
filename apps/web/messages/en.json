@@ -1604,7 +1604,9 @@
     "postUpdated": "Post updated",
     "save": "Save",
     "edited": "edited",
-    "commentAuthorTag": "Author"
+    "commentAuthorTag": "Author",
+    "filterSaved": "Saved",
+    "bookmark": "Save"
   },
   "Chats": {
     "title": "Chats",

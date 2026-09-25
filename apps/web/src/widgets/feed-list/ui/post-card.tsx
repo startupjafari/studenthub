@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
+import { Bookmark, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -21,6 +21,7 @@ import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 import { SharePostMenu } from '../../../features/share-post'
+import { useBookmark } from '../../../features/bookmark-post'
 import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
 
@@ -79,6 +80,7 @@ export function PostCard({
   const canDelete = post.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
   // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5).
   function toggleLike(): void {
@@ -222,6 +224,14 @@ export function PostCard({
           postId={post.id}
           className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
         />
+        {/* Избранное — последним в ряду и без счётчика: это личная полка, а не
+            вовлечение, и число «сколько людей сохранили» сервер не отдаёт намеренно. */}
+        <ActionButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
+          <Bookmark
+            className={cn('size-5', bookmarked && 'fill-primary text-primary')}
+            aria-hidden
+          />
+        </ActionButton>
         {/* Справа — счётчик просмотров и возраст поста: во «ВКонтакте» дата стоит
             именно здесь, а не в шапке, где спорит с именем автора. */}
         <span className="ml-auto flex items-center gap-3 px-2 text-xs">
