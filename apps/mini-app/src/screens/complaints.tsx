@@ -89,7 +89,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
 
   // Потянуть вниз — перезапросить очередь: до этого она обновлялась только повторным
   // открытием приложения.
-  const { pull, ready } = usePullToRefresh(load)
+  const { pull, ready, progress } = usePullToRefresh(load)
 
   if (openId !== null) {
     return (
@@ -105,7 +105,14 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
 
   return (
     <div className="screen" style={{ paddingTop: pull }}>
-      {pull > 0 && <p className="pull-hint">{ready ? '↻' : '↓'}</p>}
+      {pull > 0 && (
+        <p
+          className={`pull-hint${ready ? ' ready' : ''}`}
+          style={{ opacity: progress, transform: `scale(${0.7 + 0.3 * progress})` }}
+        >
+          {ready ? '↻' : '↓'}
+        </p>
+      )}
       <header className="screen-head">
         <h1>{t('complaintsTitle')}</h1>
         <p className="hint">
