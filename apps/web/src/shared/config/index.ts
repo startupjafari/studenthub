@@ -21,3 +21,12 @@ export {
   yearOptions,
 } from './profile-enums'
 export { BRAND_GRADIENT } from './brand'
+export {
+  HOLIDAYS,
+  activeHoliday,
+  activeSeason,
+  holidaysOn,
+  type Holiday,
+  type HolidayTier,
+  type HolidayTone,
+} from './holidays'
