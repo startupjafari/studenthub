@@ -132,7 +132,10 @@ function useSeasonDay(): { season: Holiday | null; date: string } {
 
     const apply = () => {
       if (timer) clearTimeout(timer)
-      const { date, time } = nowInTz(timeZone)
+      // `useTimeZone()` отдаёт undefined, если провайдер без таймзоны, — для nowInTz это
+      // «считай по браузеру», и это верный запасной вариант: оформление не та вещь,
+      // ради которой стоит падать.
+      const { date, time } = nowInTz(timeZone ?? null)
       setDay({ season: resolveSeason(date, off, override), date })
       timer = setTimeout(apply, msUntilMidnight(time))
     }
