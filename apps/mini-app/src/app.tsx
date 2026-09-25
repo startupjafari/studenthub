@@ -115,6 +115,19 @@ function ReadyView({
 
   return (
     <>
+      {active === 'complaints' && (
+        <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
+      )}
+      {active === 'support' && (
+        <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
+      )}
+      {active === 'people' && <PeopleScreen />}
+      {active === 'control' && <ControlTab userId={userId} />}
+      {/*
+       * Панель вкладок идёт ПОСЛЕ содержимого и в разметке, и на экране: она висит внизу,
+       * у большого пальца. Порядок в DOM совпадает с порядком на экране намеренно —
+       * читалка обойдёт экран так же, как его видит человек, а не начнёт с навигации.
+       */}
       <div className="tabbar">
         <Tabs
           items={tabs.map((item) => ({
@@ -134,14 +147,6 @@ function ReadyView({
           onSelect={onTab}
         />
       </div>
-      {active === 'complaints' && (
-        <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
-      )}
-      {active === 'support' && (
-        <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
-      )}
-      {active === 'people' && <PeopleScreen />}
-      {active === 'control' && <ControlTab userId={userId} />}
     </>
   )
 }
