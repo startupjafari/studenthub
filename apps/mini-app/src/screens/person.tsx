@@ -148,10 +148,11 @@ export function PersonScreen({
         </button>
 
         {/* Сброс сессий выгоняет чужого, оставляя доступ хозяину: блокировка в случае
-            угнанного аккаунта наказала бы пострадавшего. */}
+            угнанного аккаунта наказала бы пострадавшего. Тише блокировки: это ответ на
+            «аккаунт увели», а не решение о человеке. */}
         <button
           type="button"
-          className="fallback-submit secondary"
+          className="fallback-submit plain"
           disabled={busy}
           onClick={() => void endSessions()}
         >
