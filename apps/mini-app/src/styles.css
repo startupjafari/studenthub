@@ -383,11 +383,22 @@ body {
   min-width: 0;
 }
 
+/* Жирное начертание браузера (700) на мелком кегле выглядит грубо и спорит с заголовками
+   экрана. Полужирного хватает, чтобы имя читалось первым. */
+.row-body b,
+.row b,
+.toggle-row b {
+  font-weight: 600;
+}
+
+/* Тише текста строки: это указатель «здесь есть продолжение», а не содержание. */
 .row-chevron {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  margin-left: 2px;
   color: var(--tg-theme-hint-color);
-  font-size: 19px;
-  /* Тише текста строки: это указатель «здесь есть продолжение», а не содержание. */
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 /*
@@ -558,8 +569,10 @@ body {
   background: var(--glass-strong);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
-  /* Волосяная линия сверху вместо тени: панель не висит над содержимым, она его граница. */
-  box-shadow: inset 0 1px 0 0 var(--glass-edge);
+  /* Волосяная линия сверху вместо тени: панель не висит над содержимым, она его граница.
+     Полпикселя, а не пиксель: на телефоне это ровно та толщина, которой системные панели
+     отделяются от содержимого, — линия в целый пиксель читается как рамка. */
+  box-shadow: inset 0 0.5px 0 0 color-mix(in srgb, var(--tg-theme-hint-color) 40%, transparent);
 }
 
 @supports not (backdrop-filter: blur(1px)) {
@@ -612,6 +625,8 @@ body {
   position: relative;
   display: grid;
   place-items: center;
+  width: 24px;
+  height: 24px;
 }
 
 .tabbar-label {
@@ -620,20 +635,31 @@ body {
   letter-spacing: var(--track-small);
 }
 
-/* Счётчик сидит на значке: в строке подписи он сдвигал бы её вбок, и раздел с работой
-   оказывался бы шире соседних. */
+/*
+ * Счётчик — в правом верхнем углу значка, внахлёст и с прорезью по краю.
+ *
+ * Прорезь (кольцо цветом панели) отделяет его от линий значка: без неё цифра сливается
+ * с рисунком и читается как его часть. Сидит он на значке, а не в строке подписи: там
+ * он сдвигал бы её вбок, и раздел с работой был бы шире соседних.
+ *
+ * Цвет акцентный, а не красный. Красный в системе значит «пропущенное, требующее
+ * внимания лично»; здесь же счётчик говорит, сколько работы в очереди, и красным он
+ * держал бы тревогу постоянно — очередь не пустеет никогда. Telegram считает непрочитанное
+ * тем же акцентом.
+ */
 .tabbar-count {
   position: absolute;
-  top: -3px;
-  left: 11px;
-  min-width: 16px;
+  top: -5px;
+  left: 13px;
+  min-width: 17px;
   padding: 0 4px;
   border-radius: var(--radius-pill);
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
+  box-shadow: 0 0 0 2px var(--tg-theme-bg-color);
   font-size: 10px;
   font-weight: 600;
-  line-height: 16px;
+  line-height: 17px;
   text-align: center;
 }
 
@@ -650,8 +676,19 @@ body {
   gap: 4px;
   padding: 5px;
   border-radius: var(--radius-pill);
-  background: var(--tg-theme-bg-color);
-  box-shadow: var(--shadow-rest);
+  /*
+   * Дорожка серая и нейтральная, а не цветная: в системном переключателе акцент вообще
+   * не участвует — выбранное поднято светлой подложкой, как физическая клавиша. Цветом
+   * здесь красить нечего, и когда красили, ряд разделов спорил по громкости с главной
+   * кнопкой экрана.
+   */
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 18%, transparent);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabs {
+    background: var(--tg-theme-secondary-bg-color);
+  }
 }
 
 /*
@@ -667,8 +704,12 @@ body {
   bottom: 5px;
   left: 0;
   border-radius: var(--radius-pill);
-  background: var(--tg-theme-button-color);
-  box-shadow: var(--shadow-rest);
+  /* Подложка светлее дорожки — как приподнятая клавиша. Тонкий контур под тенью нужен
+     в тёмной теме, где одной тени не видно. */
+  background: var(--tg-theme-section-bg-color);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.16),
+    0 0 0 0.5px rgb(0 0 0 / 0.04);
   pointer-events: none;
   transition:
     transform 280ms var(--ease-out),
@@ -704,20 +745,27 @@ body {
   transform: scale(0.96);
 }
 
-/* Активная вкладка — акцентом, а не сменой серого на чёрный: в тёмной теме Telegram
-   фон приложения почти сливается с фоном полосы, и выбранный раздел был неразличим. */
-.tab[aria-selected='true'] {
-  background: var(--tg-theme-button-color);
-  color: var(--tg-theme-button-text-color);
-  font-weight: 600;
-  box-shadow: var(--shadow-rest);
+/* Надпись выбранного — обычного цвета текста и плотнее; её выделяет подложка, а не
+   краска. Невыбранные приглушены, но остаются читаемыми: это не запрещённые пункты. */
+.tab {
+  color: color-mix(in srgb, var(--tg-theme-text-color) 62%, transparent);
 }
 
-/* Появилась плашка — заливка кнопке больше не нужна: иначе во время переезда акцент
-   виден в двух местах сразу. */
-.tabs[data-lens='on'] .tab[aria-selected='true'] {
-  background: transparent;
-  box-shadow: none;
+.tab[aria-selected='true'] {
+  color: var(--tg-theme-text-color);
+  font-weight: 600;
+}
+
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  .tab {
+    color: var(--tg-theme-hint-color);
+  }
+}
+
+/* Замера ещё нет — подложку рисует сама кнопка. Форма и цвет те же, что у плашки. */
+.tabs:not([data-lens='on']) .tab[aria-selected='true'] {
+  background: var(--tg-theme-section-bg-color);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
 }
 
 .chips {
@@ -924,6 +972,53 @@ body {
 .card .field,
 .card .code-input {
   background: var(--tg-theme-secondary-bg-color);
+}
+
+/*
+ * Строка поиска: лупа слева и поле без собственной рамки.
+ *
+ * Подсказка «Поиск по переписке и фамилии» исчезает с первой набранной буквой, и дальше
+ * поле ничем не отличается от любого другого. Значок остаётся и отвечает на «куда я
+ * набираю» без чтения.
+ */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  background: var(--tg-theme-section-bg-color);
+}
+
+.card .search {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+.search-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--tg-theme-hint-color);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0;
+  border: 0;
+  background: none;
+  color: var(--tg-theme-text-color);
+  font: inherit;
+}
+
+.search-input:focus {
+  outline: none;
+}
+
+/* Обводку при вводе с клавиатуры получает вся строка целиком, а не поле внутри неё. */
+.search:focus-within {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: 1px;
 }
 
 .field:focus-visible,

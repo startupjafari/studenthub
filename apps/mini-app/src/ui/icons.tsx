@@ -14,6 +14,15 @@ import type { ReactNode } from 'react'
 
 type IconProps = { size?: number }
 
+/**
+ * Значок раздела бывает двух видов: контурный у невыбранного и залитый у выбранного.
+ *
+ * Так устроены значки во всех системных панелях iOS, и это не украшение: цвет отличает
+ * выбранное, только пока его видно, — а на ярком солнце и в режиме высокой контрастности
+ * различие цвета исчезает первым. Заливка остаётся.
+ */
+type TabIconProps = IconProps & { filled?: boolean }
+
 function Svg({ size = 24, children }: IconProps & { children: ReactNode }) {
   return (
     <svg
@@ -33,8 +42,38 @@ function Svg({ size = 24, children }: IconProps & { children: ReactNode }) {
   )
 }
 
+/**
+ * Залитый вариант: форма закрашивается, а внутренние знаки — не рисуются поверх, а
+ * ВЫРЕЗАЮТСЯ из неё (`fill-rule: evenodd`). Нарисовать их поверх нечем: цвет фона под
+ * значком задаёт Telegram, и угадывать его значило бы однажды промахнуться.
+ */
+function SvgFilled({ size = 24, children }: IconProps & { children: ReactNode }) {
+  return (
+    <svg
+      className="icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      fillRule="evenodd"
+      clipRule="evenodd"
+      stroke="none"
+      aria-hidden
+    >
+      {children}
+    </svg>
+  )
+}
+
 /** Жалобы: восклицательный знак в пузыре — сигнал, а не разговор. */
-export function IconComplaints(props: IconProps) {
+export function IconComplaints({ filled, ...props }: TabIconProps) {
+  if (filled) {
+    return (
+      <SvgFilled {...props}>
+        <path d="M20.5 12.3a7.7 7.7 0 0 1-8.2 7.7 8.6 8.6 0 0 1-2.7-.4L4 21l1.5-4.2a7.5 7.5 0 0 1-1-3.8A7.7 7.7 0 0 1 12.3 5a7.7 7.7 0 0 1 8.2 7.3ZM11.5 8.6h1.6v4.6h-1.6V8.6Zm0 5.9h1.6v1.6h-1.6v-1.6Z" />
+      </SvgFilled>
+    )
+  }
   return (
     <Svg {...props}>
       <path d="M20.5 12.3a7.7 7.7 0 0 1-8.2 7.7 8.6 8.6 0 0 1-2.7-.4L4 21l1.5-4.2a7.5 7.5 0 0 1-1-3.8A7.7 7.7 0 0 1 12.3 5a7.7 7.7 0 0 1 8.2 7.3Z" />
@@ -45,7 +84,15 @@ export function IconComplaints(props: IconProps) {
 }
 
 /** Поддержка: два пузыря — здесь именно переписка. */
-export function IconSupport(props: IconProps) {
+export function IconSupport({ filled, ...props }: TabIconProps) {
+  if (filled) {
+    return (
+      <SvgFilled {...props}>
+        <path d="M6.5 5.4h6a2.8 2.8 0 0 1 2.8 2.8v5a2.8 2.8 0 0 1-2.8 2.8H8.5L3.7 19.7V8.2a2.8 2.8 0 0 1 2.8-2.8Z" />
+        <path d="M16.9 8.7h1.1a2.8 2.8 0 0 1 2.8 2.8v11.2l-.1-.1-3.5-2.9h-4a2.8 2.8 0 0 1-2.3-1.2h1.6a4.4 4.4 0 0 0 4.4-4.4V8.7Z" />
+      </SvgFilled>
+    )
+  }
   return (
     <Svg {...props}>
       <path d="M14.5 13.2a2 2 0 0 1-2 2H8.2L4.5 18v-9.8a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2Z" />
@@ -55,7 +102,17 @@ export function IconSupport(props: IconProps) {
 }
 
 /** Люди: человек и плечо второго — список, а не один профиль. */
-export function IconPeople(props: IconProps) {
+export function IconPeople({ filled, ...props }: TabIconProps) {
+  if (filled) {
+    return (
+      <SvgFilled {...props}>
+        <circle cx="10" cy="8.5" r="4.2" />
+        <path d="M10 14.2c3.9 0 7.1 2.6 7.1 5.9 0 .5-.4.9-.9.9H3.8a.9.9 0 0 1-.9-.9c0-3.3 3.2-5.9 7.1-5.9Z" />
+        <path d="M16.6 4.6a3.9 3.9 0 0 1 0 7.8 5.6 5.6 0 0 0 0-7.8Z" />
+        <path d="M18.2 13.6c2.1.8 3.6 2.7 3.6 5 0 .5-.4.9-.9.9h-2.1c.1-.3.1-.6.1-.9 0-2-.7-3.7-1.9-5h1.2Z" />
+      </SvgFilled>
+    )
+  }
   return (
     <Svg {...props}>
       <circle cx="10" cy="8.5" r="3.5" />
@@ -67,7 +124,17 @@ export function IconPeople(props: IconProps) {
 }
 
 /** Управление: ползунки — рычаги, которые двигают. */
-export function IconControl(props: IconProps) {
+export function IconControl({ filled, ...props }: TabIconProps) {
+  if (filled) {
+    return (
+      <SvgFilled {...props}>
+        <path d="M4 6.6h8.4a4 4 0 0 0 0 1.8H4a.9.9 0 0 1 0-1.8Zm15.6 0H20a.9.9 0 0 1 0 1.8h-.4a4 4 0 0 0 0-1.8Z" />
+        <circle cx="16" cy="7.5" r="2.6" />
+        <path d="M4 15.6h2.4a4 4 0 0 0 0 1.8H4a.9.9 0 0 1 0-1.8Zm9.6 0H20a.9.9 0 0 1 0 1.8h-6.4a4 4 0 0 0 0-1.8Z" />
+        <circle cx="10" cy="16.5" r="2.6" />
+      </SvgFilled>
+    )
+  }
   return (
     <Svg {...props}>
       <path d="M4 7.5h10" />
@@ -76,6 +143,25 @@ export function IconControl(props: IconProps) {
       <path d="M4 16.5h4" />
       <path d="M12 16.5h8" />
       <circle cx="10" cy="16.5" r="2" />
+    </Svg>
+  )
+}
+
+/** Лупа в строке поиска: место ввода узнаётся по ней раньше, чем читается подсказка. */
+export function IconSearch(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="11" cy="11" r="6" />
+      <path d="m15.5 15.5 3.5 3.5" />
+    </Svg>
+  )
+}
+
+/** Шеврон строки: «здесь есть продолжение». */
+export function IconChevron(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m9.5 5.5 6.5 6.5-6.5 6.5" />
     </Svg>
   )
 }

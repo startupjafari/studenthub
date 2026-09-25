@@ -4,7 +4,8 @@ import { haptic } from '../telegram/webapp'
 export interface TabBarItem<T extends string> {
   id: T
   label: string
-  icon: ReactNode
+  /** Значок берёт вид от состояния: у выбранного раздела он залит, у остальных — контурный. */
+  icon: (filled: boolean) => ReactNode
   /** Сколько работы ждёт в разделе. 0 — значка нет. */
   count?: number
 }
@@ -20,6 +21,9 @@ export interface TabBarItem<T extends string> {
  * без чтения, но «Управление» и «Поддержка» по одной картинке не различить — подпись
  * снимает догадку. Вместе они занимают меньше места по высоте, чем кажется: подпись
  * мелкая, потому что её читают один раз, а дальше узнают рисунок.
+ *
+ * Выбранный раздел отличается не только цветом, но и заливкой значка: цвет различает,
+ * только пока его видно, — на солнце и при высокой контрастности он пропадает первым.
  */
 export function TabBar<T extends string>({
   items,
@@ -46,7 +50,7 @@ export function TabBar<T extends string>({
             }}
           >
             <span className="tabbar-icon">
-              {item.icon}
+              {item.icon(active === item.id)}
               {/* Счётчик сидит на значке, а не в строке подписи: подпись от него
                   съезжала бы вбок, и раздел с работой оказывался бы шире соседних. */}
               {item.count !== undefined && item.count > 0 && (

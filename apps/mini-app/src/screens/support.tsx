@@ -24,6 +24,8 @@ import { searchPeople, type Person } from '../api/people'
 import { confirmAction, haptic, setClosingConfirmation } from '../telegram/webapp'
 import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
+import { IconChevron } from '../ui/icons'
+import { SearchField } from '../ui/search-field'
 import { formatDateTime, formatShortTime, initials } from '../lib/format'
 import { PersonSummary } from './person-summary'
 import { Tabs } from '../ui/tabs'
@@ -121,12 +123,10 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
       />
 
       {/* «Мы это уже кому-то отвечали» — вопрос, который без поиска проверить негде. */}
-      <input
-        className="field"
+      <SearchField
         value={search}
-        onChange={(event) => setSearch(event.target.value)}
+        onChange={setSearch}
         placeholder={t('supportSearchPlaceholder')}
-        aria-label={t('supportSearchPlaceholder')}
       />
 
       {/* Теги показываются только те, что реально встречались за месяц: полный список
@@ -211,7 +211,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
                 )}
               </span>
               <span className="row-chevron" aria-hidden>
-                ›
+                <IconChevron size={17} />
               </span>
             </button>
           ))}
