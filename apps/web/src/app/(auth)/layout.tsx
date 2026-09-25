@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { GraduationCap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { MeshBrandPanel } from '../../shared/ui'
+import { MeshBrandPanel, SeasonalIcon } from '../../shared/ui'
 
 // Split-лейаут экранов входа/регистрации: слева интерактивная брендовая панель
 // (меш-сетка за мышью, скрыта на мобильном), справа — форма по центру.
@@ -21,7 +21,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <main className="relative flex flex-1 flex-col overflow-hidden p-6">
         <div className="auth-dots lg:hidden" aria-hidden />
         <div className="relative z-10 mt-[calc(1rem+env(safe-area-inset-top))] flex items-center justify-center gap-3 lg:hidden">
-          <GraduationCap className="size-9 text-primary" aria-hidden />
+          <SeasonalIcon icon={GraduationCap} className="size-9 text-primary" />
           <span className="text-2xl font-bold">StudentHub</span>
         </div>
         <div className="relative z-10 flex flex-1 items-center justify-center">

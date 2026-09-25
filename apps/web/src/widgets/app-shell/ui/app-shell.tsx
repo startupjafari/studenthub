@@ -23,7 +23,7 @@ import { fetchUnreadCount, notificationKeys } from '../../../entities/notificati
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useChatsUnread } from '../../../entities/chat'
 import { SEARCH_MIN_QUERY, useSearchItems } from '../../../entities/search'
-import { Skeleton } from '../../../shared/ui'
+import { SeasonalIcon, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ChatLayoutProvider } from '../../../shared/lib'
 import { NotificationsPanel } from '../../../views/notifications'
@@ -157,7 +157,7 @@ function BottomNav({
   // Плавающий остров над навигацией: тот же материал и та же геометрия, что у капсулы
   // разделов, — меню и выдача поиска приходят в одно и то же место.
   const islandPanel =
-    'material-island pointer-events-auto flex max-h-[min(70dvh,28rem)] flex-col overflow-y-auto overscroll-contain rounded-3xl border border-border/60 p-1.5 shadow-lg motion-reduce:animate-none'
+    'sh-on-popover material-island pointer-events-auto flex max-h-[min(70dvh,28rem)] flex-col overflow-y-auto overscroll-contain rounded-3xl border border-border/60 p-1.5 shadow-lg motion-reduce:animate-none'
   const typed = query.trim()
   // Крестик вместо точек — и для меню, и для поиска: кнопка всегда закрывает то, что открыто.
   const closeMode = moreOpen || searchOpen
@@ -299,7 +299,7 @@ function BottomNav({
                   aria-current={active ? 'page' : undefined}
                   className={cn(menuRow, active && 'bg-primary/10 text-primary')}
                 >
-                  <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
+                  <SeasonalIcon icon={Icon} className="size-5 shrink-0 opacity-80" />
                   <span className="min-w-0 truncate">{tNav(item.key)}</span>
                   {badgeCount > 0 && (
                     <span
@@ -370,7 +370,7 @@ function BottomNav({
               )}
             </div>
           ) : (
-            <div className="material-island pointer-events-auto flex min-w-0 flex-1 items-stretch gap-0.5 rounded-full border border-border/60 p-1 shadow-lg">
+            <div className="sh-on-popover material-island pointer-events-auto flex min-w-0 flex-1 items-stretch gap-0.5 rounded-full border border-border/60 p-1 shadow-lg">
               {nav.slice(0, 4).map((item) => {
                 const active = isActive(item, pathname)
                 const Icon = item.icon
@@ -390,7 +390,7 @@ function BottomNav({
                     {/* Бейдж навешен на иконку, а не на строку: в нижней навигации подпись и так
                     обрезается по ширине вкладки, и число рядом с ней было бы нечитаемо. */}
                     <span className="relative shrink-0">
-                      <Icon className="size-5" aria-hidden />
+                      <SeasonalIcon icon={Icon} className="size-5" />
                       {badgeCount > 0 && (
                         <span
                           aria-label={tNav('unreadMessages', { count: badgeCount })}

@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { CalendarDays, GraduationCap, LayoutDashboard, MessageSquare, Users } from 'lucide-react'
 import { HOLIDAYS, type Holiday } from '../../../shared/config'
-import { seasonIcon } from '../../../shared/ui'
+import { SeasonalIcon, seasonIcon } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { Caption, Code, Demo, Section } from './kit'
 
@@ -101,6 +102,36 @@ export function SeasonSection() {
           </Caption>
         </div>
       </Demo>
+
+      <Demo
+        label="Знак на иконках навигации"
+        rule={
+          <>
+            <Code>SeasonalIcon</Code> — снежинка внутри того же svg, глиф не подменяется
+          </>
+        }
+        className="flex-col items-start gap-3"
+      >
+        <div className="flex flex-wrap items-center gap-5">
+          {NAV_SAMPLE.map((Icon, index) => (
+            <SeasonalIcon
+              key={NAV_SAMPLE_KEYS[index]}
+              icon={Icon}
+              className="size-6 text-muted-foreground"
+            />
+          ))}
+          <SeasonalIcon icon={GraduationCap} className="size-9 text-primary" />
+        </div>
+        <Caption>
+          Знак виден только в зимние сезоны — примерьте «Новый год» или его канун выше. Показом
+          управляет CSS, поэтому включение праздника не перерисовывает навигацию. На основном
+          размере 16 px знак не ставится: там он превращается в грязь на глифе.
+        </Caption>
+      </Demo>
     </Section>
   )
 }
+
+/** Образцы для демонстрации знака: те же иконки, что стоят в навигации ролей. */
+const NAV_SAMPLE = [LayoutDashboard, CalendarDays, MessageSquare, Users]
+const NAV_SAMPLE_KEYS = ['dashboard', 'calendar', 'chats', 'people']

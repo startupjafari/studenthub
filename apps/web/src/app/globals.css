@@ -1126,3 +1126,44 @@ summary {
     display: none;
   }
 }
+
+/* ── Праздничный знак на иконке (shared/ui/seasonal-icon.tsx) ──────────────────
+   Снежинка дорисована ВНУТРЬ того же `<svg>`, что и глиф: lucide пускает children в свою
+   разметку, поэтому украшение не требует ни обёртки, ни второго элемента в строке.
+
+   Знак нарисован всегда и скрыт стилем — показывается только в зимние сезоны. Так
+   включение праздника не перерисовывает навигацию: меняется атрибут на <html>, а не дерево.
+
+   Подложка (`sh-ornament-cut`) закрашивается цветом ТОЙ поверхности, на которой стоит
+   иконка, иначе снежинка сливается с линиями глифа. Поверхность сообщает контейнер
+   переменной --sh-ornament-bg; по умолчанию — фон документа. */
+.sh-ornament {
+  display: none;
+}
+
+[data-season='new-year'] .sh-ornament,
+[data-season='new-year-eve'] .sh-ornament {
+  display: inline;
+}
+
+.sh-ornament-cut {
+  fill: var(--sh-ornament-bg, var(--background));
+  stroke: none;
+}
+
+.sh-ornament-mark {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+/* Поверхности, на которых стоят иконки с знаком. Классы вешаются на контейнер — это
+   дешевле, чем прокидывать цвет пропом через навигацию. */
+.sh-on-sidebar {
+  --sh-ornament-bg: var(--sidebar);
+}
+
+.sh-on-popover {
+  --sh-ornament-bg: var(--popover);
+}
