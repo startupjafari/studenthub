@@ -25,6 +25,7 @@ export {
   HOLIDAYS,
   activeHoliday,
   calendarHoliday,
+  holidayById,
   activeSeason,
   holidaysOn,
   type Holiday,

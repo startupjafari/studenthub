@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useTimeZone } from 'next-intl'
-import { activeSeason, type Holiday } from '../config/holidays'
+import { activeSeason, holidayById, type Holiday } from '../config/holidays'
 import { nowInTz } from './tz-date'
 
 /**
@@ -15,6 +15,32 @@ import { nowInTz } from './tz-date'
  * Причина та же, что у окна «Что нового»: у приложения с домашнего экрана вкладка живёт
  * неделями, и значение, посчитанное при её открытии, к празднику успевает протухнуть.
  */
+
+/**
+ * Рычаг платформы: выключатель на всех и принудительный сезон вне календаря.
+ *
+ * Приходит контекстом, а не запросом отсюда: состояние платформы живёт в `entities/platform`,
+ * а `shared` о доменных слоях знать не имеет права (FRONTEND_RULES §2.1). Значение кладёт
+ * `app/providers.tsx` — единственное место, которое видит и то и другое.
+ */
+export interface SeasonLever {
+  off: boolean
+  override: string | null
+}
+
+const NO_LEVER: SeasonLever = { off: false, override: null }
+
+const SeasonLeverContext = createContext<SeasonLever>(NO_LEVER)
+
+export function SeasonLeverProvider({
+  value,
+  children,
+}: {
+  value: SeasonLever
+  children: ReactNode
+}) {
+  return <SeasonLeverContext.Provider value={value}>{children}</SeasonLeverContext.Provider>
+}
 
 /** Ключи переключателей в localStorage. Как у темы (next-themes), той же природы настройки. */
 const SEASON_STORAGE_KEY = 'sh-season-decor'
@@ -77,8 +103,23 @@ function msUntilMidnight(time: string): number {
  * в localStorage, на сервере её нет, и любой другой ответ означал бы расхождение гидрации
  * (а у выключившего оформление — вспышку поздравления на один кадр).
  */
+/**
+ * Что показываем сегодня. Порядок отказов важен: личная настройка человека сильнее
+ * платформенной подмены — согласие видеть оформление он даёт сам, и админ не может
+ * выдать ему праздник против его выбора. Выключатель платформы при этом сильнее всего.
+ */
+function resolveSeason(date: string, off: boolean, override: string | null): Holiday | null {
+  if (!isSeasonEnabled() || off) return null
+  if (override === null) return activeSeason(date)
+  // Праздник, который мы не оформляем (день памяти, выключенная мягкая дата), подменой
+  // не включается: иначе «сезон» означал бы разное в календаре и в рычаге.
+  const forced = holidayById(override)
+  return forced?.decorated ? forced : null
+}
+
 function useSeasonDay(): { season: Holiday | null; date: string } {
   const timeZone = useTimeZone()
+  const { off, override } = useContext(SeasonLeverContext)
   const [day, setDay] = useState<{ season: Holiday | null; date: string }>({
     season: null,
     date: '',
@@ -90,7 +131,7 @@ function useSeasonDay(): { season: Holiday | null; date: string } {
     const apply = () => {
       if (timer) clearTimeout(timer)
       const { date, time } = nowInTz(timeZone)
-      setDay({ season: isSeasonEnabled() ? activeSeason(date) : null, date })
+      setDay({ season: resolveSeason(date, off, override), date })
       timer = setTimeout(apply, msUntilMidnight(time))
     }
 
@@ -111,7 +152,9 @@ function useSeasonDay(): { season: Holiday | null; date: string } {
       window.removeEventListener('storage', apply)
       window.removeEventListener(SEASON_EVENT, apply)
     }
-  }, [timeZone])
+    // Рычаг платформы опрашивается раз в минуту (entities/platform): смена значения
+    // пересобирает эффект, и оформление меняется без перезагрузки страницы.
+  }, [timeZone, off, override])
 
   return day
 }

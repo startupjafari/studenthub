@@ -306,6 +306,11 @@ function matches(holiday: Holiday, year: string, monthDay: string): boolean {
   return nthWeekday(Number(year), when.month, when.weekday, when.nth) === monthDay
 }
 
+/** Праздник по идентификатору: им задаётся принудительный сезон с платформы. */
+export function holidayById(id: string): Holiday | null {
+  return HOLIDAYS.find((holiday) => holiday.id === id) ?? null
+}
+
 /**
  * Праздники этого дня. Дата — `YYYY-MM-DD` в таймзоне платформы: считать её обязан
  * вызывающий (`shared/lib/tz-date.ts`), иначе у человека в другом часовом поясе праздник

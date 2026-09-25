@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { SEASON_IDS } from '@studenthub/shared-schemas'
 import { HOLIDAYS, activeHoliday, activeSeason, holidaysOn } from './holidays'
 
 // Справочник праздников проверяется по границам, а не «в середине»: ошибка в такой таблице
@@ -41,6 +42,17 @@ describe('справочник праздников', () => {
         }
       }
     }
+  })
+
+  /**
+   * Контракт платформы знает сезоны по именам (SEASON_IDS): из этого списка админ выбирает
+   * принудительный сезон, по нему же сервер проверяет присланное. Разойтись со справочником
+   * он не имеет права — иначе в мини-аппе появится сезон, которого веб не покажет, или
+   * наоборот, праздник, который нельзя выбрать.
+   */
+  it('список сезонов в контракте совпадает с таблицей праздников', () => {
+    const decorated = HOLIDAYS.filter((holiday) => holiday.decorated).map((holiday) => holiday.id)
+    expect([...SEASON_IDS].sort()).toEqual(decorated.sort())
   })
 
   it('лунные праздники расписаны на текущий и следующий год', () => {
