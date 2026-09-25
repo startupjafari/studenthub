@@ -6,6 +6,7 @@ import type {
   SetNotificationsInput,
   SetBannerInput,
   SetMaintenanceInput,
+  SetSeasonInput,
   SetSectionsInput,
 } from '@studenthub/shared-schemas'
 import { AuditService } from '../../common/audit/audit.service'
@@ -74,6 +75,12 @@ export interface PublicPlatformState {
   } | null
   disabledSections: string[]
   announcedVersion: string | null
+  /**
+   * Рычаг праздничного оформления. Сам праздник веб считает по справочнику в бандле —
+   * отсюда приходит только вмешательство человека: погасить всё или показать конкретный
+   * сезон вне его даты.
+   */
+  season: { off: boolean; override: string | null }
 }
 
 /** Что вообще можно записать: id, автор и время правки ставит сам сервис. */
@@ -101,6 +108,7 @@ const EMPTY: PublicPlatformState = {
   banner: null,
   disabledSections: [],
   announcedVersion: null,
+  season: { off: false, override: null },
 }
 
 @Injectable()
@@ -251,6 +259,29 @@ export class PlatformService {
       action: 'platform.sections.set',
       entity: 'PlatformState',
       metadata: { before, disabled: input.disabled },
+      ...ctx,
+    })
+    return state
+  }
+
+  /**
+   * Праздничное оформление. Состояние целиком: «выключено и без подмены» отправляется
+   * одним действием, как и всё остальное на этом экране.
+   */
+  async setSeason(
+    userId: string,
+    input: SetSeasonInput,
+    ctx: RequestContext = {},
+  ): Promise<PublicPlatformState> {
+    const { state, before } = await this.write(userId, {
+      seasonOff: input.off,
+      seasonOverride: input.override,
+    })
+    await this.audit.record({
+      userId,
+      action: 'platform.season.set',
+      entity: 'PlatformState',
+      metadata: { before, off: input.off, override: input.override },
       ...ctx,
     })
     return state
@@ -580,6 +611,7 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
         : null,
     disabledSections: row.disabledSections,
     announcedVersion: row.announcedVersion,
+    season: { off: row.seasonOff, override: row.seasonOverride },
   }
 }
 
