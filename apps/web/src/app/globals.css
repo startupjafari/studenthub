@@ -494,6 +494,18 @@ summary {
   -webkit-mask-image: radial-gradient(ellipse 95% 75% at 50% 38%, #000 55%, transparent 100%);
   animation: auth-dots-drift 32s linear infinite;
 }
+
+/* В праздник точки берут сезонный акцент вместо тона текста: экран входа — первое, что
+   человек видит, и на нём оформление заметнее всего. Процент выше, чем у нейтральных
+   точек: цветная точка той же плотности читается слабее серой. */
+[data-season] .auth-dots {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--primary) 16%, transparent) 1px,
+    transparent 0
+  );
+}
+
 @keyframes auth-dots-drift {
   from {
     background-position: 0 0;
