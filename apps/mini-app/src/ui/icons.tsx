@@ -174,3 +174,116 @@ export function IconBack(props: IconProps) {
     </Svg>
   )
 }
+
+/*
+ * Значки разделов пульта. Рисуются белым внутри цветной плитки, поэтому линия чуть толще:
+ * на заливке тонкий контур в размере 17 пикселей выцветает.
+ */
+
+/** Техработы: рубильник — то, чем гасят платформу. */
+export function IconMaintenance(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4.5v7" strokeWidth="2" />
+      <path d="M7.4 7.4a6.5 6.5 0 1 0 9.2 0" strokeWidth="2" />
+    </Svg>
+  )
+}
+
+/** Баннер: рупор — объявление всем сразу. */
+export function IconBanner(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 10v4h3l6 4V6l-6 4H4Z" strokeWidth="1.9" />
+      <path d="M17 9.5a3.5 3.5 0 0 1 0 5" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Уведомления: колокольчик. */
+export function IconBell(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5H6.5Z" strokeWidth="1.9" />
+      <path d="M5 16.5h14" strokeWidth="1.9" />
+      <path d="M10.2 19.2a2 2 0 0 0 3.6 0" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Разделы: сетка — то, из чего собрано приложение. */
+export function IconSections(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4.5" y="4.5" width="6" height="6" rx="1.6" strokeWidth="1.9" />
+      <rect x="13.5" y="4.5" width="6" height="6" rx="1.6" strokeWidth="1.9" />
+      <rect x="4.5" y="13.5" width="6" height="6" rx="1.6" strokeWidth="1.9" />
+      <rect x="13.5" y="13.5" width="6" height="6" rx="1.6" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Оформление: искры — праздничный вид, а не функция. */
+export function IconSeason(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path
+        d="M10 4.5 11.6 9l4.5 1.6-4.5 1.6L10 16.7 8.4 12.2 3.9 10.6 8.4 9 10 4.5Z"
+        strokeWidth="1.8"
+      />
+      <path d="m17.5 14.5.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9.9-2.4Z" strokeWidth="1.8" />
+    </Svg>
+  )
+}
+
+/** «Что нового»: флажок — отметка версии. */
+export function IconRelease(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6 20V5h9.5l-1.8 3.4L15.5 12H6" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Дежурство: человек с отметкой — кто сейчас на связи. */
+export function IconDuty(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="10.5" cy="8" r="3.4" strokeWidth="1.9" />
+      <path d="M4.5 19.5a6 6 0 0 1 10.6-3.8" strokeWidth="1.9" />
+      <path d="m15 18.2 1.9 1.9 3.6-3.9" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Размер текста: большая и малая буквы. */
+export function IconTextSize({ size = 24 }: IconProps) {
+  return (
+    <svg
+      className="icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="none"
+      aria-hidden
+    >
+      <text x="1.5" y="18.5" fontSize="15" fontWeight="600" fontFamily="inherit">
+        A
+      </text>
+      <text x="12.5" y="18.5" fontSize="10" fontWeight="600" fontFamily="inherit">
+        a
+      </text>
+    </svg>
+  )
+}
+
+/** Откат: стрелка назад по дуге — «верни как было». */
+export function IconUndo(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5.5 9.5h8a5 5 0 0 1 0 10h-6" strokeWidth="1.9" />
+      <path d="m8.5 5.5-3.5 4 3.5 4" strokeWidth="1.9" />
+    </Svg>
+  )
+}

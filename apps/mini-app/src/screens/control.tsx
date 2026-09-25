@@ -30,6 +30,18 @@ import { formatDateTime } from '../lib/format'
 import { applyFontScale, isLargeFont } from '../lib/font-scale'
 import { Fold } from '../ui/fold'
 import { StatePlate } from '../ui/state-plate'
+import { Tile } from '../ui/tile'
+import {
+  IconBanner,
+  IconBell,
+  IconDuty,
+  IconMaintenance,
+  IconRelease,
+  IconSeason,
+  IconSections,
+  IconTextSize,
+  IconUndo,
+} from '../ui/icons'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
@@ -127,15 +139,32 @@ export function ControlScreen({ userId }: { userId: string }) {
         </section>
       )}
 
-      <MaintenanceCard state={state} busy={busy} run={run} />
-      <BannerCard state={state} busy={busy} run={run} />
-      <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
-      <SectionsCard state={state} busy={busy} run={run} />
-      <SeasonCard state={state} busy={busy} run={run} />
-      <ReleaseCard state={state} busy={busy} run={run} />
-      <DutyCard busy={busy} setError={setError} />
-      <FontCard />
-      <UndoCard busy={busy} run={run} />
+      {/*
+       * Рычаги собраны в группы, а не выложены девятью отдельными карточками.
+       *
+       * Порознь между ними оставался одинаковый зазор, и лента читалась как девять
+       * равнозначных экранов. Группами видно устройство раздела: что показывают всем
+       * (техработы, баннер, разделы, оформление, «Что нового»), чем распоряжается команда
+       * (уведомления, дежурство) и что настраивает себе сам смотрящий (размер текста,
+       * откат последнего изменения).
+       */}
+      <section className="card fold-group">
+        <MaintenanceCard state={state} busy={busy} run={run} />
+        <BannerCard state={state} busy={busy} run={run} />
+        <SectionsCard state={state} busy={busy} run={run} />
+        <SeasonCard state={state} busy={busy} run={run} />
+        <ReleaseCard state={state} busy={busy} run={run} />
+      </section>
+
+      <section className="card fold-group">
+        <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
+        <DutyCard busy={busy} setError={setError} />
+      </section>
+
+      <section className="card fold-group">
+        <FontCard />
+        <UndoCard busy={busy} run={run} />
+      </section>
 
       {/* Какая сборка открыта. Не украшение: сервисы на Railway однажды разъехались по
           веткам, и мини-апп неделю ходил в бэкенд за маршрутами, которых там не было. */}
@@ -191,6 +220,11 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
 
   return (
     <Fold
+      icon={
+        <Tile tone="indigo">
+          <IconDuty size={17} />
+        </Tile>
+      }
       title={t('dutyTitle')}
       state={order.length > 1 ? t('dutyStateRota', { count: order.length }) : t('dutyStateManual')}
     >
@@ -235,7 +269,14 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
  */
 function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
   return (
-    <Fold title={t('undoTitle')}>
+    <Fold
+      icon={
+        <Tile tone="gray">
+          <IconUndo size={17} />
+        </Tile>
+      }
+      title={t('undoTitle')}
+    >
       <p className="hint">{t('undoHint')}</p>
       <button
         type="button"
@@ -257,6 +298,11 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
   return (
     <Fold
+      icon={
+        <Tile tone="orange">
+          <IconMaintenance size={17} />
+        </Tile>
+      }
       title={t('maintenanceTitle')}
       // Состояние в заголовке: «идут ли сейчас техработы» — вопрос, ради которого этот
       // раздел и открывали чаще прочих.
@@ -379,7 +425,15 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
 
   if (active) {
     return (
-      <Fold title={t('bannerTitle')} state={t('bannerStateOn')}>
+      <Fold
+        icon={
+          <Tile tone="purple">
+            <IconBanner size={17} />
+          </Tile>
+        }
+        title={t('bannerTitle')}
+        state={t('bannerStateOn')}
+      >
         <p className="hint">{active.text[lang]}</p>
         <p className="hint">{t('bannerUntil', { until: formatDateTime(active.until) })}</p>
         <button
@@ -395,7 +449,15 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
   }
 
   return (
-    <Fold title={t('bannerTitle')} state={t('bannerStateOff')}>
+    <Fold
+      icon={
+        <Tile tone="purple">
+          <IconBanner size={17} />
+        </Tile>
+      }
+      title={t('bannerTitle')}
+      state={t('bannerStateOff')}
+    >
       <p className="hint">{t('bannerHint')}</p>
       <div className="chips">
         {BANNER_PRESETS.map((item) => (
@@ -561,6 +623,11 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
 
   return (
     <Fold
+      icon={
+        <Tile tone="blue">
+          <IconSections size={17} />
+        </Tile>
+      }
       title={t('sectionsTitle')}
       state={
         disabled.size > 0 ? t('sectionsStateOff', { count: disabled.size }) : t('sectionsStateAll')
@@ -610,6 +677,11 @@ function SeasonCard({ state, busy, run }: { state: PlatformState; busy: boolean;
 
   return (
     <Fold
+      icon={
+        <Tile tone="pink">
+          <IconSeason size={17} />
+        </Tile>
+      }
       title={t('seasonTitle')}
       state={off ? t('seasonStateOff') : picked ? t(picked.labelKey) : t('seasonStateCalendar')}
     >
@@ -676,7 +748,15 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
   const [version, setVersion] = useState('')
 
   return (
-    <Fold title={t('releaseTitle')} state={state.announcedVersion ?? t('releaseStateNone')}>
+    <Fold
+      icon={
+        <Tile tone="green">
+          <IconRelease size={17} />
+        </Tile>
+      }
+      title={t('releaseTitle')}
+      state={state.announcedVersion ?? t('releaseStateNone')}
+    >
       <p className="hint">
         {state.announcedVersion
           ? t('releaseAnnounced', { version: state.announcedVersion })
@@ -762,6 +842,11 @@ function NotificationsCard({
 
   return (
     <Fold
+      icon={
+        <Tile tone="red">
+          <IconBell size={17} />
+        </Tile>
+      }
       title={t('notifTitle')}
       state={
         current.quietFrom === null
@@ -875,7 +960,15 @@ function FontCard() {
   const [large, setLarge] = useState(isLargeFont)
 
   return (
-    <Fold title={t('fontTitle')} state={large ? t('fontStateLarge') : t('fontStateNormal')}>
+    <Fold
+      icon={
+        <Tile tone="teal">
+          <IconTextSize size={17} />
+        </Tile>
+      }
+      title={t('fontTitle')}
+      state={large ? t('fontStateLarge') : t('fontStateNormal')}
+    >
       <p className="hint">{t('fontHint')}</p>
       <div className="chips-grid">
         {[false, true].map((value) => (

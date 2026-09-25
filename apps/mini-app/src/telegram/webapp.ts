@@ -92,6 +92,11 @@ function applyTheme(params: TelegramThemeParams, scheme: 'light' | 'dark'): void
     root.style.setProperty(`--tg-theme-${key.replaceAll('_', '-')}`, value)
   }
   root.style.colorScheme = scheme
+  // Атрибутом, а не только colorScheme: по нему css выбирает вариант фиксированной
+  // палитры значков (в тёмной теме системные цвета берутся светлее, иначе тонут в фоне).
+  // Через `light-dark()` было бы короче, но она есть не во всех WebView, где открывают
+  // мини-апп, — а палитра нужна везде.
+  root.dataset.scheme = scheme
 }
 
 /** Тактильный отклик. Вне Telegram — тишина, а не исключение. */
