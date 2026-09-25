@@ -100,6 +100,7 @@ export { formatYmd, parseYmd } from './calendar-grid'
 export { DateRangePicker, type DateRangePickerProps, type DateRange } from './date-range-picker'
 export { PageLoader, type PageLoaderProps } from './page-loader'
 export { PageHeader, type PageHeaderProps } from './page-header'
+export { SeasonGreeting } from './season-greeting'
 export {
   Table,
   TableBody,

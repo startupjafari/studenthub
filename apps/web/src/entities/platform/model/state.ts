@@ -36,12 +36,24 @@ export interface PlatformBanner {
   universityIds: string[]
 }
 
+/**
+ * Рычаг праздничного оформления. Сам праздник веб считает по справочнику в бандле
+ * (`shared/config/holidays.ts`) — отсюда приходит только вмешательство человека.
+ */
+export interface PlatformSeason {
+  /** Погасить оформление на всей платформе: траур, авария — любая причина «не сегодня». */
+  off: boolean
+  /** Показывать этот сезон независимо от даты; null — как в календаре. */
+  override: string | null
+}
+
 export interface PlatformState {
   maintenance: PlatformMaintenance | null
   banner: PlatformBanner | null
   /** Ключи погашенных разделов. Пустой массив — всё работает. */
   disabledSections: string[]
   announcedVersion: string | null
+  season: PlatformSeason
 }
 
 /** Состояние по умолчанию: платформа жива, объявлений нет. */
@@ -50,4 +62,5 @@ export const PLATFORM_STATE_DEFAULT: PlatformState = {
   banner: null,
   disabledSections: [],
   announcedVersion: null,
+  season: { off: false, override: null },
 }

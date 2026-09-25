@@ -11,15 +11,18 @@ import { makeQueryClient } from '../shared/api'
 import { SessionInitializer } from '../shared/session'
 import { RealtimeProvider } from '../shared/realtime'
 import { ConfirmProvider, Toaster, TooltipProvider } from '../shared/ui'
+import { usePlatformState } from '../entities/platform'
 import { CommandPalette } from '../widgets/command-palette'
 // Ради побочного эффекта: модуль вешает слушатель `beforeinstallprompt` на уровне
 // импорта. Событие прилетает сразу после загрузки — подписка из компонента настроек
 // его бы уже не застала (shared/lib/pwa-install.ts).
 import '../shared/lib/pwa-install'
 import {
+  SeasonLeverProvider,
   useChunkErrorRecovery,
   useEscapeBack,
   useKeyboardInset,
+  useSeasonTheme,
   useServiceWorkerUpdate,
 } from '../shared/lib'
 
@@ -52,19 +55,21 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
           disableTransitionOnChange
         >
           <NextIntlClientProvider locale={locale} messages={messages} timeZone={timeZone}>
-            <SessionInitializer />
-            <AppRuntime />
-            <RealtimeProvider>
-              <TooltipProvider delayDuration={200}>
-                <ConfirmProvider>
-                  {children}
-                  <CommandPalette />
-                  <WhatsNewDialog />
-                  {/* Toaster внутри ThemeProvider — тосты следуют выбранной теме (useTheme). */}
-                  <Toaster />
-                </ConfirmProvider>
-              </TooltipProvider>
-            </RealtimeProvider>
+            <SeasonLayer>
+              <SessionInitializer />
+              <AppRuntime />
+              <RealtimeProvider>
+                <TooltipProvider delayDuration={200}>
+                  <ConfirmProvider>
+                    {children}
+                    <CommandPalette />
+                    <WhatsNewDialog />
+                    {/* Toaster внутри ThemeProvider — тосты следуют выбранной теме (useTheme). */}
+                    <Toaster />
+                  </ConfirmProvider>
+                </TooltipProvider>
+              </RealtimeProvider>
+            </SeasonLayer>
           </NextIntlClientProvider>
         </ThemeProvider>
       </QueryClientProvider>
@@ -72,13 +77,25 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
   )
 }
 
-// Общие эффекты приложения: обновление версии и высота клавиатуры. Отдельным
-// компонентом, а не хуками в AppProviders: тост об обновлении берёт переводы, а
-// `NextIntlClientProvider` стоит ниже по дереву.
+// Рычаг праздничного оформления с платформы (погасить всё, показать сезон вне его даты).
+// Живёт здесь, потому что это единственное место, которое видит и состояние платформы
+// (entities), и общий слой оформления (shared): сам `shared/lib/season` о доменных
+// сущностях знать не имеет права. Лишнего запроса не даёт — ключ тот же, что у PlatformGate.
+function SeasonLayer({ children }: { children: ReactNode }) {
+  const { season } = usePlatformState()
+  return <SeasonLeverProvider value={season}>{children}</SeasonLeverProvider>
+}
+
+// Общие эффекты приложения: обновление версии, высота клавиатуры, праздничное
+// оформление. Отдельным компонентом, а не хуками в AppProviders: тост об обновлении
+// берёт переводы, а сезон — таймзону платформы, и `NextIntlClientProvider` стоит ниже
+// по дереву.
 function AppRuntime() {
   useServiceWorkerUpdate()
   useChunkErrorRecovery()
   useKeyboardInset()
   useEscapeBack()
+  // Праздник ставит `data-season` на <html>; дальше всё живёт в globals.css.
+  useSeasonTheme()
   return null
 }

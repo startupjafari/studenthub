@@ -39,6 +39,7 @@ const EMPTY: PlatformState = {
   banner: null,
   disabledSections: [],
   announcedVersion: null,
+  season: { off: false, override: null },
 }
 
 function show(state: PlatformState | Error) {

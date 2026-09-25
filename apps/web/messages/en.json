@@ -2348,7 +2348,11 @@
     "telegramLastSeen": "Last opened {date}",
     "telegramRevoke": "Revoke",
     "telegramRevokeConfirm": "Revoke the link? The mini app will stop opening on that phone. You can link again with a new code.",
-    "telegramRevoked": "The link is revoked"
+    "telegramRevoked": "The link is revoked",
+    "seasonDecor": "Holiday theming",
+    "seasonDecorDesc": "Accent colour and a greeting on national and university holidays",
+    "seasonMotion": "Holiday motion",
+    "seasonMotionDesc": "Sparse particles on the home screen, once per holiday day"
   },
   "Offline": {
     "title": "You are offline",
@@ -2775,7 +2779,8 @@
       "month": "Month",
       "agenda": "Agenda"
     },
-    "more": "+{count} more"
+    "more": "+{count} more",
+    "dayOff": "non-working day"
   },
   "Courses": {
     "title": "Courses",
@@ -3675,5 +3680,82 @@
     "send": "Send",
     "sent": "Your message was sent",
     "appended": "Added to your open request"
+  },
+  "Season": {
+    "new-year": {
+      "name": "New Year",
+      "greeting": "Happy New Year!"
+    },
+    "new-year-eve": {
+      "name": "New Year's Eve",
+      "greeting": "Happy New Year's Eve!"
+    },
+    "orthodox-christmas": {
+      "name": "Orthodox Christmas",
+      "greeting": "Merry Christmas!"
+    },
+    "womens-day": {
+      "name": "International Women's Day",
+      "greeting": "Happy International Women's Day!"
+    },
+    "nauryz": {
+      "name": "Nauryz Meyramy",
+      "greeting": "Happy Nauryz Meyramy!"
+    },
+    "unity-day": {
+      "name": "Kazakhstan People's Unity Day",
+      "greeting": "Happy Kazakhstan People's Unity Day!"
+    },
+    "defender-day": {
+      "name": "Defender of the Fatherland Day",
+      "greeting": "Happy Defender of the Fatherland Day!"
+    },
+    "victory-day": {
+      "name": "Victory Day",
+      "greeting": "Happy Victory Day!"
+    },
+    "kurban-ait": {
+      "name": "Kurban Ait",
+      "greeting": "Blessed Kurban Ait!"
+    },
+    "oraza-ait": {
+      "name": "Oraza Ait",
+      "greeting": "Blessed Oraza Ait!"
+    },
+    "capital-day": {
+      "name": "Capital City Day",
+      "greeting": "Happy Capital City Day!"
+    },
+    "constitution-day": {
+      "name": "Constitution Day",
+      "greeting": "Happy Constitution Day!"
+    },
+    "republic-day": {
+      "name": "Republic Day",
+      "greeting": "Happy Republic Day!"
+    },
+    "independence-day": {
+      "name": "Independence Day",
+      "greeting": "Happy Independence Day!"
+    },
+    "knowledge-day": {
+      "name": "Knowledge Day",
+      "greeting": "Happy Knowledge Day! Have a great academic year"
+    },
+    "teachers-day": {
+      "name": "Teachers' Day",
+      "greeting": "Happy Teachers' Day!"
+    },
+    "languages-day": {
+      "name": "Languages Day of the People of Kazakhstan",
+      "greeting": "Happy Languages Day of the People of Kazakhstan!"
+    },
+    "students-day": {
+      "name": "International Students' Day",
+      "greeting": "Happy International Students' Day!"
+    },
+    "repression-victims-day": {
+      "name": "Day of Remembrance of the Victims of Political Repression and Famine"
+    }
   }
 }

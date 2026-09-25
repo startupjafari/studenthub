@@ -98,6 +98,8 @@ import {
   useFormAlert,
   usePwaInstall,
   useScrollRow,
+  useSeasonEnabled,
+  useSeasonMotionEnabled,
 } from '../../../shared/lib'
 import {
   subscribeToPush,
@@ -792,7 +794,43 @@ function AppearanceSection() {
       <SettingRow title={tS('theme')}>
         <ThemeSelect />
       </SettingRow>
+      <SettingRow title={tS('seasonDecor')} desc={tS('seasonDecorDesc')}>
+        <SeasonToggle />
+      </SettingRow>
+      <SettingRow title={tS('seasonMotion')} desc={tS('seasonMotionDesc')}>
+        <SeasonMotionToggle />
+      </SettingRow>
     </SectionCard>
+  )
+}
+
+// Праздничное оформление (shared/lib/season.ts): отключается насовсем, а не до конца дня.
+// mounted-гейт — та же причина, что у темы: настройка лежит в localStorage, и на сервере
+// её нет. До монтирования переключатель показан включённым и заблокирован — это состояние
+// разметки по умолчанию, а не догадка о выборе человека.
+function SeasonToggle() {
+  const tS = useTranslations('Settings')
+  const { enabled, mounted, set } = useSeasonEnabled()
+
+  return (
+    <ToggleSwitch checked={enabled} onChange={set} disabled={!mounted} label={tS('seasonDecor')} />
+  )
+}
+
+// Движение — отдельный переключатель, по умолчанию выключенный. Без оформления он
+// недоступен: частицы красятся сезонным акцентом, которого в этом случае нет.
+function SeasonMotionToggle() {
+  const tS = useTranslations('Settings')
+  const decor = useSeasonEnabled()
+  const { enabled, mounted, set } = useSeasonMotionEnabled()
+
+  return (
+    <ToggleSwitch
+      checked={enabled && decor.enabled}
+      onChange={set}
+      disabled={!mounted || !decor.enabled}
+      label={tS('seasonMotion')}
+    />
   )
 }
 

@@ -129,3 +129,47 @@ export const SetDutySchema = z
   })
   .strict()
 export type SetDutyInput = z.infer<typeof SetDutySchema>
+
+/**
+ * Сезоны, которые платформа умеет оформлять. Здесь только ИДЕНТИФИКАТОРЫ — даты, тон и
+ * палитра живут в вебе (`apps/web/src/shared/config/holidays.ts`) вместе с кодом, который
+ * их рисует, и в контракте им делать нечего.
+ *
+ * Список нужен ровно затем, чтобы принудительный сезон нельзя было задать опечаткой:
+ * админ выбирает из перечисленного, сервер проверяет по тому же списку. Совпадение с
+ * таблицей праздников сторожит тест `holidays.test.ts` в вебе — разойтись молча они не могут.
+ */
+export const SEASON_IDS = [
+  'new-year',
+  'new-year-eve',
+  'orthodox-christmas',
+  'womens-day',
+  'nauryz',
+  'unity-day',
+  'defender-day',
+  'victory-day',
+  'kurban-ait',
+  'oraza-ait',
+  'capital-day',
+  'constitution-day',
+  'republic-day',
+  'independence-day',
+  'knowledge-day',
+  'teachers-day',
+  'languages-day',
+  'students-day',
+] as const
+export type SeasonId = (typeof SEASON_IDS)[number]
+
+/**
+ * Рычаг праздничного оформления. Состояние целиком, а не команда: «выключено и без
+ * подмены» — такое же осмысленное значение, как и любое другое, и отправлять его надо
+ * уметь одним действием.
+ */
+export const SetSeasonSchema = z.object({
+  /** Погасить оформление на всей платформе. Личная настройка человека этим не трогается. */
+  off: z.boolean(),
+  /** Показывать этот сезон независимо от даты; `null` — как в календаре. */
+  override: z.enum(SEASON_IDS).nullable(),
+})
+export type SetSeasonInput = z.infer<typeof SetSeasonSchema>

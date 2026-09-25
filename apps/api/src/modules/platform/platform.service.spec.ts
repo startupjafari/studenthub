@@ -25,6 +25,8 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
     bannerUniversityIds: [],
     disabledSections: [],
     announcedVersion: null,
+    seasonOff: false,
+    seasonOverride: null,
     quietFrom: null,
     quietTo: null,
     mutedNotifications: [],
@@ -94,6 +96,7 @@ describe('PlatformService.publicState', () => {
       banner: null,
       disabledSections: [],
       announcedVersion: null,
+      season: { off: false, override: null },
     })
   })
 
@@ -249,6 +252,22 @@ describe('PlatformService — запись рычагов', () => {
     expect(redis.del).toHaveBeenCalledWith('platform:state')
   })
 
+  it('сезон пишется состоянием целиком — и выключатель, и подмена сразу', async () => {
+    const { service, updates } = setup()
+
+    await service.setSeason('admin-1', { off: true, override: 'nauryz' })
+
+    expect(updates[0]).toMatchObject({ seasonOff: true, seasonOverride: 'nauryz' })
+  })
+
+  it('сезон возвращается в календарный одним действием', async () => {
+    const { service, updates } = setup(row({ seasonOff: true, seasonOverride: 'nauryz' }))
+
+    await service.setSeason('admin-1', { off: false, override: null })
+
+    expect(updates[0]).toMatchObject({ seasonOff: false, seasonOverride: null })
+  })
+
   it('пишет в журнал включение и снятие разными действиями', async () => {
     const { service, audit } = setup()
 
@@ -323,6 +342,7 @@ describe('PlatformService — отказ чтения состояния', () =>
       banner: null,
       disabledSections: [],
       announcedVersion: null,
+      season: { off: false, override: null },
     })
   })
 })
