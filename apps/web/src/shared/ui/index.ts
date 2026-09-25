@@ -101,6 +101,7 @@ export { DateRangePicker, type DateRangePickerProps, type DateRange } from './da
 export { PageLoader, type PageLoaderProps } from './page-loader'
 export { PageHeader, type PageHeaderProps } from './page-header'
 export { SeasonGreeting } from './season-greeting'
+export { seasonIcon } from './season-icon'
 export {
   Table,
   TableBody,
