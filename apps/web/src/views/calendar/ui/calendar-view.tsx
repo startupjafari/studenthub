@@ -35,7 +35,14 @@ import { formatYmd, monthCells, sameDay } from '../../../shared/ui/calendar-grid
 import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
-import { buildCalendar, groupByDate, type CalFilter, type CalItem } from '../lib/calendar-events'
+import type { Holiday } from '../../../shared/config'
+import {
+  buildCalendar,
+  groupByDate,
+  holidaysByDate,
+  type CalFilter,
+  type CalItem,
+} from '../lib/calendar-events'
 
 // Единый академический календарь: пары + события в одном месте. Desktop — Месяц,
 // mobile — Повестка (задача 26). Фильтр Все/Пары/События.
@@ -83,6 +90,9 @@ export function CalendarView() {
     )
     return groupByDate(items)
   }, [schedule.data, changes.data, events.data, assignments.data, cells, filter])
+
+  // Праздники месяца — из справочника, без запроса: он уже в бандле (shared/config/holidays.ts).
+  const holidays = useMemo(() => holidaysByDate(cells), [cells])
 
   const weekdayLabels = useMemo(
     // 1 января 2024 — понедельник, поэтому ряд получается Пн..Вс (локализованный).
@@ -169,13 +179,21 @@ export function CalendarView() {
           anchorMonth={anchor.getMonth()}
           today={today}
           byDate={byDate}
+          holidays={holidays}
           weekdayLabels={weekdayLabels}
           selected={selected}
           onSelect={(ds) => setSelected(ds)}
           t={t}
         />
       ) : (
-        <Agenda cells={cells} byDate={byDate} locale={locale} selected={selected} t={t} />
+        <Agenda
+          cells={cells}
+          byDate={byDate}
+          holidays={holidays}
+          locale={locale}
+          selected={selected}
+          t={t}
+        />
       )}
 
       {/* День выбранной даты — окном, а не панелью под сеткой. Панель появлялась ниже
@@ -187,7 +205,13 @@ export function CalendarView() {
           оставшийся выбранным после закрытия, показал бы в ней одну строку вместо месяца. */}
       {selected && (
         <Modal onClose={() => setSelected(null)} title={dayTitle(selected, locale)} size="lg">
-          <DayList date={selected} items={byDate.get(selected) ?? []} locale={locale} t={t} />
+          <DayList
+            date={selected}
+            items={byDate.get(selected) ?? []}
+            holiday={holidays.get(selected) ?? null}
+            locale={locale}
+            t={t}
+          />
         </Modal>
       )}
     </div>
@@ -217,6 +241,7 @@ function MonthGrid({
   anchorMonth,
   today,
   byDate,
+  holidays,
   weekdayLabels,
   selected,
   onSelect,
@@ -226,11 +251,14 @@ function MonthGrid({
   anchorMonth: number
   today: Date
   byDate: Map<string, CalItem[]>
+  holidays: Map<string, Holiday>
   weekdayLabels: string[]
   selected: string | null
   onSelect: (ds: string) => void
   t: T
 }) {
+  const tSeason = useTranslations('Season')
+
   return (
     // Сетка занимает всю свободную высоту, а не высоту содержимого: иначе под
     // календарём оставался пустой хвост, и снизу воздуха было заметно больше, чем
@@ -253,6 +281,7 @@ function MonthGrid({
           {cells.map((d) => {
             const ds = formatYmd(d)
             const items = byDate.get(ds) ?? []
+            const holiday = holidays.get(ds) ?? null
             const outside = d.getMonth() !== anchorMonth
             const isToday = sameDay(d, today)
             const isSel = selected === ds
@@ -279,6 +308,13 @@ function MonthGrid({
                   {d.getDate()}
                 </span>
                 <span className="flex flex-col gap-0.5">
+                  {/* Праздник — контекст дня, а не событие: нейтральная плашка, чтобы он
+                      не спорил с цветными полосками пар, дедлайнов и событий. */}
+                  {holiday && (
+                    <span className="truncate rounded bg-muted px-1 py-0.5 text-[11px] leading-tight text-muted-foreground">
+                      {tSeason(`${holiday.id}.name`)}
+                    </span>
+                  )}
                   {items.slice(0, 3).map((it) => (
                     <span
                       key={it.id}
@@ -309,20 +345,24 @@ function MonthGrid({
 function Agenda({
   cells,
   byDate,
+  holidays,
   locale,
   selected,
   t,
 }: {
   cells: Date[]
   byDate: Map<string, CalItem[]>
+  holidays: Map<string, Holiday>
   locale: string
   selected: string | null
   t: T
 }) {
   const days = cells
     .map((d) => formatYmd(d))
+    // День с праздником попадает в повестку и без пар: 16 декабря «ничего не
+    // запланировано» — неверный ответ, в этот день не учатся.
     .filter((ds, i, arr) => arr.indexOf(ds) === i)
-    .filter((ds) => (byDate.get(ds)?.length ?? 0) > 0)
+    .filter((ds) => (byDate.get(ds)?.length ?? 0) > 0 || holidays.has(ds))
     .filter((ds) => (selected ? ds === selected : true))
 
   if (days.length === 0) {
@@ -334,7 +374,14 @@ function Agenda({
       {days.map((ds) => (
         <Card key={ds}>
           <CardContent className="p-4">
-            <DayList date={ds} items={byDate.get(ds) ?? []} locale={locale} t={t} showDateHeader />
+            <DayList
+              date={ds}
+              items={byDate.get(ds) ?? []}
+              holiday={holidays.get(ds) ?? null}
+              locale={locale}
+              t={t}
+              showDateHeader
+            />
           </CardContent>
         </Card>
       ))}
@@ -354,16 +401,19 @@ function dayTitle(date: string, locale: string): string {
 function DayList({
   date,
   items,
+  holiday,
   locale,
   t,
   showDateHeader,
 }: {
   date: string
   items: CalItem[]
+  holiday: Holiday | null
   locale: string
   t: T
   showDateHeader?: boolean
 }) {
+  const tSeason = useTranslations('Season')
   const label = dayTitle(date, locale)
   return (
     <div className="flex flex-col gap-2">
@@ -371,6 +421,12 @@ function DayList({
         <h3 className="font-heading text-sm font-semibold capitalize text-muted-foreground">
           {label}
         </h3>
+      )}
+      {holiday && (
+        <p className="rounded-lg bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{tSeason(`${holiday.id}.name`)}</span>
+          {holiday.dayOff && <span> · {t('dayOff')}</span>}
+        </p>
       )}
       {items.length === 0 ? (
         <EmptyState title={t('noItems')} className="border-0 p-6" />

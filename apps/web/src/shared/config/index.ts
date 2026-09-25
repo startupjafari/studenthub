@@ -24,6 +24,7 @@ export { BRAND_GRADIENT } from './brand'
 export {
   HOLIDAYS,
   activeHoliday,
+  calendarHoliday,
   activeSeason,
   holidaysOn,
   type Holiday,

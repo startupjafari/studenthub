@@ -133,25 +133,39 @@ describe('словари i18n', () => {
   })
 
   /**
-   * Поздравления берутся по `holiday.id` (shared/ui/season-greeting.tsx) — ключ собирается
-   * из значения, и проверка выше его не видит. Сверяем в обе стороны: у каждого
-   * оформляемого праздника поздравление есть, и наоборот — выключенный праздник не
-   * оставляет в словарях мёртвую строку.
+   * Тексты праздников берутся по `holiday.id` (season-greeting.tsx, calendar-view.tsx) —
+   * ключ собирается из значения, и проверка выше его не видит. Сверяем в обе стороны, и
+   * разными мерками: название нужно всякому празднику, который показывает календарь, а
+   * поздравление — только тем, кого мы оформляем. Обратная проверка ловит строки,
+   * оставшиеся от выключенного праздника.
    */
-  it('у каждого оформляемого праздника есть поздравление в Season', () => {
-    const decorated = HOLIDAYS.filter((holiday) => holiday.decorated).map((holiday) => holiday.id)
-    expect(decorated.length).toBeGreaterThan(0)
+  it('у каждого праздника есть нужные ему тексты в Season', () => {
+    const named = HOLIDAYS.filter((holiday) => holiday.tier !== 'SOFT').map((h) => h.id)
+    const greeted = HOLIDAYS.filter((holiday) => holiday.decorated).map((h) => h.id)
+    expect(named.length).toBeGreaterThan(0)
+    expect(greeted.length).toBeGreaterThan(0)
 
     const problems: string[] = []
-    for (const id of decorated) {
-      const key = `Season.${id}.greeting`
-      const absent = LOCALES.filter((locale) => !dicts[locale].has(key))
-      if (absent.length > 0) problems.push(`${key} — нет в ${absent.join(', ')}`)
+    const require = (ids: string[], leaf: 'name' | 'greeting') => {
+      for (const id of ids) {
+        const key = `Season.${id}.${leaf}`
+        const absent = LOCALES.filter((locale) => !dicts[locale].has(key))
+        if (absent.length > 0) problems.push(`${key} — нет в ${absent.join(', ')}`)
+      }
     }
+    require(named, 'name')
+    require(greeted, 'greeting')
+
     for (const key of dicts.ru) {
       if (!key.startsWith('Season.')) continue
-      const id = key.split('.')[1]
-      if (id && !decorated.includes(id)) problems.push(`${key} — праздник не оформляется`)
+      const [, id, leaf] = key.split('.')
+      if (!id || !leaf) continue
+      if (leaf === 'name' && !named.includes(id)) problems.push(`${key} — нет в календаре`)
+      else if (leaf === 'greeting' && !greeted.includes(id)) {
+        problems.push(`${key} — праздник не оформляется`)
+      } else if (leaf !== 'name' && leaf !== 'greeting') {
+        problems.push(`${key} — у праздника нет такого текста`)
+      }
     }
     expect(problems).toEqual([])
   })

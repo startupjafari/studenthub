@@ -317,16 +317,32 @@ export function holidaysOn(date: string): Holiday[] {
   return HOLIDAYS.filter((holiday) => matches(holiday, year, monthDay))
 }
 
-/**
- * Праздник дня, один: при совпадении дат побеждает старший tier, при равном — тот, что
- * выше в таблице. Один день — одно оформление; выбирать его в разметке нельзя.
- */
-export function activeHoliday(date: string): Holiday | null {
+/** Старший из списка: при равном приоритете выигрывает тот, что выше в таблице. */
+function top(list: Holiday[]): Holiday | null {
   let best: Holiday | null = null
-  for (const holiday of holidaysOn(date)) {
+  for (const holiday of list) {
     if (!best || TIER_PRIORITY[holiday.tier] > TIER_PRIORITY[best.tier]) best = holiday
   }
   return best
+}
+
+/**
+ * Праздник дня, один: при совпадении дат побеждает старший tier. Один день — одно
+ * оформление; выбирать его в разметке нельзя.
+ */
+export function activeHoliday(date: string): Holiday | null {
+  return top(holidaysOn(date))
+}
+
+/**
+ * Праздник дня для КАЛЕНДАРЯ — это другой вопрос, чем оформление, и ответ у него другой.
+ *
+ * Мягкие глобальные даты (14 февраля, Хэллоуин) в учебный календарь не попадают, даже
+ * если продукт когда-нибудь включит им оформление: это не даты вуза. День памяти,
+ * наоборот, в календаре нужен — он ничего не оформляет, но 31 мая человек должен видеть.
+ */
+export function calendarHoliday(date: string): Holiday | null {
+  return top(holidaysOn(date).filter((holiday) => holiday.tier !== 'SOFT'))
 }
 
 /**
