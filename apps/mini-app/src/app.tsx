@@ -161,7 +161,7 @@ function ControlTab({ userId }: { userId: string }) {
     <>
       <div className="screen-top">
         <ScreenHeader
-          title={t('tabControl')}
+          title={t('controlTitle')}
           tabs={
             <Tabs
               items={[
