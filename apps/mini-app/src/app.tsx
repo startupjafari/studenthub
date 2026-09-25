@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { initTelegram, isTelegram, startParam } from './telegram/webapp'
 import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
@@ -8,7 +8,10 @@ import { SupportScreen } from './screens/support'
 import { PeopleScreen } from './screens/people'
 import { OverviewScreen } from './screens/overview'
 import { fetchBadges, type Badges } from './api/badges'
+import { TabBar } from './ui/tab-bar'
 import { Tabs } from './ui/tabs'
+import { ScreenHeader } from './ui/screen-header'
+import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
 
 // Мини-апп для администраторов и модераторов платформы.
@@ -30,13 +33,14 @@ type Tab = 'complaints' | 'support' | 'people' | 'control'
 const TABS: {
   id: Tab
   labelKey: 'tabComplaints' | 'tabSupport' | 'tabPeople' | 'tabControl'
+  icon: ReactNode
   adminOnly?: boolean
 }[] = [
-  { id: 'complaints', labelKey: 'tabComplaints' },
-  { id: 'support', labelKey: 'tabSupport' },
+  { id: 'complaints', labelKey: 'tabComplaints', icon: <IconComplaints /> },
+  { id: 'support', labelKey: 'tabSupport', icon: <IconSupport /> },
   // Люди доступны и модератору: блокировка — его инструмент, а не только админский.
-  { id: 'people', labelKey: 'tabPeople' },
-  { id: 'control', labelKey: 'tabControl', adminOnly: true },
+  { id: 'people', labelKey: 'tabPeople', icon: <IconPeople /> },
+  { id: 'control', labelKey: 'tabControl', icon: <IconControl />, adminOnly: true },
 ]
 
 type State =
@@ -128,25 +132,18 @@ function ReadyView({
        * у большого пальца. Порядок в DOM совпадает с порядком на экране намеренно —
        * читалка обойдёт экран так же, как его видит человек, а не начнёт с навигации.
        */}
-      <div className="tabbar">
-        <Tabs
-          items={tabs.map((item) => ({
-            id: item.id,
-            label: (
-              <>
-                {t(item.labelKey)}
-                {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
-                    до него приходилось обходить все три по очереди. */}
-                {badgeFor(item.id, badges) > 0 && (
-                  <span className="tab-badge">{badgeFor(item.id, badges)}</span>
-                )}
-              </>
-            ),
-          }))}
-          active={active}
-          onSelect={onTab}
-        />
-      </div>
+      <TabBar
+        items={tabs.map((item) => ({
+          id: item.id,
+          label: t(item.labelKey),
+          icon: item.icon,
+          // Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки: до него
+          // приходилось обходить все три по очереди.
+          count: badgeFor(item.id, badges),
+        }))}
+        active={active}
+        onSelect={onTab}
+      />
     </>
   )
 }
@@ -162,14 +159,19 @@ function ControlTab({ userId }: { userId: string }) {
 
   return (
     <>
-      <div className="subtabs">
-        <Tabs
-          items={[
-            { id: 'summary', label: t('controlTabSummary') },
-            { id: 'levers', label: t('controlTabLevers') },
-          ]}
-          active={sub}
-          onSelect={setSub}
+      <div className="screen-top">
+        <ScreenHeader
+          title={t('controlTitle')}
+          tabs={
+            <Tabs
+              items={[
+                { id: 'summary', label: t('controlTabSummary') },
+                { id: 'levers', label: t('controlTabLevers') },
+              ]}
+              active={sub}
+              onSelect={setSub}
+            />
+          }
         />
       </div>
       {sub === 'summary' ? <OverviewScreen /> : <ControlScreen userId={userId} />}

@@ -29,6 +29,7 @@ import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { applyFontScale, isLargeFont } from '../lib/font-scale'
 import { Fold } from '../ui/fold'
+import { StatePlate } from '../ui/state-plate'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
@@ -97,17 +98,18 @@ export function ControlScreen({ userId }: { userId: string }) {
     [busy],
   )
 
-  if (load.status === 'loading') return <Head hint={t('controlReading')} />
+  // Свой .screen у загрузки: без него строка состояния прижималась к самому краю экрана.
+  if (load.status === 'loading')
+    return (
+      <div className="screen">
+        <Head hint={t('controlReading')} />
+      </div>
+    )
   if (load.status === 'error') {
     return (
       <div className="screen">
         <Head hint={t('controlSubtitle')} />
-        <section className="card">
-          <p>{t('controlReadError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void reload()}>
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('controlReadError')} onRetry={() => void reload()} />
       </div>
     )
   }
@@ -704,13 +706,15 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
   )
 }
 
+/**
+ * Строка состояния над рычагами.
+ *
+ * Названия раздела здесь больше нет: его вместе с переключателем «Сводка / Рычаги»
+ * рисует общая шапка над экраном (app.tsx), и собственный заголовок «Управление» стоял
+ * бы прямо под точно таким же. Осталось то, чего в шапке нет, — что сейчас происходит.
+ */
 function Head({ hint }: { hint: string }) {
-  return (
-    <header className="screen-head">
-      <h1>{t('controlTitle')}</h1>
-      <p className="hint">{hint}</p>
-    </header>
-  )
+  return <p className="hint">{hint}</p>
 }
 
 /**

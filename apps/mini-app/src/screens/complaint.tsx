@@ -12,6 +12,8 @@ import {
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackButton } from '../telegram/use-telegram'
+import { ScreenHeader } from '../ui/screen-header'
+import { StatePlate } from '../ui/state-plate'
 import { t } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { PersonSummary } from './person-summary'
@@ -151,10 +153,11 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
     // экран не прыгает, когда данные приезжают.
     return (
       <div className="screen">
-        <header className="screen-head">
-          <h1>{t('complaintTitle')}</h1>
-          <p className="hint">{t('complaintOpening')}</p>
-        </header>
+        <ScreenHeader
+          title={t('complaintTitle')}
+          subtitle={t('complaintOpening')}
+          onBack={onBack}
+        />
         <section className="card" aria-hidden="true">
           <span className="skeleton skeleton-title" />
           <span className="skeleton skeleton-line" />
@@ -171,15 +174,8 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   if (state.status === 'error') {
     return (
       <div className="screen">
-        <header className="screen-head">
-          <h1>{t('complaintTitle')}</h1>
-        </header>
-        <section className="card">
-          <p>{t('complaintOpenError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void load()}>
-            {t('retry')}
-          </button>
-        </section>
+        <ScreenHeader title={t('complaintTitle')} onBack={onBack} />
+        <StatePlate title={t('complaintOpenError')} onRetry={() => void load()} />
       </div>
     )
   }
@@ -189,12 +185,11 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
 
   return (
     <div className="screen">
-      <header className="screen-head">
-        <h1>{t(TARGET_KEY[complaint.targetType])}</h1>
-        <p className="hint">
-          {t(PRIORITY_KEY[complaint.priority])} · {formatDateTime(complaint.createdAt)}
-        </p>
-      </header>
+      <ScreenHeader
+        title={t(TARGET_KEY[complaint.targetType])}
+        subtitle={`${t(PRIORITY_KEY[complaint.priority])} · ${formatDateTime(complaint.createdAt)}`}
+        onBack={onBack}
+      />
 
       <section className="card">
         <h2>{t('complaintReasonTitle')}</h2>

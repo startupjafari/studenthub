@@ -76,7 +76,8 @@ pnpm --filter mini-app typecheck
 | [src/screens/complaints.tsx](src/screens/complaints.tsx)                   | Очередь модерации: порядок задаёт сервер                                                              |
 | [src/screens/complaint.tsx](src/screens/complaint.tsx)                     | Карточка разбора: прочитать целиком и принять одно из трёх решений                                    |
 | [src/screens/support.tsx](src/screens/support.tsx)                         | Обращения и переписка — единственное место, где набирают текст                                        |
-| [src/screens/people.tsx](src/screens/people.tsx)                           | Найти человека и решить, оставить ли ему доступ                                                       |
+| [src/screens/people.tsx](src/screens/people.tsx)                           | Найти человека — список и поиск                                                                       |
+| [src/screens/person.tsx](src/screens/person.tsx)                           | Страница человека: карточка, блокировка со сроком и кодом, сброс сессий                               |
 | [src/screens/person-summary.tsx](src/screens/person-summary.tsx)           | Кто этот человек — блок рядом с жалобой и с обращением                                                |
 | [src/screens/overview.tsx](src/screens/overview.tsx)                       | Сводка платформы: «всё ли в порядке» до открытия ноутбука                                             |
 | [src/screens/control.tsx](src/screens/control.tsx)                         | Пульт: техработы, баннер, разделы, сезон, релиз, дежурство                                            |
@@ -85,6 +86,11 @@ pnpm --filter mini-app typecheck
 | [src/telegram/use-telegram.ts](src/telegram/use-telegram.ts)               | Хуки над `BackButton` и `MainButton`                                                                  |
 | [src/telegram/use-voice.ts](src/telegram/use-voice.ts)                     | Запись голосового ответа поддержке                                                                    |
 | [src/i18n/messages.ts](src/i18n/messages.ts)                               | Словари ru/kk/en; язык берётся из Telegram, а не из настроек платформы                                |
+| [src/ui/tab-bar.tsx](src/ui/tab-bar.tsx)                                   | Нижняя панель разделов: значок над подписью, счётчик на значке                                        |
+| [src/ui/screen-header.tsx](src/ui/screen-header.tsx)                       | Шапка: возврат, название и переключатель состояний справа от него                                     |
+| [src/ui/tabs.tsx](src/ui/tabs.tsx)                                         | Переключатель состояний экрана с переезжающей плашкой                                                 |
+| [src/ui/state-plate.tsx](src/ui/state-plate.tsx)                           | Пустота и отказ во весь оставшийся экран                                                              |
+| [src/ui/icons.tsx](src/ui/icons.tsx)                                       | Значки своими контурами в `currentColor` — вместо библиотеки                                          |
 | [scripts/tg-tunnel.mjs](scripts/tg-tunnel.mjs)                             | Туннель для проверки в Telegram + перерегистрация кнопки бота                                         |
 
 Решения, которые стоит знать до правок:

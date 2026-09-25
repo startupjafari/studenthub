@@ -9,6 +9,8 @@ import {
 import { ComplaintScreen } from './complaint'
 import { haptic } from '../telegram/webapp'
 import { Tabs } from '../ui/tabs'
+import { ScreenHeader } from '../ui/screen-header'
+import { StatePlate } from '../ui/state-plate'
 import { t } from '../i18n'
 import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
 import { dayLabel, formatAge, formatHours, formatShortTime } from '../lib/format'
@@ -113,20 +115,21 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
           {ready ? '↻' : '↓'}
         </p>
       )}
-      <header className="screen-head">
-        <h1>{t('complaintsTitle')}</h1>
-        <p className="hint">
-          {state.status === 'ready' ? summary(state.page, tab, median) : t('complaintsSubtitle')}
-        </p>
-      </header>
-
-      <Tabs
-        items={[
-          { id: 'open', label: t('complaintsTabOpen') },
-          { id: 'done', label: t('complaintsTabDone') },
-        ]}
-        active={tab}
-        onSelect={setTab}
+      <ScreenHeader
+        title={t('complaintsTitle')}
+        subtitle={
+          state.status === 'ready' ? summary(state.page, tab, median) : t('complaintsSubtitle')
+        }
+        tabs={
+          <Tabs
+            items={[
+              { id: 'open', label: t('complaintsTabOpen') },
+              { id: 'done', label: t('complaintsTabDone') },
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
       />
 
       <div className="chips-grid">
@@ -160,12 +163,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
       {state.status === 'loading' && <SkeletonList />}
 
       {state.status === 'error' && (
-        <section className="card">
-          <p>{t('complaintsLoadError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void load()}>
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('complaintsLoadError')} onRetry={() => void load()} />
       )}
 
       {state.status === 'ready' && state.page.items.length === 0 && (
@@ -232,18 +230,13 @@ function ComplaintList({ items, onOpen }: { items: Complaint[]; onOpen: (id: str
  */
 function EmptyState({ tab, filtered }: { tab: Tab; filtered: boolean }) {
   if (tab === 'done') {
-    return (
-      <section className="card">
-        <h2>{t('complaintsEmptyTitle')}</h2>
-        <p className="hint">{t('complaintsDoneEmpty')}</p>
-      </section>
-    )
+    return <StatePlate title={t('complaintsEmptyTitle')} text={t('complaintsDoneEmpty')} />
   }
   return (
-    <section className="card">
-      <h2>{filtered ? t('complaintsQueueEmpty') : t('complaintsNeverTitle')}</h2>
-      <p className="hint">{filtered ? t('complaintsEmptyText') : t('complaintsNeverText')}</p>
-    </section>
+    <StatePlate
+      title={filtered ? t('complaintsQueueEmpty') : t('complaintsNeverTitle')}
+      text={filtered ? t('complaintsEmptyText') : t('complaintsNeverText')}
+    />
   )
 }
 
