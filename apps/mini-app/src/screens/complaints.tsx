@@ -12,6 +12,7 @@ import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { t } from '../i18n'
+import { IconChevron } from '../ui/icons'
 import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
 import { dayLabel, formatAge, formatHours, formatShortTime } from '../lib/format'
 
@@ -213,7 +214,7 @@ function ComplaintList({ items, onOpen }: { items: Complaint[]; onOpen: (id: str
                 </span>
               </span>
               <span className="row-chevron" aria-hidden>
-                ›
+                <IconChevron size={17} />
               </span>
             </button>
           ))}

@@ -3,6 +3,8 @@ import { fetchInvites, revokeInvite, searchPeople, type Invite, type Person } fr
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
+import { IconChevron } from '../ui/icons'
+import { SearchField } from '../ui/search-field'
 import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
@@ -82,15 +84,7 @@ export function PeopleScreen() {
         }
       />
 
-      <input
-        className="field"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={t('peopleSearchPlaceholder')}
-        aria-label={t('peopleSearchPlaceholder')}
-        autoCapitalize="off"
-        autoCorrect="off"
-      />
+      <SearchField value={query} onChange={setQuery} placeholder={t('peopleSearchPlaceholder')} />
 
       {state.status === 'error' && (
         <StatePlate title={t('peopleLoadError')} onRetry={() => void load(query, onlyBlocked)} />
@@ -123,7 +117,7 @@ export function PeopleScreen() {
                 {person.isBlocked && <span className="hint hint-danger">{t('peopleBlocked')}</span>}
               </span>
               <span className="row-chevron" aria-hidden>
-                ›
+                <IconChevron size={17} />
               </span>
             </button>
           ))}

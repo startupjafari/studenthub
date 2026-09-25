@@ -33,14 +33,23 @@ type Tab = 'complaints' | 'support' | 'people' | 'control'
 const TABS: {
   id: Tab
   labelKey: 'tabComplaints' | 'tabSupport' | 'tabPeople' | 'tabControl'
-  icon: ReactNode
+  icon: (filled: boolean) => ReactNode
   adminOnly?: boolean
 }[] = [
-  { id: 'complaints', labelKey: 'tabComplaints', icon: <IconComplaints /> },
-  { id: 'support', labelKey: 'tabSupport', icon: <IconSupport /> },
+  {
+    id: 'complaints',
+    labelKey: 'tabComplaints',
+    icon: (filled) => <IconComplaints filled={filled} />,
+  },
+  { id: 'support', labelKey: 'tabSupport', icon: (filled) => <IconSupport filled={filled} /> },
   // Люди доступны и модератору: блокировка — его инструмент, а не только админский.
-  { id: 'people', labelKey: 'tabPeople', icon: <IconPeople /> },
-  { id: 'control', labelKey: 'tabControl', icon: <IconControl />, adminOnly: true },
+  { id: 'people', labelKey: 'tabPeople', icon: (filled) => <IconPeople filled={filled} /> },
+  {
+    id: 'control',
+    labelKey: 'tabControl',
+    icon: (filled) => <IconControl filled={filled} />,
+    adminOnly: true,
+  },
 ]
 
 type State =
