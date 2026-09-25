@@ -9,6 +9,10 @@ vi.mock('../api/people', async (orig) => {
     ...actual,
     searchPeople: vi.fn(),
     setBlocked: vi.fn().mockResolvedValue(undefined),
+    revokeSessions: vi.fn().mockResolvedValue(undefined),
+    // Карточку человека рисует PersonSummary на странице человека; её отказ экран не
+    // ломает, поэтому в тестах о доступе она молчит.
+    fetchPersonCard: vi.fn().mockRejectedValue(new Error('нет карточки')),
     fetchInvites: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     revokeInvite: vi.fn().mockResolvedValue(undefined),
   }
@@ -19,6 +23,7 @@ vi.mock('../telegram/webapp', () => ({
   webApp: () => null,
   isTelegram: () => false,
 }))
+vi.mock('../telegram/use-telegram', () => ({ useBackButton: vi.fn(), useMainButton: vi.fn() }))
 
 import { confirmAction } from '../telegram/webapp'
 import { searchPeople, setBlocked } from '../api/people'
@@ -35,6 +40,14 @@ function person(over: Partial<Person> = {}): Person {
     createdAt: new Date().toISOString(),
     ...over,
   }
+}
+
+/**
+ * Доступ меняют НА СТРАНИЦЕ человека, а не в строке списка: решение принимается по
+ * человеку, и принимать его надо там, где видно, кто он и попадался ли раньше.
+ */
+async function openPerson(): Promise<void> {
+  await userEvent.click(await screen.findByRole('button', { name: /Серикова Айгуль/ }))
 }
 
 describe('PeopleScreen', () => {
@@ -61,11 +74,19 @@ describe('PeopleScreen', () => {
     await waitFor(() => expect(vi.mocked(searchPeople).mock.calls.at(-1)?.[0]).toBe('Серик'))
   })
 
+  it('открывает страницу человека по строке списка', async () => {
+    render(<PeopleScreen />)
+    await openPerson()
+
+    expect(await screen.findByRole('button', { name: 'Заблокировать' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Завершить сессии' })).toBeInTheDocument()
+  })
+
   it('блокирует только после подтверждения', async () => {
     render(<PeopleScreen />)
-    await screen.findByText('Серикова Айгуль')
+    await openPerson()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
 
     // Третьим аргументом уходит код 2FA: блокировка с телефона подтверждается им,
     // разблокировка — нет.
@@ -77,9 +98,9 @@ describe('PeopleScreen', () => {
   it('не блокирует, если подтверждение отклонили', async () => {
     vi.mocked(confirmAction).mockResolvedValue(false)
     render(<PeopleScreen />)
-    await screen.findByText('Серикова Айгуль')
+    await openPerson()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
 
     expect(setBlocked).not.toHaveBeenCalled()
   })
@@ -88,14 +109,17 @@ describe('PeopleScreen', () => {
    * При фильтре «только заблокированные» перезапрос списка убрал бы разблокированного
    * из выдачи прямо под пальцем — человек не успел бы увидеть, что действие сработало.
    */
-  it('после блокировки правит строку на месте, не перезапрашивая список', async () => {
+  it('после блокировки правит строку списка на месте, не перезапрашивая его', async () => {
     render(<PeopleScreen />)
-    await screen.findByText('Серикова Айгуль')
+    await openPerson()
     const callsBefore = vi.mocked(searchPeople).mock.calls.length
 
-    await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
-
+    await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
     expect(await screen.findByRole('button', { name: 'Разблокировать' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Назад' }))
+
+    expect(await screen.findByText('Заблокирован')).toBeInTheDocument()
     expect(vi.mocked(searchPeople).mock.calls.length).toBe(callsBefore)
   })
 
@@ -115,9 +139,9 @@ describe('PeopleScreen — подтверждение блокировки', () 
 
   it('передаёт введённый код вместе с блокировкой', async () => {
     render(<PeopleScreen />)
-    await screen.findByText('Серикова Айгуль')
+    await openPerson()
 
-    await userEvent.type(screen.getByLabelText(/Код 2FA/), '123456')
+    await userEvent.type(await screen.findByLabelText(/Код 2FA/), '123456')
     await userEvent.click(screen.getByRole('button', { name: 'Заблокировать' }))
 
     await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', true, '123456', undefined))
@@ -127,10 +151,20 @@ describe('PeopleScreen — подтверждение блокировки', () 
   it('разблокировка кода не требует', async () => {
     vi.mocked(searchPeople).mockResolvedValue({ items: [person({ isBlocked: true })], total: 1 })
     render(<PeopleScreen />)
-    await screen.findByText('Серикова Айгуль')
+    await openPerson()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Разблокировать' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Разблокировать' }))
 
     await waitFor(() => expect(setBlocked).toHaveBeenCalledWith('u1', false, undefined, undefined))
+  })
+
+  // Поле кода и сроки показываются только для блокировки: у заблокированного их нет.
+  it('заблокированному не показывает ни кода, ни сроков', async () => {
+    vi.mocked(searchPeople).mockResolvedValue({ items: [person({ isBlocked: true })], total: 1 })
+    render(<PeopleScreen />)
+    await openPerson()
+
+    await screen.findByRole('button', { name: 'Разблокировать' })
+    expect(screen.queryByLabelText(/Код 2FA/)).not.toBeInTheDocument()
   })
 })

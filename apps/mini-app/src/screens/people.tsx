@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  fetchInvites,
-  revokeInvite,
-  revokeSessions,
-  searchPeople,
-  setBlocked,
-  type Invite,
-  type Person,
-} from '../api/people'
+import { fetchInvites, revokeInvite, searchPeople, type Invite, type Person } from '../api/people'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
@@ -15,6 +7,7 @@ import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { formatShortTime, initials } from '../lib/format'
+import { PersonScreen } from './person'
 
 // Люди: найти человека и решить, оставить ли ему доступ.
 //
@@ -27,13 +20,6 @@ import { formatShortTime, initials } from '../lib/format'
 
 const SEARCH_DELAY_MS = 350
 
-// Сроки блокировки — те же три, что на карточке жалобы: 0 — бессрочно.
-const BLOCK_TERMS = [
-  { days: 0, key: 'blockForever' },
-  { days: 7, key: 'blockWeek' },
-  { days: 30, key: 'blockMonth' },
-] as const
-
 type State =
   { status: 'loading' } | { status: 'ready'; items: Person[]; total: number } | { status: 'error' }
 
@@ -41,12 +27,9 @@ export function PeopleScreen() {
   const [query, setQuery] = useState('')
   const [onlyBlocked, setOnlyBlocked] = useState(false)
   const [state, setState] = useState<State>({ status: 'loading' })
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  // Код 2FA для блокировки: одно поле на экран, а не на каждую строку — иначе список
-  // превращается в форму. Срок — рядом с ним и по той же причине.
-  const [code, setCode] = useState('')
-  const [blockDays, setBlockDays] = useState(0)
+  // Открытый человек. Список под ним не перезапрашивается: решение по доступу правит
+  // ровно одну строку, и перезапрос ради неё сбросил бы позицию прокрутки.
+  const [open, setOpen] = useState<Person | null>(null)
 
   const load = useCallback(async (search: string, blocked: boolean) => {
     setState({ status: 'loading' })
@@ -65,63 +48,22 @@ export function PeopleScreen() {
     return () => clearTimeout(timer)
   }, [query, onlyBlocked, load])
 
-  const toggleAccess = useCallback(
-    async (person: Person) => {
-      const name = `${person.lastName} ${person.firstName}`
-      const question = person.isBlocked
-        ? t('peopleConfirmUnblock', { name })
-        : blockDays === 0
-          ? t('peopleConfirmBlock', { name })
-          : t('peopleConfirmBlockFor', { name, days: blockDays })
-      if (!(await confirmAction(question))) return
-
-      setBusy(person.id)
-      setError(null)
-      try {
-        await setBlocked(
-          person.id,
-          !person.isBlocked,
-          person.isBlocked ? undefined : code,
-          person.isBlocked || blockDays === 0 ? undefined : blockDays,
-        )
-        haptic.success()
-        // Правим строку на месте, а не перезапрашиваем список: при включённом фильтре
-        // «только заблокированные» разблокированный человек иначе исчезал бы под пальцем,
-        // не успев показать, что действие сработало.
-        setState((prev) =>
-          prev.status === 'ready'
-            ? {
-                ...prev,
-                items: prev.items.map((item) =>
-                  item.id === person.id ? { ...item, isBlocked: !item.isBlocked } : item,
-                ),
-              }
-            : prev,
-        )
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : t('peopleActionError'))
-      } finally {
-        setBusy(null)
-      }
-    },
-    [blockDays, code],
-  )
-
-  const endSessions = useCallback(async (person: Person) => {
-    const name = `${person.lastName} ${person.firstName}`
-    if (!(await confirmAction(t('peopleConfirmLogout', { name })))) return
-    setBusy(person.id)
-    setError(null)
-    try {
-      await revokeSessions(person.id)
-      haptic.success()
-      setError(t('peopleLoggedOut'))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
-    } finally {
-      setBusy(null)
-    }
-  }, [])
+  if (open !== null) {
+    return (
+      <PersonScreen
+        person={open}
+        onBack={() => setOpen(null)}
+        onChanged={(next) => {
+          setOpen(next)
+          setState((prev) =>
+            prev.status === 'ready'
+              ? { ...prev, items: prev.items.map((item) => (item.id === next.id ? next : item)) }
+              : prev,
+          )
+        }}
+      />
+    )
+  }
 
   return (
     <div className="screen">
@@ -150,43 +92,6 @@ export function PeopleScreen() {
         autoCorrect="off"
       />
 
-      {/* Код спрашивается один раз на экран: блокировка с телефона не должна быть
-          возможна промахом, но и вводить его на каждую строку невыносимо. */}
-      <input
-        className="field"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        placeholder={t('confirmCodeLabel')}
-        aria-label={t('confirmCodeLabel')}
-        value={code}
-        onChange={(event) => setCode(event.target.value.trim())}
-      />
-      <p className="hint">{t('confirmCodeNeeded')}</p>
-
-      {/* Срок блокировки. Разблокировки он не касается: вернуть доступ можно только сразу. */}
-      <div className="chips-grid">
-        {BLOCK_TERMS.map((term) => (
-          <button
-            key={term.days}
-            type="button"
-            className="chip"
-            aria-pressed={blockDays === term.days}
-            onClick={() => {
-              haptic.select()
-              setBlockDays(term.days)
-            }}
-          >
-            {t(term.key)}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <section className="card">
-          <p className="hint-danger">{error}</p>
-        </section>
-      )}
-
       {state.status === 'error' && (
         <StatePlate title={t('peopleLoadError')} onRetry={() => void load(query, onlyBlocked)} />
       )}
@@ -198,7 +103,15 @@ export function PeopleScreen() {
       {state.status === 'ready' && state.items.length > 0 && (
         <section className="list">
           {state.items.map((person) => (
-            <div className="toggle-row" key={person.id}>
+            <button
+              type="button"
+              className="row"
+              key={person.id}
+              onClick={() => {
+                haptic.tap()
+                setOpen(person)
+              }}
+            >
               <span className="avatar-sm" aria-hidden>
                 {initials(`${person.lastName} ${person.firstName}`)}
               </span>
@@ -209,27 +122,10 @@ export function PeopleScreen() {
                 <span className="hint">{person.email}</span>
                 {person.isBlocked && <span className="hint hint-danger">{t('peopleBlocked')}</span>}
               </span>
-              <span className="chips">
-                {/* Сброс сессий выгоняет чужого, оставляя доступ хозяину: блокировка
-                    в случае угнанного аккаунта наказала бы пострадавшего. */}
-                <button
-                  type="button"
-                  className="chip"
-                  disabled={busy === person.id}
-                  onClick={() => void endSessions(person)}
-                >
-                  {t('peopleLogout')}
-                </button>
-                <button
-                  type="button"
-                  className={person.isBlocked ? 'chip' : 'chip danger-chip'}
-                  disabled={busy === person.id}
-                  onClick={() => void toggleAccess(person)}
-                >
-                  {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
-                </button>
+              <span className="row-chevron" aria-hidden>
+                ›
               </span>
-            </div>
+            </button>
           ))}
         </section>
       )}
