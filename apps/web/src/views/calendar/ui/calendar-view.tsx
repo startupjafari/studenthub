@@ -28,6 +28,7 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  seasonIcon,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useMediaQuery } from '../../../shared/lib'
@@ -282,6 +283,7 @@ function MonthGrid({
             const ds = formatYmd(d)
             const items = byDate.get(ds) ?? []
             const holiday = holidays.get(ds) ?? null
+            const HolidayIcon = holiday ? seasonIcon(holiday.id) : null
             // Плашка праздника занимает строку клетки, поэтому событий влезает на одно
             // меньше: иначе день с праздником и тремя парами выходил за высоту ряда.
             const limit = holiday ? 2 : 3
@@ -314,8 +316,9 @@ function MonthGrid({
                   {/* Праздник — контекст дня, а не событие: нейтральная плашка, чтобы он
                       не спорил с цветными полосками пар, дедлайнов и событий. */}
                   {holiday && (
-                    <span className="truncate rounded bg-muted px-1 py-0.5 text-[11px] leading-tight text-muted-foreground">
-                      {tSeason(`${holiday.id}.name`)}
+                    <span className="flex items-center gap-1 rounded bg-muted px-1 py-0.5 text-[11px] leading-tight text-muted-foreground">
+                      {HolidayIcon && <HolidayIcon className="size-3.5 shrink-0" aria-hidden />}
+                      <span className="truncate">{tSeason(`${holiday.id}.name`)}</span>
                     </span>
                   )}
                   {items.slice(0, limit).map((it) => (
@@ -401,6 +404,20 @@ function dayTitle(date: string, locale: string): string {
   })
 }
 
+/** Шапка праздничного дня: знак, название и пометка нерабочего дня. */
+function HolidayRow({ holiday, t }: { holiday: Holiday; t: T }) {
+  const tSeason = useTranslations('Season')
+  const Icon = seasonIcon(holiday.id)
+
+  return (
+    <p className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">
+      <Icon className="size-4 shrink-0" aria-hidden />
+      <span className="font-medium text-foreground">{tSeason(`${holiday.id}.name`)}</span>
+      {holiday.dayOff && <span>· {t('dayOff')}</span>}
+    </p>
+  )
+}
+
 function DayList({
   date,
   items,
@@ -416,7 +433,6 @@ function DayList({
   t: T
   showDateHeader?: boolean
 }) {
-  const tSeason = useTranslations('Season')
   const label = dayTitle(date, locale)
   return (
     <div className="flex flex-col gap-2">
@@ -425,12 +441,7 @@ function DayList({
           {label}
         </h3>
       )}
-      {holiday && (
-        <p className="rounded-lg bg-muted px-2.5 py-1.5 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{tSeason(`${holiday.id}.name`)}</span>
-          {holiday.dayOff && <span> · {t('dayOff')}</span>}
-        </p>
-      )}
+      {holiday && <HolidayRow holiday={holiday} t={t} />}
       {items.length === 0 ? (
         <EmptyState title={t('noItems')} className="border-0 p-6" />
       ) : (
