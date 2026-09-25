@@ -28,6 +28,7 @@ import {
   CardTitle,
   Modal,
   PageHeader,
+  SeasonGreeting,
   SegmentedTabs,
   Skeleton,
 } from '../../../shared/ui'
@@ -184,6 +185,7 @@ export function PlatformDashboard() {
           />
         }
       />
+      <SeasonGreeting />
       <KpiRow />
       <div className="grid gap-4 lg:grid-cols-2">
         <GrowthPanel range={range} />
