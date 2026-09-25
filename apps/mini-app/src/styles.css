@@ -24,7 +24,7 @@
   --radius-pill: 999px;
   /* Прежнее имя остаётся: им пользуются места, где форма второстепенна (скелетон, плитки). */
   --radius: var(--radius-card);
-  --gap: 12px;
+  --gap: 14px;
   --side: 16px;
   /*
    * Четыре ступени текста на всё приложение. До них размеры расставлялись по месту —
@@ -293,7 +293,9 @@ body {
 
 .row-chevron {
   color: var(--tg-theme-hint-color);
-  font-size: 20px;
+  font-size: 19px;
+  /* Тише текста строки: это указатель «здесь есть продолжение», а не содержание. */
+  opacity: 0.55;
 }
 
 /*
@@ -646,11 +648,25 @@ body {
   transform: scale(0.96);
 }
 
+/*
+ * Выбранный чип — тоном, а не сплошной заливкой.
+ *
+ * Сплошной акцент занят переключателем разделов, и когда фильтр залит так же, экран
+ * показывает две одинаково громкие полосы подряд: непонятно, что здесь главное. Тон
+ * оставляет выбор очевидным, но на ступень тише — иерархия задаётся плотностью краски,
+ * а не только её наличием.
+ */
 .chip[aria-pressed='true'] {
-  background: var(--tg-theme-button-color);
-  color: var(--tg-theme-button-text-color);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 16%, transparent);
+  color: var(--tg-theme-button-color);
   font-weight: 600;
-  box-shadow: var(--shadow-rest);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .chip[aria-pressed='true'] {
+    background: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+  }
 }
 
 .chip:disabled {
@@ -742,6 +758,20 @@ body {
   background: var(--tg-theme-section-separator-color);
 }
 
+.toggle-row:active {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Строка внутри карточки, а не списка: подсветка обязана повторять её углы, иначе
+   при нажатии из-под неё выглядывают прямые. */
+.toggle-row:first-child:active {
+  border-radius: var(--radius-inner) var(--radius-inner) 0 0;
+}
+
+.toggle-row:last-child:active {
+  border-radius: 0 0 var(--radius-inner) var(--radius-inner);
+}
+
 .toggle-state {
   flex-shrink: 0;
   color: var(--tg-theme-hint-color);
@@ -816,12 +846,25 @@ body {
 }
 
 /* Предпросмотр объявления — так, как его увидят пользователи. */
+/*
+ * Предпросмотр объявления — так, как его увидят пользователи.
+ *
+ * Тоном акцента, а не серым: рядом стоит поле ввода ровно такой же формы и такого же
+ * цвета, и предпросмотр читался как второе поле. Здесь же не ввод, а показ — и заливка
+ * говорит об этом раньше подписи.
+ */
 .preview {
   margin: 6px 0 0;
   padding: 10px 12px;
   border-radius: var(--radius-control);
-  background: var(--tg-theme-secondary-bg-color);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 12%, transparent);
   font-size: 14px;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .preview {
+    background: var(--tg-theme-secondary-bg-color);
+  }
 }
 
 /* Четыре вкладки в ширину телефона не помещаются — ряд прокручивается, а не сжимает
@@ -929,7 +972,7 @@ body {
 .heatmap-cell {
   flex: 1 1 0;
   height: 12px;
-  border-radius: 2px;
+  border-radius: 3px;
   background: var(--tg-theme-button-color, #2ea6ff);
 }
 
@@ -1105,7 +1148,9 @@ body {
   max-width: 82%;
   padding: 9px 13px;
   border-radius: 20px;
-  background: var(--tg-theme-section-bg-color);
+  /* Не section-bg: у Telegram он совпадает с фоном карточки, внутри которой лежит
+     переписка, — чужая реплика оказывалась белым на белом и пузырём не выглядела. */
+  background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
   font-size: var(--text-body);
   overflow-wrap: anywhere;
@@ -1204,4 +1249,21 @@ body {
   .chip {
     box-shadow: inset 0 0 0 1px var(--tg-theme-section-separator-color);
   }
+}
+
+/*
+ * Клавиатурный фокус.
+ *
+ * Мини-апп открывают с телефона, но открывают и с десктопного клиента Telegram, где ходят
+ * табом. Отдельным правилом на всё нажимаемое, а не по месту: пропущенный элемент заметен
+ * только тому, кто им пользуется, — то есть никогда не заметен нам.
+ */
+.row:focus-visible,
+.tab:focus-visible,
+.chip:focus-visible,
+.toggle-row:focus-visible,
+.fallback-submit:focus-visible,
+.fold > summary:focus-visible {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: -2px;
 }
