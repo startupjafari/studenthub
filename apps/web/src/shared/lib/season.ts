@@ -17,7 +17,7 @@ import { nowInTz } from './tz-date'
  */
 
 /** Ключ переключателя в localStorage. Как у темы (next-themes), той же природы настройка. */
-export const SEASON_STORAGE_KEY = 'sh-season-decor'
+const SEASON_STORAGE_KEY = 'sh-season-decor'
 
 /** Событие для своей же вкладки: `storage` браузер шлёт только остальным. */
 const SEASON_EVENT = 'sh-season-change'
@@ -31,7 +31,7 @@ const SEASON_DISMISS_KEY = 'sh-season-dismissed'
 /** Пересчёт не реже, чем раз в 6 часов, даже если полночь далеко: часы и таймзона могут съехать. */
 const MAX_RECHECK_MS = 6 * 60 * 60 * 1000
 
-export function isSeasonEnabled(): boolean {
+function isSeasonEnabled(): boolean {
   try {
     return localStorage.getItem(SEASON_STORAGE_KEY) !== 'off'
   } catch {
@@ -40,7 +40,7 @@ export function isSeasonEnabled(): boolean {
   }
 }
 
-export function setSeasonEnabled(enabled: boolean): void {
+function setSeasonEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(SEASON_STORAGE_KEY, enabled ? 'on' : 'off')
   } catch {
@@ -61,7 +61,7 @@ function msUntilMidnight(time: string): number {
  * в localStorage, на сервере её нет, и любой другой ответ означал бы расхождение гидрации
  * (а у выключившего оформление — вспышку поздравления на один кадр).
  */
-export function useSeasonDay(): { season: Holiday | null; date: string } {
+function useSeasonDay(): { season: Holiday | null; date: string } {
   const timeZone = useTimeZone()
   const [day, setDay] = useState<{ season: Holiday | null; date: string }>({
     season: null,
@@ -98,11 +98,6 @@ export function useSeasonDay(): { season: Holiday | null; date: string } {
   }, [timeZone])
 
   return day
-}
-
-/** Праздник сегодняшнего дня или `null`. */
-export function useActiveSeason(): Holiday | null {
-  return useSeasonDay().season
 }
 
 /**
@@ -143,7 +138,7 @@ export function useSeasonGreeting(): { season: Holiday | null; dismiss: () => vo
  * рядом с темой: дальше праздник живёт в CSS, и компонентам о нём знать не нужно.
  */
 export function useSeasonTheme(): void {
-  const season = useActiveSeason()
+  const { season } = useSeasonDay()
 
   useEffect(() => {
     const root = document.documentElement
