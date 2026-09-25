@@ -8,6 +8,7 @@ import {
 } from '../api/complaints'
 import { ComplaintScreen } from './complaint'
 import { haptic } from '../telegram/webapp'
+import { Tabs } from '../ui/tabs'
 import { t } from '../i18n'
 import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
 import { dayLabel, formatAge, formatHours, formatShortTime } from '../lib/format'
@@ -88,7 +89,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
 
   // Потянуть вниз — перезапросить очередь: до этого она обновлялась только повторным
   // открытием приложения.
-  const { pull, ready } = usePullToRefresh(load)
+  const { pull, ready, progress } = usePullToRefresh(load)
 
   if (openId !== null) {
     return (
@@ -104,7 +105,14 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
 
   return (
     <div className="screen" style={{ paddingTop: pull }}>
-      {pull > 0 && <p className="pull-hint">{ready ? '↻' : '↓'}</p>}
+      {pull > 0 && (
+        <p
+          className={`pull-hint${ready ? ' ready' : ''}`}
+          style={{ opacity: progress, transform: `scale(${0.7 + 0.3 * progress})` }}
+        >
+          {ready ? '↻' : '↓'}
+        </p>
+      )}
       <header className="screen-head">
         <h1>{t('complaintsTitle')}</h1>
         <p className="hint">
@@ -112,23 +120,14 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
         </p>
       </header>
 
-      <div className="tabs" role="tablist">
-        {(['open', 'done'] as Tab[]).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            className="tab"
-            aria-selected={tab === value}
-            onClick={() => {
-              haptic.select()
-              setTab(value)
-            }}
-          >
-            {value === 'open' ? t('complaintsTabOpen') : t('complaintsTabDone')}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        items={[
+          { id: 'open', label: t('complaintsTabOpen') },
+          { id: 'done', label: t('complaintsTabDone') },
+        ]}
+        active={tab}
+        onSelect={setTab}
+      />
 
       <div className="chips-grid">
         <button

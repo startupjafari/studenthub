@@ -14,6 +14,22 @@ import { haptic } from './webapp'
 const TRIGGER_PX = 70
 const MAX_PULL_PX = 110
 
+/**
+ * Сопротивление резинкой — та самая кривая, по которой тянутся списки в iOS.
+ *
+ * Прежний расчёт (`delta * 0.4`) сопротивлялся одинаково с первого пикселя: индикатор
+ * отставал от пальца сразу, и жест начинался с ощущения, что экран приклеен. Здесь первые
+ * миллиметры идут почти один к одному — палец ведёт, — а упор нарастает по мере
+ * оттягивания и уводит смещение к пределу, которого не перейти.
+ *
+ * `LIMIT` — тот самый предел (асимптота), а не расстояние срабатывания.
+ */
+const LIMIT_PX = 220
+
+function rubberband(delta: number): number {
+  return (delta * LIMIT_PX) / (LIMIT_PX + delta)
+}
+
 export function usePullToRefresh(onRefresh: () => void | Promise<void>) {
   const [pull, setPull] = useState(0)
   const startY = useRef<number | null>(null)
@@ -40,9 +56,7 @@ export function usePullToRefresh(onRefresh: () => void | Promise<void>) {
         setPull(0)
         return
       }
-      // Сопротивление: чем дальше тянут, тем медленнее идёт индикатор — иначе он
-      // улетает за экран и перестаёт что-либо сообщать.
-      const next = Math.min(MAX_PULL_PX, delta * 0.4)
+      const next = Math.min(MAX_PULL_PX, rubberband(delta))
       pullRef.current = next
       setPull(next)
     }
@@ -68,5 +82,7 @@ export function usePullToRefresh(onRefresh: () => void | Promise<void>) {
     }
   }, [])
 
-  return { pull, ready: pull >= TRIGGER_PX }
+  // Доля пройденного пути нужна снаружи: индикатор проявляется вместе с жестом, а не
+  // возникает готовым — по нему видно, сколько ещё тянуть.
+  return { pull, ready: pull >= TRIGGER_PX, progress: Math.min(1, pull / TRIGGER_PX) }
 }
