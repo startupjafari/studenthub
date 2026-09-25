@@ -282,6 +282,9 @@ function MonthGrid({
             const ds = formatYmd(d)
             const items = byDate.get(ds) ?? []
             const holiday = holidays.get(ds) ?? null
+            // Плашка праздника занимает строку клетки, поэтому событий влезает на одно
+            // меньше: иначе день с праздником и тремя парами выходил за высоту ряда.
+            const limit = holiday ? 2 : 3
             const outside = d.getMonth() !== anchorMonth
             const isToday = sameDay(d, today)
             const isSel = selected === ds
@@ -315,7 +318,7 @@ function MonthGrid({
                       {tSeason(`${holiday.id}.name`)}
                     </span>
                   )}
-                  {items.slice(0, 3).map((it) => (
+                  {items.slice(0, limit).map((it) => (
                     <span
                       key={it.id}
                       className={cn(
@@ -327,9 +330,9 @@ function MonthGrid({
                       {it.title}
                     </span>
                   ))}
-                  {items.length > 3 && (
+                  {items.length > limit && (
                     <span className="px-1 text-[11px] text-muted-foreground">
-                      {t('more', { count: items.length - 3 })}
+                      {t('more', { count: items.length - limit })}
                     </span>
                   )}
                 </span>

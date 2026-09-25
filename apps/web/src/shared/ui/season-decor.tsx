@@ -75,7 +75,9 @@ export function SeasonDecor() {
               animationDelay: `${p.delay}s`,
               animationDuration: `${p.duration}s`,
               '--sh-drift': `${p.drift}px`,
-              '--sh-particle-opacity': p.opacity,
+              // Строкой: React дописывает `px` числам, и спорить с ним про
+              // пользовательские свойства незачем.
+              '--sh-particle-opacity': String(p.opacity),
             } as CSSProperties
           }
         />
