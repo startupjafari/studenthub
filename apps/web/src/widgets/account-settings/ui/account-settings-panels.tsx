@@ -99,6 +99,7 @@ import {
   usePwaInstall,
   useScrollRow,
   useSeasonEnabled,
+  useSeasonMotionEnabled,
 } from '../../../shared/lib'
 import {
   subscribeToPush,
@@ -796,6 +797,9 @@ function AppearanceSection() {
       <SettingRow title={tS('seasonDecor')} desc={tS('seasonDecorDesc')}>
         <SeasonToggle />
       </SettingRow>
+      <SettingRow title={tS('seasonMotion')} desc={tS('seasonMotionDesc')}>
+        <SeasonMotionToggle />
+      </SettingRow>
     </SectionCard>
   )
 }
@@ -810,6 +814,23 @@ function SeasonToggle() {
 
   return (
     <ToggleSwitch checked={enabled} onChange={set} disabled={!mounted} label={tS('seasonDecor')} />
+  )
+}
+
+// Движение — отдельный переключатель, по умолчанию выключенный. Без оформления он
+// недоступен: частицы красятся сезонным акцентом, которого в этом случае нет.
+function SeasonMotionToggle() {
+  const tS = useTranslations('Settings')
+  const decor = useSeasonEnabled()
+  const { enabled, mounted, set } = useSeasonMotionEnabled()
+
+  return (
+    <ToggleSwitch
+      checked={enabled && decor.enabled}
+      onChange={set}
+      disabled={!mounted || !decor.enabled}
+      label={tS('seasonMotion')}
+    />
   )
 }
 

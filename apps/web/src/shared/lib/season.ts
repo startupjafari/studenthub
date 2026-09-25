@@ -16,8 +16,18 @@ import { nowInTz } from './tz-date'
  * неделями, и значение, посчитанное при её открытии, к празднику успевает протухнуть.
  */
 
-/** Ключ переключателя в localStorage. Как у темы (next-themes), той же природы настройка. */
+/** Ключи переключателей в localStorage. Как у темы (next-themes), той же природы настройки. */
 const SEASON_STORAGE_KEY = 'sh-season-decor'
+
+/**
+ * Движение — отдельная настройка и по умолчанию ВЫКЛЮЧЕНА, в отличие от палитры.
+ * Цвет акцента человек видит краем глаза, падающие частицы — тянут взгляд на себя, и
+ * согласие на первое не означает согласия на второе.
+ */
+const SEASON_MOTION_KEY = 'sh-season-motion'
+
+/** Сыгранное движение: `<праздник>:<дата>`. Частицы идут один раз в день, а не при каждом заходе. */
+const SEASON_PLAYED_KEY = 'sh-season-played'
 
 /** Событие для своей же вкладки: `storage` браузер шлёт только остальным. */
 const SEASON_EVENT = 'sh-season-change'
@@ -31,23 +41,29 @@ const SEASON_DISMISS_KEY = 'sh-season-dismissed'
 /** Пересчёт не реже, чем раз в 6 часов, даже если полночь далеко: часы и таймзона могут съехать. */
 const MAX_RECHECK_MS = 6 * 60 * 60 * 1000
 
-function isSeasonEnabled(): boolean {
+function readFlag(key: string, fallback: boolean): boolean {
   try {
-    return localStorage.getItem(SEASON_STORAGE_KEY) !== 'off'
+    const value = localStorage.getItem(key)
+    if (value === 'on') return true
+    if (value === 'off') return false
+    return fallback
   } catch {
     // Приватный режим и заблокированные site data: оформление — не то, ради чего стоит падать.
-    return true
+    return fallback
   }
 }
 
-function setSeasonEnabled(enabled: boolean): void {
+function writeFlag(key: string, value: boolean): void {
   try {
-    localStorage.setItem(SEASON_STORAGE_KEY, enabled ? 'on' : 'off')
+    localStorage.setItem(key, value ? 'on' : 'off')
   } catch {
     // Настройка не сохранится, но текущая вкладка обязана отреагировать — событие ниже.
   }
   window.dispatchEvent(new Event(SEASON_EVENT))
 }
+
+const isSeasonEnabled = (): boolean => readFlag(SEASON_STORAGE_KEY, true)
+const isSeasonMotionEnabled = (): boolean => readFlag(SEASON_MOTION_KEY, false)
 
 /** Сколько миллисекунд до ближайшей полуночи в этой таймзоне (с запасом в минуту). */
 function msUntilMidnight(time: string): number {
@@ -104,10 +120,15 @@ function useSeasonDay(): { season: Holiday | null; date: string } {
  * Поздравление: тот же праздник, но закрываемый. Закрытие запоминается на весь праздник,
  * а не на день, и живёт в браузере: на сервере такому состоянию делать нечего.
  */
-export function useSeasonGreeting(): { season: Holiday | null; dismiss: () => void } {
+export function useSeasonGreeting(): {
+  season: Holiday | null
+  motion: boolean
+  dismiss: () => void
+} {
   const { season, date } = useSeasonDay()
   const mark = season ? `${season.id}:${date.slice(0, 4)}` : ''
   const [hidden, setHidden] = useState(true)
+  const [motion, setMotion] = useState(false)
 
   useEffect(() => {
     if (!mark) {
@@ -121,6 +142,28 @@ export function useSeasonGreeting(): { season: Holiday | null; dismiss: () => vo
     }
   }, [mark])
 
+  // Движение: своя настройка, свой признак «уже играли», и никогда — в сдержанные дни.
+  // Отметка ставится в тот же момент, когда принято решение играть: иначе переход между
+  // главными экранами запускал бы частицы заново.
+  useEffect(() => {
+    if (!season || hidden || season.tone === 'solemn' || !isSeasonMotionEnabled()) {
+      setMotion(false)
+      return
+    }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setMotion(false)
+      return
+    }
+    const played = `${season.id}:${date}`
+    try {
+      if (localStorage.getItem(SEASON_PLAYED_KEY) === played) return
+      localStorage.setItem(SEASON_PLAYED_KEY, played)
+    } catch {
+      // Без хранилища частицы сыграют на каждом открытии главной. Терпимо.
+    }
+    setMotion(true)
+  }, [season, hidden, date])
+
   const dismiss = useCallback(() => {
     setHidden(true)
     try {
@@ -130,7 +173,7 @@ export function useSeasonGreeting(): { season: Holiday | null; dismiss: () => vo
     }
   }, [mark])
 
-  return { season: hidden ? null : season, dismiss }
+  return { season: hidden ? null : season, motion: hidden ? false : motion, dismiss }
 }
 
 /**
@@ -148,16 +191,15 @@ export function useSeasonTheme(): void {
 }
 
 /** Состояние переключателя в настройках. `mounted` — гейт против расхождения гидрации. */
-export function useSeasonEnabled(): {
-  enabled: boolean
-  mounted: boolean
-  set: (v: boolean) => void
-} {
-  const [enabled, setEnabled] = useState(true)
+function useStoredFlag(
+  key: string,
+  fallback: boolean,
+): { enabled: boolean; mounted: boolean; set: (v: boolean) => void } {
+  const [enabled, setEnabled] = useState(fallback)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    const sync = () => setEnabled(isSeasonEnabled())
+    const sync = () => setEnabled(readFlag(key, fallback))
     sync()
     setMounted(true)
     window.addEventListener('storage', sync)
@@ -166,7 +208,19 @@ export function useSeasonEnabled(): {
       window.removeEventListener('storage', sync)
       window.removeEventListener(SEASON_EVENT, sync)
     }
-  }, [])
+  }, [key, fallback])
 
-  return { enabled, mounted, set: setSeasonEnabled }
+  const set = useCallback((value: boolean) => writeFlag(key, value), [key])
+
+  return { enabled, mounted, set }
+}
+
+/** Праздничное оформление целиком: палитра и поздравление. По умолчанию включено. */
+export function useSeasonEnabled() {
+  return useStoredFlag(SEASON_STORAGE_KEY, true)
+}
+
+/** Праздничное движение. По умолчанию выключено — см. SEASON_MOTION_KEY. */
+export function useSeasonMotionEnabled() {
+  return useStoredFlag(SEASON_MOTION_KEY, false)
 }

@@ -59,4 +59,9 @@ export { useDismissAnimation } from './use-dismiss-animation'
 export { useKeyboardInset } from './use-keyboard-inset'
 export { isIosDevice, isStandalonePwa } from './platform'
 export { useApplicationStatusLabels, type StatusTone } from './career-status'
-export { useSeasonEnabled, useSeasonGreeting, useSeasonTheme } from './season'
+export {
+  useSeasonEnabled,
+  useSeasonGreeting,
+  useSeasonMotionEnabled,
+  useSeasonTheme,
+} from './season'
