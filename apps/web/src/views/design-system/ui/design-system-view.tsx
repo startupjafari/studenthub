@@ -8,6 +8,7 @@ import { SegmentedTabs } from '../../../shared/ui'
 import { ComponentsSection } from './components-section'
 import { FoundationsSection } from './foundations-section'
 import { PatternsSection } from './patterns-section'
+import { SeasonSection } from './season-section'
 import { Code } from './kit'
 
 // Живая витрина дизайн-системы (docs/DESIGN_SYSTEM.md). Инструмент разработки, не
@@ -23,6 +24,7 @@ const NAV = [
   { id: 'shape', label: 'Форма и слои' },
   { id: 'icons', label: 'Иконки' },
   { id: 'motion', label: 'Движение' },
+  { id: 'season', label: 'Праздники' },
   { id: 'buttons', label: 'Кнопки' },
   { id: 'badges', label: 'Бейджи' },
   { id: 'inputs', label: 'Поля' },
@@ -146,6 +148,7 @@ export function DesignSystemView() {
           </section>
 
           <FoundationsSection />
+          <SeasonSection />
           <ComponentsSection />
           <PatternsSection />
 
