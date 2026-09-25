@@ -20,6 +20,7 @@ import {
   type UniversitySize,
 } from '../api/overview'
 import { t } from '../i18n'
+import { StatePlate } from '../ui/state-plate'
 import { Fold } from '../ui/fold'
 import { formatShortTime } from '../lib/format'
 
@@ -107,13 +108,13 @@ export function OverviewScreen() {
 
   if (state.status === 'error') {
     return (
-      <section className="card">
-        <h2>{t('overviewTitle')}</h2>
-        <p className="hint">{t('overviewError')}</p>
-        <button type="button" className="fallback-submit" onClick={() => void load()}>
-          {t('retry')}
-        </button>
-      </section>
+      <div className="screen">
+        <StatePlate
+          title={t('overviewTitle')}
+          text={t('overviewError')}
+          onRetry={() => void load()}
+        />
+      </div>
     )
   }
 

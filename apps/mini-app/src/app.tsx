@@ -10,6 +10,7 @@ import { OverviewScreen } from './screens/overview'
 import { fetchBadges, type Badges } from './api/badges'
 import { TabBar } from './ui/tab-bar'
 import { Tabs } from './ui/tabs'
+import { ScreenHeader } from './ui/screen-header'
 import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
 
@@ -158,14 +159,19 @@ function ControlTab({ userId }: { userId: string }) {
 
   return (
     <>
-      <div className="subtabs">
-        <Tabs
-          items={[
-            { id: 'summary', label: t('controlTabSummary') },
-            { id: 'levers', label: t('controlTabLevers') },
-          ]}
-          active={sub}
-          onSelect={setSub}
+      <div className="screen-top">
+        <ScreenHeader
+          title={t('tabControl')}
+          tabs={
+            <Tabs
+              items={[
+                { id: 'summary', label: t('controlTabSummary') },
+                { id: 'levers', label: t('controlTabLevers') },
+              ]}
+              active={sub}
+              onSelect={setSub}
+            />
+          }
         />
       </div>
       {sub === 'summary' ? <OverviewScreen /> : <ControlScreen userId={userId} />}

@@ -27,6 +27,8 @@ import { t } from '../i18n'
 import { formatDateTime, formatShortTime, initials } from '../lib/format'
 import { PersonSummary } from './person-summary'
 import { Tabs } from '../ui/tabs'
+import { ScreenHeader } from '../ui/screen-header'
+import { StatePlate } from '../ui/state-plate'
 import { useVoiceRecorder } from '../telegram/use-voice'
 
 // Поддержка платформы: очередь обращений и переписка.
@@ -100,21 +102,22 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
 
   return (
     <div className="screen">
-      <header className="screen-head">
-        <h1>{t('supportTitle')}</h1>
-        <p className="hint">
-          {state.status === 'ready' && tab === 'open' ? summary(state.total) : t('supportSubtitle')}
-        </p>
-      </header>
-
-      <Tabs
-        items={[
-          { id: 'open', label: t('supportTabOpen') },
-          { id: 'mine', label: t('supportTabMine') },
-          { id: 'closed', label: t('supportTabClosed') },
-        ]}
-        active={tab}
-        onSelect={setTab}
+      <ScreenHeader
+        title={t('supportTitle')}
+        subtitle={
+          state.status === 'ready' && tab === 'open' ? summary(state.total) : t('supportSubtitle')
+        }
+        tabs={
+          <Tabs
+            items={[
+              { id: 'open', label: t('supportTabOpen') },
+              { id: 'mine', label: t('supportTabMine') },
+              { id: 'closed', label: t('supportTabClosed') },
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
       />
 
       {/* «Мы это уже кому-то отвечали» — вопрос, который без поиска проверить негде. */}
@@ -161,23 +164,16 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
       {state.status === 'loading' && <SkeletonList />}
 
       {state.status === 'error' && (
-        <section className="card">
-          <p>{t('supportLoadError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void load()}>
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('supportLoadError')} onRetry={() => void load()} />
       )}
 
-      {/* Подзаголовок уже сказал «открытых обращений нет» — карточка повторяет только
+      {/* Подзаголовок уже сказал «открытых обращений нет» — плашка повторяет только
           заголовок и добавляет то, чего в нём не было. */}
       {state.status === 'ready' && state.items.length === 0 && (
-        <section className="card">
-          <h2>{t('supportEmptyTitle')}</h2>
-          <p className="hint">
-            {tab === 'open' ? t('supportEmptyText') : t('supportClosedEmptyText')}
-          </p>
-        </section>
+        <StatePlate
+          title={t('supportEmptyTitle')}
+          text={tab === 'open' ? t('supportEmptyText') : t('supportClosedEmptyText')}
+        />
       )}
 
       {state.status === 'ready' && state.items.length > 0 && (
@@ -440,14 +436,15 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
 
   return (
     <div className="screen">
-      <header className="screen-head">
-        <h1>{ticket ? authorName(ticket) : t('supportThreadTitle')}</h1>
-        <p className="hint">
-          {ticket
+      <ScreenHeader
+        title={ticket ? authorName(ticket) : t('supportThreadTitle')}
+        subtitle={
+          ticket
             ? t('supportOpenedAt', { when: formatDateTime(ticket.createdAt) })
-            : t('complaintOpening')}
-        </p>
-      </header>
+            : t('complaintOpening')
+        }
+        onBack={onBack}
+      />
 
       {/* Кто спрашивает. Роль и вуз объясняют половину вопросов: «почему не вижу
           ведомость» от студента и от преподавателя — два разных ответа, а до карточки

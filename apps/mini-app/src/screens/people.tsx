@@ -11,6 +11,9 @@ import {
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
+import { Tabs } from '../ui/tabs'
+import { ScreenHeader } from '../ui/screen-header'
+import { StatePlate } from '../ui/state-plate'
 import { formatShortTime, initials } from '../lib/format'
 
 // Люди: найти человека и решить, оставить ли ему доступ.
@@ -122,10 +125,20 @@ export function PeopleScreen() {
 
   return (
     <div className="screen">
-      <header className="screen-head">
-        <h1>{t('peopleTitle')}</h1>
-        <p className="hint">{t('peopleSubtitle')}</p>
-      </header>
+      <ScreenHeader
+        title={t('peopleTitle')}
+        subtitle={t('peopleSubtitle')}
+        tabs={
+          <Tabs
+            items={[
+              { id: 'all', label: t('peopleAll') },
+              { id: 'blocked', label: t('peopleOnlyBlocked') },
+            ]}
+            active={onlyBlocked ? 'blocked' : 'all'}
+            onSelect={(id) => setOnlyBlocked(id === 'blocked')}
+          />
+        }
+      />
 
       <input
         className="field"
@@ -136,31 +149,6 @@ export function PeopleScreen() {
         autoCapitalize="off"
         autoCorrect="off"
       />
-
-      <div className="chips">
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={!onlyBlocked}
-          onClick={() => {
-            haptic.select()
-            setOnlyBlocked(false)
-          }}
-        >
-          {t('peopleAll')}
-        </button>
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={onlyBlocked}
-          onClick={() => {
-            haptic.select()
-            setOnlyBlocked(true)
-          }}
-        >
-          {t('peopleOnlyBlocked')}
-        </button>
-      </div>
 
       {/* Код спрашивается один раз на экран: блокировка с телефона не должна быть
           возможна промахом, но и вводить его на каждую строку невыносимо. */}
@@ -200,22 +188,11 @@ export function PeopleScreen() {
       )}
 
       {state.status === 'error' && (
-        <section className="card">
-          <p>{t('peopleLoadError')}</p>
-          <button
-            type="button"
-            className="fallback-submit"
-            onClick={() => void load(query, onlyBlocked)}
-          >
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('peopleLoadError')} onRetry={() => void load(query, onlyBlocked)} />
       )}
 
       {state.status === 'ready' && state.items.length === 0 && (
-        <section className="card">
-          <p className="hint">{t('peopleEmpty')}</p>
-        </section>
+        <StatePlate title={t('peopleEmpty')} />
       )}
 
       {state.status === 'ready' && state.items.length > 0 && (

@@ -115,6 +115,8 @@ body {
 
 .content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   /*
    * Запас снизу — под плавающую панель вкладок и под «шторку» жестов iPhone. Панель
    * вынута из потока (position: fixed), поэтому место под неё обязано оставить
@@ -125,34 +127,50 @@ body {
   padding-bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom));
 }
 
-.back-fallback {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  width: 100%;
-  padding: 10px var(--side);
-  border: 0;
-  background: var(--glass-strong);
-  backdrop-filter: var(--glass-filter);
-  -webkit-backdrop-filter: var(--glass-filter);
-  box-shadow: inset 0 -1px 0 0 var(--glass-edge);
-  color: var(--tg-theme-link-color);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .back-fallback {
-    background: var(--tg-theme-section-bg-color);
-  }
-}
-
 .screen {
+  /* Тянется на всю оставшуюся высоту: это опора для плашки пустоты, которой иначе не от
+     чего расти, — а без неё «ничего нет» выглядит как незагрузившийся первый элемент. */
+  flex: 1;
   padding: var(--side);
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+}
+
+/*
+ * Плашка пустоты и отказа: занимает всё, что осталось от экрана, текст — в её середине.
+ *
+ * Прижимать её к заголовку нельзя: двумя строками под шапкой она читается как первая
+ * запись списка, за которой вот-вот появятся остальные. Пустой экран должен выглядеть
+ * пустым.
+ */
+.plate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Нижняя граница высоты — на случай, когда над плашкой длинная шапка с фильтрами:
+     иначе на низком экране она сожмётся в ту самую полоску, от которой уходим. */
+  min-height: 42vh;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.plate h2 {
+  margin: 0;
+}
+
+/* Кнопка повтора не растягивается во всю ширину плашки: она про одно действие,
+   а не про весь экран. Селектор с .plate — базовое правило кнопки идёт ниже по файлу
+   и иначе перебивает ширину. */
+.plate .plate-action {
+  width: auto;
+  min-width: 11em;
+  margin-top: 10px;
+  padding-left: 22px;
+  padding-right: 22px;
 }
 
 /* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
@@ -170,6 +188,80 @@ body {
      одним пятном, а не расползается на три строки воздуха. */
   line-height: 1.12;
   letter-spacing: var(--track-title);
+}
+
+/* Строка шапки: возврат, название и — если они есть — состояния экрана. */
+.head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.head-row h1 {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/*
+ * Рядом с переключателем название уменьшается.
+ *
+ * Крупный заголовок съедал столько ширины, что «Открытые / Мои / Закрытые» оставалось
+ * место в полтора слова. Название при этом не перестаёт быть главным на экране: оно
+ * остаётся самым тяжёлым по начертанию, просто перестаёт быть самым широким.
+ */
+.head-row.with-tabs h1 {
+  font-size: 1.24em;
+}
+
+.head-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Переключатель в шапке ниже и мельче, чем в потоке экрана: он тут спутник заголовка,
+   а не самостоятельный блок. */
+.head-tabs .tabs {
+  padding: 3px;
+}
+
+.head-tabs .tab {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: var(--text-small);
+}
+
+.head-tabs .tab-lens {
+  top: 3px;
+  bottom: 3px;
+}
+
+/*
+ * Кнопка возврата.
+ *
+ * Слева от названия и с отрицательным полем: значок оптически стоит на том же
+ * вертикальном краю, что и текст под ним, хотя его рамка начинается левее.
+ */
+.head-back {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: -7px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--tg-theme-link-color);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    background-color var(--press) var(--ease-out);
+}
+
+.head-back:active {
+  background: var(--tg-theme-secondary-bg-color);
+  transform: scale(0.92);
 }
 
 .screen-head p {
@@ -368,7 +460,7 @@ body {
   padding: 16px 14px;
   border: 0;
   border-radius: var(--radius-control);
-  background: var(--tg-theme-secondary-bg-color);
+  background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 22px;
@@ -546,14 +638,11 @@ body {
 }
 
 /*
- * Сам переключатель. Два веса материала, а не один на оба места:
+ * Переключатель состояний экрана: «в очереди / разобранные», «сводка / рычаги».
  *
- * — внутри экрана (жалобы, обращения) это обычный контрол на странице, и стекло ему не
- *   нужно — под ним ничего не проезжает;
- * — в липкой полосе над содержимым — плавающая капсула со стеклом и тенью.
- *
- * Разная толщина здесь не украшение: по ней видно, что одно принадлежит экрану, а другое
- * висит над всеми экранами сразу.
+ * Стекла ему не нужно — он лежит в потоке экрана, и под ним ничего не проезжает. Стекло
+ * осталось у одной поверхности, которая действительно висит над содержимым: у нижней
+ * панели разделов. Так по материалу видно, что принадлежит экрану, а что — приложению.
  */
 .tabs {
   position: relative;
@@ -563,31 +652,6 @@ body {
   border-radius: var(--radius-pill);
   background: var(--tg-theme-bg-color);
   box-shadow: var(--shadow-rest);
-}
-
-.subtabs .tabs {
-  background: var(--glass);
-  backdrop-filter: var(--glass-filter);
-  -webkit-backdrop-filter: var(--glass-filter);
-  /* Кант сверху и тень снизу — вместе они и есть толщина: без канта капсула выглядит
-     дыркой в фоне, без тени — наклейкой. */
-  box-shadow:
-    inset 0 1px 0 0 var(--glass-edge),
-    var(--shadow-float);
-}
-
-/* Клиенты без color-mix или без backdrop-filter (старые WebView) получают непрозрачную
-   капсулу: вид хуже, но текст под ней не просвечивает. */
-@supports not (backdrop-filter: blur(1px)) {
-  .subtabs .tabs {
-    background: var(--tg-theme-bg-color);
-  }
-}
-
-@supports not (background: color-mix(in srgb, red 50%, transparent)) {
-  .subtabs .tabs {
-    background: var(--tg-theme-bg-color);
-  }
 }
 
 /*
@@ -672,14 +736,18 @@ body {
  */
 .chips-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(5.4em, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(4.6em, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
 
 .chip {
-  min-height: 40px;
-  padding: 9px 14px;
+  min-height: 34px;
+  padding: 7px 13px;
+  font-size: var(--text-small);
+  /* Не переносить: «Не срочно» ломалось на две строки и делало свой чип вдвое выше
+     соседних — ряд фильтров выглядел сломанным. */
+  white-space: nowrap;
   border: 0;
   border-radius: var(--radius-pill);
   /* Невыбранный чип — не пустой контур, а лёгкая поверхность: контур на фоне карточки
@@ -845,9 +913,17 @@ body {
   padding: 13px 14px;
   border: 0;
   border-radius: var(--radius-control);
-  background: var(--tg-theme-secondary-bg-color);
+  /* На фоне экрана поле должно быть светлее фона, внутри карточки — темнее её. Один цвет
+     на оба случая не годится: secondary_bg у Telegram совпадает с фоном страницы, и поле
+     поиска на экране просто исчезало — оставался висеть в воздухе плейсхолдер. */
+  background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font: inherit;
+}
+
+.card .field,
+.card .code-input {
+  background: var(--tg-theme-secondary-bg-color);
 }
 
 .field:focus-visible,
@@ -1125,10 +1201,15 @@ body {
   }
 }
 
-/* Переключатель «Сводка / Рычаги» внутри раздела: та же полоса, но своя, не липкая —
-   в отличие от разделов, между этими двумя ходят редко. */
-.subtabs {
-  margin: 12px var(--side) 0;
+/*
+ * Шапка над экраном, у которого её нет своей.
+ *
+ * «Управление» — это два разных занятия (посмотреть сводку и подвигать рычаги), и каждое
+ * рисует свой экран со своими отступами. Общее у них — название раздела и переключатель
+ * между ними, поэтому шапка живёт снаружи обоих и получает те же поля, что дал бы .screen.
+ */
+.screen-top {
+  padding: var(--side) var(--side) 0;
 }
 
 /*
@@ -1250,6 +1331,7 @@ body {
   .chip,
   .fallback-submit,
   .tabbar-item,
+  .head-back,
   .tab-lens {
     transition: none;
   }
@@ -1271,9 +1353,7 @@ body {
  * берут на себя непрозрачный фон и тень.
  */
 @media (prefers-reduced-transparency: reduce) {
-  .tabbar,
-  .subtabs .tabs,
-  .back-fallback {
+  .tabbar {
     background: var(--tg-theme-bg-color);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -1309,6 +1389,7 @@ body {
 .tab:focus-visible,
 .chip:focus-visible,
 .toggle-row:focus-visible,
+.head-back:focus-visible,
 .tabbar-item:focus-visible,
 .fallback-submit:focus-visible,
 .fold > summary:focus-visible {

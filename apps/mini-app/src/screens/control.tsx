@@ -29,6 +29,7 @@ import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { applyFontScale, isLargeFont } from '../lib/font-scale'
 import { Fold } from '../ui/fold'
+import { StatePlate } from '../ui/state-plate'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
@@ -102,12 +103,7 @@ export function ControlScreen({ userId }: { userId: string }) {
     return (
       <div className="screen">
         <Head hint={t('controlSubtitle')} />
-        <section className="card">
-          <p>{t('controlReadError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void reload()}>
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('controlReadError')} onRetry={() => void reload()} />
       </div>
     )
   }
