@@ -67,3 +67,4 @@ export {
   useSeasonEnabled,
   useSeasonTheme,
 } from './season'
+export { useSeasonDay, useSeasonGreeting } from './season'

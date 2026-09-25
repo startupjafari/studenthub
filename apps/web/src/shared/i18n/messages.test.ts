@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { HOLIDAYS } from '../config/holidays'
 
 // Страж словарей: ключ, которого нет ни в одной локали, тесты и сборка раньше не ловили —
 // next-intl падает уже в рантайме (MISSING_MESSAGE), и на экран уходит сам ключ. Так дважды
@@ -129,6 +130,30 @@ describe('словари i18n', () => {
       if (absent.length > 0) missing.push(`Nav.group.${group} — нет в ${absent.join(', ')}`)
     }
     expect(missing).toEqual([])
+  })
+
+  /**
+   * Поздравления берутся по `holiday.id` (shared/ui/season-greeting.tsx) — ключ собирается
+   * из значения, и проверка выше его не видит. Сверяем в обе стороны: у каждого
+   * оформляемого праздника поздравление есть, и наоборот — выключенный праздник не
+   * оставляет в словарях мёртвую строку.
+   */
+  it('у каждого оформляемого праздника есть поздравление в Season', () => {
+    const decorated = HOLIDAYS.filter((holiday) => holiday.decorated).map((holiday) => holiday.id)
+    expect(decorated.length).toBeGreaterThan(0)
+
+    const problems: string[] = []
+    for (const id of decorated) {
+      const key = `Season.${id}.greeting`
+      const absent = LOCALES.filter((locale) => !dicts[locale].has(key))
+      if (absent.length > 0) problems.push(`${key} — нет в ${absent.join(', ')}`)
+    }
+    for (const key of dicts.ru) {
+      if (!key.startsWith('Season.')) continue
+      const id = key.split('.')[1]
+      if (id && !decorated.includes(id)) problems.push(`${key} — праздник не оформляется`)
+    }
+    expect(problems).toEqual([])
   })
 
   it('наборы ключей ru/en/kk совпадают', () => {

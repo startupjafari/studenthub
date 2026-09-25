@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTimeZone } from 'next-intl'
 import { activeSeason, type Holiday } from '../config/holidays'
 import { nowInTz } from './tz-date'
@@ -21,6 +21,12 @@ export const SEASON_STORAGE_KEY = 'sh-season-decor'
 
 /** Событие для своей же вкладки: `storage` браузер шлёт только остальным. */
 const SEASON_EVENT = 'sh-season-change'
+
+/**
+ * Закрытое поздравление: `<праздник>:<год>`. Именно год, а не дата, — закрыв поздравление
+ * в первый день Наурыза, человек не должен увидеть его снова на второй и третий.
+ */
+const SEASON_DISMISS_KEY = 'sh-season-dismissed'
 
 /** Пересчёт не реже, чем раз в 6 часов, даже если полночь далеко: часы и таймзона могут съехать. */
 const MAX_RECHECK_MS = 6 * 60 * 60 * 1000
@@ -51,13 +57,16 @@ function msUntilMidnight(time: string): number {
 }
 
 /**
- * Праздник сегодняшнего дня или `null`. До монтирования — всегда `null`: настройка лежит
+ * Праздник сегодняшнего дня и сама дата. До монтирования праздника нет: настройка лежит
  * в localStorage, на сервере её нет, и любой другой ответ означал бы расхождение гидрации
  * (а у выключившего оформление — вспышку поздравления на один кадр).
  */
-export function useActiveSeason(): Holiday | null {
+export function useSeasonDay(): { season: Holiday | null; date: string } {
   const timeZone = useTimeZone()
-  const [season, setSeason] = useState<Holiday | null>(null)
+  const [day, setDay] = useState<{ season: Holiday | null; date: string }>({
+    season: null,
+    date: '',
+  })
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -65,7 +74,7 @@ export function useActiveSeason(): Holiday | null {
     const apply = () => {
       if (timer) clearTimeout(timer)
       const { date, time } = nowInTz(timeZone)
-      setSeason(isSeasonEnabled() ? activeSeason(date) : null)
+      setDay({ season: isSeasonEnabled() ? activeSeason(date) : null, date })
       timer = setTimeout(apply, msUntilMidnight(time))
     }
 
@@ -88,7 +97,45 @@ export function useActiveSeason(): Holiday | null {
     }
   }, [timeZone])
 
-  return season
+  return day
+}
+
+/** Праздник сегодняшнего дня или `null`. */
+export function useActiveSeason(): Holiday | null {
+  return useSeasonDay().season
+}
+
+/**
+ * Поздравление: тот же праздник, но закрываемый. Закрытие запоминается на весь праздник,
+ * а не на день, и живёт в браузере: на сервере такому состоянию делать нечего.
+ */
+export function useSeasonGreeting(): { season: Holiday | null; dismiss: () => void } {
+  const { season, date } = useSeasonDay()
+  const mark = season ? `${season.id}:${date.slice(0, 4)}` : ''
+  const [hidden, setHidden] = useState(true)
+
+  useEffect(() => {
+    if (!mark) {
+      setHidden(true)
+      return
+    }
+    try {
+      setHidden(localStorage.getItem(SEASON_DISMISS_KEY) === mark)
+    } catch {
+      setHidden(false)
+    }
+  }, [mark])
+
+  const dismiss = useCallback(() => {
+    setHidden(true)
+    try {
+      localStorage.setItem(SEASON_DISMISS_KEY, mark)
+    } catch {
+      // Не сохранилось — поздравление вернётся завтра. Это не повод падать.
+    }
+  }, [mark])
+
+  return { season: hidden ? null : season, dismiss }
 }
 
 /**

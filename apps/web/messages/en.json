@@ -2348,7 +2348,9 @@
     "telegramLastSeen": "Last opened {date}",
     "telegramRevoke": "Revoke",
     "telegramRevokeConfirm": "Revoke the link? The mini app will stop opening on that phone. You can link again with a new code.",
-    "telegramRevoked": "The link is revoked"
+    "telegramRevoked": "The link is revoked",
+    "seasonDecor": "Holiday theming",
+    "seasonDecorDesc": "Accent colour and a greeting on national and university holidays"
   },
   "Offline": {
     "title": "You are offline",
@@ -3675,5 +3677,61 @@
     "send": "Send",
     "sent": "Your message was sent",
     "appended": "Added to your open request"
+  },
+  "Season": {
+    "new-year": {
+      "greeting": "Happy New Year!"
+    },
+    "new-year-eve": {
+      "greeting": "Happy New Year's Eve!"
+    },
+    "orthodox-christmas": {
+      "greeting": "Merry Christmas!"
+    },
+    "womens-day": {
+      "greeting": "Happy International Women's Day!"
+    },
+    "nauryz": {
+      "greeting": "Happy Nauryz Meyramy!"
+    },
+    "unity-day": {
+      "greeting": "Happy Kazakhstan People's Unity Day!"
+    },
+    "defender-day": {
+      "greeting": "Happy Defender of the Fatherland Day!"
+    },
+    "victory-day": {
+      "greeting": "Happy Victory Day!"
+    },
+    "kurban-ait": {
+      "greeting": "Blessed Kurban Ait!"
+    },
+    "oraza-ait": {
+      "greeting": "Blessed Oraza Ait!"
+    },
+    "capital-day": {
+      "greeting": "Happy Capital City Day!"
+    },
+    "constitution-day": {
+      "greeting": "Happy Constitution Day!"
+    },
+    "republic-day": {
+      "greeting": "Happy Republic Day!"
+    },
+    "independence-day": {
+      "greeting": "Happy Independence Day!"
+    },
+    "knowledge-day": {
+      "greeting": "Happy Knowledge Day! Have a great academic year"
+    },
+    "teachers-day": {
+      "greeting": "Happy Teachers' Day!"
+    },
+    "languages-day": {
+      "greeting": "Happy Languages Day of the People of Kazakhstan!"
+    },
+    "students-day": {
+      "greeting": "Happy International Students' Day!"
+    }
   }
 }

@@ -11,6 +11,7 @@ import {
   EmptyState,
   MetricTile,
   PageHeader,
+  SeasonGreeting,
   SectionPanel,
   Skeleton,
 } from '../../../shared/ui'
@@ -131,6 +132,7 @@ export function DeanDashboard() {
     // экран и сжатия не было видно; блок дня сверху сделал его заметным.
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
+      <SeasonGreeting />
 
       <DeanTodayBlock />
 

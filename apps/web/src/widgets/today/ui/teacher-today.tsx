@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
-import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, PageHeader, SeasonGreeting, Skeleton } from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
@@ -99,6 +99,7 @@ export function TeacherToday() {
     // Это же каркас страницы из §10.1.
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
+      <SeasonGreeting />
       <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="flex min-w-0 flex-col gap-4">
           <NextPairCard

@@ -1,5 +1,5 @@
 import { getTranslations } from 'next-intl/server'
-import { PageHeader } from '../../../shared/ui'
+import { PageHeader, SeasonGreeting } from '../../../shared/ui'
 import { FeedList } from '../../../widgets/feed-list'
 import { HomeSidebar } from './home-sidebar'
 
@@ -12,6 +12,7 @@ export async function HomeView() {
     // как на остальных страницах.
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeader title={t('feedTitle')} />
+      <SeasonGreeting />
 
       {/* Колонка ленты — 36rem, как на экране «Посты» (views/feed): раньше здесь стояла
           доля `minmax(0,1fr)`, и на широком мониторе лента растягивалась во всю ширину

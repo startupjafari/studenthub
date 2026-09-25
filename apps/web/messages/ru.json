@@ -2348,7 +2348,9 @@
     "telegramLastSeen": "Последнее открытие: {date}",
     "telegramRevoke": "Отозвать",
     "telegramRevokeConfirm": "Отозвать привязку? Мини-апп на этом телефоне перестанет открываться. Привязать заново можно новым кодом.",
-    "telegramRevoked": "Привязка отозвана"
+    "telegramRevoked": "Привязка отозвана",
+    "seasonDecor": "Праздничное оформление",
+    "seasonDecorDesc": "Цвет акцентов и поздравление в государственные и университетские праздники"
   },
   "Offline": {
     "title": "Нет соединения",
@@ -3675,5 +3677,61 @@
     "send": "Отправить",
     "sent": "Обращение отправлено",
     "appended": "Дописали в ваше открытое обращение"
+  },
+  "Season": {
+    "new-year": {
+      "greeting": "С Новым годом!"
+    },
+    "new-year-eve": {
+      "greeting": "С наступающим Новым годом!"
+    },
+    "orthodox-christmas": {
+      "greeting": "С Рождеством Христовым!"
+    },
+    "womens-day": {
+      "greeting": "С Международным женским днём!"
+    },
+    "nauryz": {
+      "greeting": "Наурыз мейрамы құтты болсын!"
+    },
+    "unity-day": {
+      "greeting": "С праздником единства народа Казахстана!"
+    },
+    "defender-day": {
+      "greeting": "С Днём защитника Отечества!"
+    },
+    "victory-day": {
+      "greeting": "С Днём Победы!"
+    },
+    "kurban-ait": {
+      "greeting": "Құрбан айт құтты болсын!"
+    },
+    "oraza-ait": {
+      "greeting": "Ораза айт құтты болсын!"
+    },
+    "capital-day": {
+      "greeting": "С Днём Столицы!"
+    },
+    "constitution-day": {
+      "greeting": "С Днём Конституции!"
+    },
+    "republic-day": {
+      "greeting": "С Днём Республики!"
+    },
+    "independence-day": {
+      "greeting": "С Днём Независимости!"
+    },
+    "knowledge-day": {
+      "greeting": "С Днём знаний! Пусть учебный год будет удачным"
+    },
+    "teachers-day": {
+      "greeting": "С Днём учителя!"
+    },
+    "languages-day": {
+      "greeting": "С Днём языков народа Казахстана!"
+    },
+    "students-day": {
+      "greeting": "С Международным днём студента!"
+    }
   }
 }
