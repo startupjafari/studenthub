@@ -26,6 +26,7 @@ import { useBackButton, useMainButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
 import { formatDateTime, formatShortTime, initials } from '../lib/format'
 import { PersonSummary } from './person-summary'
+import { Tabs } from '../ui/tabs'
 import { useVoiceRecorder } from '../telegram/use-voice'
 
 // Поддержка платформы: очередь обращений и переписка.
@@ -106,27 +107,15 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
         </p>
       </header>
 
-      <div className="tabs" role="tablist">
-        {(['open', 'mine', 'closed'] as Tab[]).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            className="tab"
-            aria-selected={tab === value}
-            onClick={() => {
-              haptic.select()
-              setTab(value)
-            }}
-          >
-            {value === 'open'
-              ? t('supportTabOpen')
-              : value === 'mine'
-                ? t('supportTabMine')
-                : t('supportTabClosed')}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        items={[
+          { id: 'open', label: t('supportTabOpen') },
+          { id: 'mine', label: t('supportTabMine') },
+          { id: 'closed', label: t('supportTabClosed') },
+        ]}
+        active={tab}
+        onSelect={setTab}
+      />
 
       {/* «Мы это уже кому-то отвечали» — вопрос, который без поиска проверить негде. */}
       <input

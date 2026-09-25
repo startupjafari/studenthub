@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { haptic, initTelegram, isTelegram, startParam } from './telegram/webapp'
+import { initTelegram, isTelegram, startParam } from './telegram/webapp'
 import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
@@ -8,6 +8,7 @@ import { SupportScreen } from './screens/support'
 import { PeopleScreen } from './screens/people'
 import { OverviewScreen } from './screens/overview'
 import { fetchBadges, type Badges } from './api/badges'
+import { Tabs } from './ui/tabs'
 import { t } from './i18n'
 
 // Мини-апп для администраторов и модераторов платформы.
@@ -115,28 +116,23 @@ function ReadyView({
   return (
     <>
       <div className="tabbar">
-        <div className="tabs" role="tablist">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              className="tab"
-              aria-selected={active === item.id}
-              onClick={() => {
-                haptic.select()
-                onTab(item.id)
-              }}
-            >
-              {t(item.labelKey)}
-              {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
-                  до него приходилось обходить все три по очереди. */}
-              {badgeFor(item.id, badges) > 0 && (
-                <span className="tab-badge">{badgeFor(item.id, badges)}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          items={tabs.map((item) => ({
+            id: item.id,
+            label: (
+              <>
+                {t(item.labelKey)}
+                {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
+                    до него приходилось обходить все три по очереди. */}
+                {badgeFor(item.id, badges) > 0 && (
+                  <span className="tab-badge">{badgeFor(item.id, badges)}</span>
+                )}
+              </>
+            ),
+          }))}
+          active={active}
+          onSelect={onTab}
+        />
       </div>
       {active === 'complaints' && (
         <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
@@ -162,23 +158,14 @@ function ControlTab({ userId }: { userId: string }) {
   return (
     <>
       <div className="subtabs">
-        <div className="tabs" role="tablist">
-          {(['summary', 'levers'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              className="tab"
-              aria-selected={sub === value}
-              onClick={() => {
-                haptic.select()
-                setSub(value)
-              }}
-            >
-              {value === 'summary' ? t('controlTabSummary') : t('controlTabLevers')}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          items={[
+            { id: 'summary', label: t('controlTabSummary') },
+            { id: 'levers', label: t('controlTabLevers') },
+          ]}
+          active={sub}
+          onSelect={setSub}
+        />
       </div>
       {sub === 'summary' ? <OverviewScreen /> : <ControlScreen userId={userId} />}
     </>

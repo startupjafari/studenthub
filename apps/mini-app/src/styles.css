@@ -519,7 +519,32 @@ body {
   }
 }
 
+/*
+ * Плашка выделения, переезжающая между вкладками.
+ *
+ * Отдельным элементом, а не фоном выбранной кнопки: фон нельзя сдвинуть из одной кнопки
+ * в другую — он может только погаснуть здесь и зажечься там. Положение и ширину ей
+ * задаёт React по замеру (ui/tabs.tsx), css отвечает за форму и за то, как она едет.
+ */
+.tab-lens {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: var(--tg-theme-button-color);
+  box-shadow: var(--shadow-rest);
+  pointer-events: none;
+  transition:
+    transform 280ms var(--ease-out),
+    width 280ms var(--ease-out);
+}
+
 .tab {
+  position: relative;
+  /* Надпись выше плашки: иначе переезжающий акцент закрывает текст вкладки, к которой
+     приехал. */
+  z-index: 1;
   flex: 1;
   min-height: 36px;
   padding: 8px 14px;
@@ -551,6 +576,13 @@ body {
   color: var(--tg-theme-button-text-color);
   font-weight: 600;
   box-shadow: var(--shadow-rest);
+}
+
+/* Появилась плашка — заливка кнопке больше не нужна: иначе во время переезда акцент
+   виден в двух местах сразу. */
+.tabs[data-lens='on'] .tab[aria-selected='true'] {
+  background: transparent;
+  box-shadow: none;
 }
 
 .chips {
@@ -1089,7 +1121,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .tab,
   .chip,
-  .fallback-submit {
+  .fallback-submit,
+  .tab-lens {
     transition: none;
   }
 
