@@ -11,6 +11,7 @@ export {
   publishPostRequest,
   addReactionRequest,
   removeReactionRequest,
+  toggleBookmarkRequest,
   fetchComments,
   addCommentRequest,
   deleteCommentRequest,

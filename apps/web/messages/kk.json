@@ -1603,7 +1603,10 @@
     "publishPost": "Жариялау",
     "postUpdated": "Жарияланым өзгертілді",
     "save": "Сақтау",
-    "edited": "өзгертілді"
+    "edited": "өзгертілді",
+    "commentAuthorTag": "Автор",
+    "filterSaved": "Сақталған",
+    "bookmark": "Таңдаулыға"
   },
   "Chats": {
     "title": "Чаттар",

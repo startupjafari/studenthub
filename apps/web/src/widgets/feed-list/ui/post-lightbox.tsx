@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  Bookmark,
   ChevronLeft,
   ChevronRight,
   CornerDownRight,
@@ -39,6 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/u
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
+import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
@@ -310,6 +312,7 @@ function PostView({
   const canDelete = post.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
   const comments = useQuery({
     queryKey: postKeys.comments(post.id),
@@ -416,6 +419,13 @@ function PostView({
             postId={post.id}
             className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
           />
+          {/* Избранное без счётчика: личная полка, а не вовлечение. */}
+          <BarButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
+            <Bookmark
+              className={cn('size-5', bookmarked && 'fill-primary text-primary')}
+              aria-hidden
+            />
+          </BarButton>
           {/* Просмотры и дата — справа, как во «ВКонтакте»: это показания, а не действия. */}
           {/* Справа только просмотры: дата переехала в шапку, под имя автора —
               в записи «ВКонтакте» она стоит там, а не в строке действий. */}
@@ -629,6 +639,7 @@ function PostView({
                       content={c.content}
                       createdAt={c.createdAt}
                       locale={locale}
+                      isPostAuthor={c.author.id === post.author.id}
                       canDelete={c.author.id === myId}
                       canReport={c.author.id !== myId}
                       onReply={() => startReply(c.id, c.author)}
@@ -658,6 +669,7 @@ function PostView({
                               // на сервере одноуровневая, и без подписи «кому» лента
                               // ответов читается как разговор со стеной.
                               replyTo={c.author}
+                              isPostAuthor={r.author.id === post.author.id}
                               small
                               canDelete={r.author.id === myId}
                               canReport={r.author.id !== myId}
@@ -849,6 +861,7 @@ function CommentRow({
   createdAt,
   locale,
   replyTo,
+  isPostAuthor = false,
   canDelete = false,
   canReport = false,
   onReply,
@@ -861,6 +874,8 @@ function CommentRow({
   createdAt: string
   locale: string
   replyTo?: PostAuthor | null
+  /** Комментарий оставил сам автор поста — рядом с именем встаёт метка. */
+  isPostAuthor?: boolean
   canDelete?: boolean
   canReport?: boolean
   onReply?: () => void
@@ -886,6 +901,14 @@ function CommentRow({
           >
             {author.lastName} {author.firstName}
           </ProfileLink>
+          {/* Метка автора: в чужой ветке ответов важно видеть, где ответил сам
+              публикатор, а где такой же читатель. Статусной парой (§2.2), а не своим
+              цветом. */}
+          {isPostAuthor && (
+            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[11px] font-medium text-primary">
+              {t('commentAuthorTag')}
+            </span>
+          )}
           {replyTo && (
             <span className="text-xs text-muted-foreground">
               · {replyTo.firstName} {replyTo.lastName}

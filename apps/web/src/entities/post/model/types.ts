@@ -48,6 +48,11 @@ export interface FeedPost {
   reactions: PostReaction[]
   original: { id: string; title: string | null; content: string; author: PostAuthor } | null
   _count: { comments: number }
+  /**
+   * Сохранён ли пост ЗРИТЕЛЕМ. Личный признак: сколько людей сохранили пост, API не
+   * отдаёт и не считает — в отличие от реакций, которые видны всем намеренно.
+   */
+  bookmarked: boolean
 }
 
 export interface PostComment {

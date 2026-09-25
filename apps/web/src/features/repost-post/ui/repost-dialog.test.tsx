@@ -55,6 +55,7 @@ const post = {
   reactions: [],
   original: null,
   _count: { comments: 0 },
+  bookmarked: false,
 } satisfies FeedPost
 
 function setup(onClose = vi.fn()) {

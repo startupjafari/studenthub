@@ -13,13 +13,23 @@ import { Button, Modal, PageHeader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Разделы ленты: фильтр уходит на сервер и всегда пересекается с видимостью зрителя.
-const FILTERS: readonly FeedFilterValue[] = ['ALL', 'GROUP', 'UNIVERSITY', 'TEACHERS', 'IMPORTANT']
+// «Сохранённое» — последним: это не срез ленты, а личная полка, и открывают её реже,
+// чем читают саму ленту.
+const FILTERS: readonly FeedFilterValue[] = [
+  'ALL',
+  'GROUP',
+  'UNIVERSITY',
+  'TEACHERS',
+  'IMPORTANT',
+  'SAVED',
+]
 const FILTER_LABEL: Record<FeedFilterValue, string> = {
   ALL: 'filterAll',
   GROUP: 'filterGroup',
   UNIVERSITY: 'filterUniversity',
   TEACHERS: 'filterTeachers',
   IMPORTANT: 'filterImportant',
+  SAVED: 'filterSaved',
 }
 // Модераторы посты не пишут — только читают и модерируют.
 const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]

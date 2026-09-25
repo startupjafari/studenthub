@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
+import { Bookmark, Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -18,6 +18,7 @@ import { cn } from '../../../shared/lib/utils'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { PostMediaView } from './post-media'
 import { SharePostMenu } from '../../../features/share-post'
+import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 
 const LIKE = '❤️'
@@ -59,6 +60,7 @@ export function PostTile({
     month: 'long',
   })
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
   // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5).
   function toggleLike(): void {
@@ -195,6 +197,18 @@ export function PostTile({
             postId={post.id}
             className="cursor-pointer transition-transform hover:scale-105 hover:text-foreground"
           />
+          <button
+            type="button"
+            aria-label={t('bookmark')}
+            aria-pressed={bookmarked}
+            onClick={toggleBookmark}
+            className="transition-transform hover:scale-105 hover:text-foreground"
+          >
+            <Bookmark
+              className={cn('size-5', bookmarked && 'fill-primary text-primary')}
+              aria-hidden
+            />
+          </button>
           <span className="ml-auto flex items-center gap-1.5">
             <Eye className="size-5" aria-hidden />
             {post.views}
