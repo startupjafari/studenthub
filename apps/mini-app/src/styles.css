@@ -8,7 +8,22 @@
  */
 
 :root {
-  --radius: 12px;
+  /*
+   * Радиусы — шкала, а не одно число на всё.
+   *
+   * Углы вложенных поверхностей обязаны быть концентричными: внутренний радиус равен
+   * внешнему минус отступ. Иначе между внешним и внутренним скруглением остаётся зазор
+   * переменной толщины, и вложенный блок выглядит вдавленным в угол криво. Отсюда
+   * --radius-inner = --radius-card − 14px (это padding карточки).
+   */
+  --radius-card: 20px;
+  --radius-inner: 6px;
+  --radius-control: 14px;
+  /* Капсула — форма всего нажимаемого: кнопок, чипов, вкладок. По ней элемент читается
+     как кнопка до того, как прочитана надпись. */
+  --radius-pill: 999px;
+  /* Прежнее имя остаётся: им пользуются места, где форма второстепенна (скелетон, плитки). */
+  --radius: var(--radius-card);
   --gap: 12px;
   --side: 16px;
   /*
@@ -21,9 +36,46 @@
   --text-head: 1.13em;
   --text-body: 1em;
   --text-small: 0.87em;
+  /*
+   * Трекинг зависит от кегля, и одного значения на все размеры не существует: крупный
+   * заголовок с нулевым трекингом выглядит рыхлым — буквы расходятся тем сильнее, чем
+   * они больше, — а мелкая подпись с отрицательным слипается.
+   */
+  --track-title: -0.022em;
+  --track-head: -0.01em;
+  --track-small: 0.006em;
   /* Минимальная высота того, во что попадают пальцем. Меньше 44 промахиваются — это не
      догадка, а нижняя граница, на которой сходятся и Apple, и Material. */
   --tap: 44px;
+
+  /*
+   * Стекло.
+   *
+   * Плавающая поверхность не закрашивает содержимое, а лежит над ним слоем: под ней видно,
+   * что экран продолжается, и полоса вкладок перестаёт быть полосой, отрезающей верх.
+   * Тон берём от фона Telegram — слой обязан читаться продолжением клиента, а не наклейкой
+   * чужого приложения, и своей палитры здесь по-прежнему нет.
+   */
+  --glass: color-mix(in srgb, var(--tg-theme-bg-color) 70%, transparent);
+  --glass-strong: color-mix(in srgb, var(--tg-theme-bg-color) 86%, transparent);
+  /* saturate поверх blur: размытие обесцвечивает то, что под ним, и без подмешанной
+     насыщенности стекло выглядит грязным, а не прозрачным. */
+  --glass-filter: saturate(180%) blur(20px);
+  /* Светлый кант сверху — не краска, а блик: им материал ловит свет и получает толщину.
+     Потому он белый в обеих темах, а не производная от цвета текста. */
+  --glass-edge: rgb(255 255 255 / 0.4);
+  /*
+   * Тени — чёрный с прозрачностью, а не цвет палитры. В тёмной теме Telegram они почти
+   * не видны, и это правильно: там поверхности разделяет светлый кант, а не тень.
+   */
+  --shadow-float: 0 10px 30px -12px rgb(0 0 0 / 0.3), 0 2px 8px -5px rgb(0 0 0 / 0.16);
+  --shadow-rest: 0 1px 3px -1px rgb(0 0 0 / 0.1);
+  /*
+   * Одна кривая отклика на всё приложение: быстро уходит, мягко приезжает. Разнобой
+   * таймингов между экранами читается как неаккуратность, даже когда его не замечают.
+   */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --press: 120ms;
 }
 
 * {
@@ -40,13 +92,16 @@ body {
   background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
   font:
-    15px/1.4 -apple-system,
+    15px/1.45 -apple-system,
     BlinkMacSystemFont,
     'SF Pro Text',
     'Segoe UI',
     Roboto,
     sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Системный шрифт умеет оптический размер: у крупного кегля он сам сужает пропорции
+     и подтягивает штрихи. Отключённым по умолчанию его держать незачем. */
+  font-optical-sizing: auto;
 }
 
 .app {
@@ -70,12 +125,20 @@ body {
   width: 100%;
   padding: 10px var(--side);
   border: 0;
-  border-bottom: 1px solid var(--tg-theme-section-separator-color);
-  background: var(--tg-theme-section-bg-color);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: inset 0 -1px 0 0 var(--glass-edge);
   color: var(--tg-theme-link-color);
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .back-fallback {
+    background: var(--tg-theme-section-bg-color);
+  }
 }
 
 .screen {
@@ -95,7 +158,11 @@ body {
 .screen-head h1 {
   margin: 4px 0 2px;
   font-size: var(--text-title);
-  font-weight: 600;
+  font-weight: 700;
+  /* Крупному кеглю нужен сжатый трекинг и плотный интерлиньяж: заголовок держится
+     одним пятном, а не расползается на три строки воздуха. */
+  line-height: 1.12;
+  letter-spacing: var(--track-title);
 }
 
 .screen-head p {
@@ -113,41 +180,51 @@ body {
 
 .badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
   background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-hint-color);
   font-size: 12px;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 
 /* Карточки и строки — как секции в самом Telegram: сгруппированный блок со скруглением
-   по краям группы, а не у каждой строки. */
+   по краям группы, а не у каждой строки. Радиус крупнее прежнего: у мелкого скругления
+   поверхность выглядит вырезанной из бумаги, у крупного — отлитой. */
 .card {
   background: var(--tg-theme-section-bg-color);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   padding: 14px;
+  /* Тень слабая, почти незаметная: карточка не висит над экраном, она на нём лежит.
+     Заметная тень на каждой из шести карточек экрана превращает список в свалку. */
+  box-shadow: var(--shadow-rest);
 }
 
 .card h2 {
   margin: 6px 0 2px;
   font-size: var(--text-head);
   font-weight: 600;
+  letter-spacing: var(--track-head);
 }
 
 .card-accent {
   cursor: pointer;
-  box-shadow: inset 0 0 0 1.5px var(--tg-theme-button-color);
+  box-shadow:
+    inset 0 0 0 1.5px var(--tg-theme-button-color),
+    var(--shadow-rest);
 }
 
 .list {
   background: var(--tg-theme-section-bg-color);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-rest);
   overflow: hidden;
 }
 
 .row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -163,10 +240,24 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-.row + .row {
-  border-top: 1px solid var(--tg-theme-section-separator-color);
+/*
+ * Разделитель не доходит до левого края.
+ *
+ * Линия во всю ширину режет список на полосы и спорит со скруглением группы. Сдвинутая
+ * под текст, она говорит ровно то, что нужно: строки соседние, а колонка слева (время,
+ * кружок с инициалами) — общая для них.
+ */
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
 }
 
+/* Подсветка на нажатии, без выдержки: строка отвечает касанию, а не результату запроса. */
 .row:active {
   background: var(--tg-theme-secondary-bg-color);
 }
@@ -218,7 +309,8 @@ body {
   gap: 2px;
   min-height: 72px;
   padding: 12px 6px;
-  border-radius: var(--radius);
+  /* Внутри карточки — концентрично её углу: радиус группы минус её отступ. */
+  border-radius: var(--radius-control);
   background: var(--tg-theme-secondary-bg-color);
   text-align: center;
 }
@@ -264,21 +356,16 @@ body {
 /* Код набирают с экрана другого устройства: крупно, моноширинно, с разрядкой. */
 .code-input {
   width: 100%;
-  padding: 14px;
-  border: 1px solid var(--tg-theme-section-separator-color);
-  border-radius: var(--radius);
-  background: var(--tg-theme-section-bg-color);
+  padding: 16px 14px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 22px;
   letter-spacing: 0.35em;
   text-align: center;
   text-transform: uppercase;
-}
-
-.code-input:focus {
-  outline: 2px solid var(--tg-theme-button-color);
-  outline-offset: -1px;
 }
 
 /*
@@ -288,17 +375,23 @@ body {
  */
 .fallback-submit {
   width: 100%;
-  min-height: var(--tap);
+  min-height: 50px;
   margin-top: 12px;
-  padding: 13px;
+  padding: 14px;
   border: 0;
-  border-radius: var(--radius);
+  /* Капсула: главное действие экрана обязано отличаться от карточки не только цветом,
+     но и формой — иначе залитый прямоугольник читается как ещё один блок содержимого. */
+  border-radius: var(--radius-pill);
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
   font: inherit;
   font-weight: 600;
+  letter-spacing: var(--track-head);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    opacity var(--press) var(--ease-out);
 }
 
 /* Скелетон вместо спиннера: высота строк известна, список не прыгает при загрузке. */
@@ -306,7 +399,7 @@ body {
   display: block;
   margin-top: 10px;
   height: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   background: var(--tg-theme-secondary-bg-color);
   animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
@@ -340,53 +433,115 @@ body {
 /* ── Управление платформой ─────────────────────────────────────────────────── */
 
 /*
- * Переключатель разделов.
+ * Переключатель разделов — плавающая капсула.
  *
- * Прилипает к верху: экраны здесь длинные, и уехавшая наверх навигация означает, что
- * сменить раздел можно только домотав до начала. Фон непрозрачный — под ним проезжает
- * содержимое, и просвечивающая полоса читалась бы как артефакт.
+ * Прилипает к верху: экраны здесь длинные, и уехавшая наверх навигация означала бы, что
+ * сменить раздел можно только домотав до начала.
+ *
+ * Плашки во всю ширину больше нет. Полоса, закрашивающая верх экрана, отрезает от него
+ * ленту и превращает прокрутку в «содержимое кончилось»; капсула лежит НАД содержимым, и
+ * по краям от неё видно, что список продолжается вверх. Это и есть разница между панелью
+ * и материалом: материал не забирает себе полосу экрана, а висит в ней.
  */
 .tabbar {
   position: sticky;
   top: 0;
   z-index: 100;
-  padding: 8px var(--side);
-  /* Полупрозрачно с размытием: под полосой проезжает содержимое, и непрозрачная плашка
-     обрубала бы его как ножом. Цвет — тот же фон страницы, чтобы в любой теме Telegram
-     полоса читалась её продолжением, а не наклейкой. */
-  background: color-mix(in srgb, var(--tg-theme-secondary-bg-color) 80%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  padding: 8px var(--side) 10px;
+  /* Сам контейнер прозрачен: стекло здесь одно — капсула. Два полупрозрачных слоя друг
+     на друге дают муть, в которой не читается ни верхний, ни нижний. */
+  background: none;
 }
 
-/* Клиенты без color-mix (старые WebView) получают непрозрачный фон — это хуже по виду,
-   но текст под полосой не просвечивает. */
-@supports not (background: color-mix(in srgb, red 50%, transparent)) {
-  .tabbar {
-    background: var(--tg-theme-secondary-bg-color);
+/*
+ * Край прокрутки вместо разделительной линии.
+ *
+ * Содержимому нужно уходить под капсулу не обрубленным. Полоска в 1px обрубает ровно так
+ * же, как плашка, поэтому верх размывается с затуханием: у капсулы размытие сильное, ниже
+ * сходит на нет. Строка не исчезает под ножом — она растворяется.
+ */
+.tabbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  pointer-events: none;
+}
+
+/*
+ * Сам переключатель. Два веса материала, а не один на оба места:
+ *
+ * — внутри экрана (жалобы, обращения) это обычный контрол на странице, и стекло ему не
+ *   нужно — под ним ничего не проезжает;
+ * — в липкой полосе над содержимым — плавающая капсула со стеклом и тенью.
+ *
+ * Разная толщина здесь не украшение: по ней видно, что одно принадлежит экрану, а другое
+ * висит над всеми экранами сразу.
+ */
+.tabs {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--tg-theme-bg-color);
+  box-shadow: var(--shadow-rest);
+}
+
+.tabbar .tabs,
+.subtabs .tabs {
+  background: var(--glass);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  /* Кант сверху и тень снизу — вместе они и есть толщина: без канта капсула выглядит
+     дыркой в фоне, без тени — наклейкой. */
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
+}
+
+/* Клиенты без color-mix или без backdrop-filter (старые WebView) получают непрозрачную
+   капсулу: вид хуже, но текст под ней не просвечивает. */
+@supports not (backdrop-filter: blur(1px)) {
+  .tabbar .tabs,
+  .subtabs .tabs {
+    background: var(--tg-theme-bg-color);
   }
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--tg-theme-bg-color);
-  border-radius: 16px;
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar .tabs,
+  .subtabs .tabs {
+    background: var(--tg-theme-bg-color);
+  }
 }
 
 .tab {
   flex: 1;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--tg-theme-hint-color);
   font: inherit;
   font-weight: 500;
+  letter-spacing: var(--track-head);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    background-color var(--press) var(--ease-out),
+    color var(--press) var(--ease-out);
+}
+
+/* Отклик на нажатии, а не на отпускании: между касанием и ответом сервера проходит
+   заметное время, и без него тап выглядит несработавшим. */
+.tab:active {
+  transform: scale(0.96);
 }
 
 /* Активная вкладка — акцентом, а не сменой серого на чёрный: в тёмной теме Telegram
@@ -394,9 +549,10 @@ body {
 .tab[aria-selected='true'] {
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
+  font-weight: 600;
+  box-shadow: var(--shadow-rest);
 }
 
-/* Готовые варианты (сроки, формулировки): выбор тапом вместо ввода с клавиатуры. */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -421,23 +577,29 @@ body {
 .chip {
   min-height: 40px;
   padding: 9px 14px;
-  border: 1px solid var(--tg-theme-section-separator-color);
-  border-radius: 999px;
-  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  /* Невыбранный чип — не пустой контур, а лёгкая поверхность: контур на фоне карточки
+     теряется, и ряд вариантов выглядит списком подписей, а не набором кнопок. */
+  background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
   font: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    background-color var(--press) var(--ease-out);
 }
 
 .chip:active {
-  background: var(--tg-theme-secondary-bg-color);
+  transform: scale(0.96);
 }
 
 .chip[aria-pressed='true'] {
-  border-color: transparent;
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
+  font-weight: 600;
+  box-shadow: var(--shadow-rest);
 }
 
 .chip:disabled {
@@ -465,18 +627,37 @@ body {
   }
 }
 
-/* Разрушительное действие отличается цветом, а не только текстом: палитру для него
-   Telegram отдаёт отдельно (destructive_text_color). */
+/*
+ * Разрушительное действие отличается цветом, а не только текстом: палитру для него
+ * Telegram отдаёт отдельно (destructive_text_color).
+ *
+ * Заливка тоном вместо контура. Обведённая кнопка рядом с залитой и приглушённой читается
+ * как третий, отдельный вид элемента; одинаковая заливка разной краской оставляет разницу
+ * там, где она есть, — в цвете.
+ */
 .fallback-submit.danger {
-  background: transparent;
+  border: 0;
+  background: color-mix(in srgb, var(--tg-theme-destructive-text-color) 14%, transparent);
   color: var(--tg-theme-destructive-text-color);
-  border: 1px solid var(--tg-theme-destructive-text-color);
 }
 
-/* Отклик на касание есть у строк списка — у кнопок его не было, и нажатие выглядело
-   как «не сработало», пока не приедет ответ сервера. */
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .fallback-submit.danger {
+    background: transparent;
+    border: 1px solid var(--tg-theme-destructive-text-color);
+  }
+}
+
+/*
+ * Отклик на касание есть у строк списка — у кнопок его не было, и нажатие выглядело
+ * как «не сработало», пока не приедет ответ сервера.
+ *
+ * Сжатие, а не одна прозрачность: палец закрывает кнопку целиком, и изменение размера
+ * видно по краям, которые из-под пальца видны, — а падение яркости под ним не видно.
+ */
 .fallback-submit:active {
-  opacity: 0.72;
+  transform: scale(0.97);
+  opacity: 0.86;
 }
 
 .fallback-submit:disabled {
@@ -485,6 +666,7 @@ body {
 
 /* Строка-переключатель раздела: подпись слева, состояние справа. */
 .toggle-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -499,8 +681,14 @@ body {
   cursor: pointer;
 }
 
-.toggle-row + .toggle-row {
-  border-top: 1px solid var(--tg-theme-section-separator-color);
+.toggle-row + .toggle-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
 }
 
 .toggle-state {
@@ -513,15 +701,28 @@ body {
   color: var(--tg-theme-destructive-text-color);
 }
 
+/*
+ * Поле ввода — залитая поверхность без рамки.
+ *
+ * Рамка в 1px спорит с хайрлайнами разделителей: два разных серых контура на одном экране
+ * читаются как разметка таблицы. Заливка отделяет поле от карточки тем же способом, каким
+ * от неё отделены чипы, — тоном, а не линией.
+ */
 .field {
   width: 100%;
   margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--tg-theme-section-separator-color);
-  border-radius: 10px;
-  background: var(--tg-theme-bg-color);
+  padding: 13px 14px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
   font: inherit;
+}
+
+.field:focus-visible,
+.code-input:focus-visible {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: 1px;
 }
 
 /* Заголовок группы в списке (разделение по дням). */
@@ -567,7 +768,7 @@ body {
 .preview {
   margin: 6px 0 0;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--tg-theme-secondary-bg-color);
   font-size: 14px;
 }
@@ -588,10 +789,17 @@ body {
   white-space: nowrap;
 }
 
-/* Разрушительное действие в строке списка. */
+/* Разрушительное действие в строке списка — тем же тоном, что разрушительная кнопка. */
 .chip.danger-chip {
-  border-color: var(--tg-theme-destructive-text-color);
+  background: color-mix(in srgb, var(--tg-theme-destructive-text-color) 14%, transparent);
   color: var(--tg-theme-destructive-text-color);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .chip.danger-chip {
+    background: transparent;
+    border: 1px solid var(--tg-theme-destructive-text-color);
+  }
 }
 
 /* Спарклайн: подпись — кривая — последнее значение. */
@@ -701,7 +909,7 @@ body {
 
 .fold > summary:active {
   background: var(--tg-theme-secondary-bg-color);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .fold-title {
@@ -728,8 +936,17 @@ body {
   transform: rotate(90deg);
 }
 
+/* Линия под раскрытой шапкой — с тем же отступом слева, что и разделители строк:
+   два разных способа разделить соседние блоки на одном экране читаются как недосмотр. */
 .fold[open] > summary {
-  border-bottom: 1px solid var(--tg-theme-section-separator-color);
+  background-image: linear-gradient(
+    to right,
+    transparent 14px,
+    var(--tg-theme-section-separator-color) 14px
+  );
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
 }
 
 .fold-body {
@@ -822,8 +1039,8 @@ body {
 
 .bubble {
   max-width: 82%;
-  padding: 8px 12px;
-  border-radius: 16px;
+  padding: 9px 13px;
+  border-radius: 20px;
   background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font-size: var(--text-body);
@@ -836,12 +1053,12 @@ body {
   align-self: flex-end;
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: 7px;
 }
 
 .bubble.theirs {
   align-self: flex-start;
-  border-bottom-left-radius: 6px;
+  border-bottom-left-radius: 7px;
 }
 
 .bubble-author {
@@ -858,4 +1075,68 @@ body {
   font-size: var(--text-small);
   opacity: 0.7;
   text-align: right;
+}
+
+/*
+ * ── Настройки доступности ────────────────────────────────────────────────────
+ *
+ * Стекло и пружины — это украшение поверх работы, и человек вправе их выключить. Три
+ * системные настройки читаются независимо друг от друга, и ни одна не должна отнимать
+ * смысл: отключённое движение оставляет отклик, отключённая прозрачность — иерархию.
+ */
+
+/* Меньше движения: отклик остаётся, но перестаёт быть перемещением. */
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .chip,
+  .fallback-submit {
+    transition: none;
+  }
+
+  .tab:active,
+  .chip:active,
+  .fallback-submit:active {
+    transform: none;
+    opacity: 0.8;
+  }
+}
+
+/*
+ * Меньше прозрачности: стекло становится плотным.
+ *
+ * Именно плотным, а не бесцветным — плавающая капсула обязана остаться отделённой от
+ * содержимого, иначе вкладки сольются со списком под ними. Роль, которую играло размытие,
+ * берут на себя непрозрачный фон и тень.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  .tabbar .tabs,
+  .subtabs .tabs,
+  .back-fallback {
+    background: var(--tg-theme-bg-color);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .tabbar::before {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/*
+ * Больше контраста: поверхности получают видимую границу.
+ *
+ * Тень и кант различимы не для всех глаз и не на всех экранах — при этой настройке
+ * разделение обязано быть линией, которую видно наверняка.
+ */
+@media (prefers-contrast: more) {
+  .card,
+  .list,
+  .tabs {
+    box-shadow: inset 0 0 0 1px var(--tg-theme-section-separator-color);
+  }
+
+  .chip {
+    box-shadow: inset 0 0 0 1px var(--tg-theme-section-separator-color);
+  }
 }
