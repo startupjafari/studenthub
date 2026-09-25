@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { HoverCard as HoverCardPrimitive } from 'radix-ui'
 import { Briefcase, Check, GraduationCap } from 'lucide-react'
-import { SeasonalIcon } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 /** Корень карьерного продукта. Всё, что под ним, считается «Карьерой». */
@@ -43,7 +42,7 @@ export function ProductSwitcher({
           aria-label={t('switch')}
           className="-ml-1.5 flex shrink-0 cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left whitespace-nowrap outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/30"
         >
-          <SeasonalIcon icon={GraduationCap} className="size-6 shrink-0 text-primary" />
+          <GraduationCap className="size-6 shrink-0 text-primary" aria-hidden />
           <span className="flex flex-col leading-none">
             <span className="text-lg font-bold">StudentHub</span>
             {onCareer && (

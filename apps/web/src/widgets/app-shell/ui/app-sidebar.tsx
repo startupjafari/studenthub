@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Bell, LogOut, Search, UserRound } from 'lucide-react'
-import { Avatar, AvatarFallback, AvatarImage, SeasonalIcon, Skeleton } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { useChatsUnread } from '../../../entities/chat'
 import { endSession } from '../../../shared/session'
@@ -128,7 +128,7 @@ export function AppSidebar({
               <Bell className="size-5" aria-hidden />
             </button>
           </div>
-          <nav className="sh-on-sidebar flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
+          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
             {toSections(nav).map((section, si) => (
               <div key={section.group ?? `s${si}`} className="flex flex-col gap-1">
                 {section.group && (
@@ -151,7 +151,7 @@ export function AppSidebar({
                           : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                       )}
                     >
-                      <SeasonalIcon icon={Icon} className="size-5 shrink-0" />
+                      <Icon className="size-5 shrink-0" aria-hidden />
                       <span className="min-w-0 flex-1 truncate">{tNav(item.key)}</span>
                       {item.key === 'chats' && chatsUnread > 0 && (
                         <span

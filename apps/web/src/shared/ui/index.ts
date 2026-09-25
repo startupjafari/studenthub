@@ -102,7 +102,6 @@ export { PageLoader, type PageLoaderProps } from './page-loader'
 export { PageHeader, type PageHeaderProps } from './page-header'
 export { SeasonGreeting } from './season-greeting'
 export { seasonIcon } from './season-icon'
-export { SeasonalIcon } from './seasonal-icon'
 export {
   Table,
   TableBody,
