@@ -117,11 +117,12 @@ model User {
   applicationsV2 Application[] @relation("StudentApplicationsV2")
 
   // Посты (Ф8): авторство, адресные посты, закрепления; комментарии и реакции.
-  posts         Post[]     @relation("PostAuthor")
-  postsTargeted Post[]     @relation("PostTarget")
-  postsPinned   Post[]     @relation("PostPinnedBy")
+  posts         Post[]         @relation("PostAuthor")
+  postsTargeted Post[]         @relation("PostTarget")
+  postsPinned   Post[]         @relation("PostPinnedBy")
   comments      Comment[]
   reactions     Reaction[]
+  postBookmarks PostBookmark[] @relation("UserPostBookmarks")
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
   chatMemberships   ChatMember[]
