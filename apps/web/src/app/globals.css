@@ -136,6 +136,101 @@
   --sidebar-ring: oklch(0.623 0.188 259.8);
 }
 
+/* ── Сезон: праздничная палитра ───────────────────────────────────────────────
+   Атрибут `data-season` на <html> ставит shared/lib/season.ts по календарю
+   (shared/config/holidays.ts). Работает как тема: переопределяются ТЕ ЖЕ имена
+   переменных, поэтому ни один экран о празднике не знает — `bg-primary` просто
+   становится другого цвета, а `bg-primary/10 text-primary` (подложка поздравления)
+   следует за ним сам.
+
+   Меняются только акцентные токены — primary и ring. Фон, поверхности, статусы и
+   цвета данных остаются на месте: праздник не должен перекрашивать журнал оценок,
+   и зелёный «сдано» обязан остаться зелёным.
+
+   Светлая и тёмная ветки разведены явно (`:root:not(.dark)` / `.dark`), а не
+   порядком правил: селекторы `[data-season]` и `.dark` равны по специфичности, и
+   тот, что ниже в файле, выигрывал бы в ОБЕИХ темах.
+
+   Сдержанные праздники (Рождество, 7 и 9 мая, Курбан айт, Ораза айт) блока здесь
+   не имеют СОЗНАТЕЛЬНО: их оформление — строка поздравления, а не смена палитры.
+   Контраст сезонных пар проверяет shared/ui/theme-contrast.test.ts. */
+
+/* Новый год: ледяная синь. */
+:root:not(.dark)[data-season='new-year'],
+:root:not(.dark)[data-season='new-year-eve'] {
+  --primary: oklch(0.52 0.16 232);
+  --ring: oklch(0.52 0.16 232);
+  --sidebar-primary: oklch(0.52 0.16 232);
+  --sidebar-ring: oklch(0.52 0.16 232);
+}
+.dark[data-season='new-year'],
+.dark[data-season='new-year-eve'] {
+  --primary: oklch(0.54 0.14 232);
+  --ring: oklch(0.54 0.14 232);
+  --sidebar-primary: oklch(0.54 0.14 232);
+  --sidebar-ring: oklch(0.54 0.14 232);
+}
+
+/* Наурыз: бирюза — цвет праздника, а не вольная трактовка «весеннего». */
+:root:not(.dark)[data-season='nauryz'] {
+  --primary: oklch(0.5 0.12 190);
+  --ring: oklch(0.5 0.12 190);
+  --sidebar-primary: oklch(0.5 0.12 190);
+  --sidebar-ring: oklch(0.5 0.12 190);
+}
+.dark[data-season='nauryz'] {
+  --primary: oklch(0.53 0.11 190);
+  --ring: oklch(0.53 0.11 190);
+  --sidebar-primary: oklch(0.53 0.11 190);
+  --sidebar-ring: oklch(0.53 0.11 190);
+}
+
+/* Государственные даты: небесно-голубой флага. */
+:root:not(.dark)[data-season='unity-day'],
+:root:not(.dark)[data-season='capital-day'],
+:root:not(.dark)[data-season='constitution-day'],
+:root:not(.dark)[data-season='republic-day'],
+:root:not(.dark)[data-season='independence-day'],
+:root:not(.dark)[data-season='languages-day'] {
+  --primary: oklch(0.52 0.14 225);
+  --ring: oklch(0.52 0.14 225);
+  --sidebar-primary: oklch(0.52 0.14 225);
+  --sidebar-ring: oklch(0.52 0.14 225);
+}
+.dark[data-season='unity-day'],
+.dark[data-season='capital-day'],
+.dark[data-season='constitution-day'],
+.dark[data-season='republic-day'],
+.dark[data-season='independence-day'],
+.dark[data-season='languages-day'] {
+  --primary: oklch(0.54 0.12 225);
+  --ring: oklch(0.54 0.12 225);
+  --sidebar-primary: oklch(0.54 0.12 225);
+  --sidebar-ring: oklch(0.54 0.12 225);
+}
+
+/* Тёплые даты (8 марта, 1 сентября, День учителя, День студента): розовый, а не
+   янтарный — янтарь в этой системе занят предупреждением, и праздничная кнопка
+   читалась бы как «внимание». */
+:root:not(.dark)[data-season='womens-day'],
+:root:not(.dark)[data-season='knowledge-day'],
+:root:not(.dark)[data-season='teachers-day'],
+:root:not(.dark)[data-season='students-day'] {
+  --primary: oklch(0.53 0.17 350);
+  --ring: oklch(0.53 0.17 350);
+  --sidebar-primary: oklch(0.53 0.17 350);
+  --sidebar-ring: oklch(0.53 0.17 350);
+}
+.dark[data-season='womens-day'],
+.dark[data-season='knowledge-day'],
+.dark[data-season='teachers-day'],
+.dark[data-season='students-day'] {
+  --primary: oklch(0.57 0.15 350);
+  --ring: oklch(0.57 0.15 350);
+  --sidebar-primary: oklch(0.57 0.15 350);
+  --sidebar-ring: oklch(0.57 0.15 350);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -20,6 +20,7 @@ import {
   useChunkErrorRecovery,
   useEscapeBack,
   useKeyboardInset,
+  useSeasonTheme,
   useServiceWorkerUpdate,
 } from '../shared/lib'
 
@@ -72,13 +73,16 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
   )
 }
 
-// Общие эффекты приложения: обновление версии и высота клавиатуры. Отдельным
-// компонентом, а не хуками в AppProviders: тост об обновлении берёт переводы, а
-// `NextIntlClientProvider` стоит ниже по дереву.
+// Общие эффекты приложения: обновление версии, высота клавиатуры, праздничное
+// оформление. Отдельным компонентом, а не хуками в AppProviders: тост об обновлении
+// берёт переводы, а сезон — таймзону платформы, и `NextIntlClientProvider` стоит ниже
+// по дереву.
 function AppRuntime() {
   useServiceWorkerUpdate()
   useChunkErrorRecovery()
   useKeyboardInset()
   useEscapeBack()
+  // Праздник ставит `data-season` на <html>; дальше всё живёт в globals.css.
+  useSeasonTheme()
   return null
 }
