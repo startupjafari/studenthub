@@ -1603,7 +1603,8 @@
     "publishPost": "Опубликовать",
     "postUpdated": "Публикация изменена",
     "save": "Сохранить",
-    "edited": "изменено"
+    "edited": "изменено",
+    "commentAuthorTag": "Автор"
   },
   "Chats": {
     "title": "Чаты",

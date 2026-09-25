@@ -1603,7 +1603,8 @@
     "publishPost": "Publish",
     "postUpdated": "Post updated",
     "save": "Save",
-    "edited": "edited"
+    "edited": "edited",
+    "commentAuthorTag": "Author"
   },
   "Chats": {
     "title": "Chats",
