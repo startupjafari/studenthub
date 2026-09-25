@@ -6,6 +6,7 @@ import {
   setMaintenance,
   setNotifications,
   setSections,
+  setSeason,
   setDuty,
   fetchDuty,
   fetchTeam,
@@ -13,6 +14,7 @@ import {
   BANNER_AUDIENCES,
   BANNER_PRESETS,
   NOTIFICATION_KINDS,
+  SEASONS,
   SECTIONS,
   type Duty,
   type NotificationKind,
@@ -127,6 +129,7 @@ export function ControlScreen({ userId }: { userId: string }) {
       <BannerCard state={state} busy={busy} run={run} />
       <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
       <SectionsCard state={state} busy={busy} run={run} />
+      <SeasonCard state={state} busy={busy} run={run} />
       <ReleaseCard state={state} busy={busy} run={run} />
       <DutyCard busy={busy} setError={setError} />
       <FontCard />
@@ -585,6 +588,79 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
               <span>{name}</span>
               <span className={off ? 'toggle-state off' : 'toggle-state'}>
                 {off ? t('sectionOff') : t('sectionOn')}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </Fold>
+  )
+}
+
+/**
+ * Праздничное оформление. Календарь праздников живёт в самом вебе и сюда не приезжает —
+ * здесь ровно два действия, которых календарь дать не может: погасить всё (траур, авария,
+ * любое «сегодня не время») и показать сезон вне его даты.
+ */
+function SeasonCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
+  const { off, override } = state.season
+  const picked = SEASONS.find((season) => season.key === override) ?? null
+
+  return (
+    <Fold
+      title={t('seasonTitle')}
+      state={off ? t('seasonStateOff') : picked ? t(picked.labelKey) : t('seasonStateCalendar')}
+    >
+      <p className="hint">{t('seasonHint')}</p>
+
+      <button
+        type="button"
+        className="toggle-row"
+        disabled={busy}
+        onClick={() => {
+          void run(off ? t('seasonConfirmOn') : t('seasonConfirmOff'), () =>
+            setSeason(!off, override),
+          )
+        }}
+      >
+        <span>{t('seasonSwitch')}</span>
+        <span className={off ? 'toggle-state off' : 'toggle-state'}>
+          {off ? t('sectionOff') : t('sectionOn')}
+        </span>
+      </button>
+
+      {/* Выбор сезона остаётся доступным и при выключенном оформлении: сначала готовят,
+          потом включают — обратный порядок означал бы праздник, мелькнувший у всех. */}
+      <div className="list">
+        <button
+          type="button"
+          className="toggle-row"
+          disabled={busy || override === null}
+          onClick={() => {
+            void run(t('seasonConfirmCalendar'), () => setSeason(off, null))
+          }}
+        >
+          <span>{t('seasonPickCalendar')}</span>
+          <span className={override === null ? 'toggle-state' : 'toggle-state off'}>
+            {override === null ? t('sectionOn') : t('sectionOff')}
+          </span>
+        </button>
+        {SEASONS.map(({ key, labelKey }) => {
+          const name = t(labelKey)
+          const active = override === key
+          return (
+            <button
+              key={key}
+              type="button"
+              className="toggle-row"
+              disabled={busy || active}
+              onClick={() => {
+                void run(t('seasonConfirmPick', { name }), () => setSeason(off, key))
+              }}
+            >
+              <span>{name}</span>
+              <span className={active ? 'toggle-state' : 'toggle-state off'}>
+                {active ? t('sectionOn') : t('sectionOff')}
               </span>
             </button>
           )
