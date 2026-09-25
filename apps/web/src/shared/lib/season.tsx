@@ -110,7 +110,9 @@ function msUntilMidnight(time: string): number {
  */
 function resolveSeason(date: string, off: boolean, override: string | null): Holiday | null {
   if (!isSeasonEnabled() || off) return null
-  if (override === null) return activeSeason(date)
+  // Не `=== null`: пустая строка и отсутствующее поле (старый ответ из кэша API) значат
+  // то же самое — «как в календаре».
+  if (!override) return activeSeason(date)
   // Праздник, который мы не оформляем (день памяти, выключенная мягкая дата), подменой
   // не включается: иначе «сезон» означал бы разное в календаре и в рычаге.
   const forced = holidayById(override)

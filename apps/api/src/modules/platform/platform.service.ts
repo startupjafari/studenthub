@@ -611,7 +611,9 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
         : null,
     disabledSections: row.disabledSections,
     announcedVersion: row.announcedVersion,
-    season: { off: row.seasonOff, override: row.seasonOverride },
+    // `?? ` здесь не формальность: в Redis на минуту переживает строка, записанная ДО
+    // выкатки этих полей, и без подстраховки наружу ушли бы undefined вместо значений.
+    season: { off: row.seasonOff ?? false, override: row.seasonOverride ?? null },
   }
 }
 
