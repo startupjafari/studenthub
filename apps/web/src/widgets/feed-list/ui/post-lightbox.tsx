@@ -111,6 +111,18 @@ export function PostLightbox({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Esc уже обработало окно поверх поста (пересылка, жалоба: Radix гасит событие через
+      // preventDefault) — пост под ним остаётся открытым.
+      if (e.defaultPrevented) return
+      // Стрелки в поле комментария двигают курсор, а не листают посты: иначе набранный
+      // текст пропадал вместе с переходом к соседней публикации.
+      const target = e.target as HTMLElement | null
+      if (
+        e.key !== 'Escape' &&
+        target &&
+        (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')
+      )
+        return
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
@@ -244,6 +256,11 @@ function PostView({
   const [mention, setMention] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
+  // Только что отправленный комментарий: к нему прокручиваем ленту, когда он придёт
+  // в перезапрошенном списке. Иначе реплика появлялась где-то за краем панели, и было
+  // непонятно, ушла ли она вообще.
+  const [scrollToId, setScrollToId] = useState<string | null>(null)
 
   // Закрытие пикера эмодзи по клику вне его области и по Esc (без закрытия при отводе мыши).
   // Меню поста закрывается само — оно живёт внутри PostTileMenu.
@@ -342,9 +359,10 @@ function PostView({
   const addMut = useMutation({
     mutationFn: () =>
       addCommentRequest(post.id, { content: text.trim(), parentId: replyTo ?? undefined }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) })
       void qc.invalidateQueries({ queryKey: postKeys.all })
+      setScrollToId(created.id)
       setText('')
       cancelReply()
     },
@@ -356,6 +374,18 @@ function PostView({
     onSuccess: () => void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) }),
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
+
+  // Прокрутка к отправленному комментарию — после того как список с ним отрисован.
+  // `block: 'nearest'`: если реплика уже видна, лента не дёргается.
+  useEffect(() => {
+    if (!scrollToId) return
+    const el = threadRef.current?.querySelector<HTMLElement>(
+      `[data-comment-id="${CSS.escape(scrollToId)}"]`,
+    )
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    setScrollToId(null)
+  }, [scrollToId, comments.data])
 
   // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5).
   function toggleLike(): void {
@@ -535,7 +565,10 @@ function PostView({
 
           {/* Подпись и комментарии — одна прокручиваемая лента, как в Instagram: подпись
               первой строкой с аватаром автора, дальше реплики. */}
-          <div className="sh-scroll flex flex-col gap-4 px-4 py-3 max-md:order-4 max-md:shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
+          <div
+            ref={threadRef}
+            className="sh-scroll flex flex-col gap-4 px-4 py-3 max-md:order-4 max-md:shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto"
+          >
             {hasCaption && (
               <div className="flex gap-3">
                 <ProfileLink userId={post.author.id} className="shrink-0">
@@ -893,7 +926,12 @@ function CommentRow({
   const [reporting, setReporting] = useState(false)
 
   return (
-    <div className="group flex gap-3">
+    <div
+      data-comment-id={id}
+      // На телефоне поле ввода прилипает к низу скролла — отступ, чтобы прокрутка к
+      // новой реплике не прятала её под ним.
+      className="group flex gap-3 max-md:scroll-mb-20"
+    >
       <ProfileLink userId={author.id} className="shrink-0">
         <Avatar className={small ? 'size-6' : 'size-8'}>
           {author.avatarUrl && <AvatarImage src={author.avatarUrl} alt="" />}
