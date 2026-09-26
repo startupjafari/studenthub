@@ -13,7 +13,10 @@ export function ContentLayout({ sidebar, children }: { sidebar: ReactNode; child
     // Колонка контента тянется на всю оставшуюся высоту (flex-1 / self-stretch): пустое
     // состояние вкладки заполняет её, а не висит узкой полоской под фильтрами.
     <div className="flex flex-1 flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-6">
-      <aside className="flex flex-row flex-wrap gap-2 lg:sticky lg:top-4 lg:flex-col lg:gap-4">
+      {/* min-w-0: элемент сетки по умолчанию не ужимается уже своего содержимого, и поле
+          ввода с кнопками распирало колонку за её 220px — край панели уходил под сетку
+          фото, а счётчики и галочка обрезались. */}
+      <aside className="flex min-w-0 flex-row flex-wrap gap-2 lg:sticky lg:top-4 lg:flex-col lg:gap-4">
         {sidebar}
       </aside>
       <div className="flex min-w-0 flex-1 flex-col lg:self-stretch">{children}</div>
