@@ -25,6 +25,14 @@ interface CreateModalProps {
   onClose: () => void
 }
 
+interface MediaCreateModalProps extends CreateModalProps {
+  /**
+   * Файл уже выбран (меню «+» открывает системный выбор сразу) — окно с зоной загрузки
+   * не показываем, а «Отмена» в редакторе закрывает всё, а не возвращает к зоне.
+   */
+  initialFile?: File
+}
+
 // Красивая зона загрузки: крупная иконка в мягком «чипе», подсказка и поддержка drag & drop.
 function Dropzone({
   icon,
@@ -83,11 +91,11 @@ function Dropzone({
 }
 
 // ── Фото: загрузка → кадрирование (обрезка/масштаб/поворот) → публикация ───────
-export function PhotoCreateModal({ userId, onClose }: CreateModalProps) {
+export function PhotoCreateModal({ userId, onClose, initialFile }: MediaCreateModalProps) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const [file, setFile] = useState<File | null>(null)
+  const [file, setFile] = useState<File | null>(initialFile ?? null)
 
   const mut = useMutation({
     mutationFn: (f: File) => uploadProfileMediaAuto(f),
@@ -107,7 +115,7 @@ export function PhotoCreateModal({ userId, onClose }: CreateModalProps) {
         title={t('uploadPhoto')}
         confirmLabel={t('publish')}
         saving={mut.isPending}
-        onCancel={() => setFile(null)}
+        onCancel={initialFile ? onClose : () => setFile(null)}
         onSave={(f) => mut.mutate(f)}
       />
     )
@@ -129,11 +137,11 @@ export function PhotoCreateModal({ userId, onClose }: CreateModalProps) {
 }
 
 // ── Видео: загрузка + раскадровка (выбор обложки) → публикация ─────────────────
-export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
+export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateModalProps) {
   const t = useTranslations('Profile')
   const qc = useQueryClient()
   const { show: showApiError } = useErrorToast('profile-video')
-  const [file, setFile] = useState<File | null>(null)
+  const [file, setFile] = useState<File | null>(initialFile ?? null)
   const [url, setUrl] = useState<string | null>(null)
   const [cover, setCover] = useState<VideoCover | null>(null)
 
@@ -166,6 +174,10 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
   })
 
   const back = (): void => {
+    if (initialFile) {
+      onClose()
+      return
+    }
     setFile(null)
     setCover(null)
   }
