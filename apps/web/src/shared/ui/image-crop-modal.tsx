@@ -388,7 +388,7 @@ export function ImageCropModal({
           <Button
             type="button"
             variant="ghost"
-            className="flex-1"
+            className="flex-1 text-white hover:bg-white/10 hover:text-white"
             onClick={onCancel}
             disabled={saving}
           >
@@ -414,7 +414,7 @@ export function ImageCropModal({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         className={cn(
-          'relative min-h-0 flex-1 touch-none overflow-hidden bg-black select-none',
+          'relative min-h-0 flex-1 touch-none overflow-hidden select-none',
           interacting ? 'cursor-grabbing' : 'cursor-grab',
         )}
       >
@@ -508,7 +508,7 @@ export function ImageCropModal({
           title={t('rotate')}
           onClick={rotate90}
           disabled={!ready}
-          className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
         >
           <RotateCcwSquare className="size-5" aria-hidden />
         </button>
@@ -531,8 +531,8 @@ export function ImageCropModal({
           onClick={toggleFlip}
           disabled={!ready}
           className={cn(
-            'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted disabled:opacity-40',
-            flip ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+            'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/10 disabled:opacity-40',
+            flip ? 'text-primary' : 'text-white/80 hover:text-white',
           )}
         >
           <FlipHorizontal2 className="size-5" aria-hidden />

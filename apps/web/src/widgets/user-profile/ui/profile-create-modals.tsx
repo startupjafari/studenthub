@@ -183,7 +183,7 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
             <Button
               type="button"
               variant="ghost"
-              className="flex-1"
+              className="flex-1 text-white hover:bg-white/10 hover:text-white"
               onClick={back}
               disabled={mut.isPending}
             >
@@ -201,7 +201,7 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
           </>
         }
       >
-        <div className="relative min-h-0 flex-1 bg-black">
+        <div className="relative min-h-0 flex-1">
           <VideoPlayer src={url} />
         </div>
         <div className="mx-auto w-full max-w-3xl px-4 pt-3">
