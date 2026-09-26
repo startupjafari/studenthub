@@ -144,17 +144,22 @@ export function PostLightbox({
       role="dialog"
       aria-modal="true"
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-6 sm:pt-6 sm:pb-16"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-16 sm:pt-6 sm:pb-16"
     >
       <button
         type="button"
         aria-label={t('close')}
         onClick={onClose}
-        className="absolute right-3 top-3 z-20 flex size-10 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/10"
+        className="absolute right-3 top-3 z-30 flex size-10 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/10"
       >
         <X className="size-6" aria-hidden />
       </button>
 
+      {/* Листание постов — полосы во всю высоту экрана шириной с прежнюю кнопку: в край
+          экрана попасть проще, чем в кружок, а промах закрывал пост кликом по фону.
+          Боковые поля оверлея (sm:px-16) шире полосы, чтобы она не ложилась на окно.
+          На телефоне окно во всю ширину — там полоса перекрыла бы пост, и кнопка
+          остаётся обычной. Крестик — выше полосы (z-30), иначе она его перекрывала. */}
       {index > 0 && (
         <button
           type="button"
@@ -163,9 +168,11 @@ export function PostLightbox({
             e.stopPropagation()
             onIndex(index - 1)
           }}
-          className="absolute left-2 z-20 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 sm:left-4"
+          className="group absolute z-20 flex w-14 items-center justify-center max-sm:top-1/2 max-sm:h-14 max-sm:-translate-y-1/2 sm:inset-y-0 sm:w-16 left-0"
         >
-          <ChevronLeft className="size-6" aria-hidden />
+          <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+            <ChevronLeft className="size-6" aria-hidden />
+          </span>
         </button>
       )}
       {index < posts.length - 1 && (
@@ -176,9 +183,11 @@ export function PostLightbox({
             e.stopPropagation()
             onIndex(index + 1)
           }}
-          className="absolute right-2 z-20 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 sm:right-4"
+          className="group absolute z-20 flex w-14 items-center justify-center max-sm:top-1/2 max-sm:h-14 max-sm:-translate-y-1/2 sm:inset-y-0 sm:w-16 right-0"
         >
-          <ChevronRight className="size-6" aria-hidden />
+          <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+            <ChevronRight className="size-6" aria-hidden />
+          </span>
         </button>
       )}
 
