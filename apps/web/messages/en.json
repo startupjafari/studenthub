@@ -1012,6 +1012,8 @@
     "offline": "Offline",
     "cropTitle": "Crop photo",
     "cropHint": "Drag and zoom to choose the area",
+    "cropAngle": "Rotation angle",
+    "cropFlip": "Flip",
     "zoom": "Zoom",
     "addContent": "Add",
     "publish": "Publish",

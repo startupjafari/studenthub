@@ -28,6 +28,7 @@ export { Textarea } from './textarea'
 export { DictSingleSelect } from './dict-single-select'
 export { AsyncSelect, type AsyncSelectItem } from './async-select'
 export { ImageCropModal } from './image-crop-modal'
+export { MediaEditorShell } from './media-editor-shell'
 export {
   AlertDialog,
   AlertDialogTrigger,

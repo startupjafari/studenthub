@@ -105,6 +105,34 @@ export function UserProfile() {
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
   const [createModal, setCreateModal] = useState<CreateKind | null>(null)
+  // Фото и видео из меню «+» — сразу системный выбор файла, без промежуточного окна с
+  // зоной загрузки: из меню человек уже сказал, что хочет добавить. Выбор открывается
+  // только синхронно из нажатия, поэтому поля лежат здесь и «кликаются» из пункта меню.
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
+  const [pickedFile, setPickedFile] = useState<File | null>(null)
+
+  const quickCreate = (kind: CreateKind): void => {
+    if (kind === 'photo') photoInputRef.current?.click()
+    else if (kind === 'video') videoInputRef.current?.click()
+    else setCreateModal(kind)
+  }
+
+  const closeCreate = (): void => {
+    setCreateModal(null)
+    setPickedFile(null)
+  }
+
+  const onMediaPicked =
+    (kind: 'photo' | 'video') =>
+    (e: React.ChangeEvent<HTMLInputElement>): void => {
+      const f = e.target.files?.[0]
+      // Сброс — чтобы тот же файл можно было выбрать повторно после отмены.
+      e.target.value = ''
+      if (!f) return
+      setPickedFile(f)
+      setCreateModal(kind)
+    }
 
   const updateMut = useMutation({
     mutationFn: updateProfileRequest,
@@ -149,7 +177,7 @@ export function UserProfile() {
               setEditing((v) => !v)
               setTab('profile')
             }}
-            onQuickCreate={setCreateModal}
+            onQuickCreate={quickCreate}
           />
         }
       >
@@ -175,11 +203,25 @@ export function UserProfile() {
       </ProfileTabs>
 
       {createModal === 'post' && <PostCreateModal onClose={() => setCreateModal(null)} />}
-      {createModal === 'photo' && (
-        <PhotoCreateModal userId={u.id} onClose={() => setCreateModal(null)} />
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={onMediaPicked('photo')}
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={onMediaPicked('video')}
+      />
+      {createModal === 'photo' && pickedFile && (
+        <PhotoCreateModal userId={u.id} initialFile={pickedFile} onClose={closeCreate} />
       )}
-      {createModal === 'video' && (
-        <VideoCreateModal userId={u.id} onClose={() => setCreateModal(null)} />
+      {createModal === 'video' && pickedFile && (
+        <VideoCreateModal userId={u.id} initialFile={pickedFile} onClose={closeCreate} />
       )}
       {createModal === 'article' && (
         <ArticleEditorModal userId={u.id} onClose={() => setCreateModal(null)} />
