@@ -81,6 +81,7 @@ pnpm --filter mini-app typecheck
 | [src/screens/person-summary.tsx](src/screens/person-summary.tsx)           | Кто этот человек — блок рядом с жалобой и с обращением                                                |
 | [src/screens/overview.tsx](src/screens/overview.tsx)                       | Сводка платформы: «всё ли в порядке» до открытия ноутбука                                             |
 | [src/screens/control.tsx](src/screens/control.tsx)                         | Пульт: техработы, баннер, разделы, сезон, релиз, дежурство                                            |
+| [src/screens/settings.tsx](src/screens/settings.tsx)                       | Настройки из меню «⋯» Telegram: размер текста — всем ролям                                            |
 | [src/telegram/webapp.ts](src/telegram/webapp.ts)                           | Единственная точка доступа к `window.Telegram.WebApp`, перенос темы клиента в CSS-переменные, хаптика |
 | [src/telegram/types.ts](src/telegram/types.ts)                             | Типы ровно на используемую часть API — вместо пакета-обёртки                                          |
 | [src/telegram/use-telegram.ts](src/telegram/use-telegram.ts)               | Хуки над `BackButton` и `MainButton`                                                                  |
@@ -91,6 +92,8 @@ pnpm --filter mini-app typecheck
 | [src/ui/tabs.tsx](src/ui/tabs.tsx)                                         | Переключатель состояний экрана с переезжающей плашкой                                                 |
 | [src/ui/state-plate.tsx](src/ui/state-plate.tsx)                           | Пустота и отказ во весь оставшийся экран                                                              |
 | [src/ui/icons.tsx](src/ui/icons.tsx)                                       | Значки своими контурами в `currentColor` — вместо библиотеки                                          |
+| [src/ui/swipe-row.tsx](src/ui/swipe-row.tsx)                               | Строка со свайпами, как в Почте iOS: только обратимые действия                                        |
+| [src/lib/navigate.ts](src/lib/navigate.ts)                                 | Переходы между экранами через View Transitions: вглубь, назад, смена вкладки                          |
 | [scripts/tg-tunnel.mjs](scripts/tg-tunnel.mjs)                             | Туннель для проверки в Telegram + перерегистрация кнопки бота                                         |
 
 Решения, которые стоит знать до правок:
@@ -109,6 +112,15 @@ pnpm --filter mini-app typecheck
 - **`onClick` у кнопок Telegram добавляет обработчик, а не заменяет.** Снятие обязательно,
   иначе после нескольких переходов один тап вызовет несколько колбэков — этим занимаются
   хуки в `use-telegram.ts`.
+- **Полный экран — только на телефоне.** На iOS и Android (Bot API 8.0+) мини-апп просит
+  `requestFullscreen()` и лежит под вырезом; отступы под вырез и под кнопки Telegram
+  клиент сам кладёт в `--tg-safe-area-inset-*` / `--tg-content-safe-area-inset-*`, css
+  собирает из них `--safe-top` и `--safe-bottom`. Новый элемент у края экрана — через них.
+- **Два решения по жалобе — на нативных кнопках** (`MainButton` + `SecondaryButton`,
+  Bot API 7.10). У старых клиентов `hasBottomButtons()` ложно, и все решения стоят в
+  потоке экрана — ветку без нативных кнопок не удалять.
+- **Свайп — только обратимое.** «Нарушения нет» уходит на сервер через четыре секунды,
+  после тоста «Отменить»; то, что нельзя вернуть, свайпом не делается.
 - **Токен живёт только в памяти.** Ни `localStorage`, ни cookie: встроенный браузер общий
   для всех мини-аппов клиента, а токен даёт админский доступ. Истёк — берём новый по
   свежему `initData`, повтор запроса ровно один.
