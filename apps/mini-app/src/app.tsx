@@ -7,12 +7,15 @@ import { ControlScreen } from './screens/control'
 import { SupportScreen } from './screens/support'
 import { PeopleScreen } from './screens/people'
 import { OverviewScreen } from './screens/overview'
+import { SettingsScreen } from './screens/settings'
+import { useSettingsButton } from './telegram/use-telegram'
 import { fetchBadges, type Badges } from './api/badges'
 import { TabBar } from './ui/tab-bar'
 import { Tabs } from './ui/tabs'
 import { ScreenHeader } from './ui/screen-header'
 import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
+import { navigate } from './lib/navigate'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -125,6 +128,15 @@ function ReadyView({
   // первой доступной, а не рисуем заглушку «нет прав» там, где вкладки просто нет.
   const active = tabs.some((item) => item.id === tab) ? tab : 'complaints'
   const badges = useBadges()
+  // Настройки открываются из меню «⋯» Telegram вместо вкладки: закрыл — и ты в той же
+  // вкладке. Держать её смонтированной под настройками нельзя: её нативные кнопки
+  // (MainButton ответа в поддержке) остались бы висеть под чужим экраном.
+  const [settings, setSettings] = useState(false)
+  useSettingsButton(settings ? null : () => navigate(() => setSettings(true)))
+
+  if (settings) {
+    return <SettingsScreen onBack={() => navigate(() => setSettings(false), 'back')} />
+  }
 
   return (
     <>
@@ -151,7 +163,7 @@ function ReadyView({
           count: badgeFor(item.id, badges),
         }))}
         active={active}
-        onSelect={onTab}
+        onSelect={(next) => navigate(() => onTab(next), 'fade')}
       />
     </>
   )

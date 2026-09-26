@@ -39,21 +39,34 @@ export function initTelegram(): () => void {
 
   tg.ready()
   tg.expand()
+  // Полный экран — только на телефоне. Шапка Telegram с названием бота съедала над
+  // приложением полосу, а стеклянная шапка и панель разделов рассчитаны на то, чтобы
+  // лежать прямо под вырезом, как в родных приложениях. На десктопе полноэкранный
+  // мини-апп — это окно на весь монитор ради четырёх строк, там он остаётся окном.
+  // Отступы под вырез и под кнопки Telegram клиент сам кладёт в переменные
+  // `--tg-safe-area-inset-*` и `--tg-content-safe-area-inset-*` — ими пользуется css.
+  if ((tg.platform === 'ios' || tg.platform === 'android') && tg.isVersionAtLeast?.('8.0')) {
+    tg.requestFullscreen?.()
+  }
   // Свайп вниз внутри скроллящегося списка иначе закрывает мини-апп — частая жалоба
   // на приложения, которые этот вызов пропустили. Метод появился в 7.7, отсюда `?.`.
   tg.disableVerticalSwipes?.()
   // Шапку и подложку красим в ФОН СТРАНИЦЫ, а не в bg_color: страница у нас лежит на
   // secondary_bg_color, и шапка цвета bg_color рисовала над приложением полосу другого
   // оттенка — мини-апп выглядел вставленным в чужую рамку.
-  const surface = tg.themeParams.secondary_bg_color ?? tg.themeParams.bg_color ?? '#ffffff'
-  tg.setHeaderColor?.(surface)
-  tg.setBackgroundColor?.(surface)
+  // Полосу под нижними кнопками — туда же: иначе под «Нарушения нет» лежала бы плашка
+  // цвета bg_color, отрезающая кнопки от приложения.
+  const paint = (): void => {
+    const surface = tg.themeParams.secondary_bg_color ?? tg.themeParams.bg_color ?? '#ffffff'
+    tg.setHeaderColor?.(surface)
+    tg.setBackgroundColor?.(surface)
+    if (tg.isVersionAtLeast?.('7.10')) tg.setBottomBarColor?.(surface)
+  }
+  paint()
 
   const onThemeChanged = (): void => {
     applyTheme(tg.themeParams, tg.colorScheme)
-    const next = tg.themeParams.secondary_bg_color ?? tg.themeParams.bg_color ?? '#ffffff'
-    tg.setHeaderColor?.(next)
-    tg.setBackgroundColor?.(next)
+    paint()
   }
   tg.onEvent('themeChanged', onThemeChanged)
   return () => tg.offEvent('themeChanged', onThemeChanged)
@@ -102,8 +115,12 @@ function applyTheme(params: TelegramThemeParams, scheme: 'light' | 'dark'): void
 /** Тактильный отклик. Вне Telegram — тишина, а не исключение. */
 export const haptic = {
   tap: (): void => webApp()?.HapticFeedback.impactOccurred('light'),
+  /** Порог свайпа пройден: действие сработает, если отпустить. */
+  snap: (): void => webApp()?.HapticFeedback.impactOccurred('medium'),
   select: (): void => webApp()?.HapticFeedback.selectionChanged(),
   success: (): void => webApp()?.HapticFeedback.notificationOccurred('success'),
+  warning: (): void => webApp()?.HapticFeedback.notificationOccurred('warning'),
+  error: (): void => webApp()?.HapticFeedback.notificationOccurred('error'),
 }
 
 /**
@@ -113,10 +130,45 @@ export const haptic = {
  * Возвращает промис: последовательность «спросили → дождались → сделали» читается сверху
  * вниз, тогда как колбэк разорвал бы её на два места.
  */
-export function confirmAction(message: string): Promise<boolean> {
+export function confirmAction(
+  message: string,
+  options: { ok?: string; destructive?: boolean } = {},
+): Promise<boolean> {
   const tg = webApp()
   if (!tg || !isTelegram()) return Promise.resolve(window.confirm(message))
+  // Лист с подписанной кнопкой, где он есть: «Заблокировать» красным читается до текста
+  // вопроса, а безликое «OK» заставляло перечитывать, на что именно соглашаешься.
+  // Ограничение клиента — 256 знаков текста; длиннее — остаётся showConfirm.
+  if (tg.showPopup && tg.isVersionAtLeast?.('6.2') && message.length <= 256) {
+    if (options.destructive) haptic.warning()
+    return new Promise((resolve) =>
+      tg.showPopup?.(
+        {
+          message,
+          // Без своей подписи — родное «OK» клиента на языке Telegram. Красной кнопке
+          // подпись обязательна: тип `destructive` без текста клиент не рисует.
+          buttons: [
+            options.ok || options.destructive
+              ? {
+                  id: 'ok',
+                  type: options.destructive ? 'destructive' : 'default',
+                  text: options.ok ?? 'OK',
+                }
+              : { id: 'ok', type: 'ok' },
+            { id: 'cancel', type: 'cancel' },
+          ],
+        },
+        (id) => resolve(id === 'ok'),
+      ),
+    )
+  }
   return new Promise((resolve) => tg.showConfirm(message, resolve))
+}
+
+/** Есть ли у клиента вторая нативная кнопка — от этого зависит, где стоят решения. */
+export function hasBottomButtons(): boolean {
+  const tg = webApp()
+  return !!tg && isTelegram() && !!tg.SecondaryButton && tg.isVersionAtLeast?.('7.10') === true
 }
 
 /**

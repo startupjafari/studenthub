@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   assignTicket,
   closeTicket,
@@ -22,16 +22,26 @@ import { ApiError } from '../api/client'
 import { createComplaintFromSupport } from '../api/complaints'
 import { searchPeople, type Person } from '../api/people'
 import { confirmAction, haptic, setClosingConfirmation } from '../telegram/webapp'
-import { useBackButton, useMainButton } from '../telegram/use-telegram'
+import { useBackButton } from '../telegram/use-telegram'
 import { t } from '../i18n'
-import { IconChevron } from '../ui/icons'
+import {
+  IconBell,
+  IconCheck,
+  IconChevron,
+  IconComplaints,
+  IconMic,
+  IconSend,
+  IconTargetUser,
+} from '../ui/icons'
+import { Tile, type TileTone } from '../ui/tile'
 import { SearchField } from '../ui/search-field'
-import { formatDateTime, formatShortTime, initials } from '../lib/format'
+import { dayLabel, formatDateTime, formatShortTime, initials } from '../lib/format'
 import { PersonSummary } from './person-summary'
 import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { useVoiceRecorder } from '../telegram/use-voice'
+import { navigate } from '../lib/navigate'
 
 // Поддержка платформы: очередь обращений и переписка.
 //
@@ -59,9 +69,12 @@ export function SupportScreen({ initialId }: { initialId?: string }) {
   )
 
   return screen.kind === 'queue' ? (
-    <QueueView onOpen={(ticket) => setScreen({ kind: 'thread', id: ticket.id })} />
+    <QueueView onOpen={(ticket) => navigate(() => setScreen({ kind: 'thread', id: ticket.id }))} />
   ) : (
-    <ThreadView id={screen.id} onBack={() => setScreen({ kind: 'queue' })} />
+    <ThreadView
+      id={screen.id}
+      onBack={() => navigate(() => setScreen({ kind: 'queue' }), 'back')}
+    />
   )
 }
 
@@ -425,10 +438,15 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     return () => setClosingConfirmation(false)
   }, [text])
 
-  // Главная кнопка Telegram под областью приложения: она не отнимает высоту у переписки,
-  // а «Ответить» — единственное главное действие этого экрана. Пустой текст кнопку
-  // убирает: кнопка, которая ничего не сделает, хуже её отсутствия.
-  useMainButton(text.trim().length > 0 ? t('supportReply') : null, () => void send())
+  // Поле растёт вместе с текстом, как в Telegram: до пяти строк, дальше прокрутка внутри.
+  // Одна строка в покое — пустое поле в три строки занимало треть экрана переписки.
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }, [text])
 
   // Пока переписка грузится, автора мы ещё не знаем: экран открывается и по ссылке из
   // уведомления, где очереди с его именем не было.
@@ -483,6 +501,81 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         </section>
       )}
 
+      {/* Действия с обращением — строками с плитками, как рычаги в «Управлении», а не
+          стопкой одинаковых кнопок: нужное находят по цвету и значку, не читая все четыре. */}
+      {ticket && !ticket.closedAt && (
+        <section className="list">
+          {!ticket.assigneeId && (
+            <ActionRow
+              tone="blue"
+              icon={<IconTargetUser size={17} />}
+              disabled={busy}
+              onClick={() => void take()}
+            >
+              {t('supportAssign')}
+            </ActionRow>
+          )}
+          <ActionRow
+            tone="orange"
+            icon={<IconBell size={17} />}
+            disabled={busy}
+            onClick={() => void escalate()}
+          >
+            {t('supportEscalate')}
+          </ActionRow>
+          {/* Жалоба из обращения: автором сервер сделает автора обращения, а не
+              поддержку — жаловался он, и в очереди должно быть видно именно это. */}
+          <ActionRow
+            tone="red"
+            icon={<IconComplaints size={17} />}
+            disabled={busy}
+            pressed={target !== null}
+            onClick={() => setTarget((prev) => (prev ? null : { query: '', found: [] }))}
+          >
+            {t('supportToComplaint')}
+          </ActionRow>
+          <ActionRow
+            tone="gray"
+            icon={<IconCheck size={17} />}
+            disabled={busy}
+            onClick={() => void finish()}
+          >
+            {t('supportClose')}
+          </ActionRow>
+        </section>
+      )}
+
+      {target !== null && (
+        <section className="card">
+          <h2>{t('supportComplaintTarget')}</h2>
+          <input
+            className="field"
+            placeholder={t('peopleSearchPlaceholder')}
+            aria-label={t('supportComplaintTarget')}
+            autoCapitalize="off"
+            autoCorrect="off"
+            value={target.query}
+            onChange={(event) => setTarget({ query: event.target.value, found: target.found })}
+          />
+          {target.found.length === 0 && <p className="hint">{t('supportComplaintHint')}</p>}
+          {target.found.map((person) => (
+            <button
+              key={person.id}
+              type="button"
+              className="row"
+              onClick={() => void fileComplaint(person)}
+            >
+              <span className="row-body">
+                <b>
+                  {person.lastName} {person.firstName}
+                </b>
+                <span className="hint">{person.email}</span>
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
+
       {/* О чём обращение. Не для порядка: из этих отметок складывается ответ на
           «поддержка отвечает на одно и то же» — шестьдесят вопросов про доступ за месяц
           это задача продукту, а ощущение усталости — нет. */}
@@ -519,24 +612,32 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
 
       {state.status === 'ready' && (
         <section className="thread">
-          {state.messages.map((message) => {
+          {state.messages.map((message, index) => {
             // «Своё» здесь — сказанное командой платформы: экран читает поддержка, и её
             // реплики должны отличаться от реплик человека, которому отвечают. Автор
             // обращения известен из карточки, остальные участники — команда.
             const fromStaff = ticket?.author ? message.sender.id !== ticket.author.id : false
+            // Разделитель дня — плашкой по центру, как в Telegram: переписка поддержки
+            // тянется днями, и «вчера» против «сегодня» меняет смысл «ответили быстро».
+            const day = dayLabel(message.createdAt)
+            const prev = state.messages[index - 1]
+            const newDay = !prev || dayLabel(prev.createdAt) !== day
             return (
-              <div key={message.id} className={fromStaff ? 'bubble mine' : 'bubble theirs'}>
-                {!fromStaff && <span className="bubble-author">{message.sender.firstName}</span>}
-                <span>{message.content}</span>
-                {/* Вложение объясняет больше абзаца текста; скачать его из мини-аппа
-                    нельзя, но знать, что оно есть, модератор обязан. */}
-                {message.media && message.media.length > 0 && (
-                  <span className="bubble-meta">
-                    {t('supportAttachments', { count: message.media.length })}
-                  </span>
-                )}
-                <span className="bubble-meta">{formatShortTime(message.createdAt)}</span>
-              </div>
+              <Fragment key={message.id}>
+                {newDay && <span className="thread-day">{day}</span>}
+                <div className={fromStaff ? 'bubble mine' : 'bubble theirs'}>
+                  {!fromStaff && <span className="bubble-author">{message.sender.firstName}</span>}
+                  <span>{message.content}</span>
+                  {/* Вложение объясняет больше абзаца текста; скачать его из мини-аппа
+                      нельзя, но знать, что оно есть, модератор обязан. */}
+                  {message.media && message.media.length > 0 && (
+                    <span className="bubble-meta">
+                      {t('supportAttachments', { count: message.media.length })}
+                    </span>
+                  )}
+                  <span className="bubble-meta">{formatShortTime(message.createdAt)}</span>
+                </div>
+              </Fragment>
             )
           })}
         </section>
@@ -548,138 +649,129 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         </section>
       )}
 
-      <section className="card">
-        {/* Заготовка подставляется в поле, а не отправляется: это начало ответа. */}
-        <div className="chips">
-          {REPLY_TEMPLATES.map((template) => (
-            <button
-              key={template.key}
-              type="button"
-              className="chip"
-              disabled={busy}
-              onClick={() => {
-                haptic.select()
-                setText(t(template.textKey))
-              }}
-            >
-              {t(template.labelKey)}
-            </button>
-          ))}
-        </div>
-        <textarea
-          className="field"
-          rows={3}
-          placeholder={t('supportReplyPlaceholder')}
-          value={text}
-          maxLength={4000}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <button
-          type="button"
-          className="fallback-submit"
-          disabled={busy || text.trim().length === 0}
-          onClick={() => void send()}
-        >
-          {t('supportReply')}
-        </button>
-        {/* Запись идёт — на экране только «отправить» и «отменить»: любая третья кнопка
-            в этот момент нажимается случайно. */}
-        {voice.supported &&
-          (voice.recording ? (
-            <div className="chips">
-              <button type="button" className="chip" onClick={voice.stop}>
-                {t('supportVoiceSend', { seconds: voice.seconds })}
+      {/* Поле ввода — последним и прилипает к низу, над панелью разделов: как в Telegram,
+          ответ пишут там, где кончается переписка, а не в карточке посреди экрана.
+          Круглая кнопка справа — микрофон, пока поле пустое, и «отправить», как только
+          в нём появился текст: одна кнопка на одно место, без третьей рядом. */}
+      {!ticket?.closedAt && (
+        <div className="composer">
+          {/* Заготовка подставляется в поле, а не отправляется: это начало ответа. */}
+          <div className="composer-templates">
+            {REPLY_TEMPLATES.map((template) => (
+              <button
+                key={template.key}
+                type="button"
+                className="chip"
+                disabled={busy || voice.recording}
+                onClick={() => {
+                  haptic.select()
+                  setText(t(template.textKey))
+                  fieldRef.current?.focus()
+                }}
+              >
+                {t(template.labelKey)}
               </button>
-              <button type="button" className="chip" onClick={voice.cancel}>
+            ))}
+          </div>
+          {voice.recording ? (
+            // Запись идёт — только «отменить» и «отправить»: любая третья кнопка в этот
+            // момент нажимается случайно.
+            <div className="composer-row recording">
+              <span className="rec-dot" aria-hidden />
+              <span className="composer-rec">
+                {t('supportRecording', { seconds: voice.seconds })}
+              </span>
+              <button type="button" className="composer-text-btn" onClick={voice.cancel}>
                 {t('supportVoiceCancel')}
+              </button>
+              <button
+                type="button"
+                className="composer-round"
+                aria-label={t('supportVoiceSend', { seconds: voice.seconds })}
+                onClick={voice.stop}
+              >
+                <IconSend size={20} />
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              className="fallback-submit secondary"
-              disabled={busy}
-              onClick={() => {
-                haptic.tap()
-                void voice.start().catch(() => setError(t('supportVoiceDenied')))
-              }}
-            >
-              {t('supportVoice')}
-            </button>
-          ))}
-
-        {ticket && !ticket.assigneeId && !ticket.closedAt && (
-          <button
-            type="button"
-            className="fallback-submit secondary"
-            disabled={busy}
-            onClick={() => void take()}
-          >
-            {t('supportAssign')}
-          </button>
-        )}
-        {!ticket?.closedAt && (
-          <>
-            {/* Эскалация — действие, а не состояние: ответ на неё человек, а не флаг. */}
-            <button
-              type="button"
-              className="fallback-submit secondary"
-              disabled={busy}
-              onClick={() => void escalate()}
-            >
-              {t('supportEscalate')}
-            </button>
-            {/* Жалоба из обращения: автором сервер сделает автора обращения, а не
-                поддержку — жаловался он, и в очереди должно быть видно именно это. */}
-            <button
-              type="button"
-              className="fallback-submit secondary"
-              disabled={busy}
-              onClick={() => {
-                haptic.tap()
-                setTarget((prev) => (prev ? null : { query: '', found: [] }))
-              }}
-            >
-              {t('supportToComplaint')}
-            </button>
-            <button type="button" className="fallback-submit danger" onClick={() => void finish()}>
-              {t('supportClose')}
-            </button>
-          </>
-        )}
-      </section>
-
-      {target !== null && (
-        <section className="card">
-          <h2>{t('supportComplaintTarget')}</h2>
-          <input
-            className="field"
-            placeholder={t('peopleSearchPlaceholder')}
-            aria-label={t('supportComplaintTarget')}
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={target.query}
-            onChange={(event) => setTarget({ query: event.target.value, found: target.found })}
-          />
-          {target.found.length === 0 && <p className="hint">{t('supportComplaintHint')}</p>}
-          {target.found.map((person) => (
-            <button
-              key={person.id}
-              type="button"
-              className="row"
-              onClick={() => void fileComplaint(person)}
-            >
-              <span className="row-body">
-                <b>
-                  {person.lastName} {person.firstName}
-                </b>
-                <span className="hint">{person.email}</span>
-              </span>
-            </button>
-          ))}
-        </section>
+            <div className="composer-row">
+              <textarea
+                ref={fieldRef}
+                className="composer-field"
+                rows={1}
+                placeholder={t('supportReplyPlaceholder')}
+                aria-label={t('supportReplyPlaceholder')}
+                value={text}
+                maxLength={4000}
+                onChange={(e) => setText(e.target.value)}
+              />
+              {text.trim().length > 0 || !voice.supported ? (
+                <button
+                  type="button"
+                  className="composer-round"
+                  aria-label={t('supportReply')}
+                  disabled={busy || text.trim().length === 0}
+                  onClick={() => void send()}
+                >
+                  <IconSend size={20} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="composer-round quiet"
+                  aria-label={t('supportVoice')}
+                  disabled={busy}
+                  onClick={() => {
+                    haptic.tap()
+                    void voice.start().catch(() => setError(t('supportVoiceDenied')))
+                  }}
+                >
+                  <IconMic size={20} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
+  )
+}
+
+/** Строка действия: плитка со значком и подпись — как раздел пульта. */
+function ActionRow({
+  tone,
+  icon,
+  disabled,
+  pressed,
+  onClick,
+  children,
+}: {
+  tone: TileTone
+  icon: ReactNode
+  disabled?: boolean
+  pressed?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className="row"
+      disabled={disabled}
+      aria-pressed={pressed}
+      onClick={() => {
+        haptic.tap()
+        onClick()
+      }}
+    >
+      <Tile tone={tone}>{icon}</Tile>
+      <span className="row-body">
+        <b>{children}</b>
+      </span>
+      <span className="row-chevron" aria-hidden>
+        <IconChevron size={17} />
+      </span>
+    </button>
   )
 }
 

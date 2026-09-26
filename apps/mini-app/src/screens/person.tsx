@@ -53,7 +53,13 @@ export function PersonScreen({
       : blockDays === 0
         ? t('peopleConfirmBlock', { name })
         : t('peopleConfirmBlockFor', { name, days: blockDays })
-    if (!(await confirmAction(question))) return
+    if (
+      !(await confirmAction(
+        question,
+        person.isBlocked ? { ok: t('peopleUnblock') } : { destructive: true, ok: t('peopleBlock') },
+      ))
+    )
+      return
 
     setBusy(true)
     setError(null)
@@ -77,7 +83,13 @@ export function PersonScreen({
   }, [person, name, code, blockDays, onChanged])
 
   const endSessions = useCallback(async () => {
-    if (!(await confirmAction(t('peopleConfirmLogout', { name })))) return
+    if (
+      !(await confirmAction(t('peopleConfirmLogout', { name }), {
+        destructive: true,
+        ok: t('peopleLogout'),
+      }))
+    )
+      return
     setBusy(true)
     setError(null)
     setNote(null)

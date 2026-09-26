@@ -446,6 +446,31 @@ const ru = {
     'Отменяет последнее переключение рычага, если ему меньше получаса. Техработы так не включить.',
   undoAction: 'Отменить последнее изменение',
   undoConfirm: 'Вернуть состояние, которое было до последнего изменения?',
+  // ── Настройки (меню «⋯» Telegram) ──
+  settingsTitle: 'Настройки',
+  settingsSubtitle: 'Этого телефона',
+  settingsFromTelegramTitle: 'Язык и тема',
+  settingsFromTelegram: 'Берутся из Telegram: меняются в его настройках и сразу доходят сюда.',
+  // ── Разбор подряд ──
+  complaintSkip: 'Пропустить',
+  complaintTriage: 'Разобрано {done} · осталось {left}',
+  complaintMoreMeasures: 'Другие меры',
+  // ── Свайпы в очереди ──
+  swipeUndo: 'Отменить',
+  complaintSwipeDismissed: 'Отмечено: нарушения нет',
+  complaintSwipeTaken: 'Жалоба у вас в работе',
+  complaintSwipeFailed: 'Не получилось — жалоба вернулась в очередь',
+  // ── Сводка: главная карточка ──
+  heroOkTitle: 'Всё в порядке',
+  heroOkText: 'Сервисы отвечают, упавших задач нет',
+  heroProblemsTitle: 'Есть проблемы: {count}',
+  heroHealthUnknown: 'Проверка сервисов не ответила',
+  heroServiceDown: '{name}: не отвечает',
+  heroQueueFailed: 'Упавших задач в очередях: {count}',
+  heroChecked: 'Проверено в {time}',
+  // ── Поле ввода поддержки ──
+  supportActionsTitle: 'Действия',
+  supportRecording: 'Запись · {seconds} с',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -880,6 +905,32 @@ const kk: Record<MessageKey, string> = {
     'Соңғы ауыстыруды жояды, егер оған жарты сағаттан аз болса. Техжұмысты бұлай қосуға болмайды.',
   undoAction: 'Соңғы өзгерісті болдырмау',
   undoConfirm: 'Соңғы өзгеріске дейінгі күй қайтарылсын ба?',
+  // ── Настройки (меню «⋯» Telegram) ──
+  settingsTitle: 'Баптаулар',
+  settingsSubtitle: 'Осы телефонның',
+  settingsFromTelegramTitle: 'Тіл мен тақырып',
+  settingsFromTelegram:
+    'Telegram-нан алынады: оның баптауларында өзгереді және бірден осында келеді.',
+  // ── Разбор подряд ──
+  complaintSkip: 'Өткізіп жіберу',
+  complaintTriage: 'Қаралды {done} · қалды {left}',
+  complaintMoreMeasures: 'Басқа шаралар',
+  // ── Свайпы в очереди ──
+  swipeUndo: 'Болдырмау',
+  complaintSwipeDismissed: 'Белгіленді: бұзушылық жоқ',
+  complaintSwipeTaken: 'Шағым сізде жұмыста',
+  complaintSwipeFailed: 'Болмады — шағым кезекке қайтты',
+  // ── Сводка: главная карточка ──
+  heroOkTitle: 'Бәрі жақсы',
+  heroOkText: 'Сервистер жауап береді, құлаған тапсырма жоқ',
+  heroProblemsTitle: 'Мәселелер бар: {count}',
+  heroHealthUnknown: 'Сервистерді тексеру жауап бермеді',
+  heroServiceDown: '{name}: жауап бермейді',
+  heroQueueFailed: 'Кезектердегі құлаған тапсырмалар: {count}',
+  heroChecked: '{time} тексерілді',
+  // ── Поле ввода поддержки ──
+  supportActionsTitle: 'Әрекеттер',
+  supportRecording: 'Жазылуда · {seconds} с',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1311,6 +1362,32 @@ const en: Record<MessageKey, string> = {
     'Reverts the last lever change if it is under half an hour old. Maintenance cannot be switched on this way.',
   undoAction: 'Undo the last change',
   undoConfirm: 'Restore the state from before the last change?',
+  // ── Настройки (меню «⋯» Telegram) ──
+  settingsTitle: 'Settings',
+  settingsSubtitle: 'For this phone',
+  settingsFromTelegramTitle: 'Language and theme',
+  settingsFromTelegram:
+    'Taken from Telegram: change them in its settings and they apply here right away.',
+  // ── Разбор подряд ──
+  complaintSkip: 'Skip',
+  complaintTriage: 'Done {done} · {left} left',
+  complaintMoreMeasures: 'Other measures',
+  // ── Свайпы в очереди ──
+  swipeUndo: 'Undo',
+  complaintSwipeDismissed: 'Marked: no violation',
+  complaintSwipeTaken: 'The report is yours now',
+  complaintSwipeFailed: "Didn't work — the report is back in the queue",
+  // ── Сводка: главная карточка ──
+  heroOkTitle: 'All good',
+  heroOkText: 'Services respond, no failed jobs',
+  heroProblemsTitle: 'Problems: {count}',
+  heroHealthUnknown: 'The service check did not respond',
+  heroServiceDown: '{name}: not responding',
+  heroQueueFailed: 'Failed jobs in queues: {count}',
+  heroChecked: 'Checked at {time}',
+  // ── Поле ввода поддержки ──
+  supportActionsTitle: 'Actions',
+  supportRecording: 'Recording · {seconds} s',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

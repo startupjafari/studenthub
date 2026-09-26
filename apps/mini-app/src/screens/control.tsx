@@ -27,7 +27,6 @@ import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
 import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
-import { applyFontScale, isLargeFont } from '../lib/font-scale'
 import { Fold } from '../ui/fold'
 import { StatePlate } from '../ui/state-plate'
 import { Tile } from '../ui/tile'
@@ -39,7 +38,6 @@ import {
   IconRelease,
   IconSeason,
   IconSections,
-  IconTextSize,
   IconUndo,
 } from '../ui/icons'
 
@@ -89,9 +87,13 @@ export function ControlScreen({ userId }: { userId: string }) {
    * Ответ сервера и есть новое состояние, поэтому перезапрашивать его незачем.
    */
   const run = useCallback(
-    async (question: string, action: () => Promise<PlatformState>) => {
+    async (
+      question: string,
+      action: () => Promise<PlatformState>,
+      confirm?: { ok?: string; destructive?: boolean },
+    ) => {
       if (busy) return
-      if (!(await confirmAction(question))) return
+      if (!(await confirmAction(question, confirm))) return
 
       setBusy(true)
       setError(null)
@@ -162,7 +164,6 @@ export function ControlScreen({ userId }: { userId: string }) {
       </section>
 
       <section className="card fold-group">
-        <FontCard />
         <UndoCard busy={busy} run={run} />
       </section>
 
@@ -173,7 +174,11 @@ export function ControlScreen({ userId }: { userId: string }) {
   )
 }
 
-type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
+type Run = (
+  question: string,
+  action: () => Promise<PlatformState>,
+  confirm?: { ok?: string; destructive?: boolean },
+) => Promise<void>
 
 /**
  * Дежурство по очереди.
@@ -395,6 +400,12 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
               ? t('maintenanceConfirmExtend', { count: minutes ?? 0 })
               : t('maintenanceConfirmOn', { count: minutes ?? 0 }),
             () => setMaintenance(minutes, code, startsIn * 60),
+            // Остановка платформы — самое тяжёлое действие пульта: лист с красной кнопкой
+            // и её подписью, а не безликое «OK».
+            {
+              destructive: true,
+              ok: active ? t('maintenanceExtend', { count: minutes ?? 0 }) : t('maintenanceEnable'),
+            },
           ).then(() => setCode(''))
         }
       >
@@ -948,45 +959,6 @@ function NotificationsCard({
       >
         {t('notifSave')}
       </button>
-    </Fold>
-  )
-}
-
-/**
- * Размер текста. Настройка устройства, а не человека: с телефона хочется крупнее, с
- * планшета может и нет, — поэтому живёт в localStorage мини-аппа, а не на сервере.
- */
-function FontCard() {
-  const [large, setLarge] = useState(isLargeFont)
-
-  return (
-    <Fold
-      icon={
-        <Tile tone="teal">
-          <IconTextSize size={17} />
-        </Tile>
-      }
-      title={t('fontTitle')}
-      state={large ? t('fontStateLarge') : t('fontStateNormal')}
-    >
-      <p className="hint">{t('fontHint')}</p>
-      <div className="chips-grid">
-        {[false, true].map((value) => (
-          <button
-            key={String(value)}
-            type="button"
-            className="chip"
-            aria-pressed={large === value}
-            onClick={() => {
-              haptic.select()
-              applyFontScale(value)
-              setLarge(value)
-            }}
-          >
-            {value ? t('fontLarge') : t('fontNormal')}
-          </button>
-        ))}
-      </div>
     </Fold>
   )
 }
