@@ -2284,6 +2284,7 @@
     "telegramCopy": "Скопировать код",
     "telegramCopyFailed": "Не удалось скопировать — наберите код вручную",
     "telegramExpiresIn": "Код действует ещё {time}",
+    "telegramExpired": "Код истёк — получите новый",
     "telegramHint": "Откройте бота в Telegram и введите код на экране привязки.",
     "telegramRateLimit": "Слишком много кодов подряд. Попробуйте позже",
     "telegramFailed": "Не удалось получить код. Попробуйте ещё раз",

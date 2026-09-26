@@ -2284,6 +2284,7 @@
     "telegramCopy": "Кодты көшіру",
     "telegramCopyFailed": "Көшіру мүмкін болмады — кодты қолмен теріңіз",
     "telegramExpiresIn": "Код тағы {time} жарамды",
+    "telegramExpired": "Кодтың мерзімі өтті — жаңасын алыңыз",
     "telegramHint": "Telegram-да ботты ашып, байланыстыру экранында кодты енгізіңіз.",
     "telegramRateLimit": "Қатарынан тым көп код. Кейінірек қайталаңыз",
     "telegramFailed": "Код алынбады. Қайталап көріңіз",

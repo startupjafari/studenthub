@@ -2284,6 +2284,7 @@
     "telegramCopy": "Copy code",
     "telegramCopyFailed": "Copying failed — type the code manually",
     "telegramExpiresIn": "Code valid for another {time}",
+    "telegramExpired": "The code has expired — get a new one",
     "telegramHint": "Open the bot in Telegram and enter the code on the linking screen.",
     "telegramRateLimit": "Too many codes in a row. Try again later",
     "telegramFailed": "Could not get a code. Please try again",
