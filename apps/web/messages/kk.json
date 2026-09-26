@@ -1764,6 +1764,8 @@
     "forwardedFrom": "{name} қайта жіберді",
     "forwarded": "Қайта жіберілді",
     "forwardCaption": "Жазба қосу…",
+    "forwardSelectMany": "Бірнешеуін таңдау",
+    "forwardSelectOne": "Бірден жіберу",
     "edit": "Өзгерту",
     "delete": "Жою",
     "copyText": "Мәтінді көшіру",

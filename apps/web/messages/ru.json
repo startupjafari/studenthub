@@ -1764,6 +1764,8 @@
     "forwardedFrom": "Переслано от {name}",
     "forwarded": "Переслано",
     "forwardCaption": "Добавить подпись…",
+    "forwardSelectMany": "Выбрать несколько",
+    "forwardSelectOne": "Отправлять сразу",
     "edit": "Изменить",
     "delete": "Удалить",
     "copyText": "Копировать текст",

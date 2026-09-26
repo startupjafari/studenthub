@@ -1764,6 +1764,8 @@
     "forwardedFrom": "Forwarded from {name}",
     "forwarded": "Forwarded",
     "forwardCaption": "Add a caption…",
+    "forwardSelectMany": "Select several",
+    "forwardSelectOne": "Send right away",
     "edit": "Edit",
     "delete": "Delete",
     "copyText": "Copy text",
