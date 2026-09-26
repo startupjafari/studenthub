@@ -985,6 +985,8 @@ export function ConversationList({
               ...(folders.length === 0
                 ? { onClick: onManageFolders }
                 : {
+                    // Во втором меню — только папки: настройка папок живёт у их вкладок,
+                    // а здесь человек отвечает на один вопрос — «в каких папках этот чат».
                     items: [
                       ...[...folders]
                         .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
@@ -999,12 +1001,6 @@ export function ConversationList({
                           keepOpen: true,
                           onClick: () => onToggleChatFolder(f.id, menuChat),
                         })),
-                      {
-                        key: 'folders-manage',
-                        icon: FolderCog,
-                        label: t('foldersManage'),
-                        onClick: onManageFolders,
-                      },
                     ],
                   }),
             },
