@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
@@ -29,7 +35,9 @@ import {
   incrementPostView,
   postKeys,
   removeReactionRequest,
+  type FeedPage,
   type FeedPost,
+  type PostComment,
   type PostReaction,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
@@ -82,6 +90,28 @@ const MODERATOR_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
 ]
+
+/**
+ * Счётчик комментариев поста во всех закэшированных лентах (главная, профиль, страница
+ * поста) — правкой кэша, без перезапроса. Раньше после отправки сбрасывался весь
+ * `['posts']`, а под ним лежат и ссылки на медиа: картинки в окне получали новые адреса
+ * и перерисовывались, лента за окном перезагружалась целиком — всё дёргалось.
+ */
+function patchCommentCount(qc: QueryClient, postId: string, delta: number): void {
+  const bump = (p: FeedPost): FeedPost =>
+    p.id === postId
+      ? { ...p, _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) } }
+      : p
+  qc.setQueriesData<unknown>({ queryKey: postKeys.all }, (data) => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return data
+    if ('pages' in data) {
+      const feed = data as InfiniteData<FeedPage>
+      return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(bump) })) }
+    }
+    if ('id' in data && '_count' in data) return bump(data as FeedPost)
+    return data
+  })
+}
 
 function initials(a: { firstName: string; lastName: string }): string {
   return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
@@ -144,7 +174,11 @@ export function PostLightbox({
       role="dialog"
       aria-modal="true"
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-16 sm:pt-6 sm:pb-16"
+      // Нижнее поле — под счётчик «2 из 8»; у одиночного поста его нет, и поле не нужно.
+      className={cn(
+        'fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-16 sm:pt-6',
+        posts.length > 1 ? 'sm:pb-16' : 'sm:pb-6',
+      )}
     >
       <button
         type="button"
@@ -198,17 +232,16 @@ export function PostLightbox({
       )}
 
       {/* Раскладка Instagram: с md медиа слева на всю высоту окна, справа панель —
-          шапка, подпись с комментариями, действия, ввод. Высота окна у поста с медиа
-          фиксированная: иначе при листании карусели окно прыгало бы под размер кадра.
-          У поста без вложения левой колонки нет вовсе — только панель, иначе половина
-          окна пустовала бы. */}
+          шапка, подпись с комментариями, действия, ввод. Окно занимает всё свободное место
+          (на телефоне — весь экран): размер не зависит ни от кадра, ни от числа
+          комментариев, и при листании карусели или загрузке ленты окно не прыгает.
+          У поста без вложения левой колонки нет вовсе — только панель на всю высоту,
+          иначе половина окна пустовала бы. */}
       <div
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          'flex max-h-[92vh] w-full flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl',
-          post.media.length > 0
-            ? 'max-w-[42rem] md:h-[min(92vh,52rem)] md:max-w-6xl'
-            : 'max-w-[34rem]',
+          'flex h-full w-full flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl',
+          post.media.length > 0 ? 'max-w-[42rem] md:max-w-none' : 'max-w-[34rem]',
         )}
       >
         <PostView key={post.id} post={post} onClose={onClose} focusComment={focusComment} />
@@ -368,9 +401,13 @@ function PostView({
   const addMut = useMutation({
     mutationFn: () =>
       addCommentRequest(post.id, { content: text.trim(), parentId: replyTo ?? undefined }),
+    // Сервер вернул созданную реплику целиком — дописываем её в список сами, без
+    // перезапроса: окно не перерисовывается, появляется ровно одна новая строка.
     onSuccess: (created) => {
-      void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) })
-      void qc.invalidateQueries({ queryKey: postKeys.all })
+      qc.setQueryData<PostComment[]>(postKeys.comments(post.id), (old) =>
+        old ? [...old, created] : [created],
+      )
+      patchCommentCount(qc, post.id, 1)
       setScrollToId(created.id)
       setText('')
       cancelReply()
@@ -380,7 +417,13 @@ function PostView({
 
   const delCommentMut = useMutation({
     mutationFn: (commentId: string) => deleteCommentRequest(post.id, commentId),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: postKeys.comments(post.id) }),
+    // Ответы удалённого остаются (они всплывают корнями, см. `roots`) — убираем одну строку.
+    onSuccess: (_, commentId) => {
+      qc.setQueryData<PostComment[]>(postKeys.comments(post.id), (old) =>
+        old?.filter((c) => c.id !== commentId),
+      )
+      patchCommentCount(qc, post.id, -1)
+    },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
@@ -542,7 +585,7 @@ function PostView({
               : 'md:flex-1',
           )}
         >
-          <header className="flex shrink-0 items-center gap-3 px-4 py-3 max-md:order-1 md:border-b md:border-border">
+          <header className="flex shrink-0 items-center gap-3 px-4 py-3 max-md:order-1 max-sm:pr-14 md:border-b md:border-border">
             <ProfileLink userId={post.author.id} className="shrink-0">
               <Avatar className="size-8">
                 {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
