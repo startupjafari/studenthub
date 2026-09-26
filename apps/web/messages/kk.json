@@ -1537,6 +1537,7 @@
     "repostComment": "Түсініктеме",
     "repostPlaceholder": "Түсініктеме қосыңыз (міндетті емес)",
     "reposted": "Репост жарияланды",
+    "repostedBy": "<link>{name}</link> репост жасады",
     "targetRequired": "Қайда жариялайтыныңызды көрсетіңіз",
     "contentTooLong": "Мәтін тым ұзын",
     "mediaCount": "{count, plural, one {# тіркеме} other {# тіркеме}}",

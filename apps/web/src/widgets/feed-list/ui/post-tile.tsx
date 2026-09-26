@@ -20,6 +20,8 @@ import { PostMediaView } from './post-media'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
+import { Skeleton } from '../../../shared/ui'
+import { useRepostSource } from '../lib/use-repost-source'
 
 const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
@@ -30,16 +32,45 @@ const MODERATOR_ROLES: Role[] = [
   Role.DEAN,
 ]
 
-// Карточка публикации в сетке (Instagram/VK-стиль): превью 4:3, контекст, и активные
-// действия — лайк, комментарий (открывает подробную модалку с фокусом в поле), поделиться.
-export function PostTile({
-  post,
-  onOpen,
-  onOpenComment,
-}: {
+interface PostTileProps {
   post: FeedPost
   onOpen: () => void
   onOpenComment: () => void
+}
+
+// Карточка публикации в сетке (Instagram/VK-стиль): превью 4:3, контекст, и активные
+// действия — лайк, комментарий (открывает подробную модалку с фокусом в поле), поделиться.
+//
+// Репост показывается как в Instagram — исходным постом: его обложка, лайки и комментарии,
+// а в углу — «↻ Имя». Пока исходник грузится — скелетон той же высоты, чтобы сетка не
+// прыгала; исходник недоступен зрителю — прежняя плитка репоста с его текстом.
+export function PostTile(props: PostTileProps) {
+  const source = useRepostSource(props.post)
+  if (source.kind === 'loading') {
+    return (
+      <article className="flex flex-col rounded-2xl border border-border bg-card" aria-hidden>
+        <Skeleton className="aspect-[4/3] w-full rounded-none rounded-t-2xl" />
+        <div className="flex flex-col gap-3 p-4">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-5 w-full" />
+        </div>
+      </article>
+    )
+  }
+  if (source.kind === 'ready') {
+    return <PostTileView {...props} key={source.source.id} post={source.source} via={props.post} />
+  }
+  return <PostTileView {...props} />
+}
+
+function PostTileView({
+  post,
+  via,
+  onOpen,
+  onOpenComment,
+}: PostTileProps & {
+  /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
+  via?: FeedPost
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
@@ -53,7 +84,10 @@ export function PostTile({
   const first = post.media[0]
   const comments = post._count.comments
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
-  const canDelete = post.authorId === myId || canModerate
+  // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
+  // (удалить его), а не чужой исходник, который трогать нельзя.
+  const menuPost = via ?? post
+  const canDelete = menuPost.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
   const date = new Date(post.createdAt).toLocaleDateString(locale, {
     day: '2-digit',
@@ -108,6 +142,12 @@ export function PostTile({
         )}
 
         <span className="absolute left-2 top-2 flex flex-wrap items-center gap-1">
+          {via && (
+            <span className="flex max-w-40 items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
+              <Repeat2 className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">{via.author.firstName}</span>
+            </span>
+          )}
           {post.status === 'DRAFT' && (
             <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
               {t('statusDraft')}
@@ -148,12 +188,12 @@ export function PostTile({
           </button>
           <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
             <span className="whitespace-nowrap text-xs text-muted-foreground">{date}</span>
-            {(canDelete || post.authorId !== myId) && (
+            {(canDelete || menuPost.authorId !== myId) && (
               <PostTileMenu
-                post={post}
+                post={menuPost}
                 canModerate={canModerate}
                 canDelete={canDelete}
-                isMine={post.authorId === myId}
+                isMine={menuPost.authorId === myId}
               />
             )}
           </div>

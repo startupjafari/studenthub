@@ -16,7 +16,7 @@ import {
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
-import { Avatar, AvatarFallback, Markdown } from '../../../shared/ui'
+import { Avatar, AvatarFallback, Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
@@ -24,6 +24,8 @@ import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
+import { RepostBanner } from './repost-banner'
+import { useRepostSource } from '../lib/use-repost-source'
 
 const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
@@ -54,15 +56,46 @@ function initials(a: { firstName: string; lastName: string }): string {
  *
  * Сетка плиток осталась там, где она уместна, — в профиле, как галерея.
  */
-export function PostCard({
-  post,
-  onOpenMedia,
-  onOpenComments,
-}: {
+interface PostCardProps {
   post: FeedPost
   onOpenMedia?: () => void
   /** Комментарии живут только в полном просмотре — здесь лишь вход в него. */
   onOpenComments?: () => void
+}
+
+/**
+ * Репост — как в Instagram: в ленте стоит сам исходный пост (медиа, лайки, комментарии
+ * его автора), а над ним пометка «↻ Репост от …» с заметкой. Пока исходник грузится —
+ * скелетон карточки; недоступен зрителю — прежняя карточка репоста с цитатой.
+ */
+export function PostCard(props: PostCardProps) {
+  const source = useRepostSource(props.post)
+  if (source.kind === 'loading') {
+    return (
+      <article
+        className="flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
+        aria-hidden
+      >
+        <Skeleton className="h-4 w-1/3" />
+        <Skeleton className="h-10 w-1/2" />
+        <Skeleton className="h-48 w-full" />
+      </article>
+    )
+  }
+  if (source.kind === 'ready') {
+    return <PostCardView {...props} key={source.source.id} post={source.source} via={props.post} />
+  }
+  return <PostCardView {...props} />
+}
+
+function PostCardView({
+  post,
+  via,
+  onOpenMedia,
+  onOpenComments,
+}: PostCardProps & {
+  /** Репост, через который показан `post` (исходник): его меню и его пометка сверху. */
+  via?: FeedPost
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
@@ -77,7 +110,9 @@ export function PostCard({
   const [repostDialog, setRepostDialog] = useState(false)
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
-  const canDelete = post.authorId === myId || canModerate
+  // Меню — про публикацию в ленте: у репоста это сам репост, а не чужой исходник.
+  const menuPost = via ?? post
+  const canDelete = menuPost.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
@@ -123,7 +158,8 @@ export function PostCard({
         post.pinnedAt && 'ring-primary/40',
       )}
     >
-      <header className="flex items-center gap-3 px-4 pt-4">
+      {via && <RepostBanner repost={via} className="px-4 pt-3" />}
+      <header className={cn('flex items-center gap-3 px-4', via ? 'pt-3' : 'pt-4')}>
         <ProfileLink userId={post.author.id} className="shrink-0">
           <Avatar className="size-10">
             <AvatarFallback>{initials(post.author)}</AvatarFallback>
@@ -153,10 +189,10 @@ export function PostCard({
           </span>
         )}
         <PostTileMenu
-          post={post}
+          post={menuPost}
           canModerate={canModerate}
           canDelete={canDelete}
-          isMine={post.authorId === myId}
+          isMine={menuPost.authorId === myId}
         />
       </header>
 

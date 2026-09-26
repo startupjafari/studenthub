@@ -44,13 +44,15 @@ import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
-import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
+import { RepostBanner } from './repost-banner'
+import { useRepostSource } from '../lib/use-repost-source'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
 const LIKE = '❤️'
@@ -138,6 +140,9 @@ export function PostLightbox({
   const t = useTranslations('Feed')
   useBodyScrollLock()
   useBackClose(onClose)
+  // Репост открывается исходным постом, как в Instagram (useRepostSource). Хук — до ранних
+  // выходов: порядок хуков один на каждую отрисовку.
+  const source = useRepostSource(posts[index])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -168,6 +173,10 @@ export function PostLightbox({
   if (typeof document === 'undefined') return null
   const post = posts[index]
   if (!post) return null
+  // Что показано: исходник репоста, если он загрузился, иначе сам пост (или репост с
+  // цитатой, когда исходник зрителю не виден). Пока грузится — скелетон панели.
+  const shown = source.kind === 'ready' ? source.source : post
+  const repost = source.kind === 'ready' ? post : undefined
 
   return createPortal(
     <div
@@ -241,10 +250,24 @@ export function PostLightbox({
         onClick={(e) => e.stopPropagation()}
         className={cn(
           'flex h-full w-full flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl',
-          post.media.length > 0 ? 'max-w-[42rem] md:max-w-none' : 'max-w-[34rem]',
+          shown.media.length > 0 ? 'max-w-[42rem] md:max-w-none' : 'max-w-[34rem]',
         )}
       >
-        <PostView key={post.id} post={post} onClose={onClose} focusComment={focusComment} />
+        {source.kind === 'loading' ? (
+          <div className="flex flex-1 flex-col gap-3 p-4" aria-hidden>
+            <Skeleton className="h-10 w-1/2" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="w-full flex-1" />
+          </div>
+        ) : (
+          <PostView
+            key={`${post.id}:${shown.id}`}
+            post={shown}
+            via={repost}
+            onClose={onClose}
+            focusComment={focusComment}
+          />
+        )}
       </div>
     </div>,
     document.body,
@@ -255,10 +278,13 @@ export function PostLightbox({
 // (карусель, реакции, ввод) сбрасывается при переходе к другому посту.
 function PostView({
   post,
+  via,
   onClose,
   focusComment = false,
 }: {
   post: FeedPost
+  /** Репост, через который открыт `post` (исходник): его пометка сверху и его меню. */
+  via?: FeedPost
   onClose: () => void
   focusComment?: boolean
 }) {
@@ -388,7 +414,10 @@ function PostView({
   }, [focusComment])
 
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
-  const canDelete = post.authorId === myId || canModerate
+  // Меню — про публикацию, которую открыли: у репоста это сам репост (удалить его), а не
+  // чужой исходник. Лайки, комментарии и просмотры при этом — исходника, как в Instagram.
+  const menuPost = via ?? post
+  const canDelete = menuPost.authorId === myId || canModerate
   const showRepost = canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
@@ -607,10 +636,10 @@ function PostView({
             {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}
             {/* Одно меню на пост: то же, что на карточке и плитке. */}
             <PostTileMenu
-              post={post}
+              post={menuPost}
               canModerate={canModerate}
               canDelete={canDelete}
-              isMine={post.authorId === myId}
+              isMine={menuPost.authorId === myId}
               onDeleted={onClose}
             />
           </header>
@@ -621,6 +650,7 @@ function PostView({
             ref={threadRef}
             className="sh-scroll flex flex-col gap-4 px-4 py-3 max-md:order-4 max-md:shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto"
           >
+            {via && <RepostBanner repost={via} />}
             {hasCaption && (
               <div className="flex gap-3">
                 <ProfileLink userId={post.author.id} className="shrink-0">
