@@ -1108,7 +1108,6 @@
     "filterScheduled": "Scheduled",
     "actions": "Actions",
     "albumAll": "All",
-    "albumNone": "No album",
     "albumCreate": "New album",
     "albumRename": "Rename",
     "albumDelete": "Delete album",

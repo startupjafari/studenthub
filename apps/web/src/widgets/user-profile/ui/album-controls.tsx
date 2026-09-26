@@ -8,9 +8,10 @@ import { Button, MenuSeparator } from '../../../shared/ui'
 import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
-export type AlbumFilter = 'all' | 'none' | string
+/** `all` — всё медиа профиля, иначе id альбома. */
+export type AlbumFilter = 'all' | string
 
-// Полоса альбомов над сеткой фото: фильтр «Все / <альбомы> / Без альбома» + управление (владелец).
+// Полоса альбомов над сеткой фото: фильтр «Все / <альбомы>» + управление (владелец).
 export function AlbumBar({
   albums,
   active,
@@ -44,7 +45,7 @@ export function AlbumBar({
     </button>
   )
 
-  const activeIsAlbum = active !== 'all' && active !== 'none'
+  const activeIsAlbum = active !== 'all'
   // Альбомов может быть много — ряд чипов тянется и затухает у краёв.
   const row = useScrollRow<HTMLDivElement>()
 
@@ -61,7 +62,6 @@ export function AlbumBar({
       >
         {chip('all', t('albumAll'))}
         {albums.map((a) => chip(a.id, a.title, a.count))}
-        {chip('none', t('albumNone'))}
         {isOwner && (
           <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onCreate}>
             <FolderPlus className="size-4" aria-hidden />
