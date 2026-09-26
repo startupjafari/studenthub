@@ -173,7 +173,13 @@ function InvitesCard() {
               className="chip danger-chip"
               onClick={async () => {
                 const email = invite.email ?? t('invitesNoEmail')
-                if (!(await confirmAction(t('invitesRevokeConfirm', { email })))) return
+                if (
+                  !(await confirmAction(t('invitesRevokeConfirm', { email }), {
+                    destructive: true,
+                    ok: t('invitesRevoke'),
+                  }))
+                )
+                  return
                 try {
                   await revokeInvite(invite.id)
                   haptic.success()

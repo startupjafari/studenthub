@@ -89,9 +89,13 @@ export function ControlScreen({ userId }: { userId: string }) {
    * Ответ сервера и есть новое состояние, поэтому перезапрашивать его незачем.
    */
   const run = useCallback(
-    async (question: string, action: () => Promise<PlatformState>) => {
+    async (
+      question: string,
+      action: () => Promise<PlatformState>,
+      confirm?: { ok?: string; destructive?: boolean },
+    ) => {
       if (busy) return
-      if (!(await confirmAction(question))) return
+      if (!(await confirmAction(question, confirm))) return
 
       setBusy(true)
       setError(null)
@@ -173,7 +177,11 @@ export function ControlScreen({ userId }: { userId: string }) {
   )
 }
 
-type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
+type Run = (
+  question: string,
+  action: () => Promise<PlatformState>,
+  confirm?: { ok?: string; destructive?: boolean },
+) => Promise<void>
 
 /**
  * Дежурство по очереди.
@@ -395,6 +403,12 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
               ? t('maintenanceConfirmExtend', { count: minutes ?? 0 })
               : t('maintenanceConfirmOn', { count: minutes ?? 0 }),
             () => setMaintenance(minutes, code, startsIn * 60),
+            // Остановка платформы — самое тяжёлое действие пульта: лист с красной кнопкой
+            // и её подписью, а не безликое «OK».
+            {
+              destructive: true,
+              ok: active ? t('maintenanceExtend', { count: minutes ?? 0 }) : t('maintenanceEnable'),
+            },
           ).then(() => setCode(''))
         }
       >

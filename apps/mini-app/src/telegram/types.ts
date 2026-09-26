@@ -41,6 +41,36 @@ export interface TelegramMainButton extends TelegramButton {
   setText: (text: string) => void
   enable: () => void
   disable: () => void
+  /** Цвет, активность и блик кнопки одним вызовом. Bot API 7.10. */
+  setParams?: (params: TelegramBottomButtonParams) => void
+  /** Крутилка на кнопке, пока запрос в пути. */
+  showProgress?: (leaveActive?: boolean) => void
+  hideProgress?: () => void
+}
+
+export interface TelegramBottomButtonParams {
+  text?: string
+  color?: string
+  text_color?: string
+  is_active?: boolean
+  is_visible?: boolean
+  has_shine_effect?: boolean
+  /** Только у второстепенной: где она относительно главной. */
+  position?: 'left' | 'right' | 'top' | 'bottom'
+}
+
+/** Отступы от краёв экрана: вырез, «полоска» жестов, панель Telegram в полноэкранном режиме. */
+export interface TelegramInsets {
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
+
+export interface TelegramPopupButton {
+  id?: string
+  type?: 'default' | 'ok' | 'close' | 'cancel' | 'destructive'
+  text?: string
 }
 
 export interface TelegramWebApp {
@@ -65,10 +95,32 @@ export interface TelegramWebApp {
   onEvent: (event: string, handler: () => void) => void
   offEvent: (event: string, handler: () => void) => void
   showAlert: (message: string, callback?: () => void) => void
+  /**
+   * Нативный лист с кнопками. В отличие от `showConfirm` у кнопки подтверждения есть
+   * своя подпись и тип `destructive` — «Заблокировать» красным, а не безликое «OK».
+   * Bot API 6.2.
+   */
+  showPopup?: (
+    params: { title?: string; message: string; buttons?: TelegramPopupButton[] },
+    callback?: (buttonId: string) => void,
+  ) => void
+  /** Сравнить версию клиента: новые методы вызываются только там, где они есть. */
+  isVersionAtLeast?: (version: string) => boolean
+  /** Полноэкранный режим без шапки Telegram. Bot API 8.0. */
+  requestFullscreen?: () => void
+  isFullscreen?: boolean
+  safeAreaInset?: TelegramInsets
+  contentSafeAreaInset?: TelegramInsets
+  /** Цвет полосы под нижними кнопками. Bot API 7.10. */
+  setBottomBarColor?: (color: string) => void
   /** Нативное подтверждение. `ok` — нажал ли человек согласие. */
   showConfirm: (message: string, callback: (ok: boolean) => void) => void
   MainButton: TelegramMainButton
+  /** Вторая нативная кнопка рядом с главной. Bot API 7.10. */
+  SecondaryButton?: TelegramMainButton
   BackButton: TelegramButton
+  /** Пункт «Настройки» в меню «⋯» мини-аппа. Bot API 7.0. */
+  SettingsButton?: TelegramButton
   HapticFeedback: {
     impactOccurred: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void
     notificationOccurred: (type: 'error' | 'success' | 'warning') => void

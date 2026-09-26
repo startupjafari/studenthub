@@ -99,6 +99,15 @@
   /* Высота нижней панели разделов вместе с её полями. Держим числом, потому что место
      под неё резервирует содержимое: панель вынута из потока. */
   --tabbar-h: 64px;
+  /*
+   * Безопасные отступы. В полноэкранном режиме (телефон) приложение лежит под вырезом и
+   * под плавающими кнопками Telegram «Закрыть» и «⋯» — их высоту клиент сам кладёт в
+   * `--tg-safe-area-inset-*` (вырез) и `--tg-content-safe-area-inset-*` (свои кнопки).
+   * Вне полного экрана и вне Telegram переменных нет — отступ нулевой, а снизу остаётся
+   * системный `env()`: «полоска» жестов iPhone есть и там.
+   */
+  --safe-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
 }
 
 /* В тёмной теме системные цвета берутся светлее: иначе синий и фиолетовый тонут в фоне.
@@ -158,7 +167,8 @@ body {
    *
    * MainButton Telegram рисует сам под областью приложения и высоту не отнимает.
    */
-  padding-bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom));
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--tabbar-h) + 16px + var(--safe-bottom));
 }
 
 .screen {
@@ -595,7 +605,7 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(6px + env(safe-area-inset-bottom));
+  bottom: calc(6px + var(--safe-bottom));
   z-index: 100;
   padding: 0 var(--side);
   pointer-events: none;
