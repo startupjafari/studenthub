@@ -2,24 +2,41 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useTranslations } from 'next-intl'
-import { Pause, Play, Volume2, VolumeX } from 'lucide-react'
+import {
+  Maximize2,
+  Minimize2,
+  Pause,
+  PictureInPicture2,
+  Play,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
 import { cn } from '../lib'
 
-// Видеоплеер платформы: свои контролы вместо системных.
+// Видеоплеер платформы: свои контролы вместо системных, в раскладке Telegram — тонкая
+// полоса прогресса во всю ширину кадра, под ней слева пауза, звук и время «0:04 / 1:33»,
+// справа скорость, «картинка в картинке» и полный экран.
 //
 // `playsInline` — главное: без него iOS на первом же `play()` забирает видео в собственный
 // полноэкранный плеер, и пользователь оказывается в интерфейсе телефона, а не приложения.
-// Дальше всё наше: полоса воспроизведения с перемоткой, время, звук — в той же тёмной хроме,
-// что и просмотрщик.
 //
-// Панель прячется сама, пока видео играет, и остаётся на месте на паузе. Разметка контролов
-// помечена `data-gesture-skip`: жесты просмотрщика (листание, зум) на ней не начинаются,
-// иначе перемотка превращалась бы в листание.
+// Панель лежит на самом кадре, а не на всей области просмотра: у вертикального видео
+// она иначе висела бы в пустоте под ним. Рамка кадра считается по пропорциям видео через
+// единицы контейнера (`cqw`/`cqh`) — без замеров в JS и без скачка на ресайзе.
+//
+// Панель показывается при движении мыши и прячется сама, пока видео играет; на паузе
+// остаётся. Разметка контролов помечена `data-gesture-skip`: жесты просмотрщика (листание,
+// зум) на ней не начинаются, иначе перемотка превращалась бы в листание.
 
 /** Через сколько бездействия прячем панель во время воспроизведения. */
 const HIDE_AFTER_MS = 2500
 /** Шаг перемотки с клавиатуры. */
 const SEEK_STEP_SEC = 5
+/** Шаг громкости с клавиатуры. */
+const VOLUME_STEP = 0.1
+/** Скорости по кругу, как в Telegram: кнопка переключает на следующую. */
+const RATES = [1, 1.5, 2, 0.5] as const
 
 function mmss(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -28,12 +45,44 @@ function mmss(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+/** Доля 0…1 по горизонтали внутри элемента. */
+function ratioAt(el: HTMLElement, clientX: number): number {
+  const r = el.getBoundingClientRect()
+  return r.width > 0 ? Math.min(1, Math.max(0, (clientX - r.left) / r.width)) : 0
+}
+
+/** Ползунок перетаскиванием: захват указателя, чтобы тянуть можно было и за пределами полосы. */
+function dragHandlers(onRatio: (ratio: number) => void, onDrag?: (dragging: boolean) => void) {
+  return {
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId)
+      onDrag?.(true)
+      onRatio(ratioAt(e.currentTarget, e.clientX))
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        onRatio(ratioAt(e.currentTarget, e.clientX))
+      }
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      }
+      onDrag?.(false)
+    },
+  }
+}
+
+const iconButton =
+  'flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-white/90 transition-colors hover:text-white'
+
 export function VideoPlayer({
   src,
   autoPlay = false,
   className,
   videoClassName,
   videoStyle,
+  controlsHidden = false,
   onVideoRef,
   onLoadedMetadata,
 }: {
@@ -43,6 +92,12 @@ export function VideoPlayer({
   videoClassName?: string
   /** Трансформация самого кадра (поворот, вписывание) — панель контролов не трогает. */
   videoStyle?: CSSProperties
+  /**
+   * Спрятать панель совсем — и при наведении тоже. Нужно повёрнутому кадру: панель
+   * осталась бы горизонтальной поверх повёрнутой картинки и перекрывала бы её. Видео при
+   * этом продолжает играть; на паузе остаётся только кнопка «играть» по центру.
+   */
+  controlsHidden?: boolean
   onVideoRef?: (el: HTMLVideoElement | null) => void
   onLoadedMetadata?: () => void
 }) {
@@ -50,13 +105,22 @@ export function VideoPlayer({
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const [rate, setRate] = useState<number>(1)
   const [duration, setDuration] = useState(0)
   const [current, setCurrent] = useState(0)
+  const [buffered, setBuffered] = useState(0)
+  const [aspect, setAspect] = useState<number | null>(null)
   const [visible, setVisible] = useState(true)
   const [scrubbing, setScrubbing] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [pipSupported, setPipSupported] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const playedRef = useRef<HTMLDivElement | null>(null)
-  const trackRef = useRef<HTMLDivElement | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Каким указателем нажали на кадр: мышью клик ставит на паузу (как в Telegram), пальцем —
+  // зовёт или прячет панель, иначе на телефоне видео замирало бы от каждого касания.
+  const pointerType = useRef<string>('mouse')
 
   const attach = useCallback(
     (el: HTMLVideoElement | null): void => {
@@ -67,15 +131,35 @@ export function VideoPlayer({
   )
 
   useEffect(() => {
+    setPipSupported(typeof document !== 'undefined' && document.pictureInPictureEnabled === true)
+    const onFs = (): void => setFullscreen(document.fullscreenElement === rootRef.current)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+
+  useEffect(() => {
     if (!video) return
     const onMeta = (): void => {
       setDuration(Number.isFinite(video.duration) ? video.duration : 0)
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setAspect(video.videoWidth / video.videoHeight)
+      }
       onLoadedMetadata?.()
     }
     const onTime = (): void => setCurrent(video.currentTime)
     const onPlay = (): void => setPlaying(true)
     const onPause = (): void => setPlaying(false)
-    const onVolume = (): void => setMuted(video.muted)
+    const onVolume = (): void => {
+      setMuted(video.muted)
+      setVolume(video.volume)
+    }
+    const onRate = (): void => setRate(video.playbackRate)
+    const onProgress = (): void => {
+      const dur = video.duration
+      const ranges = video.buffered
+      if (!Number.isFinite(dur) || dur <= 0 || ranges.length === 0) return
+      setBuffered(Math.min(1, ranges.end(ranges.length - 1) / dur))
+    }
     video.addEventListener('loadedmetadata', onMeta)
     video.addEventListener('durationchange', onMeta)
     video.addEventListener('timeupdate', onTime)
@@ -83,6 +167,8 @@ export function VideoPlayer({
     video.addEventListener('pause', onPause)
     video.addEventListener('ended', onPause)
     video.addEventListener('volumechange', onVolume)
+    video.addEventListener('ratechange', onRate)
+    video.addEventListener('progress', onProgress)
     return () => {
       video.removeEventListener('loadedmetadata', onMeta)
       video.removeEventListener('durationchange', onMeta)
@@ -91,6 +177,8 @@ export function VideoPlayer({
       video.removeEventListener('pause', onPause)
       video.removeEventListener('ended', onPause)
       video.removeEventListener('volumechange', onVolume)
+      video.removeEventListener('ratechange', onRate)
+      video.removeEventListener('progress', onProgress)
     }
   }, [video, onLoadedMetadata])
 
@@ -138,14 +226,11 @@ export function VideoPlayer({
     keepVisible()
   }, [video, keepVisible])
 
-  const seekTo = useCallback(
-    (clientX: number): void => {
-      const track = trackRef.current
-      if (!video || !track) return
+  const seekRatio = useCallback(
+    (ratio: number): void => {
+      if (!video) return
       const dur = video.duration
       if (!Number.isFinite(dur) || dur <= 0) return
-      const r = track.getBoundingClientRect()
-      const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width))
       video.currentTime = ratio * dur
       setCurrent(video.currentTime)
       if (playedRef.current) playedRef.current.style.width = `${ratio * 100}%`
@@ -165,129 +250,276 @@ export function VideoPlayer({
     [video, keepVisible],
   )
 
+  const setVolumeRatio = useCallback(
+    (ratio: number): void => {
+      if (!video) return
+      video.volume = ratio
+      // Потянули громкость вверх — звук включается, до нуля — выключается, как в Telegram.
+      video.muted = ratio === 0
+    },
+    [video],
+  )
+
+  const toggleFullscreen = useCallback((): void => {
+    const root = rootRef.current
+    if (!root) return
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined)
+    } else if (root.requestFullscreen) {
+      void root.requestFullscreen().catch(() => undefined)
+    } else {
+      // iOS Safari не умеет полноэкранный режим для div — только для самого видео.
+      const legacy = video as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
+      legacy?.webkitEnterFullscreen?.()
+    }
+  }, [video])
+
+  const togglePip = useCallback((): void => {
+    if (!video) return
+    if (document.pictureInPictureElement) {
+      void document.exitPictureInPicture().catch(() => undefined)
+    } else {
+      void video.requestPictureInPicture().catch(() => undefined)
+    }
+  }, [video])
+
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0
+  const shown = visible && !controlsHidden
+  const volumeLevel = muted ? 0 : volume
+  const VolumeIcon = volumeLevel === 0 ? VolumeX : volumeLevel < 0.5 ? Volume1 : Volume2
+
+  // Рамка по пропорциям видео: вписана в область, как `object-contain`, но это настоящий
+  // блок — на нём и лежит панель. До метаданных пропорций нет — рамка во всю область.
+  const frameStyle: CSSProperties = aspect
+    ? { width: `min(100cqw, 100cqh * ${aspect})`, aspectRatio: String(aspect) }
+    : { width: '100%', height: '100%' }
 
   return (
-    <div className={cn('relative flex h-full w-full items-center justify-center', className)}>
-      <video
-        ref={attach}
-        src={src}
-        autoPlay={autoPlay}
-        playsInline
-        preload="metadata"
-        className={cn('h-full max-h-full w-auto max-w-full object-contain', videoClassName)}
-        style={videoStyle}
-        onClick={(e) => {
-          // Тап по кадру не закрывает просмотрщик — он зовёт панель обратно.
-          e.stopPropagation()
-          if (visible && playing) setVisible(false)
-          else keepVisible()
-        }}
-      />
-
-      {/* Крупная кнопка по центру — пока видео стоит, играть его главное действие */}
-      {!playing && (
-        <button
-          type="button"
-          data-gesture-skip="true"
-          aria-label={t('play')}
-          onClick={(e) => {
-            e.stopPropagation()
-            toggle()
-          }}
-          className="absolute flex size-16 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
-        >
-          <Play className="size-8 translate-x-0.5" aria-hidden />
-        </button>
+    <div
+      ref={rootRef}
+      style={{ containerType: 'size' }}
+      onPointerMove={(e) => {
+        if (e.pointerType === 'mouse') keepVisible()
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse' && playing && !scrubbing) setVisible(false)
+      }}
+      className={cn(
+        'relative flex h-full w-full items-center justify-center',
+        fullscreen && 'bg-black',
+        // Мышь без движения во время воспроизведения прячется вместе с панелью. У кадра без
+        // панели (повёрнут) прятать нечего — курсор остаётся.
+        !visible && !controlsHidden && playing && 'cursor-none',
+        className,
       )}
+    >
+      <div className="relative" style={frameStyle}>
+        <video
+          ref={attach}
+          src={src}
+          autoPlay={autoPlay}
+          playsInline
+          preload="metadata"
+          className={cn('size-full object-contain', videoClassName)}
+          style={videoStyle}
+          onPointerDown={(e) => {
+            pointerType.current = e.pointerType
+          }}
+          onClick={(e) => {
+            // Клик по кадру не закрывает просмотрщик.
+            e.stopPropagation()
+            if (pointerType.current === 'mouse') toggle()
+            else if (visible && playing) setVisible(false)
+            else keepVisible()
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            toggleFullscreen()
+          }}
+        />
 
-      <div
-        data-gesture-skip="true"
-        onClick={(e) => e.stopPropagation()}
-        className={cn(
-          'absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-8 transition-opacity duration-200',
-          visible ? 'opacity-100' : 'pointer-events-none opacity-0',
+        {/* Крупная кнопка по центру — пока видео стоит, играть его главное действие.
+            Остаётся и у повёрнутого кадра: без панели это единственный способ продолжить. */}
+        {!playing && (
+          <button
+            type="button"
+            data-gesture-skip="true"
+            aria-label={t('play')}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggle()
+            }}
+            className="absolute top-1/2 left-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
+          >
+            <Play className="size-8 translate-x-0.5 fill-current" aria-hidden />
+          </button>
         )}
-      >
-        <button
-          type="button"
-          aria-label={playing ? t('pause') : t('play')}
-          onClick={toggle}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          {playing ? (
-            <Pause className="size-5" aria-hidden />
-          ) : (
-            <Play className="size-5 translate-x-px" aria-hidden />
-          )}
-        </button>
-
-        <span className="shrink-0 text-xs text-white/80 tabular-nums">{mmss(current)}</span>
 
         <div
-          ref={trackRef}
-          role="slider"
-          tabIndex={0}
-          aria-label={t('seek')}
-          aria-valuemin={0}
-          aria-valuemax={Math.round(duration)}
-          aria-valuenow={Math.round(current)}
-          aria-valuetext={mmss(current)}
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId)
-            setScrubbing(true)
-            seekTo(e.clientX)
-          }}
-          onPointerMove={(e) => {
-            if (scrubbing) seekTo(e.clientX)
-          }}
-          onPointerUp={(e) => {
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-              e.currentTarget.releasePointerCapture(e.pointerId)
-            }
-            setScrubbing(false)
-          }}
-          onKeyDown={(e) => {
-            // Стрелки здесь перематывают, а не листают медиа: гасим их для просмотрщика.
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-              e.stopPropagation()
-              e.preventDefault()
-              nudge(e.key === 'ArrowLeft' ? -SEEK_STEP_SEC : SEEK_STEP_SEC)
-            } else if (e.key === ' ' || e.key === 'Enter') {
-              e.stopPropagation()
-              e.preventDefault()
-              toggle()
-            }
-          }}
-          className="group flex min-w-0 flex-1 cursor-pointer touch-none items-center py-3 outline-none"
+          data-gesture-skip="true"
+          onClick={(e) => e.stopPropagation()}
+          aria-hidden={!shown}
+          className={cn(
+            'absolute inset-x-0 bottom-0 flex flex-col bg-gradient-to-t from-black/75 via-black/35 to-transparent px-3 pt-10 pb-1.5 text-white transition-opacity duration-200',
+            shown ? 'opacity-100' : 'pointer-events-none opacity-0',
+          )}
         >
-          <div className="relative h-1 w-full rounded-full bg-white/25">
-            <div
-              ref={playedRef}
-              className="absolute inset-y-0 left-0 rounded-full bg-white"
-              style={{ width: `${progress}%` }}
-            />
+          {/* Полоса прогресса во всю ширину: сыгранное — акцентом, загруженное — светлее.
+              Зона нажатия выше самой полосы, при наведении полоса толще и видна ручка. */}
+          <div
+            role="slider"
+            tabIndex={shown ? 0 : -1}
+            aria-label={t('seek')}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(current)}
+            aria-valuetext={`${mmss(current)} / ${mmss(duration)}`}
+            {...dragHandlers(seekRatio, setScrubbing)}
+            onKeyDown={(e) => {
+              // Стрелки здесь перематывают, а не листают медиа: гасим их для просмотрщика.
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.stopPropagation()
+                e.preventDefault()
+                nudge(e.key === 'ArrowLeft' ? -SEEK_STEP_SEC : SEEK_STEP_SEC)
+              } else if (e.key === ' ' || e.key === 'Enter') {
+                e.stopPropagation()
+                e.preventDefault()
+                toggle()
+              }
+            }}
+            className="group/seek flex cursor-pointer touch-none items-center py-2 outline-none"
+          >
+            <div className="relative h-1 w-full rounded-full bg-white/25 transition-[height] group-hover/seek:h-1.5 group-focus-visible/seek:h-1.5">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-white/35"
+                style={{ width: `${buffered * 100}%` }}
+              />
+              <div
+                ref={playedRef}
+                className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                style={{ width: `${progress}%` }}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    'absolute top-1/2 -right-1.5 size-3 -translate-y-1/2 rounded-full bg-primary opacity-0 shadow transition-opacity group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100',
+                    scrubbing && 'opacity-100',
+                  )}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              tabIndex={shown ? 0 : -1}
+              aria-label={playing ? t('pause') : t('play')}
+              onClick={toggle}
+              className={iconButton}
+            >
+              {playing ? (
+                <Pause className="size-5 fill-current" aria-hidden />
+              ) : (
+                <Play className="size-5 translate-x-px fill-current" aria-hidden />
+              )}
+            </button>
+
+            {/* Звук: кнопка выключает, а регулятор выезжает при наведении — как в Telegram. */}
+            <div className="group/vol flex items-center">
+              <button
+                type="button"
+                tabIndex={shown ? 0 : -1}
+                aria-label={muted ? t('unmute') : t('mute')}
+                onClick={() => {
+                  if (!video) return
+                  video.muted = !video.muted
+                  // Включили звук, а громкость стояла на нуле — иначе кнопка ничего бы не дала.
+                  if (!video.muted && video.volume === 0) video.volume = 1
+                  keepVisible()
+                }}
+                className={iconButton}
+              >
+                <VolumeIcon className="size-5" aria-hidden />
+              </button>
+              <div
+                role="slider"
+                tabIndex={shown ? 0 : -1}
+                aria-label={t('volume')}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(volumeLevel * 100)}
+                {...dragHandlers(setVolumeRatio)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    const delta = e.key === 'ArrowLeft' ? -VOLUME_STEP : VOLUME_STEP
+                    setVolumeRatio(Math.min(1, Math.max(0, volumeLevel + delta)))
+                  }
+                }}
+                className="flex w-0 cursor-pointer touch-none items-center overflow-hidden py-2 opacity-0 transition-all duration-200 outline-none group-hover/vol:mx-1 group-hover/vol:w-16 group-hover/vol:opacity-100 focus-visible:mx-1 focus-visible:w-16 focus-visible:opacity-100"
+              >
+                <div className="relative h-1 w-full rounded-full bg-white/25">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full bg-white"
+                    style={{ width: `${volumeLevel * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <span className="ml-1 shrink-0 text-xs text-white/90 tabular-nums">
+              {mmss(current)} / {mmss(duration)}
+            </span>
+
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                tabIndex={shown ? 0 : -1}
+                aria-label={t('speed')}
+                title={t('speed')}
+                onClick={() => {
+                  if (!video) return
+                  const i = RATES.indexOf(rate as (typeof RATES)[number])
+                  video.playbackRate = RATES[(i + 1) % RATES.length] ?? 1
+                  keepVisible()
+                }}
+                className={cn(iconButton, 'w-auto px-1')}
+              >
+                <span className="rounded border-[1.5px] border-current px-1 text-[11px] leading-4 font-bold tabular-nums">
+                  {rate}X
+                </span>
+              </button>
+              {pipSupported && (
+                <button
+                  type="button"
+                  tabIndex={shown ? 0 : -1}
+                  aria-label={t('pip')}
+                  title={t('pip')}
+                  onClick={togglePip}
+                  className={iconButton}
+                >
+                  <PictureInPicture2 className="size-5" aria-hidden />
+                </button>
+              )}
+              <button
+                type="button"
+                tabIndex={shown ? 0 : -1}
+                aria-label={fullscreen ? t('exitFullscreen') : t('fullscreen')}
+                title={fullscreen ? t('exitFullscreen') : t('fullscreen')}
+                onClick={toggleFullscreen}
+                className={iconButton}
+              >
+                {fullscreen ? (
+                  <Minimize2 className="size-5" aria-hidden />
+                ) : (
+                  <Maximize2 className="size-5" aria-hidden />
+                )}
+              </button>
+            </div>
           </div>
         </div>
-
-        <span className="shrink-0 text-xs text-white/80 tabular-nums">{mmss(duration)}</span>
-
-        <button
-          type="button"
-          aria-label={muted ? t('unmute') : t('mute')}
-          onClick={() => {
-            if (!video) return
-            video.muted = !video.muted
-            keepVisible()
-          }}
-          className="flex size-9 shrink-0 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          {muted ? (
-            <VolumeX className="size-5" aria-hidden />
-          ) : (
-            <Volume2 className="size-5" aria-hidden />
-          )}
-        </button>
       </div>
     </div>
   )

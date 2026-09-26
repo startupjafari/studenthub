@@ -210,6 +210,9 @@ export function MediaViewer({
                 onVideoRef={setMedia}
                 onLoadedMetadata={measureFit}
                 videoStyle={transform}
+                // Повёрнутому кадру панель не нужна: она осталась бы горизонтальной поверх
+                // повёрнутой картинки. Воспроизведение поворот не прерывает.
+                controlsHidden={rotation % 360 !== 0}
                 videoClassName="rounded-lg transition-transform"
               />
             ) : (
