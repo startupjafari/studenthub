@@ -454,7 +454,9 @@ function AlbumRowInput({
   saveLabel: string
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-lg bg-muted/60 px-1.5 py-1">
+    <div className="flex min-w-0 items-center gap-0.5 rounded-lg bg-muted/60 px-1.5 py-1">
+      {/* w-0 + flex-1: у поля своя ширина «на 20 знаков», и без обнуления оно не
+          ужималось под узкую колонку фильтров. */}
       <input
         autoFocus
         value={value}
@@ -467,7 +469,7 @@ function AlbumRowInput({
           }
         }}
         placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
+        className="w-0 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
       />
       <button
         type="button"
