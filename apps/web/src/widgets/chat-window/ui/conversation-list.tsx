@@ -333,7 +333,7 @@ export function ConversationList({
           // Единый поиск: по названиям чатов, сообщениям внутри чатов и людям.
           <div className="relative min-w-0 flex-1 duration-200 animate-in fade-in slide-in-from-right-2">
             <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <input
@@ -352,15 +352,17 @@ export function ConversationList({
                 if (!searchRaw) setSearchOpen(false)
               }}
               placeholder={t('searchAll')}
-              className="h-10 w-full rounded-lg border border-input bg-background pl-8 pr-8 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+              className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-10 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
             />
+            {/* Крестик — кнопка 32×32, а не 20×20 по размеру значка: в маленький квадрат
+                у края поля промахивались и попадали в само поле. */}
             <button
               type="button"
               aria-label={t('clearSearch')}
               onClick={closeSearch}
-              className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+              className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <X className="size-4" aria-hidden />
+              <X className="size-5" aria-hidden />
             </button>
           </div>
         ) : (
