@@ -276,6 +276,17 @@ export function useMediaGestures({
       else if (sc > 1) mode = 'zoom'
     }
 
+    const captureAll = (): void => {
+      for (const id of points.keys()) {
+        if (surface.hasPointerCapture(id)) continue
+        try {
+          surface.setPointerCapture(id)
+        } catch {
+          // Указатель уже отпущен — захватывать нечего.
+        }
+      }
+    }
+
     const onPointerDown = (e: PointerEvent): void => {
       if (e.pointerType === 'mouse' && e.button !== 0) return
       if ((e.target as Element | null)?.closest?.(`[${SKIP_ATTR}]`)) return
@@ -296,7 +307,11 @@ export function useMediaGestures({
         measure()
       }
       points.set(e.pointerId, { x: e.clientX, y: e.clientY })
-      surface.setPointerCapture(e.pointerId)
+      // Указатель не захватываем сразу: после захвата браузер шлёт `click` самой
+      // поверхности, а не элементу под пальцем, — клик по видео не доходил до плеера
+      // (пауза) и всплывал к фону, который закрывает просмотрщик. Захват — когда жест
+      // действительно начался: второй палец здесь или сдвиг дальше порога в onPointerMove.
+      if (points.size > 1) captureAll()
       grab()
     }
 
@@ -312,7 +327,12 @@ export function useMediaGestures({
         historyX.shift()
         historyY.shift()
       }
-      if (!moved && distance(p, startPoint) > MOVE_SLOP) moved = true
+      if (!moved && distance(p, startPoint) > MOVE_SLOP) {
+        moved = true
+        // Жест пошёл — теперь указатель наш: листание и панорамирование не должны
+        // обрываться, когда палец выходит за край кадра.
+        captureAll()
+      }
 
       // Намерение распознаём с первого движения и дальше не пересматриваем: иначе кадр
       // на полпути превращался бы то в листание, то в прокрутку.
