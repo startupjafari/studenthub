@@ -535,8 +535,10 @@ function VideoTile({
           className="aspect-video w-full bg-neutral-900 object-cover"
         />
         <span className="absolute inset-0 flex items-center justify-center bg-black/15 transition-colors group-hover:bg-black/30">
-          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-foreground">
-            <Play className="size-5 fill-current" aria-hidden />
+          {/* Цвет значка — постоянный тёмный, а не `text-foreground`: кружок белый в обеих
+              темах, и в тёмной «▶» цвета текста сливался с ним. */}
+          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-neutral-900">
+            <Play className="size-5 translate-x-0.5 fill-current" aria-hidden />
           </span>
         </span>
         {duration !== null && (
