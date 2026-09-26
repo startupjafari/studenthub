@@ -460,6 +460,14 @@ const ru = {
   complaintSwipeDismissed: 'Отмечено: нарушения нет',
   complaintSwipeTaken: 'Жалоба у вас в работе',
   complaintSwipeFailed: 'Не получилось — жалоба вернулась в очередь',
+  // ── Сводка: главная карточка ──
+  heroOkTitle: 'Всё в порядке',
+  heroOkText: 'Сервисы отвечают, упавших задач нет',
+  heroProblemsTitle: 'Есть проблемы: {count}',
+  heroHealthUnknown: 'Проверка сервисов не ответила',
+  heroServiceDown: '{name}: не отвечает',
+  heroQueueFailed: 'Упавших задач в очередях: {count}',
+  heroChecked: 'Проверено в {time}',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -909,6 +917,14 @@ const kk: Record<MessageKey, string> = {
   complaintSwipeDismissed: 'Белгіленді: бұзушылық жоқ',
   complaintSwipeTaken: 'Шағым сізде жұмыста',
   complaintSwipeFailed: 'Болмады — шағым кезекке қайтты',
+  // ── Сводка: главная карточка ──
+  heroOkTitle: 'Бәрі жақсы',
+  heroOkText: 'Сервистер жауап береді, құлаған тапсырма жоқ',
+  heroProblemsTitle: 'Мәселелер бар: {count}',
+  heroHealthUnknown: 'Сервистерді тексеру жауап бермеді',
+  heroServiceDown: '{name}: жауап бермейді',
+  heroQueueFailed: 'Кезектердегі құлаған тапсырмалар: {count}',
+  heroChecked: '{time} тексерілді',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1355,6 +1371,14 @@ const en: Record<MessageKey, string> = {
   complaintSwipeDismissed: 'Marked: no violation',
   complaintSwipeTaken: 'The report is yours now',
   complaintSwipeFailed: "Didn't work — the report is back in the queue",
+  // ── Сводка: главная карточка ──
+  heroOkTitle: 'All good',
+  heroOkText: 'Services respond, no failed jobs',
+  heroProblemsTitle: 'Problems: {count}',
+  heroHealthUnknown: 'The service check did not respond',
+  heroServiceDown: '{name}: not responding',
+  heroQueueFailed: 'Failed jobs in queues: {count}',
+  heroChecked: 'Checked at {time}',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

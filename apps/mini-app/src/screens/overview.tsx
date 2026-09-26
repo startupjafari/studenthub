@@ -48,6 +48,8 @@ type State =
       overview: PlatformOverview
       health: HealthReport | null
       extras: Extras
+      /** Когда сводка собрана: «всё в порядке» без времени проверки ничего не утверждает. */
+      checkedAt: string
     }
   | { status: 'error' }
 
@@ -87,6 +89,7 @@ export function OverviewScreen() {
         overview,
         health,
         extras: { invites, universities, actions, queues, storage, changes, activity },
+        checkedAt: new Date().toISOString(),
       })
     } catch {
       setState({ status: 'error' })
@@ -98,11 +101,17 @@ export function OverviewScreen() {
   }, [load])
 
   if (state.status === 'loading') {
+    // Скелетон главной карточки: её высота известна, и сводка не прыгает, когда приезжает.
     return (
-      <section className="card">
-        <h2>{t('overviewTitle')}</h2>
-        <p className="hint">{t('controlReading')}</p>
-      </section>
+      <div className="screen">
+        <section className="hero" aria-hidden="true">
+          <span className="hero-icon skeleton" />
+          <span className="hero-body">
+            <span className="skeleton skeleton-title" />
+            <span className="skeleton skeleton-line" />
+          </span>
+        </section>
+      </div>
     )
   }
 
@@ -120,26 +129,14 @@ export function OverviewScreen() {
 
   const { overview, health, extras } = state
 
+  // Те же поля и промежутки, что у пульта рядом: без обёртки карточки сводки ложились
+  // вплотную к краям экрана и друг к другу.
   return (
-    <>
-      {/* Живость сервисов — первым блоком. Сводку открывают утром с одним вопросом:
-          всё ли работает. Внизу, под тепловой картой и журналом изменений, ответ лежал
-          дальше, чем этот вопрос задают. */}
-      {health && (
-        <section className="card">
-          <h2>{t('healthTitle')}</h2>
-          <div className="list">
-            {(Object.keys(HEALTH_LABEL) as (keyof HealthReport)[]).map((key) => (
-              <div className="toggle-row" key={key}>
-                <span>{t(HEALTH_LABEL[key])}</span>
-                <span className={health[key] === 'ok' ? 'toggle-state' : 'toggle-state off'}>
-                  {health[key] === 'ok' ? t('healthOk') : t('healthFail')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+    <div className="screen">
+      {/* Ответ на утренний вопрос «всё ли в порядке» — одной карточкой наверху, до любых
+          чисел. Раньше его приходилось собирать из трёх мест: живость сервисов, очереди
+          задач внизу и журнал. Теперь вердикт и его причины — здесь, подробности — ниже. */}
+      <HealthHero health={health} queues={extras.queues} checkedAt={state.checkedAt} />
 
       <section className="card">
         <h2>{t('overviewTitle')}</h2>
@@ -268,7 +265,56 @@ export function OverviewScreen() {
           </div>
         </Fold>
       )}
-    </>
+    </div>
+  )
+}
+
+/**
+ * Главная карточка сводки: зелёная «всё в порядке» или красная со списком проблем.
+ *
+ * Проблема — только то, что требует действия сейчас: сервис не отвечает, задачи в очереди
+ * упали, проверка живости не ответила вовсе. Длинная очередь жалоб проблемой не считается:
+ * она не пустеет никогда, и красная карточка каждое утро научила бы её не замечать.
+ */
+function HealthHero({
+  health,
+  queues,
+  checkedAt,
+}: {
+  health: HealthReport | null
+  queues: QueueCount[]
+  checkedAt: string
+}) {
+  const problems: string[] = []
+  if (!health) problems.push(t('heroHealthUnknown'))
+  else {
+    for (const key of Object.keys(HEALTH_LABEL) as (keyof HealthReport)[]) {
+      if (health[key] !== 'ok') problems.push(t('heroServiceDown', { name: t(HEALTH_LABEL[key]) }))
+    }
+  }
+  const failed = queues.reduce((sum, queue) => sum + queue.failed, 0)
+  if (failed > 0) problems.push(t('heroQueueFailed', { count: failed }))
+  const ok = problems.length === 0
+
+  return (
+    <section className={`hero ${ok ? 'hero-ok' : 'hero-bad'}`} role="status">
+      <span className="hero-icon" aria-hidden>
+        {ok ? '✓' : '!'}
+      </span>
+      <span className="hero-body">
+        <h2>{ok ? t('heroOkTitle') : t('heroProblemsTitle', { count: problems.length })}</h2>
+        {ok ? (
+          <span className="hint">{t('heroOkText')}</span>
+        ) : (
+          <ul className="hero-list">
+            {problems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+        )}
+        <span className="hint">{t('heroChecked', { time: formatShortTime(checkedAt) })}</span>
+      </span>
+    </section>
   )
 }
 

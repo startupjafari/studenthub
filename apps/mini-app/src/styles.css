@@ -1800,3 +1800,66 @@ body {
     transition: none;
   }
 }
+
+/*
+ * Главная карточка сводки. Цвет вердикта — подложкой и кружком, а не текстом: вердикт
+ * считывается с расстояния вытянутой руки, до того как прочитан. Подложка — тон поверх
+ * фона секции, а не заливка: карточка остаётся карточкой темы Telegram.
+ */
+.hero {
+  --hero-tone: var(--tint-gray);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--hero-tone) 12%, var(--tg-theme-section-bg-color));
+  box-shadow: var(--shadow-rest);
+}
+
+.hero-ok {
+  --hero-tone: var(--tint-green);
+}
+
+.hero-bad {
+  --hero-tone: var(--tint-red);
+}
+
+.hero-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--hero-tone);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.hero-body h2 {
+  margin: 0;
+  font-size: var(--text-head);
+  letter-spacing: var(--track-head);
+}
+
+.hero-list {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .hero {
+    background: var(--tg-theme-section-bg-color);
+  }
+}
