@@ -13,12 +13,24 @@ vi.mock('../api/complaints', async (orig) => {
   }
 })
 vi.mock('../telegram/webapp', () => ({
-  haptic: { tap: vi.fn(), select: vi.fn(), success: vi.fn() },
+  haptic: {
+    tap: vi.fn(),
+    snap: vi.fn(),
+    select: vi.fn(),
+    success: vi.fn(),
+    warning: vi.fn(),
+    error: vi.fn(),
+  },
   confirmAction: vi.fn().mockResolvedValue(true),
+  hasBottomButtons: () => false,
   webApp: () => null,
   isTelegram: () => false,
 }))
-vi.mock('../telegram/use-telegram', () => ({ useBackButton: vi.fn(), useMainButton: vi.fn() }))
+vi.mock('../telegram/use-telegram', () => ({
+  useBackButton: vi.fn(),
+  useMainButton: vi.fn(),
+  useSecondaryButton: vi.fn(),
+}))
 
 import { fetchComplaints, fetchResolutionMedian } from '../api/complaints'
 import { ComplaintsScreen } from './complaints'

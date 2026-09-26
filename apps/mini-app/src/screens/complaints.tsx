@@ -59,6 +59,11 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   // Открытая карточка. Возврат из неё перезапрашивает очередь: за время разбора её мог
   // изменить второй модератор, а разобранной жалобы в ней уже нет.
   const [openId, setOpenId] = useState<string | null>(initialId ?? null)
+  // Разбор подряд: порядок очереди на момент входа в первую карточку и сколько разобрано.
+  // Снимок, а не живой список: пока модератор решает, второй мог разобрать соседнюю
+  // жалобу, и живой порядок сдвигался бы у него под пальцем. Жалоба, которую уже
+  // разобрал кто-то другой, ответит отказом сервера — это видно на её карточке.
+  const [triage, setTriage] = useState<{ ids: string[]; done: number } | null>(null)
   // Медиана времени разбора. Живёт рядом с разобранными: очередь отвечает на «сколько
   // осталось», а медиана — на «быстро ли команда с этим справляется». Считается за
   // месяц по всем жалобам, поэтому фильтр приоритета её не трогает.
@@ -94,14 +99,47 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   // открытием приложения.
   const { pull, ready, progress } = usePullToRefresh(load)
 
+  const open = (id: string): void => {
+    // Подряд разбирают только очередь: у разобранных решения уже приняты.
+    if (tab === 'open' && state.status === 'ready') {
+      setTriage({ ids: state.page.items.map((item) => item.id), done: 0 })
+    }
+    setOpenId(id)
+  }
+
+  const backToList = (): void => {
+    setOpenId(null)
+    setTriage(null)
+    void load()
+  }
+
   if (openId !== null) {
+    const ids = triage?.ids ?? []
+    const at = ids.indexOf(openId)
+    const inTriage = triage !== null && at >= 0
+
+    // Следующая после решения: разобранная уходит из снимка, и на её месте оказывается
+    // следующая. Пропущенная остаётся — к ней можно вернуться из списка.
+    const advance = (resolved: boolean): void => {
+      if (!triage || at < 0) return backToList()
+      const rest = resolved ? ids.filter((value) => value !== openId) : ids
+      const next = resolved ? rest[at] : ids[at + 1]
+      if (!next) return backToList()
+      setTriage({ ids: rest, done: triage.done + (resolved ? 1 : 0) })
+      setOpenId(next)
+      window.scrollTo({ top: 0 })
+    }
+
     return (
       <ComplaintScreen
+        // key — чтобы следующая жалоба открылась с чистого листа: комментарий, код и срок
+        // блокировки от прошлой не должны перейти на неё.
+        key={openId}
         id={openId}
-        onBack={() => {
-          setOpenId(null)
-          void load()
-        }}
+        onBack={backToList}
+        onDone={() => advance(true)}
+        onSkip={inTriage && at < ids.length - 1 ? () => advance(false) : undefined}
+        triage={inTriage ? { done: triage.done, left: ids.length - at } : undefined}
       />
     )
   }
@@ -172,7 +210,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
       )}
 
       {state.status === 'ready' && state.page.items.length > 0 && (
-        <ComplaintList items={state.page.items} onOpen={setOpenId} />
+        <ComplaintList items={state.page.items} onOpen={open} />
       )}
     </div>
   )

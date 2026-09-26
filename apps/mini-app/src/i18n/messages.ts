@@ -451,6 +451,10 @@ const ru = {
   settingsSubtitle: 'Этого телефона',
   settingsFromTelegramTitle: 'Язык и тема',
   settingsFromTelegram: 'Берутся из Telegram: меняются в его настройках и сразу доходят сюда.',
+  // ── Разбор подряд ──
+  complaintSkip: 'Пропустить',
+  complaintTriage: 'Разобрано {done} · осталось {left}',
+  complaintMoreMeasures: 'Другие меры',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -891,6 +895,10 @@ const kk: Record<MessageKey, string> = {
   settingsFromTelegramTitle: 'Тіл мен тақырып',
   settingsFromTelegram:
     'Telegram-нан алынады: оның баптауларында өзгереді және бірден осында келеді.',
+  // ── Разбор подряд ──
+  complaintSkip: 'Өткізіп жіберу',
+  complaintTriage: 'Қаралды {done} · қалды {left}',
+  complaintMoreMeasures: 'Басқа шаралар',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1328,6 +1336,10 @@ const en: Record<MessageKey, string> = {
   settingsFromTelegramTitle: 'Language and theme',
   settingsFromTelegram:
     'Taken from Telegram: change them in its settings and they apply here right away.',
+  // ── Разбор подряд ──
+  complaintSkip: 'Skip',
+  complaintTriage: 'Done {done} · {left} left',
+  complaintMoreMeasures: 'Other measures',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

@@ -1659,3 +1659,36 @@ body {
   align-items: center;
   gap: 10px;
 }
+
+/*
+ * Разбор подряд: строка «Разобрано 3 · осталось 9» с «Пропустить» и тонкая полоса под ней.
+ * Полоса — акцентом темы: это ход работы, а не тревога.
+ */
+.triage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.triage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.triage-bar {
+  display: block;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 22%, transparent);
+  overflow: hidden;
+}
+
+.triage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tg-theme-button-color);
+  transition: width 240ms var(--ease-out);
+}

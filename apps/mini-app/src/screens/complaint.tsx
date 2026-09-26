@@ -10,8 +10,8 @@ import {
   type ResolveAction,
 } from '../api/complaints'
 import { ApiError } from '../api/client'
-import { confirmAction, haptic } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { confirmAction, haptic, hasBottomButtons } from '../telegram/webapp'
+import { useBackButton, useMainButton, useSecondaryButton } from '../telegram/use-telegram'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { t } from '../i18n'
@@ -20,9 +20,14 @@ import { PersonSummary } from './person-summary'
 
 // Карточка разбора жалобы: прочитать целиком и принять решение с телефона.
 //
-// Решений три, поэтому MainButton здесь не используется: она одна, а выбор между «снять
-// контент», «заблокировать» и «отклонить» — это и есть работа модератора. Кнопки стоят
-// в потоке, разрушительные отличаются цветом.
+// Два самых частых решения — на нативных кнопках Telegram внизу, у большого пальца:
+// «Нарушения нет» главной и «Снять контент» второй, красной (у жалобы на человека вместо
+// неё — «Предупредить»: контента, который можно снять, там нет). Блокировка остаётся в
+// карточке: ей нужны срок и код, а их на кнопку не посадить. У клиентов без второй кнопки
+// (до Bot API 7.10) все решения, как и раньше, стоят в потоке экрана.
+//
+// После решения открывается следующая жалоба очереди, а не список: очередь разбирают
+// подряд, и возврат в список после каждой жалобы превращал разбор в хождение туда-обратно.
 
 const TARGET_KEY = {
   USER: 'targetUser',
@@ -65,7 +70,27 @@ type Loaded = ComplaintCard
 
 type State = { status: 'loading' } | { status: 'ready'; complaint: Loaded } | { status: 'error' }
 
-export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void }) {
+/** Разбор подряд: сколько уже разобрано в этом заходе и сколько осталось вместе с текущей. */
+export interface TriageProgress {
+  done: number
+  left: number
+}
+
+export function ComplaintScreen({
+  id,
+  onBack,
+  onDone = onBack,
+  onSkip,
+  triage,
+}: {
+  id: string
+  onBack: () => void
+  /** Решение принято — куда дальше. По умолчанию назад в очередь. */
+  onDone?: () => void
+  /** Перейти к следующей жалобе, не решая эту. Нет — последняя в очереди. */
+  onSkip?: () => void
+  triage?: TriageProgress
+}) {
   const [state, setState] = useState<State>({ status: 'loading' })
   const [context, setContext] = useState<ComplaintMessage[] | 'error' | null>(null)
   const [comment, setComment] = useState('')
@@ -76,6 +101,8 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   const [blockDays, setBlockDays] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Один раз: версия клиента за время жизни экрана не меняется.
+  const [native] = useState(hasBottomButtons)
 
   useBackButton(onBack)
 
@@ -104,9 +131,13 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
   }, [load])
 
   const decide = useCallback(
-    async (action: ResolveAction, question: string) => {
+    async (
+      action: ResolveAction,
+      question: string,
+      confirm?: { ok?: string; destructive?: boolean },
+    ) => {
       if (busy) return
-      if (!(await confirmAction(question))) return
+      if (!(await confirmAction(question, confirm))) return
 
       setBusy(true)
       setError(null)
@@ -119,9 +150,9 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
           blockDays: action === 'BLOCK_USER' && blockDays > 0 ? blockDays : undefined,
         })
         haptic.success()
-        // Возвращаемся в очередь: разобранной жалобы в ней уже нет, и оставаться
-        // на карточке, которая больше ничего не ждёт, незачем.
-        onBack()
+        // Дальше — следующая жалоба очереди (или сама очередь, если эта была последней):
+        // оставаться на карточке, которая больше ничего не ждёт, незачем.
+        onDone()
       } catch (err) {
         // Текст от сервера: он знает, почему нельзя (например, «жалоба уже обработана»
         // другим модератором), а выдумывать свою формулировку значило бы врать.
@@ -130,7 +161,7 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         setBusy(false)
       }
     },
-    [applyAll, blockDays, busy, code, comment, id, onBack],
+    [applyAll, blockDays, busy, code, comment, id, onDone],
   )
 
   const reopen = useCallback(async () => {
@@ -147,6 +178,31 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
       setBusy(false)
     }
   }, [id, onBack])
+
+  const pending =
+    state.status === 'ready' &&
+    (state.complaint.status === 'PENDING' || state.complaint.status === 'REVIEWING')
+  const onUser = state.status === 'ready' && state.complaint.targetType === 'USER'
+
+  const dismiss = (): void =>
+    void decide('DISMISS', t('complaintConfirmDismiss'), { ok: t('complaintDismiss') })
+  const deleteContent = (): void =>
+    void decide('DELETE_CONTENT', t('complaintConfirmDelete'), {
+      destructive: true,
+      ok: t('complaintDeleteContent'),
+    })
+  const warn = (): void =>
+    void decide('WARN_USER', t('complaintConfirmWarn'), { ok: t('complaintWarnUser') })
+
+  // Хуки нижних кнопок стоят до ранних выходов: на загрузке и отказе кнопок нет (текст
+  // null), но порядок хуков обязан быть одним и тем же при каждой отрисовке.
+  useMainButton(native && pending ? t('complaintDismiss') : null, dismiss, { busy })
+  useSecondaryButton(
+    native && pending ? (onUser ? t('complaintWarnUser') : t('complaintDeleteContent')) : null,
+    onUser ? warn : deleteContent,
+    // Слева от главной: главное решение остаётся под большим пальцем правой руки.
+    { tone: onUser ? 'default' : 'destructive', busy, position: 'left' },
+  )
 
   if (state.status === 'loading') {
     // Скелетон, а не строка «Открываем…»: форма будущей карточки известна заранее, и
@@ -190,6 +246,38 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
         subtitle={`${t(PRIORITY_KEY[complaint.priority])} · ${formatDateTime(complaint.createdAt)}`}
         onBack={onBack}
       />
+
+      {/* Разбор подряд: видно, сколько сделано и сколько впереди. Полоса — чтобы ответ
+          читался без цифр, «Пропустить» — чтобы спорная жалоба не держала всю очередь. */}
+      {triage && (
+        <div className="triage">
+          <div className="triage-row">
+            <span className="hint">
+              {t('complaintTriage', { done: triage.done, left: triage.left })}
+            </span>
+            {onSkip && (
+              <button
+                type="button"
+                className="chip"
+                disabled={busy}
+                onClick={() => {
+                  haptic.select()
+                  onSkip()
+                }}
+              >
+                {t('complaintSkip')}
+              </button>
+            )}
+          </div>
+          <span className="triage-bar" aria-hidden>
+            <span
+              style={{
+                width: `${(triage.done / Math.max(1, triage.done + triage.left)) * 100}%`,
+              }}
+            />
+          </span>
+        </div>
+      )}
 
       <section className="card">
         <h2>{t('complaintReasonTitle')}</h2>
@@ -281,7 +369,8 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
 
       {(complaint.status === 'PENDING' || complaint.status === 'REVIEWING') && (
         <section className="card">
-          <h2>{t('complaintDecision')}</h2>
+          {/* С нативными кнопками два главных решения уже внизу — здесь остальное. */}
+          <h2>{native ? t('complaintMoreMeasures') : t('complaintDecision')}</h2>
           {/* Квитирование. То же самое делает кнопка под уведомлением в Telegram: без
             отметки «я взял» двое открывают одну жалобу, а третью не берёт никто. */}
           {complaint.reviewingBy ? (
@@ -322,12 +411,12 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
           />
           {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
             и кнопку здесь просто не рисуем, чтобы не предлагать заведомый отказ. */}
-          {!isUser && (
+          {!isUser && !native && (
             <button
               type="button"
               className="fallback-submit danger"
               disabled={busy}
-              onClick={() => void decide('DELETE_CONTENT', t('complaintConfirmDelete'))}
+              onClick={deleteContent}
             >
               {t('complaintDeleteContent')}
             </button>
@@ -336,14 +425,17 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
             и на первый грубый комментарий приходилось выбирать между «ничего» и
             отключением человека от платформы. Кода не требует: предупреждение обратимо
             ровно в той мере, в какой обратим разговор. */}
-          <button
-            type="button"
-            className="fallback-submit secondary"
-            disabled={busy}
-            onClick={() => void decide('WARN_USER', t('complaintConfirmWarn'))}
-          >
-            {t('complaintWarnUser')}
-          </button>
+          {/* У жалобы на человека «Предупредить» уже на второй нативной кнопке. */}
+          {!(native && isUser) && (
+            <button
+              type="button"
+              className="fallback-submit secondary"
+              disabled={busy}
+              onClick={warn}
+            >
+              {t('complaintWarnUser')}
+            </button>
+          )}
 
           {/* Срок блокировки. «Навсегда» остаётся первым и выбранным по умолчанию:
             менять смысл кнопки молча нельзя. */}
@@ -388,6 +480,13 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
                 blockDays === 0
                   ? t('complaintConfirmBlock')
                   : t('complaintConfirmBlockFor', { days: blockDays }),
+                {
+                  destructive: true,
+                  ok:
+                    blockDays === 0
+                      ? t('complaintBlockUser')
+                      : t('complaintBlockUserFor', { days: blockDays }),
+                },
               )
             }
           >
@@ -395,14 +494,11 @@ export function ComplaintScreen({ id, onBack }: { id: string; onBack: () => void
               ? t('complaintBlockUser')
               : t('complaintBlockUserFor', { days: blockDays })}
           </button>
-          <button
-            type="button"
-            className="fallback-submit"
-            disabled={busy}
-            onClick={() => void decide('DISMISS', t('complaintConfirmDismiss'))}
-          >
-            {t('complaintDismiss')}
-          </button>
+          {!native && (
+            <button type="button" className="fallback-submit" disabled={busy} onClick={dismiss}>
+              {t('complaintDismiss')}
+            </button>
+          )}
 
           {/* Десять жалоб на один пост — обычное дело. Побочное действие при этом
             выполнится один раз, остальные жалобы просто получат тот же статус. */}
