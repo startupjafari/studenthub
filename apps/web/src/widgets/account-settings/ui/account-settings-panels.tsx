@@ -486,33 +486,97 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  // Показ backup-кодов после включения (один раз).
-  if (backupCodes) {
-    return (
-      <div className="flex max-w-md flex-col gap-3">
-        <p className="text-sm font-semibold">{tS('backupCodesTitle')}</p>
-        <p className="text-xs text-muted-foreground">{tS('backupCodesDesc')}</p>
-        <ul className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-muted/40 p-3 font-mono text-sm">
-          {backupCodes.map((c) => (
-            <li key={c} className="tracking-widest">
-              {c}
-            </li>
-          ))}
-        </ul>
-        <Button
-          type="button"
-          variant="outline"
-          className="self-start"
-          onClick={() => setBackupCodes(null)}
-        >
-          {tS('twoFactorDone')}
-        </Button>
-      </div>
-    )
+  // Мастер включения (QR → код → backup-коды) — в модальном окне: в карточке настроек
+  // он раздвигал секцию на экран вниз и оттеснял привязку Telegram за край.
+  // Backup-коды показываются в том же окне: закрыть его до «Готово» — значит потерять их,
+  // поэтому шаг не выносится обратно в карточку, где его легко не заметить.
+  const wizard = setup !== null || backupCodes !== null
+
+  const closeWizard = () => {
+    setSetup(null)
+    setBackupCodes(null)
+    setCode('')
+    setFailed(false)
   }
 
+  const wizardModal = wizard && (
+    <Modal
+      onClose={closeWizard}
+      title={backupCodes ? tS('backupCodesTitle') : tS('twoFactor')}
+      size="md"
+    >
+      {backupCodes ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">{tS('backupCodesDesc')}</p>
+          <ul className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-muted/40 p-3 font-mono text-sm">
+            {backupCodes.map((c) => (
+              <li key={c} className="tracking-widest">
+                {c}
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="outline" className="self-end" onClick={closeWizard}>
+            {tS('twoFactorDone')}
+          </Button>
+        </div>
+      ) : (
+        setup && (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm">{tS('twoFactorScanQr')}</p>
+            {/* Data-URL от бэкенда — обычный img, не next/image (оптимизатор не нужен). */}
+            <img
+              src={setup.qr}
+              alt={tS('twoFactor')}
+              width={200}
+              height={200}
+              className="self-center rounded-lg border border-border bg-white p-2"
+            />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">{tS('twoFactorOrSecret')}</span>
+              <code className="rounded bg-muted px-2 py-1 font-mono text-sm break-all">
+                {setup.secret}
+              </code>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="enable2fa">{tS('twoFactorEnterCode')}</Label>
+              <CodeInput
+                // key — чтобы после неверного кода ячейки пересоздались с пустым значением.
+                key={`totp-${attempt}`}
+                id="enable2fa"
+                aria-label={tS('twoFactorEnterCode')}
+                value={code}
+                onChange={setCode}
+                length={TOTP_LENGTH}
+                groupSize={3}
+                // Полный код отправляем сразу, как на входе; «Подтвердить» — запасной путь.
+                onComplete={(value) => enableMut.mutate(value)}
+                disabled={enableMut.isPending}
+                // Красная рамка только пока поле пусто после ошибки: начал вводить — снялась.
+                invalid={failed && code.length === 0}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closeWizard}>
+                {tS('twoFactorCancel')}
+              </Button>
+              <Button
+                type="button"
+                loading={enableMut.isPending}
+                disabled={code.length !== TOTP_LENGTH}
+                onClick={() => enableMut.mutate(code)}
+              >
+                {tS('twoFactorConfirm')}
+              </Button>
+            </div>
+          </div>
+        )
+      )}
+    </Modal>
+  )
+
   // Уже включена → отключение по коду.
-  if (me.twoFactorEnabled) {
+  if (me.twoFactorEnabled && !wizard) {
     return (
       <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
         <div className="flex flex-col items-end gap-3">
@@ -560,81 +624,25 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
     )
   }
 
-  // Настройка: показываем QR + секрет + ввод кода.
-  if (setup) {
-    return (
-      <div className="flex max-w-md flex-col gap-4">
-        <p className="text-sm font-semibold">{tS('twoFactorScanQr')}</p>
-        {/* Data-URL от бэкенда — обычный img, не next/image (оптимизатор не нужен). */}
-        <img
-          src={setup.qr}
-          alt={tS('twoFactor')}
-          width={200}
-          height={200}
-          className="rounded-lg border border-border bg-white p-2"
-        />
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">{tS('twoFactorOrSecret')}</span>
-          <code className="rounded bg-muted px-2 py-1 font-mono text-sm break-all">
-            {setup.secret}
-          </code>
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="enable2fa">{tS('twoFactorEnterCode')}</Label>
-          <CodeInput
-            // key — чтобы после неверного кода ячейки пересоздались с пустым значением.
-            key={`totp-${attempt}`}
-            id="enable2fa"
-            aria-label={tS('twoFactorEnterCode')}
-            value={code}
-            onChange={setCode}
-            length={TOTP_LENGTH}
-            groupSize={3}
-            // Полный код отправляем сразу, как на входе; «Подтвердить» — запасной путь.
-            onComplete={(value) => enableMut.mutate(value)}
-            disabled={enableMut.isPending}
-            // Красная рамка только пока поле пусто после ошибки: начал вводить — снялась.
-            invalid={failed && code.length === 0}
-            autoFocus
-          />
-        </div>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            loading={enableMut.isPending}
-            disabled={code.length !== TOTP_LENGTH}
-            onClick={() => enableMut.mutate(code)}
-          >
-            {tS('twoFactorConfirm')}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setSetup(null)
-              setCode('')
-              setFailed(false)
-            }}
-          >
-            {tS('twoFactorCancel')}
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  // Выключена → предложить настроить.
+  // Выключена (или идёт мастер включения) → строка с кнопкой, мастер — поверх в окне.
   return (
-    <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
-      <Button
-        type="button"
-        size="sm"
-        loading={setupMut.isPending}
-        onClick={() => setupMut.mutate()}
-      >
-        {tS('twoFactorSetup')}
-      </Button>
-    </SettingRow>
+    <>
+      <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
+        {me.twoFactorEnabled ? (
+          <Badge variant="secondary">{tS('twoFactorOn')}</Badge>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            loading={setupMut.isPending}
+            onClick={() => setupMut.mutate()}
+          >
+            {tS('twoFactorSetup')}
+          </Button>
+        )}
+      </SettingRow>
+      {wizardModal}
+    </>
   )
 }
 
