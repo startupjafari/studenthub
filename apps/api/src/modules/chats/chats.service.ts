@@ -1714,6 +1714,8 @@ export class ChatsService {
               parts: attachment.parts,
               name: attachment.name,
               messageId: created.id,
+              // Вложения чата — единственное место, где принимаются архивы.
+              allowArchives: true,
             })
           : await this.files.confirmDirectUpload({
               bucket,
@@ -1721,6 +1723,7 @@ export class ChatsService {
               ownerId: senderId,
               name: attachment.name,
               messageId: created.id,
+              allowArchives: true,
             })
       attached += 1
       if (attachment.spoiler || input.asFiles) {
@@ -1805,6 +1808,8 @@ export class ChatsService {
           ownerId: senderId,
           messageId: created.id,
           name: file.name,
+          // Вложения чата — единственное место, где принимаются архивы.
+          allowArchives: true,
         }),
       )
     }

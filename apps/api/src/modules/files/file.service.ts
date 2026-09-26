@@ -24,6 +24,18 @@ export interface UploadFileParams {
   messageId?: string
   /** Оригинальное имя файла при загрузке (Ф9+): для отображения в чате как в Telegram. */
   name?: string
+  /** Принимать архивы (категория «по приглашению», см. FILE_UPLOAD.OPT_IN_CATEGORIES). */
+  allowArchives?: boolean
+}
+
+/**
+ * Категория «по приглашению» (архив) без явного разрешения модуля не принимается.
+ * Проверка здесь, а не в каждом модуле: забытый белый список в новом разделе иначе молча
+ * пускал бы туда архивы, потому что общий детектор их узнаёт.
+ */
+function optInRefused(category: FileCategory, allowArchives: boolean | undefined): boolean {
+  const optIn = (FILE_UPLOAD.OPT_IN_CATEGORIES as readonly FileCategory[]).includes(category)
+  return optIn && !allowArchives
 }
 
 // Сколько байт читать из MinIO для определения типа: file-type смотрит только заголовок,
@@ -96,6 +108,7 @@ export class FileService {
     materialId,
     messageId,
     name,
+    allowArchives,
   }: UploadFileParams) {
     const detected = await detectAllowedFileType(buffer)
     if (!detected) {
@@ -103,6 +116,9 @@ export class FileService {
         'FILE_TYPE_NOT_ALLOWED',
         'Тип файла не поддерживается или не распознан',
       )
+    }
+    if (optInRefused(detected.category, allowArchives)) {
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Архивы здесь не принимаются')
     }
     if (expectedCategory && detected.category !== expectedCategory) {
       throw new AppException(
@@ -271,6 +287,8 @@ export class FileService {
     messageId?: string
     expectedCategory?: FileCategory
     allowedMimes?: ReadonlySet<string>
+    /** Принимать архивы — только вложения чата. */
+    allowArchives?: boolean
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
     // Порядок частей задаёт порядок байтов в объекте: части приходят параллельно и
@@ -290,6 +308,7 @@ export class FileService {
       messageId: params.messageId,
       expectedCategory: params.expectedCategory,
       allowedMimes: params.allowedMimes,
+      allowArchives: params.allowArchives,
     })
   }
 
@@ -347,6 +366,8 @@ export class FileService {
     /** Вложение сообщения чата: объект уже в бакете, запись создаётся сразу привязанной. */
     messageId?: string
     name?: string
+    /** Принимать архивы (FILE_UPLOAD.OPT_IN_CATEGORIES) — только вложения чата. */
+    allowArchives?: boolean
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
 
@@ -376,6 +397,10 @@ export class FileService {
     if (params.allowedMimes && !params.allowedMimes.has(detected.mime)) {
       await this.discard(params.bucket, params.key)
       throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Тип файла не поддерживается')
+    }
+    if (optInRefused(detected.category, params.allowArchives)) {
+      await this.discard(params.bucket, params.key)
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Архивы здесь не принимаются')
     }
 
     const maxBytes = FILE_UPLOAD.MAX_BYTES[detected.category]

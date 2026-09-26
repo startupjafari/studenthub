@@ -20,6 +20,9 @@ jest.mock('./mime-detector', () => ({
     if (buffer[0] === 0x89 && head.includes('PNG')) {
       return { mime: 'image/png', ext: 'png', category: 'IMAGE' }
     }
+    if (head.startsWith('PK\x03\x04')) {
+      return { mime: 'application/zip', ext: 'zip', category: 'ARCHIVE' }
+    }
     // Всё остальное (в т.ч. SVG — его file-type не распознаёт вовсе) — «тип неизвестен».
     return undefined
   }),
@@ -30,6 +33,7 @@ const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   Buffer.alloc(64, 0),
 ])
+const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(64, 0)])
 // Именно это пытались бы протащить, объявив тип «application/pdf».
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
@@ -49,6 +53,7 @@ function setup(options: { head?: Buffer; size?: number; statFails?: boolean } = 
     initiateNewMultipartUpload: jest.fn().mockResolvedValue('upload-1'),
     completeMultipartUpload: jest.fn().mockResolvedValue({ etag: 'final', versionId: null }),
     abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
+    putObject: jest.fn().mockResolvedValue({ etag: 'e', versionId: null }),
   }
   const prisma = {
     file: { create: jest.fn().mockImplementation(({ data }) => ({ id: 'f1', ...data })) },
@@ -284,5 +289,61 @@ describe('FileService — многочастная загрузка', () => {
         ownerId: 'user-1',
       }),
     ).resolves.toBeUndefined()
+  })
+})
+
+// Архив — категория «по приглашению»: общий детектор его узнаёт, но принимает его только
+// модуль, который явно разрешил (вложения чата). Без разрешения архив не должен пройти ни
+// одним из путей загрузки — иначе он попадал бы в аватары, документы и портфолио.
+describe('FileService — архивы только по разрешению модуля', () => {
+  it('прямая загрузка архива без разрешения отклоняется, объект удаляется', async () => {
+    const { service, minio, prisma } = setup({ head: ZIP })
+
+    await expect(
+      service.confirmDirectUpload({ ...base, key: 'user-1/a.zip' }),
+    ).rejects.toMatchObject({ code: 'FILE_TYPE_NOT_ALLOWED' })
+    expect(prisma.file.create).not.toHaveBeenCalled()
+    expect(minio.removeObject).toHaveBeenCalledWith('documents', 'user-1/a.zip')
+  })
+
+  it('прямая загрузка архива с разрешением создаёт File с типом по содержимому', async () => {
+    const { service } = setup({ head: ZIP })
+
+    const file = await service.confirmDirectUpload({
+      ...base,
+      bucket: 'chat-media',
+      key: 'user-1/a.zip',
+      allowArchives: true,
+    })
+
+    expect(file.mime).toBe('application/zip')
+  })
+
+  it('буферная загрузка архива без разрешения отклоняется и в хранилище не пишется', async () => {
+    const { service, minio } = setup()
+
+    await expect(service.upload({ ...base, buffer: ZIP })).rejects.toMatchObject({
+      code: 'FILE_TYPE_NOT_ALLOWED',
+    })
+    expect(minio.putObject).not.toHaveBeenCalled()
+  })
+
+  it('буферная загрузка архива с разрешением проходит', async () => {
+    const { service, minio } = setup()
+
+    const file = await service.upload({
+      ...base,
+      bucket: 'chat-media',
+      buffer: ZIP,
+      allowArchives: true,
+    })
+
+    expect(file.mime).toBe('application/zip')
+    expect(minio.putObject).toHaveBeenCalled()
+  })
+
+  it('лимит архива — его категории, а не самой мягкой', () => {
+    expect(FILE_UPLOAD.MAX_BYTES.ARCHIVE).toBe(500 * 1024 * 1024)
+    expect(FILE_UPLOAD.OPT_IN_CATEGORIES).toContain('ARCHIVE')
   })
 })
