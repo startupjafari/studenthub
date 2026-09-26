@@ -501,7 +501,7 @@ export function ImageCropModal({
       </div>
 
       {/* Панель инструментов: поворот на 90° · линейка угла · отражение */}
-      <div className="flex items-center gap-3 px-4 pt-3">
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 pt-3">
         <button
           type="button"
           aria-label={t('rotate')}

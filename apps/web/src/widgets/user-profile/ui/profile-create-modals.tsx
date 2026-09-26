@@ -204,7 +204,7 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
         <div className="relative min-h-0 flex-1 bg-black">
           <VideoPlayer src={url} />
         </div>
-        <div className="px-4 pt-3">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-3">
           <VideoCoverPicker file={file} onCover={setCover} />
         </div>
       </MediaEditorShell>

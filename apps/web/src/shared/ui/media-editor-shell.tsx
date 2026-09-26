@@ -14,7 +14,10 @@ import { useBodyScrollLock } from '../lib'
  * поэтому кнопки, подписи и рамки внутри берут тёмные значения и в светлой теме. Снимок
  * оценивают на нейтральном фоне — светлая тема «съедала» бы светлые края кадра.
  *
- * На телефоне окно во весь экран, с sm — по центру с полями.
+ * Это не окно поверх страницы, а панель на весь экран: сцена забирает всё место, какое
+ * есть, — у модального окна снимок ужимался до трети экрана. Инструменты и кнопки внизу
+ * держатся колонкой умеренной ширины: на широком мониторе линейка угла во весь экран
+ * была бы неудобна. Отступы шапки и подвала учитывают вырез и «полоску» телефона.
  */
 export function MediaEditorShell({
   title,
@@ -52,31 +55,27 @@ export function MediaEditorShell({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in-0 duration-200 sm:p-4"
-      onClick={onClose}
+      className="dark fixed inset-0 z-[100] flex flex-col overflow-hidden bg-background text-foreground animate-in fade-in-0 duration-200"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="dark flex h-full w-full flex-col overflow-hidden bg-background text-foreground animate-in zoom-in-95 duration-200 sm:h-[min(90vh,46rem)] sm:w-[min(92vw,56rem)] sm:rounded-2xl sm:border sm:border-border"
-      >
-        <div className="flex items-start gap-3 px-5 pt-4 pb-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base font-semibold">{title}</h2>
-            {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-          </div>
-          <button
-            type="button"
-            aria-label={t('close')}
-            onClick={onClose}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-5" aria-hidden />
-          </button>
+      <div className="flex items-start gap-3 px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold">{title}</h2>
+          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </div>
+        <button
+          type="button"
+          aria-label={t('close')}
+          onClick={onClose}
+          className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X className="size-5" aria-hidden />
+        </button>
+      </div>
 
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 
-        <div className="flex items-center gap-2 px-4 pt-3 pb-4">{footer}</div>
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {footer}
       </div>
     </div>,
     document.body,
