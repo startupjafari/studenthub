@@ -1692,3 +1692,111 @@ body {
   background: var(--tg-theme-button-color);
   transition: width 240ms var(--ease-out);
 }
+
+/*
+ * Строка со свайпом. Верхний слой — сама строка на фоне секции, под ним подложка
+ * действия: она видна, только пока строку тянут. `overflow: hidden` у `.list` обрезает
+ * подложку по скруглению группы.
+ */
+.swipe {
+  position: relative;
+  touch-action: pan-y;
+}
+
+.swipe-top {
+  position: relative;
+  background: var(--tg-theme-section-bg-color);
+}
+
+.swipe-top.settling {
+  transition: transform 220ms var(--ease-out);
+}
+
+/* Разделитель между строками: строки теперь в обёртках, и прежний `.row + .row` их не видит. */
+.swipe + .swipe .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 56px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
+}
+
+.swipe-under {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--text-small);
+}
+
+.swipe-under.from-right {
+  justify-content: flex-end;
+}
+
+/* «Нарушения нет» — серым: обратимое и спокойное решение, не тревога. */
+.swipe-neutral {
+  background: var(--tint-gray);
+}
+
+.swipe-accent {
+  background: var(--tg-theme-button-color);
+}
+
+/*
+ * Тост над панелью разделов: «Отмечено: нарушения нет · Отменить». Стекло то же, что у
+ * панели, — это её сосед, а не всплывающее окно поверх содержимого.
+ */
+.toast {
+  position: fixed;
+  left: var(--side);
+  right: var(--side);
+  bottom: calc(var(--tabbar-h) + 18px + var(--safe-bottom));
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--tap);
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--radius-control);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
+  font-size: var(--text-small);
+  animation: toast-in 200ms var(--ease-out);
+}
+
+.toast-action {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--tg-theme-link-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .swipe-top.settling {
+    animation: none;
+    transition: none;
+  }
+}

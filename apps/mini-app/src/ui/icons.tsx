@@ -287,3 +287,57 @@ export function IconUndo(props: IconProps) {
     </Svg>
   )
 }
+
+// ── Типы объектов жалобы: значок в плитке строки очереди ──────────────────
+// Что обжаловано, видно по рисунку до того, как прочитана подпись: пост, история,
+// комментарий, сообщение и человек выглядят в очереди по-разному.
+
+/** Пост: карточка с картинкой и строкой текста. */
+export function IconTargetPost(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4.5" y="4.5" width="15" height="15" rx="3" strokeWidth="1.9" />
+      <path d="m7.5 15 3-3 2.5 2.5 1.5-1.5 2 2" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** История: кольцо вокруг точки — так истории выглядят в ленте. */
+export function IconTargetStory(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="7.5" strokeWidth="1.9" strokeDasharray="3.2 2.2" />
+      <circle cx="12" cy="12" r="3" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Комментарий: пузырь с хвостиком и строками. */
+export function IconTargetComment(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 6.5h14v9H10l-4 3v-3H5Z" strokeWidth="1.9" />
+      <path d="M8.5 10h7M8.5 12.8h4" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Сообщение: два пузыря — переписка, а не публикация. */
+export function IconTargetMessage(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 5.5h10v7H8l-3 2.5v-2.5H4Z" strokeWidth="1.9" />
+      <path d="M17 9h3v7h-1v2.5L16 16h-5v-1.5" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
+/** Человек: голова и плечи. */
+export function IconTargetUser(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="9" r="3.5" strokeWidth="1.9" />
+      <path d="M5.5 19a6.5 6.5 0 0 1 13 0" strokeWidth="1.9" />
+    </Svg>
+  )
+}

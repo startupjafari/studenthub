@@ -455,6 +455,11 @@ const ru = {
   complaintSkip: 'Пропустить',
   complaintTriage: 'Разобрано {done} · осталось {left}',
   complaintMoreMeasures: 'Другие меры',
+  // ── Свайпы в очереди ──
+  swipeUndo: 'Отменить',
+  complaintSwipeDismissed: 'Отмечено: нарушения нет',
+  complaintSwipeTaken: 'Жалоба у вас в работе',
+  complaintSwipeFailed: 'Не получилось — жалоба вернулась в очередь',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -899,6 +904,11 @@ const kk: Record<MessageKey, string> = {
   complaintSkip: 'Өткізіп жіберу',
   complaintTriage: 'Қаралды {done} · қалды {left}',
   complaintMoreMeasures: 'Басқа шаралар',
+  // ── Свайпы в очереди ──
+  swipeUndo: 'Болдырмау',
+  complaintSwipeDismissed: 'Белгіленді: бұзушылық жоқ',
+  complaintSwipeTaken: 'Шағым сізде жұмыста',
+  complaintSwipeFailed: 'Болмады — шағым кезекке қайтты',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1340,6 +1350,11 @@ const en: Record<MessageKey, string> = {
   complaintSkip: 'Skip',
   complaintTriage: 'Done {done} · {left} left',
   complaintMoreMeasures: 'Other measures',
+  // ── Свайпы в очереди ──
+  swipeUndo: 'Undo',
+  complaintSwipeDismissed: 'Marked: no violation',
+  complaintSwipeTaken: 'The report is yours now',
+  complaintSwipeFailed: "Didn't work — the report is back in the queue",
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }
