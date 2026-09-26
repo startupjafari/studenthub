@@ -468,6 +468,9 @@ const ru = {
   heroServiceDown: '{name}: не отвечает',
   heroQueueFailed: 'Упавших задач в очередях: {count}',
   heroChecked: 'Проверено в {time}',
+  // ── Поле ввода поддержки ──
+  supportActionsTitle: 'Действия',
+  supportRecording: 'Запись · {seconds} с',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -925,6 +928,9 @@ const kk: Record<MessageKey, string> = {
   heroServiceDown: '{name}: жауап бермейді',
   heroQueueFailed: 'Кезектердегі құлаған тапсырмалар: {count}',
   heroChecked: '{time} тексерілді',
+  // ── Поле ввода поддержки ──
+  supportActionsTitle: 'Әрекеттер',
+  supportRecording: 'Жазылуда · {seconds} с',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1379,6 +1385,9 @@ const en: Record<MessageKey, string> = {
   heroServiceDown: '{name}: not responding',
   heroQueueFailed: 'Failed jobs in queues: {count}',
   heroChecked: 'Checked at {time}',
+  // ── Поле ввода поддержки ──
+  supportActionsTitle: 'Actions',
+  supportRecording: 'Recording · {seconds} s',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

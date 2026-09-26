@@ -1863,3 +1863,164 @@ body {
     background: var(--tg-theme-section-bg-color);
   }
 }
+
+/* Строка-действие в списке неактивна, пока идёт запрос. */
+.row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Разделитель дня в переписке — плашкой по центру, как в Telegram. */
+.thread-day {
+  align-self: center;
+  margin: 6px 0 2px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 16%, transparent);
+  color: var(--tg-theme-hint-color);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+/*
+ * Поле ввода поддержки. Прилипает к низу над панелью разделов: ответ пишут там, где
+ * кончается переписка, и до него не надо листать. Стекло то же, что у панели, — это одна
+ * плавающая группа, а не карточка посреди экрана.
+ */
+.composer {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + 10px + var(--safe-bottom));
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: calc(var(--radius-control) + 8px);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .composer {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+/* Заготовки — одной строкой с прокруткой вбок: в три ряда они съедали пол-экрана. */
+.composer-templates {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -8px;
+  padding: 0 8px;
+}
+
+.composer-templates::-webkit-scrollbar {
+  display: none;
+}
+
+.composer-templates .chip {
+  flex: 0 0 auto;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 9px 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: 20px;
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  font: inherit;
+  line-height: 1.35;
+  resize: none;
+  outline: none;
+}
+
+.composer-field::placeholder {
+  color: var(--tg-theme-hint-color);
+}
+
+/* Круглая кнопка справа: «отправить» акцентом, микрофон — тише, он не главное. */
+.composer-round {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  cursor: pointer;
+  transition: transform var(--press) var(--ease-out);
+}
+
+.composer-round.quiet {
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+  color: var(--tg-theme-button-color);
+}
+
+.composer-round:active {
+  transform: scale(0.92);
+}
+
+.composer-round:disabled {
+  opacity: 0.45;
+}
+
+.composer-row.recording {
+  align-items: center;
+  min-height: 40px;
+  padding-left: 10px;
+}
+
+.composer-rec {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Точка записи пульсирует: видно, что микрофон слушает, даже если не смотреть на секунды. */
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tint-red);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.composer-text-btn {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--tg-theme-link-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot {
+    animation: none;
+  }
+}
