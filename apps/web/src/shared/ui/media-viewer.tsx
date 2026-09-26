@@ -172,6 +172,9 @@ export function MediaViewer({
         className="relative flex flex-1 items-center justify-center overflow-hidden px-2 py-1 sm:px-4 sm:py-2"
         onClick={onClose}
       >
+        {/* Стрелки — полосы во всю высоту области медиа, шириной с прежнюю кнопку: целятся
+            не в кружок, а «в край экрана», и промах по 40-пиксельной кнопке закрывал
+            просмотр кликом по фону. Кружок прежнего размера — растёт только зона нажатия. */}
         {items.length > 1 && index > 0 && (
           <button
             type="button"
@@ -180,9 +183,11 @@ export function MediaViewer({
               e.stopPropagation()
               onIndexChange(index - 1)
             }}
-            className="absolute left-2 z-10 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-center"
           >
-            <ChevronLeft className="size-6" aria-hidden />
+            <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+              <ChevronLeft className="size-6" aria-hidden />
+            </span>
           </button>
         )}
 
@@ -230,9 +235,11 @@ export function MediaViewer({
               e.stopPropagation()
               onIndexChange(index + 1)
             }}
-            className="absolute right-2 z-10 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-center"
           >
-            <ChevronRight className="size-6" aria-hidden />
+            <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+              <ChevronRight className="size-6" aria-hidden />
+            </span>
           </button>
         )}
       </div>

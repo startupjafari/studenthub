@@ -1605,6 +1605,8 @@
     "save": "Сақтау",
     "edited": "өзгертілді",
     "commentAuthorTag": "Автор",
+    "viewReplies": "{count, plural, other {# жауапты көру}}",
+    "hideReplies": "Жауаптарды жасыру",
     "filterSaved": "Сақталған",
     "bookmark": "Таңдаулыға"
   },

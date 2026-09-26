@@ -1605,6 +1605,8 @@
     "save": "Save",
     "edited": "edited",
     "commentAuthorTag": "Author",
+    "viewReplies": "{count, plural, one {View # reply} other {View # replies}}",
+    "hideReplies": "Hide replies",
     "filterSaved": "Saved",
     "bookmark": "Save"
   },
