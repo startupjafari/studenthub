@@ -41,6 +41,9 @@ export const FILE_UPLOAD = {
     VIDEO: 500 * 1024 * 1024,
     DOCUMENT: 500 * 1024 * 1024,
     AUDIO: 25 * 1024 * 1024,
+    // Архив во вложении чата: проект, выгрузка, набор сканов одним файлом — весит как
+    // документ, поэтому и предел тот же.
+    ARCHIVE: 500 * 1024 * 1024,
   },
   /**
    * Порог буферной загрузки через API-процесс. Файлы больше — только прямой
@@ -76,7 +79,25 @@ export const FILE_UPLOAD = {
     ],
     // Голосовые/аудио-вложения чата (Ф9+). webm-контейнер file-type определяет как video/webm.
     AUDIO: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm'],
+    // Архивы — так их называет file-type по magic bytes. DOCX/XLSX/PPTX внутри тоже zip, но
+    // детектор узнаёт их по содержимому и относит к документам, а не сюда.
+    ARCHIVE: [
+      'application/zip',
+      'application/x-rar-compressed',
+      'application/x-7z-compressed',
+      'application/gzip',
+      'application/x-tar',
+      'application/x-bzip2',
+      'application/x-xz',
+    ],
   },
+  /**
+   * Категории «по приглашению»: сервер принимает их, только если вызывающий модуль явно
+   * разрешил (`allowArchives` в FileService). Архив — контейнер, чьё содержимое сервер не
+   * проверяет, и в аватаре, портфолио или документе вуза ему не место. Место ему — во
+   * вложениях чата, где файлами и обмениваются.
+   */
+  OPT_IN_CATEGORIES: ['ARCHIVE'],
 } as const
 
 export type FileCategory = keyof typeof FILE_UPLOAD.MAX_BYTES
