@@ -152,16 +152,12 @@ export function ProfileMediaGrid({
 
   const allItems = (q.data ?? []).filter((m) => m.type === kind)
   const filtered =
-    isPhoto && albumFilter !== 'all'
-      ? allItems.filter((m) =>
-          albumFilter === 'none' ? m.albumId === null : m.albumId === albumFilter,
-        )
-      : allItems
+    isPhoto && albumFilter !== 'all' ? allItems.filter((m) => m.albumId === albumFilter) : allItems
   const items = [...filtered].sort((a, b) => {
     const d = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     return sort === 'new' ? d : -d
   })
-  const activeAlbumId = albumFilter !== 'all' && albumFilter !== 'none' ? albumFilter : null
+  const activeAlbumId = albumFilter !== 'all' ? albumFilter : null
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -341,12 +337,6 @@ export function ProfileMediaGrid({
                       />
                     ),
                   )}
-                  <FilterOption
-                    active={albumFilter === 'none'}
-                    onClick={() => setAlbumFilter('none')}
-                    label={t('albumNone')}
-                    count={allItems.filter((m) => m.albumId === null).length}
-                  />
                 </FilterGroup>
               )}
               <FilterGroup title={t('sortBy')}>
