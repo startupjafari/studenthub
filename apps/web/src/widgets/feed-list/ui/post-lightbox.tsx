@@ -102,7 +102,7 @@ function patchCommentCount(qc: QueryClient, postId: string, delta: number): void
     p.id === postId
       ? { ...p, _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) } }
       : p
-  qc.setQueriesData<unknown>({ queryKey: postKeys.all }, (data) => {
+  qc.setQueriesData<unknown>({ queryKey: postKeys.all }, (data: unknown) => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return data
     if ('pages' in data) {
       const feed = data as InfiniteData<FeedPage>
