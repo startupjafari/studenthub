@@ -446,6 +446,11 @@ const ru = {
     'Отменяет последнее переключение рычага, если ему меньше получаса. Техработы так не включить.',
   undoAction: 'Отменить последнее изменение',
   undoConfirm: 'Вернуть состояние, которое было до последнего изменения?',
+  // ── Настройки (меню «⋯» Telegram) ──
+  settingsTitle: 'Настройки',
+  settingsSubtitle: 'Этого телефона',
+  settingsFromTelegramTitle: 'Язык и тема',
+  settingsFromTelegram: 'Берутся из Telegram: меняются в его настройках и сразу доходят сюда.',
 } as const
 
 export type MessageKey = keyof typeof ru
@@ -880,6 +885,12 @@ const kk: Record<MessageKey, string> = {
     'Соңғы ауыстыруды жояды, егер оған жарты сағаттан аз болса. Техжұмысты бұлай қосуға болмайды.',
   undoAction: 'Соңғы өзгерісті болдырмау',
   undoConfirm: 'Соңғы өзгеріске дейінгі күй қайтарылсын ба?',
+  // ── Настройки (меню «⋯» Telegram) ──
+  settingsTitle: 'Баптаулар',
+  settingsSubtitle: 'Осы телефонның',
+  settingsFromTelegramTitle: 'Тіл мен тақырып',
+  settingsFromTelegram:
+    'Telegram-нан алынады: оның баптауларында өзгереді және бірден осында келеді.',
 }
 
 const en: Record<MessageKey, string> = {
@@ -1311,6 +1322,12 @@ const en: Record<MessageKey, string> = {
     'Reverts the last lever change if it is under half an hour old. Maintenance cannot be switched on this way.',
   undoAction: 'Undo the last change',
   undoConfirm: 'Restore the state from before the last change?',
+  // ── Настройки (меню «⋯» Telegram) ──
+  settingsTitle: 'Settings',
+  settingsSubtitle: 'For this phone',
+  settingsFromTelegramTitle: 'Language and theme',
+  settingsFromTelegram:
+    'Taken from Telegram: change them in its settings and they apply here right away.',
 }
 
 export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }

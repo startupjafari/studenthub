@@ -1652,3 +1652,10 @@ body {
   outline: 2px solid var(--tg-theme-button-color);
   outline-offset: -2px;
 }
+
+/* Шапка блока настроек: плитка со значком и название — как строка раздела в «Управлении». */
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
