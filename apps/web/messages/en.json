@@ -1537,6 +1537,7 @@
     "repostComment": "Comment",
     "repostPlaceholder": "Add a comment (optional)",
     "reposted": "Reposted",
+    "repostedBy": "Reposted by <link>{name}</link>",
     "targetRequired": "Choose where to publish",
     "contentTooLong": "Text is too long",
     "mediaCount": "{count, plural, one {# attachment} other {# attachments}}",

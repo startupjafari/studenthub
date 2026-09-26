@@ -1537,6 +1537,7 @@
     "repostComment": "Комментарий",
     "repostPlaceholder": "Добавьте комментарий (необязательно)",
     "reposted": "Репост опубликован",
+    "repostedBy": "Репост от <link>{name}</link>",
     "targetRequired": "Укажите, куда публиковать",
     "contentTooLong": "Слишком длинный текст",
     "mediaCount": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}",
