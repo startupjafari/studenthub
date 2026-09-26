@@ -132,7 +132,8 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const u = q.data
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    // flex-1 — как у своего профиля: пустая вкладка тянется до низа экрана.
+    <div className="flex w-full flex-1 flex-col gap-4">
       <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
         {/* Назад — иконкой поверх обложки слева, чтобы не занимать место сверху. */}
         <Button

@@ -10,11 +10,13 @@ import { cn } from '../../../shared/lib/utils'
 // Мобильный: компактный ряд «чипов»-дропдаунов над контентом (список раскрывается в поповере).
 export function ContentLayout({ sidebar, children }: { sidebar: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-6">
+    // Колонка контента тянется на всю оставшуюся высоту (flex-1 / self-stretch): пустое
+    // состояние вкладки заполняет её, а не висит узкой полоской под фильтрами.
+    <div className="flex flex-1 flex-col gap-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-6">
       <aside className="flex flex-row flex-wrap gap-2 lg:sticky lg:top-4 lg:flex-col lg:gap-4">
         {sidebar}
       </aside>
-      <div className="min-w-0">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col lg:self-stretch">{children}</div>
     </div>
   )
 }

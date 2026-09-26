@@ -138,7 +138,7 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
       {modal}
       <ContentLayout sidebar={sidebar}>
         {visible.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             {t('nothingFound')}
           </p>
         ) : (

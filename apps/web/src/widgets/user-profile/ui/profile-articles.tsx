@@ -214,9 +214,9 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
     <>
       {modals}
       <ContentLayout sidebar={sidebar}>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-1 flex-col gap-4">
           {visible.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
               {t('nothingFound')}
             </p>
           ) : (

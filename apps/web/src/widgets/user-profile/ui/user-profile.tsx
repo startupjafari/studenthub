@@ -129,7 +129,9 @@ export function UserProfile() {
   const u = me.data
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    // flex-1 — профиль занимает всю высоту страницы: пустая вкладка растягивает свою
+    // плашку «Ничего не найдено» до низа экрана (ContentLayout).
+    <div className="flex w-full flex-1 flex-col gap-4">
       <ProfileTabs
         userId={u.id}
         isOwner
