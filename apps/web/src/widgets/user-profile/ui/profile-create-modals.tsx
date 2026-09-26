@@ -10,7 +10,7 @@ import {
   profileContentKeys,
   uploadProfileMediaAuto,
 } from '../../../entities/profile-content'
-import { Button, ImageCropModal } from '../../../shared/ui'
+import { Button, ImageCropModal, MediaEditorShell, VideoPlayer } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
@@ -136,7 +136,6 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
   const [file, setFile] = useState<File | null>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [cover, setCover] = useState<VideoCover | null>(null)
-  const [posterUrl, setPosterUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!file) {
@@ -147,17 +146,6 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
     setUrl(u)
     return () => URL.revokeObjectURL(u)
   }, [file])
-
-  // Локальный предпросмотр выбранной обложки (poster у <video>).
-  useEffect(() => {
-    if (!cover) {
-      setPosterUrl(null)
-      return
-    }
-    const u = URL.createObjectURL(cover.blob)
-    setPosterUrl(u)
-    return () => URL.revokeObjectURL(u)
-  }, [cover])
 
   const mut = useMutation({
     mutationFn: async (f: File) => {
@@ -177,52 +165,63 @@ export function VideoCreateModal({ userId, onClose }: CreateModalProps) {
     onError: (e) => showApiError(e),
   })
 
+  const back = (): void => {
+    setFile(null)
+    setCover(null)
+  }
+
+  // Видео выбрано — редактор в той же тёмной оболочке, что и кадрирование фото (как в
+  // Telegram): ролик на чёрной сцене, под ним лента кадров для обложки. Обрезки и
+  // поворота самого ролика нет: это перекодирование, в браузере без ffmpeg не сделать.
+  if (file && url) {
+    return (
+      <MediaEditorShell
+        title={t('uploadVideo')}
+        onClose={back}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              className="flex-1"
+              onClick={back}
+              disabled={mut.isPending}
+            >
+              {t('back')}
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
+              loading={mut.isPending}
+              onClick={() => mut.mutate(file)}
+            >
+              <Check className="size-4" aria-hidden />
+              {t('publish')}
+            </Button>
+          </>
+        }
+      >
+        <div className="relative min-h-0 flex-1 bg-black">
+          <VideoPlayer src={url} />
+        </div>
+        <div className="px-4 pt-3">
+          <VideoCoverPicker file={file} onCover={setCover} />
+        </div>
+      </MediaEditorShell>
+    )
+  }
+
   return (
     <ContentModal title={t('uploadVideo')} onClose={onClose} size="upload">
-      {file && url ? (
-        <>
-          <video
-            src={url}
-            controls
-            poster={posterUrl ?? undefined}
-            className="min-h-0 w-full flex-1 rounded-xl bg-black object-contain"
-          />
-          <VideoCoverPicker file={file} onCover={setCover} />
-        </>
-      ) : (
-        <Dropzone
-          accept="video/*"
-          icon={<VideoIcon className="size-8" aria-hidden />}
-          hint={t('dropVideoHint')}
-          onPick={setFile}
-        />
-      )}
-      <div className="flex items-center gap-2">
-        {file && (
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1"
-            onClick={() => {
-              setFile(null)
-              setCover(null)
-            }}
-            disabled={mut.isPending}
-          >
-            {t('back')}
-          </Button>
-        )}
-        <Button
-          type="button"
-          className="flex-1"
-          loading={mut.isPending}
-          disabled={!file}
-          onClick={() => file && mut.mutate(file)}
-        >
-          <Check className="size-4" aria-hidden />
-          {t('publish')}
-        </Button>
-      </div>
+      <Dropzone
+        accept="video/*"
+        icon={<VideoIcon className="size-8" aria-hidden />}
+        hint={t('dropVideoHint')}
+        onPick={setFile}
+      />
+      <Button type="button" variant="outline" className="w-full" onClick={onClose}>
+        {t('cancel')}
+      </Button>
     </ContentModal>
   )
 }
