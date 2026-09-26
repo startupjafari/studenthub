@@ -11,7 +11,8 @@ import {
   miniLinkRevokeRequest,
   miniLinkStatusRequest,
 } from '../../../shared/api'
-import { Button, useConfirm } from '../../../shared/ui'
+import { Button, Modal, useConfirm } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 
 // Привязка Telegram для админского мини-аппа (docs/PROJECT.md §Мини-апп).
 //
@@ -60,18 +61,23 @@ export function TelegramLinkRow({ role }: { role: Role }) {
     onError: (error: unknown) => toast.error(errorText(error, t)),
   })
 
-  // Обратный отсчёт. Код живёт минуты, и показывать его после истечения — обманывать:
-  // человек введёт его в боте и получит отказ без объяснения.
+  // Обратный отсчёт. Код живёт минуты, и выдавать истёкший за рабочий — обманывать:
+  // человек введёт его в боте и получит отказ без объяснения. Окно при этом не закрываем —
+  // оно исчезло бы из-под рук посреди набора; вместо срока пишем, что код истёк.
   useEffect(() => {
-    if (secondsLeft <= 0) {
-      if (code) setCode(null)
-      return
-    }
+    if (secondsLeft <= 0) return
     const timer = setTimeout(() => setSecondsLeft((value) => value - 1), 1000)
     return () => clearTimeout(timer)
-  }, [secondsLeft, code])
+  }, [secondsLeft])
 
   if (!MINI_APP_ROLES.includes(role)) return null
+
+  const expired = code !== null && secondsLeft <= 0
+
+  const close = () => {
+    setCode(null)
+    setSecondsLeft(0)
+  }
 
   const copy = async () => {
     if (!code) return
@@ -139,27 +145,55 @@ export function TelegramLinkRow({ role }: { role: Role }) {
             loading={issue.isPending}
             onClick={() => issue.mutate()}
           >
-            {code ? t('telegramNewCode') : t('telegramGetCode')}
+            {t('telegramGetCode')}
           </Button>
         </div>
       </div>
 
+      {/* Код — в модальном окне: его набирают с экрана на телефоне, и ничего вокруг
+          не должно отвлекать. Закрыть окно — отказаться от кода; «Получить код» выдаст новый. */}
       {code && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/40 p-3">
-          {/* Код набирают с экрана на телефоне: крупный моноширинный с разрядкой. */}
-          <span className="font-mono text-xl font-semibold tracking-[0.3em]">{code}</span>
-          <Button size="sm" variant="ghost" onClick={copy} aria-label={t('telegramCopy')}>
-            {copied ? (
-              <Check className="size-4" aria-hidden />
-            ) : (
-              <Copy className="size-4" aria-hidden />
-            )}
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            {t('telegramExpiresIn', { time: formatLeft(secondsLeft) })}
-          </span>
-          <p className="w-full text-xs text-muted-foreground">{t('telegramHint')}</p>
-        </div>
+        <Modal onClose={close} title={t('telegramTitle')} size="md">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p className="text-sm text-muted-foreground">{t('telegramHint')}</p>
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
+              {/* Крупный моноширинный с разрядкой — набирают по одному знаку. */}
+              <span
+                className={cn(
+                  'font-mono text-2xl font-semibold tracking-[0.3em]',
+                  expired && 'text-muted-foreground line-through',
+                )}
+              >
+                {code}
+              </span>
+              {!expired && (
+                <Button size="sm" variant="ghost" onClick={copy} aria-label={t('telegramCopy')}>
+                  {copied ? (
+                    <Check className="size-4" aria-hidden />
+                  ) : (
+                    <Copy className="size-4" aria-hidden />
+                  )}
+                </Button>
+              )}
+            </div>
+            <p
+              className={cn('text-xs', expired ? 'text-destructive' : 'text-muted-foreground')}
+              aria-live="polite"
+            >
+              {expired
+                ? t('telegramExpired')
+                : t('telegramExpiresIn', { time: formatLeft(secondsLeft) })}
+            </p>
+            <Button
+              variant={expired ? 'default' : 'outline'}
+              className="self-stretch"
+              loading={issue.isPending}
+              onClick={() => issue.mutate()}
+            >
+              {t('telegramNewCode')}
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   )
