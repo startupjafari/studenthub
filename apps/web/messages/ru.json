@@ -1605,6 +1605,8 @@
     "save": "Сохранить",
     "edited": "изменено",
     "commentAuthorTag": "Автор",
+    "viewReplies": "{count, plural, one {Посмотреть # ответ} few {Посмотреть # ответа} many {Посмотреть # ответов} other {Посмотреть # ответа}}",
+    "hideReplies": "Скрыть ответы",
     "filterSaved": "Сохранённое",
     "bookmark": "В избранное"
   },
