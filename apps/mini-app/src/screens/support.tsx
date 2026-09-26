@@ -41,6 +41,7 @@ import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { useVoiceRecorder } from '../telegram/use-voice'
+import { navigate } from '../lib/navigate'
 
 // Поддержка платформы: очередь обращений и переписка.
 //
@@ -68,9 +69,12 @@ export function SupportScreen({ initialId }: { initialId?: string }) {
   )
 
   return screen.kind === 'queue' ? (
-    <QueueView onOpen={(ticket) => setScreen({ kind: 'thread', id: ticket.id })} />
+    <QueueView onOpen={(ticket) => navigate(() => setScreen({ kind: 'thread', id: ticket.id }))} />
   ) : (
-    <ThreadView id={screen.id} onBack={() => setScreen({ kind: 'queue' })} />
+    <ThreadView
+      id={screen.id}
+      onBack={() => navigate(() => setScreen({ kind: 'queue' }), 'back')}
+    />
   )
 }
 

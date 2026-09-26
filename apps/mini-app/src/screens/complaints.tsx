@@ -26,6 +26,7 @@ import {
 import { Tile, type TileTone } from '../ui/tile'
 import { SwipeRow } from '../ui/swipe-row'
 import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
+import { navigate } from '../lib/navigate'
 import { dayLabel, formatAge, formatHours, formatShortTime } from '../lib/format'
 
 // Очередь модерации — то, ради чего мини-апп существует: разобрать жалобу с телефона,
@@ -203,12 +204,14 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
     if (tab === 'open' && state.status === 'ready') {
       setTriage({ ids: state.page.items.map((item) => item.id), done: 0 })
     }
-    setOpenId(id)
+    navigate(() => setOpenId(id))
   }
 
   const backToList = (): void => {
-    setOpenId(null)
-    setTriage(null)
+    navigate(() => {
+      setOpenId(null)
+      setTriage(null)
+    }, 'back')
     void load()
   }
 
@@ -224,9 +227,13 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
       const rest = resolved ? ids.filter((value) => value !== openId) : ids
       const next = resolved ? rest[at] : ids[at + 1]
       if (!next) return backToList()
-      setTriage({ ids: rest, done: triage.done + (resolved ? 1 : 0) })
-      setOpenId(next)
-      window.scrollTo({ top: 0 })
+      // Следующая въезжает тем же движением, что открытие из списка: это шаг вперёд
+      // по очереди, а не возврат.
+      navigate(() => {
+        setTriage({ ids: rest, done: triage.done + (resolved ? 1 : 0) })
+        setOpenId(next)
+        window.scrollTo({ top: 0 })
+      })
     }
 
     return (

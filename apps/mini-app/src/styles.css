@@ -2024,3 +2024,127 @@ body {
     animation: none;
   }
 }
+
+/*
+ * Сжатая шапка: появляется, когда крупный заголовок уехал за верх. Во всю ширину и под
+ * вырез — в полноэкранном режиме над ней кнопки Telegram, поэтому отступ сверху тот же,
+ * что у содержимого (`--safe-top`), а стекло тянется до самого края.
+ */
+.compact-head {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(44px + var(--safe-top));
+  padding: var(--safe-top) 56px 0;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: 0 1px 0 0 var(--tg-theme-section-separator-color);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.compact-head.shown {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.compact-head .head-back {
+  position: absolute;
+  left: 8px;
+  bottom: 2px;
+}
+
+.compact-title {
+  overflow: hidden;
+  font-weight: 600;
+  letter-spacing: var(--track-head);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .compact-head {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+/*
+ * Переходы между экранами (lib/navigate.ts). Вглубь — новый экран въезжает справа, старый
+ * отступает влево; назад — наоборот; смена вкладки — растворение по умолчанию. Панель
+ * разделов в переходе не участвует: она одна на все экраны и должна стоять на месте.
+ */
+.tabbar {
+  view-transition-name: tabbar;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+  animation-timing-function: var(--ease-out);
+}
+
+:root[data-nav='forward']::view-transition-old(root) {
+  animation-name: nav-out-left;
+}
+
+:root[data-nav='forward']::view-transition-new(root) {
+  animation-name: nav-in-right;
+}
+
+:root[data-nav='back']::view-transition-old(root) {
+  animation-name: nav-out-right;
+}
+
+:root[data-nav='back']::view-transition-new(root) {
+  animation-name: nav-in-left;
+}
+
+:root[data-nav='fade']::view-transition-old(root),
+:root[data-nav='fade']::view-transition-new(root) {
+  animation-duration: 180ms;
+}
+
+@keyframes nav-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24%);
+  }
+}
+
+@keyframes nav-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(-10%);
+  }
+}
+
+@keyframes nav-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-10%);
+  }
+}
+
+@keyframes nav-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(24%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compact-head {
+    transition: none;
+  }
+}

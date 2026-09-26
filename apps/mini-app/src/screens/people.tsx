@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchInvites, revokeInvite, searchPeople, type Invite, type Person } from '../api/people'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
+import { navigate } from '../lib/navigate'
 import { t } from '../i18n'
 import { IconChevron } from '../ui/icons'
 import { SearchField } from '../ui/search-field'
@@ -54,7 +55,7 @@ export function PeopleScreen() {
     return (
       <PersonScreen
         person={open}
-        onBack={() => setOpen(null)}
+        onBack={() => navigate(() => setOpen(null), 'back')}
         onChanged={(next) => {
           setOpen(next)
           setState((prev) =>
@@ -103,7 +104,7 @@ export function PeopleScreen() {
               key={person.id}
               onClick={() => {
                 haptic.tap()
-                setOpen(person)
+                navigate(() => setOpen(person))
               }}
             >
               <span className="avatar-sm" aria-hidden>

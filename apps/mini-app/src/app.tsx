@@ -15,6 +15,7 @@ import { Tabs } from './ui/tabs'
 import { ScreenHeader } from './ui/screen-header'
 import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
+import { navigate } from './lib/navigate'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -131,9 +132,11 @@ function ReadyView({
   // вкладке. Держать её смонтированной под настройками нельзя: её нативные кнопки
   // (MainButton ответа в поддержке) остались бы висеть под чужим экраном.
   const [settings, setSettings] = useState(false)
-  useSettingsButton(settings ? null : () => setSettings(true))
+  useSettingsButton(settings ? null : () => navigate(() => setSettings(true)))
 
-  if (settings) return <SettingsScreen onBack={() => setSettings(false)} />
+  if (settings) {
+    return <SettingsScreen onBack={() => navigate(() => setSettings(false), 'back')} />
+  }
 
   return (
     <>
@@ -160,7 +163,7 @@ function ReadyView({
           count: badgeFor(item.id, badges),
         }))}
         active={active}
-        onSelect={onTab}
+        onSelect={(next) => navigate(() => onTab(next), 'fade')}
       />
     </>
   )
