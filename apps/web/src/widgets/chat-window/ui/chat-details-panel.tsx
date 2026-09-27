@@ -33,6 +33,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Save,
   X,
 } from 'lucide-react'
 import {
@@ -72,10 +73,17 @@ import {
   TabsTrigger,
   useConfirm,
   MediaViewer as PlainMediaViewer,
+  ProgressRing,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
-import { formatBytes, identityColor, identityInitials, useByteUnitLabel } from '../../../shared/lib'
+import {
+  formatBytes,
+  identityColor,
+  identityInitials,
+  useByteUnitLabel,
+  useFileDownload,
+} from '../../../shared/lib'
 import { isOfficialChat } from '../lib/format'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { PeerProfileTab } from './peer-profile-tab'
@@ -248,6 +256,14 @@ function FileRow({
   // Для голосовых сразу подгружаем URL (нативный плеер); для файлов — по клику на скачивание.
   const url = useFileUrl(item.id, voice)
   const dl = useFileUrl(item.id, false)
+  // Скачивание в приложение с прогрессом — тем же ключом, что у файла в самой переписке.
+  // Ссылка подписывается по нажатию: список файлов длинный, и подписывать все заранее незачем.
+  const download = useFileDownload(`file:${item.id}`, {
+    url: () => dl.refetch().then((r) => r.data),
+    name: item.name ?? t('attachment'),
+    mime: item.mime,
+  })
+  const state = download.state
   const date = new Date(item.createdAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'short',
@@ -292,13 +308,37 @@ function FileRow({
           <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
         )
       ) : (
+        // Кнопка ведёт себя как значок файла в Telegram: «↓» скачать, кольцо с «×» —
+        // идёт скачивание (нажатие отменяет), «сохранить» — файл уже в приложении.
         <button
           type="button"
-          aria-label={t('download')}
-          onClick={() => void dl.refetch().then((r) => r.data && window.open(r.data, '_blank'))}
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label={
+            state.status === 'loading'
+              ? t('downloadCancel')
+              : state.status === 'ready'
+                ? t('save')
+                : t('download')
+          }
+          title={state.status === 'error' ? t('downloadFailed') : undefined}
+          onClick={download.toggle}
+          className={cn(
+            'relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted',
+            state.status === 'ready'
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground',
+            state.status === 'error' && 'text-destructive',
+          )}
         >
-          <Download className="size-4" aria-hidden />
+          {state.status === 'loading' ? (
+            <>
+              <X className="size-3.5" strokeWidth={2.5} aria-hidden />
+              <ProgressRing progress={download.progress} className="text-primary" />
+            </>
+          ) : state.status === 'ready' ? (
+            <Save className="size-4" aria-hidden />
+          ) : (
+            <Download className="size-4" aria-hidden />
+          )}
         </button>
       )}
     </div>

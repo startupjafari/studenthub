@@ -3,8 +3,14 @@
 import { useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { FileText, ImageOff, Loader2, Play, X } from 'lucide-react'
-import { formatBytes, formatBytesProgress, useByteUnitLabel } from '../../../shared/lib'
+import { ArrowDown, Check, FileText, ImageOff, Loader2, Play, X } from 'lucide-react'
+import {
+  formatBytes,
+  formatBytesProgress,
+  useByteUnitLabel,
+  useFileDownload,
+} from '../../../shared/lib'
+import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import { fileKind } from '../lib/file-kind'
@@ -190,6 +196,13 @@ function Single({
   const [duration, setDuration] = useState<number | null>(null)
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
+  // Скачивание файла внутри приложения (shared/lib/file-download): ключ — id файла, тот же,
+  // что у вкладки «Файлы», — начатое там видно здесь, и наоборот.
+  const download = useFileDownload(`file:${att.id ?? 'pending'}`, {
+    url: url ?? '',
+    name: att.name || t('attachment'),
+    mime: att.mime,
+  })
   // Спойлер (§34): размыто до клика.
   const [revealed, setRevealed] = useState(false)
   const blurred = !!att.spoiler && !revealed
@@ -354,17 +367,19 @@ function Single({
       </button>
     )
   }
-  // Карточка файла в стиле Telegram: круглая иконка + имя + размер, клик — скачать.
+  // Карточка файла в стиле Telegram: круглая иконка + имя + размер. Нажатие скачивает файл
+  // в приложение с прогрессом на значке (второе нажатие — отмена), готовый — сохраняет на
+  // устройство. Раньше это была ссылка: браузер открывал PDF поверх приложения, а
+  // прогресса и отмены не было вовсе.
+  const dl = download.state
+  const loading = dl.status === 'loading'
   return (
-    <a
-      href={uploading ? undefined : url}
-      target="_blank"
-      rel="noopener noreferrer"
-      download
-      className={cn(
-        'flex min-w-[220px] items-center gap-2 py-0.5',
-        uploading && 'pointer-events-none',
-      )}
+    <button
+      type="button"
+      onClick={download.toggle}
+      disabled={uploading}
+      aria-label={loading ? t('downloadCancel') : dl.status === 'ready' ? t('save') : t('download')}
+      className="flex min-w-[220px] cursor-pointer items-center gap-2 py-0.5 text-left disabled:cursor-default"
     >
       {/* Значок расширения (§7 карты): цвет задаёт тип документа — в переписке с десятком
           вложений он различает архив, таблицу и картинку раньше, чем прочитано имя. */}
@@ -376,6 +391,8 @@ function Single({
       >
         {uploading ? (
           <Loader2 className="size-5 animate-spin" aria-hidden />
+        ) : loading ? (
+          <X className="size-4" strokeWidth={2.5} aria-hidden />
         ) : kind.ext ? (
           <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
             {kind.ext}
@@ -383,18 +400,51 @@ function Single({
         ) : (
           <FileText className="size-5" aria-hidden />
         )}
+        {loading && <ProgressRing progress={download.progress} />}
+        {/* Угловой значок — что сделает нажатие: «↓» скачать, галочка — уже скачано.
+            Обводка цветом пузыря отделяет его от значка расширения. */}
+        {!uploading && !loading && (
+          <span
+            aria-hidden
+            className={cn(
+              'absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full border-2',
+              mine
+                ? 'border-primary bg-primary-foreground text-primary'
+                : 'border-muted bg-background text-foreground',
+            )}
+          >
+            {dl.status === 'ready' ? (
+              <Check className="size-2.5" strokeWidth={3.5} />
+            ) : (
+              <ArrowDown className="size-2.5" strokeWidth={3.5} />
+            )}
+          </span>
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{att.name || t('attachment')}</span>
         <span className={cn('block text-xs', mine ? 'opacity-70' : 'text-muted-foreground')}>
           {/* Прогресс мегабайтами, а не процентами: «11.5 / 40.1 МБ» сразу говорит и сколько
               осталось, и сколько весит файл, — процент отвечает только на первое. */}
-          {uploading && att.progress != null
-            ? formatBytesProgress(att.progress * att.size, att.size, unit)
-            : formatBytes(att.size, unit)}
+          {uploading && att.progress != null ? (
+            formatBytesProgress(att.progress * att.size, att.size, unit)
+          ) : loading ? (
+            formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
+          ) : dl.status === 'ready' ? (
+            <>
+              {formatBytes(att.size, unit)} ·{' '}
+              <span className={cn('font-semibold', mine ? 'underline' : 'text-primary')}>
+                {t('save')}
+              </span>
+            </>
+          ) : dl.status === 'error' ? (
+            <span className={mine ? 'underline' : 'text-destructive'}>{t('downloadFailed')}</span>
+          ) : (
+            formatBytes(att.size, unit)
+          )}
         </span>
       </span>
-    </a>
+    </button>
   )
 }
 
