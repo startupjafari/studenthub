@@ -29,6 +29,7 @@ import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { Fold } from '../ui/fold'
 import { StatePlate } from '../ui/state-plate'
+import { SkeletonCards } from '../ui/skeleton'
 import { Tile } from '../ui/tile'
 import {
   IconBanner,
@@ -113,10 +114,13 @@ export function ControlScreen({ userId }: { userId: string }) {
   )
 
   // Свой .screen у загрузки: без него строка состояния прижималась к самому краю экрана.
+  // Заглушка под шапкой — той же формы, что приедет (рычаги это стопка карточек), и на
+  // весь экран: одна строка «Читаю состояние» на пустом поле читалась как сбой.
   if (load.status === 'loading')
     return (
-      <div className="screen">
+      <div className="screen" aria-busy="true">
         <Head hint={t('controlReading')} />
+        <SkeletonCards />
       </div>
     )
   if (load.status === 'error') {

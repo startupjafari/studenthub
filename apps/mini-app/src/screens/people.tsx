@@ -9,6 +9,7 @@ import { SearchField } from '../ui/search-field'
 import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
+import { SkeletonList } from '../ui/skeleton'
 import { formatShortTime, initials } from '../lib/format'
 import { PersonScreen } from './person'
 
@@ -69,7 +70,7 @@ export function PeopleScreen() {
   }
 
   return (
-    <div className="screen">
+    <div className="screen" aria-busy={state.status === 'loading'}>
       <ScreenHeader
         title={t('peopleTitle')}
         subtitle={t('peopleSubtitle')}
@@ -86,6 +87,11 @@ export function PeopleScreen() {
       />
 
       <SearchField value={query} onChange={setQuery} placeholder={t('peopleSearchPlaceholder')} />
+
+      {/* Загрузка показывалась пустотой: экран «Люди» открывается пустым, поиск уходит
+          на сервер с задержкой, и между вводом и ответом под строкой поиска не было
+          ничего — неотличимо от «никого не нашлось». */}
+      {state.status === 'loading' && <SkeletonList />}
 
       {state.status === 'error' && (
         <StatePlate title={t('peopleLoadError')} onRetry={() => void load(query, onlyBlocked)} />

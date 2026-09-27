@@ -14,6 +14,7 @@ import { haptic } from '../telegram/webapp'
 import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
+import { SkeletonList } from '../ui/skeleton'
 import { t } from '../i18n'
 import {
   IconChevron,
@@ -472,21 +473,4 @@ function groupByDay(items: Complaint[]): { label: string; items: Complaint[] }[]
 function firstLine(reason: string): string {
   const line = reason.split('\n')[0] ?? ''
   return line.length > 90 ? `${line.slice(0, 90)}…` : line
-}
-
-function SkeletonList() {
-  // Скелетон, а не спиннер: высота строк известна заранее, и список не прыгает,
-  // когда данные приезжают.
-  return (
-    <section className="list" aria-hidden="true">
-      {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="row row-static">
-          <span className="row-body">
-            <span className="skeleton skeleton-title" />
-            <span className="skeleton skeleton-line" />
-          </span>
-        </div>
-      ))}
-    </section>
-  )
 }

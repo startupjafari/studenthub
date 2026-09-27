@@ -14,6 +14,7 @@ import { confirmAction, haptic, hasBottomButtons } from '../telegram/webapp'
 import { useBackButton, useMainButton, useSecondaryButton } from '../telegram/use-telegram'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
+import { SkeletonCards } from '../ui/skeleton'
 import { t } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { PersonSummary } from './person-summary'
@@ -208,21 +209,13 @@ export function ComplaintScreen({
     // Скелетон, а не строка «Открываем…»: форма будущей карточки известна заранее, и
     // экран не прыгает, когда данные приезжают.
     return (
-      <div className="screen">
+      <div className="screen" aria-busy="true">
         <ScreenHeader
           title={t('complaintTitle')}
           subtitle={t('complaintOpening')}
           onBack={onBack}
         />
-        <section className="card" aria-hidden="true">
-          <span className="skeleton skeleton-title" />
-          <span className="skeleton skeleton-line" />
-          <span className="skeleton skeleton-line" />
-        </section>
-        <section className="card" aria-hidden="true">
-          <span className="skeleton skeleton-title" />
-          <span className="skeleton skeleton-line" />
-        </section>
+        <SkeletonCards />
       </div>
     )
   }
