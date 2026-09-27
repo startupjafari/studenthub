@@ -35,7 +35,9 @@ const FAIL_WINDOW_SECONDS = 15 * 60
 /** Сколько неудач подряд в окне включают блокировку. */
 const FAIL_THRESHOLD = 10
 /** Длительность блокировки по счёту срабатываний подряд: 5 мин → 15 мин → час. */
-const LOCK_STEPS_SECONDS = [5 * 60, 15 * 60, 60 * 60]
+// Тип-кортеж, а не просто number[]: так компилятор знает, что первая ступень
+// существует, и её можно брать как запасную без лишних проверок.
+const LOCK_STEPS_SECONDS: readonly [number, ...number[]] = [5 * 60, 15 * 60, 60 * 60]
 /** Сколько помнить, что аккаунт уже блокировали (для нарастания). */
 const LOCK_COUNT_TTL_SECONDS = 24 * 60 * 60
 
@@ -78,7 +80,10 @@ export class LoginAttemptsService {
     await this.safe(async () => {
       const lockCount = await this.redis.incr(this.lockCountKey(identifier))
       await this.redis.expire(this.lockCountKey(identifier), LOCK_COUNT_TTL_SECONDS)
-      const seconds = LOCK_STEPS_SECONDS[Math.min(lockCount, LOCK_STEPS_SECONDS.length) - 1]
+      // Последняя ступень действует и дальше: серия не растёт бесконечно, час — потолок.
+      // `??` для типов: индекс уже ограничен длиной, но компилятор этого не знает.
+      const step = Math.min(lockCount, LOCK_STEPS_SECONDS.length) - 1
+      const seconds = LOCK_STEPS_SECONDS[step] ?? LOCK_STEPS_SECONDS[0]
       await this.redis.set(this.lockKey(identifier), '1', 'EX', seconds)
       await this.redis.del(failKey)
       this.logger.warn(

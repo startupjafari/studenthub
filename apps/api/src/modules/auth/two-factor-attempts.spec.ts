@@ -58,9 +58,10 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       redis as unknown as Redis,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
-    jest
-      .spyOn(service as unknown as { issueSession: () => unknown }, 'issueSession')
-      .mockResolvedValue({ accessToken: 'a', refreshToken: 'r', refreshExpiresAt: new Date() })
+    const withPrivate = service as unknown as {
+      issueSession: () => Promise<{ accessToken: string }>
+    }
+    jest.spyOn(withPrivate, 'issueSession').mockResolvedValue({ accessToken: 'a' })
 
     return { service, redis, store, twoFactor }
   }
