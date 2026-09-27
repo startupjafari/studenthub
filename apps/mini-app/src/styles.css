@@ -312,6 +312,13 @@ body {
   margin: 0;
 }
 
+/* Подзаголовок встаёт под название, а не под стрелку: «Срочно · 23:01» относится к
+   жалобе, и начатый от края экрана он читался подписью к кнопке возврата. Сдвиг —
+   ширина кнопки за вычетом её отрицательного поля плюс зазор строки. */
+.screen-head.with-back > .hint {
+  padding-left: calc(34px - 7px + 10px);
+}
+
 .hint {
   color: var(--tg-theme-hint-color);
   font-size: var(--text-small);
@@ -352,6 +359,24 @@ body {
   letter-spacing: var(--track-head);
 }
 
+/*
+ * Абзацы в карточке — на своём шаге, а не на браузерном em. Браузерное поле сверху и
+ * снизу разносило строки карточки «кто это» по одной на экран и оставляло под последней
+ * лишнюю полосу пустоты, из-за которой карточка выглядела недогруженной.
+ */
+.card > p {
+  margin: 8px 0 0;
+}
+
+.card > p:first-child {
+  margin-top: 0;
+}
+
+/* Подряд идущие подписи — одна группа фактов: шаг между ними вдвое меньше. */
+.card > p.hint + p.hint {
+  margin-top: 4px;
+}
+
 .card-accent {
   cursor: pointer;
   box-shadow:
@@ -364,6 +389,22 @@ body {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-rest);
   overflow: hidden;
+}
+
+/*
+ * Список внутри карточки не рисует вторую карточку. Своя тень и скругление давали белую
+ * плашку на белом — карточка в карточке, — а строки получали двойной отступ слева.
+ * Строки доходят до краёв карточки, и их текст встаёт на одну вертикаль с заголовком.
+ */
+.card .list {
+  margin: 8px -14px 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.card .list:last-child {
+  margin-bottom: -14px;
 }
 
 .row {
@@ -446,15 +487,24 @@ body {
 }
 
 /*
- * Плитки сводки. Колонок не три фиксированных, а сколько влезет: пять чисел в сетке 3×2
- * оставляли в последнем ряду одну плитку и дыру рядом с ней, а подпись «Жалоб в очереди»
- * ломалась на две строки и делала эту плитку выше остальных.
+ * Плитки сводки: пять чисел рядами 2 + 3, а не 3 + 2 с дырой в конце. Сверху — масштаб
+ * платформы (вузы, пользователи), под ним — сегодняшняя жизнь (за сутки, за неделю,
+ * жалобы). Сетка на шесть долей: первые две плитки берут по три, остальные — по две.
+ * «Сколько влезет» (auto-fit) на ширине телефона давало ровно ту дыру, от которой уходили.
  */
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6.2em, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
+}
+
+.stats > .stat {
+  grid-column: span 2;
+}
+
+.stats > .stat:nth-child(-n + 2) {
+  grid-column: span 3;
 }
 
 .stat {
@@ -479,6 +529,8 @@ body {
 
 .stat b {
   font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-head);
 }
 
 .avatar {
@@ -829,6 +881,15 @@ body {
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
 }
 
+/*
+ * В тёмной теме «клавиша» светлее дорожки, а не цвета секции: у Telegram секция и фон
+ * почти одного тона, и плашка выбора сливалась с дорожкой — выбранное было не отличить.
+ */
+:root[data-scheme='dark'] .tab-lens,
+:root[data-scheme='dark'] .tabs:not([data-lens='on']) .tab[aria-selected='true'] {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 42%, var(--tg-theme-section-bg-color));
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -860,8 +921,11 @@ body {
   border: 0;
   border-radius: var(--radius-pill);
   /* Невыбранный чип — не пустой контур, а лёгкая поверхность: контур на фоне карточки
-     теряется, и ряд вариантов выглядит списком подписей, а не набором кнопок. */
-  background: var(--tg-theme-secondary-bg-color);
+     теряется, и ряд вариантов выглядит списком подписей, а не набором кнопок.
+     Тот же выбор тона, что у поля: на фоне экрана — цвет секции, в карточке — фон.
+     Одним secondary_bg на оба случая фильтры над списком совпадали с фоном страницы
+     и читались голым текстом. */
+  background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font: inherit;
   cursor: pointer;
@@ -869,6 +933,46 @@ body {
   transition:
     transform var(--press) var(--ease-out),
     background-color var(--press) var(--ease-out);
+}
+
+.card .chip {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* На стекле поля ввода ни секция, ни фон не годятся: в тёмной теме оба чёрные, как само
+   стекло. Нейтральный тон поверх — тот же, что у дорожки переключателя. */
+.composer .chip {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 16%, transparent);
+}
+
+/* Одиночный чип в карточке («Скопировать ссылку», «Беру в работу») стоит отдельной
+   строкой и без отступа прилипал к заголовку над собой. */
+.card > .chip {
+  margin-top: 12px;
+}
+
+/*
+ * Фильтры над списком — одной строкой с прокруткой вбок, во всю ширину экрана.
+ * Переносом последний тег уезжал на вторую строку один и выглядел отвалившимся.
+ */
+.screen > .chips {
+  flex-wrap: nowrap;
+  margin: 0 calc(-1 * var(--side));
+  padding: 0 var(--side);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.screen > .chips::-webkit-scrollbar {
+  display: none;
+}
+
+.screen > .chips .chip {
+  flex: 0 0 auto;
+}
+
+.screen > .chips-grid {
+  margin-top: 0;
 }
 
 .chip:active {
@@ -919,6 +1023,20 @@ body {
     background: var(--tg-theme-secondary-bg-color);
     color: var(--tg-theme-link-color);
   }
+}
+
+/*
+ * Третья ступень — без заливки, цветом ссылки. Для действия рядом с главным, которое
+ * с ним не спорит («Завершить сессии» под «Заблокировать»): два залитых прямоугольника
+ * подряд читаются как выбор из двух главных действий.
+ */
+.fallback-submit.plain {
+  min-height: var(--tap);
+  margin-top: 4px;
+  padding: 10px 14px;
+  background: none;
+  color: var(--tg-theme-link-color);
+  font-weight: 500;
 }
 
 /*
@@ -1033,6 +1151,14 @@ body {
 .card .field,
 .card .code-input {
   background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Уголок растягивания браузера торчал точкой в углу залитого поля: высоту записки
+   задаёт `rows`, тянуть её пальцем на телефоне всё равно нечем. */
+textarea.field {
+  display: block;
+  resize: none;
+  line-height: 1.35;
 }
 
 /*
@@ -1160,8 +1286,12 @@ body {
   display: none;
 }
 
+/* Равные доли дорожки, но не уже собственной надписи: пока вкладки помещаются, они
+   одной ширины, как в системном переключателе, и дорожка не кончается пустым хвостом
+   справа; длинная надпись берёт сколько нужно, не поместились — ряд прокручивается. */
 .tab {
-  flex: 0 0 auto;
+  flex: 1 0 0;
+  min-width: max-content;
   white-space: nowrap;
 }
 
@@ -1309,6 +1439,10 @@ body {
   background: var(--tg-theme-section-separator-color);
 }
 
+/* Группа без плиток (разделы сводки): линия начинается там же, где текст, — от поля. */
+.fold-group-plain .fold + .fold > summary::before {
+  left: 14px;
+}
 /* Отступ линии — под плиткой значка, а не под её краем: линия должна начинаться там,
    где начинается текст, иначе она режет колонку значков. */
 .fold-group .fold > summary {
@@ -1415,9 +1549,11 @@ body {
 }
 
 .fold-chevron {
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
   color: var(--tg-theme-hint-color);
-  font-size: 18px;
+  opacity: 0.5;
   transition: transform 0.15s ease;
 }
 
@@ -1449,6 +1585,23 @@ body {
   margin: 10px 0 2px;
   font-size: var(--text-body);
   font-weight: 600;
+}
+
+/*
+ * Подзаголовок группы внутри карточки («Блокировка»): мелко и тише, как заголовок секции
+ * в настройках iOS. Отступ сверху больше шага карточки — он и отделяет группу, линия не
+ * нужна.
+ */
+.card .card-sub {
+  margin: 20px 0 0;
+  color: var(--tg-theme-hint-color);
+  font-size: var(--text-small);
+  font-weight: 600;
+  letter-spacing: var(--track-small);
+}
+
+.card .card-sub + .chips-grid {
+  margin-top: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

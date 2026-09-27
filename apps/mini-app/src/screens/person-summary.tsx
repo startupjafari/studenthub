@@ -23,7 +23,16 @@ const ROLE_KEY: Record<string, MessageKey> = {
   PLATFORM_MODERATOR: 'personRolePlatformModerator',
 }
 
-export function PersonSummary({ userId, title }: { userId: string; title: string }) {
+export function PersonSummary({
+  userId,
+  title,
+  showName = true,
+}: {
+  userId: string
+  title: string
+  /** На странице самого человека имя уже в шапке — второй раз под ней оно лишнее. */
+  showName?: boolean
+}) {
   const [card, setCard] = useState<PersonCard | 'error' | null>(null)
 
   useEffect(() => {
@@ -57,11 +66,13 @@ export function PersonSummary({ userId, title }: { userId: string; title: string
   return (
     <section className="card">
       <h2>{title}</h2>
-      <p>
-        <b>
-          {card.lastName} {card.firstName}
-        </b>
-      </p>
+      {showName && (
+        <p>
+          <b>
+            {card.lastName} {card.firstName}
+          </b>
+        </p>
+      )}
       <p className="hint">
         {roleKey ? t(roleKey) : card.role}
         {card.university ? ` · ${card.university.name}` : ''}
