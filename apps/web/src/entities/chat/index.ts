@@ -94,7 +94,6 @@ export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'
 export { ForwardDialog, type ForwardTab } from './ui/forward-dialog'
-export { SharedPostCard } from './ui/shared-post-card'
 export {
   AttachmentDialog,
   ALBUM_MAX_ITEMS,
