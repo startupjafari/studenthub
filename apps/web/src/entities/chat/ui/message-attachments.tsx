@@ -56,6 +56,73 @@ function DurationBadge({ seconds }: { seconds: number | null }) {
   )
 }
 
+/**
+ * Скачать снимок или ролик в приложение — плашкой в углу кадра, как в Telegram Web:
+ * «↓ 12 МБ» → кольцо с «×» и мегабайтами → «✓ Сохранить». Нажатие на сам кадр по-прежнему
+ * открывает просмотрщик; плашка — отдельная кнопка и клик до кадра не пропускает.
+ *
+ * Ключ тот же, что у строки файла и у «Скачать» в просмотрщике (`file:<id>`): начатое в
+ * одном месте видно в остальных. В маленькой ячейке альбома — только значок, подпись уходит
+ * в aria-label.
+ */
+function MediaDownloadPill({
+  att,
+  url,
+  compact = false,
+}: {
+  att: MessageAttachment
+  url: string
+  compact?: boolean
+}) {
+  const t = useTranslations('Chats')
+  const unit = useByteUnitLabel()
+  const download = useFileDownload(`file:${att.id ?? 'pending'}`, {
+    url,
+    name: att.name || t('attachment'),
+    mime: att.mime,
+  })
+  const dl = download.state
+  const loading = dl.status === 'loading'
+  const label = loading
+    ? formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
+    : dl.status === 'ready'
+      ? t('save')
+      : dl.status === 'error'
+        ? t('downloadFailed')
+        : formatBytes(att.size, unit)
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        download.toggle()
+      }}
+      aria-label={loading ? t('downloadCancel') : dl.status === 'ready' ? t('save') : t('download')}
+      title={compact ? label : undefined}
+      className={cn(
+        'absolute top-1.5 right-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full bg-black/55 py-0.5 pl-0.5 text-[0.7rem] font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/70',
+        compact ? 'pr-0.5' : 'pr-2',
+        dl.status === 'error' && 'bg-destructive/80 hover:bg-destructive',
+      )}
+    >
+      <span className="relative flex size-5 shrink-0 items-center justify-center">
+        {loading ? (
+          <>
+            <X className="size-3" strokeWidth={3} aria-hidden />
+            <ProgressRing progress={download.progress} />
+          </>
+        ) : dl.status === 'ready' ? (
+          <Check className="size-3.5" strokeWidth={3} aria-hidden />
+        ) : (
+          <ArrowDown className="size-3.5" strokeWidth={3} aria-hidden />
+        )}
+      </span>
+      {!compact && <span className="max-w-40 truncate tabular-nums">{label}</span>}
+    </button>
+  )
+}
+
 // Запасное место под снимок, когда размеров нет (видео, вложения старше полей width/height):
 // усреднённый прямоугольник. Без него пузырь схлопывается в ноль, а потом прыгает на всю
 // высоту картинки, и на медленной сети в нём зияет пустой цветной прямоугольник.
@@ -315,17 +382,17 @@ function Single({
             GIF
           </span>
         )}
+        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} />}
         {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
       </span>
     )
   }
   if (isViewable(att) && att.mime.startsWith('video/')) {
     // Превью-кадр с кнопкой play; клик открывает полноэкранный просмотрщик (как в Telegram).
+    // Контейнер, а не кнопка: поверх кадра лежат две кнопки — открыть ролик (весь кадр) и
+    // скачать (плашка в углу), а кнопку в кнопку вложить нельзя.
     return (
-      <button
-        type="button"
-        onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
-        disabled={uploading}
+      <div
         className={cn(
           'relative block w-fit max-w-full overflow-hidden rounded-lg',
           // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
@@ -354,17 +421,27 @@ function Single({
         {uploading ? (
           <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />
         ) : blurred ? (
-          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-white">
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="absolute inset-0 flex cursor-pointer items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
+          >
             {t('spoiler')}
-          </span>
+          </button>
         ) : (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors hover:bg-black/30">
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={t('attachment')}
+            className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/20 transition-colors hover:bg-black/30"
+          >
             <span className="flex size-12 items-center justify-center rounded-full bg-black/50 text-white">
               <Play className="size-6 translate-x-0.5" aria-hidden />
             </span>
-          </span>
+          </button>
         )}
-      </button>
+        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} />}
+      </div>
     )
   }
   // Карточка файла в стиле Telegram: круглая иконка + имя + размер. Нажатие скачивает файл
@@ -462,6 +539,7 @@ function GridTile({
   className?: string
 }) {
   const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
   const isVid = att.mime.startsWith('video/')
@@ -479,15 +557,10 @@ function GridTile({
     setPainted(false)
     refetch()
   }
+  // Контейнер, а не кнопка: нажатие по ячейке ловит слой-кнопка во весь кадр, а плашка
+  // скачивания в углу — отдельная кнопка рядом с ним (вложить кнопку в кнопку нельзя).
   return (
-    <button
-      type="button"
-      // Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
-      // Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик.
-      onClick={uploading ? undefined : failed ? retry : blurred ? () => setRevealed(true) : onOpen}
-      disabled={uploading}
-      className={cn('relative block overflow-hidden', MEDIA_TINT, className)}
-    >
+    <div className={cn('relative block overflow-hidden', MEDIA_TINT, className)}>
       {failed ? (
         <span className="absolute inset-0 flex items-center justify-center">
           <ImageOff className="size-5 opacity-60" aria-hidden />
@@ -542,12 +615,25 @@ function GridTile({
         </>
       )}
       {blurred && painted && (
-        <span className="absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
           {t('spoiler')}
         </span>
       )}
+      {/* Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
+          Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик. */}
+      {!uploading && (
+        <button
+          type="button"
+          aria-label={failed ? tCommon('retry') : blurred ? t('spoiler') : t('attachment')}
+          onClick={failed ? retry : blurred ? () => setRevealed(true) : onOpen}
+          className="absolute inset-0 z-[1] cursor-pointer"
+        />
+      )}
+      {url && painted && !uploading && !blurred && !failed && (
+        <MediaDownloadPill att={att} url={url} compact />
+      )}
       {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
-    </button>
+    </div>
   )
 }
 
