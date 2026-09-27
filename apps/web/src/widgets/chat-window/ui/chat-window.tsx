@@ -102,6 +102,7 @@ import {
   putPresigned,
   uploadResumable,
 } from '../../../shared/api'
+import { firstUnreadIndex, unreadAfter } from '../lib/read-tracking'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import {
   applyAction,
@@ -218,6 +219,8 @@ const PINNED_SCALE_MAX = 6
 // Высота пометки дня в потоке ленты: строка 20 px + вертикальные отступы my-2 (8+8).
 // По ней понимаем, ушла ли пометка под верх — тогда её подменяет прилипший заголовок.
 const DAY_LABEL_H = 36
+/** Как часто уходит отметка о прочтении при прокрутке: последним дочитанным сообщением. */
+const READ_EMIT_MS = 800
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
@@ -405,7 +408,14 @@ export function ChatWindow() {
   const [detailsOpen, setDetailsOpen] = useState(false)
   // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
   const [showScrollDown, setShowScrollDown] = useState(false)
-  const [newSinceScroll, setNewSinceScroll] = useState(0)
+  // Прочитано до этого момента в открытом чате (время сообщения). Растёт по мере того, как
+  // сообщения появляются на экране, — от него считается «непрочитанных ниже» на кнопке «вниз».
+  const [readUpTo, setReadUpTo] = useState<string | null>(null)
+  const readUpToRef = useRef<string | null>(null)
+  // Отметка о прочтении уходит на сервер не на каждый кадр прокрутки, а раз в READ_EMIT_MS —
+  // последним дочитанным сообщением.
+  const pendingReadRef = useRef<{ chatId: string; id: string } | null>(null)
+  const readTimerRef = useRef<number | null>(null)
   // Плавающий заголовок даты (Telegram-стиль §6): дата верхнего видимого сообщения, гаснет вне скролла.
   const [floatingDay, setFloatingDay] = useState<string | null>(null)
   const [floatingDayShown, setFloatingDayShown] = useState(false)
@@ -443,7 +453,6 @@ export function ChatWindow() {
   }, [activeId])
 
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
-  const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
   const chatsRef = useRef<ChatListItem[] | undefined>(undefined)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
@@ -1654,6 +1663,19 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
+  // Своё прочтение с другого устройства (или подтверждение этого): сервер шлёт его в личную
+  // комнату. Счётчик в списке и сводка в навигации берутся с сервера — там отметка уже
+  // сохранена. Список перезапрашиваем с задержкой: при быстром чтении отметки идут одна за
+  // другой, и дёргать список на каждую незачем.
+  const listRefreshRef = useRef<number | null>(null)
+  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+    if (listRefreshRef.current) window.clearTimeout(listRefreshRef.current)
+    listRefreshRef.current = window.setTimeout(() => {
+      listRefreshRef.current = null
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    }, 1500)
+  })
   useRealtimeEvent<{ messageId: string; chatId: string }>(
     'message:deleted',
     ({ messageId, chatId }) => {
@@ -1715,22 +1737,16 @@ export function ChatWindow() {
     // на первой вкладке.
   }, [activeId])
 
-  // Снимок числа непрочитанных РОВНО при открытии чата (до отметки прочтения/инвалидации списка).
+  // Новый чат — прочтение начинается заново: плашку «Непрочитанные» и отметку «прочитано до»
+  // ставит первичный скролл, когда лента загрузится. Недоотправленную отметку прошлого чата
+  // отправляем сразу, а не теряем при переключении.
   useEffect(() => {
-    const c = chatsRef.current?.find((x) => x.id === activeId)
-    setOpenUnread(c?.unreadCount ?? 0)
     setUnreadDividerId(null)
+    readUpToRef.current = null
+    setReadUpTo(null)
+    return () => flushRead()
+    // flushRead читает refs — актуальный на момент ухода из чата, пересоздавать эффект незачем.
   }, [activeId])
-
-  // Как только сообщения загрузились — фиксируем id первого непрочитанного (последние openUnread в ленте).
-  // Приблизительно: точную границу «моё последнее прочитанное» API пока не отдаёт (только unreadCount).
-  useEffect(() => {
-    if (unreadDividerId || openUnread <= 0 || !messages.data?.length) return
-    const len = messages.data.length
-    if (len < openUnread) return
-    const target = messages.data[len - openUnread]
-    if (target) setUnreadDividerId(target.id)
-  }, [messages.data, openUnread, unreadDividerId])
 
   // Расстояние от низа < порога — пользователь «у низа» (auto-scroll и отметка прочтения уместны).
   function nearBottom(): boolean {
@@ -1761,22 +1777,44 @@ export function ChatWindow() {
 
     if (firstForChat) {
       scrolledForRef.current = activeId
-      setNewSinceScroll(0)
       setShowScrollDown(false)
+      // Как в Telegram: чат с непрочитанным открывается на первом непрочитанном, а не в самом
+      // низу. Раньше лента сразу уезжала вниз и тут же отправляла «прочитано» по последнему
+      // сообщению — двадцать непрочитанных гасли, хотя человек их не видел.
+      const unreadAtOpen = chatsRef.current?.find((c) => c.id === activeId)?.unreadCount ?? 0
+      const firstUnread = firstUnreadIndex(list, unreadAtOpen, myId)
+      setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
+      // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
+      // непрочитанным оказалось всё загруженное.
+      readUpToRef.current =
+        firstUnread === null
+          ? (last?.createdAt ?? null)
+          : firstUnread > 0
+            ? (list[firstUnread - 1]?.createdAt ?? '')
+            : ''
+      setReadUpTo(readUpToRef.current)
+      const position = (): void => {
+        if (firstUnread === null) toBottom('auto')
+        else virtualizerRef.current?.scrollToIndex(firstUnread, { align: 'start' })
+      }
       requestAnimationFrame(() => {
-        toBottom('auto')
-        window.setTimeout(() => toBottom('auto'), 120)
+        position()
+        // Второй проход — после того как virtua измерила строки: первая раскладка идёт по
+        // оценке высот. Прочтение отмечаем уже по настоящему кадру.
+        window.setTimeout(() => {
+          position()
+          markVisibleReadRef.current()
+        }, 120)
       })
-      if (last) emitRead(activeId, last.id)
       return
     }
 
     if (last && last.id !== prevLastId) {
       if (last.senderId === myId || nearBottom()) {
         toBottom('smooth')
-        emitRead(activeId, last.id)
+        // Прочитано — то, что оказалось на экране после доводки прокрутки.
+        window.setTimeout(() => markVisibleReadRef.current(), 350)
       } else {
-        setNewSinceScroll((n) => n + 1)
         setShowScrollDown(true)
       }
     }
@@ -1842,11 +1880,9 @@ export function ChatWindow() {
     }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
     setShowScrollDown(!atBottom)
-    if (atBottom && !wasAtBottomRef.current) {
-      setNewSinceScroll(0)
-      const last = messages.data?.[messages.data.length - 1]
-      if (last && socket && activeId) emitRead(activeId, last.id)
-    }
+    // Прочитано то, что проехало через экран, — на каждом шаге прокрутки, а не только
+    // у самого низа: как в Telegram, счётчик тает по мере чтения.
+    markVisibleRead()
     wasAtBottomRef.current = atBottom
     // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
     if (el.scrollTop < 100 && canLoadOlder && !loadingOlderRef.current) {
@@ -1882,7 +1918,6 @@ export function ChatWindow() {
       const len = messages.data?.length ?? 0
       if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: true })
     }
-    setNewSinceScroll(0)
     setShowScrollDown(false)
   }
 
@@ -1938,6 +1973,83 @@ export function ChatWindow() {
     if (peekChatIdRef.current === chatId) return
     socket?.emit('message:read', { chatId, messageId })
   }
+
+  /** Отправить накопленную отметку о прочтении сейчас (уход из чата, закрытие вкладки). */
+  function flushRead(): void {
+    if (readTimerRef.current) {
+      window.clearTimeout(readTimerRef.current)
+      readTimerRef.current = null
+    }
+    const pending = pendingReadRef.current
+    pendingReadRef.current = null
+    if (pending) emitRead(pending.chatId, pending.id)
+  }
+
+  /**
+   * Прочитано то, что человек увидел: последнее сообщение над нижней кромкой ленты (над
+   * панелью ввода — на телефоне она лежит поверх ленты). Только вперёд, только в видимой
+   * вкладке и не в режиме «открыть без прочтения».
+   *
+   * Счётчик в списке чатов правим сразу — остаток чужих сообщений ниже прочитанного, как
+   * его посчитает сервер; сама отметка уходит не чаще раза в READ_EMIT_MS.
+   */
+  function markVisibleRead(): void {
+    const chatId = activeId
+    const data = messages.data
+    const vh = virtualizerRef.current
+    if (!chatId || !data?.length || !vh) return
+    if (typeof document !== 'undefined' && document.hidden) return
+    if (peekChatIdRef.current === chatId) return
+    const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize - composerH)
+    let idx = Math.min(Math.max(vh.findItemIndex(bottom), 0), data.length - 1)
+    // Своё недоотправленное сообщение (временный id) сервер не знает — берём ближайшее
+    // настоящее выше него.
+    while (idx >= 0 && data[idx]?.id.startsWith('tmp:')) idx -= 1
+    const msg = data[idx]
+    if (!msg) return
+    if (readUpToRef.current !== null && msg.createdAt <= readUpToRef.current) return
+    readUpToRef.current = msg.createdAt
+    setReadUpTo(msg.createdAt)
+    pendingReadRef.current = { chatId, id: msg.id }
+    if (!readTimerRef.current) readTimerRef.current = window.setTimeout(flushRead, READ_EMIT_MS)
+    // В «прыгнутом» окне ниже загруженного есть ещё сообщения — остаток отсюда не посчитать,
+    // его пришлёт сервер (chat:read → список перезапросится).
+    if (canLoadNewer) return
+    const remaining = unreadAfter(data, msg.createdAt, myId)
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+      (old ?? []).map((c) =>
+        c.id === chatId ? { ...c, unreadCount: remaining, unread: remaining > 0 } : c,
+      ),
+    )
+  }
+  // Свежая версия для слушателей окна (фокус, видимость вкладки): те живут дольше рендера.
+  const markVisibleReadRef = useRef(markVisibleRead)
+  markVisibleReadRef.current = markVisibleRead
+
+  // Вернулись во вкладку — дочитываем то, что на экране: пока она была скрыта, «прочитано»
+  // не ставилось. Закрывают вкладку — отправляем накопленную отметку, а не теряем её.
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (!document.hidden) markVisibleReadRef.current()
+    }
+    const onHide = (): void => flushRead()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      window.removeEventListener('pagehide', onHide)
+    }
+  }, [])
+
+  // Непрочитанных ниже того, что видно, — число на кнопке «вниз», как в Telegram. Считается
+  // от отметки «прочитано до», поэтому тает вместе с прокруткой, а новые чужие сообщения,
+  // пришедшие, пока человек читает выше, его увеличивают.
+  const unreadBelow = useMemo(
+    () => unreadAfter(messages.data ?? [], readUpTo, myId),
+    [messages.data, readUpTo, myId],
+  )
 
   function markChatRead(chatId: string): void {
     const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
@@ -3707,7 +3819,7 @@ export function ChatWindow() {
                   </Virtualizer>
                 )}
               </div>
-              {/* Кнопка «вниз» со счётчиком новых — появляется, когда пролистано вверх (Telegram-стиль). */}
+              {/* Кнопка «вниз» со счётчиком непрочитанных ниже — появляется, когда пролистано вверх (Telegram-стиль). */}
               {showScrollDown && (
                 <button
                   type="button"
@@ -3717,9 +3829,9 @@ export function ChatWindow() {
                   style={{ bottom: composerH + 12 }}
                 >
                   <ChevronDown className="size-5" aria-hidden />
-                  {newSinceScroll > 0 && (
+                  {unreadBelow > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-bold text-primary-foreground">
-                      {newSinceScroll > 99 ? '99+' : newSinceScroll}
+                      {unreadBelow > 99 ? '99+' : unreadBelow}
                     </span>
                   )}
                 </button>
