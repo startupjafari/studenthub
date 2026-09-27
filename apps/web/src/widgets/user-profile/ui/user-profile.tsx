@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -59,6 +59,7 @@ import {
   initialsOf,
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
+import { PostFromUrl } from '../../feed-list'
 import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
 
@@ -201,6 +202,11 @@ export function UserProfile() {
           </div>
         )}
       </ProfileTabs>
+
+      {/* `?post=` — свой пост, на который нажали в чате: сразу поверх профиля. */}
+      <Suspense fallback={null}>
+        <PostFromUrl onOpen={() => setTab('posts')} />
+      </Suspense>
 
       {createModal === 'post' && <PostCreateModal onClose={() => setCreateModal(null)} />}
       <input

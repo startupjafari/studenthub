@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -57,6 +57,7 @@ import {
   initialsOf,
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
+import { PostFromUrl } from '../../feed-list'
 import { ShareProfileButton } from './share-profile-button'
 
 function errCode(e: unknown): string {
@@ -225,6 +226,12 @@ export function PublicUserProfile({ userId }: { userId: string }) {
           <ProfileBody data={u} />
         </ProfileTabs>
       )}
+
+      {/* `?post=` — пост, на который нажали в чате: открывается сразу поверх профиля, а
+          под ним — вкладка «Посты», куда человек вернётся, закрыв его. */}
+      <Suspense fallback={null}>
+        <PostFromUrl onOpen={() => setTab('posts')} />
+      </Suspense>
     </div>
   )
 }
