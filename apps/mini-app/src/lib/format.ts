@@ -31,6 +31,15 @@ export function formatDateTime(iso: string): string {
   })
 }
 
+/**
+ * Число с разрядами по языку приложения: «1 284 311», а не «1,284,311». Без явной локали
+ * `toLocaleString()` брал язык WebView, и в русском интерфейсе на телефоне с английской
+ * системой разряды делились запятой — рядом с датами, уже отформатированными по-русски.
+ */
+export function formatNumber(value: number): string {
+  return value.toLocaleString(tag())
+}
+
 /** Календарная дата без времени: «14 сентября 2025» — день регистрации, а не час. */
 export function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString(tag(), { day: 'numeric', month: 'long', year: 'numeric' })

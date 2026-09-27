@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { resetLocale } from '../i18n'
-import { dayLabel, formatAge, initials, sameDay } from './format'
+import { dayLabel, formatAge, formatNumber, initials, sameDay } from './format'
 
 describe('formatAge', () => {
   beforeEach(() => resetLocale('ru'))
@@ -67,5 +67,15 @@ describe('initials', () => {
 
   it('пустое имя — вопросительный знак, а не пустота', () => {
     expect(initials('   ')).toBe('?')
+  })
+})
+
+describe('formatNumber', () => {
+  // Разряды — по языку приложения, а не WebView: русский интерфейс не делит их запятой.
+  it('делит разряды по языку приложения', () => {
+    resetLocale('ru')
+    expect(formatNumber(1284311).replace(/\s/g, ' ')).toBe('1 284 311')
+    resetLocale('en')
+    expect(formatNumber(1284311)).toBe('1,284,311')
   })
 })
