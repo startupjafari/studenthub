@@ -15,12 +15,15 @@ export function ReactionBar({
   myId,
   ownBubble = false,
   onToggle,
+  className,
 }: {
   reactions: MessageReaction[]
   myId: string | undefined
   // Чип рендерится на своём (синем, primary) пузыре — берём светлую палитру для контраста.
   ownBubble?: boolean
   onToggle: (emoji: string) => void
+  /** Место в разметке пузыря задаёт он сам: реакции стоят в одной строке со временем. */
+  className?: string
 }) {
   if (reactions.length === 0) return null
 
@@ -34,7 +37,7 @@ export function ReactionBar({
   }
 
   return (
-    <div className="mt-1 flex flex-wrap items-center gap-1">
+    <div className={cn('flex flex-wrap items-center gap-1', className)}>
       {[...grouped.entries()].map(([emoji, { count, mine, names }]) => (
         <button
           key={emoji}

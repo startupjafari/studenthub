@@ -234,15 +234,17 @@ function MessageItemInner({
                 У своих — слева, у чужих — справа. Раньше здесь была кнопка «Ответить», но
                 ответ и так висит на свайпе и в контекстном меню, а поставить реакцию мышью
                 было больше некуда, кроме как через то же меню. Остальные эмодзи — там же
-                (CHAT_REACTION_EMOJIS), в углу пузыря стоит первый из них по частоте. */}
+                (CHAT_REACTION_EMOJIS), сбоку у низа пузыря стоит первый из них по частоте. */}
             <button
               type="button"
               aria-label={t('quickReaction', { emoji: QUICK_REACTION })}
               title={t('quickReaction', { emoji: QUICK_REACTION })}
               onClick={() => actions.react(m.id, QUICK_REACTION)}
+              // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу кнопка закрывала
+              // имя отправителя. Сбоку у низа она не заслоняет ни текст, ни время с галочками.
               className={cn(
-                'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
-                mine ? '-left-2' : '-right-2',
+                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
+                mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
               )}
             >
               <span aria-hidden>{QUICK_REACTION}</span>
@@ -346,57 +348,58 @@ function MessageItemInner({
             {m.linkPreview && !profileShare && (
               <LinkPreviewCard preview={m.linkPreview} mine={mine} />
             )}
-            <span
-              className={cn(
-                'mt-0.5 flex items-center gap-1 text-[0.65rem]',
-                mine ? 'justify-end' : 'justify-start',
-              )}
-            >
-              {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
-              <span className="opacity-60">
-                {new Date(m.createdAt).toLocaleTimeString(locale, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-                {m.editedAt && ` · ${t('edited')}`}
-              </span>
-              {mine && readState === 'pending' && (
-                <Loader2 className="size-3 animate-spin opacity-60" aria-label={t('sending')} />
-              )}
-              {mine && readState === 'failed' && (
-                <button
-                  type="button"
-                  onClick={() => actions.retry(m)}
-                  aria-label={t('sendFailedRetry')}
-                  title={t('sendFailedRetry')}
-                >
-                  <AlertCircle className="size-3.5 text-destructive" aria-hidden />
-                </button>
-              )}
-              {mine && readState === 'read' && (
-                <span
-                  className="flex items-center gap-0.5"
-                  title={readCount > 0 ? t('readByCount', { count: readCount }) : undefined}
-                >
-                  <CheckCheck className="size-3.5" aria-hidden />
-                  {readCount > 0 && (
-                    <span className="text-[10px] leading-none opacity-70">{readCount}</span>
-                  )}
+            {/* Нижняя строка пузыря — как в Telegram: реакции слева, время и галочки справа.
+                Высота строки заранее равна высоте чипа реакции: раньше реакции шли отдельной
+                строкой под временем, и первая же реакция увеличивала пузырь на строку — лента
+                под ним прыгала. Много реакций переносятся, время остаётся в последней строке. */}
+            <div className="mt-0.5 flex min-h-[22px] flex-wrap items-center gap-x-2 gap-y-1">
+              <ReactionBar
+                reactions={m.reactions}
+                myId={myId}
+                ownBubble={mine}
+                onToggle={(emoji) => actions.react(m.id, emoji)}
+              />
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-[0.65rem]">
+                {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
+                <span className="opacity-60">
+                  {new Date(m.createdAt).toLocaleTimeString(locale, {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  {m.editedAt && ` · ${t('edited')}`}
                 </span>
-              )}
-              {mine && readState === 'delivered' && (
-                <CheckCheck className="size-3.5 opacity-60" aria-hidden />
-              )}
-              {mine && readState === 'sent' && (
-                <Check className="size-3.5 opacity-60" aria-hidden />
-              )}
-            </span>
-            <ReactionBar
-              reactions={m.reactions}
-              myId={myId}
-              ownBubble={mine}
-              onToggle={(emoji) => actions.react(m.id, emoji)}
-            />
+                {mine && readState === 'pending' && (
+                  <Loader2 className="size-3 animate-spin opacity-60" aria-label={t('sending')} />
+                )}
+                {mine && readState === 'failed' && (
+                  <button
+                    type="button"
+                    onClick={() => actions.retry(m)}
+                    aria-label={t('sendFailedRetry')}
+                    title={t('sendFailedRetry')}
+                  >
+                    <AlertCircle className="size-3.5 text-destructive" aria-hidden />
+                  </button>
+                )}
+                {mine && readState === 'read' && (
+                  <span
+                    className="flex items-center gap-0.5"
+                    title={readCount > 0 ? t('readByCount', { count: readCount }) : undefined}
+                  >
+                    <CheckCheck className="size-3.5" aria-hidden />
+                    {readCount > 0 && (
+                      <span className="text-[10px] leading-none opacity-70">{readCount}</span>
+                    )}
+                  </span>
+                )}
+                {mine && readState === 'delivered' && (
+                  <CheckCheck className="size-3.5 opacity-60" aria-hidden />
+                )}
+                {mine && readState === 'sent' && (
+                  <Check className="size-3.5 opacity-60" aria-hidden />
+                )}
+              </span>
+            </div>
           </div>
           {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
           <button
