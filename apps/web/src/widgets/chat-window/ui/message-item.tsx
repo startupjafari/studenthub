@@ -9,10 +9,10 @@ import {
   MessageAttachments,
   MessageContent,
   ReactionBar,
-  SharedPostCard,
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
+import { ChatSharedPost, ChatSharedProfile, parseProfileShare } from './shared-cards'
 import { Avatar, AvatarFallback } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -126,6 +126,8 @@ function MessageItemInner({
         title: m.systemMeta?.title ?? '',
       })
     : null
+  // Пересланный профиль приходит текстом «Имя + ссылка» — узнаём и рисуем карточкой.
+  const profileShare = m.sharedPost || m.poll ? null : parseProfileShare(m.content)
 
   return (
     <div>
@@ -316,11 +318,20 @@ function MessageItemInner({
             )}
             {m.sharedPost && (
               <div className={cn(m.media.length > 0 && 'mt-1')}>
-                <SharedPostCard post={m.sharedPost} />
+                <ChatSharedPost post={m.sharedPost} mine={mine} />
               </div>
             )}
             {m.poll ? (
               <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
+            ) : profileShare ? (
+              // Пересланный профиль — карточкой вместо сырого «Имя + ссылка».
+              <div className={cn(m.media.length > 0 && 'mt-1')}>
+                <ChatSharedProfile
+                  userId={profileShare.userId}
+                  name={profileShare.name}
+                  mine={mine}
+                />
+              </div>
             ) : (
               m.content && (
                 // select-text точечно снимает select-none со строки: он там ради тач-жестов
@@ -331,7 +342,10 @@ function MessageItemInner({
                 </div>
               )
             )}
-            {m.linkPreview && <LinkPreviewCard preview={m.linkPreview} mine={mine} />}
+            {/* Превью ссылки у пересланного профиля не нужно: карточка уже и есть превью. */}
+            {m.linkPreview && !profileShare && (
+              <LinkPreviewCard preview={m.linkPreview} mine={mine} />
+            )}
             <span
               className={cn(
                 'mt-0.5 flex items-center gap-1 text-[0.65rem]',

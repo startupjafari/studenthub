@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { TriangleAlert } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { StatusScreen } from './status-screen'
+import { isChunkLoadError, recoverFromChunkError } from '../lib/use-sw-update'
 
 // Единый error-boundary для всех сегментов (§2.2). До Ф13.8 каждый из 32 error.tsx
 // показывал экран и молча выбрасывал `error` — исключение умирало в браузере студента.
@@ -21,6 +22,11 @@ export function ErrorScreen({
   const t = useTranslations('Common')
 
   useEffect(() => {
+    // Кусок сборки не загрузился (после деплоя или пересборки dev-сервера у открытой
+    // вкладки старые адреса) — это не поломка, а устаревшая страница: перезагружаемся, а не
+    // показываем красный экран и не шумим в Sentry. В перезагрузку не ушли (только что уже
+    // перезагружались) — значит, дело серьёзнее: экран и отчёт, как у любой ошибки.
+    if (isChunkLoadError(error) && recoverFromChunkError()) return
     Sentry.captureException(error, {
       tags: { source: 'error-boundary', ...(error.digest ? { next_digest: error.digest } : {}) },
     })
