@@ -738,7 +738,10 @@ body {
   min-height: 46px;
   padding: 5px 2px;
   border: 0;
-  border-radius: var(--radius-control);
+  /* Пузырь, а не прямоугольник со скруглением: капсула панели круглая, и подложка
+     внутри неё обязана быть той же формы — 14px на высоте 46px давали угловатую
+     плитку, спорившую с обводкой панели. */
+  border-radius: var(--radius-pill);
   background: none;
   color: var(--tg-theme-hint-color);
   font: inherit;
@@ -764,6 +767,57 @@ body {
 @supports not (background: color-mix(in srgb, red 50%, transparent)) {
   .tabbar-item[aria-selected='true'] {
     background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+/*
+ * Переезжающий пузырь под выбранным разделом.
+ *
+ * Отдельным элементом, а не фоном кнопки: фон нельзя сдвинуть из одной кнопки в другую —
+ * он гаснет здесь и зажигается там. Разделы листаются пальцем, и при перекраске отметка
+ * внизу прыгала, пока содержимое ехало за пальцем плавно.
+ *
+ * Положение и ширину задаёт React по замеру (ui/tab-bar.tsx), css отвечает за форму
+ * и за то, как пузырь едет.
+ */
+.tabbar-bubble {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+  pointer-events: none;
+  transition:
+    transform 280ms var(--ease-out),
+    width 280ms var(--ease-out);
+}
+
+/* Пузырь замерен и нарисован отдельно — фон самой кнопки больше не нужен, иначе
+   на месте выбранного раздела окажутся две подложки одна на другой. */
+.tabbar-row[data-bubble='on'] .tabbar-item[aria-selected='true'] {
+  background: none;
+}
+
+.tabbar-row {
+  position: relative;
+}
+
+/* Подпись и значок — поверх пузыря. */
+.tabbar-item {
+  position: relative;
+  z-index: 1;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar-bubble {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar-bubble {
+    transition: none;
   }
 }
 
@@ -1310,6 +1364,53 @@ textarea.field {
   .preview {
     background: var(--tg-theme-secondary-bg-color);
   }
+}
+
+/*
+ * Листание разделов пальцем (ui/swipe-tabs.tsx).
+ *
+ * `pan-y` отдаёт браузеру вертикальную прокрутку и оставляет нам горизонталь. Без него
+ * выходит «или-или»: страница либо прокручивается, либо ловит жест.
+ *
+ * Обёртка занимает место экрана целиком (`flex: 1`), потому что встаёт между .content и
+ * самим экраном: без этого экран перестал бы растягиваться, и плашки пустоты, которым не
+ * от чего расти, схлопнулись бы в полоску под шапкой.
+ */
+.swipe-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  touch-action: pan-y;
+}
+
+/* Во время жеста содержимое едет за пальцем — тогда же поднимается и слой. Постоянным
+   его держать нельзя: transform создаёт систему координат для position: fixed, и шапка
+   с тостом внутри экрана начали бы считать края от обёртки, а не от окна. */
+.swipe-tabs.dragging {
+  will-change: transform;
+}
+
+/* Возврат на место — с той же кривой, что и остальные отклики. Во время жеста перехода
+   нет: содержимое обязано идти за пальцем без задержки. */
+.swipe-tabs:not(.dragging) {
+  transition: transform 220ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swipe-tabs:not(.dragging) {
+    transition: none;
+  }
+}
+
+/*
+ * Ряды, которые прокручиваются вбок сами, забирают горизонталь обратно: иначе жест
+ * разделов съедал бы их прокрутку, и до дальней вкладки или фишки было бы не добраться.
+ */
+.tabs,
+.screen > .chips,
+.composer-templates {
+  touch-action: pan-x;
 }
 
 /* Четыре вкладки в ширину телефона не помещаются — ряд прокручивается, а не сжимает

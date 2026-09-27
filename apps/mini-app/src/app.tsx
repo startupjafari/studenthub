@@ -11,6 +11,7 @@ import { SettingsScreen } from './screens/settings'
 import { useSettingsButton } from './telegram/use-telegram'
 import { fetchBadges, type Badges } from './api/badges'
 import { TabBar } from './ui/tab-bar'
+import { SwipeTabs } from './ui/swipe-tabs'
 import { Tabs } from './ui/tabs'
 import { ScreenHeader } from './ui/screen-header'
 import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
@@ -134,20 +135,40 @@ function ReadyView({
   const [settings, setSettings] = useState(false)
   useSettingsButton(settings ? null : () => navigate(() => setSettings(true)))
 
+  // Смена раздела ставит новый экран в начало. Без этого вкладка открывалась там, где
+  // была прокрутка предыдущей: пролистал очередь жалоб, ушёл в «Люди» — и попал в
+  // середину пустого экрана, где на вид ничего нет. Мгновенно, а не плавно: плавная
+  // прокрутка соревновалась бы с анимацией самого перехода.
+  const selectTab = useCallback(
+    (next: Tab) => {
+      onTab(next)
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    },
+    [onTab],
+  )
+
   if (settings) {
     return <SettingsScreen onBack={() => navigate(() => setSettings(false), 'back')} />
   }
 
   return (
     <>
-      {active === 'complaints' && (
-        <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
-      )}
-      {active === 'support' && (
-        <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
-      )}
-      {active === 'people' && <PeopleScreen />}
-      {active === 'control' && <ControlTab userId={userId} />}
+      {/*
+       * Разделы листаются и пальцем: соседние вкладки — это соседние страницы, и ходить
+       * между ними смахиванием быстрее, чем тянуться к панели внизу. Список разделов
+       * передаётся тот же, что и панели, — порядок жеста обязан совпадать с порядком
+       * значков, иначе «вправо» уводит не туда, куда показывает панель.
+       */}
+      <SwipeTabs ids={tabs.map((item) => item.id)} active={active} onSelect={selectTab}>
+        {active === 'complaints' && (
+          <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
+        )}
+        {active === 'support' && (
+          <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
+        )}
+        {active === 'people' && <PeopleScreen />}
+        {active === 'control' && <ControlTab userId={userId} />}
+      </SwipeTabs>
       {/*
        * Панель вкладок идёт ПОСЛЕ содержимого и в разметке, и на экране: она висит внизу,
        * у большого пальца. Порядок в DOM совпадает с порядком на экране намеренно —
@@ -163,7 +184,7 @@ function ReadyView({
           count: badgeFor(item.id, badges),
         }))}
         active={active}
-        onSelect={(next) => navigate(() => onTab(next), 'fade')}
+        onSelect={(next) => navigate(() => selectTab(next), 'fade')}
       />
     </>
   )
