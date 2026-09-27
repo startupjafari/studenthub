@@ -621,6 +621,43 @@ body {
   width: 75%;
 }
 
+.skeleton-line.short {
+  width: 52%;
+}
+
+/*
+ * Заглушка занимает весь оставшийся экран (ui/skeleton.tsx — зачем).
+ *
+ * Строк в разметке с запасом, лишние обрезает сам список: у него уже есть
+ * `overflow: hidden` ради скруглений, и обрезка идёт ПО скруглённому краю — нижний угол
+ * остаётся круглым, а не срезанным по прямой.
+ */
+.skeleton-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.skeleton-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  overflow: hidden;
+}
+
+/* Пульсация вразнобой: синхронная лента одинаково мигающих строк выглядит как сбой
+   отрисовки, а не как ожидание. Сдвиг мелкий — ряд остаётся единым целым. */
+.skeleton-fill .row:nth-child(even) .skeleton,
+.skeleton-cards .card:nth-child(even) .skeleton {
+  animation-delay: 0.2s;
+}
+
+.skeleton-fill .row:nth-child(3n) .skeleton,
+.skeleton-cards .card:nth-child(3n) .skeleton {
+  animation-delay: 0.4s;
+}
+
 @keyframes skeleton-pulse {
   0%,
   100% {

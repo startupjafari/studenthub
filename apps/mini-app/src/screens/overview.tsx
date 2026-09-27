@@ -21,6 +21,7 @@ import {
 } from '../api/overview'
 import { t } from '../i18n'
 import { StatePlate } from '../ui/state-plate'
+import { SkeletonCards } from '../ui/skeleton'
 import { Fold } from '../ui/fold'
 import { formatNumber, formatShortTime } from '../lib/format'
 
@@ -101,16 +102,11 @@ export function OverviewScreen() {
   }, [load])
 
   if (state.status === 'loading') {
-    // Скелетон главной карточки: её высота известна, и сводка не прыгает, когда приезжает.
+    // Заглушка на весь экран, а не одна карточка сводки: раньше под ней оставалось
+    // пустое поле в две трети высоты, и загрузка была неотличима от «сводка пустая».
     return (
-      <div className="screen">
-        <section className="hero" aria-hidden="true">
-          <span className="hero-icon skeleton" />
-          <span className="hero-body">
-            <span className="skeleton skeleton-title" />
-            <span className="skeleton skeleton-line" />
-          </span>
-        </section>
+      <div className="screen" aria-busy="true">
+        <SkeletonCards />
       </div>
     )
   }
