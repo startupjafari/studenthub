@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { Popover as PopoverPrimitive } from 'radix-ui'
 import {
   Bookmark,
   Check,
@@ -81,7 +82,6 @@ export function ForwardDialog({
   const [savedBusy, setSavedBusy] = useState(false)
   const [many, setMany] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
-  const emojiRef = useRef<HTMLDivElement>(null)
 
   // Непринятый входящий запрос (§50) целью пересылки быть не может: отправка в него
   // считается ответом и молча приняла бы переписку, о которой решение ещё не принято.
@@ -104,29 +104,6 @@ export function ForwardDialog({
     if (!q) return byTab
     return byTab.filter((c) => titleOf(c).toLowerCase().includes(q))
   }, [targets, tabs, tab, query, titleOf])
-
-  // Пикер эмодзи закрывается кликом мимо и Esc — Esc не должен закрыть всё окно. Слушаем
-  // на window в фазе захвата: Radix ловит Esc на document тоже захватом и раньше нас, а
-  // window в захвате идёт перед document — только так Esc достаётся пикеру первым.
-  useEffect(() => {
-    if (!emojiOpen) return
-    const onDown = (e: MouseEvent): void => {
-      if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) setEmojiOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        setEmojiOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [emojiOpen])
 
   function subtitleOf(c: ChatListItem): string {
     return c.type === 'PRIVATE' ? t('typePrivate') : t('participants', { count: c.memberCount })
@@ -359,25 +336,34 @@ export function ForwardDialog({
         {many && (
           <div className="flex items-center gap-2 px-4 pt-3 pb-4">
             <div className="relative flex h-12 min-w-0 flex-1 items-center rounded-full bg-muted pr-4 pl-1">
-              <div ref={emojiRef} className="relative shrink-0">
-                <button
-                  type="button"
-                  aria-label={t('emoji')}
-                  aria-expanded={emojiOpen}
-                  onClick={() => setEmojiOpen((o) => !o)}
-                  className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <Smile className="size-6" aria-hidden />
-                </button>
-                {emojiOpen && (
-                  <div className="absolute bottom-full left-0 z-30 mb-3">
+              {/* Пикер — поповером поверх страницы: внутри окна с `overflow-hidden` он
+                  обрезался его рамкой на невысоком экране. Клик мимо и Esc закрывают
+                  только пикер — это делает сам Radix, окно под ним остаётся. */}
+              <PopoverPrimitive.Root open={emojiOpen} onOpenChange={setEmojiOpen}>
+                <PopoverPrimitive.Trigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t('emoji')}
+                    className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Smile className="size-6" aria-hidden />
+                  </button>
+                </PopoverPrimitive.Trigger>
+                <PopoverPrimitive.Portal>
+                  <PopoverPrimitive.Content
+                    side="top"
+                    align="start"
+                    sideOffset={12}
+                    collisionPadding={8}
+                    className="z-[110] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+                  >
                     <EmojiPicker
                       searchPlaceholder={t('search')}
                       onPick={(emoji) => setCaption((prev) => prev + emoji)}
                     />
-                  </div>
-                )}
-              </div>
+                  </PopoverPrimitive.Content>
+                </PopoverPrimitive.Portal>
+              </PopoverPrimitive.Root>
               <input
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}

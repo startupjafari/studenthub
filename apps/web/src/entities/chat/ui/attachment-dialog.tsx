@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { Popover as PopoverPrimitive } from 'radix-ui'
 import {
   Eye,
   EyeOff,
@@ -376,18 +377,6 @@ export function AttachmentDialog({
   const [asFiles, setAsFiles] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const captionRef = useRef<HTMLInputElement>(null)
-  const emojiBoxRef = useRef<HTMLDivElement>(null)
-
-  // Клик мимо панели закрывает её. Слушаем на фазе перехвата: клик по плитке или пункту меню
-  // иначе успевал бы отработать раньше, и панель закрывалась бы «через раз».
-  useEffect(() => {
-    if (!emojiOpen) return
-    const onDown = (e: PointerEvent): void => {
-      if (!emojiBoxRef.current?.contains(e.target as Node)) setEmojiOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown, true)
-    return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [emojiOpen])
 
   /**
    * Вставка смайла в позицию курсора, а не в конец строки: подпись правят и в середине.
@@ -560,16 +549,34 @@ export function AttachmentDialog({
 
         {/* Подпись со смайлами — как в композере: панель вставляет в позицию курсора и
             остаётся открытой, потому что смайлов подряд ставят несколько. */}
-        <div ref={emojiBoxRef} className="relative flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={t('emoji')}
-            aria-expanded={emojiOpen}
-            onClick={() => setEmojiOpen((v) => !v)}
-            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Smile className="size-5" aria-hidden />
-          </button>
+        <div className="flex items-center gap-1">
+          {/* Панель — поповером поверх страницы, а не блоком внутри окна: у окна
+              `overflow-hidden` и центрирование трансформом, и всё, что выходило за его
+              рамку, обрезалось — панель пряталась за край. Поповер Radix встаёт над
+              диалогом сам, выбирает сторону по месту на экране и закрывается кликом
+              мимо и по Esc — не трогая окно под собой. */}
+          <PopoverPrimitive.Root open={emojiOpen} onOpenChange={setEmojiOpen}>
+            <PopoverPrimitive.Trigger asChild>
+              <button
+                type="button"
+                aria-label={t('emoji')}
+                className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Smile className="size-5" aria-hidden />
+              </button>
+            </PopoverPrimitive.Trigger>
+            <PopoverPrimitive.Portal>
+              <PopoverPrimitive.Content
+                side="top"
+                align="start"
+                sideOffset={8}
+                collisionPadding={8}
+                className="z-[110] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+              >
+                <EmojiPicker size="lg" searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
+              </PopoverPrimitive.Content>
+            </PopoverPrimitive.Portal>
+          </PopoverPrimitive.Root>
           <input
             ref={captionRef}
             autoFocus
@@ -592,11 +599,6 @@ export function AttachmentDialog({
             placeholder={t('captionPlaceholder')}
             className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15"
           />
-          {emojiOpen && (
-            <div className="absolute bottom-full left-0 z-50 pb-2">
-              <EmojiPicker size="lg" searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
-            </div>
-          )}
         </div>
 
         <div className="flex items-center justify-end gap-2">
