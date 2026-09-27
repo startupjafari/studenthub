@@ -240,11 +240,10 @@ function MessageItemInner({
               aria-label={t('quickReaction', { emoji: QUICK_REACTION })}
               title={t('quickReaction', { emoji: QUICK_REACTION })}
               onClick={() => actions.react(m.id, QUICK_REACTION)}
-              // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу маленькая
-              // кнопка закрывала имя отправителя и в неё трудно было попасть. Сбоку у низа
-              // она не заслоняет ни текст, ни время с галочками — и она вдвое крупнее.
+              // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу кнопка закрывала
+              // имя отправителя. Сбоку у низа она не заслоняет ни текст, ни время с галочками.
               className={cn(
-                'absolute bottom-0 z-10 flex size-12 items-center justify-center rounded-full border border-border bg-background text-2xl leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
+                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
                 mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
               )}
             >
