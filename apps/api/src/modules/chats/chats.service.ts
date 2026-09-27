@@ -1990,17 +1990,47 @@ export class ChatsService {
     return { chatId: msg.chatId }
   }
 
+  /**
+   * Отметка «прочитано до этого сообщения».
+   *
+   * Отметка — время самого сообщения, а не «сейчас»: раньше любое прочтение ставило
+   * `lastReadAt = now()` и тем самым помечало прочитанным всё сразу, хотя клиент сообщает, до
+   * какого сообщения человек действительно долистал. Счётчик непрочитанного считает чужие
+   * сообщения новее отметки — с временем сообщения он уменьшается по мере чтения, как в
+   * Telegram, и остаток ниже остаётся непрочитанным.
+   *
+   * Отметка только растёт: прочтение более старого сообщения, пришедшее позже (два
+   * устройства, переставленные события), её не откатывает.
+   *
+   * Читателю отдельно уходит `chat:read` в его личную комнату: комната чата есть только
+   * у тех, у кого он открыт, а счётчик в списке и на других устройствах тоже должен
+   * обновиться.
+   */
   async markRead(
     userId: string,
     chatId: string,
     messageId: string,
   ): Promise<{ chatId: string; messageId: string; userId: string; readAt: Date }> {
     await this.assertMembership(userId, chatId)
-    const readAt = new Date()
-    await this.prisma.chatMember.updateMany({
-      where: { chatId, userId },
-      data: { lastReadAt: readAt },
+    const message = await this.prisma.message.findFirst({
+      where: { id: messageId, chatId },
+      select: { createdAt: true },
     })
+    if (!message) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+    await this.prisma.chatMember.updateMany({
+      where: {
+        chatId,
+        userId,
+        OR: [{ lastReadAt: null }, { lastReadAt: { lt: message.createdAt } }],
+      },
+      data: { lastReadAt: message.createdAt },
+    })
+    const member = await this.prisma.chatMember.findFirst({
+      where: { chatId, userId },
+      select: { lastReadAt: true },
+    })
+    const readAt = member?.lastReadAt ?? message.createdAt
+    this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
     return { chatId, messageId, userId, readAt }
   }
 

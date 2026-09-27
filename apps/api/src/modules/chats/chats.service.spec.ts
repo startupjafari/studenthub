@@ -15,6 +15,7 @@ function setup() {
   const prisma = {
     chatMember: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       updateMany: jest.fn(),
@@ -1537,5 +1538,83 @@ describe('ChatsService — общие условия отправки (assertCan
     const res = await service.createMessage('u2', { chatId: 'c1', content: 'ok' })
 
     expect(res.message.id).toBe('m-new')
+  })
+})
+
+// Прочтение — «до этого сообщения», а не «всё на сейчас»: иначе счётчик непрочитанного
+// обнулялся от любого прочтения, и дочитать переписку до середины было нельзя.
+describe('ChatsService.markRead', () => {
+  const at = new Date('2026-09-01T10:00:00.000Z')
+
+  it('ставит отметку по времени сообщения и только вперёд', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.message.findFirst.mockResolvedValue({ createdAt: at })
+    prisma.chatMember.findFirst.mockResolvedValue({ lastReadAt: at })
+
+    const res = await service.markRead('u1', 'c1', 'msg-1')
+
+    expect(prisma.message.findFirst).toHaveBeenCalledWith({
+      where: { id: 'msg-1', chatId: 'c1' },
+      select: { createdAt: true },
+    })
+    // Условие «отметки нет или она раньше» — и есть «только вперёд»: более старое
+    // прочтение, пришедшее позже, под него не попадает и ничего не меняет.
+    expect(prisma.chatMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        chatId: 'c1',
+        userId: 'u1',
+        OR: [{ lastReadAt: null }, { lastReadAt: { lt: at } }],
+      },
+      data: { lastReadAt: at },
+    })
+    expect(res.readAt).toEqual(at)
+  })
+
+  it('отдаёт действующую отметку, если прочтение старее уже сохранённой', async () => {
+    const { service, prisma } = setup()
+    const later = new Date('2026-09-01T12:00:00.000Z')
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.message.findFirst.mockResolvedValue({ createdAt: at })
+    prisma.chatMember.findFirst.mockResolvedValue({ lastReadAt: later })
+
+    const res = await service.markRead('u1', 'c1', 'old-msg')
+
+    expect(res.readAt).toEqual(later)
+  })
+
+  it('сообщает читателю в его личную комнату — для счётчика на других устройствах', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.message.findFirst.mockResolvedValue({ createdAt: at })
+    prisma.chatMember.findFirst.mockResolvedValue({ lastReadAt: at })
+
+    await service.markRead('u1', 'c1', 'msg-1')
+
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'chat:read', {
+      chatId: 'c1',
+      readAt: at,
+    })
+  })
+
+  it('сообщение из другого чата — NOT_FOUND, отметка не трогается', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.message.findFirst.mockResolvedValue(null)
+
+    await expect(service.markRead('u1', 'c1', 'foreign')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(prisma.chatMember.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('не участник — отказ до любых изменений', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+
+    await expect(service.markRead('u1', 'c1', 'msg-1')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+    expect(prisma.chatMember.updateMany).not.toHaveBeenCalled()
   })
 })
