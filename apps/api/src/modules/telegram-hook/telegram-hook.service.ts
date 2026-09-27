@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { equalsConstantTime } from '../../common/security/constant-time'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { SupportService } from '../chats/support.service'
@@ -47,10 +48,16 @@ export class TelegramHookService {
     private readonly complaints: ComplaintsService,
   ) {}
 
-  /** Совпадает ли секрет из заголовка с настроенным. Секрета нет — вебхук выключен. */
+  /**
+   * Совпадает ли секрет из заголовка с настроенным. Секрета нет — вебхук выключен.
+   *
+   * Сравнение за постоянное время: адрес вебхука публичен, и заголовок сюда может слать
+   * кто угодно сколько угодно раз — то есть ровно те условия, в которых замеряют время.
+   */
   secretMatches(header: string | undefined): boolean {
     const secret = this.config.get('TELEGRAM_WEBHOOK_SECRET', { infer: true })
-    return Boolean(secret) && header === secret
+    if (!secret || !header) return false
+    return equalsConstantTime(header, secret)
   }
 
   /**
