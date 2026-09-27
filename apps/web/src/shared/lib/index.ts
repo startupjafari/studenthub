@@ -50,6 +50,8 @@ export {
 export {
   useServiceWorkerUpdate,
   useChunkErrorRecovery,
+  isChunkLoadError,
+  recoverFromChunkError,
   useAppUpdate,
   BUILD_ID,
   type AppUpdate,
