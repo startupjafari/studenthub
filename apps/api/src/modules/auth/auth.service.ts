@@ -15,6 +15,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { UserService, type UserProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
 import { TwoFactorService } from './two-factor.service'
+import { LoginAttemptsService } from './login-attempts.service'
 import { parseDurationMs } from './auth.constants'
 
 type PrismaClientLike = PrismaService | Prisma.TransactionClient
@@ -23,6 +24,10 @@ type PrismaClientLike = PrismaService | Prisma.TransactionClient
 // TTL пометки в Redis — они обязаны совпадать, иначе пометка переживёт токен или наоборот.
 const TWO_FACTOR_CHALLENGE_TTL = '5m'
 const TWO_FACTOR_CHALLENGE_TTL_SECONDS = 5 * 60
+// Сколько неверных кодов принимает ОДИН challenge, прежде чем сгореть. Три — запас на
+// опечатку и на рассинхрон часов (TOTP принимает соседнее окно), но не на перебор:
+// шанс угадать шестизначный код за три попытки — три на миллион.
+const TWO_FACTOR_MAX_ATTEMPTS = 3
 
 export interface RequestContext {
   ip?: string
@@ -60,12 +65,17 @@ export class AuthService {
     @Inject(forwardRef(() => UserService)) private readonly users: UserService,
     private readonly invites: InviteService,
     private readonly twoFactor: TwoFactorService,
+    private readonly loginAttempts: LoginAttemptsService,
     private readonly realtime: RealtimeGateway,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
   async validateUser(identifier: string, password: string): Promise<JwtPayload> {
+    // До сверки пароля: серия неудач по этому логину закрывает вход независимо от того,
+    // с какого адреса пришла следующая попытка (login-attempts.service.ts — зачем).
+    await this.loginAttempts.assertNotLocked(identifier)
+
     const user = await this.users.findByLoginIdentifierForAuth(identifier)
     // Несуществующий пользователь тоже стоит одного bcrypt: без холостого сравнения ответ
     // приходит на ~250 мс быстрее, и по времени перебирается, какие адреса и логины на
@@ -74,8 +84,12 @@ export class AuthService {
       ? await this.passwords.compare(password, user.passwordHash)
       : await this.passwords.compareWithDummy(password)
     if (!user || !passwordOk) {
+      await this.loginAttempts.registerFailure(identifier)
       throw new AppException('UNAUTHORIZED', 'Неверный email или пароль')
     }
+    // Пароль верный — серия прервана, даже если аккаунт заблокирован администратором:
+    // счётчик про подбор пароля, а не про право входа.
+    await this.loginAttempts.reset(identifier)
     if (user.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
@@ -184,11 +198,14 @@ export class AuthService {
     }
     const ok = await this.twoFactor.verifyCode(rec, code)
     if (!ok) {
+      // Опечатка в шестизначном коде дело обычное, и сжигать за неё весь вход незачем —
+      // но и бесконечно принимать коды по одному challenge нельзя: 6 цифр перебираются,
+      // а throttle на эндпоинте считает по IP и обходится их сменой. Отсюда счётчик на
+      // сам challenge: несколько попыток на один ввод пароля, дальше — заново.
+      await this.countFailedTwoFactorAttempt(jti)
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
-    // Гасим challenge ИМЕННО здесь — после верного кода, а не до проверки: опечатка в
-    // шестизначном коде дело обычное, и сжигать за неё весь вход (вплоть до повторного
-    // ввода пароля) незачем. Повторные попытки ограничивает throttle на эндпоинте.
+    // Гасим challenge ИМЕННО здесь — после верного кода, а не до проверки.
     await this.consumeChallengeId(jti)
     const session = await this.issueSession(this.toPayload(rec), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
@@ -250,6 +267,40 @@ export class AuthService {
     }
     if (fresh === null) {
       throw new AppException('UNAUTHORIZED', 'Этот код входа уже использован — войдите заново')
+    }
+  }
+
+  /**
+   * Учесть неверный код 2FA по конкретному challenge и сжечь его, когда попытки кончились.
+   *
+   * Счётчик именно на challenge, а не на пользователя: привязка к аккаунту дала бы тому,
+   * кто знает пароль, способ запереть чужой вход навсегда — достаточно раз за разом
+   * вводить неверный код. Здесь же цена промахов — повторный ввод пароля, то есть новый
+   * challenge, а первый шаг уже ограничен throttle'ом.
+   *
+   * Сгоревший challenge гасится тем же ключом, что и использованный (`2fa:challenge:<jti>`),
+   * поэтому следующая попытка с ним получит «этот код входа уже использован».
+   */
+  private async countFailedTwoFactorAttempt(jti: string | undefined): Promise<void> {
+    if (!jti) return
+    try {
+      const attempts = await this.redis.incr(`2fa:attempts:${jti}`)
+      if (attempts === 1) {
+        await this.redis.expire(`2fa:attempts:${jti}`, TWO_FACTOR_CHALLENGE_TTL_SECONDS)
+      }
+      if (attempts >= TWO_FACTOR_MAX_ATTEMPTS) {
+        await this.redis.set(
+          `2fa:challenge:${jti}`,
+          '1',
+          'EX',
+          TWO_FACTOR_CHALLENGE_TTL_SECONDS,
+          'NX',
+        )
+        this.logger.warn('Challenge 2FA сожжён: исчерпаны попытки ввода кода')
+      }
+    } catch (error) {
+      // Тот же принцип, что и у одноразовости challenge: сбой кэша не ломает вход.
+      this.logger.warn({ err: error }, 'Redis недоступен — попытки ввода кода 2FA не считаются')
     }
   }
 
