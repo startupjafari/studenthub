@@ -409,6 +409,28 @@ export function ComplaintScreen({
             value={comment}
             onChange={(event) => setComment(event.target.value)}
           />
+          {/* Десять жалоб на один пост — обычное дело. Побочное действие при этом
+            выполнится один раз, остальные жалобы просто получат тот же статус.
+            Рядом с запиской, а не в самом конце: это условие любого решения, в том
+            числе принятого нижними кнопками, и под блокировкой его не находили. */}
+          {complaint.targetReports > 1 && (
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={applyAll}
+              disabled={busy}
+              onClick={() => setApplyAll((value) => !value)}
+            >
+              {t('complaintApplyAll', { count: complaint.targetReports })}
+            </button>
+          )}
+          {/* Без нативных кнопок главное решение — первым и залитым: под блокировкой
+            в конце карточки оно читалось последним вариантом, а не основным. */}
+          {!native && (
+            <button type="button" className="fallback-submit" disabled={busy} onClick={dismiss}>
+              {t('complaintDismiss')}
+            </button>
+          )}
           {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
             и кнопку здесь просто не рисуем, чтобы не предлагать заведомый отказ. */}
           {!isUser && !native && (
@@ -437,6 +459,9 @@ export function ComplaintScreen({
             </button>
           )}
 
+          {/* Блокировка — отдельной группой со своим заголовком: срок, код и кнопка
+            относятся только к ней, а шли сплошной стопкой вместе с остальными мерами. */}
+          <h3 className="card-sub">{t('complaintBlockSection')}</h3>
           {/* Срок блокировки. «Навсегда» остаётся первым и выбранным по умолчанию:
             менять смысл кнопки молча нельзя. */}
           <div className="chips-grid">
@@ -494,25 +519,6 @@ export function ComplaintScreen({
               ? t('complaintBlockUser')
               : t('complaintBlockUserFor', { days: blockDays })}
           </button>
-          {!native && (
-            <button type="button" className="fallback-submit" disabled={busy} onClick={dismiss}>
-              {t('complaintDismiss')}
-            </button>
-          )}
-
-          {/* Десять жалоб на один пост — обычное дело. Побочное действие при этом
-            выполнится один раз, остальные жалобы просто получат тот же статус. */}
-          {complaint.targetReports > 1 && (
-            <button
-              type="button"
-              className="chip"
-              aria-pressed={applyAll}
-              disabled={busy}
-              onClick={() => setApplyAll((value) => !value)}
-            >
-              {t('complaintApplyAll', { count: complaint.targetReports })}
-            </button>
-          )}
         </section>
       )}
     </div>

@@ -455,6 +455,7 @@ const ru = {
   complaintSkip: 'Пропустить',
   complaintTriage: 'Разобрано {done} · осталось {left}',
   complaintMoreMeasures: 'Другие меры',
+  complaintBlockSection: 'Блокировка',
   // ── Свайпы в очереди ──
   swipeUndo: 'Отменить',
   complaintSwipeDismissed: 'Отмечено: нарушения нет',
@@ -915,6 +916,7 @@ const kk: Record<MessageKey, string> = {
   complaintSkip: 'Өткізіп жіберу',
   complaintTriage: 'Қаралды {done} · қалды {left}',
   complaintMoreMeasures: 'Басқа шаралар',
+  complaintBlockSection: 'Бұғаттау',
   // ── Свайпы в очереди ──
   swipeUndo: 'Болдырмау',
   complaintSwipeDismissed: 'Белгіленді: бұзушылық жоқ',
@@ -1372,6 +1374,7 @@ const en: Record<MessageKey, string> = {
   complaintSkip: 'Skip',
   complaintTriage: 'Done {done} · {left} left',
   complaintMoreMeasures: 'Other measures',
+  complaintBlockSection: 'Blocking',
   // ── Свайпы в очереди ──
   swipeUndo: 'Undo',
   complaintSwipeDismissed: 'Marked: no violation',
