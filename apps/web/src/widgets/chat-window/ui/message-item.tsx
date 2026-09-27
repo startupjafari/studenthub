@@ -234,15 +234,18 @@ function MessageItemInner({
                 У своих — слева, у чужих — справа. Раньше здесь была кнопка «Ответить», но
                 ответ и так висит на свайпе и в контекстном меню, а поставить реакцию мышью
                 было больше некуда, кроме как через то же меню. Остальные эмодзи — там же
-                (CHAT_REACTION_EMOJIS), в углу пузыря стоит первый из них по частоте. */}
+                (CHAT_REACTION_EMOJIS), сбоку у низа пузыря стоит первый из них по частоте. */}
             <button
               type="button"
               aria-label={t('quickReaction', { emoji: QUICK_REACTION })}
               title={t('quickReaction', { emoji: QUICK_REACTION })}
               onClick={() => actions.react(m.id, QUICK_REACTION)}
+              // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу маленькая
+              // кнопка закрывала имя отправителя и в неё трудно было попасть. Сбоку у низа
+              // она не заслоняет ни текст, ни время с галочками — и она вдвое крупнее.
               className={cn(
-                'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
-                mine ? '-left-2' : '-right-2',
+                'absolute bottom-0 z-10 flex size-12 items-center justify-center rounded-full border border-border bg-background text-2xl leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
+                mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
               )}
             >
               <span aria-hidden>{QUICK_REACTION}</span>
