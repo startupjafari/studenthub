@@ -18,6 +18,7 @@ import { AuthController } from './auth.controller'
 import { TwoFactorController } from './two-factor.controller'
 import { AuthService } from './auth.service'
 import { TwoFactorService } from './two-factor.service'
+import { LoginAttemptsService } from './login-attempts.service'
 import { QrLoginService } from './qr-login.service'
 import { QrLoginGateway } from './qr-login.gateway'
 import { JwtStrategy } from './strategies/jwt.strategy'
@@ -42,6 +43,7 @@ import { LocalStrategy } from './strategies/local.strategy'
   providers: [
     AuthService,
     TwoFactorService,
+    LoginAttemptsService,
     QrLoginService,
     QrLoginGateway,
     JwtStrategy,

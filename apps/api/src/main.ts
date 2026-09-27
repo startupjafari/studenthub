@@ -27,6 +27,24 @@ import type { EnvVars } from './config/env.schema'
 // (таймаут ограничивает только ожидание перед попыткой следующего адреса).
 setDefaultAutoSelectFamilyAttemptTimeout(2000)
 
+/**
+ * Кому верить в заголовках X-Forwarded-*.
+ *
+ * Читается из process.env напрямую, а не из ConfigService: значение нужно ДО создания
+ * приложения — адаптер собирается раньше, чем поднимается DI. Схема окружения
+ * (config/env.schema.ts) валидирует ту же переменную на старте, так что опечатка не
+ * пройдёт молча, просто заметит её Nest чуть позже.
+ *
+ * `false` — единственное булево значение, которое принимаем: «прокси нет, верить некому».
+ * `true` намеренно НЕ поддерживается — это «верить любому», то есть разрешить каждому
+ * клиенту назвать свой адрес каким угодно.
+ */
+function trustProxySetting(): string | boolean {
+  const raw = process.env.TRUST_PROXY?.trim()
+  if (!raw) return 'loopback, linklocal, uniquelocal'
+  return raw === 'false' ? false : raw
+}
+
 async function bootstrap(): Promise<void> {
   // requestId: берём входящий x-request-id или генерируем uuid (docs/BACKEND_RULES.md §13).
   const adapter = new FastifyAdapter({
@@ -34,14 +52,24 @@ async function bootstrap(): Promise<void> {
       const header = req.headers['x-request-id']
       return (Array.isArray(header) ? header[0] : header) ?? randomUUID()
     },
-    // §14.5 — в проде API стоит за nginx (docker/nginx/nginx.conf), который проставляет
-    // X-Forwarded-For/X-Real-IP. Без trustProxy req.ip у всех клиентов = внутренний IP nginx,
-    // из-за чего IP-throttling логина (auth.controller.ts) становится общим на всю платформу
-    // (DoS на аутентификацию), а аудит пишет IP прокси вместо реального клиента.
-    // Доверяем РОВНО одному хопу (наша единственная прокси-нода), а не всей цепочке XFF:
-    // при trustProxy:true клиент мог бы сам подделать X-Forwarded-For и снова обойти throttle.
-    // Если между клиентом и API появятся доп. прокси (LB/CDN), увеличить число хопов.
-    trustProxy: 1,
+    // §14.5 — в проде API стоит за прокси (nginx из docker/nginx/nginx.conf либо edge
+    // Railway), который проставляет X-Forwarded-For/X-Real-IP. Без trustProxy req.ip у
+    // всех клиентов = внутренний адрес прокси, из-за чего IP-throttling логина
+    // (auth.controller.ts) становится общим на всю платформу (DoS на аутентификацию),
+    // а аудит пишет адрес прокси вместо реального клиента.
+    //
+    // Доверяем по АДРЕСУ прокси, а не по числу хопов. Раньше здесь стояло `trustProxy: 1`
+    // («верить ровно одному хопу»), и это оказалось дырой: счёт хопов не проверяет, кто
+    // именно постучался, поэтому клиент, добравшийся до API напрямую, сам объявлял себя
+    // первым хопом и подделывал X-Forwarded-For — то есть обходил ровно тот лимит входа,
+    // ради которого опция и включалась. Fastify убрал числовую форму в 5.12.1
+    // (GHSA-3m5p-2c4r-xxw2) и теперь её не принимает вовсе.
+    //
+    // Пресеты покрывают обе наши схемы: nginx приходит из docker-сети (uniquelocal),
+    // edge Railway — из приватной сети проекта (fc00::/7, туда же). Запрос с публичного
+    // адреса под пресеты не подходит — его X-Forwarded-* игнорируются, и req.ip будет
+    // настоящим адресом сокета. Это и есть нужное свойство.
+    trustProxy: trustProxySetting(),
   })
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
