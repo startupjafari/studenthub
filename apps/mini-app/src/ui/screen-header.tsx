@@ -59,7 +59,7 @@ export function ScreenHeader({
     : undefined
 
   return (
-    <header className="screen-head">
+    <header className={`screen-head${back ? ' with-back' : ''}`}>
       <div className={`head-row${tabs ? ' with-tabs' : ''}`}>
         {back && (
           <button type="button" className="head-back" aria-label={t('back')} onClick={back}>
