@@ -165,3 +165,4 @@ export {
   BreadcrumbSeparator,
 } from './breadcrumb'
 export { EmojiPicker } from './emoji-picker'
+export { ProgressRing } from './progress-ring'

@@ -242,6 +242,7 @@ export function MediaViewer({
       caption={caption}
       trailing={trailing}
       downloadName={cur.name}
+      downloadKey={cur.id ? `file:${cur.id}` : undefined}
     />
   )
 }
