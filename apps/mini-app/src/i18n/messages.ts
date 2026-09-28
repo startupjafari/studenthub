@@ -9,8 +9,6 @@ export type Locale = (typeof LOCALES)[number]
 
 const ru = {
   // ── Оболочка ───────────────────────────────────────────────────────────
-  appName: 'StudentHub',
-  checkingAccess: 'Проверяем доступ…',
   outsideTitle: 'Откройте из Telegram',
   outsideHint: 'Мини-апп работает внутри клиента Telegram',
   outsideBody:
@@ -477,8 +475,6 @@ const ru = {
 export type MessageKey = keyof typeof ru
 
 const kk: Record<MessageKey, string> = {
-  appName: 'StudentHub',
-  checkingAccess: 'Рұқсатты тексеріп жатырмыз…',
   outsideTitle: 'Telegram-нан ашыңыз',
   outsideHint: 'Мини-қосымша Telegram клиентінің ішінде жұмыс істейді',
   outsideBody:
@@ -936,8 +932,6 @@ const kk: Record<MessageKey, string> = {
 }
 
 const en: Record<MessageKey, string> = {
-  appName: 'StudentHub',
-  checkingAccess: 'Checking access…',
   outsideTitle: 'Open from Telegram',
   outsideHint: 'The mini app runs inside the Telegram client',
   outsideBody:

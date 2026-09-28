@@ -17,6 +17,7 @@ import { ScreenHeader } from './ui/screen-header'
 import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
 import { navigate } from './lib/navigate'
+import { hideSplash } from './lib/splash'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -88,10 +89,19 @@ export function App() {
     void start()
   }, [start])
 
+  // Заставка держится ровно до того, как стало известно, что показывать. Снимать её по
+  // расписанию, как на сайте, нельзя: за ней прячется обмен initData на токен, и ушедшее
+  // раньше ответа полотно обнажило бы пустой экран.
+  useEffect(() => {
+    if (state.status !== 'starting') hideSplash()
+  }, [state.status])
+
   return (
     <div className="app">
       <main className="content">
-        {state.status === 'starting' && <Starting />}
+        {/* На старте не рисуется ничего: экран закрыт заставкой (lib/splash.ts), и любая
+            надпись под ней — это текст, которого никто не увидит, но который успеет
+            дёрнуть раскладку в момент, когда полотно уходит. */}
         {state.status === 'outside' && <Outside />}
         {state.status === 'link' && (
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
@@ -242,19 +252,6 @@ function badgeFor(tab: Tab, badges: Badges): number {
   if (tab === 'complaints') return badges.complaints
   if (tab === 'support') return badges.support
   return 0
-}
-
-function Starting() {
-  // Пустой экран без слова «загрузка»: обмен занимает доли секунды, и надпись успевает
-  // только моргнуть. Заголовок держит место, чтобы страница не прыгнула.
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <h1>{t('appName')}</h1>
-        <p className="hint">{t('checkingAccess')}</p>
-      </header>
-    </div>
-  )
 }
 
 function Outside() {
