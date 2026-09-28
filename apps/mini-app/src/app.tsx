@@ -8,7 +8,7 @@ import { SupportScreen } from './screens/support'
 import { PeopleScreen } from './screens/people'
 import { OverviewScreen } from './screens/overview'
 import { SettingsScreen } from './screens/settings'
-import { useSettingsButton } from './telegram/use-telegram'
+import { useBackButton, useSettingsButton } from './telegram/use-telegram'
 import { fetchBadges, type Badges } from './api/badges'
 import { TabBar } from './ui/tab-bar'
 import { SwipeTabs } from './ui/swipe-tabs'
@@ -18,6 +18,7 @@ import { IconComplaints, IconControl, IconLogo, IconPeople, IconSupport } from '
 import { t } from './i18n'
 import { navigate } from './lib/navigate'
 import { hideSplash } from './lib/splash'
+import { goBack } from './lib/back'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -72,6 +73,11 @@ export function App() {
   const [tab, setTab] = useState<Tab>(deepLink?.kind === 'support' ? 'support' : 'complaints')
 
   useEffect(() => initTelegram(), [])
+
+  // Кнопка возврата Telegram видна всегда и решает на месте: есть открытый вглубь экран —
+  // возвращаемся к предыдущему, нет — выходим из мини-аппа (lib/back.ts). Держится здесь,
+  // а не по экранам: «есть ли куда назад» — вопрос ко всему приложению, а не к каждому.
+  useBackButton(goBack)
 
   const start = useCallback(async () => {
     if (!isTelegram()) {
