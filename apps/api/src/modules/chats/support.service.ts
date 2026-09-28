@@ -535,6 +535,26 @@ export class SupportService {
     return count
   }
 
+  /**
+   * Сколько обращений открыто и когда пришло самое старое из них.
+   *
+   * Здесь по той же причине, что и у жалоб: таблица чатов принадлежит этому модулю, а
+   * спрашивают числа сводка и бот. Возвращаются только числа и дата — ни одного
+   * обращения и ни одного слова из переписки.
+   */
+  async queueStats(): Promise<{ count: number; oldestAt: Date | null }> {
+    const where = { type: ChatType.SUPPORT_PLATFORM, supportClosedAt: null }
+    const [count, oldest] = await this.prisma.$transaction([
+      this.prisma.chat.count({ where }),
+      this.prisma.chat.findFirst({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ])
+    return { count, oldestAt: oldest?.createdAt ?? null }
+  }
+
   /** Создаёт обращение с автором и всей текущей командой платформы в участниках. */
   private async createTicket(authorId: string): Promise<string> {
     const staff = await this.prisma.user.findMany({

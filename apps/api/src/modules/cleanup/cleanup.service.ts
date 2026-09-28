@@ -15,6 +15,7 @@ import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
+import { ComplaintsService } from '../complaints/complaints.service'
 import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
@@ -104,6 +105,7 @@ export class CleanupService {
     private readonly audit: AuditService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly support: SupportService,
+    private readonly complaints: ComplaintsService,
     private readonly telegram: TelegramNotifyService,
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
@@ -402,18 +404,21 @@ export class CleanupService {
     const policy = await this.platform.notificationPolicy()
     if (policy.digestHour === null || policy.digestHour !== new Date().getHours()) return 0
 
+    // Числа спрашиваем у модулей-владельцев, а не считаем здесь: тот же ответ отдаёт
+    // команда бота `/queue`, и две копии запроса разошлись бы при первой же правке
+    // набора статусов «в очереди».
     const [complaints, tickets] = await Promise.all([
-      this.prisma.complaint.count({ where: { status: { in: ['PENDING', 'REVIEWING'] } } }),
-      this.prisma.chat.count({ where: { type: 'SUPPORT_PLATFORM', supportClosedAt: null } }),
+      this.complaints.queueStats(),
+      this.support.queueStats(),
     ])
 
     // Сводку шлём, даже когда всё разобрано: «ноль и ноль» — это тоже новость, и по её
     // отсутствию нельзя отличить спокойный день от сломавшейся отправки.
     await this.telegram.notifyStaff(
       'digest',
-      `Сводка за день: жалоб в очереди ${complaints}, открытых обращений ${tickets}`,
+      `Сводка за день: жалоб в очереди ${complaints.count}, открытых обращений ${tickets.count}`,
     )
-    this.logger.log(`sendDailyDigest: жалоб ${complaints}, обращений ${tickets}`)
+    this.logger.log(`sendDailyDigest: жалоб ${complaints.count}, обращений ${tickets.count}`)
     return 1
   }
 
@@ -426,9 +431,7 @@ export class CleanupService {
   }
 
   private async alertQueueBacklogTask(): Promise<number> {
-    const pending = await this.prisma.complaint.count({
-      where: { status: { in: ['PENDING', 'REVIEWING'] } },
-    })
+    const { count: pending } = await this.complaints.queueStats()
     if (pending < QUEUE_BACKLOG_THRESHOLD) {
       // Очередь разгребли — снимаем паузу, чтобы следующий всплеск не пропустить.
       await this.redis.del(QUEUE_BACKLOG_KEY).catch(() => undefined)

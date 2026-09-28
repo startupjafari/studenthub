@@ -449,6 +449,30 @@ export class ComplaintsService {
     return updated
   }
 
+  /**
+   * Размер очереди разбора и возраст самой старой жалобы.
+   *
+   * Живёт здесь, а не у вызывающих, потому что таблица жалоб принадлежит этому модулю
+   * (BACKEND_RULES §2.1). Спрашивают одно и то же двое — ежедневная сводка и команда
+   * бота, — и две копии этого запроса разошлись бы в первый же раз, когда поменяется
+   * набор статусов «в очереди».
+   *
+   * Прав здесь не проверяется: метод не отдаёт ни одной жалобы, только числа, и зовут
+   * его крон и бот, у которых нет ни сессии, ни scope.
+   */
+  async queueStats(): Promise<{ count: number; oldestAt: Date | null }> {
+    const where = { status: { in: [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING] } }
+    const [count, oldest] = await this.prisma.$transaction([
+      this.prisma.complaint.count({ where }),
+      this.prisma.complaint.findFirst({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ])
+    return { count, oldestAt: oldest?.createdAt ?? null }
+  }
+
   // ── Доступ модератора к личному чату по жалобе (11.5) ──────────────────────
 
   /** Контекст сообщения-цели: доступен модератору ТОЛЬКО при наличии жалобы, всегда с аудитом. */

@@ -1,15 +1,23 @@
 import { Role } from '@studenthub/shared-types'
-import { TelegramHookService } from './telegram-hook.service'
+import {
+  TelegramHookService,
+  humanAge,
+  nextInRotation,
+  parseCommand,
+} from './telegram-hook.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { SupportService } from '../chats/support.service'
 import type { ComplaintsService } from '../complaints/complaints.service'
+import type { PlatformStateReader } from '../platform/platform.constants'
 
 // Вебхук — единственное место, куда пишет чужая система. Проверяем ровно то, что делает
 // его безопасным: секрет, отсутствие доверия к телу запроса и молчание при отказах.
 
 function setup(env: Record<string, string | undefined> = {}) {
   const prisma = {
+    user: { findMany: jest.fn().mockResolvedValue([]) },
+    $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
     telegramAccount: {
       findFirst: jest.fn().mockResolvedValue({
         user: {
@@ -28,15 +36,38 @@ function setup(env: Record<string, string | undefined> = {}) {
       (key: string) => env[key] ?? (key === 'TELEGRAM_BOT_TOKEN' ? undefined : env[key]),
     ),
   }
-  const support = { assign: jest.fn().mockResolvedValue({ assigneeId: 'staff-1' }) }
-  const complaints = { take: jest.fn().mockResolvedValue({ takenBy: 'staff-1' }) }
+  const support = {
+    assign: jest.fn().mockResolvedValue({ assigneeId: 'staff-1' }),
+    queueStats: jest.fn().mockResolvedValue({ count: 0, oldestAt: null }),
+  }
+  const complaints = {
+    take: jest.fn().mockResolvedValue({ takenBy: 'staff-1' }),
+    queueStats: jest.fn().mockResolvedValue({ count: 0, oldestAt: null }),
+  }
+  const platform = {
+    maintenanceActive: jest.fn().mockResolvedValue(false),
+    notificationPolicy: jest.fn().mockResolvedValue({
+      quietFrom: null,
+      quietTo: null,
+      muted: [],
+      dutyUserId: null,
+      digestHour: null,
+    }),
+    duty: jest.fn().mockResolvedValue({ dutyUserId: null, rotation: [] }),
+    rotateDuty: jest.fn().mockResolvedValue(null),
+  }
+  const redis = { ping: jest.fn().mockResolvedValue('PONG') }
+  const minio = { bucketExists: jest.fn().mockResolvedValue(true) }
   const service = new TelegramHookService(
     prisma as unknown as PrismaService,
     config as never,
     support as unknown as SupportService,
     complaints as unknown as ComplaintsService,
+    platform as unknown as PlatformStateReader,
+    redis as never,
+    minio as never,
   )
-  return { service, prisma, support, complaints }
+  return { service, prisma, support, complaints, platform, redis, minio }
 }
 
 const query = (data: string) => ({ id: 'cb1', data, from: { id: 12345 } })
@@ -126,5 +157,154 @@ describe('TelegramHookService — нажатие', () => {
     await service.handleCallback(query('delete:everything:now'))
     expect(support.assign).not.toHaveBeenCalled()
     expect(complaints.take).not.toHaveBeenCalled()
+  })
+})
+
+// ── Команды в переписке ──────────────────────────────────────────────────────
+
+/** Что бот отправил: перехватываем fetch, наружу он всё равно не ходит. */
+function captureSend() {
+  const sent: { method: string; body: Record<string, unknown> }[] = []
+  const spy = jest.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+    const method = String(url).split('/').pop() ?? ''
+    sent.push({ method, body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> })
+    return new Response('{}', { status: 200 })
+  })
+  return { sent, restore: () => spy.mockRestore() }
+}
+
+const privateMsg = (text: string) => ({
+  text,
+  from: { id: 12345 },
+  chat: { id: 12345, type: 'private' },
+})
+
+describe('parseCommand', () => {
+  it('срезает имя бота, которое Telegram дописывает', () => {
+    expect(parseCommand('/queue@StudentHubPlatform')).toBe('queue')
+  })
+
+  it('обычный текст считает просьбой о помощи, а не мусором', () => {
+    expect(parseCommand('привет')).toBe('help')
+  })
+
+  it('на пустое сообщение не отвечает вовсе', () => {
+    expect(parseCommand(undefined)).toBeNull()
+    expect(parseCommand('   ')).toBeNull()
+  })
+})
+
+describe('nextInRotation', () => {
+  it('идёт по кругу', () => {
+    expect(nextInRotation({ dutyUserId: 'b', rotation: ['a', 'b', 'c'] })).toBe('c')
+    expect(nextInRotation({ dutyUserId: 'c', rotation: ['a', 'b', 'c'] })).toBe('a')
+  })
+
+  it('дежурного назначили мимо очереди — следующим считается первый', () => {
+    expect(nextInRotation({ dutyUserId: 'x', rotation: ['a', 'b'] })).toBe('a')
+  })
+
+  it('пустая очередь не выдумывает дежурного', () => {
+    expect(nextInRotation({ dutyUserId: null, rotation: [] })).toBeNull()
+  })
+})
+
+describe('humanAge', () => {
+  it('минуты, часы и сутки', () => {
+    expect(humanAge(20 * 60_000)).toBe('20 мин')
+    expect(humanAge(5 * 3_600_000)).toBe('5 ч')
+    expect(humanAge(70 * 3_600_000)).toBe('2 сут')
+  })
+})
+
+describe('TelegramHookService — команды', () => {
+  it('постороннему не отвечает ни одним числом', async () => {
+    const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    prisma.telegramAccount.findFirst.mockResolvedValue(null)
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/queue'))
+
+    // Очередь даже не спрашивали: незачем, ответ всё равно один.
+    expect(complaints.queueStats).not.toHaveBeenCalled()
+    expect(support.queueStats).not.toHaveBeenCalled()
+    expect(String(cap.sent[0]?.body.text)).toContain('не привязан')
+    cap.restore()
+  })
+
+  it('в группе молчит: рядом с сотрудником там посторонние', async () => {
+    const { service, complaints } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    const cap = captureSend()
+
+    await service.handleMessage({
+      text: '/queue',
+      from: { id: 1 },
+      chat: { id: -100, type: 'supergroup' },
+    })
+
+    expect(cap.sent).toHaveLength(0)
+    expect(complaints.queueStats).not.toHaveBeenCalled()
+    cap.restore()
+  })
+
+  it('на /start отвечает справкой, а не молчанием', async () => {
+    const { service } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/start'))
+
+    expect(cap.sent[0]?.method).toBe('sendMessage')
+    expect(String(cap.sent[0]?.body.text)).toContain('/queue')
+    cap.restore()
+  })
+
+  it('/queue отвечает числами и возрастом самого старого', async () => {
+    const { service, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    complaints.queueStats.mockResolvedValue({
+      count: 3,
+      oldestAt: new Date(Date.now() - 5 * 3_600_000),
+    })
+    support.queueStats.mockResolvedValue({ count: 1, oldestAt: new Date() })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/queue'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('Жалоб в очереди: 3')
+    expect(text).toContain('Открытых обращений: 1')
+    expect(text).toContain('Старейшее ждёт: 5 ч')
+    cap.restore()
+  })
+
+  it('на пустой очереди не пишет про возраст', async () => {
+    const { service } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/queue'))
+
+    expect(String(cap.sent[0]?.body.text)).not.toContain('Старейшее')
+    cap.restore()
+  })
+
+  it('/status докладывает об упавшей зависимости', async () => {
+    const { service, redis } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    redis.ping.mockRejectedValue(new Error('down'))
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/status'))
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Не отвечает: Redis')
+    cap.restore()
+  })
+
+  it('сбой запроса не оставляет человека без ответа', async () => {
+    const { service, complaints } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    complaints.queueStats.mockRejectedValue(new Error('база легла'))
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/queue'))
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Не получилось')
+    cap.restore()
   })
 })

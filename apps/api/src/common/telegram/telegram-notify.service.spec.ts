@@ -24,6 +24,7 @@ function setup(
     notificationPolicy: jest.fn().mockResolvedValue({ ...OPEN_POLICY, ...policy }),
     // Ротацию дежурства уведомления не трогают — заглушка нужна лишь для полноты токена.
     rotateDuty: jest.fn().mockResolvedValue(null),
+    duty: jest.fn(async () => ({ dutyUserId: null, rotation: [] })),
   }
   const service = new TelegramNotifyService(
     prisma as unknown as PrismaService,
