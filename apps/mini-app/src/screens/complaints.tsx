@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   fetchComplaints,
-  fetchResolutionMedian,
   resolveComplaint,
   takeComplaint,
   type Complaint,
-  type ComplaintPage,
   type ComplaintPriority,
   type ComplaintTarget,
 } from '../api/complaints'
@@ -28,7 +26,7 @@ import { Tile, type TileTone } from '../ui/tile'
 import { SwipeRow } from '../ui/swipe-row'
 import { usePullToRefresh } from '../telegram/use-pull-to-refresh'
 import { navigate } from '../lib/navigate'
-import { dayLabel, formatAge, formatHours, formatShortTime } from '../lib/format'
+import { dayLabel, formatShortTime } from '../lib/format'
 
 // Очередь модерации — то, ради чего мини-апп существует: разобрать жалобу с телефона,
 // не дожидаясь возвращения к столу.
@@ -77,7 +75,7 @@ const UNDO_MS = 4000
 
 type Tab = 'open' | 'done'
 
-type State = { status: 'loading' } | { status: 'ready'; page: ComplaintPage } | { status: 'error' }
+type State = { status: 'loading' } | { status: 'ready'; items: Complaint[] } | { status: 'error' }
 
 /** `initialId` — жалоба из ссылки в уведомлении: открываем её сразу, минуя очередь. */
 export function ComplaintsScreen({ initialId }: { initialId?: string }) {
@@ -98,10 +96,11 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const [toast, setToast] = useState<{ id: string; text: string; undo?: () => void } | null>(null)
   const pending = useRef<{ id: string; timer: number } | null>(null)
-  // Медиана времени разбора. Живёт рядом с разобранными: очередь отвечает на «сколько
-  // осталось», а медиана — на «быстро ли команда с этим справляется». Считается за
-  // месяц по всем жалобам, поэтому фильтр приоритета её не трогает.
-  const [median, setMedian] = useState<number | null>(null)
+  // Приезжал ли уже хоть один ответ. До первого экран показывает ОДНУ заглушку и ничего
+  // больше: фильтры над пустотой управляют тем, чего ещё нет, и вместо содержимого
+  // человек читает строку кнопок. На повторных загрузках они остаются на месте —
+  // исчезающие под пальцем фильтры хуже, чем фильтры над заглушкой.
+  const [seen, setSeen] = useState(false)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -110,27 +109,20 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
         status: tab === 'open' ? 'PENDING' : 'RESOLVED',
         ...(priority ? { priority } : {}),
       })
-      setState({ status: 'ready', page })
+      setState({ status: 'ready', items: page.items })
+      setSeen(true)
       // Скрытой остаётся только та, чьё решение ещё ждёт отправки: остальные либо уже
       // ушли из очереди на сервере, либо вернулись по отмене.
       setHidden(pending.current ? new Set([pending.current.id]) : new Set())
     } catch {
       setState({ status: 'error' })
+      setSeen(true)
     }
   }, [tab, priority])
 
   useEffect(() => {
     void load()
   }, [load])
-
-  // Тянем один раз при переходе на вкладку и молчим по отказу: список разобранных важнее
-  // цифры над ним, и ронять экран ради неё нельзя.
-  useEffect(() => {
-    if (tab !== 'done' || median !== null) return
-    fetchResolutionMedian()
-      .then((hours) => setMedian(hours))
-      .catch(() => undefined)
-  }, [tab, median])
 
   const restore = useCallback((id: string) => {
     setHidden((prev) => {
@@ -203,7 +195,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const open = (id: string): void => {
     // Подряд разбирают только очередь: у разобранных решения уже приняты.
     if (tab === 'open' && state.status === 'ready') {
-      setTriage({ ids: state.page.items.map((item) => item.id), done: 0 })
+      setTriage({ ids: state.items.map((item) => item.id), done: 0 })
     }
     navigate(() => setOpenId(id))
   }
@@ -253,10 +245,10 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
 
   // То, что видно: без строки, чьё решение ждёт отправки. Пустота считается по ней же —
   // иначе, смахнув последнюю жалобу, человек видел бы пустой экран без «очередь разобрана».
-  const visible = state.status === 'ready' ? state.page.items.filter((i) => !hidden.has(i.id)) : []
+  const visible = state.status === 'ready' ? state.items.filter((i) => !hidden.has(i.id)) : []
 
   return (
-    <div className="screen" style={{ paddingTop: pull }}>
+    <div className="screen" style={{ paddingTop: pull }} aria-busy={state.status === 'loading'}>
       {pull > 0 && (
         <p
           className={`pull-hint${ready ? ' ready' : ''}`}
@@ -267,9 +259,6 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
       )}
       <ScreenHeader
         title={t('complaintsTitle')}
-        subtitle={
-          state.status === 'ready' ? summary(state.page, tab, median) : t('complaintsSubtitle')
-        }
         tabs={
           <Tabs
             items={[
@@ -282,33 +271,35 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
         }
       />
 
-      <div className="chips-grid">
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={priority === null}
-          onClick={() => {
-            haptic.select()
-            setPriority(null)
-          }}
-        >
-          {t('complaintsFilterAll')}
-        </button>
-        {PRIORITIES.map((value) => (
+      {seen && (
+        <div className="chips-grid">
           <button
-            key={value}
             type="button"
             className="chip"
-            aria-pressed={priority === value}
+            aria-pressed={priority === null}
             onClick={() => {
               haptic.select()
-              setPriority(value)
+              setPriority(null)
             }}
           >
-            {t(PRIORITY_KEY[value])}
+            {t('complaintsFilterAll')}
           </button>
-        ))}
-      </div>
+          {PRIORITIES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className="chip"
+              aria-pressed={priority === value}
+              onClick={() => {
+                haptic.select()
+                setPriority(value)
+              }}
+            >
+              {t(PRIORITY_KEY[value])}
+            </button>
+          ))}
+        </div>
+      )}
 
       {state.status === 'loading' && <SkeletonList />}
 
@@ -434,29 +425,6 @@ function EmptyState({ tab, filtered }: { tab: Tab; filtered: boolean }) {
       text={filtered ? t('complaintsEmptyText') : t('complaintsNeverText')}
     />
   )
-}
-
-/**
- * Подзаголовок очереди. Кроме числа показывает, сколько ждёт самая старая жалоба, — но
- * только когда вся очередь уместилась на странице: иначе «самая старая» оказалась бы самой
- * старой из загруженных, то есть неправдой.
- */
-function summary(page: ComplaintPage, tab: Tab, median: number | null): string {
-  if (tab === 'done') {
-    return median === null
-      ? t('complaintsTabDone')
-      : t('complaintsMedian', { value: formatHours(median) })
-  }
-  if (page.total === 0) return t('complaintsQueueEmpty')
-
-  const counted = t('complaintsInQueue', { count: page.total })
-  if (page.items.length < page.total) return counted
-
-  const oldest = page.items.reduce(
-    (min, item) => Math.min(min, new Date(item.createdAt).getTime()),
-    Date.now(),
-  )
-  return `${counted} · ${t('complaintsOldest', { age: formatAge(oldest) })}`
 }
 
 function groupByDay(items: Complaint[]): { label: string; items: Complaint[] }[] {

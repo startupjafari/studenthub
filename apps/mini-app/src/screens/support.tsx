@@ -43,6 +43,7 @@ import { StatePlate } from '../ui/state-plate'
 import { SkeletonList } from '../ui/skeleton'
 import { useVoiceRecorder } from '../telegram/use-voice'
 import { navigate } from '../lib/navigate'
+import { useFullScreen } from '../lib/chrome'
 
 // Поддержка платформы: очередь обращений и переписка.
 //
@@ -80,9 +81,7 @@ export function SupportScreen({ initialId }: { initialId?: string }) {
 }
 
 type QueueState =
-  | { status: 'loading' }
-  | { status: 'ready'; items: SupportTicket[]; total: number }
-  | { status: 'error' }
+  { status: 'loading' } | { status: 'ready'; items: SupportTicket[] } | { status: 'error' }
 
 function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   const [state, setState] = useState<QueueState>({ status: 'loading' })
@@ -92,15 +91,21 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   // спрашивают чаще». Счётчики за 30 дней приходят отдельно и по отказу молчат.
   const [tag, setTag] = useState<SupportTag | null>(null)
   const [counts, setCounts] = useState<{ tag: SupportTag; count: number }[]>([])
+  // Приезжал ли уже хоть один ответ. До первого экран показывает ОДНУ заглушку: поиск и
+  // теги над пустотой ищут в том, чего ещё нет. Убирать их на повторных загрузках нельзя —
+  // очередь перезапрашивается на каждую букву в поиске, и поле исчезало бы под пальцем.
+  const [seen, setSeen] = useState(false)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
       const { status, assignee } = TAB_QUERY[tab]
       const page = await fetchSupportQueue(status, assignee, search, tag ?? undefined)
-      setState({ status: 'ready', items: page.items, total: page.total })
+      setState({ status: 'ready', items: page.items })
     } catch {
       setState({ status: 'error' })
+    } finally {
+      setSeen(true)
     }
   }, [tab, search, tag])
 
@@ -117,12 +122,9 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   }, [load])
 
   return (
-    <div className="screen">
+    <div className="screen" aria-busy={state.status === 'loading'}>
       <ScreenHeader
         title={t('supportTitle')}
-        subtitle={
-          state.status === 'ready' && tab === 'open' ? summary(state.total) : t('supportSubtitle')
-        }
         tabs={
           <Tabs
             items={[
@@ -137,15 +139,17 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
       />
 
       {/* «Мы это уже кому-то отвечали» — вопрос, который без поиска проверить негде. */}
-      <SearchField
-        value={search}
-        onChange={setSearch}
-        placeholder={t('supportSearchPlaceholder')}
-      />
+      {seen && (
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder={t('supportSearchPlaceholder')}
+        />
+      )}
 
       {/* Теги показываются только те, что реально встречались за месяц: полный список
           из семи чипов на телефоне занимает экран и половину времени врёт нулями. */}
-      {counts.length > 0 && (
+      {seen && counts.length > 0 && (
         <div className="chips">
           <button
             type="button"
@@ -181,8 +185,6 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
         <StatePlate title={t('supportLoadError')} onRetry={() => void load()} />
       )}
 
-      {/* Подзаголовок уже сказал «открытых обращений нет» — плашка повторяет только
-          заголовок и добавляет то, чего в нём не было. */}
       {state.status === 'ready' && state.items.length === 0 && (
         <StatePlate
           title={t('supportEmptyTitle')}
@@ -246,13 +248,34 @@ type ThreadState =
     }
   | { status: 'error' }
 
+/** Какой из трёх экранов обращения открыт. */
+type ThreadPage = 'ticket' | 'chat' | 'complaint'
+
+/**
+ * Обращение — три экрана, а не один.
+ *
+ * Раньше всё лежало одной лентой: кто спрашивает, что с обращением делать, отметки — и
+ * под этим переписка с полем ввода. Чтобы ответить, приходилось пролистать всё, что об
+ * обращении известно, а сам разговор шёл в окружении кнопок и панели разделов — то есть
+ * нигде не похоже на разговор.
+ *
+ * Теперь экран обращения отвечает только на «кто это и что с ним делать», переписка —
+ * отдельное окно во весь экран, как разговор в самом Telegram, а «завести жалобу» —
+ * своя страница с поиском. Состояние обращения и все действия над ним живут здесь, в
+ * одном месте: три экрана смотрят в одно обращение, и расходиться им нельзя.
+ */
 function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   const [state, setState] = useState<ThreadState>({ status: 'loading' })
-  const [text, setText] = useState('')
+  const [page, setPage] = useState<ThreadPage>('ticket')
+  // Одно действие за раз: пока запрос в пути, строки действий и чипы отметок не
+  // нажимаются — второе «закрыть обращение» подряд уже ничего не закрывает.
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useBackButton(onBack)
+  // Возврат один — кнопка Telegram. С переписки и со страницы жалобы он ведёт к самому
+  // обращению, с обращения — в очередь: выход всегда на шаг назад, а не сразу на два.
+  const toTicket = useCallback(() => navigate(() => setPage('ticket'), 'back'), [])
+  useBackButton(page === 'ticket' ? onBack : toTicket)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -276,26 +299,16 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     void load()
   }, [load])
 
-  const send = useCallback(async () => {
-    if (busy || text.trim().length === 0) return
-    setBusy(true)
-    setError(null)
-    try {
-      const message = await replyToTicket(id, text.trim())
-      setText('')
-      haptic.success()
-      setState((prev) =>
-        prev.status === 'ready' ? { ...prev, messages: [...prev.messages, message] } : prev,
-      )
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('supportSendError'))
-    } finally {
-      setBusy(false)
-    }
-  }, [busy, text, id])
+  /** Отправленный ответ дописывается к переписке, а не перезапрашивает её целиком. */
+  const appendMessage = useCallback((message: SupportMessage) => {
+    setState((prev) =>
+      prev.status === 'ready' ? { ...prev, messages: [...prev.messages, message] } : prev,
+    )
+  }, [])
 
   /** Взять на себя. Отказ сервера — не ошибка сети, а «уже взяли», и текст его об этом. */
   const take = useCallback(async () => {
+    setBusy(true)
     setError(null)
     try {
       const { assigneeId } = await assignTicket(id, true)
@@ -305,39 +318,30 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       )
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('supportAssignError'))
+    } finally {
+      setBusy(false)
     }
   }, [id])
 
-  // Перевод обращения в жалобу. Человека выбирают поиском прямо здесь: имя обидчика
+  // Перевод обращения в жалобу. Человека выбирают поиском на своей странице: имя обидчика
   // лежит в тексте обращения, и заставлять модератора уходить в раздел «Люди», запоминать
   // фамилию и возвращаться — ровно тот тупик, ради которого это и делалось.
-  const [target, setTarget] = useState<{ query: string; found: Person[] } | null>(null)
-  // Зависимость — строка запроса, а не сам объект: результат поиска кладётся в тот же
-  // объект, и эффект, завязанный на него, перезапускал бы поиск от собственного ответа.
-  const targetQuery = target?.query ?? null
-
-  useEffect(() => {
-    if (targetQuery === null || targetQuery.trim().length < 2) return
-    const timer = setTimeout(() => {
-      void searchPeople(targetQuery)
-        .then((page) => setTarget((prev) => (prev ? { ...prev, found: page.items } : prev)))
-        .catch(() => undefined)
-    }, PERSON_SEARCH_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [targetQuery])
-
   const fileComplaint = useCallback(
     async (person: Person) => {
       const name = `${person.lastName} ${person.firstName}`
       if (!(await confirmAction(t('supportComplaintConfirm', { name })))) return
+      setBusy(true)
       setError(null)
       try {
         await createComplaintFromSupport(id, person.id)
         haptic.success()
-        setTarget(null)
+        // Итог показывается на обращении: страница выбора своё дело сделала.
         setError(t('supportComplaintCreated'))
+        navigate(() => setPage('ticket'), 'back')
       } catch (err) {
         setError(err instanceof ApiError ? err.message : t('supportComplaintError'))
+      } finally {
+        setBusy(false)
       }
     },
     [id],
@@ -374,28 +378,12 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     [id, state],
   )
 
-  // Голосовой ответ: на телефоне надиктовать быстрее, чем набрать, и именно этим
-  // поддержка с телефона и занимается. Отправляем сразу по остановке записи — как в
-  // чатах платформы: предпрослушивание на этом экране означало бы третью кнопку.
-  const voice = useVoiceRecorder((file) => {
-    setBusy(true)
-    setError(null)
-    void sendVoiceReply(id, file)
-      .then(() => {
-        haptic.success()
-        return load()
-      })
-      .catch((err: unknown) =>
-        setError(err instanceof ApiError ? err.message : t('supportVoiceError')),
-      )
-      .finally(() => setBusy(false))
-  })
-
   // Склейка дублей. Список веток того же человека приходит вместе с перепиской: искать
   // дубль в очереди по фамилии и запоминать id — работа, которую делать незачем.
   const merge = useCallback(
     async (intoId: string, when: string) => {
       if (!(await confirmAction(t('supportMergeConfirm', { when })))) return
+      setBusy(true)
       setError(null)
       try {
         await mergeTicket(id, intoId)
@@ -404,6 +392,8 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         onBack()
       } catch (err) {
         setError(err instanceof ApiError ? err.message : t('supportMergeError'))
+      } finally {
+        setBusy(false)
       }
     },
     [id, onBack],
@@ -411,6 +401,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
 
   const escalate = useCallback(async () => {
     if (!(await confirmAction(t('supportEscalateConfirm')))) return
+    setBusy(true)
     setError(null)
     try {
       await escalateTicket(id)
@@ -418,52 +409,59 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
       setError(t('supportEscalated'))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('supportEscalateError'))
+    } finally {
+      setBusy(false)
     }
   }, [id])
 
   const finish = useCallback(async () => {
     if (!(await confirmAction(t('supportConfirmClose')))) return
+    setBusy(true)
+    setError(null)
     try {
       await closeTicket(id)
       haptic.success()
       onBack()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('supportCloseError'))
+    } finally {
+      setBusy(false)
     }
   }, [onBack, id])
-
-  // Набранный, но не отправленный ответ свайп вниз стирал молча — а набирают его на
-  // телефоне долго. Спрашиваем подтверждение, только пока в поле что-то есть.
-  useEffect(() => {
-    setClosingConfirmation(text.trim().length > 0)
-    return () => setClosingConfirmation(false)
-  }, [text])
-
-  // Поле растёт вместе с текстом, как в Telegram: до пяти строк, дальше прокрутка внутри.
-  // Одна строка в покое — пустое поле в три строки занимало треть экрана переписки.
-  const fieldRef = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => {
-    const el = fieldRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-  }, [text])
 
   // Пока переписка грузится, автора мы ещё не знаем: экран открывается и по ссылке из
   // уведомления, где очереди с его именем не было.
   const ticket = state.status === 'ready' ? state.ticket : null
+  const title = ticket ? authorName(ticket) : t('supportThreadTitle')
+
+  if (page === 'chat') {
+    return (
+      <ChatView
+        id={id}
+        title={title}
+        authorId={ticket?.author?.id ?? null}
+        messages={state.status === 'ready' ? state.messages : null}
+        failed={state.status === 'error'}
+        closed={!!ticket?.closedAt}
+        onSent={appendMessage}
+        onReload={load}
+      />
+    )
+  }
+
+  if (page === 'complaint') {
+    return <ComplaintTargetView error={error} onPick={fileComplaint} />
+  }
 
   return (
-    <div className="screen">
-      <ScreenHeader
-        title={ticket ? authorName(ticket) : t('supportThreadTitle')}
-        subtitle={
-          ticket
-            ? t('supportOpenedAt', { when: formatDateTime(ticket.createdAt) })
-            : t('complaintOpening')
-        }
-        onBack={onBack}
-      />
+    <div className="screen" aria-busy={state.status === 'loading'}>
+      <ScreenHeader title={title} />
+
+      {state.status === 'loading' && <SkeletonList />}
+
+      {state.status === 'error' && (
+        <StatePlate title={t('supportThreadError')} onRetry={() => void load()} />
+      )}
 
       {/* Кто спрашивает. Роль и вуз объясняют половину вопросов: «почему не вижу
           ведомость» от студента и от преподавателя — два разных ответа, а до карточки
@@ -472,9 +470,19 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         <PersonSummary userId={ticket.author.id} title={t('supportAuthorTitle')} />
       )}
 
-      {state.status === 'ready' && state.mergedCount > 0 && (
+      {/* Когда обращение открыли — строкой в карточке, а не подписью под названием
+          экрана: это сведение об обращении, и место ему рядом с остальными такими же. */}
+      {ticket && (
         <section className="card">
-          <p className="hint">{t('supportMergedHere', { count: state.mergedCount })}</p>
+          <p className="hint">{t('supportOpenedAt', { when: formatDateTime(ticket.createdAt) })}</p>
+          {ticket.closedAt && (
+            <p className="hint">
+              {t('supportClosedAt', { when: formatDateTime(ticket.closedAt) })}
+            </p>
+          )}
+          {state.status === 'ready' && state.mergedCount > 0 && (
+            <p className="hint">{t('supportMergedHere', { count: state.mergedCount })}</p>
+          )}
         </section>
       )}
 
@@ -525,13 +533,14 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
             {t('supportEscalate')}
           </ActionRow>
           {/* Жалоба из обращения: автором сервер сделает автора обращения, а не
-              поддержку — жаловался он, и в очереди должно быть видно именно это. */}
+              поддержку — жаловался он, и в очереди должно быть видно именно это.
+              Своей страницей: поиск человека с выдачей — это отдельное занятие, а
+              развёрнутый прямо в карточке он сдвигал вниз всё остальное. */}
           <ActionRow
             tone="red"
             icon={<IconComplaints size={17} />}
             disabled={busy}
-            pressed={target !== null}
-            onClick={() => setTarget((prev) => (prev ? null : { query: '', found: [] }))}
+            onClick={() => navigate(() => setPage('complaint'))}
           >
             {t('supportToComplaint')}
           </ActionRow>
@@ -543,37 +552,6 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
           >
             {t('supportClose')}
           </ActionRow>
-        </section>
-      )}
-
-      {target !== null && (
-        <section className="card">
-          <h2>{t('supportComplaintTarget')}</h2>
-          <input
-            className="field"
-            placeholder={t('peopleSearchPlaceholder')}
-            aria-label={t('supportComplaintTarget')}
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={target.query}
-            onChange={(event) => setTarget({ query: event.target.value, found: target.found })}
-          />
-          {target.found.length === 0 && <p className="hint">{t('supportComplaintHint')}</p>}
-          {target.found.map((person) => (
-            <button
-              key={person.id}
-              type="button"
-              className="row"
-              onClick={() => void fileComplaint(person)}
-            >
-              <span className="row-body">
-                <b>
-                  {person.lastName} {person.firstName}
-                </b>
-                <span className="hint">{person.email}</span>
-              </span>
-            </button>
-          ))}
         </section>
       )}
 
@@ -601,27 +579,140 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         </section>
       )}
 
-      {state.status === 'loading' && <SkeletonList />}
-      {state.status === 'error' && (
+      {error && (
         <section className="card">
-          <p>{t('supportThreadError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void load()}>
-            {t('retry')}
-          </button>
+          <p className="hint-danger">{error}</p>
         </section>
       )}
 
-      {state.status === 'ready' && (
+      {/* Переписка — отдельным окном, и вход в неё один, во всю ширину внизу экрана.
+          Развёрнутая прямо здесь, она превращала карточку обращения в ленту, у которой
+          нет конца: сведения, действия и чужой разговор шли одним столбцом. */}
+      {ticket && (
+        <div className="screen-action">
+          <button
+            type="button"
+            className="fallback-submit"
+            onClick={() => {
+              haptic.tap()
+              navigate(() => setPage('chat'))
+            }}
+          >
+            {t('supportChat')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Переписка с человеком — во весь экран.
+ *
+ * Панель разделов на это время уходит: из чужого разговора выходят назад, к обращению, а
+ * не в соседний раздел, и место внизу принадлежит полю ответа. Сверху — с кем говорим:
+ * экран открывается и по ссылке из уведомления, где имени не было ни на одном экране до.
+ */
+function ChatView({
+  id,
+  title,
+  authorId,
+  messages,
+  failed,
+  closed,
+  onSent,
+  onReload,
+}: {
+  id: string
+  title: string
+  /** Автор обращения: по нему отличаем его реплики от реплик команды. */
+  authorId: string | null
+  /** `null` — переписка ещё едет. */
+  messages: SupportMessage[] | null
+  failed: boolean
+  closed: boolean
+  onSent: (message: SupportMessage) => void
+  onReload: () => Promise<void>
+}) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useFullScreen()
+
+  const send = useCallback(async () => {
+    if (busy || text.trim().length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const message = await replyToTicket(id, text.trim())
+      setText('')
+      haptic.success()
+      onSent(message)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('supportSendError'))
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, text, id, onSent])
+
+  // Голосовой ответ: на телефоне надиктовать быстрее, чем набрать, и именно этим
+  // поддержка с телефона и занимается. Отправляем сразу по остановке записи — как в
+  // чатах платформы: предпрослушивание на этом экране означало бы третью кнопку.
+  const voice = useVoiceRecorder((file) => {
+    setBusy(true)
+    setError(null)
+    void sendVoiceReply(id, file)
+      .then(() => {
+        haptic.success()
+        return onReload()
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof ApiError ? err.message : t('supportVoiceError')),
+      )
+      .finally(() => setBusy(false))
+  })
+
+  // Набранный, но не отправленный ответ свайп вниз стирал молча — а набирают его на
+  // телефоне долго. Спрашиваем подтверждение, только пока в поле что-то есть.
+  useEffect(() => {
+    setClosingConfirmation(text.trim().length > 0)
+    return () => setClosingConfirmation(false)
+  }, [text])
+
+  // Поле растёт вместе с текстом, как в Telegram: до пяти строк, дальше прокрутка внутри.
+  // Одна строка в покое — пустое поле в три строки занимало треть экрана переписки.
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }, [text])
+
+  return (
+    // `data-no-swipe` — чтобы листание разделов (ui/swipe-tabs.tsx) не хватало палец в
+    // переписке: соседние разделы отсюда не соседи, выход один и он назад.
+    <div className="screen" data-no-swipe aria-busy={messages === null && !failed}>
+      <ScreenHeader title={title} />
+
+      {messages === null && !failed && <SkeletonList />}
+
+      {failed && <StatePlate title={t('supportThreadError')} onRetry={() => void onReload()} />}
+
+      {messages !== null && messages.length === 0 && <StatePlate title={t('supportChatEmpty')} />}
+
+      {messages !== null && messages.length > 0 && (
         <section className="thread">
-          {state.messages.map((message, index) => {
+          {messages.map((message, index) => {
             // «Своё» здесь — сказанное командой платформы: экран читает поддержка, и её
             // реплики должны отличаться от реплик человека, которому отвечают. Автор
             // обращения известен из карточки, остальные участники — команда.
-            const fromStaff = ticket?.author ? message.sender.id !== ticket.author.id : false
+            const fromStaff = authorId ? message.sender.id !== authorId : false
             // Разделитель дня — плашкой по центру, как в Telegram: переписка поддержки
             // тянется днями, и «вчера» против «сегодня» меняет смысл «ответили быстро».
             const day = dayLabel(message.createdAt)
-            const prev = state.messages[index - 1]
+            const prev = messages[index - 1]
             const newDay = !prev || dayLabel(prev.createdAt) !== day
             return (
               <Fragment key={message.id}>
@@ -650,11 +741,10 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
         </section>
       )}
 
-      {/* Поле ввода — последним и прилипает к низу, над панелью разделов: как в Telegram,
-          ответ пишут там, где кончается переписка, а не в карточке посреди экрана.
-          Круглая кнопка справа — микрофон, пока поле пустое, и «отправить», как только
-          в нём появился текст: одна кнопка на одно место, без третьей рядом. */}
-      {!ticket?.closedAt && (
+      {/* Поле ввода — последним и прилипает к низу: как в Telegram, ответ пишут там, где
+          кончается переписка. Круглая кнопка справа — микрофон, пока поле пустое, и
+          «отправить», как только в нём появился текст: одна кнопка на одно место. */}
+      {!closed && (
         <div className="composer">
           {/* Заготовка подставляется в поле, а не отправляется: это начало ответа. */}
           <div className="composer-templates">
@@ -738,6 +828,85 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   )
 }
 
+/**
+ * На кого жалуются — своя страница.
+ *
+ * Поиск с выдачей — отдельное занятие: развёрнутый прямо в карточке обращения, он
+ * сдвигал вниз отметки и кнопку закрытия, и найденные люди оказывались посреди чужих
+ * элементов. Здесь на экране ровно один вопрос и ответы на него.
+ */
+function ComplaintTargetView({
+  error,
+  onPick,
+}: {
+  error: string | null
+  onPick: (person: Person) => Promise<void>
+}) {
+  const [query, setQuery] = useState('')
+  const [found, setFound] = useState<Person[]>([])
+
+  // Та же задержка, что в разделе «Люди»: без неё каждая буква уходит в сеть.
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setFound([])
+      return
+    }
+    const timer = setTimeout(() => {
+      void searchPeople(query)
+        .then((page) => setFound(page.items))
+        .catch(() => undefined)
+    }, PERSON_SEARCH_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  return (
+    <div className="screen">
+      <ScreenHeader title={t('supportToComplaint')} />
+
+      <SearchField value={query} onChange={setQuery} placeholder={t('peopleSearchPlaceholder')} />
+
+      {error && (
+        <section className="card">
+          <p className="hint-danger">{error}</p>
+        </section>
+      )}
+
+      {found.length === 0 && (
+        <StatePlate title={t('supportComplaintTarget')} text={t('supportComplaintHint')} />
+      )}
+
+      {found.length > 0 && (
+        <section className="list">
+          {found.map((person) => (
+            <button
+              key={person.id}
+              type="button"
+              className="row"
+              onClick={() => {
+                haptic.tap()
+                void onPick(person)
+              }}
+            >
+              <span className="avatar-sm" aria-hidden>
+                {initials(`${person.lastName} ${person.firstName}`)}
+              </span>
+              <span className="row-body">
+                <b>
+                  {person.lastName} {person.firstName}
+                </b>
+                <span className="hint">{person.email}</span>
+              </span>
+              <span className="row-chevron" aria-hidden>
+                <IconChevron size={17} />
+              </span>
+            </button>
+          ))}
+        </section>
+      )}
+    </div>
+  )
+}
+
 /** Строка действия: плитка со значком и подпись — как раздел пульта. */
 function ActionRow({
   tone,
@@ -780,10 +949,6 @@ function authorName(ticket: SupportTicket): string {
   return ticket.author
     ? `${ticket.author.lastName} ${ticket.author.firstName}`
     : t('supportDeletedAccount')
-}
-
-function summary(total: number): string {
-  return total === 0 ? t('supportNone') : t('supportWaiting', { count: total })
 }
 
 function firstLine(text: string): string {

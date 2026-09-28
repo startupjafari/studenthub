@@ -106,7 +106,7 @@ export function PersonScreen({
 
   return (
     <div className="screen">
-      <ScreenHeader title={name} subtitle={person.email} onBack={onBack} />
+      <ScreenHeader title={name} />
 
       <PersonSummary userId={person.id} title={t('peopleCardTitle')} showName={false} />
 

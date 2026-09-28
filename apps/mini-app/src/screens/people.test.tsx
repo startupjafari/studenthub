@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { Person } from '../api/people'
@@ -38,6 +38,7 @@ vi.mock('../telegram/use-telegram', () => ({
 }))
 
 import { confirmAction } from '../telegram/webapp'
+import { useBackButton } from '../telegram/use-telegram'
 import { searchPeople, setBlocked } from '../api/people'
 import { PeopleScreen } from './people'
 
@@ -129,7 +130,9 @@ describe('PeopleScreen', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
     expect(await screen.findByRole('button', { name: 'Разблокировать' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Назад' }))
+    // Возврат в мини-аппе один — кнопка Telegram: своей стрелки в шапке нет. Зовём тот
+    // же обработчик, который экран отдал клиенту.
+    await act(async () => vi.mocked(useBackButton).mock.calls.at(-1)?.[0]?.())
 
     expect(await screen.findByText('Заблокирован')).toBeInTheDocument()
     expect(vi.mocked(searchPeople).mock.calls.length).toBe(callsBefore)

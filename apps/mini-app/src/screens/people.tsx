@@ -31,6 +31,10 @@ export function PeopleScreen() {
   const [query, setQuery] = useState('')
   const [onlyBlocked, setOnlyBlocked] = useState(false)
   const [state, setState] = useState<State>({ status: 'loading' })
+  // Приезжал ли уже хоть один ответ. До первого экран показывает ОДНУ заглушку: поиск
+  // над пустотой ищет в том, чего ещё нет. На повторных загрузках поле остаётся —
+  // список перезапрашивается на каждую букву, и исчезающее под пальцем поле хуже пустоты.
+  const [seen, setSeen] = useState(false)
   // Открытый человек. Список под ним не перезапрашивается: решение по доступу правит
   // ровно одну строку, и перезапрос ради неё сбросил бы позицию прокрутки.
   const [open, setOpen] = useState<Person | null>(null)
@@ -42,6 +46,8 @@ export function PeopleScreen() {
       setState({ status: 'ready', items: page.items, total: page.total })
     } catch {
       setState({ status: 'error' })
+    } finally {
+      setSeen(true)
     }
   }, [])
 
@@ -73,7 +79,6 @@ export function PeopleScreen() {
     <div className="screen" aria-busy={state.status === 'loading'}>
       <ScreenHeader
         title={t('peopleTitle')}
-        subtitle={t('peopleSubtitle')}
         tabs={
           <Tabs
             items={[
@@ -86,7 +91,9 @@ export function PeopleScreen() {
         }
       />
 
-      <SearchField value={query} onChange={setQuery} placeholder={t('peopleSearchPlaceholder')} />
+      {seen && (
+        <SearchField value={query} onChange={setQuery} placeholder={t('peopleSearchPlaceholder')} />
+      )}
 
       {/* Загрузка показывалась пустотой: экран «Люди» открывается пустым, поиск уходит
           на сервер с задержкой, и между вводом и ответом под строкой поиска не было
@@ -131,7 +138,7 @@ export function PeopleScreen() {
         </section>
       )}
 
-      <InvitesCard />
+      {seen && <InvitesCard />}
     </div>
   )
 }
@@ -161,7 +168,10 @@ function InvitesCard() {
   if (invites === null) return null
 
   return (
-    <section className="card">
+    // Карточка стоит последней на экране и забирает всю оставшуюся высоту. Пустая она
+    // выглядела обрезком в две строки под списком людей — как будто дальше что-то ещё
+    // грузится. Пустое место внизу принадлежит ей, и текст в ней стоит по середине.
+    <section className={`card invites${invites.length === 0 ? ' invites-empty' : ''}`}>
       <h2>{t('invitesTitle')}</h2>
       {error && <p className="hint-danger">{error}</p>}
       {invites.length === 0 && <p className="hint">{t('invitesEmpty')}</p>}

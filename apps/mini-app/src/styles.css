@@ -171,6 +171,21 @@ body {
   padding-bottom: calc(var(--tabbar-h) + 16px + var(--safe-bottom));
 }
 
+/*
+ * Экран во весь рост (lib/chrome.ts): панель разделов уходит, и высота, которую под неё
+ * резервировало содержимое, возвращается экрану. Обнулённой переменной хватает на обоих
+ * концах — и на запасе снизу у .content, и на посадке поля ввода (.composer): они оба
+ * считают место от неё, и вычитать её вручную в двух местах было бы приглашением
+ * разойтись.
+ */
+body.full-screen {
+  --tabbar-h: 0px;
+}
+
+body.full-screen .tabbar {
+  display: none;
+}
+
 .screen {
   /* Тянется на всю оставшуюся высоту: это опора для плашки пустоты, которой иначе не от
      чего расти, — а без неё «ничего нет» выглядит как незагрузившийся первый элемент. */
@@ -179,6 +194,25 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
+}
+
+/*
+ * Одно действие внизу экрана — вход в переписку на карточке обращения.
+ *
+ * Прилипает к низу над панелью разделов, как поле ввода: это единственный выход с экрана
+ * вперёд, и искать его прокруткой не должно быть нужно. `margin-top: auto` прижимает
+ * кнопку к низу, когда содержимого мало, — иначе на коротком обращении она висела бы
+ * посреди экрана.
+ */
+.screen-action {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + 10px + var(--safe-bottom));
+  z-index: 90;
+  margin-top: auto;
+}
+
+.screen-action .fallback-submit {
+  margin-top: 0;
 }
 
 /*
@@ -215,6 +249,25 @@ body {
   margin-top: 10px;
   padding-left: 22px;
   padding-right: 22px;
+}
+
+/*
+ * Свои приглашения в разделе «Люди»: последний блок экрана, и всё, что осталось от
+ * высоты, — его. Прижатая к списку карточка в две строки читалась как недогрузившийся
+ * кусок списка, а не как отдельный блок.
+ */
+.invites {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Пустая — текст по середине блока: так «выданных приглашений нет» читается ответом,
+   а не подписью к пустому месту под ней. */
+.invites-empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 /* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
@@ -279,44 +332,8 @@ body {
   bottom: 3px;
 }
 
-/*
- * Кнопка возврата.
- *
- * Слева от названия и с отрицательным полем: значок оптически стоит на том же
- * вертикальном краю, что и текст под ним, хотя его рамка начинается левее.
- */
-.head-back {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-left: -7px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: none;
-  color: var(--tg-theme-link-color);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition:
-    transform var(--press) var(--ease-out),
-    background-color var(--press) var(--ease-out);
-}
-
-.head-back:active {
-  background: var(--tg-theme-secondary-bg-color);
-  transform: scale(0.92);
-}
-
 .screen-head p {
   margin: 0;
-}
-
-/* Подзаголовок встаёт под название, а не под стрелку: «Срочно · 23:01» относится к
-   жалобе, и начатый от края экрана он читался подписью к кнопке возврата. Сдвиг —
-   ширина кнопки за вычетом её отрицательного поля плюс зазор строки. */
-.screen-head.with-back > .hint {
-  padding-left: calc(34px - 7px + 10px);
 }
 
 .hint {
@@ -1902,7 +1919,6 @@ textarea.field {
   .chip,
   .fallback-submit,
   .tabbar-item,
-  .head-back,
   .tab-lens {
     transition: none;
   }
@@ -1960,7 +1976,6 @@ textarea.field {
 .tab:focus-visible,
 .chip:focus-visible,
 .toggle-row:focus-visible,
-.head-back:focus-visible,
 .tabbar-item:focus-visible,
 .fallback-submit:focus-visible,
 .fold > summary:focus-visible {
@@ -2355,7 +2370,9 @@ textarea.field {
   align-items: center;
   justify-content: center;
   min-height: calc(44px + var(--safe-top));
-  padding: var(--safe-top) 56px 0;
+  /* Поля симметричные: своей кнопки возврата в шапке больше нет, и место под неё слева
+     оставляло название сдвинутым от центра. */
+  padding: var(--safe-top) 20px 0;
   background: var(--glass-strong);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
@@ -2372,12 +2389,6 @@ textarea.field {
   opacity: 1;
   transform: none;
   pointer-events: auto;
-}
-
-.compact-head .head-back {
-  position: absolute;
-  left: 8px;
-  bottom: 2px;
 }
 
 .compact-title {
