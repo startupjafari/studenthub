@@ -82,8 +82,21 @@ export class InviteService {
     private readonly config: ConfigService<EnvVars, true>,
   ) {}
 
-  /** Создание инвайта: проверка иерархии+scope, одноразовый токен, срок 48ч. */
-  async create(issuer: JwtPayload, input: CreateInviteInput, ctx: RequestContext) {
+  /**
+   * Создание инвайта: проверка иерархии+scope, одноразовый токен, срок 48ч.
+   *
+   * `notify: false` отключает письмо-приглашение — для случаев, когда ссылка уходит
+   * получателю в составе другого письма. Так устроено одобрение заявки вуза (§31):
+   * два письма подряд, «заявка одобрена» и «вас пригласили», читаются как дубль, и
+   * человек всё равно нажимает первую попавшуюся ссылку. Сырой токен возвращается
+   * вызывающему в любом случае — он и вкладывает его в своё письмо.
+   */
+  async create(
+    issuer: JwtPayload,
+    input: CreateInviteInput,
+    ctx: RequestContext,
+    options: { notify?: boolean } = {},
+  ) {
     const scope = resolveInviteTarget(issuer, input)
     const token = randomUUID()
     const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
@@ -123,7 +136,7 @@ export class InviteService {
 
     // Письмо со ссылкой-приглашением (docs/PROJECT.md §7.3, §10.1) — только если известен
     // адрес получателя. Отправка асинхронна (§9.1): HTTP-ответ её не ждёт.
-    if (input.email) {
+    if (input.email && options.notify !== false) {
       await this.enqueueInviteEmail(input.email, token, invite.role, expiresAt)
     }
 

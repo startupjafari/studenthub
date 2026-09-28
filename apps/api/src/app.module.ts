@@ -25,6 +25,7 @@ import { UsersModule } from './modules/users/users.module'
 import { InvitesModule } from './modules/invites/invites.module'
 import { FilesModule } from './modules/files/files.module'
 import { UniversitiesModule } from './modules/universities/universities.module'
+import { OnboardingModule } from './modules/onboarding/onboarding.module'
 import { FacultiesModule } from './modules/faculties/faculties.module'
 import { SpecialtiesModule } from './modules/specialties/specialties.module'
 import { GroupsModule } from './modules/groups/groups.module'
@@ -112,6 +113,7 @@ import { AppController } from './app.controller'
     InvitesModule,
     FilesModule,
     UniversitiesModule,
+    OnboardingModule,
     FacultiesModule,
     SpecialtiesModule,
     GroupsModule,
