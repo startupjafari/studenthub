@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Handshake,
   Home,
+  Inbox,
   IdCard,
   LayoutDashboard,
   ListChecks,
@@ -217,6 +218,9 @@ export const STAROSTA_NAV: NavItem[] = [
 export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'dashboard', href: '/platform-admin', icon: LayoutDashboard, exact: true },
   { key: 'universities', href: '/platform-admin/universities', icon: Building2 },
+  // Заявки стоят сразу за вузами: это вход в тот же список, только до того, как вуз
+  // в нём появился.
+  { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
   { key: 'users', href: '/platform-admin/users', icon: Users },
   { key: 'invites', href: '/platform-admin/invites', icon: Send },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },
