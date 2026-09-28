@@ -1,4 +1,5 @@
 import { ChevronDown } from 'lucide-react'
+import { PLATFORM_LINKS } from '../config/site'
 import type { Dictionary } from '../content'
 import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 
@@ -47,6 +48,22 @@ export function Faq({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
                 <div>
                   <p className="sh-acc__inner max-w-[62ch] pb-6 text-sm leading-relaxed text-muted-foreground">
                     {item.answer}
+                    {/* Ссылка ровно у одного вопроса — того, где ответ без неё
+                        заканчивается словами «на странице проверки», а страницы под
+                        рукой нет. Двери на проверку документа на сайте больше нет, и
+                        этот ответ остался единственным входом на неё. */}
+                    {item.id === 'verify' && (
+                      <>
+                        {' '}
+                        <a
+                          href={PLATFORM_LINKS.verifyDocument}
+                          rel="noopener"
+                          className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+                        >
+                          {t.verifyLink}
+                        </a>
+                      </>
+                    )}
                   </p>
                 </div>
               </div>

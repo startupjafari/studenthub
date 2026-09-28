@@ -172,76 +172,81 @@ export const en: Dictionary = {
   },
 
   scale: {
-    title: 'Tested at a real scale',
-    text: 'We don’t claim how many universities “trust us”. Instead — the environment the platform is tested against every release.',
+    title: 'What the platform is made of',
+    text: 'These numbers describe the product itself, not its customers: how many roles and languages it has, and the volume it holds on the test rig.',
     stats: [
-      { value: 100, label: 'universities in the test environment' },
-      { value: 130000, label: 'users' },
-      { value: 21, unit: 'M', label: 'rows of data' },
-      { value: 8, label: 'roles in one platform' },
-    ],
-    facts: [
-      {
-        title: 'A real volume',
-        text: 'Lists, search and the feed work against that environment, not a demo database of twenty students.',
-      },
-      {
-        title: 'Three languages',
-        text: 'Russian, Kazakh and English — in full, including error and notification texts.',
-      },
-      {
-        title: 'Works offline',
-        text: 'Installs on the phone as an app. The schedule and the student card open without a network.',
-      },
+      { value: 8, label: 'roles — from student to administration' },
+      { value: 3, label: 'interface languages: Kazakh, Russian, English' },
+      { value: 0, label: 'open sign-ups' },
+      { value: 100, label: 'universities on the load rig', note: 'verified on a test environment' },
     ],
   },
 
   faq: {
-    title: 'The questions people ask first',
+    title: 'The questions asked first',
+    verifyLink: 'Verification page',
     items: [
       {
-        id: 'access',
-        question: 'Can I sign up myself?',
+        id: 'install',
+        question: 'Do we need to install an app?',
         answer:
-          'No. The university issues the account through a personal invitation link. The one exception is employer companies: they register themselves, but see no students until a university approves them.',
+          'No. The platform runs in the browser and installs on a phone from the home screen — straight from the browser, with no app store involved.',
+      },
+      {
+        id: 'access',
+        question: 'How does a student get access?',
+        answer:
+          'By invitation from the dean’s office or the group leader. There is no self sign-up: an account starts from a personal link with the role already set.',
+      },
+      {
+        id: 'languages',
+        question: 'Which languages does the platform support?',
+        answer: 'Kazakh, Russian and English — including error messages and notifications.',
       },
       {
         id: 'data',
-        question: 'Where is student data stored?',
+        question: 'Where is the data stored?',
         answer:
-          'The university itself is the data controller. The platform processes data on its instructions and only to the extent the service requires — this is fixed in the documents.',
+          'Data residency — on the university’s own servers or in Kazakhstan — is agreed during the rollout.',
       },
       {
-        id: 'app',
-        question: 'Is there a mobile app?',
+        id: 'employers',
+        question: 'What do employers see?',
         answer:
-          'The platform installs on the phone straight from the browser and behaves like a normal app, notifications and offline mode included. No separate store install required.',
+          'Only students from universities that approved the company’s access. Contact details and grade average are shared with the student’s own consent.',
+      },
+      {
+        id: 'verify',
+        question: 'How is a certificate verified?',
+        answer:
+          'By the code on the form, on the verification page. It answers one question: the document is genuine and valid. A revoked certificate shows as revoked.',
       },
       {
         id: 'integrations',
-        question: 'We already have our own system. What then?',
+        question: 'Are there integrations with university systems?',
         answer:
-          'We discuss it on the demo: what to keep, what to replace, how to migrate the data. The platform takes the university structure as a spreadsheet, so a move usually takes days rather than months.',
+          'Not yet. Zoom and Meet video calls are planned; anything else we discuss during the rollout.',
       },
       {
         id: 'price',
         question: 'How much does it cost?',
         answer:
-          'It depends on the number of students and the set of modules. We’ll give you the figure on the call, once we understand what you actually need.',
+          'The price depends on the university and is discussed in conversation. There are no tariffs on this page: selling to a university is a conversation, not a checkout.',
       },
     ],
   },
 
   cta: {
-    title: 'Let’s show the platform to your university',
-    text: 'A forty-minute call: we walk through the roles, show the dean’s office and the schedule on your scenarios, and answer questions about data and security.',
-    button: 'Write to us',
-    mailSubject: 'StudentHub demo for a university',
+    title: 'Let’s discuss a pilot for your university',
+    button: 'Email us',
+    mailSubject: 'StudentHub — university pilot',
   },
 
   footer: {
-    tagline: 'A closed multi-role education platform for universities.',
+    tagline:
+      'A closed platform for universities: studies, documents and communication in one place.',
     rights: 'All rights reserved.',
     language: 'Language',
+    company: 'For companies',
   },
 }

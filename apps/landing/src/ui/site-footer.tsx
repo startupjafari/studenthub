@@ -1,12 +1,20 @@
 import { GraduationCap } from 'lucide-react'
 import type { Locale } from '../config/site'
-import { PLATFORM_LINKS } from '../config/site'
+import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
 import type { Dictionary } from '../content'
 import { Container } from './primitives'
 import { LanguageMenu } from './language-menu'
 
+/**
+ * Подвал: переключатель языка, вход, дверь работодателя и почта для связи.
+ *
+ * Больше здесь ничего нет, и это не недоделка. Ссылки на юридические документы стояли бы
+ * в никуда: политика и соглашение живут в платформе и открываются модальным окном,
+ * отдельных адресов у них пока не существует.
+ */
 export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const year = new Date().getFullYear()
+  const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(dict.cta.mailSubject)}`
 
   return (
     <footer className="border-t border-hairline py-14">
@@ -22,7 +30,10 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
 
           <nav className="flex flex-col gap-2 text-sm" aria-label={dict.nav.product}>
             <FooterLink href={PLATFORM_LINKS.login}>{dict.nav.login}</FooterLink>
-            <FooterLink href={PLATFORM_LINKS.employerSignup}>{dict.doors.company.title}</FooterLink>
+            <FooterLink href={PLATFORM_LINKS.employerSignup}>{dict.footer.company}</FooterLink>
+            {/* Почта показана целиком, а не спрятана под словом «Контакты»: её копируют
+                глазами чаще, чем нажимают. */}
+            <FooterLink href={mailto}>{SALES_EMAIL}</FooterLink>
           </nav>
 
           <div className="flex flex-col gap-2">
