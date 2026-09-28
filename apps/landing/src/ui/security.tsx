@@ -1,6 +1,6 @@
 import { Check } from 'lucide-react'
 import type { Dictionary } from '../content'
-import { Lift } from './motion'
+import { Lift } from './press'
 import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 
 /**

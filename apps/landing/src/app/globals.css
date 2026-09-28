@@ -166,6 +166,15 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /*
+    Место под полосу прокрутки зарезервировано всегда. Иначе замок прокрутки под
+    мобильным меню (`.sh-menu-open` ниже) убирал полосу, страница под меню расширялась
+    на её ширину и вздрагивала — и ещё раз при закрытии.
+  */
+  html {
+    scrollbar-gutter: stable;
+  }
+
   /* Плавная прокрутка по якорям меню — но не у тех, кто просил меньше движения. */
   @media (prefers-reduced-motion: no-preference) {
     html {
@@ -329,7 +338,8 @@
 /*
   Фирменная меш-сетка. Копия правил с брендовой панели входа
   (apps/web/src/app/globals.css, .mesh-base / .mesh-glow / .mesh-halo): точки подсвечиваются
-  вокруг курсора, позиция мыши приходит в --mx/--my.
+  вокруг курсора. Сетка и цвета — те же, а подсветка устроена иначе (.mesh-spot ниже):
+  там она перерисовывает весь блок на каждое движение мыши.
 
   Это CSS, а не импорт компонента: узнаваемость бренда переносится, изоляция не нарушается.
 
@@ -345,30 +355,95 @@
   background-size: 24px 24px;
 }
 
-.mesh-glow {
+/*
+  Подсветка вокруг курсора — пятно фиксированного размера, а не маска на весь экран.
+
+  В платформе маска с центром в --mx/--my лежит на всём блоке, и каждое движение мыши
+  перерисовывает слой размером с экран. Здесь пятно едет за курсором через `transform`
+  (ui/mesh-backdrop.tsx), а точки внутри него сдвигаются тоже трансформом, на остаток от
+  шага сетки, — браузер только переставляет готовые слои, ничего не перерисовывая.
+
+  Размер пятна (480) и шаг сетки (24) продублированы в mesh-backdrop.tsx: там по ним
+  считается сдвиг. Меняются только вместе.
+
+  На тач-устройствах пятна нет вовсе: курсора там нет, а слой всё равно занимал бы память.
+*/
+.mesh-spot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: none;
+  width: 480px;
+  height: 480px;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  will-change: transform;
+}
+.mesh-spot.is-on {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .mesh-spot {
+    display: block;
+  }
+}
+
+.mesh-spot__halo {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    220px circle at 50% 50%,
+    color-mix(in oklab, var(--primary) 12%, transparent),
+    transparent 65%
+  );
+}
+
+.mesh-spot__mask {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  -webkit-mask-image: radial-gradient(
+    240px circle at 50% 50%,
+    #000 0%,
+    rgba(0, 0, 0, 0.35) 45%,
+    transparent 72%
+  );
+  mask-image: radial-gradient(
+    240px circle at 50% 50%,
+    #000 0%,
+    rgba(0, 0, 0, 0.35) 45%,
+    transparent 72%
+  );
+}
+
+/* На шаг сетки больше пятна: сдвиг на остаток не должен оголять край. */
+.mesh-spot__dots {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% + 24px);
+  height: calc(100% + 24px);
   background-image: radial-gradient(
     circle at 1px 1px,
     color-mix(in oklab, var(--primary) 85%, transparent) 1px,
     transparent 0
   );
   background-size: 24px 24px;
-  --mesh-mask: radial-gradient(
-    240px circle at var(--mx, -9999px) var(--my, -9999px),
-    #000 0%,
-    rgba(0, 0, 0, 0.35) 45%,
-    transparent 72%
-  );
-  -webkit-mask-image: var(--mesh-mask);
-  mask-image: var(--mesh-mask);
-  transition: opacity 0.35s ease;
+  will-change: transform;
 }
 
-.mesh-halo {
-  background: radial-gradient(
-    220px circle at var(--mx, -9999px) var(--my, -9999px),
-    color-mix(in oklab, var(--primary) 12%, transparent),
-    transparent 65%
-  );
+/*
+  Первый экран — ровно в высоту окна.
+
+  `svh`, а не `vh` и не `dvh`. На телефоне 100vh считается по окну со спрятанной адресной
+  строкой, и низ экрана с кнопками уезжал под неё. `dvh` следит за строкой в реальном
+  времени — первый экран менял высоту прямо во время прокрутки, и вся страница под ним
+  прыгала. `svh` — высота окна с показанной строкой: она не меняется никогда, и экран
+  при этом целиком виден сразу. `vh` строкой выше — запас для браузеров без svh.
+*/
+.sh-hero {
+  min-height: 100vh;
+  min-height: 100svh;
 }
 
 /*
@@ -453,10 +528,9 @@
 /*
   Появление блоков при пониженном движении: блок просто стоит на месте.
 
-  `!important` здесь не грубость, а единственный работающий способ: Framer Motion пишет
-  прозрачность в атрибут `style`, и обычное правило таблице стилей проиграет. Отменять
-  же нужно именно серверную заготовку — на сервере `useReducedMotion()` ответить не может
-  и всегда говорит «движение разрешено».
+  `!important` — страховка от порядка правил: скрытое состояние .sh-reveal объявлено
+  ниже по файлу, и без неё пониженное движение зависело бы от того, какое правило стоит
+  последним. Блок показан сразу, не дожидаясь ни скрипта, ни прокрутки.
 */
 @media (prefers-reduced-motion: reduce) {
   .sh-reveal {
@@ -493,9 +567,68 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Появление блоков при прокрутке переехало в Framer Motion (ui/motion.tsx, Reveal):
-   там же живут кривая и шаг каскада. Здесь осталось движение, которое должно идти до
-   гидрации, — вход первого экрана. */
+/*
+  Появление блоков при прокрутке (ui/motion.tsx, Reveal).
+
+  Скрипт только ставит `.is-in`, когда блок дошёл до кадра, а переход ведёт браузер —
+  по opacity и transform, в потоке композитора. Раньше тем же занимался Framer Motion
+  покадрово в основном потоке, и на слабом телефоне появление карточек съедало кадры
+  прокрутки. Каскад задаётся задержкой `--d`, которую ставит сам Reveal.
+*/
+.sh-reveal {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+  transition:
+    opacity 0.6s var(--ease-out) var(--d, 0s),
+    transform 0.6s var(--ease-out) var(--d, 0s);
+}
+.sh-reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/*
+  Отклик карточек и кнопок (ui/press.tsx): подъём под курсором и вдавливание под
+  пальцем. Подъём — только при настоящем курсоре: на тач-экране :hover залипает после
+  тапа.
+
+  У .sh-tap переход перечислен целиком: правило вне слоёв заменяет общий список из
+  @layer base, а не дополняет его, и без повтора кнопки потеряли бы плавную смену цвета.
+*/
+.sh-lift {
+  transition: transform 0.35s var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .sh-lift:hover {
+    transform: translate3d(0, var(--lift, -4px), 0);
+  }
+}
+.sh-lift:active {
+  transform: scale(0.985);
+  transition-duration: 0.15s;
+}
+
+.sh-tap {
+  transition:
+    color 0.15s var(--ease),
+    background-color 0.15s var(--ease),
+    border-color 0.15s var(--ease),
+    opacity 0.15s var(--ease),
+    transform 0.2s var(--ease-out);
+}
+.sh-tap:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-lift:hover,
+  .sh-lift:active,
+  .sh-tap:active {
+    transform: none;
+  }
+}
+
+/* Здесь же движение, которое должно идти до гидрации, — вход первого экрана. */
 
 /* --- Построчный вход заголовка ------------------------------------------ */
 .reveal-line {
@@ -593,6 +726,24 @@ details[open] .sh-acc__inner {
   transition-delay: 0.12s;
 }
 
+/*
+  Закрытие (ui/accordion-motion.tsx). Пока идёт `.is-closing`, вопрос ещё открыт, а
+  шторка уже схлопывается; `open` снимается, когда переход закончился. Текст гаснет
+  быстрее шторки — иначе он обрезается её краем на полуслове. Стрелка поворачивается
+  обратно вместе со шторкой, а не в момент, когда `open` уже снят.
+*/
+details.is-closing .sh-acc__body {
+  grid-template-rows: 0fr;
+}
+details.is-closing .sh-acc__inner {
+  opacity: 0;
+  transition-duration: 0.15s;
+  transition-delay: 0s;
+}
+details.is-closing .sh-acc__chevron {
+  rotate: 0deg;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sh-acc__body,
   .sh-acc__inner {
@@ -681,10 +832,71 @@ details[open] .sh-acc__inner {
   position: fixed;
   inset-inline: 0;
   top: 0;
+  /* Своим слоем с самого начала: шапка уезжает и возвращается трансформом, и без
+     этого браузер поднимал бы её в слой в первый же кадр движения — с рывком. */
+  will-change: transform;
+  background-color: color-mix(in oklab, var(--background) 94%, transparent);
   transition:
     box-shadow 0.3s var(--ease),
     background-color 0.3s var(--ease),
     transform 0.3s var(--ease);
+}
+
+/*
+  Размытие под шапкой — только там, где есть курсор, то есть на ноутбуке и десктопе.
+
+  backdrop-filter пересчитывается каждый кадр, пока под шапкой что-то движется, — а при
+  прокрутке движется всё. На слабом телефоне это самая дорогая строка страницы, и
+  именно она роняла прокрутку ниже 60 кадров. Там шапка почти непрозрачная, и разницы
+  на глаз не видно.
+*/
+@media (hover: hover) and (pointer: fine) {
+  .sh-header {
+    background-color: color-mix(in oklab, var(--background) 70%, transparent);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+}
+
+/*
+  Открытое мобильное меню. Прокрутка страницы заперта, шапка стоит на месте, даже если
+  до этого уехала вверх, и становится сплошной: под ней проявляется меню, и размытие
+  пересчитывалось бы все кадры этого проявления — отсюда и было дёрганье.
+*/
+html.sh-menu-open {
+  overflow: hidden;
+}
+.sh-menu-open .sh-header {
+  transform: none;
+  background-color: var(--background);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Меню начинается под шапкой и следует за её сжатием: класс `sh-stuck` на <html> ставит
+   SiteMotion вместе с `.is-stuck` у шапки. */
+.sh-menu {
+  padding-top: calc(4.5rem + env(safe-area-inset-top));
+  transition: padding-top 0.35s var(--ease-out);
+}
+.sh-stuck .sh-menu {
+  padding-top: calc(3.5rem + env(safe-area-inset-top));
+}
+
+/* Пункты меню въезжают каскадом; задержку по номеру ставит сама разметка через --i. */
+@keyframes sh-menu-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.sh-menu-link {
+  animation: sh-menu-in 0.35s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
 }
 .sh-header__bar {
   height: 4.5rem;
@@ -702,8 +914,12 @@ details[open] .sh-acc__inner {
 
 @media (prefers-reduced-motion: reduce) {
   .sh-header,
-  .sh-header__bar {
+  .sh-header__bar,
+  .sh-menu {
     transition: none;
+  }
+  .sh-menu-link {
+    animation: none;
   }
   .sh-header.is-hidden {
     transform: none;

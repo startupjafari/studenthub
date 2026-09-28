@@ -3,7 +3,7 @@ import { Briefcase, Building2, GraduationCap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
 import type { Dictionary } from '../content'
-import { Lift } from './motion'
+import { Lift } from './press'
 import { LinkButton, Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 
 /**

@@ -2,6 +2,7 @@ import { ChevronDown } from 'lucide-react'
 import { PLATFORM_LINKS } from '../config/site'
 import type { Dictionary } from '../content'
 import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
+import { AccordionMotion } from './accordion-motion'
 
 /**
  * Вопросы и ответы.
@@ -12,6 +13,8 @@ import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
  *
  * Плавность даёт приём `grid-template-rows: 0fr → 1fr` (.sh-acc__body в globals.css):
  * высоту содержимого браузер заранее не знает, и анимировать `height: auto` нельзя.
+ * Закрытие так же плавно доигрывает `AccordionMotion`: нативно `<details>` прячет
+ * содержимое в тот же кадр, и шторке нечего показывать.
  *
  * Разметка FAQPage для поисковой выдачи добавляется в PR 4 (SEO) — из этого же словаря,
  * чтобы ответы в JSON-LD и на странице не разъехались.
@@ -35,12 +38,13 @@ export function Faq({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
               // атрибут ещё не поддержан, блоки просто открываются независимо —
               // деградация, а не поломка.
               name="faq"
+              data-acc="faq"
               className="group scroll-mt-28 rounded-3xl border border-hairline bg-surface px-6 transition-colors hover:border-foreground/20"
             >
               <summary className="font-display flex min-h-[3.5rem] cursor-pointer list-none items-center justify-between gap-4 py-5 text-[0.9375rem] font-semibold tracking-[-0.01em] focus-visible:ring-4 focus-visible:ring-ring/25 focus-visible:outline-none [&::-webkit-details-marker]:hidden">
                 {item.question}
                 <ChevronDown
-                  className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                  className="sh-acc__chevron size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
                   aria-hidden
                 />
               </summary>
@@ -71,6 +75,7 @@ export function Faq({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
           </Reveal>
         ))}
       </div>
+      <AccordionMotion group="faq" />
     </Section>
   )
 }

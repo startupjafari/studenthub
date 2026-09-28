@@ -78,6 +78,9 @@ export function SiteMotion() {
 
     /* --- прокрутка: поведение шапки --------------------------------------- */
     const header = document.querySelector<HTMLElement>('.sh-header')
+    // Та же метка на корне — для мобильного меню: оно сосед шапки, а не её потомок, и
+    // отступ под сжатую шапку может взять только отсюда (.sh-stuck .sh-menu).
+    const root = document.documentElement
 
     /*
       Пороги с запасом («гистерезис»). Инерционная прокрутка — трекпад, тач, плавный
@@ -104,9 +107,11 @@ export function SiteMotion() {
         if (!stuck && y > STUCK_ON) {
           stuck = true
           header.classList.add('is-stuck')
+          root.classList.add('sh-stuck')
         } else if (stuck && y < STUCK_OFF) {
           stuck = false
           header.classList.remove('is-stuck')
+          root.classList.remove('sh-stuck')
         }
 
         const delta = y - lastY
