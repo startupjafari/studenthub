@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Handshake,
   Home,
+  Rocket,
   Inbox,
   IdCard,
   LayoutDashboard,
@@ -99,6 +100,9 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     group: 'main',
   },
   { key: 'analytics', href: '/university-admin/analytics', icon: BarChart3, group: 'main' },
+  // Мастер первичной настройки. Остаётся в меню и после запуска: чек-лист структуры
+  // полезен и потом, а прятать пункт по состоянию данных значит прятать его непредсказуемо.
+  { key: 'setup', href: '/university-admin/setup', icon: Rocket, group: 'main' },
 
   // Структура вуза: то, что заводят один раз и меняют редко.
   { key: 'faculties', href: '/university-admin/faculties', icon: Building2, group: 'structure' },
