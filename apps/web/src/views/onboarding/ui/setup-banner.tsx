@@ -32,16 +32,25 @@ export function SetupBanner() {
   const done = data.steps.filter((s) => s.done || s.skipped).length
 
   return (
-    <Card className="flex flex-col gap-4 border-primary/30 bg-primary/5 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-start gap-3">
+    // Иконка, текст и кнопка стоят по одной средней линии: при выравнивании по верху
+    // иконка висела над двухстрочным текстом, а кнопка — посередине, и строка
+    // разваливалась на три разных уровня.
+    <Card className="flex flex-col gap-4 px-4 ring-primary/25 sm:flex-row sm:items-center sm:gap-6 sm:px-5">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
           <Rocket className="size-5" aria-hidden />
         </span>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="font-medium">{t('bannerTitle')}</span>
           <span className="text-sm text-muted-foreground">
             {t('bannerText', { done, total: data.steps.length })}
           </span>
+          <div className="mt-1 h-1 max-w-md overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary"
+              style={{ width: `${(done / data.steps.length) * 100}%` }}
+            />
+          </div>
         </div>
       </div>
       <Button asChild className="shrink-0">
