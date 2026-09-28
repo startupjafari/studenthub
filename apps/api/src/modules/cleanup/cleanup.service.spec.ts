@@ -52,6 +52,8 @@ function makeService() {
   }
   // Размер очереди жалоб считает владелец таблицы; планировщик только спрашивает.
   const complaints = { queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock }
+  // Уборка неподтверждённых заявок вузов: крон только делегирует владельцу таблицы.
+  const demoRequests = { purgeUnconfirmed: jest.fn(async () => 0) as Mock }
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
@@ -77,6 +79,7 @@ function makeService() {
     redis as never,
     support as never,
     complaints as never,
+    demoRequests as never,
     telegram as never,
     platform as never,
   )

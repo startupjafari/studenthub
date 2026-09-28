@@ -35,6 +35,7 @@ function setup() {
   const prisma = {
     universityDemoRequest: {
       count: jest.fn().mockResolvedValue(0),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       create: jest.fn().mockResolvedValue({ id: 'req-1', universityName: form.universityName }),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -66,6 +67,16 @@ function setup() {
   return { service, prisma, tx, audit, queue, invites }
 }
 
+/** Открытая заявка с тем же адресом: как её видит findOpen. */
+const openRequest = (over: Record<string, unknown> = {}) => ({
+  id: 'req-open',
+  status: 'PENDING_EMAIL',
+  universityName: form.universityName,
+  // Письмо ушло час назад: пауза между переотправками уже прошла.
+  emailVerificationExpiresAt: new Date(Date.now() + 23 * 3_600_000),
+  ...over,
+})
+
 describe('DemoRequestsService.submit', () => {
   it('сохраняет момент и версию согласия, а токен — только хэшем', async () => {
     const { service, prisma } = setup()
@@ -78,13 +89,68 @@ describe('DemoRequestsService.submit', () => {
     expect(data.emailVerificationHash).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it('на повторную заявку с того же адреса отвечает так же, но ничего не пишет', async () => {
+  it('заявка уже в очереди модерации — ответ тот же, но ничего не пишем и не шлём', async () => {
     const { service, prisma, queue } = setup()
-    prisma.universityDemoRequest.count.mockResolvedValue(1)
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(openRequest({ status: 'NEW' }))
 
     await expect(service.submit(form, ctx)).resolves.toEqual({ email: form.email })
     expect(prisma.universityDemoRequest.create).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('адрес не подтверждён — высылаем письмо заново с новым токеном', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(openRequest())
+
+    await expect(service.submit(form, ctx)).resolves.toEqual({ email: form.email })
+
+    // Второй заявки не появилось, обновился токен у существующей.
+    expect(prisma.universityDemoRequest.create).not.toHaveBeenCalled()
+    const data = prisma.universityDemoRequest.update.mock.calls[0][0].data
+    expect(data.emailVerificationHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(queue.enqueue.mock.calls[0][1]).toBe(EMAIL_JOBS.SEND_DEMO_VERIFICATION)
+  })
+
+  it('письмо только что отправляли — второе не шлём', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(
+      // Срок истекает ровно через сутки, значит письмо ушло только что.
+      openRequest({ emailVerificationExpiresAt: new Date(Date.now() + 24 * 3_600_000) }),
+    )
+
+    await service.submit(form, ctx)
+
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
+  })
+
+  it('протухшая неподтверждённая заявка адрес больше не занимает', async () => {
+    const { service, prisma } = setup()
+    // findOpen отсекает её условием по сроку — сюда приходит null.
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(null)
+
+    await service.submit(form, ctx)
+
+    // Заявка создана заново, а не отброшена молча.
+    expect(prisma.universityDemoRequest.create).toHaveBeenCalled()
+    const where = prisma.universityDemoRequest.findFirst.mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { status: 'NEW' },
+      { status: 'PENDING_EMAIL', emailVerificationExpiresAt: { gt: expect.any(Date) } },
+    ])
+  })
+})
+
+describe('DemoRequestsService.purgeUnconfirmed', () => {
+  it('удаляет только неподтверждённые и только старые', async () => {
+    const { service, prisma } = setup()
+    const cutoff = new Date('2026-09-01T00:00:00Z')
+
+    await service.purgeUnconfirmed(cutoff)
+
+    expect(prisma.universityDemoRequest.deleteMany).toHaveBeenCalledWith({
+      where: { status: 'PENDING_EMAIL', createdAt: { lt: cutoff } },
+    })
   })
 })
 

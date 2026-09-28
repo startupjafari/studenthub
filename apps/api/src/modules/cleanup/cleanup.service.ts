@@ -16,6 +16,7 @@ import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
 import { ComplaintsService } from '../complaints/complaints.service'
+import { DemoRequestsService } from '../onboarding/demo-requests.service'
 import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
@@ -43,12 +44,19 @@ const LOCK_TTL_MS = {
   sendDailyDigest: 10 * 60 * 1000,
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
+  purgeUnconfirmedDemoRequests: 10 * 60 * 1000,
   liftExpiredBlocks: 4 * 60 * 1000,
   rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
+// Сколько ждём подтверждения адреса в заявке вуза, прежде чем удалить её (§31).
+//
+// Неделя, а не сутки: ссылка живёт 24 часа, но человек мог подать заявку в пятницу и
+// открыть почту в понедельник — переотправка письма ему тогда ещё доступна. Дальше
+// хранить незачем: заявку не подтвердили, а персональные данные в ней настоящие.
+const DEMO_REQUEST_UNCONFIRMED_DAYS = 7
 // Не трогаем свежие объекты MinIO — они могут быть в процессе загрузки (запись File ещё не создана).
 const ORPHAN_SAFETY_MINUTES = 60
 
@@ -106,6 +114,7 @@ export class CleanupService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly support: SupportService,
     private readonly complaints: ComplaintsService,
+    private readonly demoRequests: DemoRequestsService,
     private readonly telegram: TelegramNotifyService,
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
@@ -448,6 +457,25 @@ export class CleanupService {
     await this.telegram.notifyStaff('complaint', `В очереди накопилось жалоб: ${pending}`)
     this.logger.log(`alertQueueBacklog: жалоб ${pending}`)
     return pending
+  }
+
+  // Неподтверждённые заявки вузов. Ежедневно в 04:30, до уборки обращений.
+  //
+  // Пока такая заявка жива, она занимает адрес: подать новую с него нельзя. Плюс в ней
+  // лежат персональные данные из публичной формы, которые никто не подтвердил.
+  @Cron('30 4 * * *', { name: 'purgeUnconfirmedDemoRequests' })
+  async purgeUnconfirmedDemoRequests(): Promise<number | null> {
+    return this.locks.run(
+      'purgeUnconfirmedDemoRequests',
+      LOCK_TTL_MS.purgeUnconfirmedDemoRequests,
+      async () => {
+        const removed = await this.demoRequests.purgeUnconfirmed(
+          new Date(Date.now() - DEMO_REQUEST_UNCONFIRMED_DAYS * DAY_MS),
+        )
+        this.logger.log(`purgeUnconfirmedDemoRequests: удалено ${removed}`)
+        return removed
+      },
+    )
   }
 
   // Обращения без движения. Ежедневно в 05:00, после уборки файлов.

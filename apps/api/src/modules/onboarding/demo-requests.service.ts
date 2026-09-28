@@ -26,10 +26,14 @@ import { InviteService } from '../invites/invites.service'
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
 
 /**
- * Сколько заявок с одного адреса держим в очереди. Второй раз с того же адреса —
- * почти всегда «показалось, что не отправилось», а не второй вуз.
+ * Как часто можно переотправить письмо подтверждения на один и тот же адрес.
+ *
+ * Вторая отправка формы с того же адреса — почти всегда «письмо не пришло», и правильный
+ * ответ на неё выслать письмо заново. Но адрес в форме пишет кто угодно, и без паузы
+ * этим можно заваливать чужой ящик: пять попыток в четверть часа пропускает throttle
+ * контроллера, и все пять превратились бы в письма человеку, который ничего не подавал.
  */
-const MAX_OPEN_PER_EMAIL = 1
+const RESEND_COOLDOWN_MS = 5 * 60 * 1000
 
 const DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' })
 
@@ -115,12 +119,17 @@ export class DemoRequestsService {
    * способ узнать, подавал ли этот вуз заявку.
    */
   async submit(input: SubmitDemoRequestInput, ctx: RequestContext): Promise<{ email: string }> {
-    const open = await this.prisma.universityDemoRequest.count({
-      where: { email: input.email, status: { in: ['PENDING_EMAIL', 'NEW'] } },
-    })
-    if (open >= MAX_OPEN_PER_EMAIL) {
-      // Молча выходим: письма не будет, а перебор адресов ничего не показывает.
-      this.logger.warn('Повторная заявка на тестирование с адреса, по которому уже есть открытая')
+    const existing = await this.findOpen(input.email)
+    if (existing) {
+      // Заявка уже в очереди модерации — переотправлять нечего, письмо своё дело сделало.
+      if (existing.status === 'NEW') {
+        this.logger.warn('Повторная заявка с адреса, по которому заявка уже в очереди')
+        return { email: input.email }
+      }
+      // Адрес не подтверждён, ссылка ещё жива: человек жмёт «отправить» второй раз именно
+      // потому, что письма не увидел. Высылаем заново, а не молчим — молчание он читает
+      // как «форма сломана» и уходит.
+      await this.resendVerification(existing, input.email)
       return { email: input.email }
     }
 
@@ -171,6 +180,100 @@ export class DemoRequestsService {
     })
 
     return { email: input.email }
+  }
+
+  /**
+   * Открытая заявка с этого адреса, если она есть.
+   *
+   * Открытой считается заявка в очереди (`NEW`) либо неподтверждённая, у которой ЕЩЁ НЕ
+   * ИСТЁК срок ссылки. Это и есть причина правки: раньше условие смотрело только на
+   * статус, и строка `PENDING_EMAIL` занимала адрес навсегда — ссылка протухала через
+   * сутки, а заявка продолжала считаться открытой и молча отбивала все следующие
+   * попытки. Человек, до которого не дошло письмо, терял возможность подать заявку с
+   * этого адреса, и узнать об этом не мог: ответ всегда один и тот же.
+   */
+  private async findOpen(email: string) {
+    return this.prisma.universityDemoRequest.findFirst({
+      where: {
+        email,
+        OR: [
+          { status: 'NEW' },
+          { status: 'PENDING_EMAIL', emailVerificationExpiresAt: { gt: new Date() } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        universityName: true,
+        emailVerificationExpiresAt: true,
+      },
+    })
+  }
+
+  /**
+   * Выслать письмо подтверждения заново, обновив токен и срок.
+   *
+   * Токен именно НОВЫЙ, а не прежний: в базе лежит только его хэш, и достать сырой
+   * нельзя. Старая ссылка при этом перестаёт работать — так и надо, действующей ссылка
+   * должна быть одна.
+   *
+   * Пауза между письмами обязательна: адрес в форме пишет кто угодно, и без неё повтор
+   * отправки превращается в способ засыпать чужой ящик.
+   */
+  private async resendVerification(
+    existing: { id: string; universityName: string; emailVerificationExpiresAt: Date | null },
+    email: string,
+  ): Promise<void> {
+    const sentAt = existing.emailVerificationExpiresAt
+      ? existing.emailVerificationExpiresAt.getTime() - VERIFY_TTL_MS
+      : 0
+    if (Date.now() - sentAt < RESEND_COOLDOWN_MS) {
+      this.logger.warn('Повторная заявка: письмо отправляли только что, ждём паузу')
+      return
+    }
+
+    const rawToken = randomBytes(32).toString('base64url')
+    const expiresAt = new Date(Date.now() + VERIFY_TTL_MS)
+    await this.prisma.universityDemoRequest.update({
+      where: { id: existing.id },
+      data: {
+        emailVerificationHash: this.hashToken(rawToken),
+        emailVerificationExpiresAt: expiresAt,
+      },
+    })
+
+    await this.enqueueQuietly(
+      EMAIL_JOBS.SEND_DEMO_VERIFICATION,
+      {
+        to: email,
+        universityName: existing.universityName,
+        verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
+        expiresAt: DATE_FORMAT.format(expiresAt),
+      },
+      // jobId со временем: BullMQ отбрасывает дубль по id, и без метки повторное письмо
+      // молча не ушло бы — а оно и есть смысл этой ветки.
+      `demo-verify:${existing.id}:${expiresAt.getTime()}`,
+    )
+    this.logger.log('Повторная заявка: письмо подтверждения выслано заново')
+  }
+
+  /**
+   * Удалить неподтверждённые заявки старше срока. Зовёт крон уборки.
+   *
+   * Две причины. Первая — адрес: пока строка жива, она мешает подать заявку заново
+   * (см. `findOpen`), и протухшие заявки должны исчезать сами. Вторая важнее: в заявке
+   * лежат персональные данные, полученные по публичной форме, а форма, которую даже не
+   * подтвердили, не повод хранить их бессрочно.
+   *
+   * Подтверждённые заявки не трогаются никогда: по ним принимали решение, и запись о том,
+   * кто и на каком основании получил доступ, переживает саму заявку.
+   */
+  async purgeUnconfirmed(olderThan: Date): Promise<number> {
+    const { count } = await this.prisma.universityDemoRequest.deleteMany({
+      where: { status: 'PENDING_EMAIL', createdAt: { lt: olderThan } },
+    })
+    return count
   }
 
   /** Подтверждение адреса: заявка попадает в очередь модерации. */
