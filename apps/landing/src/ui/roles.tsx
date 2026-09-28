@@ -26,7 +26,9 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
 }
 
 /**
- * Переключатель ролей — главная демонстрация продукта на странице.
+ * Переключатель ролей — главная демонстрация продукта на странице, и ссылка «Продукт»
+ * из шапки ведёт сюда: раньше этот якорь принадлежал секции «Один день», а после её
+ * удаления упирался в пустоту.
  *
  * Отвечает на вопрос, который иначе занимает три абзаца: «а что увижу я?» И попутно
  * показывает главное про модель доступа — роли видят разное не потому, что лишнее
@@ -61,7 +63,7 @@ export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
   }
 
   return (
-    <Section tone={tone}>
+    <Section id="product" tone={tone}>
       <SectionHeading title={t.title} subtitle={t.subtitle} />
 
       <Reveal className="flex flex-col gap-[clamp(1.75rem,3vw,2.5rem)]">
