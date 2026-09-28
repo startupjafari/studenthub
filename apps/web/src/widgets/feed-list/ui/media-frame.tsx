@@ -44,6 +44,7 @@ export function MediaFrame({
             postId={postId}
             media={media}
             fit="cover"
+            decorative
             // scale-110 прячет светлую кромку, которую blur размазывает по краям.
             className="size-full scale-110 blur-2xl brightness-75 saturate-150"
           />
