@@ -56,11 +56,15 @@ export const SubmitDemoRequestSchema = z
     comment: z.string().trim().max(2000).optional(),
 
     /**
-     * Согласие на обработку персональных данных. Литерал `true`, а не boolean: снятая
-     * галочка — это не «значение false», это незаполненная форма, и отвечать на неё
-     * должна ошибка валидации, а не молчаливое сохранение.
+     * Согласие на обработку персональных данных. Снятая галочка — это не «значение
+     * false», это незаполненная форма, и отвечать на неё должна ошибка валидации, а не
+     * молчаливое сохранение.
+     *
+     * `boolean().refine`, а не `literal(true)`: тип поля остаётся `boolean`, и форма
+     * снимает галочку обычным `false` без приведения типов. У литерала тип поля — сама
+     * единица `true`, и каждое снятие галочки пришлось бы кастовать.
      */
-    consent: z.literal(true),
+    consent: z.boolean().refine((value) => value, { message: 'Требуется согласие' }),
   })
   .strict()
 export type SubmitDemoRequestInput = z.infer<typeof SubmitDemoRequestSchema>
