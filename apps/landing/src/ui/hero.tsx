@@ -27,9 +27,11 @@ export function Hero({ dict }: { dict: Dictionary }) {
   const t = dict.hero
 
   return (
-    <MeshBackdrop>
-      {/* Верхний отступ включает высоту шапки: она `fixed` и места в потоке не занимает. */}
-      <Container className="flex flex-col items-center pt-[calc(4.5rem+clamp(3rem,9vw,6.5rem))] pb-[clamp(4.5rem,11vw,8rem)] text-center">
+    // Экран ровно в высоту окна (.sh-hero в globals.css), содержимое — по центру.
+    <MeshBackdrop className="sh-hero">
+      {/* Верхний отступ включает высоту шапки: она `fixed` и места в потоке не занимает.
+          Поэтому и центр считается от нижнего края шапки, а не от верха окна. */}
+      <Container className="flex flex-1 flex-col items-center justify-center pt-[calc(4.5rem+clamp(1.5rem,6svh,4rem))] pb-[clamp(3rem,10svh,6.5rem)] text-center">
         <span className="sh-soft-up inline-flex items-center gap-2.5 rounded-full border border-hairline bg-surface py-2 pr-4 pl-3 text-[0.8125rem] font-medium [--delay:0.05s]">
           {/* Точка-индикатор: платформа живая, а не витрина. Кольцо расходится и гаснет —
               без него точка читается просто как маркер списка. */}

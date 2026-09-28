@@ -166,6 +166,15 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /*
+    Место под полосу прокрутки зарезервировано всегда. Иначе замок прокрутки под
+    мобильным меню (`.sh-menu-open` ниже) убирал полосу, страница под меню расширялась
+    на её ширину и вздрагивала — и ещё раз при закрытии.
+  */
+  html {
+    scrollbar-gutter: stable;
+  }
+
   /* Плавная прокрутка по якорям меню — но не у тех, кто просил меньше движения. */
   @media (prefers-reduced-motion: no-preference) {
     html {
@@ -421,6 +430,20 @@
   );
   background-size: 24px 24px;
   will-change: transform;
+}
+
+/*
+  Первый экран — ровно в высоту окна.
+
+  `svh`, а не `vh` и не `dvh`. На телефоне 100vh считается по окну со спрятанной адресной
+  строкой, и низ экрана с кнопками уезжал под неё. `dvh` следит за строкой в реальном
+  времени — первый экран менял высоту прямо во время прокрутки, и вся страница под ним
+  прыгала. `svh` — высота окна с показанной строкой: она не меняется никогда, и экран
+  при этом целиком виден сразу. `vh` строкой выше — запас для браузеров без svh.
+*/
+.sh-hero {
+  min-height: 100vh;
+  min-height: 100svh;
 }
 
 /*
@@ -703,6 +726,24 @@ details[open] .sh-acc__inner {
   transition-delay: 0.12s;
 }
 
+/*
+  Закрытие (ui/accordion-motion.tsx). Пока идёт `.is-closing`, вопрос ещё открыт, а
+  шторка уже схлопывается; `open` снимается, когда переход закончился. Текст гаснет
+  быстрее шторки — иначе он обрезается её краем на полуслове. Стрелка поворачивается
+  обратно вместе со шторкой, а не в момент, когда `open` уже снят.
+*/
+details.is-closing .sh-acc__body {
+  grid-template-rows: 0fr;
+}
+details.is-closing .sh-acc__inner {
+  opacity: 0;
+  transition-duration: 0.15s;
+  transition-delay: 0s;
+}
+details.is-closing .sh-acc__chevron {
+  rotate: 0deg;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sh-acc__body,
   .sh-acc__inner {
@@ -791,10 +832,71 @@ details[open] .sh-acc__inner {
   position: fixed;
   inset-inline: 0;
   top: 0;
+  /* Своим слоем с самого начала: шапка уезжает и возвращается трансформом, и без
+     этого браузер поднимал бы её в слой в первый же кадр движения — с рывком. */
+  will-change: transform;
+  background-color: color-mix(in oklab, var(--background) 94%, transparent);
   transition:
     box-shadow 0.3s var(--ease),
     background-color 0.3s var(--ease),
     transform 0.3s var(--ease);
+}
+
+/*
+  Размытие под шапкой — только там, где есть курсор, то есть на ноутбуке и десктопе.
+
+  backdrop-filter пересчитывается каждый кадр, пока под шапкой что-то движется, — а при
+  прокрутке движется всё. На слабом телефоне это самая дорогая строка страницы, и
+  именно она роняла прокрутку ниже 60 кадров. Там шапка почти непрозрачная, и разницы
+  на глаз не видно.
+*/
+@media (hover: hover) and (pointer: fine) {
+  .sh-header {
+    background-color: color-mix(in oklab, var(--background) 70%, transparent);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+  }
+}
+
+/*
+  Открытое мобильное меню. Прокрутка страницы заперта, шапка стоит на месте, даже если
+  до этого уехала вверх, и становится сплошной: под ней проявляется меню, и размытие
+  пересчитывалось бы все кадры этого проявления — отсюда и было дёрганье.
+*/
+html.sh-menu-open {
+  overflow: hidden;
+}
+.sh-menu-open .sh-header {
+  transform: none;
+  background-color: var(--background);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Меню начинается под шапкой и следует за её сжатием: класс `sh-stuck` на <html> ставит
+   SiteMotion вместе с `.is-stuck` у шапки. */
+.sh-menu {
+  padding-top: calc(4.5rem + env(safe-area-inset-top));
+  transition: padding-top 0.35s var(--ease-out);
+}
+.sh-stuck .sh-menu {
+  padding-top: calc(3.5rem + env(safe-area-inset-top));
+}
+
+/* Пункты меню въезжают каскадом; задержку по номеру ставит сама разметка через --i. */
+@keyframes sh-menu-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.sh-menu-link {
+  animation: sh-menu-in 0.35s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
 }
 .sh-header__bar {
   height: 4.5rem;
@@ -812,8 +914,12 @@ details[open] .sh-acc__inner {
 
 @media (prefers-reduced-motion: reduce) {
   .sh-header,
-  .sh-header__bar {
+  .sh-header__bar,
+  .sh-menu {
     transition: none;
+  }
+  .sh-menu-link {
+    animation: none;
   }
   .sh-header.is-hidden {
     transform: none;
