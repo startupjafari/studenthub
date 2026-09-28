@@ -1,4 +1,4 @@
-import { SALES_EMAIL } from '../config/site'
+import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
 import type { Dictionary } from '../content'
 import { Container, LinkButton, Reveal } from './primitives'
 
@@ -38,7 +38,7 @@ export function Cta({ dict }: { dict: Dictionary }) {
                 {/* Инверсная кнопка: на брендовом полотне белая плашка — самый заметный
                     элемент, и это правильный порядок, тут её и нажимают. */}
                 <LinkButton
-                  href={mailto}
+                  href={PLATFORM_LINKS.demoRequest}
                   external
                   variant="secondary"
                   className="border-transparent bg-white text-primary shadow-none hover:bg-white/90"

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight, GraduationCap, Menu, X } from 'lucide-react'
 import type { Locale } from '../config/site'
-import { PLATFORM_LINKS, SALES_EMAIL, localePath } from '../config/site'
+import { PLATFORM_LINKS, localePath } from '../config/site'
 import type { Dictionary } from '../content'
 import { AnimatePresence, EASE, motion, useReducedMotion } from './motion'
 import { Container, LinkButton } from './primitives'
@@ -32,8 +32,6 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
   const [menuOpen, setMenuOpen] = useState(false)
   const calm = useReducedMotion()
   const [activeSection, setActiveSection] = useState<string | null>(null)
-
-  const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(dict.cta.mailSubject)}`
 
   const links = [
     { id: 'product', label: dict.nav.product },
@@ -132,7 +130,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
                 </span>
                 <LanguageMenu current={locale} />
               </div>
-              <LinkButton href={mailto} external className="w-full">
+              <LinkButton href={PLATFORM_LINKS.demoRequest} external className="w-full">
                 {dict.nav.demo}
               </LinkButton>
             </Container>
@@ -197,7 +195,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
           */}
             <span className="hidden xl:block">
               <LinkButton
-                href={mailto}
+                href={PLATFORM_LINKS.demoRequest}
                 external
                 variant="ghost"
                 size="sm"

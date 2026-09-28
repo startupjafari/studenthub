@@ -403,6 +403,7 @@ Redis обязателен: без него не работают очереди
 **События:** `Event`, `EventParticipant`
 **Общение:** `Chat`, `ChatMember`, `Message`
 **Инфраструктура:** `File`, `Notification`, `NotificationSettings`, `Complaint`, `AuditLog`, `DocumentExport`
+**Приход вуза:** `UniversityDemoRequest`, `UniversityOnboarding`
 
 ### 6.1 Enum'ы
 
@@ -420,6 +421,8 @@ enum NotificationChannel { IN_APP EMAIL PUSH }
 enum ScheduleChangeType { MOVED ROOM_CHANGED CANCELLED SUBSTITUTED }
 enum ComplaintTargetType { POST STORY COMMENT MESSAGE USER }
 enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
+enum DemoRequestStatus { PENDING_EMAIL NEW APPROVED REJECTED }
+enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY OTHER }
 ```
 
 ### 6.2 Обязательные правила модели
@@ -428,6 +431,8 @@ enum ComplaintStatus { PENDING REVIEWING RESOLVED DISMISSED }
 - `onDelete` и `onUpdate` объявлены явно во всех связях.
 - Soft delete (`deletedAt`) для `User`, `Post`, `Comment`, `Message`, `ApplicationRequest`.
 - Индексы: все внешние ключи; `[groupId, dayOfWeek]`, `[teacherId, dayOfWeek]` (расписание); `[chatId, createdAt]` (сообщения); `audience`, `createdAt` (посты); `status`, `expiresAt` (инвайты, сторисы).
+- `UniversityOnboarding` **не хранит пройденность шагов**: она считается по самим данным (есть факультеты — шаг пройден). Отметка «шаг пройден» рядом с пустым списком факультетов — рассинхрон, который невозможно заметить. В таблице только то, чего в данных нет: `profileConfirmedAt`, `skippedSteps`, `dismissedAt`, `completedAt`.
+- `UniversityDemoRequest` хранит персональные данные, полученные по публичной форме, поэтому несёт `consentAt` + `consentVersion` (версия текста согласия живёт рядом со схемой формы — `CONSENT_VERSION` в `packages/shared-schemas`) и `ip`/`userAgent`: без них согласие нечем подтвердить.
 
 ### 6.3 Открытые вопросы к схеме
 
@@ -814,6 +819,14 @@ Excel: книга из двух листов — **«Данные» первым
 
 **Релизы** (окно «Что нового», `docs/RELEASE.md`) — `GET /releases/me` (до какой версии пользователь дочитал: `{ version, seenAt, accountCreatedAt }`) · `POST /releases/seen` (`{ version }` — отметить прочитанным). Обе доступны любой аутентифицированной роли, `userId` берётся из JWT. Модель `ReleaseView` (`userId` — первичный ключ, `version`, `seenAt`): одна строка на пользователя, тексты релизов в БД не хранятся — они лежат в бандле web (`entities/release/model/notes.json`), иначе нота обгоняла бы сборку у установленного PWA. Сравнение версий и решение «показывать/промолчать» — на клиенте; сервер отметку не оспаривает.
 
+**Приход вуза** (§31) — заявка снаружи и мастер настройки внутри.
+
+*Заявка.* `POST /demo-requests` (**публ.**, throttle 5/15 мин, всегда `202` с `{ email }`) · `POST /demo-requests/verify` (**публ.**, `{ token }` из письма). Публичная подача не создаёт ни аккаунта, ни вуза, ни доступа — только строку в очереди к человеку: правило «внутрь только по приглашению» не обходится. Ответ одинаков для новой и для повторной заявки с того же адреса, иначе форма превращается в способ узнать, подавал ли этот вуз заявку. Токен подтверждения хранится хэшем и гасится при первом переходе.
+
+*Очередь и решения* (`PLATFORM_ADMIN`) — `GET /demo-requests?status=&search=&page=&limit=` · `GET /demo-requests/:id` · `POST /demo-requests/:id/approve` · `POST /demo-requests/:id/reject`. `PLATFORM_MODERATOR` сюда не допущен: это решение о допуске организации, а не модерация контента. Одобрение одной транзакцией заводит `University` в статусе `PENDING` и `UniversityOnboarding`, затем выписывает обычный инвайт `UNIVERSITY_ADMIN` на подтверждённый адрес (`InviteService.create(..., { notify: false })`) и шлёт одно письмо со ссылкой внутри. Повторное решение по той же заявке — `409 CONFLICT`. Причина отказа — enum `DemoRejectionReason`, свободного текста в письме нет; `reviewNote` внутренняя и наружу не уходит.
+
+*Мастер настройки* (`UNIVERSITY_ADMIN`, свой вуз из JWT) — `GET /onboarding` · `POST /onboarding/confirm-profile` · `POST /onboarding/skip` (`{ step }`) · `POST /onboarding/dismiss` · `POST /onboarding/launch`. Шаги и список пропускаемых заданы в `packages/shared-schemas` (`ONBOARDING_STEPS`, `SKIPPABLE_ONBOARDING_STEPS`): `profile → faculties → specialties → groups → rooms → terms → subjects → deans → launch`; пропустить можно только `specialties`, `rooms`, `subjects` — без факультетов и групп платформа не работает вообще. Пройденность шага считается по данным, а не хранится флагом (см. §6). `launch` переводит вуз `PENDING → ACTIVE` и проверяет обязательные шаги на сервере, а не только кнопкой на фронте.
+
 **Служебное** — `GET /health` (публ.) · `GET /api/docs` (только dev)
 
 Пагинация: списки контента и сообщений — cursor (`?cursor=&limit=`, `limit ≤ 50`); административные таблицы — offset (`?page=&limit=`, `limit ≤ 100`).
@@ -987,7 +1000,7 @@ JwtAuthGuard (глобальный, снимается @Public) → RolesGuard (
 ```
 Guard не заменяет проверку в сервисе: сервис дополнительно сверяет фактическую принадлежность ресурса.
 
-Публичных (`@Public`) маршрутов немного и каждый объяснён там, где описан: вход и обновление сессии, регистрация по инвайту, публичное состояние платформы, `POST /mini/session` и `POST /mini/link` (Telegram открывает мини-апп без нашего токена) и `POST /telegram/webhook`. Последний — единственный, где заявителя не удостоверяет ни пароль, ни подпись initData: его защищает секрет в заголовке, и без настроенного секрета он не делает ничего.
+Публичных (`@Public`) маршрутов немного и каждый объяснён там, где описан: вход и обновление сессии, регистрация по инвайту, публичное состояние платформы, `POST /mini/session` и `POST /mini/link` (Telegram открывает мини-апп без нашего токена), `POST /demo-requests` и `POST /demo-requests/verify` (заявка вуза: её подаёт человек, у которого аккаунта ещё нет и быть не может — вуза на платформе пока нет) и `POST /telegram/webhook`. Последний — единственный, где заявителя не удостоверяет ни пароль, ни подпись initData: его защищает секрет в заголовке, и без настроенного секрета он не делает ничего.
 
 ### 11.3 Персональные данные
 
