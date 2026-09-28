@@ -68,13 +68,26 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
+      # Версии экшенов держим на актуальных мажорах: GitHub снимает с эксплуатации
+      # рантайм node20, и v4 у checkout/setup-node уже принудительно запускались на
+      # node24 с предупреждением.
+      #
+      # Именно v7 у setup-node, а не минимальный переход на v5: в v5 появилось
+      # автокеширование по полю `packageManager` в package.json, и в двух job'ах ниже
+      # (проверка релизной ноты, release.yml) setup-node вызывается БЕЗ pnpm — он попытался
+      # бы настроить кеш pnpm, которого там нет. В v6 автокеширование ограничено npm, а
+      # здесь `packageManager` указывает на pnpm, поэтому само оно не включается.
+      # Явный `cache: pnpm` работает как работал.
+      #
+      # `node-version` — рантайм сборки самого проекта, к этому переходу отношения не
+      # имеет и меняется отдельным решением.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
@@ -152,15 +165,15 @@ jobs:
       # fetch-depth: 0 — gitleaks смотрит историю, а не только рабочее дерево: секрет,
       # закоммиченный и «удалённый» следующим коммитом, из истории никуда не делся.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
@@ -186,7 +199,7 @@ jobs:
       # Секрет в истории = секрет скомпрометирован, даже если файл давно удалён.
       # Дешевле поймать на PR, чем ротировать ключи задним числом.
       - name: Поиск секретов в истории
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -201,12 +214,12 @@ jobs:
     steps:
       # fetch-depth: 0 — нужны теги: «выпущена ли уже эта версия» выясняется по ним.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
 
