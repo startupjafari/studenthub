@@ -12,13 +12,12 @@ import {
   Button,
   Checkbox,
   FieldError,
-  FormAlert,
   Input,
   Label,
   LegalLinks,
   Textarea,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_NUMBER, OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 
 /**
  * Заявка вуза на тестирование платформы.
@@ -34,11 +33,17 @@ import { useFormAlert } from '../../../shared/lib'
  *
  * Что будет дальше, сказано прямо на экране: подтверждение почты, рассмотрение,
  * письмо с доступом. Без этого человек ждёт мгновенного входа и считает, что сломалось.
+ *
+ * Отказ сервера показывается всплывающим сообщением, а не полосой в начале формы: форма
+ * длинная, кнопка отправки внизу, и полоса наверху оказывалась вне экрана — человек
+ * нажимал «отправить» и не видел, что ничего не отправилось. Ошибки отдельных полей
+ * остаются у полей.
  */
 export function DemoRequestView() {
   const t = useTranslations('Demo')
   const [sentTo, setSentTo] = useState<string | null>(null)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  // id свой у формы: повторный отказ обновляет тот же тост, а не копит стопку.
+  const { show: showError } = useErrorToast('demo-request')
 
   const {
     register,
@@ -76,18 +81,15 @@ export function DemoRequestView() {
 
       <form
         onSubmit={handleSubmit(async (values) => {
-          resetApiError()
           try {
             const result = await submitDemoRequest(values)
             setSentTo(result.email)
           } catch (err) {
-            showApiError(err)
+            showError(err)
           }
         })}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={apiError} />
-
         <div className="flex flex-col gap-2">
           <Label htmlFor="universityName">{t('fieldUniversity')}</Label>
           <Input
@@ -103,7 +105,7 @@ export function DemoRequestView() {
             <Label htmlFor="city">
               <OptionalLabel text={t('fieldCity')} optional={t('optional')} />
             </Label>
-            <Input id="city" {...register('city')} />
+            <Input id="city" {...register('city', OPTIONAL_TEXT)} />
             <FieldError>{errors.city?.message}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
@@ -120,7 +122,7 @@ export function DemoRequestView() {
               id="studentsEstimate"
               inputMode="numeric"
               placeholder={t('fieldStudentsHint')}
-              {...register('studentsEstimate')}
+              {...register('studentsEstimate', OPTIONAL_NUMBER)}
             />
             <FieldError>{errors.studentsEstimate?.message}</FieldError>
           </div>
@@ -141,7 +143,7 @@ export function DemoRequestView() {
             <Label htmlFor="contactRole">
               <OptionalLabel text={t('fieldContactRole')} optional={t('optional')} />
             </Label>
-            <Input id="contactRole" {...register('contactRole')} />
+            <Input id="contactRole" {...register('contactRole', OPTIONAL_TEXT)} />
             <FieldError>{errors.contactRole?.message}</FieldError>
           </div>
         </div>
@@ -164,7 +166,7 @@ export function DemoRequestView() {
           <Label htmlFor="phone">
             <OptionalLabel text={t('fieldPhone')} optional={t('optional')} />
           </Label>
-          <Input id="phone" type="tel" autoComplete="tel" {...register('phone')} />
+          <Input id="phone" type="tel" autoComplete="tel" {...register('phone', OPTIONAL_TEXT)} />
           <FieldError>{errors.phone?.message}</FieldError>
         </div>
 
@@ -172,7 +174,7 @@ export function DemoRequestView() {
           <Label htmlFor="comment">
             <OptionalLabel text={t('fieldComment')} optional={t('optional')} />
           </Label>
-          <Textarea id="comment" rows={3} {...register('comment')} />
+          <Textarea id="comment" rows={3} {...register('comment', OPTIONAL_TEXT)} />
           <FieldError>{errors.comment?.message}</FieldError>
         </div>
 
