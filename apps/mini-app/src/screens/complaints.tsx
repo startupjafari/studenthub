@@ -96,6 +96,11 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const [toast, setToast] = useState<{ id: string; text: string; undo?: () => void } | null>(null)
   const pending = useRef<{ id: string; timer: number } | null>(null)
+  // Приезжал ли уже хоть один ответ. До первого экран показывает ОДНУ заглушку и ничего
+  // больше: фильтры над пустотой управляют тем, чего ещё нет, и вместо содержимого
+  // человек читает строку кнопок. На повторных загрузках они остаются на месте —
+  // исчезающие под пальцем фильтры хуже, чем фильтры над заглушкой.
+  const [seen, setSeen] = useState(false)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -105,11 +110,13 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
         ...(priority ? { priority } : {}),
       })
       setState({ status: 'ready', items: page.items })
+      setSeen(true)
       // Скрытой остаётся только та, чьё решение ещё ждёт отправки: остальные либо уже
       // ушли из очереди на сервере, либо вернулись по отмене.
       setHidden(pending.current ? new Set([pending.current.id]) : new Set())
     } catch {
       setState({ status: 'error' })
+      setSeen(true)
     }
   }, [tab, priority])
 
@@ -241,7 +248,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const visible = state.status === 'ready' ? state.items.filter((i) => !hidden.has(i.id)) : []
 
   return (
-    <div className="screen" style={{ paddingTop: pull }}>
+    <div className="screen" style={{ paddingTop: pull }} aria-busy={state.status === 'loading'}>
       {pull > 0 && (
         <p
           className={`pull-hint${ready ? ' ready' : ''}`}
@@ -264,33 +271,35 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
         }
       />
 
-      <div className="chips-grid">
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={priority === null}
-          onClick={() => {
-            haptic.select()
-            setPriority(null)
-          }}
-        >
-          {t('complaintsFilterAll')}
-        </button>
-        {PRIORITIES.map((value) => (
+      {seen && (
+        <div className="chips-grid">
           <button
-            key={value}
             type="button"
             className="chip"
-            aria-pressed={priority === value}
+            aria-pressed={priority === null}
             onClick={() => {
               haptic.select()
-              setPriority(value)
+              setPriority(null)
             }}
           >
-            {t(PRIORITY_KEY[value])}
+            {t('complaintsFilterAll')}
           </button>
-        ))}
-      </div>
+          {PRIORITIES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className="chip"
+              aria-pressed={priority === value}
+              onClick={() => {
+                haptic.select()
+                setPriority(value)
+              }}
+            >
+              {t(PRIORITY_KEY[value])}
+            </button>
+          ))}
+        </div>
+      )}
 
       {state.status === 'loading' && <SkeletonList />}
 

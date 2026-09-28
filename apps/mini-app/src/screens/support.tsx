@@ -90,6 +90,10 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   // спрашивают чаще». Счётчики за 30 дней приходят отдельно и по отказу молчат.
   const [tag, setTag] = useState<SupportTag | null>(null)
   const [counts, setCounts] = useState<{ tag: SupportTag; count: number }[]>([])
+  // Приезжал ли уже хоть один ответ. До первого экран показывает ОДНУ заглушку: поиск и
+  // теги над пустотой ищут в том, чего ещё нет. Убирать их на повторных загрузках нельзя —
+  // очередь перезапрашивается на каждую букву в поиске, и поле исчезало бы под пальцем.
+  const [seen, setSeen] = useState(false)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -99,6 +103,8 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
       setState({ status: 'ready', items: page.items })
     } catch {
       setState({ status: 'error' })
+    } finally {
+      setSeen(true)
     }
   }, [tab, search, tag])
 
@@ -115,7 +121,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   }, [load])
 
   return (
-    <div className="screen">
+    <div className="screen" aria-busy={state.status === 'loading'}>
       <ScreenHeader
         title={t('supportTitle')}
         tabs={
@@ -132,15 +138,17 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
       />
 
       {/* «Мы это уже кому-то отвечали» — вопрос, который без поиска проверить негде. */}
-      <SearchField
-        value={search}
-        onChange={setSearch}
-        placeholder={t('supportSearchPlaceholder')}
-      />
+      {seen && (
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder={t('supportSearchPlaceholder')}
+        />
+      )}
 
       {/* Теги показываются только те, что реально встречались за месяц: полный список
           из семи чипов на телефоне занимает экран и половину времени врёт нулями. */}
-      {counts.length > 0 && (
+      {seen && counts.length > 0 && (
         <div className="chips">
           <button
             type="button"
