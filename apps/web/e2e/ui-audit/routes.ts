@@ -39,7 +39,14 @@ export interface AuditRoute {
  * При правке списка в middleware поправить и здесь — иначе аудит попытается открыть
  * публичный экран из-под роли и получит редирект на её домашнюю страницу.
  */
-const PUBLIC_PREFIXES = ['/login', '/register', '/offline', '/employer/signup', '/employer/verify']
+const PUBLIC_PREFIXES = [
+  '/login',
+  '/register',
+  '/offline',
+  '/employer/signup',
+  '/employer/verify',
+  '/demo',
+]
 
 /**
  * Зона → аккаунт. Порядок важен: проверяется первое совпадение по префиксу, поэтому
@@ -68,6 +75,10 @@ const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
   [
     (url) => url.includes('[...'),
     'catch-all рендерит заглушку «раздел в разработке»; конкретные вкладки секции проверяются отдельно',
+  ],
+  [
+    (url) => url === '/demo/verify',
+    'экран по ссылке из письма: без валидного токена проверяется не он, а состояние «ссылка недействительна»',
   ],
   [
     (url) => url.startsWith('/r/') || url === '/join-chat',

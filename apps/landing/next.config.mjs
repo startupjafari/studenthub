@@ -42,6 +42,8 @@ const PLATFORM_SEGMENTS = [
   'setup-2fa',
   'offline',
   'employer',
+  // Заявка вуза на тестирование: форма живёт на платформе, а лендинг только ведёт к ней.
+  'demo',
   'verify',
   'r',
   'qr',

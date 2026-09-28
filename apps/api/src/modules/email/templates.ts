@@ -1,6 +1,7 @@
 // Шаблоны писем (docs/PROJECT.md §10.1, §3.3 EmailProcessor).
-// Семь типов: приглашение, подтверждение email компании, приветствие, статус заявки,
-// изменение расписания, напоминание о событии, офлайн-зеркало in-app уведомления.
+// Десять типов: приглашение, подтверждение email компании, приветствие, статус заявки,
+// изменение расписания, напоминание о событии, офлайн-зеркало in-app уведомления и три
+// письма прихода вуза — подтверждение адреса заявки, одобрение, отказ.
 // Тексты — на русском (основной язык); полноценный i18n писем — в Ф13.1.
 // Payload содержит только необходимый минимум: адрес и данные для рендера, без целых сущностей.
 //
@@ -41,6 +42,44 @@ export interface CompanyVerificationPayload {
   companyName: string
   verifyUrl: string
   expiresAt: string
+}
+
+/**
+ * Подтверждение адреса в заявке вуза на тестирование (docs/PROJECT.md §31).
+ *
+ * Письмо уходит ДО очереди модерации, а не после: форма публичная, и без этого шага
+ * в очередь попадали бы заявки, поданные с чужого рабочего адреса. Подтверждение
+ * ничего не обещает — только переводит заявку в очередь.
+ */
+export interface DemoVerificationPayload {
+  to: string
+  universityName: string
+  verifyUrl: string
+  expiresAt: string
+}
+
+/**
+ * Заявка одобрена. Письмо одно, а не два: ссылка-приглашение уже внутри него.
+ * Отдельное письмо «вас пригласили» после письма «заявка одобрена» выглядело бы
+ * как дубль, а человек всё равно нажимает первую попавшуюся ссылку.
+ */
+export interface DemoApprovedPayload {
+  to: string
+  universityName: string
+  contactName: string
+  inviteUrl: string
+  expiresAt: string
+}
+
+/**
+ * Заявка отклонена. Причина — из закрытого списка, уже приведённая к человеческой
+ * формулировке на стороне сервиса: шаблон не знает про enum'ы.
+ */
+export interface DemoRejectedPayload {
+  to: string
+  universityName: string
+  reasonText: string
+  canReapply: boolean
 }
 
 export interface WelcomePayload {
@@ -313,6 +352,96 @@ export function renderApplicationStatus(data: ApplicationStatusPayload): Rendere
     `Заявка: ${data.applicationId}`,
     `Статус: ${data.statusLabel}`,
     ...(data.comment ? ['', `Комментарий деканата: ${data.comment}`] : []),
+  ])
+  return { subject, html, text }
+}
+
+export function renderDemoVerification(data: DemoVerificationPayload): RenderedEmail {
+  const subject = `Подтвердите заявку на тестирование ${BRAND}`
+  const html = layout({
+    preheader: `Заявка вуза «${esc(data.universityName)}» ждёт подтверждения адреса`,
+    heading: 'Подтвердите адрес',
+    body:
+      paragraph(
+        `С этого адреса подали заявку на тестирование платформы ${BRAND} для «${esc(
+          data.universityName,
+        )}». Подтвердите, что адрес ваш, — после этого заявку увидит наш сотрудник.`,
+      ) +
+      facts([['Ссылка действует до', esc(data.expiresAt)]]) +
+      action(data.verifyUrl, 'Подтвердить адрес') +
+      note(
+        'Если заявку подавали не вы — просто проигнорируйте это письмо, дальше ничего не произойдёт.',
+      ),
+  })
+  const text = plain([
+    `С этого адреса подали заявку на тестирование ${BRAND} для «${data.universityName}».`,
+    `Ссылка действует до ${data.expiresAt}`,
+    '',
+    `Подтвердите адрес: ${data.verifyUrl}`,
+    '',
+    'Если заявку подавали не вы — просто проигнорируйте это письмо.',
+  ])
+  return { subject, html, text }
+}
+
+export function renderDemoApproved(data: DemoApprovedPayload): RenderedEmail {
+  const subject = `Доступ к ${BRAND} для «${data.universityName}» открыт`
+  const html = layout({
+    preheader: 'Заявка одобрена — ссылка для входа внутри',
+    heading: 'Заявка одобрена',
+    body:
+      paragraph(
+        `${esc(data.contactName)}, здравствуйте. Мы завели «${esc(
+          data.universityName,
+        )}» на платформе ${BRAND} и открыли вам доступ администратора вуза.`,
+      ) +
+      paragraph(
+        'После входа откроется мастер настройки: он проведёт по шагам — факультеты, специальности, группы, аудитории, семестр, предметы — и в конце покажет, чего не хватает для запуска. Пройти его можно не за один раз: сделанное сохраняется.',
+      ) +
+      facts([['Ссылка действует до', esc(data.expiresAt)]]) +
+      action(data.inviteUrl, 'Начать настройку') +
+      note(
+        'Ссылка одноразовая и рассчитана на вас: по ней задаётся пароль вашего аккаунта. Передавать её коллегам не нужно — их вы пригласите сами из платформы.',
+      ),
+  })
+  const text = plain([
+    `${data.contactName}, здравствуйте.`,
+    `Мы завели «${data.universityName}» на платформе ${BRAND} и открыли вам доступ администратора вуза.`,
+    '',
+    'После входа откроется мастер настройки: факультеты, специальности, группы, аудитории, семестр, предметы. Пройти его можно не за один раз.',
+    '',
+    `Ссылка действует до ${data.expiresAt}`,
+    `Начать настройку: ${data.inviteUrl}`,
+    '',
+    'Ссылка одноразовая: по ней задаётся пароль вашего аккаунта.',
+  ])
+  return { subject, html, text }
+}
+
+export function renderDemoRejected(data: DemoRejectedPayload): RenderedEmail {
+  const subject = `Заявка на тестирование ${BRAND}`
+  // Отказ — письмо без кнопки. Кнопка здесь звала бы туда, куда звать нечем.
+  const again = data.canReapply
+    ? 'Если что-то изменится, подайте заявку заново — мы посмотрим её как новую.'
+    : 'Отвечать на это письмо не нужно.'
+  const html = layout({
+    preheader: `Заявка вуза «${esc(data.universityName)}» рассмотрена`,
+    heading: 'Заявка рассмотрена',
+    body:
+      paragraph(
+        `Спасибо за интерес к ${BRAND}. Заявку на тестирование для «${esc(
+          data.universityName,
+        )}» мы сейчас принять не можем.`,
+      ) +
+      paragraph(esc(data.reasonText)) +
+      note(again),
+  })
+  const text = plain([
+    `Спасибо за интерес к ${BRAND}.`,
+    `Заявку на тестирование для «${data.universityName}» мы сейчас принять не можем.`,
+    data.reasonText,
+    '',
+    again,
   ])
   return { subject, html, text }
 }

@@ -77,7 +77,9 @@
     "vacancyReview": "Job moderation",
     "candidates": "Candidates",
     "careerAnalytics": "Metrics",
-    "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}"
+    "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}",
+    "demoRequests": "University requests",
+    "setup": "University setup"
   },
   "Products": {
     "switch": "Switch product",
@@ -147,6 +149,153 @@
     "verifyOkText": "Sign in and request access from a university.",
     "verifyFailTitle": "Could not confirm",
     "verifyNoToken": "The link has no confirmation token."
+  },
+  "Demo": {
+    "title": "Request a trial",
+    "subtitle": "Tell us about your university — we will get in touch and open access for setup.",
+    "optional": "optional",
+    "toLogin": "Sign in",
+    "fieldUniversity": "University name",
+    "fieldCity": "City",
+    "fieldStudents": "Approximate students",
+    "fieldContactName": "Your name",
+    "fieldContactRole": "Position",
+    "fieldEmail": "Work email",
+    "emailHint": "We will send the confirmation here, and access once the request is approved.",
+    "fieldPhone": "Phone",
+    "fieldComment": "Comment",
+    "consent": "I consent to the processing of the personal data provided in order to review this request and contact me.",
+    "consentRequired": "The request cannot be sent without consent",
+    "submit": "Send request",
+    "note": "A request does not create an account. Access is granted by invitation after review.",
+    "sentTitle": "Request sent",
+    "sentText": "We have sent an email to {email}. Confirm the address and the request will reach us for review.",
+    "verifyNoToken": "The link has no confirmation code",
+    "verifyOkTitle": "Address confirmed",
+    "verifyOkText": "The request is queued for review. The answer will come to the same address.",
+    "verifyFailTitle": "Could not confirm"
+  },
+  "DemoAdmin": {
+    "title": "University requests",
+    "subtitle": "Who is asking for access and what we decided",
+    "tabNEW": "New",
+    "tabAPPROVED": "Approved",
+    "tabREJECTED": "Rejected",
+    "emptyNEW": "No new requests",
+    "emptyAPPROVED": "No approved requests yet",
+    "emptyREJECTED": "No rejected requests",
+    "colUniversity": "University",
+    "colContact": "Contact",
+    "colEmail": "Email",
+    "colCreatedAt": "Submitted",
+    "colStatus": "Status",
+    "statusPENDING_EMAIL": "Address not confirmed",
+    "statusNEW": "New",
+    "statusAPPROVED": "Approved",
+    "statusREJECTED": "Rejected",
+    "fieldRole": "Position",
+    "fieldPhone": "Phone",
+    "fieldCity": "City",
+    "fieldStudents": "Students",
+    "fieldWebsite": "Website",
+    "fieldComment": "Comment",
+    "fieldUniversityName": "University name",
+    "fieldShortName": "Short name",
+    "fieldReason": "Rejection reason",
+    "fieldNote": "Note",
+    "noteInternal": "Visible only to us, never sent in the email.",
+    "consentGiven": "Consent to data processing given on {date}, text version {version}.",
+    "back": "Back",
+    "approve": "Approve",
+    "approveConfirm": "Create university and send access",
+    "approveExplain": "We will create the university and send an administrator invitation to {email}. The university starts inactive — it goes live once its own team fills in the structure.",
+    "approved": "Request approved",
+    "reject": "Reject",
+    "rejectConfirm": "Reject request",
+    "rejected": "Request rejected",
+    "reasonNOT_ELIGIBLE": "The platform is intended for higher and vocational education institutions.",
+    "reasonDUPLICATE": "We already have a request from this university and are working on it.",
+    "reasonINSUFFICIENT_INFO": "The request did not make it clear which institution it came from.",
+    "reasonNO_CAPACITY": "We cannot take on a new university for testing right now.",
+    "reasonOTHER": "We cannot open access for this request right now."
+  },
+  "Setup": {
+    "title": "University setup",
+    "subtitle": "Fill in the structure of {university} — the platform walks you through it",
+    "progress": "{done} of {total}",
+    "counted": "added: {n}",
+    "skipped": "skipped",
+    "add": "Add",
+    "faculty": "Faculty",
+    "needFaculties": "Create at least one faculty first — a group attaches to it.",
+    "openSection": "Open section",
+    "skip": "Skip this step",
+    "profileName": "Name",
+    "profileShortName": "Short name",
+    "profileCity": "City",
+    "profileTimezone": "Time zone",
+    "profileFix": "The platform edits these details. If something is wrong, write to us and we will fix it.",
+    "profileConfirm": "Looks right",
+    "launch": "Go live",
+    "launchReady": "Everything required is filled in. Once live, the platform opens to everyone you have invited.",
+    "launched": "The university is live",
+    "launchedAlready": "The university is live and running",
+    "toDashboard": "To overview",
+    "bannerTitle": "University setup is not finished",
+    "bannerText": "{done} of {total} steps done. Until the university goes live the platform stays closed even to invited people.",
+    "bannerAction": "Continue",
+    "step": {
+      "profile": {
+        "title": "About the university",
+        "short": "Check the details",
+        "hint": "Everything else starts from this data: the name sits at the top for everyone who signs in, and the time zone decides when a class begins. Check and confirm — if something is wrong, write to us, we edit the details."
+      },
+      "faculties": {
+        "title": "Faculties",
+        "short": "Add faculties",
+        "hint": "A faculty is the top level of the structure: groups, deans and access rights all rest on it. Without faculties no further step can be completed.",
+        "placeholder": "Faculty name"
+      },
+      "specialties": {
+        "title": "Specialities",
+        "short": "Speciality reference list",
+        "hint": "The list a student picks their speciality from in their profile. You can skip it and fill it in later — it does not affect how the platform works.",
+        "placeholder": "Speciality name"
+      },
+      "groups": {
+        "title": "Groups",
+        "short": "Add groups",
+        "hint": "A group is what the schedule, the gradebook and the chats attach to. A student is invited into a group, not into the university at large, so without groups no student can be invited.",
+        "placeholder": "Group name"
+      },
+      "rooms": {
+        "title": "Rooms",
+        "short": "Add rooms",
+        "hint": "Rooms are needed by the schedule and by the printed QR above the door: a student scans the code and sees what is happening here right now. Skip it if you are not printing QR codes yet.",
+        "placeholder": "Room number or name"
+      },
+      "terms": {
+        "title": "Academic year",
+        "short": "Create a term",
+        "hint": "A term sets the boundaries of the study period. Without one you cannot build a schedule or open the gradebook: a class has nowhere to land in time."
+      },
+      "subjects": {
+        "title": "Subjects",
+        "short": "Subject reference list",
+        "hint": "The university's shared list of disciplines — courses and the schedule are assembled from it. You can skip it and add subjects as you build the schedule.",
+        "placeholder": "Subject name"
+      },
+      "deans": {
+        "title": "Deans",
+        "short": "Invite the deans",
+        "hint": "This is where the chain starts: you invite the dean, the dean invites the monitors and the students. That way each next person comes from whoever is responsible for them, not from a general list."
+      },
+      "launch": {
+        "title": "Go live",
+        "short": "Check and go live",
+        "hint": "Until the university goes live it exists but does not work. Going live opens the platform to everyone you have invited."
+      }
+    }
   },
   "CareerAdmin": {
     "companiesTitle": "Companies",

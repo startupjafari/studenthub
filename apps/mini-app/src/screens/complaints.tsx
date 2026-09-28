@@ -248,7 +248,15 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const visible = state.status === 'ready' ? state.items.filter((i) => !hidden.has(i.id)) : []
 
   return (
-    <div className="screen" style={{ paddingTop: pull }} aria-busy={state.status === 'loading'}>
+    <div
+      className="screen"
+      // Оттяжка ДОБАВЛЯЕТСЯ к полю экрана, а не заменяет его. `paddingTop: pull` в покое
+      // означало ноль, и встроенный стиль перебивал `padding: var(--side)` из класса:
+      // заголовок, переключатель и фильтры прилипали к самому верху — на одном этом
+      // экране, потому что оттяжка есть только здесь.
+      style={{ paddingTop: `calc(var(--side) + ${pull}px)` }}
+      aria-busy={state.status === 'loading'}
+    >
       {pull > 0 && (
         <p
           className={`pull-hint${ready ? ' ready' : ''}`}

@@ -14,6 +14,7 @@
 //     аудита и воронка инвайтов. Без этого «рост пользователей» — один столбик: сид
 //     создаёт всех «сегодня».
 //  4. Жалобы демо-вуза для очереди модерации.
+//  5. Заявки вузов на тестирование — чтобы очередь платформенного админа была непустой.
 
 import { child } from '../lib/ids.mjs'
 
@@ -48,6 +49,74 @@ const APP_MIX = [
   ['REJECTED', 2],
   ['CANCELLED', 2],
 ]
+/**
+ * Заявки вузов на тестирование (PROJECT.md §31): по одной на каждую вкладку очереди.
+ *
+ * Названия ВЫДУМАННЫЕ, в отличие от справочника вузов в prisma/seed/data. Заявка — это
+ * утверждение «вот этот вуз к нам просился», и подставлять в него настоящее название
+ * нельзя ни на каком стенде: строка переживает стенд, а вуз о ней не знает.
+ */
+const DEMO_REQUESTS = [
+  {
+    status: 'NEW',
+    universityName: 'Прикаспийский технический институт',
+    city: 'Актау',
+    contactName: 'Сауле Ахметова',
+    contactRole: 'Проректор по цифровизации',
+    email: 'saule.a@pti.example.kz',
+    phone: '+7 701 000 11 22',
+    studentsEstimate: 3800,
+    comment: 'Интересует расписание и электронный журнал. Готовы начать с двух факультетов.',
+    daysAgo: 2,
+  },
+  {
+    status: 'NEW',
+    universityName: 'Академия транспорта и логистики',
+    city: 'Астана',
+    contactName: 'Данияр Оспанов',
+    contactRole: 'Начальник учебного отдела',
+    email: 'd.ospanov@atl.example.kz',
+    studentsEstimate: 1200,
+    daysAgo: 6,
+  },
+  {
+    status: 'APPROVED',
+    universityName: 'Северный педагогический университет',
+    city: 'Петропавловск',
+    contactName: 'Гульнара Ибраева',
+    contactRole: 'Ректор',
+    email: 'rector@npu.example.kz',
+    studentsEstimate: 7400,
+    daysAgo: 21,
+  },
+  {
+    status: 'REJECTED',
+    universityName: 'Языковые курсы «Полиглот»',
+    city: 'Алматы',
+    contactName: 'Марат Ким',
+    email: 'info@poliglot.example.kz',
+    studentsEstimate: 140,
+    rejectionReason: 'NOT_ELIGIBLE',
+    reviewNote: 'Курсы, а не организация образования',
+    daysAgo: 14,
+  },
+  {
+    // В список очереди без явного фильтра НЕ попадает: адрес не подтверждён, это
+    // брошенная форма, а не заявка. Лежит здесь ровно затем, чтобы это было видно.
+    status: 'PENDING_EMAIL',
+    universityName: 'Институт прикладной механики',
+    contactName: 'Ержан Тулеуов',
+    email: 'e.tuleuov@ipm.example.kz',
+    daysAgo: 1,
+  },
+]
+
+/**
+ * Версия текста согласия. Дублирует `CONSENT_VERSION` из packages/shared-schemas —
+ * сид на .mjs и типы оттуда не тянет. При смене текста согласия поправить в обоих местах.
+ */
+const CONSENT_VERSION = '2026-09-28'
+
 const REJECTIONS = [
   'Нет скана удостоверения личности',
   'Данные в заявке не совпадают с личным делом',
@@ -78,6 +147,56 @@ const COMPLAINT_REASONS = [
 
 export async function seedDemoExtras(prisma, writer, { random }) {
   const uniId = DEMO_UNIVERSITY_ID
+
+  // ── 0. Заявки вузов на тестирование ────────────────────────────────────────
+  //
+  // Стоит ДО всех проверок ниже, и это важно: остальные разделы шага выходят, если на
+  // стенде нет демо-вуза или именованных dev-аккаунтов, а заявки к ним не относятся —
+  // они платформенные. Ниже гарда они молча не создавались бы ровно на тех стендах,
+  // где очередь и надо посмотреть.
+  //
+  // Без них очередь платформенного админа пуста на любом стенде, и экран, который
+  // разбирают руками, никто ни разу не видит заполненным.
+  const [platformAdmin] = await prisma.user.findMany({
+    where: { role: 'PLATFORM_ADMIN' },
+    select: { id: true },
+    take: 1,
+  })
+  for (const [ri, req] of DEMO_REQUESTS.entries()) {
+    const createdAt = random.daysFromNow(-req.daysAgo)
+    const decided = req.status === 'APPROVED' || req.status === 'REJECTED'
+    await writer.add('universityDemoRequest', {
+      id: `seed-demo-request-${ri}`,
+      universityName: req.universityName,
+      city: req.city ?? null,
+      country: 'KZ',
+      studentsEstimate: req.studentsEstimate ?? null,
+      contactName: req.contactName,
+      contactRole: req.contactRole ?? null,
+      email: req.email,
+      phone: req.phone ?? null,
+      comment: req.comment ?? null,
+      status: req.status,
+      // Подтверждённые заявки токена не хранят: он гасится при первом переходе.
+      // У неподтверждённой он есть, но здесь это заведомо мёртвая строка — перейти
+      // по ней всё равно не по чему, письма со стенда никто не открывал.
+      emailVerificationHash: req.status === 'PENDING_EMAIL' ? `seed-dead-hash-${ri}` : null,
+      consentAt: createdAt,
+      consentVersion: CONSENT_VERSION,
+      ip: `10.20.0.${ri + 1}`,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      reviewedAt: decided ? new Date(createdAt.getTime() + 2 * 86_400_000) : null,
+      reviewedById: decided ? (platformAdmin?.id ?? null) : null,
+      rejectionReason: req.rejectionReason ?? null,
+      reviewNote: req.reviewNote ?? null,
+      // Вуз одобренной заявки к демо-вузу не привязываем: он заведён отдельно и своей
+      // структурой, а ссылка на чужой вуз в журнале — неправда, которую потом читают.
+      universityId: null,
+      createdAt,
+      updatedAt: createdAt,
+    })
+  }
+  await writer.flush()
 
   const dev = await prisma.user.findMany({
     where: { email: { in: DEV_EMAILS } },
