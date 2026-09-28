@@ -7,9 +7,18 @@
  * а на «Людях» просто моргала пустота, неотличимая от «никого не нашлось».
  *
  * Отсюда правило: заглушка занимает ВСЁ, что осталось от экрана, и выглядит одинаково
- * везде. Строк намеренно с запасом — больше, чем влезает в самый высокий телефон; лишние
- * обрезает сам контейнер, потому что у списка уже есть `overflow: hidden` ради скруглений.
- * Так не нужно мерить высоту окна и перерисовываться на поворот экрана.
+ * везде. Строк и карточек намеренно с запасом — больше, чем влезает в самый высокий
+ * телефон; лишнее обрезается. Так не нужно мерить высоту окна и перерисовываться на
+ * поворот экрана.
+ *
+ * Содержимое лежит в слое ВНЕ ПОТОКА (`.skeleton-layer`, `position: absolute`), и это не
+ * украшение раскладки, а единственное, что заставляет обрезку работать. У приложения
+ * задана `min-height: 100dvh`, а не `height`: определённой высоты, от которой можно
+ * отсчитать «остаток экрана», в этой колонке нет, поэтому контейнер с `flex: 1` растёт
+ * под содержимое, и `overflow: hidden` обрезать нечего. Двенадцать строк так удлиняли
+ * экран загрузки на 240–450 px и включали прокрутку — заглушка оказывалась длиннее того,
+ * что под неё грузится. Вне потока содержимое высоту не задаёт: контейнеру достаётся
+ * ровно свободное место, и число строк на раскладку больше не влияет.
  *
  * `aria-hidden` обязателен: читалке нечего зачитывать в пустых прямоугольниках, а о том,
  * что идёт загрузка, ей сообщает `aria-busy` на экране.
@@ -17,37 +26,49 @@
 
 /** С запасом на самый высокий экран: лишнее обрежет контейнер. */
 const ROWS = 12
-const CARDS = 4
+/**
+ * Карточек тоже с запасом, и по той же причине, что строк.
+ *
+ * Было четыре — ровно столько, сколько помещалось в половину экрана телефона: ниже
+ * оставалось пустое поле в треть высоты, и «Управление» при каждом открытии выглядело
+ * наполовину загруженным. Восемь перекрывают самый высокий экран; лишние обрезает
+ * контейнер.
+ */
+const CARDS = 8
 
 export function SkeletonList() {
   return (
     <section className="list skeleton-fill" aria-hidden="true">
-      {Array.from({ length: ROWS }, (_, index) => (
-        <div key={index} className="row row-static">
-          <span className="row-body">
-            <span className="skeleton skeleton-title" />
-            <span className="skeleton skeleton-line" />
-          </span>
-        </div>
-      ))}
+      <div className="skeleton-layer">
+        {Array.from({ length: ROWS }, (_, index) => (
+          <div key={index} className="row row-static">
+            <span className="row-body">
+              <span className="skeleton skeleton-title" />
+              <span className="skeleton skeleton-line" />
+            </span>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }
 
 /**
- * Вариант для экранов-карточек (открытая жалоба, сводка): там содержимое не список
- * одинаковых строк, и лента строк вместо карточек обещала бы не то, что приедет.
+ * Вариант для экранов-карточек (открытая жалоба, сводка, управление): там содержимое не
+ * список одинаковых строк, и лента строк вместо карточек обещала бы не то, что приедет.
  */
 export function SkeletonCards() {
   return (
     <div className="skeleton-cards" aria-hidden="true">
-      {Array.from({ length: CARDS }, (_, index) => (
-        <section className="card" key={index}>
-          <span className="skeleton skeleton-title" />
-          <span className="skeleton skeleton-line" />
-          {index % 2 === 0 && <span className="skeleton skeleton-line short" />}
-        </section>
-      ))}
+      <div className="skeleton-layer skeleton-layer-cards">
+        {Array.from({ length: CARDS }, (_, index) => (
+          <section className="card" key={index}>
+            <span className="skeleton skeleton-title" />
+            <span className="skeleton skeleton-line" />
+            {index % 2 === 0 && <span className="skeleton skeleton-line short" />}
+          </section>
+        ))}
+      </div>
     </div>
   )
 }
