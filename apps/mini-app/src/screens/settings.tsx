@@ -20,7 +20,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="screen">
-      <ScreenHeader title={t('settingsTitle')} subtitle={t('settingsSubtitle')} onBack={onBack} />
+      <ScreenHeader title={t('settingsTitle')} />
 
       <section className="card">
         <div className="settings-head">

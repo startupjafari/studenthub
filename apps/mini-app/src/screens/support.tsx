@@ -80,9 +80,7 @@ export function SupportScreen({ initialId }: { initialId?: string }) {
 }
 
 type QueueState =
-  | { status: 'loading' }
-  | { status: 'ready'; items: SupportTicket[]; total: number }
-  | { status: 'error' }
+  { status: 'loading' } | { status: 'ready'; items: SupportTicket[] } | { status: 'error' }
 
 function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
   const [state, setState] = useState<QueueState>({ status: 'loading' })
@@ -98,7 +96,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
     try {
       const { status, assignee } = TAB_QUERY[tab]
       const page = await fetchSupportQueue(status, assignee, search, tag ?? undefined)
-      setState({ status: 'ready', items: page.items, total: page.total })
+      setState({ status: 'ready', items: page.items })
     } catch {
       setState({ status: 'error' })
     }
@@ -120,9 +118,6 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
     <div className="screen">
       <ScreenHeader
         title={t('supportTitle')}
-        subtitle={
-          state.status === 'ready' && tab === 'open' ? summary(state.total) : t('supportSubtitle')
-        }
         tabs={
           <Tabs
             items={[
@@ -181,8 +176,6 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
         <StatePlate title={t('supportLoadError')} onRetry={() => void load()} />
       )}
 
-      {/* Подзаголовок уже сказал «открытых обращений нет» — плашка повторяет только
-          заголовок и добавляет то, чего в нём не было. */}
       {state.status === 'ready' && state.items.length === 0 && (
         <StatePlate
           title={t('supportEmptyTitle')}
@@ -455,15 +448,15 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
 
   return (
     <div className="screen">
-      <ScreenHeader
-        title={ticket ? authorName(ticket) : t('supportThreadTitle')}
-        subtitle={
-          ticket
-            ? t('supportOpenedAt', { when: formatDateTime(ticket.createdAt) })
-            : t('complaintOpening')
-        }
-        onBack={onBack}
-      />
+      <ScreenHeader title={ticket ? authorName(ticket) : t('supportThreadTitle')} />
+
+      {/* Когда обращение открыли — строкой в карточке, а не подписью под названием
+          экрана: это сведение об обращении, и место ему рядом с остальными такими же. */}
+      {ticket && (
+        <section className="card">
+          <p className="hint">{t('supportOpenedAt', { when: formatDateTime(ticket.createdAt) })}</p>
+        </section>
+      )}
 
       {/* Кто спрашивает. Роль и вуз объясняют половину вопросов: «почему не вижу
           ведомость» от студента и от преподавателя — два разных ответа, а до карточки
@@ -780,10 +773,6 @@ function authorName(ticket: SupportTicket): string {
   return ticket.author
     ? `${ticket.author.lastName} ${ticket.author.firstName}`
     : t('supportDeletedAccount')
-}
-
-function summary(total: number): string {
-  return total === 0 ? t('supportNone') : t('supportWaiting', { count: total })
 }
 
 function firstLine(text: string): string {

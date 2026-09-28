@@ -210,11 +210,7 @@ export function ComplaintScreen({
     // экран не прыгает, когда данные приезжают.
     return (
       <div className="screen" aria-busy="true">
-        <ScreenHeader
-          title={t('complaintTitle')}
-          subtitle={t('complaintOpening')}
-          onBack={onBack}
-        />
+        <ScreenHeader title={t('complaintTitle')} />
         <SkeletonCards />
       </div>
     )
@@ -223,7 +219,7 @@ export function ComplaintScreen({
   if (state.status === 'error') {
     return (
       <div className="screen">
-        <ScreenHeader title={t('complaintTitle')} onBack={onBack} />
+        <ScreenHeader title={t('complaintTitle')} />
         <StatePlate title={t('complaintOpenError')} onRetry={() => void load()} />
       </div>
     )
@@ -234,11 +230,7 @@ export function ComplaintScreen({
 
   return (
     <div className="screen">
-      <ScreenHeader
-        title={t(TARGET_KEY[complaint.targetType])}
-        subtitle={`${t(PRIORITY_KEY[complaint.priority])} · ${formatDateTime(complaint.createdAt)}`}
-        onBack={onBack}
-      />
+      <ScreenHeader title={t(TARGET_KEY[complaint.targetType])} />
 
       {/* Разбор подряд: видно, сколько сделано и сколько впереди. Полоса — чтобы ответ
           читался без цифр, «Пропустить» — чтобы спорная жалоба не держала всю очередь. */}
@@ -274,6 +266,11 @@ export function ComplaintScreen({
 
       <section className="card">
         <h2>{t('complaintReasonTitle')}</h2>
+        {/* Приоритет и время стоят в карточке, а не под названием экрана: это сведения о
+            самой жалобе, и читаются они вместе с её текстом, а не вместо заголовка. */}
+        <p className="hint">
+          {t(PRIORITY_KEY[complaint.priority])} · {formatDateTime(complaint.createdAt)}
+        </p>
         {/* Текст жалобы целиком: в очереди видна только первая строка, а решение
             принимается по всему тексту. */}
         <p>{complaint.reason}</p>

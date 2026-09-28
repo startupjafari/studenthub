@@ -113,20 +113,17 @@ export function ControlScreen({ userId }: { userId: string }) {
     [busy],
   )
 
-  // Свой .screen у загрузки: без него строка состояния прижималась к самому краю экрана.
-  // Заглушка под шапкой — той же формы, что приедет (рычаги это стопка карточек), и на
-  // весь экран: одна строка «Читаю состояние» на пустом поле читалась как сбой.
+  // Заглушка той же формы, что приедет (рычаги — стопка карточек), и на весь экран:
+  // строка «Читаю состояние» на пустом поле читалась как сбой, а не как ожидание.
   if (load.status === 'loading')
     return (
       <div className="screen" aria-busy="true">
-        <Head hint={t('controlReading')} />
         <SkeletonCards />
       </div>
     )
   if (load.status === 'error') {
     return (
       <div className="screen">
-        <Head hint={t('controlSubtitle')} />
         <StatePlate title={t('controlReadError')} onRetry={() => void reload()} />
       </div>
     )
@@ -799,17 +796,6 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
       </button>
     </Fold>
   )
-}
-
-/**
- * Строка состояния над рычагами.
- *
- * Названия раздела здесь больше нет: его вместе с переключателем «Сводка / Рычаги»
- * рисует общая шапка над экраном (app.tsx), и собственный заголовок «Управление» стоял
- * бы прямо под точно таким же. Осталось то, чего в шапке нет, — что сейчас происходит.
- */
-function Head({ hint }: { hint: string }) {
-  return <p className="hint">{hint}</p>
 }
 
 /**

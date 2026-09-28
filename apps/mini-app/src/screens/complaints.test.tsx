@@ -9,7 +9,6 @@ vi.mock('../api/complaints', async (orig) => {
     ...actual,
     fetchComplaints: vi.fn(),
     fetchComplaint: vi.fn(),
-    fetchResolutionMedian: vi.fn().mockResolvedValue(null),
   }
 })
 vi.mock('../telegram/webapp', () => ({
@@ -32,7 +31,7 @@ vi.mock('../telegram/use-telegram', () => ({
   useSecondaryButton: vi.fn(),
 }))
 
-import { fetchComplaints, fetchResolutionMedian } from '../api/complaints'
+import { fetchComplaints } from '../api/complaints'
 import { ComplaintsScreen } from './complaints'
 
 function complaint(over: Partial<Complaint> = {}): Complaint {
@@ -56,24 +55,11 @@ function page(items: Complaint[], total = items.length) {
 describe('ComplaintsScreen', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('показывает очередь и её размер', async () => {
+  it('показывает очередь', async () => {
     page([complaint()], 7)
     render(<ComplaintsScreen />)
 
     expect(await screen.findByText('Реклама в ленте')).toBeInTheDocument()
-    expect(screen.getByText(/7 в очереди/)).toBeInTheDocument()
-  })
-
-  /**
-   * «Самая старая ждёт…» показывается, только когда вся очередь уместилась на странице.
-   * Иначе это была бы самая старая ИЗ ЗАГРУЖЕННЫХ — то есть неправда.
-   */
-  it('не обещает возраст самой старой, когда очередь не поместилась', async () => {
-    page([complaint()], 40)
-    render(<ComplaintsScreen />)
-
-    await screen.findByText('Реклама в ленте')
-    expect(screen.queryByText(/ждёт/)).not.toBeInTheDocument()
   })
 
   it('на пустой очереди зовёт разбор законченным', async () => {
@@ -112,32 +98,6 @@ describe('ComplaintsScreen', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
 
     expect(vi.mocked(fetchComplaints).mock.calls.at(-1)?.[0]).toMatchObject({ status: 'RESOLVED' })
-  })
-
-  // Очередь отвечает на «сколько осталось», медиана — на «быстро ли мы разбираем».
-  // Второй вопрос задают про разобранное, поэтому цифра живёт на своей вкладке.
-  it('показывает медиану разбора над разобранными', async () => {
-    page([complaint({ status: 'RESOLVED' })])
-    vi.mocked(fetchResolutionMedian).mockResolvedValue(3.2)
-    render(<ComplaintsScreen />)
-    await screen.findByText('Реклама в ленте')
-
-    await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
-
-    expect(await screen.findByText('Медиана разбора 3 ч')).toBeInTheDocument()
-  })
-
-  // Список важнее цифры над ним: отказ агрегата не должен ни ронять экран, ни
-  // показывать «—» вместо подзаголовка.
-  it('молчит, если медиана не посчиталась', async () => {
-    page([complaint({ status: 'RESOLVED' })])
-    vi.mocked(fetchResolutionMedian).mockRejectedValue(new Error('offline'))
-    render(<ComplaintsScreen />)
-    await screen.findByText('Реклама в ленте')
-
-    await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
-
-    expect(await screen.findByText('Разобранные', { selector: 'p' })).toBeInTheDocument()
   })
 
   it('группирует список по дням', async () => {

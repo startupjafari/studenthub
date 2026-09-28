@@ -73,7 +73,6 @@ export function PeopleScreen() {
     <div className="screen" aria-busy={state.status === 'loading'}>
       <ScreenHeader
         title={t('peopleTitle')}
-        subtitle={t('peopleSubtitle')}
         tabs={
           <Tabs
             items={[

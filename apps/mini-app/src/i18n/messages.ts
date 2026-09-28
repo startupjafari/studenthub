@@ -17,7 +17,6 @@ const ru = {
   tabSupport: 'Поддержка',
   tabControl: 'Управление',
   retry: 'Повторить',
-  back: 'Назад',
 
   // ── Привязка ───────────────────────────────────────────────────────────
   linkTitle: 'Привязка аккаунта',
@@ -37,15 +36,12 @@ const ru = {
 
   // ── Жалобы ─────────────────────────────────────────────────────────────
   complaintsTitle: 'Жалобы',
-  complaintsSubtitle: 'Очередь модерации',
   complaintsLoadError: 'Не удалось загрузить очередь',
   complaintsEmptyTitle: 'Разобрано',
   complaintsEmptyText: 'Необработанных жалоб нет.',
   complaintsNeverTitle: 'Пока тихо',
   complaintsNeverText: 'На платформу ещё никто не жаловался.',
   complaintsQueueEmpty: 'Очередь пуста',
-  complaintsInQueue: '{count} в очереди',
-  complaintsOldest: 'Самая старая ждёт {age}',
   complaintsTabOpen: 'В очереди',
   complaintsTabDone: 'Разобранные',
   complaintsFilterAll: 'Все',
@@ -86,13 +82,10 @@ const ru = {
 
   // ── Поддержка ──────────────────────────────────────────────────────────
   supportTitle: 'Поддержка',
-  supportSubtitle: 'Обращения пользователей',
   supportLoadError: 'Не удалось загрузить очередь',
   supportEmptyTitle: 'Пусто',
   supportEmptyText: 'Открытых обращений нет.',
   supportClosedEmptyText: 'Закрытых обращений пока нет.',
-  supportNone: 'Открытых обращений нет',
-  supportWaiting: '{count} ждут ответа',
   supportTabOpen: 'Открытые',
   supportTabClosed: 'Закрытые',
   supportTabMine: 'Мои',
@@ -117,8 +110,6 @@ const ru = {
 
   // ── Управление платформой ──────────────────────────────────────────────
   controlTitle: 'Управление',
-  controlSubtitle: 'Управление платформой',
-  controlReading: 'Читаем состояние…',
   controlReadError: 'Не удалось прочитать состояние',
   controlApplyError: 'Не удалось применить',
 
@@ -238,7 +229,6 @@ const ru = {
   ageHours: '{count} ч',
   ageDays: '{count} дн',
   tabPeople: 'Люди',
-  peopleSubtitle: 'Поиск и доступ',
   peopleCardTitle: 'О человеке',
   peopleAccessTitle: 'Доступ',
   peopleLoadError: 'Не удалось найти людей',
@@ -337,7 +327,6 @@ const ru = {
   complaintTakeError: 'Не удалось взять жалобу',
   complaintOffender: 'Нарушитель',
   supportAuthorTitle: 'Кто спрашивает',
-  complaintsMedian: 'Медиана разбора {value}',
   personCardError: 'Карточку человека загрузить не удалось',
   personSince: 'На платформе с {when}',
   personBlocked: 'Доступ заблокирован',
@@ -446,7 +435,6 @@ const ru = {
   undoConfirm: 'Вернуть состояние, которое было до последнего изменения?',
   // ── Настройки (меню «⋯» Telegram) ──
   settingsTitle: 'Настройки',
-  settingsSubtitle: 'Этого телефона',
   settingsFromTelegramTitle: 'Язык и тема',
   settingsFromTelegram: 'Берутся из Telegram: меняются в его настройках и сразу доходят сюда.',
   // ── Разбор подряд ──
@@ -483,7 +471,6 @@ const kk: Record<MessageKey, string> = {
   tabSupport: 'Қолдау',
   tabControl: 'Басқару',
   retry: 'Қайталау',
-  back: 'Артқа',
 
   linkTitle: 'Аккаунтты байланыстыру',
   linkSubtitle: 'Платформа әкімшілері мен модераторларына арналған мини-қосымша',
@@ -501,15 +488,12 @@ const kk: Record<MessageKey, string> = {
   linkErrUnknown: 'Байланыстыру сәтсіз. Тағы бір көріңіз',
 
   complaintsTitle: 'Шағымдар',
-  complaintsSubtitle: 'Модерация кезегі',
   complaintsLoadError: 'Кезекті жүктеу мүмкін болмады',
   complaintsEmptyTitle: 'Барлығы қаралды',
   complaintsEmptyText: 'Қаралмаған шағым жоқ.',
   complaintsNeverTitle: 'Әзірге тыныш',
   complaintsNeverText: 'Платформаға әлі ешкім шағымданбаған.',
   complaintsQueueEmpty: 'Кезек бос',
-  complaintsInQueue: 'кезекте {count}',
-  complaintsOldest: 'Ең ескісі {age} күтуде',
   complaintsTabOpen: 'Кезекте',
   complaintsTabDone: 'Қаралғандар',
   complaintsFilterAll: 'Барлығы',
@@ -548,13 +532,10 @@ const kk: Record<MessageKey, string> = {
   complaintOpenProfile: 'Бұзушының профилі',
 
   supportTitle: 'Қолдау',
-  supportSubtitle: 'Пайдаланушы өтініштері',
   supportLoadError: 'Кезекті жүктеу мүмкін болмады',
   supportEmptyTitle: 'Бос',
   supportEmptyText: 'Ашық өтініш жоқ.',
   supportClosedEmptyText: 'Жабық өтініштер әзірге жоқ.',
-  supportNone: 'Ашық өтініш жоқ',
-  supportWaiting: '{count} жауап күтуде',
   supportTabOpen: 'Ашық',
   supportTabClosed: 'Жабық',
   supportTabMine: 'Меніңкі',
@@ -578,8 +559,6 @@ const kk: Record<MessageKey, string> = {
   supportTemplates: 'Дайын жауаптар',
 
   controlTitle: 'Басқару',
-  controlSubtitle: 'Платформаны басқару',
-  controlReading: 'Күйді оқудамыз…',
   controlReadError: 'Күйді оқу мүмкін болмады',
   controlApplyError: 'Қолдану мүмкін болмады',
 
@@ -696,7 +675,6 @@ const kk: Record<MessageKey, string> = {
   ageHours: '{count} сағ',
   ageDays: '{count} күн',
   tabPeople: 'Адамдар',
-  peopleSubtitle: 'Іздеу және рұқсат',
   peopleCardTitle: 'Адам туралы',
   peopleAccessTitle: 'Рұқсат',
   peopleLoadError: 'Адамдарды табу мүмкін болмады',
@@ -795,7 +773,6 @@ const kk: Record<MessageKey, string> = {
   complaintTakeError: 'Шағымды алу мүмкін болмады',
   complaintOffender: 'Бұзушы',
   supportAuthorTitle: 'Кім сұрап отыр',
-  complaintsMedian: 'Талдау медианасы {value}',
   personCardError: 'Адам картасын жүктеу мүмкін болмады',
   personSince: 'Платформада {when} бері',
   personBlocked: 'Қолжетімділік бұғатталған',
@@ -904,7 +881,6 @@ const kk: Record<MessageKey, string> = {
   undoConfirm: 'Соңғы өзгеріске дейінгі күй қайтарылсын ба?',
   // ── Настройки (меню «⋯» Telegram) ──
   settingsTitle: 'Баптаулар',
-  settingsSubtitle: 'Осы телефонның',
   settingsFromTelegramTitle: 'Тіл мен тақырып',
   settingsFromTelegram:
     'Telegram-нан алынады: оның баптауларында өзгереді және бірден осында келеді.',
@@ -940,7 +916,6 @@ const en: Record<MessageKey, string> = {
   tabSupport: 'Support',
   tabControl: 'Control',
   retry: 'Try again',
-  back: 'Back',
 
   linkTitle: 'Link your account',
   linkSubtitle: 'Mini app for platform admins and moderators',
@@ -958,15 +933,12 @@ const en: Record<MessageKey, string> = {
   linkErrUnknown: 'Linking failed. Try once more',
 
   complaintsTitle: 'Reports',
-  complaintsSubtitle: 'Moderation queue',
   complaintsLoadError: 'Could not load the queue',
   complaintsEmptyTitle: 'All clear',
   complaintsEmptyText: 'Nothing left to review.',
   complaintsNeverTitle: 'Quiet so far',
   complaintsNeverText: 'Nobody has reported anything yet.',
   complaintsQueueEmpty: 'Queue is empty',
-  complaintsInQueue: '{count} in the queue',
-  complaintsOldest: 'Oldest has waited {age}',
   complaintsTabOpen: 'In queue',
   complaintsTabDone: 'Reviewed',
   complaintsFilterAll: 'All',
@@ -1005,13 +977,10 @@ const en: Record<MessageKey, string> = {
   complaintOpenProfile: 'Open the author’s profile',
 
   supportTitle: 'Support',
-  supportSubtitle: 'Requests from people',
   supportLoadError: 'Could not load the queue',
   supportEmptyTitle: 'Empty',
   supportEmptyText: 'No open requests.',
   supportClosedEmptyText: 'No closed requests yet.',
-  supportNone: 'No open requests',
-  supportWaiting: '{count} waiting for a reply',
   supportTabOpen: 'Open',
   supportTabClosed: 'Closed',
   supportTabMine: 'Mine',
@@ -1035,8 +1004,6 @@ const en: Record<MessageKey, string> = {
   supportTemplates: 'Saved replies',
 
   controlTitle: 'Control',
-  controlSubtitle: 'Platform control',
-  controlReading: 'Reading state…',
   controlReadError: 'Could not read the state',
   controlApplyError: 'Could not apply',
 
@@ -1153,7 +1120,6 @@ const en: Record<MessageKey, string> = {
   ageHours: '{count} h',
   ageDays: '{count} d',
   tabPeople: 'People',
-  peopleSubtitle: 'Search and access',
   peopleCardTitle: 'About the person',
   peopleAccessTitle: 'Access',
   peopleLoadError: 'Could not search people',
@@ -1251,7 +1217,6 @@ const en: Record<MessageKey, string> = {
   complaintTakeError: 'Could not take the complaint',
   complaintOffender: 'Offender',
   supportAuthorTitle: 'Who is asking',
-  complaintsMedian: 'Median time to resolve {value}',
   personCardError: 'Could not load the person card',
   personSince: 'On the platform since {when}',
   personBlocked: 'Access blocked',
@@ -1360,7 +1325,6 @@ const en: Record<MessageKey, string> = {
   undoConfirm: 'Restore the state from before the last change?',
   // ── Настройки (меню «⋯» Telegram) ──
   settingsTitle: 'Settings',
-  settingsSubtitle: 'For this phone',
   settingsFromTelegramTitle: 'Language and theme',
   settingsFromTelegram:
     'Taken from Telegram: change them in its settings and they apply here right away.',
