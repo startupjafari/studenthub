@@ -1,5 +1,5 @@
 import type { Dictionary } from '../content'
-import { Reveal, Section, SectionHeading } from './primitives'
+import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 
 /**
  * Внедрение — снимает возражение «нам это разворачивать полгода».
@@ -12,11 +12,11 @@ import { Reveal, Section, SectionHeading } from './primitives'
  * Карточек у шагов больше нет: рамка вокруг каждого превращала цепочку в четыре коробки.
  * Остались номер, заголовок и текст на общей земле — связь держит линия.
  */
-export function Rollout({ dict }: { dict: Dictionary }) {
+export function Rollout({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
   const t = dict.rollout
 
   return (
-    <Section id="rollout">
+    <Section id="rollout" tone={tone}>
       <SectionHeading title={t.title} subtitle={t.subtitle} />
 
       <div className="relative">

@@ -12,8 +12,19 @@ export interface Item {
 }
 
 export interface Qa {
+  /**
+   * Якорь вопроса. Нужен не для порядка: на вопрос о доступе ведёт кнопка из «Дверей»,
+   * и без собственного идентификатора ссылка упиралась бы в начало всего списка.
+   */
+  id: string
   question: string
   answer: string
+}
+
+/** Дверь на страницу продукта: кому она и что за ней. */
+export interface Door extends Item {
+  /** Подпись действия. У каждой двери своё — они ведут в разные места. */
+  action: string
 }
 
 /** Строка в рабочей области макета: настоящая запись, а не серая плашка. */
@@ -73,17 +84,20 @@ export interface Dictionary {
     titleLines: string[]
     subtitle: string
     ctaDemo: string
-    ctaProduct: string
-    inviteHint: string
+    ctaLogin: string
   }
 
   doors: {
     title: string
     subtitle: string
-    student: Item
-    company: Item
-    verify: Item
-    action: string
+    university: Door
+    /**
+     * У этой двери два действия: войти тем, у кого доступ уже есть, и узнать, как его
+     * получить, — остальным. Второе поле обязательное, а не `Door & { action?: ... }`:
+     * необязательное поле не ловится компилятором при пропуске в переводе.
+     */
+    people: Door & { actionAccess: string }
+    company: Door
   }
 
   roles: {

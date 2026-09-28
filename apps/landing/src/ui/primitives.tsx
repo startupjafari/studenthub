@@ -37,20 +37,41 @@ export function Container({
 }
 
 /**
+ * Фон полосы. Два тона, и они чередуются строго через один: граница между секциями
+ * перестаёт быть догадкой по отступу, а страница читается набором полос, а не сплошной
+ * лентой. Порядок задаётся в одном месте — в композиции страницы (ui/landing-page.tsx),
+ * иначе соседние секции неизбежно окажутся одного тона.
+ *
+ * `muted` — непрозрачный нейтральный фон, а не `surface`: surface здесь полупрозрачный
+ * и им же залиты карточки, так что карточка на такой полосе сливалась бы с ней.
+ */
+const SECTION_TONES = {
+  plain: '',
+  muted: 'bg-muted/50',
+} as const
+
+export type SectionTone = keyof typeof SECTION_TONES
+
+/**
  * Полоса страницы. Вертикальный отступ один на все секции — он и создаёт ритм, по
  * которому страница читается как целое, а не как склейка блоков.
  */
 export function Section({
   id,
   children,
+  tone = 'plain',
   className = '',
 }: {
   id?: string
   children: ReactNode
+  tone?: SectionTone
   className?: string
 }) {
   return (
-    <section id={id} className={`scroll-mt-24 py-[clamp(5rem,9vw,9rem)] ${className}`}>
+    <section
+      id={id}
+      className={`scroll-mt-24 py-[clamp(5rem,9vw,9rem)] ${SECTION_TONES[tone]} ${className}`}
+    >
       <Container className="flex flex-col gap-[clamp(2.75rem,4vw,4.25rem)]">{children}</Container>
     </section>
   )

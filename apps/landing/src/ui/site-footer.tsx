@@ -23,7 +23,6 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
           <nav className="flex flex-col gap-2 text-sm" aria-label={dict.nav.product}>
             <FooterLink href={PLATFORM_LINKS.login}>{dict.nav.login}</FooterLink>
             <FooterLink href={PLATFORM_LINKS.employerSignup}>{dict.doors.company.title}</FooterLink>
-            <FooterLink href={PLATFORM_LINKS.verifyDocument}>{dict.doors.verify.title}</FooterLink>
           </nav>
 
           <div className="flex flex-col gap-2">

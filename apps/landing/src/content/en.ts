@@ -22,29 +22,32 @@ export const en: Dictionary = {
 
   hero: {
     eyebrow: 'A closed university platform',
-    titleLines: ['The whole university', 'in one app'],
+    titleLines: ['Students visit the dean’s office', 'only to collect the result'],
     subtitle:
-      'Schedules, dean’s office requests, documents, coursework and communication. There is no sign-up: you get in by university invitation only.',
-    ctaDemo: 'Request a demo',
-    ctaProduct: 'See the platform',
-    inviteHint: 'Got an invitation? Open the link from the email — it creates the account for you.',
+      'Timetables, requests and certificates, documents, chats and university news — in one closed app. Access is by invitation only.',
+    ctaDemo: 'Discuss a rollout',
+    ctaLogin: 'Sign in',
   },
 
   doors: {
-    title: 'You’ve reached the platform’s front page',
-    subtitle: 'Pick what you need — all three doors lead to working sections.',
-    action: 'Open',
-    student: {
-      title: 'I study or work at a university',
-      text: 'Sign in with your email or username. Forgot the password — reset it on the same page.',
+    title: 'Why you are here',
+    subtitle:
+      'Different people land on this domain. Universities start a conversation, members sign in, companies register separately.',
+    university: {
+      title: 'For universities',
+      text: 'Shorter queues at the dean’s office: timetable changes reach students at once, and university data stays under the university’s control.',
+      action: 'Discuss a rollout',
+    },
+    people: {
+      title: 'For students and staff',
+      text: 'You cannot sign up on your own — the dean’s office or your group leader issues the invitation. Point your camera at the QR sticker by a classroom door to see whether the room is free and which class is running.',
+      action: 'Sign in',
+      actionAccess: 'How to get access',
     },
     company: {
-      title: 'We’re a company looking for students',
-      text: 'Register your company and request access to a university. The only role that signs up on its own.',
-    },
-    verify: {
-      title: 'I have a document with a verification code',
-      text: 'Enter the code from the certificate — the platform confirms the university issued it.',
+      title: 'For companies',
+      text: 'Employers register themselves but only see students from universities that approved their access. Contact details and grade average are shared only with the student’s consent.',
+      action: 'Register a company',
     },
   },
 
@@ -291,26 +294,31 @@ export const en: Dictionary = {
     title: 'The questions people ask first',
     items: [
       {
+        id: 'access',
         question: 'Can I sign up myself?',
         answer:
           'No. The university issues the account through a personal invitation link. The one exception is employer companies: they register themselves, but see no students until a university approves them.',
       },
       {
+        id: 'data',
         question: 'Where is student data stored?',
         answer:
           'The university itself is the data controller. The platform processes data on its instructions and only to the extent the service requires — this is fixed in the documents.',
       },
       {
+        id: 'app',
         question: 'Is there a mobile app?',
         answer:
           'The platform installs on the phone straight from the browser and behaves like a normal app, notifications and offline mode included. No separate store install required.',
       },
       {
+        id: 'integrations',
         question: 'We already have our own system. What then?',
         answer:
           'We discuss it on the demo: what to keep, what to replace, how to migrate the data. The platform takes the university structure as a spreadsheet, so a move usually takes days rather than months.',
       },
       {
+        id: 'price',
         question: 'How much does it cost?',
         answer:
           'It depends on the number of students and the set of modules. We’ll give you the figure on the call, once we understand what you actually need.',

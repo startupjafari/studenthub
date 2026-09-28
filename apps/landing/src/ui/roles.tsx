@@ -5,7 +5,7 @@ import { Building2, Check, GraduationCap, Shield, ShieldCheck, UserCog, Users } 
 import type { LucideIcon } from 'lucide-react'
 import type { Dictionary } from '../content'
 import { AnimatePresence, motion, SPRING, SWAP, useReducedMotion } from './motion'
-import { Reveal, Section, SectionHeading } from './primitives'
+import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 import { AppMock } from './scenes/app-mock'
 
 /**
@@ -36,7 +36,7 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
  * которой говорит подзаголовок секции. Это доказательство тезиса, а не его повторение
  * словами: видно, что именно ограничивает роль на уровне запроса.
  */
-export function Roles({ dict }: { dict: Dictionary }) {
+export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
   const t = dict.roles
   const [activeIndex, setActiveIndex] = useState(0)
   const calm = useReducedMotion()
@@ -62,7 +62,7 @@ export function Roles({ dict }: { dict: Dictionary }) {
   }
 
   return (
-    <Section>
+    <Section tone={tone}>
       <SectionHeading title={t.title} subtitle={t.subtitle} />
 
       <Reveal className="flex flex-col gap-[clamp(1.75rem,3vw,2.5rem)]">

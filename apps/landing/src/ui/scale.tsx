@@ -1,6 +1,6 @@
 import type { Dictionary } from '../content'
 import { Lift } from './motion'
-import { Reveal, Section, SectionHeading } from './primitives'
+import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 
 /**
  * Масштаб.
@@ -16,11 +16,11 @@ import { Reveal, Section, SectionHeading } from './primitives'
  * Плиток с рамками у чисел больше нет. Цифра такого кегля сама держит место, а коробка
  * вокруг неё только отнимала воздух и спорила с карточками ниже.
  */
-export function Scale({ dict }: { dict: Dictionary }) {
+export function Scale({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
   const t = dict.scale
 
   return (
-    <Section>
+    <Section tone={tone}>
       <SectionHeading title={t.title} subtitle={t.text} />
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-12 lg:grid-cols-4">
