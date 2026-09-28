@@ -108,6 +108,12 @@
    */
   --safe-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+  /*
+   * Полоса, закрытая экранной клавиатурой. Проставляется из lib/keyboard.ts; ноль здесь
+   * нужен до первого замера и там, где viewport ужимает сам браузер, — иначе экран
+   * подпрыгнул бы на высоту, которую у него уже отняли.
+   */
+  --kb-inset: 0px;
 }
 
 /* В тёмной теме системные цвета берутся светлее: иначе синий и фиолетовый тонут в фоне.
@@ -1980,7 +1986,15 @@ textarea.field {
  */
 .chat {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  /*
+   * Нижний край поднимается над клавиатурой. Экран прибит к окну и прокручивается только
+   * внутри, поэтому уехавшее под клавиши поле ответа само наверх не вернётся: набирать
+   * приходилось вслепую. Где viewport ужимает браузер сам, переменная равна нулю.
+   */
+  bottom: var(--kb-inset);
   z-index: 100;
   display: flex;
   flex-direction: column;

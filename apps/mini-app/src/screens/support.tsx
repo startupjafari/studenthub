@@ -693,11 +693,13 @@ function ChatView({
   // Мгновенно, а не плавно: плавная прокрутка через всю историю выглядит как промотка
   // чужой переписки у человека на глазах.
   const bodyRef = useRef<HTMLDivElement>(null)
-  const count = messages?.length ?? 0
-  useEffect(() => {
+  const toEnd = useCallback(() => {
     const el = bodyRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [count])
+  }, [])
+
+  const count = messages?.length ?? 0
+  useEffect(() => toEnd(), [count, toEnd])
 
   // Поле растёт вместе с текстом, как в Telegram: до пяти строк, дальше прокрутка внутри.
   // Одна строка в покое — пустое поле в три строки занимало треть экрана переписки.
@@ -822,6 +824,10 @@ function ChatView({
                 ref={fieldRef}
                 className="composer-field"
                 rows={1}
+                // Клавиатура забирает половину экрана, и лента над ней остаётся стоять
+                // там же, где стояла: последняя реплика уезжает под поле. Отвечают всегда
+                // на неё — возвращаем её на виду вместе с клавиатурой.
+                onFocus={toEnd}
                 placeholder={t('supportReplyPlaceholder')}
                 aria-label={t('supportReplyPlaceholder')}
                 value={text}
