@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
-import { Reveal, TapLink } from './motion'
+import { Reveal } from './motion'
+import { TapLink } from './press'
 
 /**
  * Маленький набор общих кирпичей лендинга.
