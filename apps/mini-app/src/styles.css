@@ -270,11 +270,107 @@ body.full-screen .tabbar {
   text-align: center;
 }
 
-/* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
-.screen-emblem {
-  margin: 8px 0 4px;
-  font-size: 40px;
-  line-height: 1;
+/*
+ * «Откройте из Telegram» — единственный экран, который видно в обычном браузере.
+ *
+ * И единственный со своими цветами. Правило «палитра только из переменных Telegram»
+ * держится на том, что мини-апп обязан выглядеть продолжением клиента, — а снаружи
+ * клиента нет и продолжать нечего: переменные подставляются запасными значениями, и
+ * экран выходил белым листом с чёрным текстом. Поэтому здесь — тёмное полотно с
+ * вигнеткой, марка и свет за ней, ровно как на заставке запуска (index.html) и на сайте.
+ *
+ * `position: fixed` во весь экран, а не поток: экран тупиковый, под ним нет ни панели
+ * разделов, ни прокручиваемого содержимого, а фон страницы за полем и отступами остался
+ * бы светлым.
+ */
+.outside {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  overflow-y: auto;
+  background: radial-gradient(120% 90% at 50% 46%, #181b22 0%, #0f1115 52%, #08090c 100%);
+  color: #f3f4f6;
+}
+
+/* Центрируется через `margin: auto`, а не `justify-content`: при переполнении по высоте
+   центрирование флексом срезает верх, и первые строки становятся недостижимы. */
+.outside-inner {
+  margin: auto;
+  max-width: 26rem;
+  padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.outside-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0;
+  font-size: 1.85em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.outside-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #2b72e5;
+  /* Тень своего цвета, а не чёрная: на тёмном полотне чёрная невидима, а цветная
+     читается как отсвет самой марки — знак встаёт НАД полотном. */
+  filter: drop-shadow(0 6px 12px rgb(43 114 229 / 0.45));
+}
+
+/* Ореол — источник света за маркой. Статичный: экран не запускается и ничего не ждёт,
+   а разгорание здесь читалось бы как загрузка, которой нет. */
+.outside-halo {
+  position: absolute;
+  inset: -150%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgb(43 114 229 / 0.28) 0%,
+    rgb(43 114 229 / 0.1) 38%,
+    rgb(43 114 229 / 0.02) 62%,
+    transparent 78%
+  );
+}
+
+.outside h1 {
+  margin: 28px 0 0;
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: var(--track-title);
+}
+
+.outside-hint {
+  margin: 6px 0 0;
+  color: #9ca3af;
+  font-size: var(--text-small);
+}
+
+/* Объяснение — на своей поверхности, приподнятой над полотном светлым кантом вместо
+   тени: на тёмном фоне тень не видна, а отделить абзац от полотна нужно. */
+.outside-body {
+  margin: 26px 0 0;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  color: #d1d5db;
+  font-size: var(--text-small);
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* Подпись: тише всего на экране — она не должна тянуть взгляд. */
+.outside-footer {
+  margin: 28px 0 0;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .screen-head h1 {

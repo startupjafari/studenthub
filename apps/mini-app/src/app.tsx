@@ -14,7 +14,7 @@ import { TabBar } from './ui/tab-bar'
 import { SwipeTabs } from './ui/swipe-tabs'
 import { Tabs } from './ui/tabs'
 import { ScreenHeader } from './ui/screen-header'
-import { IconComplaints, IconControl, IconPeople, IconSupport } from './ui/icons'
+import { IconComplaints, IconControl, IconLogo, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
 import { navigate } from './lib/navigate'
 import { hideSplash } from './lib/splash'
@@ -254,21 +254,34 @@ function badgeFor(tab: Tab, badges: Badges): number {
   return 0
 }
 
+/**
+ * Единственный экран, который видно в обычном браузере, — и потому единственный, который
+ * оформлен не по теме Telegram, а по-своему, как страница самого StudentHub.
+ *
+ * Причина простая: снаружи Telegram никакой темы Telegram нет. Переменные `--tg-theme-*`
+ * подставляются запасными значениями (telegram/webapp.ts), и экран получался белым листом
+ * с чёрным текстом и замком — ни на мини-апп, ни на продукт не похоже. Здесь показывать
+ * себя продолжением клиента нечему, поэтому марка, тёмное полотно и свет за значком берутся
+ * те же, что на заставке запуска (index.html) и на сайте.
+ */
 function Outside() {
   return (
-    <div className="screen">
-      <header className="screen-head">
-        {/* Замок вместо иллюстрации: картинку пришлось бы тащить файлом и красить под
-            тему, а смысл экрана — «сюда нельзя снаружи» — он передаёт и так. */}
-        <p className="screen-emblem" aria-hidden>
-          🔒
+    <div className="outside">
+      <div className="outside-inner">
+        <p className="outside-mark">
+          {/* Обойма вокруг значка: ореол позиционируется от неё и выходит за её края. */}
+          <span className="outside-icon">
+            <span className="outside-halo" aria-hidden />
+            <IconLogo size={44} />
+          </span>
+          {/* Название продукта, а не переводимая строка: марка одинакова во всех локалях. */}
+          <span>StudentHub</span>
         </p>
         <h1>{t('outsideTitle')}</h1>
-        <p className="hint">{t('outsideHint')}</p>
-      </header>
-      <section className="card">
-        <p className="hint">{t('outsideBody')}</p>
-      </section>
+        <p className="outside-hint">{t('outsideHint')}</p>
+        <p className="outside-body">{t('outsideBody')}</p>
+        <p className="outside-footer">© StudentHub 2026 · Мехман Джафари</p>
+      </div>
     </div>
   )
 }
