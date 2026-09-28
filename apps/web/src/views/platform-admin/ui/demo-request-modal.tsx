@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { useForm } from 'react-hook-form'
@@ -17,6 +17,7 @@ import {
   type DemoRequest,
 } from '../../../entities/onboarding'
 import {
+  Badge,
   Button,
   FormAlert,
   Input,
@@ -32,6 +33,14 @@ import {
 import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
 
 const REASONS = DemoRejectionReasonSchema.options
+
+/** Цвет статусной плашки — тот же, что в строке очереди: один статус, один цвет. */
+const STATUS_STYLE: Record<DemoRequest['status'], string> = {
+  PENDING_EMAIL: 'text-muted-foreground',
+  NEW: 'text-warning',
+  APPROVED: 'text-success',
+  REJECTED: 'text-destructive',
+}
 
 interface Props {
   request: DemoRequest
@@ -52,84 +61,108 @@ interface Props {
  */
 export function DemoRequestModal({ request, onClose, onDecided }: Props) {
   const t = useTranslations('DemoAdmin')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
   const [mode, setMode] = useState<'view' | 'approve' | 'reject'>('view')
 
   const decided = request.status !== 'NEW'
 
   return (
-    <Modal onClose={onClose} title={request.universityName} size="lg">
-      <div className="flex flex-col gap-5">
-        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-          <Fact label={t('colContact')} value={request.contactName} />
-          <Fact label={t('fieldRole')} value={request.contactRole} />
-          <Fact label={t('colEmail')} value={request.email} />
-          <Fact label={t('fieldPhone')} value={request.phone} />
-          <Fact label={t('fieldCity')} value={request.city} />
-          <Fact
-            label={t('fieldStudents')}
-            value={request.studentsEstimate ? String(request.studentsEstimate) : null}
-          />
-          <Fact label={t('fieldWebsite')} value={request.website} />
-          <Fact
-            label={t('colCreatedAt')}
-            value={new Date(request.createdAt).toLocaleString(locale, {
-              dateStyle: 'long',
-              timeStyle: 'short',
-            })}
-          />
+    // Заголовок окна — родовой, а не название вуза: так же устроен разбор жалобы. Само
+    // название стоит внутри заголовком карточки, где его не обрежет шапка окна.
+    <Modal onClose={onClose} title={t('detailTitle')} size="lg">
+      <div className="flex flex-col gap-4">
+        <header className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className={STATUS_STYLE[request.status]}>
+              {t(`status${request.status}`)}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {new Date(request.createdAt).toLocaleString(locale, {
+                dateStyle: 'long',
+                timeStyle: 'short',
+              })}
+            </span>
+          </div>
+          <h3 className="text-base font-semibold">{request.universityName}</h3>
+        </header>
+
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+          <Field label={t('colContact')}>{request.contactName}</Field>
+          <Field label={t('fieldRole')}>{request.contactRole || '—'}</Field>
+          <Field label={t('colEmail')}>{request.email}</Field>
+          <Field label={t('fieldPhone')}>{request.phone || '—'}</Field>
+          <Field label={t('fieldCity')}>{request.city || '—'}</Field>
+          <Field label={t('fieldStudents')}>{request.studentsEstimate ?? '—'}</Field>
+          <Field label={t('fieldWebsite')}>{request.website || '—'}</Field>
+          <Field label={t('fieldConsent')}>
+            {new Date(request.consentAt).toLocaleDateString(locale, { dateStyle: 'long' })}
+          </Field>
         </dl>
 
+        {/* Комментарий — свободный текст произвольной длины, в ровную сетку пар он не
+            ложится: там значения обрезаются по строке, а тут читают целиком. */}
         {request.comment && (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">{t('fieldComment')}</span>
-            <p className="text-sm whitespace-pre-line">{request.comment}</p>
-          </div>
+          <section className="flex flex-col gap-1.5 rounded-xl border border-border p-3">
+            <h4 className="text-sm font-medium">{t('fieldComment')}</h4>
+            <p className="text-sm whitespace-pre-line text-muted-foreground">{request.comment}</p>
+          </section>
         )}
 
-        {/* Согласие — часть заявки, а не примечание: по нему отвечают, если спросят,
-            на каком основании эти данные вообще лежат в базе. */}
-        <p className="text-xs text-muted-foreground">
-          {t('consentGiven', {
-            date: new Date(request.consentAt).toLocaleDateString(locale, { dateStyle: 'long' }),
-            version: request.consentVersion,
-          })}
-        </p>
-
-        {decided ? (
-          <div className="rounded-xl border border-border bg-muted/40 p-3 text-sm">
-            <p className="font-medium">
+        {decided && (
+          <section className="flex flex-col gap-1 rounded-xl border border-border bg-muted/40 p-3">
+            <h4 className="text-sm font-medium">
               {request.status === 'APPROVED' ? t('approved') : t('rejected')}
-            </p>
+            </h4>
             {request.rejectionReason && (
-              <p className="text-muted-foreground">{t(`reason${request.rejectionReason}`)}</p>
+              <p className="text-sm text-muted-foreground">
+                {t(`reason${request.rejectionReason}`)}
+              </p>
             )}
             {request.reviewNote && (
-              <p className="mt-1 text-muted-foreground">{request.reviewNote}</p>
+              <p className="text-sm text-muted-foreground">{request.reviewNote}</p>
             )}
-          </div>
-        ) : mode === 'view' ? (
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" onClick={() => setMode('reject')}>
-              {t('reject')}
-            </Button>
-            <Button onClick={() => setMode('approve')}>{t('approve')}</Button>
-          </div>
-        ) : mode === 'approve' ? (
+          </section>
+        )}
+
+        {mode === 'approve' && (
           <ApproveForm request={request} onBack={() => setMode('view')} onDecided={onDecided} />
-        ) : (
+        )}
+        {mode === 'reject' && (
           <RejectForm request={request} onBack={() => setMode('view')} onDecided={onDecided} />
+        )}
+
+        {/* Подвал: слева выход без решения, справа сами решения — как в разборе жалобы.
+            У решённой заявки решений нет: кнопка «одобрить» на одобренной обещает
+            действие, которого не будет. */}
+        {mode === 'view' && (
+          <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+            <Button type="button" variant="outline" onClick={onClose}>
+              {tCommon('close')}
+            </Button>
+            {!decided && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="destructive" onClick={() => setMode('reject')}>
+                  {t('reject')}
+                </Button>
+                <Button type="button" onClick={() => setMode('approve')}>
+                  {t('approve')}
+                </Button>
+              </div>
+            )}
+          </footer>
         )}
       </div>
     </Modal>
   )
 }
 
-function Fact({ label, value }: { label: string; value: string | null }) {
+/** Пара «подпись — значение» списка деталей. Все пары одной сетки, поэтому колонки ровные. */
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm break-words">{value || '—'}</dd>
+      <dd className="truncate text-sm">{children}</dd>
     </div>
   )
 }

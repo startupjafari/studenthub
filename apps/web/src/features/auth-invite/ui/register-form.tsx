@@ -13,8 +13,8 @@ import { toast } from 'sonner'
 import { Camera, Eye, EyeOff, ShieldAlert, Trash2 } from 'lucide-react'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { RegisterByInviteSchema, type RegisterByInviteInput } from '@studenthub/shared-schemas'
-import { Badge, Button, FormAlert, Input, Label, Skeleton } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Badge, Button, Input, Label, Skeleton } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
 import { establishSession } from '../../../shared/session'
@@ -72,7 +72,8 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   // Выбранный, но ещё не кадрированный файл — он же признак «открыть кроппер».
   const [cropFile, setCropFile] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  // id свой у формы: повторный отказ обновляет тот же тост, а не копит стопку.
+  const { show: showApiError } = useErrorToast('register-by-invite')
 
   const preview = useQuery({
     queryKey: ['invite-preview', token],
@@ -154,7 +155,6 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   }
 
   async function onSubmit(values: RegisterByInviteInput) {
-    resetApiError()
     try {
       const accessToken = await registerByInviteRequest(values)
       const role = await establishSession(accessToken)
@@ -168,7 +168,9 @@ export function RegisterByInviteForm({ token }: { token: string }) {
       }
       router.replace(ROLE_HOME[role])
     } catch (err) {
-      // Серверные ошибки (в т.ч. VALIDATION_ERROR с details[]) — в Alert над формой (§5.4/§7).
+      // Серверный отказ — тостом, а не полосой в форме: форма длинная, кнопка внизу, и
+      // сообщение в её начале человек не увидит (DESIGN_SYSTEM §9). Ошибки полей при
+      // этом остаются у полей.
       showApiError(err)
     }
   }
@@ -310,7 +312,6 @@ export function RegisterByInviteForm({ token }: { token: string }) {
 
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <input type="hidden" {...register('token')} />
-        <FormAlert error={apiError} />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
