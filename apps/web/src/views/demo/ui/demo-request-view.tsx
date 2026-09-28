@@ -101,18 +101,27 @@ export function DemoRequestView() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="city">
-              {t('fieldCity')} <Optional label={t('optional')} />
+              <OptionalLabel text={t('fieldCity')} optional={t('optional')} />
             </Label>
             <Input id="city" {...register('city')} />
             <FieldError>{errors.city?.message}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="studentsEstimate">
-              {t('fieldStudents')} <Optional label={t('optional')} />
+              <OptionalLabel text={t('fieldStudents')} optional={t('optional')} />
             </Label>
             {/* inputMode numeric: на телефоне открывается цифровая клавиатура, но поле
                 остаётся текстовым — type="number" крутится колесом мыши и теряет значение. */}
-            <Input id="studentsEstimate" inputMode="numeric" {...register('studentsEstimate')} />
+            {/* «Примерно» ушло из подписи в подсказку: в правой колонке пары подпись с
+                пометкой «необязательно» не влезала в строку, переносилась, и поля пары
+                разъезжались по вертикали. Смысл при этом не потерян — пример числа
+                говорит о порядке величины прямее, чем слово «примерно». */}
+            <Input
+              id="studentsEstimate"
+              inputMode="numeric"
+              placeholder={t('fieldStudentsHint')}
+              {...register('studentsEstimate')}
+            />
             <FieldError>{errors.studentsEstimate?.message}</FieldError>
           </div>
         </div>
@@ -130,7 +139,7 @@ export function DemoRequestView() {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="contactRole">
-              {t('fieldContactRole')} <Optional label={t('optional')} />
+              <OptionalLabel text={t('fieldContactRole')} optional={t('optional')} />
             </Label>
             <Input id="contactRole" {...register('contactRole')} />
             <FieldError>{errors.contactRole?.message}</FieldError>
@@ -153,7 +162,7 @@ export function DemoRequestView() {
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="phone">
-            {t('fieldPhone')} <Optional label={t('optional')} />
+            <OptionalLabel text={t('fieldPhone')} optional={t('optional')} />
           </Label>
           <Input id="phone" type="tel" autoComplete="tel" {...register('phone')} />
           <FieldError>{errors.phone?.message}</FieldError>
@@ -161,7 +170,7 @@ export function DemoRequestView() {
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="comment">
-            {t('fieldComment')} <Optional label={t('optional')} />
+            <OptionalLabel text={t('fieldComment')} optional={t('optional')} />
           </Label>
           <Textarea id="comment" rows={3} {...register('comment')} />
           <FieldError>{errors.comment?.message}</FieldError>
@@ -198,6 +207,19 @@ export function DemoRequestView() {
   )
 }
 
-function Optional({ label }: { label: string }) {
-  return <span className="font-normal text-muted-foreground">({label})</span>
+/**
+ * Подпись поля вместе с пометкой «необязательно».
+ *
+ * Обе части — один поток текста внутри `<span>`, а не два ребёнка `Label`. `Label` в
+ * дизайн-системе это `flex`, и там пометка становилась отдельным флекс-элементом: когда
+ * подпись не влезала в колонку («Примерно студентов» в правой половине формы), она
+ * переносилась на две строки, а «(необязательно)» отрывалось к правому краю. Одним
+ * потоком пометка переносится вместе с подписью, как часть фразы, которой и является.
+ */
+function OptionalLabel({ text, optional }: { text: string; optional: string }) {
+  return (
+    <span>
+      {text} <span className="font-normal text-muted-foreground">({optional})</span>
+    </span>
+  )
 }
