@@ -20,7 +20,12 @@ export function isLargeFont(): boolean {
 }
 
 export function applyFontScale(large: boolean): void {
-  document.documentElement.style.fontSize = large ? `${LARGE * 100}%` : ''
+  // Через переменную, а не через font-size документа: кегль тела задан в rem от базового
+  // размера (styles.css, --font-scale), и вся шкала --text-* считается от него. Процент
+  // на документе разошёлся бы с абсолютным кеглем тела и не менял бы ничего.
+  const root = document.documentElement
+  if (large) root.style.setProperty('--font-scale', String(LARGE))
+  else root.style.removeProperty('--font-scale')
   try {
     if (large) localStorage.setItem(KEY, 'large')
     else localStorage.removeItem(KEY)

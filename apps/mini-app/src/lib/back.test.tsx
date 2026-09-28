@@ -1,10 +1,10 @@
-import { render } from '@testing-library/react'
+import { render, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const close = vi.fn()
 vi.mock('../telegram/webapp', () => ({ webApp: () => ({ close }) }))
 
-import { goBack, useBackHandler } from './back'
+import { goBack, useBackHandler, useCanGoBack } from './back'
 
 // Возврат один на всё приложение, и вся его логика — в том, что он делает, когда
 // возвращаться некуда. Ошибиться здесь дорого в обе стороны: лишний выход закрывает
@@ -45,6 +45,24 @@ describe('стек возврата', () => {
 
     expect(inner).toHaveBeenCalled()
     expect(outer).not.toHaveBeenCalled()
+  })
+
+  /**
+   * По этому флагу приложение решает, просить у Telegram стрелку или оставить его
+   * «Закрыть». Ошибка здесь стоит выхода: показанная на верхнем экране стрелка
+   * закрывает собой «Закрыть», а вести ей некуда.
+   */
+  it('знает, есть ли куда возвращаться', () => {
+    const view = renderHook(() => useCanGoBack())
+    expect(view.result.current).toBe(false)
+
+    const screen = render(<Screen onBack={vi.fn()} />)
+    view.rerender()
+    expect(view.result.current).toBe(true)
+
+    screen.unmount()
+    view.rerender()
+    expect(view.result.current).toBe(false)
   })
 
   // Обработчик снимается сам вместе с экраном — иначе после возврата в корень кнопка
