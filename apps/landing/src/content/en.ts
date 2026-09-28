@@ -30,61 +30,6 @@ export const en: Dictionary = {
     inviteHint: 'Got an invitation? Open the link from the email — it creates the account for you.',
   },
 
-  scenes: {
-    appName: 'StudentHub',
-    notification: {
-      title: 'Schedule change',
-      text: 'Class moved to a different room',
-      scheduleTitle: 'Today, Tuesday',
-      pairName: 'Databases',
-      pairTeacher: 'A. Asanova',
-      roomBefore: 'Room 214',
-      roomAfter: 'Room 312',
-      changedLabel: 'Changed',
-      nextPair: 'Algorithms and Data Structures',
-      nextPairTime: '10:45',
-    },
-    schedule: {
-      title: 'Tuesday, 16 September',
-      nowLabel: 'Now',
-      pairs: [
-        { name: 'Databases', time: '09:00', room: 'Room 312' },
-        { name: 'Algorithms and Data Structures', time: '10:45', room: 'Room 204' },
-        { name: 'English', time: '13:00', room: 'Room 118' },
-        { name: 'Physical Education', time: '14:45', room: 'Gym' },
-      ],
-    },
-    request: {
-      screenTitle: 'My requests',
-      title: 'Request SH-2026-004182',
-      service: 'Proof of enrolment',
-      steps: ['Submitted', 'In review', 'Preparing', 'Ready'],
-      etaLabel: 'Deadline by policy',
-      eta: '2 working days',
-      attachments: ['ID document', 'Family composition certificate'],
-    },
-    room: {
-      scanHint: 'Point the camera at the sticker by the door',
-      roomName: 'Room 312',
-      statusBusy: 'Busy',
-      busyUntil: 'until 15:50',
-      pairName: 'Databases',
-      group: 'IS-21-3',
-      nextFree: 'Free from 15:50',
-    },
-    studentId: {
-      screenTitle: 'My documents',
-      cardLabel: 'Student ID',
-      name: 'Aigerim Nurlanova',
-      faculty: 'Information Technology',
-      group: 'IS-21-3',
-      validLabel: 'Valid until',
-      valid: '2027',
-      passHint: 'Show it at the front desk or to a teacher',
-      offlineBadge: 'Works offline',
-    },
-  },
-
   doors: {
     title: 'You’ve reached the platform’s front page',
     subtitle: 'Pick what you need — all three doors lead to working sections.',
@@ -103,51 +48,8 @@ export const en: Dictionary = {
     },
   },
 
-  day: {
-    title: 'A student’s day',
-    subtitle:
-      'The platform isn’t a set of modules — it’s a day where nothing gets lost. Five moments, from the morning notification to the pass at the front desk.',
-    timelineLabel: 'Moments of the day',
-    frames: [
-      {
-        time: '07:40',
-        label: 'Notification',
-        scene: 'notification',
-        title: 'Room change',
-        text: 'The notification arrives on its own. Not a rumour in a group chat, not a note on a board: moving a class is an event in the system, and everyone it concerns sees it.',
-      },
-      {
-        time: '09:00',
-        label: 'Class',
-        scene: 'schedule',
-        title: 'Today’s schedule',
-        text: 'Classes, rooms, teachers, gaps between them. Opens without internet too — the schedule is stored on the device.',
-      },
-      {
-        time: '12:15',
-        label: 'Certificate',
-        scene: 'request',
-        title: 'A certificate in two days',
-        text: 'A catalogue of dean’s office services: deadline, required documents, request status. The student comes in once — to collect the result.',
-      },
-      {
-        time: '14:30',
-        label: 'Room',
-        scene: 'room',
-        title: 'Door 312',
-        text: 'Every room has a printed QR sticker. Point the camera and see it at once: free, or busy until 15:50 — which class, and whose.',
-      },
-      {
-        time: '18:00',
-        label: 'Pass',
-        scene: 'studentId',
-        title: 'Student ID in the phone',
-        text: 'A digital student card with holographic protection. Shows offline, verified by staff in a second.',
-      },
-    ],
-  },
-
   roles: {
+    appName: 'StudentHub',
     title: 'Eight roles — one platform',
     subtitle:
       'Everyone sees their own view: not because the rest is hidden in the interface, but because the data scope is set by the role and read from the token.',

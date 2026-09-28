@@ -2,7 +2,6 @@ import type { Dictionary } from '../content'
 import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
 import { Container, LinkButton } from './primitives'
 import { MeshBackdrop } from './mesh-backdrop'
-import { Scene } from './scenes'
 
 /**
  * Первый экран.
@@ -83,10 +82,6 @@ export function Hero({ dict }: { dict: Dictionary }) {
               {dict.nav.login}
             </a>
           </p>
-        </div>
-
-        <div className="sh-soft-up flex justify-center lg:justify-end [--delay:0.4s]">
-          <Scene scene="notification" dict={dict} />
         </div>
       </Container>
     </MeshBackdrop>

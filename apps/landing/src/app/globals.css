@@ -325,34 +325,6 @@
   прокрутке. Обе подложки берут цвет из токенов, поэтому в светлой теме сетка становится
   чернильной, а не остаётся белой поверх белого.
 */
-.sh-veil {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.sh-veil::before {
-  content: '';
-  position: absolute;
-  inset: -20% -20% auto -20%;
-  height: 48rem;
-  background: radial-gradient(42rem 24rem at 50% 0%, var(--glow), transparent 66%);
-}
-
-.sh-veil::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(to right, var(--hairline) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--hairline) 1px, transparent 1px);
-  background-size: 5.5rem 5.5rem;
-  /* Сетка нужна как фактура у верхней кромки, а не как разлиновка всей страницы. */
-  -webkit-mask-image: radial-gradient(100% 62% at 50% 0%, #000 6%, transparent 68%);
-  mask-image: radial-gradient(100% 62% at 50% 0%, #000 6%, transparent 68%);
-  opacity: 0.55;
-}
 
 /*
   Фирменная меш-сетка. Копия правил с брендовой панели входа
@@ -427,102 +399,18 @@
   }
 }
 
-@keyframes sh-room-old {
-  0%,
-  62% {
-    opacity: 1;
-  }
-  70%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes sh-room-new {
-  0%,
-  62% {
-    opacity: 0;
-  }
-  70%,
-  100% {
-    opacity: 1;
-  }
-}
-
-@keyframes sh-pair-flash {
-  0%,
-  62% {
-    background-color: transparent;
-  }
-  72% {
-    background-color: color-mix(in oklab, var(--primary) 12%, transparent);
-  }
-  100% {
-    background-color: transparent;
-  }
-}
-
-.sh-loop-notif {
-  animation: sh-notif 8s ease-in-out infinite;
-}
-.sh-loop-room-old {
-  animation: sh-room-old 8s ease-in-out infinite;
-}
-.sh-loop-room-new {
-  animation: sh-room-new 8s ease-in-out infinite;
-}
-.sh-loop-flash {
-  animation: sh-pair-flash 8s ease-in-out infinite;
-}
-
-/*
-  Тем, кто просил меньше движения, показываем сразу конечное состояние сюжета:
-  пара уже перенесена, уведомление убрано. Смысл кадра сохраняется без анимации.
-*/
-@media (prefers-reduced-motion: reduce) {
-  .sh-loop-notif,
-  .sh-loop-room-old,
-  .sh-loop-room-new,
-  .sh-loop-flash {
-    animation: none;
-  }
-  .sh-loop-notif,
-  .sh-loop-room-old {
-    opacity: 0;
-  }
-  .sh-loop-room-new {
-    opacity: 1;
-  }
-}
-
 /* =========================================================================
-   Сцены «Одного дня»
+   Макет рабочего окна (ui/scenes/app-mock.tsx)
 
-   Скриншотов на лендинге нет: вместо них — нарисованные сцены, которые играют
-   короткий сюжет. Так страница показывает не «как выглядит экран», а что
-   происходит, и при этом ничего не весит и не устаревает вместе с интерфейсом.
+   Скриншотов на лендинге нет: вместо них нарисованный каркас, который ничего не
+   весит и не устаревает вместе с интерфейсом. Единственное движение в нём —
+   въезд строк, и оно же показывает, что меню перестроилось под роль.
 
-   Всё движение — transform, opacity и фоновые позиции; раскладку оно не двигает.
-   Каждая анимация проигрывается один раз (forwards) и начинается заново при
-   смене сцены — компонент пересоздаётся по key.
+   Движение — transform и opacity; раскладку оно не двигает. Проигрывается один
+   раз (forwards) и начинается заново при смене роли: узел пересоздаётся по key.
    ========================================================================= */
 
-/* Вход сцены: лёгкий подъём с проявлением. */
-@keyframes sh-scene-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.sh-scene-in {
-  animation: sh-scene-in 0.26s ease-out both;
-}
-
-/* Строки списка въезжают по очереди — задержка задаётся инлайново через --i. */
+/* Строки въезжают по очереди — задержка задаётся инлайново через --i. */
 @keyframes sh-row-in {
   from {
     opacity: 0;
@@ -538,122 +426,10 @@
   animation-delay: calc(var(--i, 0) * 55ms);
 }
 
-/* Маркер «сейчас» в расписании: спускается к текущей паре и замирает. */
-@keyframes sh-now-drop {
-  from {
-    opacity: 0;
-    transform: translateY(-14px);
-  }
-  60% {
-    opacity: 1;
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.sh-now-drop {
-  animation: sh-now-drop 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 0.25s;
-}
-
-/* Заявка: полоса прогресса дотягивается до текущего шага. */
-@keyframes sh-progress {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-.sh-progress {
-  transform-origin: left center;
-  animation: sh-progress 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 0.3s;
-}
-
-/* Шаги степпера загораются один за другим вслед за полосой. */
-@keyframes sh-step-on {
-  from {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-.sh-step-on {
-  animation: sh-step-on 0.3s ease-out both;
-  animation-delay: calc(0.35s + var(--i, 0) * 0.26s);
-}
-
-/* Сканирующая линия в окне QR (копия приёма с экрана сканера платформы). */
-@keyframes sh-scan {
-  0% {
-    transform: translateY(0);
-    opacity: 0;
-  }
-  12%,
-  88% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(var(--sh-scan-range, 132px));
-    opacity: 0;
-  }
-}
-.sh-scan {
-  animation: sh-scan 1.9s ease-in-out infinite;
-}
-
-/* Карточка помещения выезжает после «скана». */
-.sh-after-scan {
-  animation: sh-scene-in 0.4s ease-out both;
-  animation-delay: 0.9s;
-}
-
 /*
   Голографический блик студенческого — копия правил из платформы, где он служит
   анти-подделочной мерой: на скриншоте блик застывает, у живой карты бежит.
 */
-@keyframes sh-holo-sheen {
-  0% {
-    background-position:
-      180% 0,
-      0 0;
-  }
-  100% {
-    background-position:
-      -80% 0,
-      0 0;
-  }
-}
-.sh-holo {
-  background-image:
-    linear-gradient(
-      115deg,
-      transparent 34%,
-      rgba(255, 255, 255, 0.5) 46%,
-      rgba(255, 255, 255, 0.12) 54%,
-      transparent 66%
-    ),
-    conic-gradient(
-      from 210deg at 30% 20%,
-      rgba(56, 189, 248, 0.1),
-      rgba(168, 85, 247, 0.1),
-      rgba(236, 72, 153, 0.1),
-      rgba(250, 204, 21, 0.1),
-      rgba(56, 189, 248, 0.1)
-    );
-  background-size:
-    260% 100%,
-    100% 100%;
-  background-repeat: no-repeat;
-  animation: sh-holo-sheen 5s linear infinite;
-  mix-blend-mode: soft-light;
-}
-
 /* Мягкая пульсация вокруг активного элемента — только там, где она несёт смысл. */
 @keyframes sh-ping {
   0% {
@@ -675,29 +451,10 @@
   Смысл кадра от этого не теряется: сюжет и так дублируется текстом рядом.
 */
 @media (prefers-reduced-motion: reduce) {
-  .sh-scene-in,
   .sh-row-in,
-  .sh-now-drop,
-  .sh-step-on,
-  .sh-after-scan {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-  .sh-progress {
-    animation: none;
-    transform: scaleX(1);
-  }
-  .sh-scan,
   .sh-ping {
     animation: none;
     opacity: 0;
-  }
-  .sh-holo {
-    animation: none;
-    background-position:
-      60% 0,
-      0 0;
   }
 }
 
@@ -822,55 +579,6 @@ details[open] .sh-acc__inner {
   .sh-acc__body,
   .sh-acc__inner {
     transition: none;
-  }
-}
-
-/* --- Dynamic Island: живая активность ----------------------------------- */
-
-/*
-  Остров показывает то же, что показывал бы на аппарате: слева значок приложения,
-  справа — эквалайзер. Полосы пляшут бесконечно, каждая со своей задержкой (--i),
-  иначе они двигаются синхронно и читаются как один мигающий блок.
-
-  Анимируется только scaleY: высота полосы менялась бы с перекомпоновкой соседей.
-*/
-@keyframes sh-eq {
-  0%,
-  100% {
-    transform: scaleY(0.3);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-.sh-eq-bar {
-  transform-origin: center bottom;
-  animation: sh-eq 0.9s ease-in-out infinite;
-  animation-delay: calc(var(--i, 0) * 130ms);
-}
-
-/* Мягкое дыхание значка — тот же ритм, что у полос, но вдвое медленнее. */
-@keyframes sh-island-pulse {
-  0%,
-  100% {
-    opacity: 0.75;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.sh-island-mark {
-  animation: sh-island-pulse 1.8s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sh-eq-bar {
-    animation: none;
-    transform: scaleY(0.65);
-  }
-  .sh-island-mark {
-    animation: none;
-    opacity: 1;
   }
 }
 

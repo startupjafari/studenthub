@@ -187,7 +187,7 @@ export function Roles({ dict }: { dict: Dictionary }) {
               exit={calm ? undefined : { opacity: 0, y: -10 }}
               transition={SWAP}
             >
-              <AppMock role={active} appName={dict.scenes.appName} />
+              <AppMock role={active} appName={t.appName} />
             </motion.div>
           </AnimatePresence>
         </div>
