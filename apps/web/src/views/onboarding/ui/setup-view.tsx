@@ -1,59 +1,22 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import {
-  ArrowRight,
-  BookOpen,
-  Building2,
-  CalendarDays,
-  Check,
-  ChevronRight,
-  DoorClosed,
-  Rocket,
-  ScrollText,
-  UserPlus,
-  Users,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import type { OnboardingStep } from '@studenthub/shared-schemas'
 import {
   confirmOnboardingProfile,
   fetchOnboardingState,
   launchUniversity,
   onboardingKeys,
-  skipOnboardingStep,
   type OnboardingState,
   type OnboardingStepState,
 } from '../../../entities/onboarding'
-import { Button, Card, EmptyState, PageHeader, PageLoader } from '../../../shared/ui'
+import { Card, EmptyState, PageHeader, PageLoader } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { StepBody } from './step-body'
-
-/**
- * Иконка и полный раздел каждого шага.
- *
- * Мастер не заменяет управление структурой: у факультетов, групп и аудиторий есть свои
- * экраны со всем, что там бывает, и они не должны существовать в двух версиях. Здесь
- * заводят самое необходимое и идут дальше, а ссылка ведёт туда, где делают остальное.
- *
- * `profile` и `launch` ссылки не имеют: реквизиты вуза правит платформа, а запуск — это
- * и есть последний экран мастера.
- */
-const STEP_META: Record<OnboardingStep, { icon: LucideIcon; href?: string }> = {
-  profile: { icon: Building2 },
-  faculties: { icon: Building2, href: '/university-admin/faculties' },
-  specialties: { icon: ScrollText, href: '/university-admin/specialties' },
-  groups: { icon: Users, href: '/university-admin/groups' },
-  rooms: { icon: DoorClosed, href: '/university-admin/rooms' },
-  terms: { icon: CalendarDays, href: '/university-admin/courses' },
-  subjects: { icon: BookOpen, href: '/university-admin/courses' },
-  deans: { icon: UserPlus, href: '/university-admin/invites' },
-  launch: { icon: Rocket },
-}
 
 /**
  * Мастер первичной настройки вуза.
@@ -62,6 +25,9 @@ const STEP_META: Record<OnboardingStep, { icon: LucideIcon; href?: string }> = {
  * список дел на неделю, а мастер существует ровно затем, чтобы человек не выбирал,
  * с чего начать. Пройденные шаги сворачиваются с галочкой и остаются доступными —
  * вернуться к факультетам после групп нужно почти всегда.
+ *
+ * Каждый шаг закрывается прямо здесь, без перехода в раздел: форма в карточке заводит
+ * ровно то, чего серверу хватает, чтобы засчитать шаг. Полные разделы остаются в меню.
  *
  * Пройденность считает сервер по самим данным: удалили последний факультет — шаг снова
  * не пройден, и запуск снова заблокирован. Ничего «отмеченного руками» здесь нет.
@@ -89,11 +55,6 @@ export function SetupView() {
     toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
 
   const confirmMut = useMutation({ mutationFn: confirmOnboardingProfile, onSuccess: onDone, onError: onFail }) // prettier-ignore
-  const skipMut = useMutation({
-    mutationFn: (step: OnboardingStep) => skipOnboardingStep({ step }),
-    onSuccess: onDone,
-    onError: onFail,
-  })
   const launchMut = useMutation({
     mutationFn: launchUniversity,
     onSuccess: (next) => {
@@ -138,12 +99,10 @@ export function SetupView() {
             index={index}
             open={open === step.step}
             onToggle={() => setOpen(open === step.step ? null : step.step)}
+            onOpenStep={setOpen}
             state={data}
-            onDone={onDone}
             onConfirmProfile={() => confirmMut.mutate()}
             confirming={confirmMut.isPending}
-            onSkip={() => skipMut.mutate(step.step)}
-            skipping={skipMut.isPending}
             onLaunch={() => launchMut.mutate()}
             launching={launchMut.isPending}
           />
@@ -158,12 +117,10 @@ interface StepCardProps {
   index: number
   open: boolean
   onToggle: () => void
+  onOpenStep: (step: OnboardingStep) => void
   state: OnboardingState
-  onDone: (next: OnboardingState) => void
   onConfirmProfile: () => void
   confirming: boolean
-  onSkip: () => void
-  skipping: boolean
   onLaunch: () => void
   launching: boolean
 }
@@ -171,37 +128,34 @@ interface StepCardProps {
 function StepCard(props: StepCardProps) {
   const { step, index, open, onToggle } = props
   const t = useTranslations('Setup')
-  const meta = STEP_META[step.step]
-  const Icon = meta.icon
 
   return (
-    <Card className={cn('gap-0 overflow-hidden p-0', open && 'ring-1 ring-primary/30')}>
+    <Card className={cn('gap-0 py-0', open && 'ring-primary/40')}>
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40"
+        className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/40 sm:px-5"
       >
         {/* Галочка вместо номера у пройденного шага: номер сообщает «где я», галочка —
             «здесь готово», и одновременно нужно только одно из двух. */}
         <span
           className={cn(
-            'grid size-9 shrink-0 place-items-center rounded-xl border text-sm font-semibold tabular-nums',
+            'grid size-9 shrink-0 place-items-center rounded-xl border text-sm font-semibold tabular-nums transition-colors',
             step.done
               ? 'border-success/30 bg-success/10 text-success'
-              : step.skipped
-                ? 'border-border bg-muted text-muted-foreground'
-                : 'border-border bg-background',
+              : open
+                ? 'border-primary/40 bg-primary/10 text-primary'
+                : step.skipped
+                  ? 'border-border bg-muted text-muted-foreground'
+                  : 'border-border bg-background',
           )}
         >
           {step.done ? <Check className="size-4" aria-hidden /> : index + 1}
         </span>
 
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-2 font-medium">
-            <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="truncate">{t(`step.${step.step}.title`)}</span>
-          </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate font-medium">{t(`step.${step.step}.title`)}</span>
           <span className="truncate text-xs text-muted-foreground">
             {step.skipped
               ? t('skipped')
@@ -211,17 +165,20 @@ function StepCard(props: StepCardProps) {
           </span>
         </span>
 
-        <ChevronRight
+        <ChevronDown
           className={cn(
             'size-4 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-90',
+            open && 'rotate-180',
           )}
           aria-hidden
         />
       </button>
 
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border p-4">
+        // Содержимое начинается под заголовком, а не под номером: левый край текста и
+        // полей совпадает с названием шага (px-5 + маркер 2.25rem + gap 0.75rem).
+        // На телефоне отступ съел бы треть ширины — там колонка идёт от края карточки.
+        <div className="flex flex-col gap-4 border-t border-border px-4 pt-4 pb-5 sm:pr-5 sm:pl-17">
           {/* Подсказка «зачем» стоит выше формы, а не под ней: её читают до того, как
               начинают вводить, и после — уже незачем. */}
           <p className="text-sm leading-relaxed text-muted-foreground">
@@ -229,28 +186,6 @@ function StepCard(props: StepCardProps) {
           </p>
 
           <StepBody {...props} />
-
-          <div className="flex flex-wrap items-center gap-2">
-            {meta.href && (
-              <Button asChild variant="outline" size="sm">
-                <Link href={meta.href}>
-                  {t('openSection')}
-                  <ArrowRight className="size-4" aria-hidden />
-                </Link>
-              </Button>
-            )}
-            {step.skippable && !step.skipped && !step.done && (
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={props.skipping}
-                onClick={props.onSkip}
-                className="text-muted-foreground"
-              >
-                {t('skip')}
-              </Button>
-            )}
-          </div>
         </div>
       )}
     </Card>

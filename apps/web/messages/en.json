@@ -232,8 +232,16 @@
     "add": "Add",
     "faculty": "Faculty",
     "needFaculties": "Create at least one faculty first — a group attaches to it.",
-    "openSection": "Open section",
-    "skip": "Skip this step",
+    "invite": "Invite",
+    "inviteCreated": "Invite created. The link is shown only once — copy it and send it to the dean.",
+    "copyLink": "Copy",
+    "linkCopied": "Link copied",
+    "termStarts": "Start",
+    "termEnds": "End",
+    "termEndsBeforeStart": "A term cannot end before it starts",
+    "checkDone": "done",
+    "checkMissing": "not filled",
+    "launchBlocked": "{n, plural, one {# step left} other {# steps left}} — fill them in and the university can go live.",
     "profileName": "Name",
     "profileShortName": "Short name",
     "profileCity": "City",
@@ -263,7 +271,7 @@
       "specialties": {
         "title": "Specialities",
         "short": "Speciality reference list",
-        "hint": "The list a student picks their speciality from in their profile. You can skip it and fill it in later — it does not affect how the platform works.",
+        "hint": "The list a student picks their speciality from in their profile. Start with the main ones — you can add the rest later in the specialities section.",
         "placeholder": "Speciality name"
       },
       "groups": {
@@ -275,24 +283,26 @@
       "rooms": {
         "title": "Rooms",
         "short": "Add rooms",
-        "hint": "Rooms are needed by the schedule and by the printed QR above the door: a student scans the code and sees what is happening here right now. Skip it if you are not printing QR codes yet.",
+        "hint": "Rooms are needed by the schedule and by the printed QR above the door: a student scans the code and sees what is happening here right now.",
         "placeholder": "Room number or name"
       },
       "terms": {
         "title": "Academic year",
         "short": "Create a term",
-        "hint": "A term sets the boundaries of the study period. Without one you cannot build a schedule or open the gradebook: a class has nowhere to land in time."
+        "hint": "A term sets the boundaries of the study period. Without one you cannot build a schedule or open the gradebook: a class has nowhere to land in time.",
+        "placeholder": "Term name"
       },
       "subjects": {
         "title": "Subjects",
         "short": "Subject reference list",
-        "hint": "The university's shared list of disciplines — courses and the schedule are assembled from it. You can skip it and add subjects as you build the schedule.",
+        "hint": "The university's shared list of disciplines — courses and the schedule are assembled from it. Start with the main ones and add more as you build the schedule.",
         "placeholder": "Subject name"
       },
       "deans": {
         "title": "Deans",
         "short": "Invite the deans",
-        "hint": "This is where the chain starts: you invite the dean, the dean invites the monitors and the students. That way each next person comes from whoever is responsible for them, not from a general list."
+        "hint": "This is where the chain starts: you invite the dean, the dean invites the monitors and the students. That way each next person comes from whoever is responsible for them, not from a general list. The invite link appears right after you create it.",
+        "placeholder": "Dean's email — optional"
       },
       "launch": {
         "title": "Go live",
