@@ -18,6 +18,8 @@ import {
   GraduationCap,
   Handshake,
   Home,
+  Rocket,
+  Inbox,
   IdCard,
   LayoutDashboard,
   ListChecks,
@@ -98,6 +100,9 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     group: 'main',
   },
   { key: 'analytics', href: '/university-admin/analytics', icon: BarChart3, group: 'main' },
+  // Мастер первичной настройки. Остаётся в меню и после запуска: чек-лист структуры
+  // полезен и потом, а прятать пункт по состоянию данных значит прятать его непредсказуемо.
+  { key: 'setup', href: '/university-admin/setup', icon: Rocket, group: 'main' },
 
   // Структура вуза: то, что заводят один раз и меняют редко.
   { key: 'faculties', href: '/university-admin/faculties', icon: Building2, group: 'structure' },
@@ -217,6 +222,9 @@ export const STAROSTA_NAV: NavItem[] = [
 export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'dashboard', href: '/platform-admin', icon: LayoutDashboard, exact: true },
   { key: 'universities', href: '/platform-admin/universities', icon: Building2 },
+  // Заявки стоят сразу за вузами: это вход в тот же список, только до того, как вуз
+  // в нём появился.
+  { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
   { key: 'users', href: '/platform-admin/users', icon: Users },
   { key: 'invites', href: '/platform-admin/invites', icon: Send },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },

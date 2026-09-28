@@ -1,5 +1,5 @@
 import type { Dictionary } from '../content'
-import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
+import { PLATFORM_LINKS } from '../config/site'
 import { Container, LinkButton } from './primitives'
 import { MeshBackdrop } from './mesh-backdrop'
 import { Scene } from './scenes'
@@ -22,7 +22,6 @@ import { Scene } from './scenes'
  */
 export function Hero({ dict }: { dict: Dictionary }) {
   const t = dict.hero
-  const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(dict.cta.mailSubject)}`
 
   return (
     <MeshBackdrop>
@@ -65,7 +64,7 @@ export function Hero({ dict }: { dict: Dictionary }) {
 
           {/* Кнопки — в строку с переносом: на 375 px они обязаны остаться над сгибом. */}
           <div className="sh-soft-up mt-9 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap [--delay:0.5s]">
-            <LinkButton href={mailto} external variant="primary">
+            <LinkButton href={PLATFORM_LINKS.demoRequest} external variant="primary">
               {t.ctaDemo}
             </LinkButton>
             <LinkButton href="#product" variant="secondary">

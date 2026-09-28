@@ -8,6 +8,9 @@ import { MailerService } from './mailer.service'
 import {
   renderApplicationStatus,
   renderCompanyVerification,
+  renderDemoApproved,
+  renderDemoRejected,
+  renderDemoVerification,
   renderEventReminder,
   renderInvite,
   renderNotification,
@@ -15,6 +18,9 @@ import {
   renderWelcome,
   type ApplicationStatusPayload,
   type CompanyVerificationPayload,
+  type DemoApprovedPayload,
+  type DemoRejectedPayload,
+  type DemoVerificationPayload,
   type EventReminderPayload,
   type InvitePayload,
   type NotificationPayload,
@@ -78,6 +84,12 @@ export class EmailProcessor extends WorkerHost {
         return renderNotification(data as unknown as NotificationPayload)
       case EMAIL_JOBS.SEND_COMPANY_VERIFICATION:
         return renderCompanyVerification(data as unknown as CompanyVerificationPayload)
+      case EMAIL_JOBS.SEND_DEMO_VERIFICATION:
+        return renderDemoVerification(data as unknown as DemoVerificationPayload)
+      case EMAIL_JOBS.SEND_DEMO_APPROVED:
+        return renderDemoApproved(data as unknown as DemoApprovedPayload)
+      case EMAIL_JOBS.SEND_DEMO_REJECTED:
+        return renderDemoRejected(data as unknown as DemoRejectedPayload)
       default:
         return null
     }

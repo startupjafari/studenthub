@@ -13,6 +13,9 @@ const PUBLIC_PATHS = [
   '/offline',
   '/employer/signup',
   '/employer/verify',
+  // Заявка вуза на тестирование (§31): её открывает человек из вуза, у которого
+  // аккаунта ещё нет и по определению быть не может — вуза на платформе пока нет.
+  '/demo',
   // Публичное резюме по ссылке: её открывает работодатель, у которого аккаунта нет.
   '/r/resume',
   // Проверка выданного документа по коду из бланка: её открывает банк, работодатель,
@@ -27,7 +30,12 @@ const PUBLIC_PATHS = [
  * в другом аккаунте или в этом же. Редирект на home в этот момент означал бы, что письмо
  * «не работает», а адрес так и остался неподтверждённым.
  */
-const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = ['/employer/verify', '/r/resume', '/verify']
+const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = [
+  '/employer/verify',
+  '/demo/verify',
+  '/r/resume',
+  '/verify',
+]
 
 interface RoleCookie {
   role: Role

@@ -32,7 +32,7 @@ export const APP_URL = normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL, 'http://
 /** Канонический адрес самого лендинга — нужен метаданным и sitemap. */
 export const SITE_URL = normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL, 'http://localhost:3002')
 
-/** Куда писать за демонстрацией, пока форма не подключена к API (PR 5). */
+/** Куда писать, если человек хочет сначала поговорить, а не заполнять форму. */
 export const SALES_EMAIL = process.env.NEXT_PUBLIC_SALES_EMAIL ?? 'hello@studenthub.app'
 
 /**
@@ -41,6 +41,13 @@ export const SALES_EMAIL = process.env.NEXT_PUBLIC_SALES_EMAIL ?? 'hello@student
  */
 export const PLATFORM_LINKS = {
   login: `${APP_URL}/login`,
+  /**
+   * Заявка вуза на тестирование. Форма живёт на платформе, а не здесь, и это решение:
+   * лендинг — статическая страница без единой формы, у него другой домен и другой
+   * деплой. На платформе origin уже разрешён, а персональные данные лежат там, где для
+   * них есть правила.
+   */
+  demoRequest: `${APP_URL}/demo`,
   employerSignup: `${APP_URL}/employer/signup`,
   verifyDocument: `${APP_URL}/verify`,
 } as const
