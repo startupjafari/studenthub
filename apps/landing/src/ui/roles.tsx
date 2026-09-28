@@ -1,42 +1,43 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Building2, Check, GraduationCap, Shield, ShieldCheck, UserCog, Users } from 'lucide-react'
+import { Building2, Check, GraduationCap, Landmark, UserCog, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Dictionary } from '../content'
 import { AnimatePresence, motion, SPRING, SWAP, useReducedMotion } from './motion'
-import { Reveal, Section, SectionHeading } from './primitives'
+import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 import { AppMock } from './scenes/app-mock'
 
 /**
- * Иконки ролей. Восемь текстовых пунктов в ряд сливаются в сплошную полосу — значок
- * даёт каждой вкладке опору для глаза и помогает вернуться к нужной после прокрутки.
+ * Иконки ролей. Пять текстовых пунктов в ряд сливаются в сплошную полосу — значок даёт
+ * каждой вкладке опору для глаза и помогает вернуться к нужной после прокрутки.
  *
  * Живут в коде, а не в словаре: это часть интерфейса, а не текст для перевода.
+ *
+ * Ролей у платформы восемь, но администратора и модератора самой платформы на сайте нет:
+ * это наши собственные роли, а не роли вуза, и вузу на странице о нём они не адресованы.
  */
 const ROLE_ICONS: Record<string, LucideIcon> = {
   student: GraduationCap,
   starosta: Users,
   teacher: UserCog,
-  dean: Building2,
-  universityModerator: Shield,
+  dean: Landmark,
   universityAdmin: Building2,
-  platformModerator: ShieldCheck,
-  platformAdmin: Shield,
 }
 
 /**
- * Переключатель ролей.
+ * Переключатель ролей — главная демонстрация продукта на странице, и ссылка «Продукт»
+ * из шапки ведёт сюда: раньше этот якорь принадлежал секции «Один день», а после её
+ * удаления упирался в пустоту.
  *
  * Отвечает на вопрос, который иначе занимает три абзаца: «а что увижу я?» И попутно
  * показывает главное про модель доступа — роли видят разное не потому, что лишнее
  * спрятано в интерфейсе, а потому что область данных задана ролью.
  *
- * Под описанием стоят права и строка `scope` — та самая область данных из токена, о
- * которой говорит подзаголовок секции. Это доказательство тезиса, а не его повторение
- * словами: видно, что именно ограничивает роль на уровне запроса.
+ * У роли три пункта и перестроенное меню макета рядом — больше ничего. Абзац описания
+ * отсюда убран: он повторял те же три пункта связным текстом, и глаз читал их дважды.
  */
-export function Roles({ dict }: { dict: Dictionary }) {
+export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
   const t = dict.roles
   const [activeIndex, setActiveIndex] = useState(0)
   const calm = useReducedMotion()
@@ -62,13 +63,13 @@ export function Roles({ dict }: { dict: Dictionary }) {
   }
 
   return (
-    <Section>
+    <Section id="product" tone={tone}>
       <SectionHeading title={t.title} subtitle={t.subtitle} />
 
       <Reveal className="flex flex-col gap-[clamp(1.75rem,3vw,2.5rem)]">
         {/*
-          Восемь ролей в строку не помещаются нигде, кроме широкого десктопа, поэтому ряд
-          прокручивается сам, а затухание у краёв сообщает, что вкладки продолжаются.
+          Пять ролей в строку помещаются не на всякой ширине, поэтому ряд прокручивается
+          сам, а затухание у краёв сообщает, что вкладки продолжаются.
           Горизонтальной прокрутки страницы при этом не появляется — едет только ряд.
 
           Дорожки с рамкой вокруг ряда больше нет: подложку носит сама активная вкладка и
@@ -152,28 +153,19 @@ export function Roles({ dict }: { dict: Dictionary }) {
               <h3 className="font-display text-xl font-semibold tracking-[-0.02em]">
                 {active.title}
               </h3>
-              {/* Описание — нейтральным серым. Акцентный синий на абзаце читается как
-                ссылка; акцент в этом блоке принадлежит заголовку и активной вкладке. */}
-              <p className="text-sm leading-relaxed text-muted-foreground">{active.text}</p>
 
-              {/* Права: одно предложение выше их не передаёт, а вузу важно именно это. */}
+              {/* Три пункта — то, что роль делает. Галочка, а не маркер списка: это не
+                  перечисление свойств, а перечень доступного. */}
               <ul className="flex flex-col gap-3">
-                {active.rights.map((right) => (
-                  <li key={right} className="flex items-start gap-3 text-sm">
+                {active.points.map((point) => (
+                  <li key={point} className="flex items-start gap-3 text-sm">
                     <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border border-success/25 bg-success/10">
                       <Check className="size-3 text-success" aria-hidden />
                     </span>
-                    <span className="text-foreground/85">{right}</span>
+                    <span className="text-foreground/85">{point}</span>
                   </li>
                 ))}
               </ul>
-
-              {/* Область данных как её видит бэкенд — моноширинным и мелко.
-                  На 320 px строка длиннее колонки: прокручивается сама, а не распирает
-                  раскладку. */}
-              <code className="max-w-full overflow-x-auto rounded-xl border border-hairline bg-background/60 px-3.5 py-2.5 font-mono text-[0.7rem] whitespace-nowrap text-muted-foreground">
-                {active.scope}
-              </code>
             </motion.div>
           </AnimatePresence>
 
@@ -187,7 +179,7 @@ export function Roles({ dict }: { dict: Dictionary }) {
               exit={calm ? undefined : { opacity: 0, y: -10 }}
               transition={SWAP}
             >
-              <AppMock role={active} appName={dict.scenes.appName} />
+              <AppMock role={active} appName={t.appName} />
             </motion.div>
           </AnimatePresence>
         </div>

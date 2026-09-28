@@ -53,7 +53,12 @@ export function SiteMotion() {
       requestAnimationFrame(step)
     }
 
-    if ('IntersectionObserver' in window) {
+    // При пониженном движении наблюдатель не заводится вовсе: обещано «числа сразу на
+    // конечном значении», а наблюдатель ставил бы их только когда до них долистают — до
+    // тех пор в разделе висели нули, и это читалось как настоящие нули продукта.
+    if (calm) {
+      counters.forEach(runCounter)
+    } else if ('IntersectionObserver' in window) {
       const io = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {

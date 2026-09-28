@@ -70,7 +70,13 @@ export function Reveal({
 
   return (
     <Tag
-      className={className}
+      // Класс-метка нужен таблице стилей: при `prefers-reduced-motion` она возвращает
+      // блоку видимость, не дожидаясь прокрутки. Разметку рисует сервер, а там
+      // `useReducedMotion()` отвечать нечему — окна нет; на сервере условие всегда
+      // ложно, и в HTML уезжает `opacity: 0`. Дальше блок ждал бы попадания в кадр, а
+      // обещано «просто показан»: человек, пришедший по якорю в середину страницы,
+      // видел бы пустоту выше и ниже.
+      className={`sh-reveal ${className}`}
       style={style}
       initial={calm ? false : { opacity: 0, y: 18 }}
       whileInView={{ opacity: 1, y: 0 }}
