@@ -168,7 +168,10 @@ function InvitesCard() {
   if (invites === null) return null
 
   return (
-    <section className="card">
+    // Карточка стоит последней на экране и забирает всю оставшуюся высоту. Пустая она
+    // выглядела обрезком в две строки под списком людей — как будто дальше что-то ещё
+    // грузится. Пустое место внизу принадлежит ей, и текст в ней стоит по середине.
+    <section className={`card invites${invites.length === 0 ? ' invites-empty' : ''}`}>
       <h2>{t('invitesTitle')}</h2>
       {error && <p className="hint-danger">{error}</p>}
       {invites.length === 0 && <p className="hint">{t('invitesEmpty')}</p>}
