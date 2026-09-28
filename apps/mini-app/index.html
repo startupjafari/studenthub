@@ -2,7 +2,23 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      `user-scalable=no` — против зума по фокусу на поле.
+
+      Android-клиент увеличивает страницу, когда палец встаёт в поле ввода, и обратно её
+      не возвращает: мини-апп остаётся растянутым, половина экрана уходит за край, а
+      вернуть масштаб внутри Telegram нечем — адресной строки и кнопки «сбросить» там нет.
+      Одного размера текста в поле (styles.css, `pointer: coarse`) не хватило: он лечит
+      Safari на iOS, где этот параметр вообще игнорируется, а Android смотрит именно сюда.
+
+      Цена решения названа прямо: вместе с зумом по фокусу уходит и зум пальцами. Взамен
+      у мини-аппа есть свой крупный шрифт — «⋯» → «Настройки» → размер текста
+      (lib/font-scale.ts); он и остаётся способом сделать текст больше.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <title>StudentHub</title>
     <!--
       SDK Telegram подключается ТОЛЬКО с telegram.org и только этим тегом: библиотека
