@@ -46,7 +46,12 @@ function makeService() {
   const chats = { deliverDueScheduled: jest.fn(async () => 0) as Mock }
   const audit = { record: jest.fn(async () => undefined) as Mock }
   // Суточная сводка: cron спрашивает час отправки у состояния платформы и пишет в Telegram.
-  const support = { closeStale: jest.fn(async () => 0) as Mock }
+  const support = {
+    closeStale: jest.fn(async () => 0) as Mock,
+    queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock,
+  }
+  // Размер очереди жалоб считает владелец таблицы; планировщик только спрашивает.
+  const complaints = { queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock }
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
@@ -71,6 +76,7 @@ function makeService() {
     audit as never,
     redis as never,
     support as never,
+    complaints as never,
     telegram as never,
     platform as never,
   )

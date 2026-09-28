@@ -2,7 +2,11 @@ import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ApiExcludeController } from '@nestjs/swagger'
 import { Public, MaintenanceExempt } from '../../common/decorators'
-import { TelegramHookService, type CallbackQuery } from './telegram-hook.service'
+import {
+  TelegramHookService,
+  type CallbackQuery,
+  type TelegramMessage,
+} from './telegram-hook.service'
 
 // Приём обновлений от бота (docs/PROJECT.md §Мини-апп).
 //
@@ -30,10 +34,13 @@ export class TelegramHookController {
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   async update(
     @Headers('x-telegram-bot-api-secret-token') secret: string | undefined,
-    @Body() body: { callback_query?: CallbackQuery } | undefined,
+    @Body() body: { callback_query?: CallbackQuery; message?: TelegramMessage } | undefined,
   ): Promise<{ ok: true }> {
     if (!this.hook.secretMatches(secret)) return { ok: true }
     if (body?.callback_query) await this.hook.handleCallback(body.callback_query)
+    // Сообщения приходят тем же вебхуком. Если у бота сужен allowed_updates, в нём должен
+    // быть `message` — иначе команды до нас просто не доедут (docs/RAILWAY.md).
+    else if (body?.message) await this.hook.handleMessage(body.message)
     return { ok: true }
   }
 }
