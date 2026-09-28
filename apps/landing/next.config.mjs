@@ -54,6 +54,9 @@ const PLATFORM_SEGMENTS = [
   'moderator',
 ]
 
+/** Разработка или прод: от этого зависят послабления в CSP (см. headers ниже). */
+const DEV = process.env.NODE_ENV !== 'production'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
@@ -98,19 +101,31 @@ const nextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // Лендинг не запрашивает ни камеру, ни геолокацию, ни микрофон.
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          // Страницы статические, внешних источников нет — CSP тут может быть жёстким.
-          // `unsafe-inline` для скриптов нужен бутстрапу Next и разметке JSON-LD
-          // (src/ui/structured-data.tsx), `frame-ancestors` закрывает встраивание:
-          // на лендинге есть кнопки «Войти», ведущие на платформу.
+          /*
+            Страницы статические, внешних источников нет — CSP тут может быть жёстким.
+            `unsafe-inline` для скриптов нужен бутстрапу Next и разметке JSON-LD
+            (src/ui/structured-data.tsx), `frame-ancestors` закрывает встраивание:
+            на лендинге есть кнопки «Войти», ведущие на платформу.
+
+            Послабления в разработке — не лень, а условие работы. Дев-сборка Next держит
+            на `eval` карты исходников и горячую замену модулей, а её канал — вебсокет.
+            С прод-политикой клиентский бандл падал целиком на первой же строке, и
+            страница оставалась такой, какой её отрисовал сервер: первый экран (он на CSS)
+            виден, а всё ниже — с нулевой прозрачностью, потому что проявляет блоки
+            как раз тот сценарий, который не запустился. Выглядело как пустой сайт.
+
+            На прод это не влияет: `next build` собирает без eval, и послабления туда
+            не попадают — NODE_ENV там `production`.
+          */
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              `script-src 'self' 'unsafe-inline'${DEV ? " 'unsafe-eval'" : ''}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self' data:",
-              "connect-src 'self'",
+              `connect-src 'self'${DEV ? ' ws: wss:' : ''}`,
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
