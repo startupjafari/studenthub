@@ -8,6 +8,7 @@ import {
   type ApproveDemoRequestInput,
   type DemoRejectionReasonValue,
   type DemoRequestListQueryInput,
+  type DemoRequestSortValue,
   type RejectDemoRequestInput,
   type SubmitDemoRequestInput,
 } from '@studenthub/shared-schemas'
@@ -92,6 +93,22 @@ const REQUEST_SELECT = {
   universityId: true,
   createdAt: true,
 } satisfies Prisma.UniversityDemoRequestSelect
+
+/**
+ * Порядок выборки. Вторым ключом всегда дата: у двух вузов с одинаковым названием или у
+ * двух заявок одного контакта иначе нет устойчивого порядка, и строки прыгали бы между
+ * страницами при листании.
+ */
+function orderFor(
+  sort: DemoRequestSortValue | undefined,
+  order: 'asc' | 'desc' | undefined,
+): Prisma.UniversityDemoRequestOrderByWithRelationInput[] {
+  // Новые сверху по умолчанию: очередь разбирают с конца, а не с начала истории.
+  const byDate: Prisma.UniversityDemoRequestOrderByWithRelationInput = { createdAt: 'desc' }
+  if (!sort) return [byDate]
+  const dir = order ?? 'asc'
+  return sort === 'createdAt' ? [{ createdAt: dir }] : [{ [sort]: dir }, byDate]
+}
 
 @Injectable()
 export class DemoRequestsService {
@@ -334,8 +351,7 @@ export class DemoRequestsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.universityDemoRequest.findMany({
         where,
-        // Новые сверху: очередь разбирают с конца, а не с начала истории.
-        orderBy: { createdAt: 'desc' },
+        orderBy: orderFor(query.sort, query.order),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
         select: REQUEST_SELECT,

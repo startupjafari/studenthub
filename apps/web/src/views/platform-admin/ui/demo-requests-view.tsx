@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
-import type { DemoRequestStatusValue } from '@studenthub/shared-schemas'
+import type { DemoRequestSortValue, DemoRequestStatusValue } from '@studenthub/shared-schemas'
 import { fetchDemoRequests, onboardingKeys, type DemoRequest } from '../../../entities/onboarding'
 import {
   Badge,
@@ -22,6 +22,7 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DemoRequestModal } from './demo-request-modal'
@@ -71,7 +72,14 @@ export function DemoRequestsView() {
   const [page, setPage] = useState(1)
   const [openId, setOpenId] = useState<string | null>(null)
 
-  const params = { status: tab, page, limit: LIMIT }
+  // Сортировка серверная: на второй странице «по алфавиту» иначе начинается заново.
+  const { sort, toggle } = useSortState()
+  const params = {
+    status: tab,
+    page,
+    limit: LIMIT,
+    ...(sort ? { sort: sort.key as DemoRequestSortValue, order: sort.dir } : {}),
+  }
   const requests = useQuery({
     queryKey: onboardingKeys.demoRequests(params),
     queryFn: () => fetchDemoRequests(params),
@@ -83,20 +91,23 @@ export function DemoRequestsView() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
-
-      <SegmentedTabs
-        items={TABS.map((value) => ({ value, label: t(`tab${value}`) }))}
-        value={tab}
-        onChange={(next) => {
-          setTab(next)
-          // Страница сбрасывается вместе с вкладкой: третья страница отклонённых и
-          // третья страница новых — разные выборки, и переносить номер между ними
-          // значит открывать пустой экран.
-          setPage(1)
-        }}
-        aria-label={t('title')}
-        compact
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        tabs={
+          <SegmentedTabs
+            items={TABS.map((value) => ({ value, label: t(`tab${value}`) }))}
+            value={tab}
+            onChange={(next) => {
+              setTab(next)
+              // Страница сбрасывается вместе с вкладкой: третья страница отклонённых и
+              // третья страница новых — разные выборки, и переносить номер между ними
+              // значит открывать пустой экран.
+              setPage(1)
+            }}
+            aria-label={t('title')}
+          />
+        }
       />
 
       {requests.isError ? (
@@ -108,10 +119,28 @@ export function DemoRequestsView() {
           <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('colUniversity')}</TableHead>
-                <TableHead className={HIDE.contact}>{t('colContact')}</TableHead>
-                <TableHead className={HIDE.email}>{t('colEmail')}</TableHead>
-                <TableHead className={HIDE.createdAt}>{t('colCreatedAt')}</TableHead>
+                <TableHead sortKey="universityName" sort={sort} onSort={toggle}>
+                  {t('colUniversity')}
+                </TableHead>
+                <TableHead
+                  sortKey="contactName"
+                  sort={sort}
+                  onSort={toggle}
+                  className={HIDE.contact}
+                >
+                  {t('colContact')}
+                </TableHead>
+                <TableHead sortKey="email" sort={sort} onSort={toggle} className={HIDE.email}>
+                  {t('colEmail')}
+                </TableHead>
+                <TableHead
+                  sortKey="createdAt"
+                  sort={sort}
+                  onSort={toggle}
+                  className={HIDE.createdAt}
+                >
+                  {t('colCreatedAt')}
+                </TableHead>
                 <TableHead>{t('colStatus')}</TableHead>
               </TableRow>
             </TableHeader>

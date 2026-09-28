@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Приход вуза на платформу (docs/PROJECT.md §31): заявка с публичной формы, решение
 // модератора платформы и мастер первичной настройки.
@@ -76,9 +76,29 @@ export type VerifyDemoRequestEmailInput = z.infer<typeof VerifyDemoRequestEmailS
 
 // ── Очередь модерации ────────────────────────────────────────────────────────
 
+/**
+ * Колонки очереди, по которым разрешена сортировка.
+ *
+ * Статуса здесь нет намеренно: вкладка экрана И ЕСТЬ фильтр по статусу, у всех строк
+ * выборки он одинаковый, и сортировка по нему не меняет ничего. Предлагать её — обещать
+ * действие, которого не произойдёт.
+ */
+export const DEMO_REQUEST_SORT_FIELDS = [
+  'universityName',
+  'contactName',
+  'email',
+  'createdAt',
+] as const
+export const DemoRequestSortSchema = z.enum(DEMO_REQUEST_SORT_FIELDS)
+export type DemoRequestSortValue = z.infer<typeof DemoRequestSortSchema>
+
+// Сортировка серверная и по ВСЕЙ выборке, а не по открытой странице: на второй странице
+// «по алфавиту» иначе начинается заново.
 export const DemoRequestListQuerySchema = OffsetPaginationSchema.extend({
   status: DemoRequestStatusSchema.optional(),
   search: z.string().trim().min(2).max(100).optional(),
+  sort: DemoRequestSortSchema.optional(),
+  order: SortOrderSchema.optional(),
 })
 export type DemoRequestListQueryInput = z.infer<typeof DemoRequestListQuerySchema>
 
