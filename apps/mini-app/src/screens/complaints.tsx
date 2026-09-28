@@ -279,7 +279,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
             aria-pressed={priority === null}
             onClick={() => {
               haptic.select()
-              setPriority(null)
+              if (priority !== null) navigate(() => setPriority(null), 'fade')
             }}
           >
             {t('complaintsFilterAll')}
@@ -292,7 +292,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
               aria-pressed={priority === value}
               onClick={() => {
                 haptic.select()
-                setPriority(value)
+                if (priority !== value) navigate(() => setPriority(value), 'fade')
               }}
             >
               {t(PRIORITY_KEY[value])}

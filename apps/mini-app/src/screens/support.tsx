@@ -22,7 +22,7 @@ import { ApiError } from '../api/client'
 import { createComplaintFromSupport } from '../api/complaints'
 import { searchPeople, type Person } from '../api/people'
 import { confirmAction, haptic, setClosingConfirmation } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { useBackHandler } from '../lib/back'
 import { t } from '../i18n'
 import {
   IconBell,
@@ -158,7 +158,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
             aria-pressed={tag === null}
             onClick={() => {
               haptic.select()
-              setTag(null)
+              if (tag !== null) navigate(() => setTag(null), 'fade')
             }}
           >
             {t('complaintsFilterAll')}
@@ -171,7 +171,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
               aria-pressed={tag === row.tag}
               onClick={() => {
                 haptic.select()
-                setTag((prev) => (prev === row.tag ? null : row.tag))
+                navigate(() => setTag((prev) => (prev === row.tag ? null : row.tag)), 'fade')
               }}
             >
               {t(SUPPORT_TAG_KEY[row.tag])} · {row.count}
@@ -276,7 +276,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   // Возврат один — кнопка Telegram. С переписки и со страницы жалобы он ведёт к самому
   // обращению, с обращения — в очередь: выход всегда на шаг назад, а не сразу на два.
   const toTicket = useCallback(() => navigate(() => setPage('ticket'), 'back'), [])
-  useBackButton(page === 'ticket' ? onBack : toTicket)
+  useBackHandler(page === 'ticket' ? onBack : toTicket)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })

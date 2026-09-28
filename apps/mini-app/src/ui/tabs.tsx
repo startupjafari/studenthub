@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { haptic } from '../telegram/webapp'
+import { navigate } from '../lib/navigate'
 
 export interface TabItem<T extends string> {
   id: T
@@ -22,6 +23,11 @@ export interface TabItem<T extends string> {
  * До замера плашки нет вовсе (`data-lens` не выставлен), и выбранная вкладка красится
  * фоном по-старому: в окружении без разметки (тесты, отключённый JS-рендер размеров)
  * переключатель обязан оставаться читаемым, а не терять выделение целиком.
+ *
+ * Смена вкладки идёт через `navigate` — тем же переходом, что и смена экрана внизу
+ * (lib/navigate.ts). Вкладка меняет ВСЁ содержимое под собой, и мгновенная подмена
+ * читалась как рывок: плашка едет плавно, а то, ради чего её двигали, скачком. Переход
+ * растворяющий, а не въезжающий сбоку: вкладки — соседи, а не уровни вложенности.
  */
 export function Tabs<T extends string>({
   items,
@@ -93,7 +99,7 @@ export function Tabs<T extends string>({
             // Отклик пальцу раньше, чем ответ экрана: содержимое вкладки может ещё
             // грузиться, и без него нажатие секунду выглядит непринятым.
             haptic.select()
-            onSelect(item.id)
+            if (item.id !== active) navigate(() => onSelect(item.id), 'fade')
           }}
         >
           {item.label}
