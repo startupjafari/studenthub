@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import { revokeSessions, setBlocked, type Person } from '../api/people'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { useBackHandler } from '../lib/back'
 import { t } from '../i18n'
 import { ScreenHeader } from '../ui/screen-header'
 import { PersonSummary } from './person-summary'
@@ -43,7 +43,7 @@ export function PersonScreen({
   const [code, setCode] = useState('')
   const [blockDays, setBlockDays] = useState(0)
 
-  useBackButton(onBack)
+  useBackHandler(onBack)
 
   const name = `${person.lastName} ${person.firstName}`
 

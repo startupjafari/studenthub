@@ -113,6 +113,11 @@ export interface TelegramWebApp {
   contentSafeAreaInset?: TelegramInsets
   /** Цвет полосы под нижними кнопками. Bot API 7.10. */
   setBottomBarColor?: (color: string) => void
+  /**
+   * Открыть внешнюю ссылку средствами клиента. Своей вкладки у WebView мини-аппа нет:
+   * переход внутри него уводит из приложения без пути назад.
+   */
+  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void
   /** Нативное подтверждение. `ok` — нажал ли человек согласие. */
   showConfirm: (message: string, callback: (ok: boolean) => void) => void
   MainButton: TelegramMainButton

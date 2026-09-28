@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { haptic } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { useBackHandler } from '../lib/back'
 import { applyFontScale, isLargeFont } from '../lib/font-scale'
 import { ScreenHeader } from '../ui/screen-header'
 import { Tile } from '../ui/tile'
@@ -16,7 +16,7 @@ import { t } from '../i18n'
 
 export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const [large, setLarge] = useState(isLargeFont)
-  useBackButton(onBack)
+  useBackHandler(onBack)
 
   return (
     <div className="screen">

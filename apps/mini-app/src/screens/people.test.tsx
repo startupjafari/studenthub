@@ -38,7 +38,7 @@ vi.mock('../telegram/use-telegram', () => ({
 }))
 
 import { confirmAction } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { goBack } from '../lib/back'
 import { searchPeople, setBlocked } from '../api/people'
 import { PeopleScreen } from './people'
 
@@ -130,9 +130,9 @@ describe('PeopleScreen', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
     expect(await screen.findByRole('button', { name: 'Разблокировать' })).toBeInTheDocument()
 
-    // Возврат в мини-аппе один — кнопка Telegram: своей стрелки в шапке нет. Зовём тот
-    // же обработчик, который экран отдал клиенту.
-    await act(async () => vi.mocked(useBackButton).mock.calls.at(-1)?.[0]?.())
+    // Возврат в мини-аппе один — кнопка Telegram: своей стрелки в шапке нет. Зовём то же,
+    // что зовёт она (lib/back.ts): верхний обработчик стека принадлежит открытому экрану.
+    await act(async () => goBack())
 
     expect(await screen.findByText('Заблокирован')).toBeInTheDocument()
     expect(vi.mocked(searchPeople).mock.calls.length).toBe(callsBefore)

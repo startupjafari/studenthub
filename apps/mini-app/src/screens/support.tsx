@@ -22,7 +22,7 @@ import { ApiError } from '../api/client'
 import { createComplaintFromSupport } from '../api/complaints'
 import { searchPeople, type Person } from '../api/people'
 import { confirmAction, haptic, setClosingConfirmation } from '../telegram/webapp'
-import { useBackButton } from '../telegram/use-telegram'
+import { useBackHandler } from '../lib/back'
 import { t } from '../i18n'
 import {
   IconBell,
@@ -41,6 +41,7 @@ import { Tabs } from '../ui/tabs'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { SkeletonList } from '../ui/skeleton'
+import { MessageText } from '../ui/message-text'
 import { useVoiceRecorder } from '../telegram/use-voice'
 import { navigate } from '../lib/navigate'
 import { useFullScreen } from '../lib/chrome'
@@ -157,7 +158,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
             aria-pressed={tag === null}
             onClick={() => {
               haptic.select()
-              setTag(null)
+              if (tag !== null) navigate(() => setTag(null), 'fade')
             }}
           >
             {t('complaintsFilterAll')}
@@ -170,7 +171,7 @@ function QueueView({ onOpen }: { onOpen: (ticket: SupportTicket) => void }) {
               aria-pressed={tag === row.tag}
               onClick={() => {
                 haptic.select()
-                setTag((prev) => (prev === row.tag ? null : row.tag))
+                navigate(() => setTag((prev) => (prev === row.tag ? null : row.tag)), 'fade')
               }}
             >
               {t(SUPPORT_TAG_KEY[row.tag])} · {row.count}
@@ -275,7 +276,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
   // Возврат один — кнопка Telegram. С переписки и со страницы жалобы он ведёт к самому
   // обращению, с обращения — в очередь: выход всегда на шаг назад, а не сразу на два.
   const toTicket = useCallback(() => navigate(() => setPage('ticket'), 'back'), [])
-  useBackButton(page === 'ticket' ? onBack : toTicket)
+  useBackHandler(page === 'ticket' ? onBack : toTicket)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })
@@ -607,11 +608,18 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
 }
 
 /**
- * Переписка с человеком — во весь экран.
+ * Переписка с человеком — во весь экран и устроена как разговор, а не как страница.
+ *
+ * Разница не косметическая. Страница прокручивается целиком, и поле ввода, прилипшее к
+ * низу, оказывалось ПОВЕРХ текста: длинное сообщение продолжалось под ним и уходило под
+ * нижний край экрана — читать его было нечем. В разговоре прокручивается только лента
+ * реплик, а поле ввода стоит под ней и ничего не закрывает; лента открывается на
+ * последней реплике, как в любом мессенджере, — свежее сообщение и есть то, ради чего
+ * экран открыли.
  *
  * Панель разделов на это время уходит: из чужого разговора выходят назад, к обращению, а
- * не в соседний раздел, и место внизу принадлежит полю ответа. Сверху — с кем говорим:
- * экран открывается и по ссылке из уведомления, где имени не было ни на одном экране до.
+ * не в соседний раздел. Сверху — узкая полоса с тем, с кем говорим: экран открывается и
+ * по ссылке из уведомления, где имени не было ни на одном экране до.
  */
 function ChatView({
   id,
@@ -680,6 +688,17 @@ function ChatView({
     return () => setClosingConfirmation(false)
   }, [text])
 
+  // Лента открывается на последней реплике и остаётся на ней после отправки: разговор
+  // читают с конца, и приехавший ответ не должен требовать прокрутки, чтобы его увидеть.
+  // Мгновенно, а не плавно: плавная прокрутка через всю историю выглядит как промотка
+  // чужой переписки у человека на глазах.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const count = messages?.length ?? 0
+  useEffect(() => {
+    const el = bodyRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [count])
+
   // Поле растёт вместе с текстом, как в Telegram: до пяти строк, дальше прокрутка внутри.
   // Одна строка в покое — пустое поле в три строки занимало треть экрана переписки.
   const fieldRef = useRef<HTMLTextAreaElement>(null)
@@ -693,53 +712,66 @@ function ChatView({
   return (
     // `data-no-swipe` — чтобы листание разделов (ui/swipe-tabs.tsx) не хватало палец в
     // переписке: соседние разделы отсюда не соседи, выход один и он назад.
-    <div className="screen" data-no-swipe aria-busy={messages === null && !failed}>
-      <ScreenHeader title={title} />
+    <div className="chat" data-no-swipe aria-busy={messages === null && !failed}>
+      {/* Полоса с собеседником вместо крупного заголовка: в разговоре важно, кому ты
+          отвечаешь, а не как называется экран, — и место наверху лучше отдать репликам. */}
+      <header className="chat-head">
+        <span className="avatar-sm" aria-hidden>
+          {initials(title)}
+        </span>
+        <h1 className="chat-head-name">{title}</h1>
+      </header>
 
-      {messages === null && !failed && <SkeletonList />}
+      <div className="chat-body" ref={bodyRef}>
+        {messages === null && !failed && <SkeletonList />}
 
-      {failed && <StatePlate title={t('supportThreadError')} onRetry={() => void onReload()} />}
+        {failed && <StatePlate title={t('supportThreadError')} onRetry={() => void onReload()} />}
 
-      {messages !== null && messages.length === 0 && <StatePlate title={t('supportChatEmpty')} />}
+        {messages !== null && messages.length === 0 && <StatePlate title={t('supportChatEmpty')} />}
 
-      {messages !== null && messages.length > 0 && (
-        <section className="thread">
-          {messages.map((message, index) => {
-            // «Своё» здесь — сказанное командой платформы: экран читает поддержка, и её
-            // реплики должны отличаться от реплик человека, которому отвечают. Автор
-            // обращения известен из карточки, остальные участники — команда.
-            const fromStaff = authorId ? message.sender.id !== authorId : false
-            // Разделитель дня — плашкой по центру, как в Telegram: переписка поддержки
-            // тянется днями, и «вчера» против «сегодня» меняет смысл «ответили быстро».
-            const day = dayLabel(message.createdAt)
-            const prev = messages[index - 1]
-            const newDay = !prev || dayLabel(prev.createdAt) !== day
-            return (
-              <Fragment key={message.id}>
-                {newDay && <span className="thread-day">{day}</span>}
-                <div className={fromStaff ? 'bubble mine' : 'bubble theirs'}>
-                  {!fromStaff && <span className="bubble-author">{message.sender.firstName}</span>}
-                  <span>{message.content}</span>
-                  {/* Вложение объясняет больше абзаца текста; скачать его из мини-аппа
+        {messages !== null && messages.length > 0 && (
+          <section className="thread">
+            {messages.map((message, index) => {
+              // «Своё» здесь — сказанное командой платформы: экран читает поддержка, и её
+              // реплики должны отличаться от реплик человека, которому отвечают. Автор
+              // обращения известен из карточки, остальные участники — команда.
+              const fromStaff = authorId ? message.sender.id !== authorId : false
+              // Разделитель дня — плашкой по центру, как в Telegram: переписка поддержки
+              // тянется днями, и «вчера» против «сегодня» меняет смысл «ответили быстро».
+              const day = dayLabel(message.createdAt)
+              const prev = messages[index - 1]
+              const newDay = !prev || dayLabel(prev.createdAt) !== day
+              return (
+                <Fragment key={message.id}>
+                  {newDay && <span className="thread-day">{day}</span>}
+                  <div className={fromStaff ? 'bubble mine' : 'bubble theirs'}>
+                    {!fromStaff && (
+                      <span className="bubble-author">{message.sender.firstName}</span>
+                    )}
+                    {/* Текст разбирается так же, как в чатах платформы: ссылка становится
+                      ссылкой, переводы строк остаются переводами строк. */}
+                    {message.content && <MessageText content={message.content} />}
+                    {/* Вложение объясняет больше абзаца текста; скачать его из мини-аппа
                       нельзя, но знать, что оно есть, модератор обязан. */}
-                  {message.media && message.media.length > 0 && (
-                    <span className="bubble-meta">
-                      {t('supportAttachments', { count: message.media.length })}
-                    </span>
-                  )}
-                  <span className="bubble-meta">{formatShortTime(message.createdAt)}</span>
-                </div>
-              </Fragment>
-            )
-          })}
-        </section>
-      )}
+                    {message.media && message.media.length > 0 && (
+                      <span className="bubble-meta">
+                        {t('supportAttachments', { count: message.media.length })}
+                      </span>
+                    )}
+                    <span className="bubble-meta">{formatShortTime(message.createdAt)}</span>
+                  </div>
+                </Fragment>
+              )
+            })}
+          </section>
+        )}
 
-      {error && (
-        <section className="card">
-          <p className="hint-danger">{error}</p>
-        </section>
-      )}
+        {error && (
+          <section className="card">
+            <p className="hint-danger">{error}</p>
+          </section>
+        )}
+      </div>
 
       {/* Поле ввода — последним и прилипает к низу: как в Telegram, ответ пишут там, где
           кончается переписка. Круглая кнопка справа — микрофон, пока поле пустое, и

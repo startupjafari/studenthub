@@ -11,7 +11,8 @@ import {
 } from '../api/complaints'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic, hasBottomButtons } from '../telegram/webapp'
-import { useBackButton, useMainButton, useSecondaryButton } from '../telegram/use-telegram'
+import { useMainButton, useSecondaryButton } from '../telegram/use-telegram'
+import { useBackHandler } from '../lib/back'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { SkeletonCards } from '../ui/skeleton'
@@ -105,7 +106,7 @@ export function ComplaintScreen({
   // Один раз: версия клиента за время жизни экрана не меняется.
   const [native] = useState(hasBottomButtons)
 
-  useBackButton(onBack)
+  useBackHandler(onBack)
 
   const load = useCallback(async () => {
     setState({ status: 'loading' })

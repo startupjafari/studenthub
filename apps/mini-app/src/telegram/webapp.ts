@@ -112,6 +112,22 @@ function applyTheme(params: TelegramThemeParams, scheme: 'light' | 'dark'): void
   root.dataset.scheme = scheme
 }
 
+/**
+ * Открыть внешнюю ссылку руками Telegram.
+ *
+ * Возвращает `true`, если клиент взял ссылку на себя, — вызывающему это нужно, чтобы
+ * отменить обычный переход. Вне Telegram и на клиентах без метода возвращает `false`, и
+ * ссылка работает как ссылка.
+ */
+export function openLink(url: string): boolean {
+  const tg = webApp()
+  // Метод зовём на самом объекте, а не через вынутую ссылку: клиент реализует его через
+  // `this`, и оторванная функция падает.
+  if (!tg?.openLink || !isTelegram()) return false
+  tg.openLink(url)
+  return true
+}
+
 /** Тактильный отклик. Вне Telegram — тишина, а не исключение. */
 export const haptic = {
   tap: (): void => webApp()?.HapticFeedback.impactOccurred('light'),

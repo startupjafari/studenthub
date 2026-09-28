@@ -270,11 +270,107 @@ body.full-screen .tabbar {
   text-align: center;
 }
 
-/* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
-.screen-emblem {
-  margin: 8px 0 4px;
-  font-size: 40px;
-  line-height: 1;
+/*
+ * «Откройте из Telegram» — единственный экран, который видно в обычном браузере.
+ *
+ * И единственный со своими цветами. Правило «палитра только из переменных Telegram»
+ * держится на том, что мини-апп обязан выглядеть продолжением клиента, — а снаружи
+ * клиента нет и продолжать нечего: переменные подставляются запасными значениями, и
+ * экран выходил белым листом с чёрным текстом. Поэтому здесь — тёмное полотно с
+ * вигнеткой, марка и свет за ней, ровно как на заставке запуска (index.html) и на сайте.
+ *
+ * `position: fixed` во весь экран, а не поток: экран тупиковый, под ним нет ни панели
+ * разделов, ни прокручиваемого содержимого, а фон страницы за полем и отступами остался
+ * бы светлым.
+ */
+.outside {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  overflow-y: auto;
+  background: radial-gradient(120% 90% at 50% 46%, #181b22 0%, #0f1115 52%, #08090c 100%);
+  color: #f3f4f6;
+}
+
+/* Центрируется через `margin: auto`, а не `justify-content`: при переполнении по высоте
+   центрирование флексом срезает верх, и первые строки становятся недостижимы. */
+.outside-inner {
+  margin: auto;
+  max-width: 26rem;
+  padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.outside-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0;
+  font-size: 1.85em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.outside-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #2b72e5;
+  /* Тень своего цвета, а не чёрная: на тёмном полотне чёрная невидима, а цветная
+     читается как отсвет самой марки — знак встаёт НАД полотном. */
+  filter: drop-shadow(0 6px 12px rgb(43 114 229 / 0.45));
+}
+
+/* Ореол — источник света за маркой. Статичный: экран не запускается и ничего не ждёт,
+   а разгорание здесь читалось бы как загрузка, которой нет. */
+.outside-halo {
+  position: absolute;
+  inset: -150%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgb(43 114 229 / 0.28) 0%,
+    rgb(43 114 229 / 0.1) 38%,
+    rgb(43 114 229 / 0.02) 62%,
+    transparent 78%
+  );
+}
+
+.outside h1 {
+  margin: 28px 0 0;
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: var(--track-title);
+}
+
+.outside-hint {
+  margin: 6px 0 0;
+  color: #9ca3af;
+  font-size: var(--text-small);
+}
+
+/* Объяснение — на своей поверхности, приподнятой над полотном светлым кантом вместо
+   тени: на тёмном фоне тень не видна, а отделить абзац от полотна нужно. */
+.outside-body {
+  margin: 26px 0 0;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  color: #d1d5db;
+  font-size: var(--text-small);
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* Подпись: тише всего на экране — она не должна тянуть взгляд. */
+.outside-footer {
+  margin: 28px 0 0;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .screen-head h1 {
@@ -1757,6 +1853,23 @@ textarea.field {
   padding: 2px 14px 14px;
 }
 
+/*
+ * Раздел раскрывается мягко, а не скачком: `<details>` показывает содержимое мгновенно, и
+ * на карточке с пятью рычагами это выглядело как подмена экрана. Анимируется только
+ * раскрытие — закрытие браузер делает, убирая содержимое из разметки, и анимировать там
+ * уже нечего.
+ */
+.fold[open] > .fold-body {
+  animation: fold-open 220ms var(--ease-out);
+}
+
+@keyframes fold-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 /* Подзаголовок внутри развёрнутого раздела: у техработ он меняется вместе с состоянием
    («Платформа работает» / «Идут техработы») и потому не может жить в самой шапке.
    Селектор с .card — иначе отступ проигрывает общему правилу `.card h2`. */
@@ -1786,6 +1899,10 @@ textarea.field {
 @media (prefers-reduced-motion: reduce) {
   .fold-chevron {
     transition: none;
+  }
+
+  .fold[open] > .fold-body {
+    animation: none;
   }
 }
 
@@ -1851,6 +1968,90 @@ textarea.field {
 }
 
 /*
+ * Экран переписки: разговор, а не страница.
+ *
+ * Страница прокручивается целиком, и поле ввода, прилипшее к её низу, лежит ПОВЕРХ
+ * текста: длинное сообщение продолжалось под ним и уходило под нижний край экрана.
+ * Здесь прокручивается только лента реплик, а полоса собеседника и поле ввода стоят по
+ * краям и не двигаются — ровно так устроен любой мессенджер, включая чаты платформы.
+ *
+ * `fixed`, а не `flex: 1` в потоке: экран открывается поверх раздела, и высота ему нужна
+ * ровно экранная, без запаса, который .content резервирует под панель разделов.
+ */
+.chat {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Полоса собеседника: то же стекло, что у панели разделов, и отступ под вырез сверху. */
+.chat-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 8px) var(--side) 8px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: 0 1px 0 0 var(--tg-theme-section-separator-color);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .chat-head {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+.chat-head-name {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-head);
+  font-weight: 600;
+  letter-spacing: var(--track-head);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Лента реплик — единственное, что здесь прокручивается. `min-height: 0` обязателен:
+ * без него флекс-колонка не даёт потомку сжаться ниже содержимого, и прокрутка
+ * переезжает на весь экран, то есть возвращается ровно та беда, от которой уходим.
+ */
+.chat-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Прокрутка не утекает наружу: дотянув ленту до края, свайп иначе начинает тянуть сам
+     мини-апп, а вниз это его закрытие. */
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap) var(--side);
+}
+
+/* Реплики прижаты к низу: короткая переписка начинается от поля ввода, а не висит под
+   полосой собеседника с пустотой внизу — так же ведут себя чаты платформы. */
+.chat-body > .thread {
+  margin-top: auto;
+}
+
+/*
+ * Поле ввода в разговоре стоит в потоке, а не прилипает: под ним ничего нет, прилипать
+ * не к чему, а `sticky` внутри прокручиваемой ленты положил бы его поверх реплик.
+ */
+.chat > .composer {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0 var(--side) calc(10px + var(--safe-bottom));
+}
+
+/*
  * Переписка поддержки — пузырями.
  *
  * Строками списка диалог выглядел таблицей «имя — текст — время»: кто кому отвечает,
@@ -1887,6 +2088,42 @@ textarea.field {
 .bubble.theirs {
   align-self: flex-start;
   border-bottom-left-radius: 7px;
+}
+
+/*
+ * Текст сообщения (ui/message-text.tsx).
+ *
+ * `pre-wrap` — потому что переводы строк в сообщении значат ровно то, что значат: список
+ * из четырёх пунктов, набранный с новой строки, схлопывался в одну фразу.
+ *
+ * Ссылка красится цветом самой реплики, а не ссылочным: в своём пузыре он лёг бы синим
+ * по синему. Отличает её подчёркивание — оно читается на любом фоне.
+ */
+.msg {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.msg a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Подложка кода берётся от цвета текста самой реплики: серая тонула бы в синем пузыре
+   своих слов, а вторая пара цветов на один элемент — лишняя. */
+.msg code {
+  padding: 1px 4px;
+  border-radius: var(--radius-inner);
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .msg code {
+    background: rgb(127 127 127 / 0.2);
+  }
 }
 
 .bubble-author {
