@@ -1042,7 +1042,7 @@ cookie), плюс собственный `beforeSend`: вырезаются те
 
 ```
 PLATFORM_ADMIN → /platform-admin/
-  dashboard · universities · users · invites · roles · posts · stories · events
+  dashboard · universities · demo-requests · users · invites · roles · posts · stories · events
   complaints · chats · stats · settings · audit · document-access
 
 PLATFORM_MODERATOR → /moderator/platform/
@@ -1050,7 +1050,7 @@ PLATFORM_MODERATOR → /moderator/platform/
   users · universities · stats · audit · chats
 
 UNIVERSITY_ADMIN → /university-admin/
-  dashboard · profile · faculties · groups · students · teachers · deans
+  dashboard · setup · profile · faculties · groups · students · teachers · deans
   schedule · applications · analytics · complaints · posts · stories · events · chats
   stats · settings · audit
 
@@ -1072,6 +1072,9 @@ STAROSTA → /starosta/
 STUDENT → /
   feed · profile · university · faculty · group · schedule · applications
   posts · stories · events · chats · notifications · settings
+
+без роли (публично)
+  /demo · /demo/verify — заявка вуза на тестирование и подтверждение адреса
 ```
 
 Ролевой редирект — `ROLE_HOME` в `shared/config/routes.ts`, применяется в `middleware.ts` до рендера.
