@@ -1947,6 +1947,90 @@ textarea.field {
 }
 
 /*
+ * Экран переписки: разговор, а не страница.
+ *
+ * Страница прокручивается целиком, и поле ввода, прилипшее к её низу, лежит ПОВЕРХ
+ * текста: длинное сообщение продолжалось под ним и уходило под нижний край экрана.
+ * Здесь прокручивается только лента реплик, а полоса собеседника и поле ввода стоят по
+ * краям и не двигаются — ровно так устроен любой мессенджер, включая чаты платформы.
+ *
+ * `fixed`, а не `flex: 1` в потоке: экран открывается поверх раздела, и высота ему нужна
+ * ровно экранная, без запаса, который .content резервирует под панель разделов.
+ */
+.chat {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Полоса собеседника: то же стекло, что у панели разделов, и отступ под вырез сверху. */
+.chat-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 8px) var(--side) 8px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: 0 1px 0 0 var(--tg-theme-section-separator-color);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .chat-head {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+.chat-head-name {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-head);
+  font-weight: 600;
+  letter-spacing: var(--track-head);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Лента реплик — единственное, что здесь прокручивается. `min-height: 0` обязателен:
+ * без него флекс-колонка не даёт потомку сжаться ниже содержимого, и прокрутка
+ * переезжает на весь экран, то есть возвращается ровно та беда, от которой уходим.
+ */
+.chat-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Прокрутка не утекает наружу: дотянув ленту до края, свайп иначе начинает тянуть сам
+     мини-апп, а вниз это его закрытие. */
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap) var(--side);
+}
+
+/* Реплики прижаты к низу: короткая переписка начинается от поля ввода, а не висит под
+   полосой собеседника с пустотой внизу — так же ведут себя чаты платформы. */
+.chat-body > .thread {
+  margin-top: auto;
+}
+
+/*
+ * Поле ввода в разговоре стоит в потоке, а не прилипает: под ним ничего нет, прилипать
+ * не к чему, а `sticky` внутри прокручиваемой ленты положил бы его поверх реплик.
+ */
+.chat > .composer {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0 var(--side) calc(10px + var(--safe-bottom));
+}
+
+/*
  * Переписка поддержки — пузырями.
  *
  * Строками списка диалог выглядел таблицей «имя — текст — время»: кто кому отвечает,
@@ -1983,6 +2067,42 @@ textarea.field {
 .bubble.theirs {
   align-self: flex-start;
   border-bottom-left-radius: 7px;
+}
+
+/*
+ * Текст сообщения (ui/message-text.tsx).
+ *
+ * `pre-wrap` — потому что переводы строк в сообщении значат ровно то, что значат: список
+ * из четырёх пунктов, набранный с новой строки, схлопывался в одну фразу.
+ *
+ * Ссылка красится цветом самой реплики, а не ссылочным: в своём пузыре он лёг бы синим
+ * по синему. Отличает её подчёркивание — оно читается на любом фоне.
+ */
+.msg {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.msg a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Подложка кода берётся от цвета текста самой реплики: серая тонула бы в синем пузыре
+   своих слов, а вторая пара цветов на один элемент — лишняя. */
+.msg code {
+  padding: 1px 4px;
+  border-radius: var(--radius-inner);
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .msg code {
+    background: rgb(127 127 127 / 0.2);
+  }
 }
 
 .bubble-author {
