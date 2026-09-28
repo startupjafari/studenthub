@@ -12,51 +12,38 @@ export interface Item {
 }
 
 export interface Qa {
+  /**
+   * Якорь вопроса. Нужен не для порядка: на вопрос о доступе ведёт кнопка из «Дверей»,
+   * и без собственного идентификатора ссылка упиралась бы в начало всего списка.
+   */
+  id: string
   question: string
   answer: string
 }
 
-/** Какая сцена рисуется рядом с кадром дня. Список закрытый — под каждый ключ есть компонент. */
-export type SceneKey = 'notification' | 'schedule' | 'request' | 'room' | 'studentId'
-
-export interface DayFrame extends Item {
-  /** Время в сюжете «один день» — оно же метка на шкале. */
-  time: string
-  /**
-   * Слово под меткой. Без него шкала — набор цифр, которые сами по себе ничего не
-   * сообщают: «12:15» не объясняет, что там происходит, а «Справка» объясняет.
-   */
-  label: string
-  scene: SceneKey
+/** Дверь на страницу продукта: кому она и что за ней. */
+export interface Door extends Item {
+  /** Подпись действия. У каждой двери своё — они ведут в разные места. */
+  action: string
 }
 
-/** Строка в рабочей области макета: настоящая запись, а не серая плашка. */
-export interface RoleRow {
-  title: string
-  meta: string
-  /** Правая колонка: оценка, время, статус — то, ради чего роль этот список и открывает. */
-  value: string
-}
-
-export interface RoleTab extends Item {
+export interface RoleTab {
   id: string
+  /** Подпись вкладки, она же заголовок карточки. */
+  title: string
   /**
-   * Разделы бокового меню. Первый — открытый: именно его заголовок стоит в `highlight`,
-   * и именно он подсвечен в макете. Рассинхрон («открыты Мои пары, показана Ведомость»)
-   * читается как ошибка состояния.
+   * Три пункта — что роль делает в платформе. Абзаца описания рядом нет намеренно:
+   * на вопрос «а что увижу я?» отвечают действия, а не характеристика роли.
+   */
+  points: string[]
+  /**
+   * Разделы бокового меню макета. Первый — открытый: именно его заголовок стоит в
+   * `highlight`, и именно он подсвечен. Рассинхрон («открыты Мои пары, показана
+   * Ведомость») читается как ошибка состояния.
    */
   nav: string[]
   /** Заголовок рабочей области — содержимое открытого раздела `nav[0]`. */
   highlight: string
-  /** Три-четыре права роли. Одно предложение описания их не передаёт. */
-  rights: string[]
-  /**
-   * Область данных из токена, как её видит бэкенд. Печатается моноширинным и мелко:
-   * это доказательство тезиса про scope, а не его повторение словами.
-   */
-  scope: string
-  /** Содержимое открытого раздела — три строки. */
-  rows: RoleRow[]
 }
 
 export interface Dictionary {
@@ -87,85 +74,27 @@ export interface Dictionary {
     titleLines: string[]
     subtitle: string
     ctaDemo: string
-    ctaProduct: string
-    inviteHint: string
-  }
-
-  /**
-   * Подписи внутри нарисованных сцен. Текста в них немного и он намеренно крупный:
-   * это иллюстрации, а не копии экранов, и читать в них должно быть нечего, кроме сути.
-   */
-  scenes: {
-    appName: string
-    notification: {
-      title: string
-      text: string
-      scheduleTitle: string
-      pairName: string
-      pairTeacher: string
-      roomBefore: string
-      roomAfter: string
-      changedLabel: string
-      nextPair: string
-      nextPairTime: string
-    }
-    schedule: {
-      title: string
-      nowLabel: string
-      pairs: { name: string; time: string; room: string }[]
-    }
-    request: {
-      screenTitle: string
-      title: string
-      service: string
-      steps: string[]
-      etaLabel: string
-      eta: string
-      /** Приложенные документы — показывают, что заявка не пустая форма. */
-      attachments: string[]
-    }
-    room: {
-      scanHint: string
-      roomName: string
-      statusBusy: string
-      busyUntil: string
-      pairName: string
-      group: string
-      nextFree: string
-    }
-    studentId: {
-      screenTitle: string
-      cardLabel: string
-      name: string
-      faculty: string
-      group: string
-      validLabel: string
-      valid: string
-      passHint: string
-      offlineBadge: string
-    }
+    ctaLogin: string
   }
 
   doors: {
     title: string
     subtitle: string
-    student: Item
-    company: Item
-    verify: Item
-    action: string
-  }
-
-  day: {
-    title: string
-    subtitle: string
-    frames: DayFrame[]
-    /** Подпись у шкалы времени — она же ярлык группы кнопок для скринридера. */
-    timelineLabel: string
+    university: Door
+    /**
+     * У этой двери два действия: войти тем, у кого доступ уже есть, и узнать, как его
+     * получить, — остальным. Второе поле обязательное, а не `Door & { action?: ... }`:
+     * необязательное поле не ловится компилятором при пропуске в переводе.
+     */
+    people: Door & { actionAccess: string }
+    company: Door
   }
 
   roles: {
     title: string
     subtitle: string
+    /** Имя продукта в шапке макета — оно же и в интерфейсе платформы. */
+    appName: string
     tabs: RoleTab[]
   }
 
@@ -179,26 +108,39 @@ export interface Dictionary {
     title: string
     subtitle: string
     steps: Item[]
-    note: string
   }
 
   scale: {
     title: string
     text: string
-    /** Числа, которые набегают при появлении. Только проверяемые — выдуманных здесь нет. */
-    stats: { value: number; unit?: string; label: string }[]
-    facts: Item[]
+    /**
+     * Числа, которые набегают при появлении. Только свойства самого продукта: сколько у
+     * него ролей и языков, а не сколько у него клиентов. Придуманная клиентская метрика
+     * разваливается на первом уточняющем вопросе, и доверие после этого не возвращается.
+     */
+    stats: {
+      value: number
+      label: string
+      /** Оговорка под числом там, где без неё оно обещало бы больше, чем есть. */
+      note?: string
+    }[]
   }
 
   faq: {
     title: string
     items: Qa[]
+    /**
+     * Подпись ссылки на страницу проверки документа. Отдельным полем, а не свойством
+     * вопроса: необязательное поле внутри `Qa` компилятор не потребовал бы от перевода,
+     * и ссылка молча осталась бы русской.
+     */
+    verifyLink: string
   }
 
   cta: {
     title: string
-    text: string
     button: string
+    /** Тема письма: человек, нажавший кнопку, не должен придумывать её сам. */
     mailSubject: string
   }
 
@@ -206,5 +148,7 @@ export interface Dictionary {
     tagline: string
     rights: string
     language: string
+    /** Подпись двери работодателя в подвале — короче, чем заголовок той же двери выше. */
+    company: string
   }
 }

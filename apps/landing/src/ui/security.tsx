@@ -1,7 +1,7 @@
 import { Check } from 'lucide-react'
 import type { Dictionary } from '../content'
 import { Lift } from './motion'
-import { Reveal, Section, SectionHeading } from './primitives'
+import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 
 /**
  * Безопасность и приватность.
@@ -10,11 +10,11 @@ import { Reveal, Section, SectionHeading } from './primitives'
  * проверяемая по docs/BACKEND_RULES.md; обещаний «будет в следующем релизе» здесь нет
  * и быть не может: это ровно тот текст, который потом проверят на демонстрации.
  */
-export function Security({ dict }: { dict: Dictionary }) {
+export function Security({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
   const t = dict.security
 
   return (
-    <Section id="security">
+    <Section id="security" tone={tone}>
       <SectionHeading title={t.title} subtitle={t.subtitle} />
 
       {/* Шесть пунктов: 1 → 2 → 3 колонки. На каждой ширине ряд полный, «хвоста» из одной
