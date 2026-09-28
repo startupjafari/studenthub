@@ -691,7 +691,9 @@ function ChatView({
   }, [text])
 
   return (
-    <div className="screen" aria-busy={messages === null && !failed}>
+    // `data-no-swipe` — чтобы листание разделов (ui/swipe-tabs.tsx) не хватало палец в
+    // переписке: соседние разделы отсюда не соседи, выход один и он назад.
+    <div className="screen" data-no-swipe aria-busy={messages === null && !failed}>
       <ScreenHeader title={title} />
 
       {messages === null && !failed && <SkeletonList />}
