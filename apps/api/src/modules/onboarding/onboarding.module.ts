@@ -15,6 +15,8 @@ import { OnboardingService } from './onboarding.service'
   imports: [InvitesModule, UniversitiesModule],
   controllers: [DemoRequestsController, OnboardingController],
   providers: [DemoRequestsService, OnboardingService],
-  exports: [OnboardingService],
+  // DemoRequestsService экспортируется ради уборки неподтверждённых заявок кроном:
+  // таблицу чистит её владелец, планировщик только зовёт (§2.1).
+  exports: [OnboardingService, DemoRequestsService],
 })
 export class OnboardingModule {}

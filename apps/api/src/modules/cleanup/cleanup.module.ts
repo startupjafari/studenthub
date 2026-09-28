@@ -7,6 +7,7 @@ import { PostsModule } from '../posts/posts.module'
 import { DocumentsModule } from '../documents/documents.module'
 import { ChatsModule } from '../chats/chats.module'
 import { ComplaintsModule } from '../complaints/complaints.module'
+import { OnboardingModule } from '../onboarding/onboarding.module'
 
 // Планировщик cron-задач очистки (docs/PROJECT.md §10.2). ScheduleModule.forRoot()
 // регистрируется здесь один раз; PrismaService/MINIO_CLIENT/ConfigService — глобальные.
@@ -23,6 +24,7 @@ import { ComplaintsModule } from '../complaints/complaints.module'
     DocumentsModule,
     ChatsModule,
     ComplaintsModule,
+    OnboardingModule,
   ],
   providers: [CleanupService, CronMonitorService],
   exports: [CleanupService],
