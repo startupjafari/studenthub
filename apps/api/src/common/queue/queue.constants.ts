@@ -29,6 +29,11 @@ export const EMAIL_JOBS = {
   // Карьера (Ф18): подтверждение email при самостоятельной регистрации работодателя.
   // Единственный сценарий на платформе, где адрес не проверен инвайтом заранее.
   SEND_COMPANY_VERIFICATION: 'send-company-verification',
+  // Приход вуза (§31): подтверждение адреса заявки и решение по ней. Второй после
+  // работодателя случай, когда адрес не проверен инвайтом заранее.
+  SEND_DEMO_VERIFICATION: 'send-demo-verification',
+  SEND_DEMO_APPROVED: 'send-demo-approved',
+  SEND_DEMO_REJECTED: 'send-demo-rejected',
 } as const
 
 export const NOTIFICATION_JOBS = {
