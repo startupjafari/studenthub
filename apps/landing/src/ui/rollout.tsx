@@ -46,12 +46,6 @@ export function Rollout({ dict, tone }: { dict: Dictionary; tone?: SectionTone }
           ))}
         </ol>
       </div>
-
-      <Reveal>
-        <p className="max-w-2xl border-t border-hairline pt-8 text-sm leading-relaxed text-muted-foreground">
-          {t.note}
-        </p>
-      </Reveal>
     </Section>
   )
 }

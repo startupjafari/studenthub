@@ -108,7 +108,6 @@ export interface Dictionary {
     title: string
     subtitle: string
     steps: Item[]
-    note: string
   }
 
   scale: {

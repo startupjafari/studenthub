@@ -116,60 +116,59 @@ export const en: Dictionary = {
   },
 
   security: {
-    title: 'Being closed is the architecture, not a setting',
+    title: 'What protects the university',
     subtitle:
-      'A university answers for the personal data of thousands of students. So protection here is built into the architecture rather than bolted on as checks.',
+      'Every point below is verifiable during the demo: this is how the platform works today, not what is planned.',
     points: [
       {
-        title: 'There is no public sign-up',
-        text: 'Only a personal invitation link from a higher role creates an account. An outsider has nowhere to come from.',
+        title: 'A closed platform',
+        text: 'There is no public sign-up. An account starts from a personal invitation with the role set in advance.',
       },
       {
-        title: 'Permissions come from the token',
-        text: 'The role and the data scope — university, faculty, group — come from the token, not the request. They can’t be swapped client-side.',
+        title: 'Everyone sees their own',
+        text: 'Access is bounded by the role and by your own group, faculty or university. A request never crosses that boundary.',
       },
       {
-        title: 'Tokens never sit in the browser',
-        text: 'Neither in localStorage nor in sessionStorage. A stray script on the page can’t steal the session.',
+        title: 'Two-factor sign-in',
+        text: 'Required for university administration, moderators and the dean’s office — everyone who handles other people’s data.',
       },
       {
-        title: 'Files live in private storage',
-        text: 'Documents and attachments are served through one-time links and only after a permission check. A file has no public address.',
+        title: 'Documents stay protected',
+        text: 'A document number is shown masked. The file opens through a temporary link and only after the rights are checked.',
       },
       {
-        title: 'Access to someone else’s data is logged',
-        text: 'Who accessed what, and why, goes into the audit log. That includes platform administrators.',
+        title: 'An access log',
+        text: 'Private messages can be opened only on a complaint, and every such access is recorded.',
       },
       {
-        title: 'Two-factor authentication',
-        text: 'Mandatory for university staff. And the data controller is the university itself, not the platform.',
+        title: 'Verifiable certificates',
+        text: 'A bank or an embassy verifies a certificate issued through the platform by the code printed on it. A revoked one shows as revoked.',
       },
     ],
   },
 
   rollout: {
-    title: 'How a university starts',
+    title: 'How a rollout goes',
     subtitle:
-      'The university unfolds top-down along the invitation chain. By lists, not person by person.',
+      'The order of the steps is set by the platform itself: it will not let you invite a student before their dean exists.',
     steps: [
       {
-        title: 'We create the university',
-        text: 'We set it up on the platform and issue an invitation to its administrator.',
+        title: 'A conversation and a demo',
+        text: 'We show the platform on a test environment and go through how your university is organised.',
       },
       {
-        title: 'The admin uploads the structure',
-        text: 'Faculties, departments, groups and staff — as a list from a CSV or XLSX file.',
+        title: 'University structure',
+        text: 'Faculties, groups, rooms and the timetable — the base everything else stands on.',
       },
       {
-        title: 'Deans invite teachers',
-        text: 'Each dean invites their teachers and group leaders — within their faculty.',
+        title: 'Invitations',
+        text: 'Student lists are imported from CSV or Excel, up to 500 rows at a time. Then down the chain: dean → group leaders → students.',
       },
       {
-        title: 'Group leaders invite students',
-        text: 'A student opens the link and is straight inside — with their schedule and their group.',
+        title: 'Go live',
+        text: 'QR stickers on classroom doors, and the first week runs with our support.',
       },
     ],
-    note: 'No exports from legacy systems and no six-month integration project: the structure loads from a spreadsheet, and the platform takes it from there.',
   },
 
   scale: {
