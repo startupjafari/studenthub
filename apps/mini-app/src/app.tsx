@@ -19,7 +19,6 @@ import { t } from './i18n'
 import { navigate } from './lib/navigate'
 import { hideSplash } from './lib/splash'
 import { goBack, useCanGoBack } from './lib/back'
-import { useKeyboardInset } from './lib/keyboard'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -74,8 +73,6 @@ export function App() {
   const [tab, setTab] = useState<Tab>(deepLink?.kind === 'support' ? 'support' : 'complaints')
 
   useEffect(() => initTelegram(), [])
-  // Высота клавиатуры — в переменную для экранов, прибитых к окну (lib/keyboard.ts).
-  useKeyboardInset()
 
   // Стрелку возврата просим у клиента только тогда, когда есть куда возвращаться: пока
   // мы её не просим, Telegram держит в шапке своё «Закрыть», и это единственный выход из
