@@ -21,7 +21,6 @@ import {
   postText,
 } from '../data/content.mjs'
 import { child, id } from '../lib/ids.mjs'
-import { runPool } from '../lib/pool.mjs'
 
 // Аудитория личных постов. Пост виден другим только если аудитория совпала со скоупом
 // зрителя (visibilityWhere в posts.service): пост «в никуда» на вкладке профиля увидел
@@ -38,10 +37,6 @@ const STAFF_AUDIENCE = [
   ['UNIVERSITY', 35],
   ['ALL', 15],
 ]
-// Параллелизм серверных копий в MinIO: на 16 одновременных запросах локальный сервер
-// отдаёт ~420 копий/с, дальше упирается в себя.
-const COPY_CONCURRENCY = 16
-
 // Сколько файлов пула отдаётся одному вузу. 8 фото × 100 вузов = 800 контентных фото
 // пула ровно на всех; видео (их около сотни) достаётся не каждому вузу.
 const PHOTOS_PER_UNIVERSITY = 8
@@ -162,12 +157,17 @@ export async function seedSocial(prisma, writer, ctx) {
   // Посты, которым достанется изображение: первые N у каждого автора.
   const withImage = []
   const sources = pool?.imageSources ?? []
-  // Без хранилища (SEED_MEDIA=0) или без источников картинки просто не ставим:
-  // File-строка на несуществующий объект дала бы presigned-ссылку с 404.
-  const imagesPerUser = sources.length > 0 && ctx.storage ? ctx.config.postImagesPerUser : 0
+  // Без источников картинки просто не ставим: File-строка на несуществующий объект
+  // дала бы presigned-ссылку с 404. Само хранилище здесь больше не нужно — строки
+  // ссылаются на уже загруженные объекты пула, копировать нечего.
+  const imagesPerUser = sources.length > 0 ? ctx.config.postImagesPerUser : 0
 
+  // Сколько постов реально досталось автору: ниже по нему раздаются реакции, и
+  // «первые два поста» при диапазоне 1-2 или 0-0 существуют не у всех.
+  const postCount = new Map()
   for (const [ai, author] of authors.entries()) {
     const count = random.randInt(postsMin, postsMax)
+    postCount.set(author.id, count)
     for (let pi = 0; pi < count; pi += 1) {
       const postId = child(author.id, 'p', pi)
       const audience = random.pickWeighted(
@@ -197,26 +197,18 @@ export async function seedSocial(prisma, writer, ctx) {
   // Посты должны быть в БД раньше комментариев, реакций и привязки файлов.
   await writer.flush()
 
-  // ── Изображения постов: серверные копии уже скачанного пула ────────────────
-  // Отдельная File-строка на пост — требование схемы, а не желание: File.postId
-  // эксклюзивен, а объект уникален по (bucket, key). Зато копирование делает сам
-  // MinIO (copyObject), поэтому байты по сети не гоняются и ничего не скачивается.
+  // ── Изображения постов: ссылки на объекты пула ─────────────────────────────
+  // File.postId по-прежнему эксклюзивен — на каждый пост нужна своя строка File. Но
+  // пара (bucket, key) уникальной быть перестала, поэтому строки ссылаются на уже
+  // загруженные объекты пула, а копий в MinIO не делается вовсе: миллион постов с
+  // картинками стоит миллион строк и ноль дополнительных байт в хранилище.
   if (withImage.length > 0) {
-    await runPool(withImage, COPY_CONCURRENCY, async (item) => {
-      const key = `seed/p/${item.postId}.jpg`
-      await ctx.storage.copyIfAbsent(
-        ctx.storage.buckets.posts,
-        key,
-        item.source.bucket,
-        item.source.key,
-      )
-    })
     for (const item of withImage) {
       await writer.add('file', {
         id: `seed-pimg-${item.postId}`,
-        bucket: ctx.storage.buckets.posts,
-        key: `seed/p/${item.postId}.jpg`,
-        mime: 'image/jpeg',
+        bucket: item.source.bucket,
+        key: item.source.key,
+        mime: item.source.mime ?? 'image/jpeg',
         size: item.source.size,
         name: 'photo.jpg',
         ownerId: item.ownerId,
@@ -278,9 +270,12 @@ export async function seedSocial(prisma, writer, ctx) {
   await writer.flush()
 
   // Реакции на первые два поста каждого автора: пост без реакций выглядит мёртвым, а
-  // раздавать их всем 75 тысячам — это ещё полтора миллиона строк на вуз.
+  // раздавать их всем 75 тысячам — это ещё полтора миллиона строк на вуз. Больше, чем
+  // постов у автора, брать нельзя: реакция на несуществующий пост — это нарушение
+  // внешнего ключа, и при диапазоне «0-0» или «1-2» оно случается на каждом прогоне.
   for (const author of authors) {
-    for (let pi = 0; pi < 2; pi += 1) {
+    const created = Math.min(2, postCount.get(author.id) ?? 0)
+    for (let pi = 0; pi < created; pi += 1) {
       const postId = child(author.id, 'p', pi)
       for (const [ri, userId] of random.sample(commenters, random.randInt(0, 3)).entries()) {
         await writer.add('reaction', {

@@ -81,7 +81,7 @@ describe('конфигурация сида', () => {
     assert.throws(
       () =>
         withEnv({ DATABASE_URL: LOCAL, SEED_POSTS_MIN: '50', SEED_POSTS_MAX: '10' }, loadConfig),
-      /SEED_POSTS_MIN больше SEED_POSTS_MAX/,
+      /SEED_POSTS: минимум 50 больше максимума 10/,
     )
     assert.throws(
       () =>
@@ -89,7 +89,7 @@ describe('конфигурация сида', () => {
           { DATABASE_URL: LOCAL, SEED_STUDENTS_MIN: '900', SEED_STUDENTS_MAX: '100' },
           loadConfig,
         ),
-      /SEED_STUDENTS_MIN больше/,
+      /SEED_STUDENTS: минимум 900 больше максимума 100/,
     )
   })
 
@@ -126,8 +126,8 @@ describe('профиль test (стенд по ТЗ)', () => {
     assert.equal(c.videos, 50)
     // Личная галерея пустая (решение пользователя): 100 фото на каждого стоили бы
     // ~29 ГБ в MinIO — 29 из 30 ГБ всего стенда.
-    assert.equal(c.photosPerUser, 0)
-    assert.equal(c.videosPerUser, 0)
+    assert.deepEqual(c.photosPerUser, [0, 0])
+    assert.deepEqual(c.videosPerUser, [0, 0])
   })
 
   it('галерею можно включить ручкой, не трогая остальной состав', () => {
@@ -135,8 +135,8 @@ describe('профиль test (стенд по ТЗ)', () => {
       { DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_PHOTOS_PER_USER: '30', SEED_VIDEOS_PER_USER: '1' }, // prettier-ignore
       loadConfig,
     )
-    assert.equal(c.photosPerUser, 30)
-    assert.equal(c.videosPerUser, 1)
+    assert.deepEqual(c.photosPerUser, [30, 30])
+    assert.deepEqual(c.videosPerUser, [1, 1])
     assert.equal(c.studentsMin, 1450)
   })
 
@@ -146,7 +146,7 @@ describe('профиль test (стенд по ТЗ)', () => {
       assert.equal(c.faculties, null, `${scale}: факультеты должны считаться формулой`)
       assert.equal(c.teachers, null, `${scale}: преподаватели — по нагрузке`)
       assert.equal(c.demoUniversity, true, `${scale}: демо-вуз остаётся`)
-      assert.equal(c.photosPerUser, 0, `${scale}: личная галерея выключена`)
+      assert.deepEqual(c.photosPerUser, [0, 0], `${scale}: личная галерея выключена`)
     }
   })
 
@@ -166,5 +166,77 @@ describe('профиль test (стенд по ТЗ)', () => {
       () => withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_TEACHERS: '1' }, loadConfig),
       /меньше числа факультетов/,
     )
+  })
+})
+
+// Диапазоны одной строкой — то, как их задаёт workflow SEED: десять входов формы
+// не позволяют завести по два поля на каждую сущность (максимум у workflow_dispatch).
+describe('loadConfig: диапазоны «A-B»', () => {
+  it('строка разбирается в пару границ', () => {
+    const c = withEnv(
+      { DATABASE_URL: LOCAL, SEED_POSTS: '100-500', SEED_STUDENTS: '1000-1500' },
+      loadConfig,
+    )
+    assert.deepEqual(c.postsPerUser, [100, 500])
+    assert.equal(c.studentsMin, 1000)
+    assert.equal(c.studentsMax, 1500)
+  })
+
+  it('«0-0» означает «ни одной записи», а не «значение не задано»', () => {
+    const c = withEnv({ DATABASE_URL: LOCAL, SEED_POSTS: '0-0', SEED_POLLS: '0-0' }, loadConfig)
+    assert.deepEqual(c.postsPerUser, [0, 0])
+    assert.deepEqual(c.pollsPerUser, [0, 0])
+  })
+
+  it('одно число — вырожденный диапазон', () => {
+    const c = withEnv({ DATABASE_URL: LOCAL, SEED_ARTICLES: '7' }, loadConfig)
+    assert.deepEqual(c.articlesPerUser, [7, 7])
+  })
+
+  it('пара MIN/MAX сильнее строки: старые вызовы продолжают работать', () => {
+    const c = withEnv(
+      { DATABASE_URL: LOCAL, SEED_POSTS: '100-500', SEED_POSTS_MAX: '150' },
+      loadConfig,
+    )
+    assert.deepEqual(c.postsPerUser, [100, 150])
+  })
+
+  it('мусор в диапазоне отвергается до первой записи', () => {
+    assert.throws(
+      () => withEnv({ DATABASE_URL: LOCAL, SEED_POSTS: '10..20' }, loadConfig),
+      /SEED_POSTS: ожидалось «A-B» или число/,
+    )
+  })
+})
+
+// Прогон идёт по той же базе, что у прода: уборка возможна только прицельная, по метке.
+describe('loadConfig: режим и метка прогона', () => {
+  it('по умолчанию это обычный прогон без метки', () => {
+    const c = withEnv({ DATABASE_URL: LOCAL }, loadConfig)
+    assert.equal(c.mode, 'seed')
+    assert.equal(c.tag, '')
+  })
+
+  it('cleanup без метки отвергается: удалять нечего и опасно', () => {
+    assert.throws(
+      () => withEnv({ DATABASE_URL: LOCAL, SEED_MODE: 'cleanup' }, loadConfig),
+      /SEED_MODE=cleanup требует SEED_TAG/,
+    )
+  })
+
+  it('неизвестный режим отвергается', () => {
+    assert.throws(
+      () => withEnv({ DATABASE_URL: LOCAL, SEED_MODE: 'reset' }, loadConfig),
+      /SEED_MODE="reset" неизвестен/,
+    )
+  })
+
+  it('потолки объёма читаются из окружения', () => {
+    const c = withEnv(
+      { DATABASE_URL: LOCAL, SEED_MAX_ROWS_SOFT: '1000', SEED_MAX_ROWS_HARD: '2000' },
+      loadConfig,
+    )
+    assert.equal(c.maxRowsSoft, 1000)
+    assert.equal(c.maxRowsHard, 2000)
   })
 })

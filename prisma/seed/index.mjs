@@ -43,11 +43,61 @@ function contentRowsPerUser(config) {
   const articles = avg(config.articlesPerUser)
   const polls = avg(config.pollsPerUser)
   const votes = polls * (config.pollVotesMax / 2)
-  return posts + articles + polls * (1 + OPTIONS_PER_POLL) + votes + config.postImagesPerUser
+  // Личная галерея: строка File на каждое фото и видео плюс два альбома на человека.
+  const gallery = avg(config.photosPerUser) + avg(config.videosPerUser)
+  return (
+    posts +
+    articles +
+    polls * (1 + OPTIONS_PER_POLL) +
+    votes +
+    config.postImagesPerUser +
+    gallery +
+    (gallery > 0 ? 2 : 0)
+  )
 }
 
 function estimateRows(plan, config) {
   return Math.round(plan.students * (BASE_ROWS_PER_STUDENT + contentRowsPerUser(config)))
+}
+
+/**
+ * Оценка объёма ВСЕГО прогона — до первой записи в базу.
+ *
+ * Считается по тем же формулам, что и строка в логе генератора, но нужна раньше: сид
+ * наливает в ту же базу, где живут настоящие пользователи, и «ой, получилось миллиард
+ * строк» надо узнать до старта, а не через пять часов.
+ */
+export function estimateTotalRows(config) {
+  if (config.universities <= 0) return 0
+  let total = 0
+  for (let index = config.from; index <= config.to; index += 1) {
+    total += estimateRows(planUniversity(index, universityRandom(index), config), config)
+  }
+  return total
+}
+
+/**
+ * Потолки объёма. Мягкий — прогон требует осознанного подтверждения; жёсткий —
+ * отказ без вариантов. Оба настраиваются, но умолчания выбраны под боевую базу:
+ * 50 млн строк это уже заметный рост, 300 млн — размер, из которого не выбраться
+ * ничем, кроме долгой ручной уборки.
+ */
+export function assertRowBudget(config) {
+  const estimate = estimateTotalRows(config)
+  const nf = (n) => n.toLocaleString('ru-RU')
+  if (estimate > config.maxRowsHard) {
+    throw new Error(
+      `Оценка прогона — ${nf(estimate)} строк, жёсткий потолок ${nf(config.maxRowsHard)}. ` +
+        'Уменьшите число вузов, студентов или диапазоны контента.',
+    )
+  }
+  if (estimate > config.maxRowsSoft && !config.confirmBig) {
+    throw new Error(
+      `Оценка прогона — ${nf(estimate)} строк, это больше мягкого потолка ` +
+        `${nf(config.maxRowsSoft)}. Если объём осознанный — SEED_CONFIRM_BIG=1.`,
+    )
+  }
+  return estimate
 }
 
 export async function seedUniversities(prisma, { config, passwordHash, pool, companies, storage }) {
@@ -113,6 +163,8 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     await writer.flush()
 
     await markUniversityDone(prisma, uniId, {
+      // Метка прогона: по ней режим cleanup найдёт ровно эти вузы и ничего больше.
+      tag: config.tag || null,
       rows: writer.written,
       students: structure.plan.students,
       faculties: structure.faculties.length,
