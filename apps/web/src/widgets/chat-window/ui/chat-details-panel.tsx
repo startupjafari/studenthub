@@ -11,6 +11,7 @@ import {
   Bell,
   BellOff,
   Check,
+  ChevronLeft,
   Copy,
   Crown,
   Download,
@@ -95,6 +96,45 @@ import { EditGroupDialog } from './edit-group-dialog'
  * колонки», и кнопка «Ещё» не появляется там, где разворачивать нечего.
  */
 const DESCRIPTION_CLAMP = 220
+
+/** Строка карточки действий: одна высота и один отступ на все пункты панели. */
+const DETAILS_ROW =
+  'flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted'
+
+/**
+ * Переключатель настройки — `role="switch"`, а не стилизованный чекбокс: скринридер
+ * должен читать «включено/выключено», а не «отмечено» (идиома из DESIGN_SYSTEM).
+ */
+function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative h-6 w-11 shrink-0 cursor-pointer rounded-full outline-none transition-colors focus-visible:ring-4 focus-visible:ring-ring/25',
+        checked ? 'bg-primary' : 'bg-muted',
+      )}
+    >
+      <span
+        className={cn(
+          'absolute left-0.5 top-0.5 size-5 rounded-full bg-background ring-1 ring-border transition-transform motion-reduce:transition-none',
+          checked && 'translate-x-5',
+        )}
+      />
+    </button>
+  )
+}
 
 // §17: варианты «заглушить на время».
 const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
@@ -958,7 +998,10 @@ function ParticipantsTab({
 //
 // Одна панель на все размеры экрана — второго экрана с тем же содержимым нет:
 // `variant='column'` — докнутая третья колонка на ПК (≥xl), со своей шапкой и крестиком;
-// `variant='modal'` — та же панель внутри системного Modal на планшете и мобильном
+// `variant='fullscreen'` — та же панель во весь экран на планшете и мобильном, со стрелкой
+// возврата в шапке. Именно экран, а не модальное окно: у окна остаются поля по краям и
+// затемнение, из-за которых список участников и сетка медиа живут в «окошке в окошке», а
+// в мессенджерах профиль чата — отдельный экран, из которого возвращаются назад
 // (шапку и крестик даёт Modal). Клик по материалу — onJump к сообщению-источнику.
 export function ChatDetailsPanel({
   chat,
@@ -983,7 +1026,7 @@ export function ChatDetailsPanel({
   isPrivate: boolean
   peerOnline?: boolean
   myId: string | undefined
-  variant?: 'column' | 'modal'
+  variant?: 'column' | 'fullscreen'
   /**
    * Панель показана прямо сейчас. Колонка на ПК не размонтируется при закрытии (её
    * ширина анимируется), поэтому без этого флага вкладка оставалась бы той, на которой
@@ -1060,21 +1103,25 @@ export function ChatDetailsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      {variant === 'column' && (
-        // Кнопка того же размера, что кнопки шапки чата (lg:size-10): тогда обе шапки
-        // одной высоты и их нижние границы идут одной линией.
-        <div className="flex items-center gap-1 border-b border-border px-2 py-3">
-          <button
-            type="button"
-            aria-label={t('cancel')}
-            onClick={onClose}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-          >
+      {/* Шапка у обоих вариантов одна по геометрии и разная по значку: в колонке панель
+          закрывают крестиком (переписка рядом остаётся), с экрана — возвращаются стрелкой.
+          Кнопка того же размера, что кнопки шапки чата: тогда обе шапки одной высоты и их
+          нижние границы идут одной линией. */}
+      <div className="flex items-center gap-1 border-b border-border px-2 py-3">
+        <button
+          type="button"
+          aria-label={variant === 'column' ? t('cancel') : t('back')}
+          onClick={onClose}
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+        >
+          {variant === 'column' ? (
             <X className="size-5" aria-hidden />
-          </button>
-          <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">{t('details')}</span>
-        </div>
-      )}
+          ) : (
+            <ChevronLeft className="size-5" aria-hidden />
+          )}
+        </button>
+        <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">{t('details')}</span>
+      </div>
 
       <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border p-5">
         {/* Аватар открывается во весь экран (§3 карты) — только настоящая картинка:
@@ -1123,111 +1170,137 @@ export function ChatDetailsPanel({
         </div>
         <p className="text-sm text-muted-foreground">{subtitle}</p>
 
-        <div className="mt-1 flex flex-wrap justify-center gap-2">
-          {chat.muted ? (
-            <Button variant="outline" size="sm" onClick={onUnmute}>
-              <Bell className="size-3.5" aria-hidden />
-              {chat.mutedImportantOnly ? t('unmuteImportantOnly') : t('unmute')}
-            </Button>
-          ) : (
-            <div className="relative">
-              <Button variant="outline" size="sm" onClick={() => setMuteMenuOpen((v) => !v)}>
-                <BellOff className="size-3.5" aria-hidden />
-                {t('mute')}
-              </Button>
-              {muteMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setMuteMenuOpen(false)} />
-                  <div className="absolute left-1/2 top-full z-50 mt-1 w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg">
-                    {/* §17: «только важные» — не отдельный срок, а модификатор к выбранному:
-                        чат заглушён, но ответы мне и упоминания меня всё равно уведомляют. */}
-                    <button
-                      type="button"
-                      role="checkbox"
-                      aria-checked={importantOnly}
-                      onClick={() => setImportantOnly((v) => !v)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                    >
-                      <span
-                        className={cn(
-                          'flex size-4 shrink-0 items-center justify-center rounded border',
-                          importantOnly
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border',
-                        )}
-                        aria-hidden
-                      >
-                        {importantOnly && <Check className="size-3" />}
-                      </span>
-                      {t('muteImportantOnly')}
-                    </button>
-                    <div className="my-1 h-px bg-border" aria-hidden />
-                    {MUTE_DURATIONS.map((d) => (
-                      <button
-                        key={d.key}
-                        type="button"
-                        onClick={() => {
-                          setMuteMenuOpen(false)
-                          onMute(d.mode, importantOnly)
-                        }}
-                        className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                      >
-                        {t(d.key)}
-                      </button>
-                    ))}
-                  </div>
-                </>
+        {/* Действия — карточкой строк, как в Telegram: уведомления переключателем, а
+            ссылка, блокировка и выход — отдельными строками, опасное красным и в конце.
+            Раньше здесь лежал ряд одинаковых кнопок-«таблеток», где «Покинуть» выглядел
+            ровно как «Заглушить», а на узкой панели ряд ломался на две строки. */}
+        <div className="mt-3 w-full overflow-hidden rounded-xl border border-border bg-card text-sm">
+          {/* Переключатель включает и выключает звук сразу, клик по самой строке открывает
+              сроки: быстрый случай — один жест, редкий — на один жест больше. */}
+          <div className="relative flex items-center gap-3 px-3 py-2.5">
+            {chat.muted ? (
+              <BellOff className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            ) : (
+              <Bell className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            )}
+            <button
+              type="button"
+              onClick={() => (chat.muted ? onUnmute() : setMuteMenuOpen((v) => !v))}
+              className="min-w-0 flex-1 cursor-pointer text-left outline-none"
+            >
+              <span className="block truncate">{t('notificationsRow')}</span>
+              {chat.muted && (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {chat.mutedImportantOnly ? t('muteImportantOnly') : t('mute')}
+                </span>
               )}
-            </div>
+            </button>
+            <ToggleSwitch
+              checked={!chat.muted}
+              label={chat.muted ? t('unmute') : t('mute')}
+              onChange={(on) => (on ? onUnmute() : onMute('forever', importantOnly))}
+            />
+            {muteMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setMuteMenuOpen(false)} />
+                <div className="absolute left-1/2 top-full z-50 mt-1 w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg">
+                  {/* §17: «только важные» — не отдельный срок, а модификатор к выбранному:
+                        чат заглушён, но ответы мне и упоминания меня всё равно уведомляют. */}
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={importantOnly}
+                    onClick={() => setImportantOnly((v) => !v)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                  >
+                    <span
+                      className={cn(
+                        'flex size-4 shrink-0 items-center justify-center rounded border',
+                        importantOnly
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border',
+                      )}
+                      aria-hidden
+                    >
+                      {importantOnly && <Check className="size-3" />}
+                    </span>
+                    {t('muteImportantOnly')}
+                  </button>
+                  <div className="my-1 h-px bg-border" aria-hidden />
+                  {MUTE_DURATIONS.map((d) => (
+                    <button
+                      key={d.key}
+                      type="button"
+                      onClick={() => {
+                        setMuteMenuOpen(false)
+                        onMute(d.mode, importantOnly)
+                      }}
+                      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                    >
+                      {t(d.key)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {isGroup && (
+            <>
+              <div className="h-px bg-border" aria-hidden />
+              {/* В буфер уходит адрес приглашения — читать в нём нечего, это идентификатор
+                  чата, поэтому строка называет действие, а не показывает ссылку. */}
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(inviteLink)
+                  toast.success(t('linkCopied'))
+                }}
+                className={DETAILS_ROW}
+              >
+                <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{t('inviteLink')}</span>
+              </button>
+            </>
           )}
 
-          {/* Блокировка — иконкой и без подписи, рядом со звуком: это парные действия
-              над собеседником, и оба должны быть под рукой на любой вкладке. Подпись
-              «Заблокировать» рядом со «Заглушить» ломала ряд на две строки и делала
-              необратимое действие таким же заметным, как переключатель уведомлений. */}
           {peer && (
-            <Button
-              icon
-              variant="outline"
-              size="sm"
-              aria-label={peerBlocked ? t('unblockUser') : t('blockUser')}
-              title={peerBlocked ? t('unblockUser') : t('blockUser')}
-              className={cn(!peerBlocked && 'text-destructive hover:text-destructive')}
-              onClick={peer.onToggleBlock}
-            >
-              {peerBlocked ? <UserCheck aria-hidden /> : <Ban aria-hidden />}
-            </Button>
-          )}
-
-          {/* Приглашение — иконкой в одном ряду со звуком и выходом. Раньше здесь во всю
-              ширину лежал сам адрес: он занимал две строки панели, а прочитать в нём было
-              нечего — это UUID чата. Что именно ложится в буфер, объясняет подпись кнопки. */}
-          {isGroup && (
-            <Button
-              icon
-              variant="outline"
-              size="sm"
-              aria-label={t('inviteLink')}
-              title={t('inviteLink')}
-              onClick={() => {
-                void navigator.clipboard?.writeText(inviteLink)
-                toast.success(t('linkCopied'))
-              }}
-            >
-              <Link2 aria-hidden />
-            </Button>
+            <>
+              <div className="h-px bg-border" aria-hidden />
+              <button
+                type="button"
+                onClick={peer.onToggleBlock}
+                className={cn(DETAILS_ROW, !peerBlocked && 'text-destructive')}
+              >
+                {peerBlocked ? (
+                  <UserCheck className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                ) : (
+                  <Ban className="size-4 shrink-0" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1 truncate">
+                  {peerBlocked ? t('unblockUser') : t('blockUser')}
+                </span>
+              </button>
+            </>
           )}
 
           {isGroup && (
-            <Button
-              variant="outline"
-              size="sm"
-              loading={leave.isPending}
-              onClick={() => leave.mutate()}
-            >
-              <LogOut className="size-3.5" aria-hidden />
-              {t('leave')}
-            </Button>
+            <>
+              <div className="h-px bg-border" aria-hidden />
+              <button
+                type="button"
+                disabled={leave.isPending}
+                onClick={() => leave.mutate()}
+                className={cn(DETAILS_ROW, 'text-destructive disabled:opacity-60')}
+              >
+                {leave.isPending ? (
+                  <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                ) : (
+                  <LogOut className="size-4 shrink-0" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1 truncate">{t('leave')}</span>
+              </button>
+            </>
           )}
         </div>
       </div>

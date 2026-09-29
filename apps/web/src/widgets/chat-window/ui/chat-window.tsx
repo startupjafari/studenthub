@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  Clock,
   Copy,
   Download,
   Forward,
@@ -64,7 +63,6 @@ import {
   setChatMutedRequest,
   setChatPinnedRequest,
   setChatArchivedRequest,
-  scheduleMessageRequest,
   sortChats,
   blockUserRequest,
   unblockUserRequest,
@@ -121,8 +119,6 @@ import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
 import { BlockedUsersPanel } from './blocked-users-panel'
 import { CreateGroupPanel } from './create-group-panel'
-import { ScheduleSendDialog } from './schedule-send-dialog'
-import { ScheduledPanel } from './scheduled-panel'
 import {
   Avatar,
   AvatarFallback,
@@ -285,6 +281,9 @@ export function ChatWindow() {
   // Достаточно широкий экран (≥xl) — правая панель деталей докается третьей колонкой,
   // не закрывая переписку (Telegram-стиль §1). На узких экранах — прежнее модальное окно.
   const isWide = useMediaQuery('(min-width: 1280px)')
+  // Телефон. На нём окно со списком закреплённых не показываем вовсе: полоса закрепления
+  // сама листает их по нажатию, а окно поверх чата ради того же списка — лишний слой.
+  const isPhone = useMediaQuery('(max-width: 767px)')
   const embedded = isDesktop && !!listSlot
   // Открытый чат — полноэкранная поверхность на мобильном: просим оболочку скрыть нижнюю навигацию,
   // иначе фиксированная панель перекрывает поле ввода сообщения.
@@ -344,10 +343,7 @@ export function ChatWindow() {
   // «Ответить» внутри этого сообщения был выделен текст (Telegram-стиль).
   const [replyQuote, setReplyQuote] = useState<string | null>(null)
   // «Без звука» — залипающий переключатель у кнопки отправки, сбрасывается при смене чата.
-  const [silentSend, setSilentSend] = useState(false)
   // Диалог «отправить позже» и панель уже отложенных сообщений этого чата.
-  const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [scheduledOpen, setScheduledOpen] = useState(false)
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
@@ -878,27 +874,6 @@ export function ChatWindow() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
-  // Отложенная отправка: текст из композера уходит в очередь, а не в чат.
-  const schedule = useMutation({
-    mutationFn: ({ chatId, scheduledAt }: { chatId: string; scheduledAt: string }) =>
-      scheduleMessageRequest(chatId, {
-        content: text.trim(),
-        ...(replyTo ? { replyToId: replyTo.id } : {}),
-        ...(replyTo && replyQuote ? { replyQuote } : {}),
-        silent: silentSend,
-        scheduledAt,
-      }),
-    onSuccess: (_d, { chatId }) => {
-      void qc.invalidateQueries({ queryKey: chatKeys.scheduled(chatId) })
-      setScheduleOpen(false)
-      setText('')
-      setReplyTo(null)
-      setReplyQuote(null)
-      toast.success(t('scheduleDone'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
   // Архив «у себя»: чат уезжает в отдельную вкладку и перестаёт считаться в бейдже.
   const archive = useMutation({
     mutationFn: ({ chatId, archived }: { chatId: string; archived: boolean }) =>
@@ -1033,7 +1008,7 @@ export function ChatWindow() {
     onRecorded: (file) => {
       chatActions.end()
       if (!activeId) return
-      sendFiles({ replyToId: replyTo?.id, files: [file], silent: silentSend })
+      sendFiles({ replyToId: replyTo?.id, files: [file] })
     },
     // Собеседник видит «записывает голосовое…» всё время записи — это самый длинный
     // промежуток в чате, когда снаружи не происходит ничего.
@@ -1454,7 +1429,6 @@ export function ChatWindow() {
         files: batch,
         spoilerIndexes: batch.flatMap((f, j) => (spoilered.has(f) ? [j] : [])),
         asFiles: options.asFiles,
-        silent: silentSend,
       })
     })
   }
@@ -1465,7 +1439,6 @@ export function ChatWindow() {
     socket.emit('chat:join', { chatId: activeId })
     setReplyTo(null)
     setReplyQuote(null)
-    setSilentSend(false)
     setAttachFiles([])
     setAttachOpen(false)
     setPinnedIndex(0)
@@ -2171,7 +2144,7 @@ export function ChatWindow() {
       content,
       replyToId: replyTo?.id ?? null,
       replyQuote: replyQuote,
-      silent: silentSend,
+      silent: false,
       forwardedFromId: null,
       editedAt: null,
       pinnedAt: null,
@@ -2203,7 +2176,6 @@ export function ChatWindow() {
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
     emitSend(activeId, nonce, content, replyTo?.id, {
       replyQuote: replyQuote ?? undefined,
-      silent: silentSend,
     })
     chatActions.end()
     setText('')
@@ -2669,6 +2641,9 @@ export function ChatWindow() {
   }
 
   // Шаг по совпадениям: dir=+1 — старее (следующее), -1 — новее (предыдущее). Прыгаем к сообщению.
+  /** Сколько сообщений нашлось. Нужно и списку выдачи, и нижней панели поиска. */
+  const searchTotal = chatSearchResults.data?.items.length ?? 0
+
   function stepSearch(dir: 1 | -1): void {
     const items = chatSearchResults.data?.items ?? []
     if (items.length === 0) return
@@ -2780,6 +2755,18 @@ export function ChatWindow() {
 
   // Пропсы панели деталей чата — одни и те же для колонки (ПК) и модалки (планшет/мобильный),
   // чтобы презентация решалась одним `isWide`, а не двумя разными экранами.
+  // Escape закрывает панель деталей, открытую экраном: у полноэкранного слоя нет ни
+  // затемнения, ни рамки, по которым видно «это поверх», и привычка закрыть с клавиатуры
+  // остаётся единственным быстрым способом. В колонке на ПК закрывают крестиком.
+  useEffect(() => {
+    if (!detailsOpen || isWide) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailsOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailsOpen, isWide])
+
   const detailsProps = activeChat
     ? {
         chat: activeChat,
@@ -3177,7 +3164,7 @@ export function ChatWindow() {
                 const total = found.length
                 return (
                   <div className="relative z-30 shrink-0">
-                    <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+                    <header className="flex items-center gap-1 border-b border-border px-2 py-2">
                       <button
                         type="button"
                         aria-label={t('cancel')}
@@ -3187,10 +3174,6 @@ export function ChatWindow() {
                         <ChevronLeft className="size-5" aria-hidden />
                       </button>
                       <div className="relative min-w-0 flex-1">
-                        <Search
-                          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                          aria-hidden
-                        />
                         <input
                           autoFocus
                           value={chatSearchRaw}
@@ -3209,7 +3192,10 @@ export function ChatWindow() {
                             }
                           }}
                           placeholder={t('searchInChat')}
-                          className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
+                          // Поле без рамки и заливки, во всю ширину шапки: в режиме поиска
+                          // шапка И ЕСТЬ поле, а коробочка внутри коробочки только сужала
+                          // строку ввода и спорила с границей самой шапки.
+                          className="h-11 w-full border-0 bg-transparent px-2 text-base outline-none placeholder:text-muted-foreground lg:h-10 lg:text-sm"
                         />
                         {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
                           <ul
@@ -3310,36 +3296,6 @@ export function ChatWindow() {
                           )}
                         </div>
                       )}
-                      {chatSearchResults.isFetching ? (
-                        <Loader2
-                          className="size-4 shrink-0 animate-spin text-muted-foreground"
-                          aria-hidden
-                        />
-                      ) : (
-                        chatSearchTerm.length >= 2 && (
-                          <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
-                            {total > 0 ? `${searchIdx + 1}/${total}` : t('noResults')}
-                          </span>
-                        )
-                      )}
-                      <button
-                        type="button"
-                        aria-label={t('searchPrev')}
-                        onClick={() => stepSearch(-1)}
-                        disabled={total === 0 || searchIdx <= 0}
-                        className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                      >
-                        <ChevronUp className="size-5" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={t('searchNext')}
-                        onClick={() => stepSearch(1)}
-                        disabled={total === 0 || searchIdx >= total - 1}
-                        className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                      >
-                        <ChevronDown className="size-5" aria-hidden />
-                      </button>
                     </header>
                   </div>
                 )
@@ -3427,45 +3383,6 @@ export function ChatWindow() {
                     {t('offline')}
                   </span>
                 )}
-                {/* Поиск внутри чата (§3). */}
-                <button
-                  type="button"
-                  aria-label={t('searchInChat')}
-                  onClick={() => setChatSearchOpen(true)}
-                  className={HEADER_ICON_BTN}
-                >
-                  <Search className="size-5" aria-hidden />
-                </button>
-                {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
-                    дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
-                    значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
-                    Будущее закрыто: сообщений там заведомо нет. */}
-                <DateJumpPicker
-                  className={HEADER_ICON_BTN}
-                  value={jumpDate}
-                  onChange={(ymd) => {
-                    setJumpDate(ymd)
-                    if (ymd) void jumpToDate(ymd)
-                  }}
-                  max={formatYmd(new Date())}
-                  aria-label={t('jumpToDate')}
-                  dayThumbs={dayThumbs}
-                  onViewChange={(y, m) =>
-                    setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
-                  }
-                  rangeAction={{
-                    label: t('clearHistory'),
-                    destructive: true,
-                    onSubmit: (from, to) => {
-                      void confirm({
-                        title: t('clearPeriodConfirm', { from, to }),
-                        destructive: true,
-                      }).then((ok) => {
-                        if (ok) clearPeriod.mutate({ from, to })
-                      })
-                    },
-                  }}
-                />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
                   <button
@@ -3493,6 +3410,20 @@ export function ChatWindow() {
                         onClick={() => setHeaderMenuOpen(false)}
                       />
                       <div className="absolute right-0 top-full z-50 mt-1 w-56 origin-top-right overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
+                        {/* Поиск — первым пунктом и только здесь: отдельная лупа в шапке
+                            занимала место рядом с календарём и «тремя точками», а ищут в
+                            переписке реже, чем листают её. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatSearchOpen(true)
+                            setHeaderMenuOpen(false)
+                          }}
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                        >
+                          <Search className="size-4 shrink-0 opacity-80" aria-hidden />
+                          <span className="flex-1 text-left">{t('searchInChat')}</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -3527,17 +3458,6 @@ export function ChatWindow() {
                         >
                           <CheckCheck className="size-4 shrink-0 opacity-80" aria-hidden />
                           <span className="flex-1 text-left">{t('select')}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setScheduledOpen(true)
-                            setHeaderMenuOpen(false)
-                          }}
-                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                        >
-                          <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
-                          <span className="flex-1 text-left">{t('scheduledTitle')}</span>
                         </button>
                         <button
                           type="button"
@@ -3843,7 +3763,77 @@ export function ChatWindow() {
                 та же поверхность, что у шапки чата. Парящие острова оставляли между собой
                 и по краям просветы, сквозь которые лезла лента: у большого пальца это
                 читается как «панель лежит поверх», у курсора — как дырки в интерфейсе. */}
-              {!activeChat?.requestIncoming && (
+              {/* Нижняя панель режима поиска (Telegram): календарь слева, счётчик совпадений
+                  и стрелки справа. Раньше календарь стоял в шапке рядом с «тремя точками»,
+                  а прыгают по датам ровно тогда же, когда ищут, — в поиске он под рукой, а
+                  в обычном чате не занимает место постоянно. Поле ввода в этом режиме
+                  скрыто: писать во время поиска всё равно некуда. */}
+              {chatSearchOpen && (
+                <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 flex items-center gap-1 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
+                  {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
+                      дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
+                      значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
+                      Будущее закрыто: сообщений там заведомо нет. */}
+                  <DateJumpPicker
+                    className={HEADER_ICON_BTN}
+                    value={jumpDate}
+                    onChange={(ymd) => {
+                      setJumpDate(ymd)
+                      if (ymd) void jumpToDate(ymd)
+                    }}
+                    max={formatYmd(new Date())}
+                    aria-label={t('jumpToDate')}
+                    dayThumbs={dayThumbs}
+                    onViewChange={(y, m) =>
+                      setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
+                    }
+                    rangeAction={{
+                      label: t('clearHistory'),
+                      destructive: true,
+                      onSubmit: (from, to) => {
+                        void confirm({
+                          title: t('clearPeriodConfirm', { from, to }),
+                          destructive: true,
+                        }).then((ok) => {
+                          if (ok) clearPeriod.mutate({ from, to })
+                        })
+                      },
+                    }}
+                  />
+                  <span className="flex-1" aria-hidden />
+                  {chatSearchResults.isFetching ? (
+                    <Loader2
+                      className="size-4 shrink-0 animate-spin text-muted-foreground"
+                      aria-hidden
+                    />
+                  ) : (
+                    chatSearchTerm.length >= 2 && (
+                      <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
+                        {searchTotal > 0 ? `${searchIdx + 1}/${searchTotal}` : t('noResults')}
+                      </span>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t('searchPrev')}
+                    onClick={() => stepSearch(-1)}
+                    disabled={searchTotal === 0 || searchIdx <= 0}
+                    className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                  >
+                    <ChevronUp className="size-5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('searchNext')}
+                    onClick={() => stepSearch(1)}
+                    disabled={searchTotal === 0 || searchIdx >= searchTotal - 1}
+                    className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                  >
+                    <ChevronDown className="size-5" aria-hidden />
+                  </button>
+                </div>
+              )}
+              {!activeChat?.requestIncoming && !chatSearchOpen && (
                 <div
                   ref={setComposerBox}
                   // Зазор снизу — safe-area, но только пока нет клавиатуры: с поднятой клавиатурой
@@ -3873,9 +3863,6 @@ export function ChatWindow() {
                     onViewReplyTarget={() => {
                       if (replyTo) focusMessage(replyTo.id)
                     }}
-                    silent={silentSend}
-                    onToggleSilent={() => setSilentSend((v) => !v)}
-                    onScheduleSend={() => setScheduleOpen(true)}
                     blocked={!!blockedActive}
                     iBlocked={!!activeChat?.blocked}
                     requestPending={requestWaiting}
@@ -3962,15 +3949,13 @@ export function ChatWindow() {
       ) : (
         detailsOpen &&
         detailsProps && (
-          <Modal
-            onClose={() => setDetailsOpen(false)}
-            title={t('details')}
-            size="lg"
-            className="h-[min(90vh,44rem)]"
-            bodyClassName="overflow-hidden p-0"
-          >
-            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="modal" />
-          </Modal>
+          // Во весь экран, а не модальным окном: в окне у панели оставались поля по краям и
+          // затемнение вокруг, из-за чего список участников и сетка медиа жили в «окошке в
+          // окошке». В мессенджерах профиль чата — отдельный экран, и возвращаются с него
+          // стрелкой назад, а не крестиком поверх.
+          <div className="fixed inset-0 z-50 flex flex-col bg-background duration-200 animate-in fade-in slide-in-from-right-4 motion-reduce:animate-none">
+            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="fullscreen" />
+          </div>
         )
       )}
 
@@ -4038,19 +4023,6 @@ export function ChatWindow() {
         />
       )}
 
-      {scheduleOpen && activeId && (
-        <ScheduleSendDialog
-          preview={text.trim()}
-          pending={schedule.isPending}
-          onClose={() => setScheduleOpen(false)}
-          onConfirm={(scheduledAt) => schedule.mutate({ chatId: activeId, scheduledAt })}
-        />
-      )}
-
-      {scheduledOpen && activeId && (
-        <ScheduledPanel chatId={activeId} onClose={() => setScheduledOpen(false)} />
-      )}
-
       {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
       {pinnedMenu &&
         (() => {
@@ -4063,12 +4035,16 @@ export function ChatWindow() {
               ariaLabel={t('pinnedMessage')}
               onClose={() => setPinnedMenu(null)}
               items={[
-                {
-                  key: 'pinned-all',
-                  icon: ListIcon,
-                  label: t('pinnedMessages'),
-                  onClick: () => setPinnedListOpen(true),
-                },
+                ...(isPhone
+                  ? []
+                  : [
+                      {
+                        key: 'pinned-all',
+                        icon: ListIcon,
+                        label: t('pinnedMessages'),
+                        onClick: () => setPinnedListOpen(true),
+                      },
+                    ]),
                 {
                   key: 'unpin',
                   icon: PinOff,
@@ -4088,7 +4064,7 @@ export function ChatWindow() {
         })()}
 
       {/* Все закрепления чата отдельным списком — из полосы или из её меню. */}
-      {pinnedListOpen && (
+      {pinnedListOpen && !isPhone && (
         <Modal
           onClose={() => setPinnedListOpen(false)}
           title={t('pinnedMessages')}

@@ -5,9 +5,7 @@ import { useTranslations } from 'next-intl'
 import {
   Ban,
   BarChart3,
-  BellOff,
   Camera,
-  ChevronUp,
   Clock,
   FileText,
   ImageIcon,
@@ -154,10 +152,7 @@ export type ChatComposerProps = {
   /** «Просмотр сообщения» из меню полосы ответа (§5 карты): перемотать ленту к оригиналу. */
   onViewReplyTarget: () => void
   // «Без звука»: залипающий переключатель у кнопки отправки.
-  silent: boolean
-  onToggleSilent: () => void
   // «Отправить позже»: открывает выбор времени (отложенное сообщение).
-  onScheduleSend: () => void
   // Личная блокировка активна: вместо поля ввода — баннер (нельзя писать).
   blocked: boolean
   // Я заблокировал собеседника (можно разблокировать) vs он меня.
@@ -195,9 +190,6 @@ export function ChatComposer({
   replyQuote,
   onCancelReply,
   onViewReplyTarget,
-  silent,
-  onToggleSilent,
-  onScheduleSend,
   blocked,
   iBlocked,
   otherId,
@@ -223,8 +215,11 @@ export function ChatComposer({
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
   const [replyMenu, setReplyMenu] = useState<{ x: number; y: number } | null>(null)
   const attachMenu = useHoverMenu()
-  const sendMenu = useHoverMenu()
   const emoji = useHoverMenu()
+  // Наведение открывает меню только на ПК. На узком экране (в том числе в узком окне
+  // браузера с мышью) панель смайлов доковано под полем ввода и занимает пол-экрана:
+  // раскрывать её проездом курсора — то же самое, что открывать клавиатуру наведением.
+  const hoverOpens = useMediaQuery('(min-width: 1024px) and (hover: hover)')
   // Отдельные input'ы под фото/видео и съёмку: у них свои accept/capture, а общий (файл
   // любого типа) приходит из родителя. Все три ведут в один onFilesPicked.
   const mediaInputRef = useRef<HTMLInputElement>(null)
@@ -246,14 +241,17 @@ export function ChatComposer({
   // остальных: раньше каждая кнопка перечисляла свои классы заново, и любая правка
   // расходилась по трём местам.
   //
-  // Размера два: 56 px под палец и 44 px под курсор. 56 — правило плавающих островов у
-  // нижнего края (§4): панель ввода стоит там в одном ряду с нижней навигацией и обязана
-  // совпадать с ней по высоте. На десктопе нижней навигации нет вовсе — панель остаётся у
-  // края одна, равняться ей не на что, и тот же остров читается просто как огромный.
+  // Размера два: 48 px под палец и 44 px под курсор.
+  //
+  // 48, а не 56 из правила плавающих островов (DESIGN_SYSTEM §4). Правило держит одну
+  // высоту у островов, которые видны одновременно, — а нижняя навигация в открытом чате
+  // скрыта (`hideBottomNav` в app-shell), и совпадать панели ввода не с чем. Зато она
+  // соседствует с телеграмным эталоном в голове у человека: там скрепка, поле и кнопка
+  // записи ровно такие, и 56 рядом с ними читались как непомерные.
   // 44 px — на ступень выше обычного контрола (`lg` шкалы, 40): поле ввода — главный
   // контрол экрана, и в 40 px оно выглядело тесным. Ряд вместе с отступами плашки даёт ту
   // же высоту, что у плашки профиля внизу сайдбара (см. ChatWindow).
-  const ROUND = 'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-11 lg:rounded-md' // prettier-ignore
+  const ROUND = 'flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-11 lg:rounded-md' // prettier-ignore
   const roundBtn = cn(
     island,
     ROUND,
@@ -489,7 +487,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-11 lg:rounded-md',
+                  'flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-11 lg:rounded-md',
                 )}
               >
                 <span
@@ -532,7 +530,7 @@ export function ChatComposer({
                 className="relative shrink-0"
                 // Выключенная кнопка не открывается и наведением: обработчики висят на
                 // обёртке, а она про `disabled` кнопки внутри ничего не знает.
-                {...(connected && !editing ? attachMenu.hoverProps : {})}
+                {...(connected && !editing && hoverOpens ? attachMenu.hoverProps : {})}
               >
                 <button
                   type="button"
@@ -551,7 +549,7 @@ export function ChatComposer({
                     контейнера, а не margin меню: иначе на пути курсора мёртвая зона. */}
                 {attachMenu.open && (
                   <div className="absolute bottom-full left-0 z-50 pb-2">
-                    <div className="w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
+                    <div className="w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
                       {(
                         [
                           {
@@ -591,9 +589,12 @@ export function ChatComposer({
                               attachMenu.close()
                               a.run()
                             }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            // Строка выше и значок крупнее, чем в обычном меню: сюда
+                            // целятся пальцем на телефоне, а пунктов всего три-четыре —
+                            // место на них есть.
+                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
                           >
-                            <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
+                            <a.icon className="size-5 shrink-0 opacity-80" aria-hidden />
                             {a.label}
                           </button>
                         ))}
@@ -609,7 +610,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-11 lg:rounded-md',
+                  'relative flex min-h-12 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-11 lg:rounded-md',
                 )}
               >
                 <RichTextField
@@ -619,7 +620,7 @@ export function ChatComposer({
                   onChange={onType}
                   actions={MARKDOWN_ACTIONS_INLINE}
                   wrapperClassName="min-w-0 flex-1"
-                  className="max-h-32 overflow-y-auto py-3 pl-4 pr-1 lg:py-2 lg:pl-3.5"
+                  className="max-h-32 overflow-y-auto py-2.5 pl-4 pr-1 lg:py-2 lg:pl-3.5"
                   aria-label={t('messagePlaceholder')}
                   placeholder={t('messagePlaceholder')}
                   onKeyDown={(e) => {
@@ -653,7 +654,7 @@ export function ChatComposer({
                 <div
                   ref={emoji.ref}
                   className="relative shrink-0 self-end p-1"
-                  {...(connected ? emoji.hoverProps : {})}
+                  {...(connected && hoverOpens ? emoji.hoverProps : {})}
                 >
                   <button
                     type="button"
@@ -661,14 +662,16 @@ export function ChatComposer({
                     aria-expanded={emoji.open}
                     disabled={!connected}
                     onClick={emoji.toggle}
-                    className="flex size-12 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,transform] hover:bg-foreground/[0.06] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-8 lg:rounded-md"
+                    className="flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,transform] hover:bg-foreground/[0.06] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-8 lg:rounded-md"
                   >
                     <Smile className="size-6 lg:size-5" aria-hidden />
                   </button>
                   {emoji.open && (
-                    // Отступ — внутренним padding, а не margin: между кнопкой и панелью
-                    // не должно быть мёртвой зоны, иначе курсор до панели не доходит.
-                    <div className="absolute bottom-full right-0 z-50 pb-2">
+                    // На ПК — всплывающая панель у кнопки: курсор приходит к ней сверху, и
+                    // место под окном есть. Отступ — внутренним padding, а не margin: между
+                    // кнопкой и панелью не должно быть мёртвой зоны, иначе курсор до панели
+                    // не доходит. На телефоне вместо неё панель под полем (ниже).
+                    <div className="absolute bottom-full right-0 z-50 hidden pb-2 lg:block">
                       <EmojiPicker
                         size="lg"
                         searchPlaceholder={t('emojiSearch')}
@@ -679,78 +682,15 @@ export function ChatComposer({
                 </div>
               </div>
               {showSend ? (
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    aria-label={silent ? t('sendSilentAria') : t('send')}
-                    disabled={!connected}
-                    onClick={onSend}
-                    // Правый клик и долгое нажатие — дополнительные способы отправки,
-                    // как в Telegram. Обычный клик остаётся обычной отправкой.
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      sendMenu.toggle()
-                    }}
-                    className={sendBtn}
-                  >
-                    {silent ? (
-                      <BellOff className="size-6 lg:size-5" aria-hidden />
-                    ) : (
-                      <Send className="size-6 lg:size-5" aria-hidden />
-                    )}
-                  </button>
-                  {/* Опции отправки («без звука», «позже») — своя зона наведения, а не вся
-                      кнопка: иначе меню выскакивало бы каждый раз, когда курсор идёт к
-                      «Отправить». Шеврон подрос с 16 до 24 px — в прежний попадали через
-                      раз, а по §13 цель нажатия не бывает меньше 24. */}
-                  <div
-                    ref={sendMenu.ref}
-                    className="absolute -top-1 -right-1"
-                    {...sendMenu.hoverProps}
-                  >
-                    <button
-                      type="button"
-                      aria-label={t('sendOptions')}
-                      aria-expanded={sendMenu.open}
-                      onClick={sendMenu.toggle}
-                      className="flex size-6 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-5"
-                    >
-                      <ChevronUp className="size-4 lg:size-3.5" aria-hidden />
-                    </button>
-                    {sendMenu.open && (
-                      // right-1 гасит вынос самого шеврона за кнопку: правый край меню
-                      // встаёт вровень с «Отправить», а не на 4px за ним.
-                      // Отступ — padding контейнера, а не margin меню: между шевроном и
-                      // меню не должно быть мёртвой зоны, иначе курсор до него не дойдёт.
-                      <div className="absolute bottom-full right-1 z-50 pb-2">
-                        <div className="w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onToggleSilent()
-                              sendMenu.close()
-                            }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                          >
-                            <BellOff className="size-4 shrink-0 opacity-80" aria-hidden />
-                            {silent ? t('sendSilentOff') : t('sendSilentOn')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onScheduleSend()
-                              sendMenu.close()
-                            }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                          >
-                            <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
-                            {t('sendLater')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  aria-label={t('send')}
+                  disabled={!connected}
+                  onClick={onSend}
+                  className={sendBtn}
+                >
+                  <Send className="size-6 lg:size-5" aria-hidden />
+                </button>
               ) : (
                 <button
                   type="button"
@@ -764,6 +704,24 @@ export function ChatComposer({
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Смайлы на телефоне — панелью ПОД полем ввода, на месте клавиатуры, как в Telegram.
+          Всплывающее окно у кнопки здесь не работает: оно шириной в половину экрана, висит
+          над полем и закрывает собой последние сообщения — то есть ровно то, к чему смайл
+          и подбирают. Панель уезжает вниз вместе с полем и занимает всю ширину. */}
+      {emoji.open && (
+        // Во всю ширину экрана: отрицательные поля гасят отступы плавающего острова, а
+        // скругления и рамка остаются только сверху — панель встаёт на место клавиатуры и
+        // с трёх сторон уходит за кромку, как в Telegram.
+        <div className="-mx-3 -mb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))] overflow-hidden rounded-t-2xl border-t border-border bg-popover duration-200 animate-in slide-in-from-bottom-2 motion-reduce:animate-none lg:hidden">
+          <EmojiPicker
+            size="dock"
+            searchPlaceholder={t('emojiSearch')}
+            onPick={insertEmoji}
+            className="rounded-none border-0 shadow-none"
+          />
         </div>
       )}
     </div>

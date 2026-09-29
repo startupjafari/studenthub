@@ -168,7 +168,7 @@ importers:
         specifier: ^4.3.1
         version: 4.3.1(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(@nestjs/swagger@11.4.6(@fastify/static@10.1.4)(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(reflect-metadata@0.2.2))(zod@3.25.76)
       nodemailer:
-        specifier: ^10.0.12
+        specifier: ^10.0.2
         version: 10.0.12
       otplib:
         specifier: ^12.0.1

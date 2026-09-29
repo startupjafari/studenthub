@@ -157,7 +157,9 @@ export function ForwardDialog({
       title={t('forward')}
       header={false}
       size="md"
-      className="h-[min(88vh,44rem)] rounded-3xl"
+      // На телефоне окно занимает 90% экрана по обеим сторонам: список чатов с поиском и
+      // вкладками в окне «по содержимому» показывал две строки и полполосы прокрутки.
+      className="h-[90dvh] max-h-[90dvh] w-[90vw] max-w-[90vw] rounded-3xl sm:h-[min(88vh,44rem)] sm:w-[calc(100%-2rem)] sm:max-w-md"
       bodyClassName="p-0 overflow-hidden"
     >
       <div className="flex min-h-0 flex-1 flex-col">
