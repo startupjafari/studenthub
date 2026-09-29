@@ -2669,6 +2669,9 @@ export function ChatWindow() {
   }
 
   // Шаг по совпадениям: dir=+1 — старее (следующее), -1 — новее (предыдущее). Прыгаем к сообщению.
+  /** Сколько сообщений нашлось. Нужно и списку выдачи, и нижней панели поиска. */
+  const searchTotal = chatSearchResults.data?.items.length ?? 0
+
   function stepSearch(dir: 1 | -1): void {
     const items = chatSearchResults.data?.items ?? []
     if (items.length === 0) return
@@ -3310,36 +3313,6 @@ export function ChatWindow() {
                           )}
                         </div>
                       )}
-                      {chatSearchResults.isFetching ? (
-                        <Loader2
-                          className="size-4 shrink-0 animate-spin text-muted-foreground"
-                          aria-hidden
-                        />
-                      ) : (
-                        chatSearchTerm.length >= 2 && (
-                          <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
-                            {total > 0 ? `${searchIdx + 1}/${total}` : t('noResults')}
-                          </span>
-                        )
-                      )}
-                      <button
-                        type="button"
-                        aria-label={t('searchPrev')}
-                        onClick={() => stepSearch(-1)}
-                        disabled={total === 0 || searchIdx <= 0}
-                        className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                      >
-                        <ChevronUp className="size-5" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={t('searchNext')}
-                        onClick={() => stepSearch(1)}
-                        disabled={total === 0 || searchIdx >= total - 1}
-                        className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                      >
-                        <ChevronDown className="size-5" aria-hidden />
-                      </button>
                     </header>
                   </div>
                 )
@@ -3436,36 +3409,6 @@ export function ChatWindow() {
                 >
                   <Search className="size-5" aria-hidden />
                 </button>
-                {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
-                    дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
-                    значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
-                    Будущее закрыто: сообщений там заведомо нет. */}
-                <DateJumpPicker
-                  className={HEADER_ICON_BTN}
-                  value={jumpDate}
-                  onChange={(ymd) => {
-                    setJumpDate(ymd)
-                    if (ymd) void jumpToDate(ymd)
-                  }}
-                  max={formatYmd(new Date())}
-                  aria-label={t('jumpToDate')}
-                  dayThumbs={dayThumbs}
-                  onViewChange={(y, m) =>
-                    setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
-                  }
-                  rangeAction={{
-                    label: t('clearHistory'),
-                    destructive: true,
-                    onSubmit: (from, to) => {
-                      void confirm({
-                        title: t('clearPeriodConfirm', { from, to }),
-                        destructive: true,
-                      }).then((ok) => {
-                        if (ok) clearPeriod.mutate({ from, to })
-                      })
-                    },
-                  }}
-                />
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
                   <button
@@ -3843,7 +3786,77 @@ export function ChatWindow() {
                 та же поверхность, что у шапки чата. Парящие острова оставляли между собой
                 и по краям просветы, сквозь которые лезла лента: у большого пальца это
                 читается как «панель лежит поверх», у курсора — как дырки в интерфейсе. */}
-              {!activeChat?.requestIncoming && (
+              {/* Нижняя панель режима поиска (Telegram): календарь слева, счётчик совпадений
+                  и стрелки справа. Раньше календарь стоял в шапке рядом с «тремя точками»,
+                  а прыгают по датам ровно тогда же, когда ищут, — в поиске он под рукой, а
+                  в обычном чате не занимает место постоянно. Поле ввода в этом режиме
+                  скрыто: писать во время поиска всё равно некуда. */}
+              {chatSearchOpen && (
+                <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 flex items-center gap-1 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
+                  {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
+                      дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
+                      значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
+                      Будущее закрыто: сообщений там заведомо нет. */}
+                  <DateJumpPicker
+                    className={HEADER_ICON_BTN}
+                    value={jumpDate}
+                    onChange={(ymd) => {
+                      setJumpDate(ymd)
+                      if (ymd) void jumpToDate(ymd)
+                    }}
+                    max={formatYmd(new Date())}
+                    aria-label={t('jumpToDate')}
+                    dayThumbs={dayThumbs}
+                    onViewChange={(y, m) =>
+                      setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
+                    }
+                    rangeAction={{
+                      label: t('clearHistory'),
+                      destructive: true,
+                      onSubmit: (from, to) => {
+                        void confirm({
+                          title: t('clearPeriodConfirm', { from, to }),
+                          destructive: true,
+                        }).then((ok) => {
+                          if (ok) clearPeriod.mutate({ from, to })
+                        })
+                      },
+                    }}
+                  />
+                  <span className="flex-1" aria-hidden />
+                  {chatSearchResults.isFetching ? (
+                    <Loader2
+                      className="size-4 shrink-0 animate-spin text-muted-foreground"
+                      aria-hidden
+                    />
+                  ) : (
+                    chatSearchTerm.length >= 2 && (
+                      <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
+                        {searchTotal > 0 ? `${searchIdx + 1}/${searchTotal}` : t('noResults')}
+                      </span>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t('searchPrev')}
+                    onClick={() => stepSearch(-1)}
+                    disabled={searchTotal === 0 || searchIdx <= 0}
+                    className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                  >
+                    <ChevronUp className="size-5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('searchNext')}
+                    onClick={() => stepSearch(1)}
+                    disabled={searchTotal === 0 || searchIdx >= searchTotal - 1}
+                    className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                  >
+                    <ChevronDown className="size-5" aria-hidden />
+                  </button>
+                </div>
+              )}
+              {!activeChat?.requestIncoming && !chatSearchOpen && (
                 <div
                   ref={setComposerBox}
                   // Зазор снизу — safe-area, но только пока нет клавиатуры: с поднятой клавиатурой
