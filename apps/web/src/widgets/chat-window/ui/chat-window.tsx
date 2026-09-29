@@ -2783,6 +2783,18 @@ export function ChatWindow() {
 
   // Пропсы панели деталей чата — одни и те же для колонки (ПК) и модалки (планшет/мобильный),
   // чтобы презентация решалась одним `isWide`, а не двумя разными экранами.
+  // Escape закрывает панель деталей, открытую экраном: у полноэкранного слоя нет ни
+  // затемнения, ни рамки, по которым видно «это поверх», и привычка закрыть с клавиатуры
+  // остаётся единственным быстрым способом. В колонке на ПК закрывают крестиком.
+  useEffect(() => {
+    if (!detailsOpen || isWide) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailsOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailsOpen, isWide])
+
   const detailsProps = activeChat
     ? {
         chat: activeChat,
@@ -3975,15 +3987,13 @@ export function ChatWindow() {
       ) : (
         detailsOpen &&
         detailsProps && (
-          <Modal
-            onClose={() => setDetailsOpen(false)}
-            title={t('details')}
-            size="lg"
-            className="h-[min(90vh,44rem)]"
-            bodyClassName="overflow-hidden p-0"
-          >
-            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="modal" />
-          </Modal>
+          // Во весь экран, а не модальным окном: в окне у панели оставались поля по краям и
+          // затемнение вокруг, из-за чего список участников и сетка медиа жили в «окошке в
+          // окошке». В мессенджерах профиль чата — отдельный экран, и возвращаются с него
+          // стрелкой назад, а не крестиком поверх.
+          <div className="fixed inset-0 z-50 flex flex-col bg-background duration-200 animate-in fade-in slide-in-from-right-4 motion-reduce:animate-none">
+            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="fullscreen" />
+          </div>
         )
       )}
 
