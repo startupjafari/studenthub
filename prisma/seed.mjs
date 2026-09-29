@@ -12,7 +12,7 @@ import { makeRandom } from './seed/lib/rng.mjs'
 import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
-import { seedUniversities } from './seed/index.mjs'
+import { assertRowBudget, seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
@@ -138,6 +138,15 @@ async function loadCompanies(prisma) {
 
 async function main() {
   console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
+
+  // Потолок объёма — ДО первой записи. Сид наливает в ту же базу, где живут настоящие
+  // пользователи: узнать «получился миллиард строк» надо сейчас, а не через пять часов
+  // работы, на половине последнего вуза.
+  const budget = assertRowBudget(config)
+  if (budget > 0) {
+    console.log(`  оценка объёма: ~${budget.toLocaleString('ru-RU')} строк`)
+  }
+  if (config.tag) console.log(`  метка прогона: ${config.tag}`)
 
   // Прогресс создаём в самом начале: он же измеряет длительность прогона.
   const progress = createProgress({ total: 1, label: 'Итого' })

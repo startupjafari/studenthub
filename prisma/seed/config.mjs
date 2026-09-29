@@ -84,6 +84,36 @@ function bool(name, fallback) {
   return raw !== '0' && raw.toLowerCase() !== 'false'
 }
 
+// Диапазон «A-B» одной строкой (так его задаёт workflow SEED) либо парой MIN/MAX.
+// Одно число — вырожденный диапазон. «0-0» — валидное значение и означает «ни одной
+// записи»: шаг, которому такой диапазон достался, не создаёт ничего вовсе.
+function range(name, fallback) {
+  let [min, max] = fallback
+  const raw = process.env[`SEED_${name}`]
+  if (raw !== undefined && raw !== '') {
+    const text = raw.trim()
+    const pair = /^(\d+)\s*-\s*(\d+)$/.exec(text)
+    if (pair) {
+      min = Number(pair[1])
+      max = Number(pair[2])
+    } else if (/^\d+$/.test(text)) {
+      min = Number(text)
+      max = min
+    } else {
+      throw new Error(`SEED_${name}: ожидалось «A-B» или число, получено "${raw}"`)
+    }
+  }
+  // Пара MIN/MAX сильнее строки: ею пользуются старые вызовы и ручная отладка.
+  min = num(`SEED_${name}_MIN`, min)
+  max = num(`SEED_${name}_MAX`, max)
+  if (!Number.isInteger(min) || !Number.isInteger(max)) {
+    throw new Error(`SEED_${name}: границы диапазона должны быть целыми`)
+  }
+  if (min < 0) throw new Error(`SEED_${name}: отрицательная нижняя граница`)
+  if (min > max) throw new Error(`SEED_${name}: минимум ${min} больше максимума ${max}`)
+  return [min, max]
+}
+
 function list(name) {
   const raw = process.env[name]
   if (!raw) return null
@@ -119,6 +149,7 @@ export function loadConfig() {
   // выводится из числа студентов, и это осознанно — 100 разных вузов не должны быть
   // одинаковыми. Пустой объект вместо undefined, чтобы ниже не городить проверки.
   const fixed = profile.fixed ?? {}
+  const studentsRange = range('STUDENTS', profile.students)
   const config = {
     scale: scaleName,
     scaleLabel: profile.label,
@@ -132,8 +163,8 @@ export function loadConfig() {
     faculties: num('SEED_FACULTIES', fixed.faculties ?? null),
     teachers: num('SEED_TEACHERS', fixed.teachers ?? null),
     groupSize: num('SEED_GROUP_SIZE', fixed.groupSize ?? 25),
-    studentsMin: num('SEED_STUDENTS_MIN', profile.students[0]),
-    studentsMax: num('SEED_STUDENTS_MAX', profile.students[1]),
+    studentsMin: studentsRange[0],
+    studentsMax: studentsRange[1],
     // Диапазон вузов для догенерации порциями: SEED_FROM=20 SEED_TO=40.
     from: num('SEED_FROM', 1),
     to: num('SEED_TO', universities),
@@ -171,8 +202,10 @@ export function loadConfig() {
     // одна карточка галереи = отдельный объект в MinIO. 100 фото × 1481 пользователь —
     // это ~148 тыс. объектов и ~13 ГБ; видео тяжелее фото в 38 раз, поэтому их 3, а не
     // 100 (20 видео на каждого дали бы ~107 ГБ — решение пользователя от 2026-09-16).
-    photosPerUser: num('SEED_PHOTOS_PER_USER', fixed.photosPerUser ?? 0),
-    videosPerUser: num('SEED_VIDEOS_PER_USER', fixed.videosPerUser ?? 0),
+    // Диапазоны, а не числа: «сколько фото у пользователя» задаётся как «100-500», и
+    // каждый получает своё случайное число в этих границах. «0-0» — галереи нет вовсе.
+    photosPerUser: range('PHOTOS_PER_USER', [fixed.photosPerUser ?? 0, fixed.photosPerUser ?? 0]),
+    videosPerUser: range('VIDEOS_PER_USER', [fixed.videosPerUser ?? 0, fixed.videosPerUser ?? 0]),
     // Параллельных копий в MinIO. Выше, чем SEED_CONCURRENCY у вузов: copyObject — это
     // ожидание ответа хранилища, а не нагрузка на пул соединений Prisma.
     mediaConcurrency: num('SEED_MEDIA_CONCURRENCY', 16),
@@ -180,9 +213,9 @@ export function loadConfig() {
     // Объём здесь определяет почти весь размер БД: 60 постов × 130 тыс.
     // пользователей — это 7.8 млн постов, а опросы с вариантами и голосами дают
     // ещё десятки миллионов строк. Значения по умолчанию — как заказано.
-    postsPerUser: [num('SEED_POSTS_MIN', 20), num('SEED_POSTS_MAX', 100)],
-    articlesPerUser: [num('SEED_ARTICLES_MIN', 20), num('SEED_ARTICLES_MAX', 50)],
-    pollsPerUser: [num('SEED_POLLS_MIN', 10), num('SEED_POLLS_MAX', 100)],
+    postsPerUser: range('POSTS', [20, 100]),
+    articlesPerUser: range('ARTICLES', [20, 50]),
+    pollsPerUser: range('POLLS', [10, 100]),
     // Голосов на опрос: множитель к самому большому домену. 3 голоса на опрос при
     // 7.2 млн опросов — это ещё ~11 млн строк.
     pollVotesMax: num('SEED_POLL_VOTES_MAX', 3),
@@ -196,6 +229,18 @@ export function loadConfig() {
     // Заново обойти Викисклад в поисках видео (иначе берётся кэш индекса).
     mediaRefresh: bool('SEED_MEDIA_REFRESH', false),
     allowRemote: bool('SEED_ALLOW_REMOTE', false),
+    // ── Метка прогона и потолки объёма ────────────────────────────────────────
+    // Метка попадает в маркеры вузов (lib/marker.mjs) и служит ключом для удаления:
+    // `SEED_MODE=cleanup SEED_TAG=<метка>` сносит ровно то, что налил прогон с этой
+    // меткой. Пустая метка — прогон без возможности прицельной уборки.
+    tag: (process.env.SEED_TAG ?? '').trim(),
+    mode: (process.env.SEED_MODE ?? 'seed').trim(),
+    // Оценка строк выше мягкого потолка требует SEED_CONFIRM_BIG=1, выше жёсткого —
+    // прогон отказывается работать. Наливаем в ту же базу, что у прода: цена ошибки
+    // здесь не «долгий прогон», а раздутая боевая база.
+    maxRowsSoft: num('SEED_MAX_ROWS_SOFT', 50_000_000),
+    maxRowsHard: num('SEED_MAX_ROWS_HARD', 300_000_000),
+    confirmBig: bool('SEED_CONFIRM_BIG', false),
     databaseUrl: process.env.DATABASE_URL ?? '',
   }
 
@@ -236,20 +281,15 @@ export function loadConfig() {
       `SEED_TEACHERS=${config.teachers} меньше числа факультетов (${config.faculties ?? 1})`,
     )
   }
-  for (const [name, value] of [
-    ['SEED_PHOTOS_PER_USER', config.photosPerUser],
-    ['SEED_VIDEOS_PER_USER', config.videosPerUser],
-    ['SEED_PLATFORM_MODERATORS', config.platformModerators],
-  ]) {
-    if (value < 0) throw new Error(`${name} отрицательный`)
+  if (!['seed', 'cleanup'].includes(config.mode)) {
+    throw new Error(`SEED_MODE="${config.mode}" неизвестен. Доступно: seed, cleanup`)
   }
-  for (const [name, range] of [
-    ['SEED_POSTS', config.postsPerUser],
-    ['SEED_ARTICLES', config.articlesPerUser],
-    ['SEED_POLLS', config.pollsPerUser],
-  ]) {
-    if (range[0] > range[1]) throw new Error(`${name}_MIN больше ${name}_MAX`)
-    if (range[0] < 0) throw new Error(`${name}_MIN отрицательный`)
+  if (config.mode === 'cleanup' && config.tag === '') {
+    throw new Error('SEED_MODE=cleanup требует SEED_TAG: без метки нечего удалять')
+  }
+  if (config.platformModerators < 0) throw new Error('SEED_PLATFORM_MODERATORS отрицательный')
+  if (config.maxRowsHard < config.maxRowsSoft) {
+    throw new Error('SEED_MAX_ROWS_HARD меньше SEED_MAX_ROWS_SOFT')
   }
   if (
     config.universities > 0 &&

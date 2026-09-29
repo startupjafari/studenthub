@@ -40,9 +40,11 @@ const EXT = {
  * @param storage клиент MinIO из lib/storage.mjs (copyIfAbsent)
  */
 export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
-  const photosPer = config.photosPerUser
-  const videosPer = config.videosPerUser
-  if (photosPer + videosPer === 0) return { users: 0, files: 0, albums: 0 }
+  // Диапазоны, а не числа: «100-500 фото» означает своё случайное количество у каждого
+  // пользователя. Верхняя граница нулевая у обоих — шага нет вовсе.
+  const [photosMin, photosMax] = config.photosPerUser
+  const [videosMin, videosMax] = config.videosPerUser
+  if (photosMax + videosMax === 0) return { users: 0, files: 0, albums: 0 }
 
   const photos = pool?.photos ?? []
   const videos = pool?.videos ?? []
@@ -81,8 +83,12 @@ export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
       const albumVideoId = child(user.id, 'galvd')
 
       // Смещение по пулу своё у каждого пользователя: иначе у всех первые сто фото
-      // совпали бы, и лента профилей выглядела бы одинаково.
+      // совпали бы, и лента профилей выглядела бы одинаково. Из того же хэша берётся и
+      // количество: детерминированно по id, без общего потока случайных чисел (шаг
+      // обходит пользователей параллельно, и общий PRNG сделал бы результат невоспроизводимым).
       const offset = hashOffset(user.id)
+      const photosPer = countIn(offset, photosMin, photosMax)
+      const videosPer = countIn(Math.imul(offset, 0x9e3779b1) >>> 0, videosMin, videosMax)
 
       for (let i = 0; i < photosPer && photos.length > 0; i += 1) {
         const src = photos[(offset + i) % photos.length]
@@ -159,4 +165,11 @@ function hashOffset(value) {
     hash = Math.imul(hash, 0x01000193) >>> 0
   }
   return hash
+}
+
+// Число в диапазоне [min, max] по готовому хэшу. Равномерность здесь важнее качества:
+// разброс нужен, чтобы галереи не выглядели одинаковыми.
+function countIn(hash, min, max) {
+  if (max <= min) return min
+  return min + (hash % (max - min + 1))
 }
