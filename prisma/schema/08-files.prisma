@@ -7,7 +7,7 @@ model File {
   id         String   @id @default(uuid())
   // Имя бакета MinIO (avatars / posts-media / stories-media / applications).
   bucket     String
-  // Ключ объекта внутри бакета; уникален в пределах бакета.
+  // Ключ объекта внутри бакета. На один ключ может ссылаться несколько записей (см. индекс ниже).
   key        String
   // MIME, определённый по содержимому (magic bytes), не по расширению.
   mime       String
@@ -51,7 +51,11 @@ model File {
   albumsCovered Album[]   @relation("AlbumCover")
   document      Document? @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
-  @@unique([bucket, key])
+  // Пара (bucket, key) НЕ уникальна: несколько записей могут ссылаться на один объект
+  // хранилища (общий пул медиа у сида, см. prisma/seed/steps/10-media.mjs). Следствие для
+  // кода: удаляя запись, объект сносим только когда это была последняя ссылка на него
+  // (FileService.delete), иначе стёртая одним пользователем картинка погаснет у всех.
+  @@index([bucket, key])
   @@index([ownerId])
   @@index([postId])
   @@index([messageId])

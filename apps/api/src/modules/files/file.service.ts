@@ -462,8 +462,9 @@ export class FileService {
 
   /**
    * Дублирует объект в MinIO на новый ключ и создаёт новую запись File, привязанную к сообщению
-   * (Ф9+, пересылка вложений). Копия нужна, т.к. на File есть @@unique([bucket, key]) — один и тот же
-   * ключ нельзя привязать к двум сообщениям, а объект остаётся общим только логически быть не может.
+   * (Ф9+, пересылка вложений). Копия остаётся копией и после снятия @@unique([bucket, key]):
+   * пересланное вложение живёт своей жизнью, и удаление исходного сообщения не должно гасить
+   * вложение у получателя. Ссылки на общий объект — приём сида, а не поведение продукта.
    */
   async copyToMessage(
     source: {
@@ -595,15 +596,31 @@ export class FileService {
   }
 
   /**
-   * Удаляет объект в MinIO и запись в БД. Сначала объект, затем запись: при сбое
-   * удаления объекта запись остаётся и операцию можно повторить (осиротевший объект — баг, §8).
+   * Удаляет запись в БД и — если это была последняя ссылка на объект — сам объект в MinIO.
+   *
+   * Порядок обратный прежнему («сначала объект, потом запись»): пара (bucket, key) больше не
+   * уникальна, на один объект может ссылаться несколько записей (общий пул медиа у сида), и
+   * пересчитать оставшиеся ссылки можно только после того, как своя запись ушла.
+   *
+   * Гонка двух последних удалений оставит объект без записей — это осиротевший объект, его
+   * ночью уберёт cleanOrphanFiles. Обратная ошибка непоправима: снесённый объект, на который
+   * ещё ссылаются, гасит картинку у всех остальных владельцев ссылок.
    */
   async delete(fileId: string, requesterId?: string): Promise<void> {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
-    await this.minio.removeObject(file.bucket, file.key)
     await this.prisma.file.delete({ where: { id: file.id } })
-    this.logger.log(`Удалён файл ${file.id} из ${file.bucket}`)
+    const refs = await this.prisma.file.count({
+      where: { bucket: file.bucket, key: file.key },
+    })
+    if (refs === 0) {
+      await this.minio.removeObject(file.bucket, file.key)
+      this.logger.log(`Удалён файл ${file.id} из ${file.bucket}`)
+      return
+    }
+    this.logger.log(
+      `Удалена запись файла ${file.id}; объект ${file.bucket}/${file.key} оставлен: ссылок ещё ${refs}`,
+    )
   }
 
   /**
