@@ -66,7 +66,7 @@ const ZONE_AUDIENCE: Array<[prefix: string, audience: Audience]> = [
 const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
   [
     (url) => url.startsWith('/employer'),
-    'нет посевного аккаунта EMPLOYER: его создаёт этап companies сида (SEED_SCALE=small и выше), а e2e-стенд гоняет профиль demo',
+    'нет аккаунта EMPLOYER: фикстура e2e работодателя не заводит — компаний и вакансий на тестовом стенде нет',
   ],
   [
     (url) => url === '/notifications',

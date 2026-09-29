@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test'
 // свежую БД: скрипт `e2e` пересоздаёт её перед каждым запуском. Повторный `playwright test`
 // без подготовки базы завалит этот тест — так и задумано, иначе он врал бы о состоянии системы.
 
-// Инвайт для UNIVERSITY_ADMIN из prisma/seed.mjs.
+// Инвайт для UNIVERSITY_ADMIN из prisma/e2e-fixture.mjs.
 const SEED_INVITE = 'seed-invite-university-admin-token'
 
 test.describe('Регистрация по инвайту', () => {
