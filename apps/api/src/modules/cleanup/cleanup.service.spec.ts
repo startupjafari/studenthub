@@ -13,7 +13,12 @@ function makeService() {
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
     // Снятие временных блокировок по сроку.
-    user: { findMany: jest.fn(async () => []) as Mock, updateMany: jest.fn() as Mock },
+    user: {
+      findMany: jest.fn(async () => []) as Mock,
+      updateMany: jest.fn() as Mock,
+      // Имя дежурного для сводки.
+      findUnique: jest.fn(async () => null) as Mock,
+    },
   }
   const minio = {
     listObjectsV2: jest.fn() as Mock,
@@ -49,15 +54,21 @@ function makeService() {
   const support = {
     closeStale: jest.fn(async () => 0) as Mock,
     queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock,
+    dayStats: jest.fn(async () => ({ created: 0, closed: 0 })) as Mock,
   }
-  // Размер очереди жалоб считает владелец таблицы; планировщик только спрашивает.
-  const complaints = { queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock }
+  // Размер очереди жалоб и движение за сутки считает владелец таблицы; планировщик только
+  // спрашивает.
+  const complaints = {
+    queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock,
+    dayStats: jest.fn(async () => ({ created: 0, closed: 0 })) as Mock,
+  }
   // Уборка неподтверждённых заявок вузов: крон только делегирует владельцу таблицы.
   const demoRequests = { purgeUnconfirmed: jest.fn(async () => 0) as Mock }
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
     rotateDuty: jest.fn(async () => null) as Mock,
+    duty: jest.fn(async () => ({ dutyUserId: null, rotation: [] as string[] })) as Mock,
     notificationPolicy: jest.fn(async () => ({
       quietFrom: null,
       quietTo: null,
@@ -353,7 +364,10 @@ describe('CleanupService.sendDailyDigest', () => {
     })
 
     await expect(c.service.sendDailyDigest()).resolves.toBe(1)
-    expect(c.telegram.notifyStaff).toHaveBeenCalledWith('digest', expect.stringContaining('0'))
+    expect(c.telegram.notifyStaff).toHaveBeenCalledWith(
+      'digest',
+      expect.stringContaining('Жалобы: в очереди 0, пришло 0, разобрано 0'),
+    )
   })
 })
 

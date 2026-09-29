@@ -127,9 +127,12 @@ export class ComplaintsService {
    */
   private async announceIfUrgent(complaint: ComplaintRow): Promise<void> {
     if (complaint.priority !== ComplaintPriority.HIGH) return
+    // Размер очереди строкой ниже: «срочная жалоба» звучит одинаково и когда она одна, и
+    // когда она девятая, а решать, бросать ли текущее дело, приходится по этому тексту.
+    const { count } = await this.queueStats()
     await this.telegram.notifyStaff(
       'complaint',
-      `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
+      `Срочная жалоба ${TARGET_WORD[complaint.targetType]}\nЖалоб в очереди: ${count}`,
       `complaint_${complaint.id}`,
       new Date(),
       false,
@@ -471,6 +474,20 @@ export class ComplaintsService {
       }),
     ])
     return { count, oldestAt: oldest?.createdAt ?? null }
+  }
+
+  /**
+   * Движение за период: сколько жалоб пришло и сколько разобрано.
+   *
+   * Нужно сводке: ноль в очереди после сорока разобранных жалоб и ноль в тихий день —
+   * разные новости, а без этих чисел выглядели они одинаково.
+   */
+  async dayStats(since: Date): Promise<{ created: number; closed: number }> {
+    const [created, closed] = await this.prisma.$transaction([
+      this.prisma.complaint.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.complaint.count({ where: { resolvedAt: { gte: since } } }),
+    ])
+    return { created, closed }
   }
 
   // ── Доступ модератора к личному чату по жалобе (11.5) ──────────────────────
