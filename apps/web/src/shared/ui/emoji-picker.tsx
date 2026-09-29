@@ -15,6 +15,10 @@ import { cn } from '../lib/utils'
 const SIZES = {
   md: { columns: 9, root: 'h-80 w-[19rem]', cell: 'size-8 text-lg' },
   lg: { columns: 7, root: 'h-[26rem] w-[21rem]', cell: 'size-11 text-[1.75rem]' },
+  // dock — панель под полем ввода на телефоне: во всю ширину и примерно в высоту
+  // клавиатуры, которую она заменяет. Восемь колонок — столько 44-пиксельных клеток
+  // помещается на узком экране, не уезжая под обрез.
+  dock: { columns: 8, root: 'h-[min(45dvh,20rem)] w-full', cell: 'size-11 text-[1.75rem]' },
 } as const
 
 // Полноценный emoji-picker (§12) на frimousse (headless): категории, поиск, недавние.

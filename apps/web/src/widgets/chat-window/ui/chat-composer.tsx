@@ -666,9 +666,11 @@ export function ChatComposer({
                     <Smile className="size-6 lg:size-5" aria-hidden />
                   </button>
                   {emoji.open && (
-                    // Отступ — внутренним padding, а не margin: между кнопкой и панелью
-                    // не должно быть мёртвой зоны, иначе курсор до панели не доходит.
-                    <div className="absolute bottom-full right-0 z-50 pb-2">
+                    // На ПК — всплывающая панель у кнопки: курсор приходит к ней сверху, и
+                    // место под окном есть. Отступ — внутренним padding, а не margin: между
+                    // кнопкой и панелью не должно быть мёртвой зоны, иначе курсор до панели
+                    // не доходит. На телефоне вместо неё панель под полем (ниже).
+                    <div className="absolute bottom-full right-0 z-50 hidden pb-2 lg:block">
                       <EmojiPicker
                         size="lg"
                         searchPlaceholder={t('emojiSearch')}
@@ -764,6 +766,21 @@ export function ChatComposer({
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Смайлы на телефоне — панелью ПОД полем ввода, на месте клавиатуры, как в Telegram.
+          Всплывающее окно у кнопки здесь не работает: оно шириной в половину экрана, висит
+          над полем и закрывает собой последние сообщения — то есть ровно то, к чему смайл
+          и подбирают. Панель уезжает вниз вместе с полем и занимает всю ширину. */}
+      {emoji.open && (
+        <div className="overflow-hidden rounded-2xl border border-border bg-popover duration-200 animate-in slide-in-from-bottom-2 motion-reduce:animate-none lg:hidden">
+          <EmojiPicker
+            size="dock"
+            searchPlaceholder={t('emojiSearch')}
+            onPick={insertEmoji}
+            className="rounded-none border-0 shadow-none"
+          />
         </div>
       )}
     </div>
