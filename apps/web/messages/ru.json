@@ -1926,6 +1926,7 @@
     "sysOwnerChanged": "{actor} передал(а) владение {target}",
     "mute": "Отключить уведомления",
     "unmute": "Включить уведомления",
+    "notificationsRow": "Уведомления",
     "muteShort": "Без звука",
     "unmuteShort": "Вкл. звук",
     "export": "Экспорт чата",

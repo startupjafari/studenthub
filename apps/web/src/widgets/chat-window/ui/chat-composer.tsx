@@ -246,14 +246,17 @@ export function ChatComposer({
   // остальных: раньше каждая кнопка перечисляла свои классы заново, и любая правка
   // расходилась по трём местам.
   //
-  // Размера два: 56 px под палец и 44 px под курсор. 56 — правило плавающих островов у
-  // нижнего края (§4): панель ввода стоит там в одном ряду с нижней навигацией и обязана
-  // совпадать с ней по высоте. На десктопе нижней навигации нет вовсе — панель остаётся у
-  // края одна, равняться ей не на что, и тот же остров читается просто как огромный.
+  // Размера два: 48 px под палец и 44 px под курсор.
+  //
+  // 48, а не 56 из правила плавающих островов (DESIGN_SYSTEM §4). Правило держит одну
+  // высоту у островов, которые видны одновременно, — а нижняя навигация в открытом чате
+  // скрыта (`hideBottomNav` в app-shell), и совпадать панели ввода не с чем. Зато она
+  // соседствует с телеграмным эталоном в голове у человека: там скрепка, поле и кнопка
+  // записи ровно такие, и 56 рядом с ними читались как непомерные.
   // 44 px — на ступень выше обычного контрола (`lg` шкалы, 40): поле ввода — главный
   // контрол экрана, и в 40 px оно выглядело тесным. Ряд вместе с отступами плашки даёт ту
   // же высоту, что у плашки профиля внизу сайдбара (см. ChatWindow).
-  const ROUND = 'flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-11 lg:rounded-md' // prettier-ignore
+  const ROUND = 'flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[color,background-color,transform] active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-11 lg:rounded-md' // prettier-ignore
   const roundBtn = cn(
     island,
     ROUND,
@@ -489,7 +492,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-11 lg:rounded-md',
+                  'flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full px-4 lg:h-11 lg:rounded-md',
                 )}
               >
                 <span
@@ -551,7 +554,7 @@ export function ChatComposer({
                     контейнера, а не margin меню: иначе на пути курсора мёртвая зона. */}
                 {attachMenu.open && (
                   <div className="absolute bottom-full left-0 z-50 pb-2">
-                    <div className="w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
+                    <div className="w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
                       {(
                         [
                           {
@@ -591,9 +594,12 @@ export function ChatComposer({
                               attachMenu.close()
                               a.run()
                             }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            // Строка выше и значок крупнее, чем в обычном меню: сюда
+                            // целятся пальцем на телефоне, а пунктов всего три-четыре —
+                            // место на них есть.
+                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
                           >
-                            <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
+                            <a.icon className="size-5 shrink-0 opacity-80" aria-hidden />
                             {a.label}
                           </button>
                         ))}
@@ -609,7 +615,7 @@ export function ChatComposer({
               <div
                 className={cn(
                   island,
-                  'relative flex min-h-14 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-11 lg:rounded-md',
+                  'relative flex min-h-12 min-w-0 flex-1 items-center rounded-3xl transition-[border-color] focus-within:border-ring/70 lg:min-h-11 lg:rounded-md',
                 )}
               >
                 <RichTextField
@@ -619,7 +625,7 @@ export function ChatComposer({
                   onChange={onType}
                   actions={MARKDOWN_ACTIONS_INLINE}
                   wrapperClassName="min-w-0 flex-1"
-                  className="max-h-32 overflow-y-auto py-3 pl-4 pr-1 lg:py-2 lg:pl-3.5"
+                  className="max-h-32 overflow-y-auto py-2.5 pl-4 pr-1 lg:py-2 lg:pl-3.5"
                   aria-label={t('messagePlaceholder')}
                   placeholder={t('messagePlaceholder')}
                   onKeyDown={(e) => {
@@ -661,7 +667,7 @@ export function ChatComposer({
                     aria-expanded={emoji.open}
                     disabled={!connected}
                     onClick={emoji.toggle}
-                    className="flex size-12 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,transform] hover:bg-foreground/[0.06] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-8 lg:rounded-md"
+                    className="flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,transform] hover:bg-foreground/[0.06] hover:text-foreground active:scale-95 disabled:cursor-default disabled:opacity-50 lg:size-8 lg:rounded-md"
                   >
                     <Smile className="size-6 lg:size-5" aria-hidden />
                   </button>

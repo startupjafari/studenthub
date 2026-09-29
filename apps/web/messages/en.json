@@ -1926,6 +1926,7 @@
     "sysOwnerChanged": "{actor} transferred ownership to {target}",
     "mute": "Mute notifications",
     "unmute": "Unmute notifications",
+    "notificationsRow": "Notifications",
     "muteShort": "Mute",
     "unmuteShort": "Unmute",
     "export": "Export chat",
