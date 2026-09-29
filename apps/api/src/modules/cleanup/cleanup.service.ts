@@ -19,6 +19,7 @@ import { ComplaintsService } from '../complaints/complaints.service'
 import { DemoRequestsService } from '../onboarding/demo-requests.service'
 import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
+import { digestText, humanAge } from '../../common/telegram/digest'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
@@ -416,19 +417,37 @@ export class CleanupService {
     // Числа спрашиваем у модулей-владельцев, а не считаем здесь: тот же ответ отдаёт
     // команда бота `/queue`, и две копии запроса разошлись бы при первой же правке
     // набора статусов «в очереди».
-    const [complaints, tickets] = await Promise.all([
+    const since = new Date(Date.now() - DAY_MS)
+    const [complaints, tickets, complaintsDay, ticketsDay, duty] = await Promise.all([
       this.complaints.queueStats(),
       this.support.queueStats(),
+      this.complaints.dayStats(since),
+      this.support.dayStats(since),
+      this.platform.duty(),
     ])
 
     // Сводку шлём, даже когда всё разобрано: «ноль и ноль» — это тоже новость, и по её
-    // отсутствию нельзя отличить спокойный день от сломавшейся отправки.
+    // отсутствию нельзя отличить спокойный день от сломавшейся отправки. Текст собирает
+    // общая функция: ту же сводку отдаёт команда бота `/digest`.
     await this.telegram.notifyStaff(
       'digest',
-      `Сводка за день: жалоб в очереди ${complaints.count}, открытых обращений ${tickets.count}`,
+      digestText({
+        complaints: { ...complaints, ...complaintsDay },
+        tickets: { ...tickets, ...ticketsDay },
+        dutyName: await this.dutyName(duty.dutyUserId),
+      }),
     )
     this.logger.log(`sendDailyDigest: жалоб ${complaints.count}, обращений ${tickets.count}`)
     return 1
+  }
+
+  /** Имя дежурного для сводки. Только команда платформы — тех, о ком жалуются, здесь нет. */
+  private async dutyName(userId: string | null): Promise<string | null> {
+    if (!userId) return null
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } })
+      .catch(() => null)
+    return user ? `${user.firstName} ${user.lastName}`.trim() : null
   }
 
   // Очередь жалоб выросла сверх порога. Ежечасно, с паузой между сигналами.
@@ -440,7 +459,7 @@ export class CleanupService {
   }
 
   private async alertQueueBacklogTask(): Promise<number> {
-    const { count: pending } = await this.complaints.queueStats()
+    const { count: pending, oldestAt } = await this.complaints.queueStats()
     if (pending < QUEUE_BACKLOG_THRESHOLD) {
       // Очередь разгребли — снимаем паузу, чтобы следующий всплеск не пропустить.
       await this.redis.del(QUEUE_BACKLOG_KEY).catch(() => undefined)
@@ -454,7 +473,15 @@ export class CleanupService {
       .catch(() => null)
     if (first === null) return 0
 
-    await this.telegram.notifyStaff('complaint', `В очереди накопилось жалоб: ${pending}`)
+    // С возрастом самого старого: «накопилось десять» за час и «накопилось десять» за
+    // трое суток — разные поводы, а сигнал был один и тот же.
+    await this.telegram.notifyStaff(
+      'complaint',
+      [
+        `В очереди накопилось жалоб: ${pending}`,
+        ...(oldestAt ? [`Старейшая ждёт: ${humanAge(Date.now() - oldestAt.getTime())}`] : []),
+      ].join('\n'),
+    )
     this.logger.log(`alertQueueBacklog: жалоб ${pending}`)
     return pending
   }

@@ -87,9 +87,13 @@ export class SupportService {
     // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
     // уведомление о той же ветке ничего не добавляет.
     if (!existing) {
+      // Размер очереди прямо в уведомлении: одно обращение в спокойный день и одно
+      // поверх десяти неразобранных требуют разной срочности, а по голому «пришло
+      // новое» отличить их можно было только открыв приложение.
+      const { count } = await this.queueStats()
       await this.telegram.notifyStaff(
         'ticket',
-        'Новое обращение в поддержку',
+        `Новое обращение в поддержку\nОткрытых обращений: ${count}`,
         `support_${chatId}`,
         new Date(),
         false,
@@ -553,6 +557,19 @@ export class SupportService {
       }),
     ])
     return { count, oldestAt: oldest?.createdAt ?? null }
+  }
+
+  /**
+   * Движение за период: сколько обращений пришло и сколько закрыто. Для сводки — та же
+   * пара чисел, что и у жалоб, и по той же причине.
+   */
+  async dayStats(since: Date): Promise<{ created: number; closed: number }> {
+    const type = ChatType.SUPPORT_PLATFORM
+    const [created, closed] = await this.prisma.$transaction([
+      this.prisma.chat.count({ where: { type, createdAt: { gte: since } } }),
+      this.prisma.chat.count({ where: { type, supportClosedAt: { gte: since } } }),
+    ])
+    return { created, closed }
   }
 
   /** Создаёт обращение с автором и всей текущей командой платформы в участниках. */
