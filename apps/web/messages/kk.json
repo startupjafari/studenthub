@@ -1926,6 +1926,7 @@
     "sysOwnerChanged": "{actor} иелікті {target} берді",
     "mute": "Хабарламаларды өшіру",
     "unmute": "Хабарламаларды қосу",
+    "notificationsRow": "Хабарламалар",
     "muteShort": "Дыбыссыз",
     "unmuteShort": "Дыбыс қосу",
     "export": "Чатты экспорттау",

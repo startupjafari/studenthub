@@ -551,7 +551,7 @@ export function ChatComposer({
                     контейнера, а не margin меню: иначе на пути курсора мёртвая зона. */}
                 {attachMenu.open && (
                   <div className="absolute bottom-full left-0 z-50 pb-2">
-                    <div className="w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
+                    <div className="w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
                       {(
                         [
                           {
@@ -591,9 +591,12 @@ export function ChatComposer({
                               attachMenu.close()
                               a.run()
                             }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            // Строка выше и значок крупнее, чем в обычном меню: сюда
+                            // целятся пальцем на телефоне, а пунктов всего три-четыре —
+                            // место на них есть.
+                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
                           >
-                            <a.icon className="size-4 shrink-0 opacity-80" aria-hidden />
+                            <a.icon className="size-5 shrink-0 opacity-80" aria-hidden />
                             {a.label}
                           </button>
                         ))}
