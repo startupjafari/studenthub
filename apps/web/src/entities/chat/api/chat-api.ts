@@ -2,8 +2,6 @@ import type {
   ChatMessagesQueryInput,
   CreateChatInput,
   CreateChatPollInput,
-  ScheduleMessageInput,
-  UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import { api, type MultipartTarget, type PresignedTarget } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
@@ -39,7 +37,6 @@ export const chatKeys = {
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
   blocked: () => ['chats', 'blocked'] as const,
   unread: () => ['chats', 'unread'] as const,
-  scheduled: (id: string) => ['chats', id, 'scheduled'] as const,
   folders: () => ['chats', 'folders'] as const,
 }
 
@@ -103,43 +100,6 @@ export async function acceptChatRequestRequest(chatId: string): Promise<void> {
 // Отклонить запрос — чат удаляется целиком; инициатор об отказе не уведомляется.
 export async function declineChatRequestRequest(chatId: string): Promise<void> {
   await api.post(`/chats/${chatId}/request/decline`)
-}
-
-// ── Отложенные сообщения ─────────────────────────────────────────────────────
-
-export interface ScheduledMessage {
-  id: string
-  content: string
-  replyToId: string | null
-  replyQuote: string | null
-  silent: boolean
-  scheduledAt: string
-  createdAt: string
-}
-
-export async function fetchScheduled(chatId: string): Promise<ScheduledMessage[]> {
-  const { data } = await api.get<ScheduledMessage[]>(`/chats/${chatId}/scheduled`)
-  return data
-}
-
-export async function scheduleMessageRequest(
-  chatId: string,
-  input: ScheduleMessageInput,
-): Promise<ScheduledMessage> {
-  const { data } = await api.post<ScheduledMessage>(`/chats/${chatId}/scheduled`, input)
-  return data
-}
-
-export async function updateScheduledRequest(
-  id: string,
-  input: UpdateScheduledMessageInput,
-): Promise<ScheduledMessage> {
-  const { data } = await api.patch<ScheduledMessage>(`/chats/scheduled/${id}`, input)
-  return data
-}
-
-export async function cancelScheduledRequest(id: string): Promise<void> {
-  await api.delete(`/chats/scheduled/${id}`)
 }
 
 // Архив «у себя»: чат уезжает в отдельную вкладку и перестаёт считаться в бейдже.

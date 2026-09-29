@@ -5,9 +5,7 @@ import { useTranslations } from 'next-intl'
 import {
   Ban,
   BarChart3,
-  BellOff,
   Camera,
-  ChevronUp,
   Clock,
   FileText,
   ImageIcon,
@@ -154,10 +152,7 @@ export type ChatComposerProps = {
   /** «Просмотр сообщения» из меню полосы ответа (§5 карты): перемотать ленту к оригиналу. */
   onViewReplyTarget: () => void
   // «Без звука»: залипающий переключатель у кнопки отправки.
-  silent: boolean
-  onToggleSilent: () => void
   // «Отправить позже»: открывает выбор времени (отложенное сообщение).
-  onScheduleSend: () => void
   // Личная блокировка активна: вместо поля ввода — баннер (нельзя писать).
   blocked: boolean
   // Я заблокировал собеседника (можно разблокировать) vs он меня.
@@ -195,9 +190,6 @@ export function ChatComposer({
   replyQuote,
   onCancelReply,
   onViewReplyTarget,
-  silent,
-  onToggleSilent,
-  onScheduleSend,
   blocked,
   iBlocked,
   otherId,
@@ -223,8 +215,11 @@ export function ChatComposer({
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
   const [replyMenu, setReplyMenu] = useState<{ x: number; y: number } | null>(null)
   const attachMenu = useHoverMenu()
-  const sendMenu = useHoverMenu()
   const emoji = useHoverMenu()
+  // Наведение открывает меню только на ПК. На узком экране (в том числе в узком окне
+  // браузера с мышью) панель смайлов доковано под полем ввода и занимает пол-экрана:
+  // раскрывать её проездом курсора — то же самое, что открывать клавиатуру наведением.
+  const hoverOpens = useMediaQuery('(min-width: 1024px) and (hover: hover)')
   // Отдельные input'ы под фото/видео и съёмку: у них свои accept/capture, а общий (файл
   // любого типа) приходит из родителя. Все три ведут в один onFilesPicked.
   const mediaInputRef = useRef<HTMLInputElement>(null)
@@ -535,7 +530,7 @@ export function ChatComposer({
                 className="relative shrink-0"
                 // Выключенная кнопка не открывается и наведением: обработчики висят на
                 // обёртке, а она про `disabled` кнопки внутри ничего не знает.
-                {...(connected && !editing ? attachMenu.hoverProps : {})}
+                {...(connected && !editing && hoverOpens ? attachMenu.hoverProps : {})}
               >
                 <button
                   type="button"
@@ -659,7 +654,7 @@ export function ChatComposer({
                 <div
                   ref={emoji.ref}
                   className="relative shrink-0 self-end p-1"
-                  {...(connected ? emoji.hoverProps : {})}
+                  {...(connected && hoverOpens ? emoji.hoverProps : {})}
                 >
                   <button
                     type="button"
@@ -687,78 +682,15 @@ export function ChatComposer({
                 </div>
               </div>
               {showSend ? (
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    aria-label={silent ? t('sendSilentAria') : t('send')}
-                    disabled={!connected}
-                    onClick={onSend}
-                    // Правый клик и долгое нажатие — дополнительные способы отправки,
-                    // как в Telegram. Обычный клик остаётся обычной отправкой.
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      sendMenu.toggle()
-                    }}
-                    className={sendBtn}
-                  >
-                    {silent ? (
-                      <BellOff className="size-6 lg:size-5" aria-hidden />
-                    ) : (
-                      <Send className="size-6 lg:size-5" aria-hidden />
-                    )}
-                  </button>
-                  {/* Опции отправки («без звука», «позже») — своя зона наведения, а не вся
-                      кнопка: иначе меню выскакивало бы каждый раз, когда курсор идёт к
-                      «Отправить». Шеврон подрос с 16 до 24 px — в прежний попадали через
-                      раз, а по §13 цель нажатия не бывает меньше 24. */}
-                  <div
-                    ref={sendMenu.ref}
-                    className="absolute -top-1 -right-1"
-                    {...sendMenu.hoverProps}
-                  >
-                    <button
-                      type="button"
-                      aria-label={t('sendOptions')}
-                      aria-expanded={sendMenu.open}
-                      onClick={sendMenu.toggle}
-                      className="flex size-6 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-5"
-                    >
-                      <ChevronUp className="size-4 lg:size-3.5" aria-hidden />
-                    </button>
-                    {sendMenu.open && (
-                      // right-1 гасит вынос самого шеврона за кнопку: правый край меню
-                      // встаёт вровень с «Отправить», а не на 4px за ним.
-                      // Отступ — padding контейнера, а не margin меню: между шевроном и
-                      // меню не должно быть мёртвой зоны, иначе курсор до него не дойдёт.
-                      <div className="absolute bottom-full right-1 z-50 pb-2">
-                        <div className="w-56 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onToggleSilent()
-                              sendMenu.close()
-                            }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                          >
-                            <BellOff className="size-4 shrink-0 opacity-80" aria-hidden />
-                            {silent ? t('sendSilentOff') : t('sendSilentOn')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onScheduleSend()
-                              sendMenu.close()
-                            }}
-                            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                          >
-                            <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
-                            {t('sendLater')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  aria-label={t('send')}
+                  disabled={!connected}
+                  onClick={onSend}
+                  className={sendBtn}
+                >
+                  <Send className="size-6 lg:size-5" aria-hidden />
+                </button>
               ) : (
                 <button
                   type="button"
@@ -780,7 +712,10 @@ export function ChatComposer({
           над полем и закрывает собой последние сообщения — то есть ровно то, к чему смайл
           и подбирают. Панель уезжает вниз вместе с полем и занимает всю ширину. */}
       {emoji.open && (
-        <div className="overflow-hidden rounded-2xl border border-border bg-popover duration-200 animate-in slide-in-from-bottom-2 motion-reduce:animate-none lg:hidden">
+        // Во всю ширину экрана: отрицательные поля гасят отступы плавающего острова, а
+        // скругления и рамка остаются только сверху — панель встаёт на место клавиатуры и
+        // с трёх сторон уходит за кромку, как в Telegram.
+        <div className="-mx-3 -mb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))] overflow-hidden rounded-t-2xl border-t border-border bg-popover duration-200 animate-in slide-in-from-bottom-2 motion-reduce:animate-none lg:hidden">
           <EmojiPicker
             size="dock"
             searchPlaceholder={t('emojiSearch')}

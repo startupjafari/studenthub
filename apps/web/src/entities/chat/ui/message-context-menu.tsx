@@ -25,12 +25,7 @@ import {
   type MenuAnchor,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import {
-  useSheetDragClose,
-  useBodyScrollLock,
-  useScrollRow,
-  useDismissAnimation,
-} from '../../../shared/lib'
+import { useBodyScrollLock, useScrollRow, useDismissAnimation } from '../../../shared/lib'
 import type { ChatMessage } from '../model/types'
 
 export interface MessageMenuActions {
@@ -123,39 +118,6 @@ function ReactionsRow({
         >
           <SmilePlus className={pill ? 'size-6' : 'size-5'} aria-hidden />
         </button>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Нижний лист с полным emoji-пикером (телефон). Отдельный компонент, потому что
- * `useSheetDragClose` вешает жест на узел в момент монтирования: живя в родителе, хук получал
- * бы ref листа, которого тогда ещё нет, — и свайп вниз перестал бы его закрывать.
- */
-function EmojiPickerSheet({
-  searchPlaceholder,
-  onPick,
-  onClose,
-}: {
-  searchPlaceholder: string
-  onPick: (emoji: string) => void
-  onClose: () => void
-}) {
-  const ref = useSheetDragClose<HTMLDivElement>(onClose)
-
-  return (
-    <div
-      ref={ref}
-      onClick={(e) => e.stopPropagation()}
-      className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom)] shadow-lg duration-200 animate-in slide-in-from-bottom md:hidden"
-    >
-      <div
-        className="mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-muted-foreground/30"
-        aria-hidden
-      />
-      <div className="p-2">
-        <EmojiPicker className="w-full" searchPlaceholder={searchPlaceholder} onPick={onPick} />
       </div>
     </div>
   )
@@ -328,31 +290,34 @@ export function MessageContextMenu({
         )}
       </div>
 
-      {/* Телефон: реакции и действия у самого пузыря; полный пикер — нижним листом. */}
-      {pickerOpen ? (
-        <EmojiPickerSheet
-          searchPlaceholder={t('emojiSearch')}
-          onPick={reactAndClose}
-          onClose={dismiss}
-        />
-      ) : (
-        <AnchoredMenuLayer
-          anchor={anchor}
-          fallbackY={y}
-          align={mine ? 'end' : 'start'}
-          closing={closing}
-          onBackdropTap={dismiss}
-          above={
+      {/* Телефон: реакции и действия у самого пузыря. Полный пикер раскрывается ТАМ ЖЕ,
+          на месте ряда быстрых реакций, — как в Telegram. Нижний лист во весь экран
+          уводил выбор от сообщения: пузырь, к которому подбирают реакцию, оставался где-то
+          наверху за затемнением, и связь между «выбираю» и «к чему» терялась. */}
+      <AnchoredMenuLayer
+        anchor={anchor}
+        fallbackY={y}
+        align={mine ? 'end' : 'start'}
+        closing={closing}
+        onBackdropTap={dismiss}
+        above={
+          pickerOpen ? (
+            <EmojiPicker
+              className="w-full"
+              searchPlaceholder={t('emojiSearch')}
+              onPick={reactAndClose}
+            />
+          ) : (
             <ReactionsRow
               variant="pill"
               onReact={reactAndClose}
               onOpenPicker={() => setPickerOpen(true)}
               pickerLabel={t('emoji')}
             />
-          }
-          card={actionsList('card')}
-        />
-      )}
+          )
+        }
+        card={pickerOpen ? null : actionsList('card')}
+      />
     </div>
   )
 }
