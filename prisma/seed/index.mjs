@@ -163,6 +163,8 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     await writer.flush()
 
     await markUniversityDone(prisma, uniId, {
+      // Метка прогона: по ней режим cleanup найдёт ровно эти вузы и ничего больше.
+      tag: config.tag || null,
       rows: writer.written,
       students: structure.plan.students,
       faculties: structure.faculties.length,

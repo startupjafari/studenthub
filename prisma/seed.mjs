@@ -17,7 +17,9 @@ import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
+import { seedUserMedia } from './seed/steps/57-user-media.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
+import { recordRun } from './seed/lib/marker.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
@@ -1350,6 +1352,18 @@ async function main() {
       companies: linkedCompanies,
     })
   }
+  // ── Личная галерея ──────────────────────────────────────────────────────────
+  // Шаг глобальный: обходит ВСЕХ пользователей, включая платформенных, которых
+  // генератор вузов не видит. Строки File ссылаются на объекты общего пула, копий в
+  // хранилище не делается — поэтому «сто фото каждому» больше не стоит сотен гигабайт.
+  if (config.photosPerUser[1] + config.videosPerUser[1] > 0) {
+    const galleryPool = mediaPool ?? (await loadMediaPool(prisma))
+    const galleryWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    const counts = await seedUserMedia(prisma, galleryWriter, { config, pool: galleryPool })
+    await galleryWriter.flush()
+    console.log(`  личная галерея: ${counts.files} файлов у ${counts.users} пользователей`)
+  }
+
   // ── Демо-дополнения ─────────────────────────────────────────────────────────
   // Друзья dev-аккаунтов, очередь заявок демо-вуза, жалобы, воронка инвайтов и
   // история для дашборда платформы (даты регистрации, журнал аудита).
@@ -1357,6 +1371,27 @@ async function main() {
     const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
     await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
     await demoWriter.flush()
+  }
+
+  // ── Манифест прогона ────────────────────────────────────────────────────────
+  // Без метки прогон анонимен: на общей с продом базе это означает, что налитое
+  // потом не отличить от настоящих данных и прицельно не убрать.
+  if (config.tag) {
+    await recordRun(prisma, config.tag, {
+      scale: config.scale,
+      universities: config.universities,
+      from: config.from,
+      to: config.to,
+      students: [config.studentsMin, config.studentsMax],
+      posts: config.postsPerUser,
+      articles: config.articlesPerUser,
+      polls: config.pollsPerUser,
+      photosPerUser: config.photosPerUser,
+      videosPerUser: config.videosPerUser,
+      estimatedRows: budget,
+      finishedAt: new Date().toISOString(),
+    })
+    console.log(`  манифест прогона записан: метка ${config.tag}`)
   }
 
   console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)

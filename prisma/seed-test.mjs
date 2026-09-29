@@ -179,11 +179,7 @@ async function main() {
   // После вузов: обходит ВСЕХ пользователей, включая платформенных и работодателей.
   if (config.photosPerUser[1] + config.videosPerUser[1] > 0) {
     const mediaWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    const counts = await seedUserMedia(prisma, mediaWriter, {
-      config,
-      pool: mediaPool,
-      storage,
-    })
+    const counts = await seedUserMedia(prisma, mediaWriter, { config, pool: mediaPool })
     await mediaWriter.flush()
     console.log(
       `  галерея: ${counts.files} файлов в ${counts.albums} альбомах у ${counts.users} польз.`,

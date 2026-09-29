@@ -13,6 +13,9 @@
 // прошлых прогонов перестают совпадать, и вузы перегенерируются.
 
 const ACTION = 'SEED_UNIVERSITY'
+// Запись о прогоне целиком: одна строка на запуск, ключом служит метка (SEED_TAG).
+// По ней режим cleanup находит, что именно удалять.
+const RUN_ACTION = 'SEED_RUN'
 
 export const SEED_VERSION = 1
 
@@ -39,6 +42,42 @@ export async function markUniversityDone(prisma, uniId, stats) {
     metadata: { version: SEED_VERSION, ...stats },
   }
   await prisma.auditLog.upsert({ where: { id }, update: data, create: { id, ...data } })
+}
+
+/**
+ * Вузы, залитые прогоном с этой меткой.
+ *
+ * Метка лежит в metadata маркера, а не в отдельной колонке: колонка означала бы
+ * миграцию ради служебного поля сида. Фильтр по JSON-пути Postgres умеет.
+ */
+export async function loadUniversitiesByTag(prisma, tag) {
+  const rows = await prisma.auditLog.findMany({
+    where: { action: ACTION, metadata: { path: ['tag'], equals: tag } },
+    select: { entityId: true },
+    take: 5000,
+  })
+  return rows.map((r) => r.entityId).filter(Boolean)
+}
+
+/**
+ * Запись о прогоне: что за метка, чем запускали и сколько получилось. Это и есть
+ * манифест — без него на общей с продом базе нельзя отличить свои строки от чужих.
+ */
+export async function recordRun(prisma, tag, summary) {
+  const id = `seed-run-${tag}`
+  const data = {
+    action: RUN_ACTION,
+    entity: 'Seed',
+    entityId: tag,
+    metadata: { version: SEED_VERSION, ...summary },
+  }
+  await prisma.auditLog.upsert({ where: { id }, update: data, create: { id, ...data } })
+}
+
+/** Убрать манифест и маркеры прогона — последним шагом уборки. */
+export async function clearRun(prisma, tag, uniIds) {
+  await prisma.auditLog.deleteMany({ where: { action: ACTION, entityId: { in: uniIds } } })
+  await prisma.auditLog.deleteMany({ where: { action: RUN_ACTION, entityId: tag } })
 }
 
 // Снять маркеры (SEED_FORCE): вузы будут перегенерированы на этом же прогоне.

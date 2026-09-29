@@ -1,25 +1,25 @@
 // Шаг «личная галерея»: каждому пользователю — свои фото и видео в альбомах профиля.
 //
-// ПОЧЕМУ КОПИИ, А НЕ ССЫЛКИ НА ОБЩИЙ ПУЛ. Схема: `File @@unique([bucket, key])`
-// (prisma/schema/08-files.prisma) — одна строка File равна одному объекту в MinIO.
-// Поэтому «сто фотографий у каждого» нельзя сделать сотней ссылок на одни и те же
-// двести файлов пула: это сто тысяч строк File, и каждой нужен свой ключ объекта.
-// Копии делает сам MinIO (copyObject), байты по сети не гоняются — но место занимают.
-// Отсюда и порядок величин: 100 фото × 1481 пользователь ≈ 148 тыс. объектов ≈ 13 ГБ,
-// а видео тяжелее фото примерно в 38 раз, поэтому их на пользователя три, а не сто.
+// ССЫЛКИ НА ОБЩИЙ ПУЛ, А НЕ КОПИИ. Пара (bucket, key) у File больше не уникальна
+// (миграция 20260929121630_files_shared_object_pool), поэтому сто карточек галереи —
+// это сто строк File, указывающих на одни и те же объекты пула. Копий в MinIO не
+// делается вовсе: 100 фото × 130 тыс. пользователей стоили бы ~13 млн объектов и сотни
+// гигабайт, а ссылки стоят ровно ноль байт сверх самого пула.
+//
+// Плата — реализм: картинки у всех одинаковые, и раздачу медиа под нагрузкой таким
+// стендом не измерить. Для демо-данных это приемлемо, для нагрузочного теста — нет.
 //
 // Шаг ГЛОБАЛЬНЫЙ, а не внутривузовский: галерея нужна и платформенным ролям, которых
 // генератор вузов не видит («каждый пользователь» — это в том числе админ платформы).
 // Поэтому он идёт после вузов и обходит таблицу пользователей курсором.
 //
-// Идемпотентность: ключи объектов и id строк детерминированы (`<userId>-gph-<i>`), копия
-// пропускается, если объект уже на месте, а File/Album пишутся с skipDuplicates.
+// Идемпотентность: id строк детерминированы (`<userId>-gph-<i>`), File/Album пишутся
+// с skipDuplicates.
 
 import { child } from '../lib/ids.mjs'
-import { runPool } from '../lib/pool.mjs'
 
-// Пользователей за раз в память. Больше смысла не имеет: на каждого приходится сотня
-// копий в MinIO, и узкое место — они, а не выборка.
+// Пользователей за раз в память. Строки File собираются пачкой и уходят одним
+// createMany — больше держать незачем.
 const USER_CHUNK = 200
 
 // Расширение по mime — ключ объекта должен оканчиваться правильно, иначе браузер
@@ -34,12 +34,11 @@ const EXT = {
 }
 
 /**
- * Раздаёт каждому пользователю личную галерею.
+ * Раздаёт каждому пользователю личную галерею — ссылками на объекты общего пула.
  *
- * @param pool  пул медиа из шага 10: { photos: [...], videos: [...] } с bucket/key/mime/size
- * @param storage клиент MinIO из lib/storage.mjs (copyIfAbsent)
+ * @param pool пул медиа из шага 10: { photos: [...], videos: [...] } с bucket/key/mime/size
  */
-export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
+export async function seedUserMedia(prisma, writer, { config, pool }) {
   // Диапазоны, а не числа: «100-500 фото» означает своё случайное количество у каждого
   // пользователя. Верхняя граница нулевая у обоих — шага нет вовсе.
   const [photosMin, photosMax] = config.photosPerUser
@@ -52,12 +51,6 @@ export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
     console.log('  личная галерея: пул медиа пуст — шаг пропущен')
     return { users: 0, files: 0, albums: 0 }
   }
-  if (!storage) {
-    console.log('  личная галерея: MinIO недоступен — шаг пропущен')
-    return { users: 0, files: 0, albums: 0 }
-  }
-
-  const bucket = storage.buckets.profileMedia
   const counts = { users: 0, files: 0, albums: 0 }
   let cursor = null
 
@@ -71,13 +64,11 @@ export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
     if (users.length === 0) break
     cursor = users[users.length - 1].id
 
-    // Копии в MinIO — параллельно: один copyObject это round-trip к серверу, и
-    // последовательный обход 150 тысяч объектов упёрся бы в задержку сети, а не в диск.
-    // А вот запись в БД идёт ПОСЛЕ, одним потоком: буферы writer'а не рассчитаны на
-    // параллельное наполнение — два воркера, одновременно переполнившие буфер, ушли бы
-    // во встречные createMany одной и той же модели.
+    // Строки собираются в памяти, а запись в БД идёт ПОСЛЕ, одним потоком: буферы
+    // writer'а не рассчитаны на параллельное наполнение — два воркера, одновременно
+    // переполнившие буфер, ушли бы во встречные createMany одной и той же модели.
     const perUser = []
-    await runPool(users, config.mediaConcurrency, async (user) => {
+    for (const user of users) {
       const rows = []
       const albumPhotoId = child(user.id, 'galph')
       const albumVideoId = child(user.id, 'galvd')
@@ -92,12 +83,10 @@ export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
 
       for (let i = 0; i < photosPer && photos.length > 0; i += 1) {
         const src = photos[(offset + i) % photos.length]
-        const key = `gallery/${user.id}/p${String(i).padStart(3, '0')}.${EXT[src.mime] ?? 'jpg'}`
-        await storage.copyIfAbsent(bucket, key, src.bucket, src.key)
         rows.push({
           id: child(user.id, 'gph', i),
-          bucket,
-          key,
+          bucket: src.bucket,
+          key: src.key,
           mime: src.mime,
           size: src.size,
           name: `photo-${i + 1}.${EXT[src.mime] ?? 'jpg'}`,
@@ -108,12 +97,10 @@ export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
 
       for (let i = 0; i < videosPer && videos.length > 0; i += 1) {
         const src = videos[(offset + i) % videos.length]
-        const key = `gallery/${user.id}/v${String(i).padStart(3, '0')}.${EXT[src.mime] ?? 'mp4'}`
-        await storage.copyIfAbsent(bucket, key, src.bucket, src.key)
         rows.push({
           id: child(user.id, 'gvd', i),
-          bucket,
-          key,
+          bucket: src.bucket,
+          key: src.key,
           mime: src.mime,
           size: src.size,
           name: `video-${i + 1}.${EXT[src.mime] ?? 'mp4'}`,
@@ -133,7 +120,7 @@ export async function seedUserMedia(prisma, writer, { config, pool, storage }) {
         albums.push({ id: albumVideoId, userId: user.id, title: 'Видео' })
       }
       perUser.push({ albums, rows })
-    })
+    }
 
     // Альбомы — первыми: File.albumId ссылается на Album, а writer сбрасывает буферы
     // в порядке первого обращения к модели (lib/writer.mjs, flushUpTo), поэтому album
