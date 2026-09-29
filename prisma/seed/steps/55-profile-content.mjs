@@ -41,6 +41,10 @@ export async function seedProfileContent(prisma, writer, ctx) {
 
   const nextCover = () => (covers.length > 0 ? covers[coverCursor++ % covers.length] : null)
 
+  // Сколько статей досталось каждому: комментарий и закладка ссылаются на ПЕРВУЮ
+  // статью, а при диапазоне «0-0» её нет ни у кого, и ссылка нарушила бы внешний ключ.
+  const articleCounts = new Map()
+
   for (const faculty of people.faculties) {
     for (const group of faculty.groups) {
       for (const [si, studentId] of group.studentIds.entries()) {
@@ -89,6 +93,7 @@ export async function seedProfileContent(prisma, writer, ctx) {
         // Заголовок и тело собирает генератор: пятьдесят статей у одного автора из
         // списка в шесть штук выглядели бы как ошибка сида, а не как контент.
         const articleCount = random.randInt(articlesMin, articlesMax)
+        articleCounts.set(studentId, articleCount)
         const firstArticleId = child(studentId, 'art', 0)
         for (let ai = 0; ai < articleCount; ai += 1) {
           const body = articleBody(random)
@@ -160,9 +165,9 @@ export async function seedProfileContent(prisma, writer, ctx) {
         // ── Комментарии к ПЕРВОЙ статье и закладки ──────────────────────────
         // Только к первой: комментарии на каждой из 20–50 статей — это ещё миллионы
         // строк при нулевой пользе для проверки экрана.
-        for (const [ci, commenterId] of random
-          .sample(group.studentIds, random.randInt(0, 3))
-          .entries()) {
+        const commenters =
+          articleCount > 0 ? random.sample(group.studentIds, random.randInt(0, 3)) : []
+        for (const [ci, commenterId] of commenters.entries()) {
           await writer.add('contentComment', {
             id: child(firstArticleId, 'cc', ci),
             authorId: commenterId,
@@ -171,8 +176,9 @@ export async function seedProfileContent(prisma, writer, ctx) {
             createdAt: random.randomDate(-90, 0),
           })
         }
-        // Закладка на статью однокурсника: уникальна по (user, article).
-        if (si > 0) {
+        // Закладка на статью однокурсника: уникальна по (user, article). Если у
+        // однокурсника статей нет, закладывать нечего.
+        if (si > 0 && (articleCounts.get(group.studentIds[si - 1]) ?? 0) > 0) {
           await writer.add('bookmark', {
             id: `${studentId}-bm-${si}`,
             userId: studentId,
