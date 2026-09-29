@@ -48,7 +48,7 @@
     "minio": "^8.0.6",
     "nestjs-pino": "^4.4.1",
     "nestjs-zod": "^4.3.1",
-    "nodemailer": "^10.0.12",
+    "nodemailer": "^10.0.2",
     "otplib": "^12.0.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
