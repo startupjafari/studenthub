@@ -122,6 +122,12 @@ async function seedPlatformStaff(passwordHash) {
   return created
 }
 
+// «0-0» печатаем как 0, «100-500» — как диапазон: в логе прогона это первое, на что
+// смотрят, когда галерея оказалась не того объёма.
+function range([min, max]) {
+  return min === max ? String(min) : `${min}-${max}`
+}
+
 async function main() {
   console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
   console.log(
@@ -130,7 +136,7 @@ async function main() {
   )
   console.log(
     `  медиа: пул ${config.photos} фото / ${config.videos} видео, ` +
-      `каждому ${config.photosPerUser} фото и ${config.videosPerUser} видео`,
+      `каждому ${range(config.photosPerUser)} фото и ${range(config.videosPerUser)} видео`,
   )
   const progress = createProgress({ total: 1, label: 'Итого' })
 
@@ -171,13 +177,9 @@ async function main() {
 
   // ── Личная галерея ──────────────────────────────────────────────────────────
   // После вузов: обходит ВСЕХ пользователей, включая платформенных и работодателей.
-  if (config.photosPerUser + config.videosPerUser > 0) {
+  if (config.photosPerUser[1] + config.videosPerUser[1] > 0) {
     const mediaWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    const counts = await seedUserMedia(prisma, mediaWriter, {
-      config,
-      pool: mediaPool,
-      storage,
-    })
+    const counts = await seedUserMedia(prisma, mediaWriter, { config, pool: mediaPool })
     await mediaWriter.flush()
     console.log(
       `  галерея: ${counts.files} файлов в ${counts.albums} альбомах у ${counts.users} польз.`,

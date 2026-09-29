@@ -12,12 +12,15 @@ import { makeRandom } from './seed/lib/rng.mjs'
 import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
-import { seedUniversities } from './seed/index.mjs'
+import { assertRowBudget, seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
+import { seedUserMedia } from './seed/steps/57-user-media.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
+import { recordRun } from './seed/lib/marker.mjs'
+import { runCleanup } from './seed/cleanup.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
@@ -137,7 +140,24 @@ async function loadCompanies(prisma) {
 }
 
 async function main() {
+  // Уборка — отдельный режим того же входа, а не второй скрипт: удалять надо ровно то,
+  // что этот код умеет создавать, и расхождение между двумя файлами проявилось бы на
+  // проде недоудалёнными хвостами.
+  if (config.mode === 'cleanup') {
+    await runCleanup(prisma, config)
+    return
+  }
+
   console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
+
+  // Потолок объёма — ДО первой записи. Сид наливает в ту же базу, где живут настоящие
+  // пользователи: узнать «получился миллиард строк» надо сейчас, а не через пять часов
+  // работы, на половине последнего вуза.
+  const budget = assertRowBudget(config)
+  if (budget > 0) {
+    console.log(`  оценка объёма: ~${budget.toLocaleString('ru-RU')} строк`)
+  }
+  if (config.tag) console.log(`  метка прогона: ${config.tag}`)
 
   // Прогресс создаём в самом начале: он же измеряет длительность прогона.
   const progress = createProgress({ total: 1, label: 'Итого' })
@@ -186,6 +206,118 @@ async function main() {
     },
   })
 
+  // ── Демо-вуз «Алатау» ───────────────────────────────────────────────────────
+  // Выключается флагом SEED_DEMO_UNIVERSITY=0, и на боевой базе его надо выключать:
+  // это сотни демо-аккаунтов под одним общим паролем и dev-инвайт с известным
+  // токеном — готовый вход для всякого, кто читал репозиторий. Платформенный админ
+  // выше создаётся в любом случае: он и есть штатный бутстрап.
+  if (config.demoUniversity) {
+    await seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
+  } else {
+    // Пароль печатается и здесь: без демо-вуза его больше негде узнать, а под ним
+    // заходит платформенный админ.
+    console.log('  демо-вуз «Алатау» пропущен: SEED_DEMO_UNIVERSITY=0')
+    console.log('  PLATFORM_ADMIN: admin@studenthub.app')
+    reportSeedPassword(seedPassword)
+  }
+
+  // ── Медиа: общий пул фото и видео в MinIO ───────────────────────────────────
+  // До генератора вузов: аватары и обложки раздаются всем пользователям, включая
+  // демо-вуз. Пул нужен и следующим шагам эпика (вложения постов, чатов, альбомы).
+  let mediaPool = null
+  if (config.media && config.runs('media')) {
+    mediaPool = await seedMedia(prisma, config)
+  }
+
+  // ── Работодатели (общие для всех вузов) ─────────────────────────────────────
+  // До вузов: доступы к вузу и решения по вакансиям создаёт уже шаг карьеры внутри
+  // вуза, и компании к тому моменту должны существовать.
+  let companies = null
+  if (config.universities > 0 && config.runs('companies')) {
+    const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    companies = await seedCompanies(prisma, companyWriter, { passwordHash })
+  }
+
+  // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
+  // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
+  if (config.universities > 0 && config.runs('universities')) {
+    // Без этапа companies (SEED_ONLY=universities) карьерные компании берём из БД:
+    // они общие для платформы и обычно уже залиты предыдущим прогоном.
+    const linkedCompanies = companies ?? (await loadCompanies(prisma))
+    // Клиент хранилища один на прогон: шаг соцчасти делает через него серверные копии
+    // изображений постов. Если MinIO недоступен, шаг сам обойдётся без картинок.
+    const storage = config.media ? createStorage() : null
+    await seedUniversities(prisma, {
+      storage,
+      config,
+      passwordHash,
+      pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),
+      companies: linkedCompanies,
+    })
+  }
+  // ── Личная галерея ──────────────────────────────────────────────────────────
+  // Шаг глобальный: обходит ВСЕХ пользователей, включая платформенных, которых
+  // генератор вузов не видит. Строки File ссылаются на объекты общего пула, копий в
+  // хранилище не делается — поэтому «сто фото каждому» больше не стоит сотен гигабайт.
+  if (config.photosPerUser[1] + config.videosPerUser[1] > 0) {
+    const galleryPool = mediaPool ?? (await loadMediaPool(prisma))
+    const galleryWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    const counts = await seedUserMedia(prisma, galleryWriter, { config, pool: galleryPool })
+    await galleryWriter.flush()
+    console.log(`  личная галерея: ${counts.files} файлов у ${counts.users} пользователей`)
+  }
+
+  // ── Демо-дополнения ─────────────────────────────────────────────────────────
+  // Друзья dev-аккаунтов, очередь заявок демо-вуза, жалобы, воронка инвайтов и
+  // история для дашборда платформы (даты регистрации, журнал аудита).
+  if (config.runs('demo')) {
+    const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
+    await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
+    await demoWriter.flush()
+  }
+
+  // ── Манифест прогона ────────────────────────────────────────────────────────
+  // Без метки прогон анонимен: на общей с продом базе это означает, что налитое
+  // потом не отличить от настоящих данных и прицельно не убрать.
+  if (config.tag) {
+    await recordRun(prisma, config.tag, {
+      scale: config.scale,
+      universities: config.universities,
+      from: config.from,
+      to: config.to,
+      students: [config.studentsMin, config.studentsMax],
+      posts: config.postsPerUser,
+      articles: config.articlesPerUser,
+      polls: config.pollsPerUser,
+      photosPerUser: config.photosPerUser,
+      videosPerUser: config.videosPerUser,
+      estimatedRows: budget,
+      finishedAt: new Date().toISOString(),
+    })
+    console.log(`  манифест прогона записан: метка ${config.tag}`)
+  }
+
+  // Инвайт создаётся демо-вузом: без него печатать токен нечего и незачем.
+  if (config.demoUniversity) {
+    console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
+  }
+}
+
+main()
+  .catch((error) => {
+    console.error('Seed упал:', error)
+    process.exitCode = 1
+  })
+  .finally(() => prisma.$disconnect())
+
+/**
+ * Демо-вуз «Алатау» со всей витриной: факультеты, группы, расписание, журнал,
+ * документы, заявки и named-аккаунты вроде dean@studenthub.app.
+ *
+ * Отдельной функцией, а не куском main(), ровно ради одного флага: на общей с продом
+ * базе этот набор заливать нельзя, а генератор вузов и справочники — можно.
+ */
+async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword }) {
   // Демо-структура (Фаза 5): вуз ACTIVE, факультет, группа, 3 аудитории.
   // `city` — код КАТО, а не название: 750000000 = г. Алматы (см. prisma/seed/steps/00-kato.mjs).
   // Поле есть и в update, чтобы прогон сида перевёл на код вузы, заведённые до справочника.
@@ -1306,56 +1438,4 @@ async function main() {
   console.log('  ролях, локально: TWO_FACTOR_ENFORCE=false в apps/api/.env')
   console.log('  Университет «Алатау» (ACTIVE): 5 факультетов, 15 групп.')
   progress.report(counts)
-
-  // ── Медиа: общий пул фото и видео в MinIO ───────────────────────────────────
-  // До генератора вузов: аватары и обложки раздаются всем пользователям, включая
-  // демо-вуз. Пул нужен и следующим шагам эпика (вложения постов, чатов, альбомы).
-  let mediaPool = null
-  if (config.media && config.runs('media')) {
-    mediaPool = await seedMedia(prisma, config)
-  }
-
-  // ── Работодатели (общие для всех вузов) ─────────────────────────────────────
-  // До вузов: доступы к вузу и решения по вакансиям создаёт уже шаг карьеры внутри
-  // вуза, и компании к тому моменту должны существовать.
-  let companies = null
-  if (config.universities > 0 && config.runs('companies')) {
-    const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    companies = await seedCompanies(prisma, companyWriter, { passwordHash })
-  }
-
-  // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
-  // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
-  if (config.universities > 0 && config.runs('universities')) {
-    // Без этапа companies (SEED_ONLY=universities) карьерные компании берём из БД:
-    // они общие для платформы и обычно уже залиты предыдущим прогоном.
-    const linkedCompanies = companies ?? (await loadCompanies(prisma))
-    // Клиент хранилища один на прогон: шаг соцчасти делает через него серверные копии
-    // изображений постов. Если MinIO недоступен, шаг сам обойдётся без картинок.
-    const storage = config.media ? createStorage() : null
-    await seedUniversities(prisma, {
-      storage,
-      config,
-      passwordHash,
-      pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),
-      companies: linkedCompanies,
-    })
-  }
-  // ── Демо-дополнения ─────────────────────────────────────────────────────────
-  // Друзья dev-аккаунтов, очередь заявок демо-вуза, жалобы, воронка инвайтов и
-  // история для дашборда платформы (даты регистрации, журнал аудита).
-  if (config.runs('demo')) {
-    const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
-    await demoWriter.flush()
-  }
-
-  console.log(`  dev-инвайт UNIVERSITY_ADMIN: /register?token=${DEV_INVITE_TOKEN}`)
 }
-
-main()
-  .catch((error) => {
-    console.error('Seed упал:', error)
-    process.exitCode = 1
-  })
-  .finally(() => prisma.$disconnect())
