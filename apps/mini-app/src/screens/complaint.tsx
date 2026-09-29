@@ -10,8 +10,7 @@ import {
   type ResolveAction,
 } from '../api/complaints'
 import { ApiError } from '../api/client'
-import { confirmAction, haptic, hasBottomButtons } from '../telegram/webapp'
-import { useMainButton, useSecondaryButton } from '../telegram/use-telegram'
+import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackHandler } from '../lib/back'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
@@ -22,11 +21,16 @@ import { PersonSummary } from './person-summary'
 
 // Карточка разбора жалобы: прочитать целиком и принять решение с телефона.
 //
-// Два самых частых решения — на нативных кнопках Telegram внизу, у большого пальца:
-// «Нарушения нет» главной и «Снять контент» второй, красной (у жалобы на человека вместо
-// неё — «Предупредить»: контента, который можно снять, там нет). Блокировка остаётся в
-// карточке: ей нужны срок и код, а их на кнопку не посадить. У клиентов без второй кнопки
-// (до Bot API 7.10) все решения, как и раньше, стоят в потоке экрана.
+// Два самых частых решения — своей полосой внизу экрана, у большого пальца: «Нарушения
+// нет» главной и «Снять контент» второй, красной (у жалобы на человека вместо неё —
+// «Предупредить»: контента, который можно снять, там нет). Блокировка остаётся в
+// карточке: ей нужны срок и код, а их на кнопку не посадить.
+//
+// Полоса своя, а не нативные кнопки Telegram: клиент рисует их ПОД областью мини-аппа, и
+// на экране они оказывались ниже нашей панели разделов. Самой нижней строкой выходила
+// навигация приложения, а решения висели под ней — будто принадлежат клиенту, а не
+// карточке. Теперь порядок снизу вверх один и тот же на всех клиентах: панель разделов,
+// над ней решения, над ними содержимое.
 //
 // После решения открывается следующая жалоба очереди, а не список: очередь разбирают
 // подряд, и возврат в список после каждой жалобы превращал разбор в хождение туда-обратно.
@@ -103,8 +107,6 @@ export function ComplaintScreen({
   const [blockDays, setBlockDays] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Один раз: версия клиента за время жизни экрана не меняется.
-  const [native] = useState(hasBottomButtons)
 
   useBackHandler(onBack)
 
@@ -184,7 +186,6 @@ export function ComplaintScreen({
   const pending =
     state.status === 'ready' &&
     (state.complaint.status === 'PENDING' || state.complaint.status === 'REVIEWING')
-  const onUser = state.status === 'ready' && state.complaint.targetType === 'USER'
 
   const dismiss = (): void =>
     void decide('DISMISS', t('complaintConfirmDismiss'), { ok: t('complaintDismiss') })
@@ -195,16 +196,6 @@ export function ComplaintScreen({
     })
   const warn = (): void =>
     void decide('WARN_USER', t('complaintConfirmWarn'), { ok: t('complaintWarnUser') })
-
-  // Хуки нижних кнопок стоят до ранних выходов: на загрузке и отказе кнопок нет (текст
-  // null), но порядок хуков обязан быть одним и тем же при каждой отрисовке.
-  useMainButton(native && pending ? t('complaintDismiss') : null, dismiss, { busy })
-  useSecondaryButton(
-    native && pending ? (onUser ? t('complaintWarnUser') : t('complaintDeleteContent')) : null,
-    onUser ? warn : deleteContent,
-    // Слева от главной: главное решение остаётся под большим пальцем правой руки.
-    { tone: onUser ? 'default' : 'destructive', busy, position: 'left' },
-  )
 
   if (state.status === 'loading') {
     // Скелетон, а не строка «Открываем…»: форма будущей карточки известна заранее, и
@@ -360,8 +351,8 @@ export function ComplaintScreen({
 
       {(complaint.status === 'PENDING' || complaint.status === 'REVIEWING') && (
         <section className="card">
-          {/* С нативными кнопками два главных решения уже внизу — здесь остальное. */}
-          <h2>{native ? t('complaintMoreMeasures') : t('complaintDecision')}</h2>
+          {/* Два главных решения — на полосе внизу экрана; здесь остальное. */}
+          <h2>{t('complaintMoreMeasures')}</h2>
           {/* Квитирование. То же самое делает кнопка под уведомлением в Telegram: без
             отметки «я взял» двое открывают одну жалобу, а третью не берёт никто. */}
           {complaint.reviewingBy ? (
@@ -415,31 +406,14 @@ export function ComplaintScreen({
               {t('complaintApplyAll', { count: complaint.targetReports })}
             </button>
           )}
-          {/* Без нативных кнопок главное решение — первым и залитым: под блокировкой
-            в конце карточки оно читалось последним вариантом, а не основным. */}
-          {!native && (
-            <button type="button" className="fallback-submit" disabled={busy} onClick={dismiss}>
-              {t('complaintDismiss')}
-            </button>
-          )}
-          {/* Для жалобы на пользователя удаление контента недопустимо — правило сервера,
-            и кнопку здесь просто не рисуем, чтобы не предлагать заведомый отказ. */}
-          {!isUser && !native && (
-            <button
-              type="button"
-              className="fallback-submit danger"
-              disabled={busy}
-              onClick={deleteContent}
-            >
-              {t('complaintDeleteContent')}
-            </button>
-          )}
           {/* Промежуточная мера. До неё шкала шла от «нарушения нет» сразу к блокировке,
             и на первый грубый комментарий приходилось выбирать между «ничего» и
             отключением человека от платформы. Кода не требует: предупреждение обратимо
-            ровно в той мере, в какой обратим разговор. */}
-          {/* У жалобы на человека «Предупредить» уже на второй нативной кнопке. */}
-          {!(native && isUser) && (
+            ровно в той мере, в какой обратим разговор.
+
+            У жалобы на человека «Предупредить» уже на полосе внизу — там оно занимает
+            место «снять контент», которого у такой жалобы нет. */}
+          {!isUser && (
             <button
               type="button"
               className="fallback-submit secondary"
@@ -511,6 +485,26 @@ export function ComplaintScreen({
               : t('complaintBlockUserFor', { days: blockDays })}
           </button>
         </section>
+      )}
+
+      {/* Полоса решений. Стоит последней и в разметке, и на экране — над панелью разделов,
+          но ниже всего остального: два самых частых решения должны быть под пальцем, а не
+          в конце длинной карточки. Слева второе решение, справа главное — правый край
+          ближе к большому пальцу правой руки. */}
+      {pending && (
+        <div className="decision-bar">
+          <button
+            type="button"
+            className={isUser ? 'fallback-submit secondary' : 'fallback-submit danger'}
+            disabled={busy}
+            onClick={isUser ? warn : deleteContent}
+          >
+            {isUser ? t('complaintWarnUser') : t('complaintDeleteContent')}
+          </button>
+          <button type="button" className="fallback-submit" disabled={busy} onClick={dismiss}>
+            {t('complaintDismiss')}
+          </button>
+        </div>
       )}
     </div>
   )
