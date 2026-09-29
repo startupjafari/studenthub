@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  Clock,
   Copy,
   Download,
   Forward,
@@ -64,7 +63,6 @@ import {
   setChatMutedRequest,
   setChatPinnedRequest,
   setChatArchivedRequest,
-  scheduleMessageRequest,
   sortChats,
   blockUserRequest,
   unblockUserRequest,
@@ -121,8 +119,6 @@ import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
 import { BlockedUsersPanel } from './blocked-users-panel'
 import { CreateGroupPanel } from './create-group-panel'
-import { ScheduleSendDialog } from './schedule-send-dialog'
-import { ScheduledPanel } from './scheduled-panel'
 import {
   Avatar,
   AvatarFallback,
@@ -344,10 +340,7 @@ export function ChatWindow() {
   // «Ответить» внутри этого сообщения был выделен текст (Telegram-стиль).
   const [replyQuote, setReplyQuote] = useState<string | null>(null)
   // «Без звука» — залипающий переключатель у кнопки отправки, сбрасывается при смене чата.
-  const [silentSend, setSilentSend] = useState(false)
   // Диалог «отправить позже» и панель уже отложенных сообщений этого чата.
-  const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [scheduledOpen, setScheduledOpen] = useState(false)
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
@@ -878,27 +871,6 @@ export function ChatWindow() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
-  // Отложенная отправка: текст из композера уходит в очередь, а не в чат.
-  const schedule = useMutation({
-    mutationFn: ({ chatId, scheduledAt }: { chatId: string; scheduledAt: string }) =>
-      scheduleMessageRequest(chatId, {
-        content: text.trim(),
-        ...(replyTo ? { replyToId: replyTo.id } : {}),
-        ...(replyTo && replyQuote ? { replyQuote } : {}),
-        silent: silentSend,
-        scheduledAt,
-      }),
-    onSuccess: (_d, { chatId }) => {
-      void qc.invalidateQueries({ queryKey: chatKeys.scheduled(chatId) })
-      setScheduleOpen(false)
-      setText('')
-      setReplyTo(null)
-      setReplyQuote(null)
-      toast.success(t('scheduleDone'))
-    },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
   // Архив «у себя»: чат уезжает в отдельную вкладку и перестаёт считаться в бейдже.
   const archive = useMutation({
     mutationFn: ({ chatId, archived }: { chatId: string; archived: boolean }) =>
@@ -1033,7 +1005,7 @@ export function ChatWindow() {
     onRecorded: (file) => {
       chatActions.end()
       if (!activeId) return
-      sendFiles({ replyToId: replyTo?.id, files: [file], silent: silentSend })
+      sendFiles({ replyToId: replyTo?.id, files: [file] })
     },
     // Собеседник видит «записывает голосовое…» всё время записи — это самый длинный
     // промежуток в чате, когда снаружи не происходит ничего.
@@ -1454,7 +1426,6 @@ export function ChatWindow() {
         files: batch,
         spoilerIndexes: batch.flatMap((f, j) => (spoilered.has(f) ? [j] : [])),
         asFiles: options.asFiles,
-        silent: silentSend,
       })
     })
   }
@@ -1465,7 +1436,6 @@ export function ChatWindow() {
     socket.emit('chat:join', { chatId: activeId })
     setReplyTo(null)
     setReplyQuote(null)
-    setSilentSend(false)
     setAttachFiles([])
     setAttachOpen(false)
     setPinnedIndex(0)
@@ -2171,7 +2141,7 @@ export function ChatWindow() {
       content,
       replyToId: replyTo?.id ?? null,
       replyQuote: replyQuote,
-      silent: silentSend,
+      silent: false,
       forwardedFromId: null,
       editedAt: null,
       pinnedAt: null,
@@ -2203,7 +2173,6 @@ export function ChatWindow() {
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
     emitSend(activeId, nonce, content, replyTo?.id, {
       replyQuote: replyQuote ?? undefined,
-      silent: silentSend,
     })
     chatActions.end()
     setText('')
@@ -3490,17 +3459,6 @@ export function ChatWindow() {
                         <button
                           type="button"
                           onClick={() => {
-                            setScheduledOpen(true)
-                            setHeaderMenuOpen(false)
-                          }}
-                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                        >
-                          <Clock className="size-4 shrink-0 opacity-80" aria-hidden />
-                          <span className="flex-1 text-left">{t('scheduledTitle')}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
                             if (activeChat)
                               archive.mutate({
                                 chatId: activeChat.id,
@@ -3902,9 +3860,6 @@ export function ChatWindow() {
                     onViewReplyTarget={() => {
                       if (replyTo) focusMessage(replyTo.id)
                     }}
-                    silent={silentSend}
-                    onToggleSilent={() => setSilentSend((v) => !v)}
-                    onScheduleSend={() => setScheduleOpen(true)}
                     blocked={!!blockedActive}
                     iBlocked={!!activeChat?.blocked}
                     requestPending={requestWaiting}
@@ -4063,19 +4018,6 @@ export function ChatWindow() {
             exitSelect()
           }}
         />
-      )}
-
-      {scheduleOpen && activeId && (
-        <ScheduleSendDialog
-          preview={text.trim()}
-          pending={schedule.isPending}
-          onClose={() => setScheduleOpen(false)}
-          onConfirm={(scheduledAt) => schedule.mutate({ chatId: activeId, scheduledAt })}
-        />
-      )}
-
-      {scheduledOpen && activeId && (
-        <ScheduledPanel chatId={activeId} onClose={() => setScheduledOpen(false)} />
       )}
 
       {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
