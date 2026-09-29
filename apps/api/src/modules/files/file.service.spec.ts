@@ -37,7 +37,9 @@ const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(6
 // Именно это пытались бы протащить, объявив тип «application/pdf».
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
-function setup(options: { head?: Buffer; size?: number; statFails?: boolean } = {}) {
+function setup(
+  options: { head?: Buffer; size?: number; statFails?: boolean; refsLeft?: number } = {},
+) {
   const minio = {
     statObject: options.statFails
       ? jest.fn().mockRejectedValue(new Error('NoSuchKey'))
@@ -56,7 +58,19 @@ function setup(options: { head?: Buffer; size?: number; statFails?: boolean } = 
     putObject: jest.fn().mockResolvedValue({ etag: 'e', versionId: null }),
   }
   const prisma = {
-    file: { create: jest.fn().mockImplementation(({ data }) => ({ id: 'f1', ...data })) },
+    file: {
+      create: jest.fn().mockImplementation(({ data }) => ({ id: 'f1', ...data })),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'f1',
+        bucket: 'documents',
+        key: 'user-1/a.pdf',
+        ownerId: 'user-1',
+        name: null,
+      }),
+      delete: jest.fn().mockResolvedValue(undefined),
+      // Сколько записей ссылается на тот же объект ПОСЛЕ удаления своей.
+      count: jest.fn().mockResolvedValue(options.refsLeft ?? 0),
+    },
   }
   const service = new FileService(
     prisma as unknown as PrismaService,
@@ -345,5 +359,37 @@ describe('FileService — архивы только по разрешению м
   it('лимит архива — его категории, а не самой мягкой', () => {
     expect(FILE_UPLOAD.MAX_BYTES.ARCHIVE).toBe(500 * 1024 * 1024)
     expect(FILE_UPLOAD.OPT_IN_CATEGORIES).toContain('ARCHIVE')
+  })
+})
+
+// Пара (bucket, key) перестала быть уникальной: на один объект хранилища может ссылаться
+// несколько записей File (общий пул медиа у сида). Удаление обязано это учитывать — иначе
+// один пользователь, стерев свою фотографию, гасит её у всех остальных.
+describe('FileService.delete', () => {
+  it('сносит объект, когда удалена последняя ссылка на него', async () => {
+    const { service, minio, prisma } = setup({ refsLeft: 0 })
+
+    await service.delete('f1', 'user-1')
+
+    expect(prisma.file.delete).toHaveBeenCalledWith({ where: { id: 'f1' } })
+    expect(minio.removeObject).toHaveBeenCalledWith('documents', 'user-1/a.pdf')
+  })
+
+  it('оставляет объект, пока на него ссылается кто-то ещё', async () => {
+    const { service, minio, prisma } = setup({ refsLeft: 3 })
+
+    await service.delete('f1', 'user-1')
+
+    expect(prisma.file.delete).toHaveBeenCalledWith({ where: { id: 'f1' } })
+    expect(minio.removeObject).not.toHaveBeenCalled()
+  })
+
+  it('чужой файл не удаляется ни из БД, ни из хранилища', async () => {
+    const { service, minio, prisma } = setup()
+
+    await expect(service.delete('f1', 'user-2')).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+
+    expect(prisma.file.delete).not.toHaveBeenCalled()
+    expect(minio.removeObject).not.toHaveBeenCalled()
   })
 })
