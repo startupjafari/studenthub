@@ -10,7 +10,7 @@
 import { fileURLToPath } from 'node:url'
 import { loadCities, resolveKzUniversities } from './data/universities.mjs'
 import { universityId } from './lib/ids.mjs'
-import { clearMarkers, loadDoneUniversities, markUniversityDone } from './lib/marker.mjs'
+import { clearMarkers, loadDoneUniversities, markUniversityDone, recordRun } from './lib/marker.mjs'
 import { runPool } from './lib/pool.mjs'
 import { createProgress } from './lib/progress.mjs'
 import { universityRandom } from './lib/rng.mjs'
@@ -128,6 +128,17 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     `Генератор вузов: ${indices.length} шт. (${config.from}..${config.to}), ` +
       `параллельно ${config.concurrency}, ожидается ~${estimate.toLocaleString('ru-RU')} строк`,
   )
+
+  // Манифест ДО первой записи: список вузов, которые прогон собирается залить. Маркер
+  // ставится только после успешного завершения вуза, и прогон, убитый посреди работы
+  // (кончилось место на диске, таймаут job'а, отмена), оставил бы строки, о которых не
+  // знает никто. По этому списку уборка находит и такие вузы тоже.
+  if (config.tag) {
+    await recordRun(prisma, config.tag, {
+      planned: indices.map(universityId),
+      startedAt: new Date().toISOString(),
+    })
+  }
 
   const progress = createProgress({ total: indices.length, label: 'Вузы' })
   const counts = {}

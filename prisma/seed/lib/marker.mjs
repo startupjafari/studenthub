@@ -65,13 +65,33 @@ export async function loadUniversitiesByTag(prisma, tag) {
  */
 export async function recordRun(prisma, tag, summary) {
   const id = `seed-run-${tag}`
+  // Метаданные ДОПИСЫВАЮТСЯ, а не заменяются: манифест пишется дважды — списком
+  // запланированных вузов перед стартом и итогом прогона в конце, и второй вызов не
+  // должен затирать список. Именно он делает уборку возможной после аварии.
+  const previous = await prisma.auditLog.findUnique({ where: { id }, select: { metadata: true } })
   const data = {
     action: RUN_ACTION,
     entity: 'Seed',
     entityId: tag,
-    metadata: { version: SEED_VERSION, ...summary },
+    metadata: { version: SEED_VERSION, ...(previous?.metadata ?? {}), ...summary },
   }
   await prisma.auditLog.upsert({ where: { id }, update: data, create: { id, ...data } })
+}
+
+/**
+ * Вузы, которые прогон СОБИРАЛСЯ залить (манифест пишется до первой записи).
+ *
+ * Маркер вуза ставится только после его успешного завершения, поэтому прогон, убитый
+ * посреди работы — кончилось место, таймаут, отмена, — оставляет строки, о которых
+ * маркеров нет. Без этого списка такие строки не удалить ничем, кроме ручного SQL.
+ */
+export async function loadPlannedUniversities(prisma, tag) {
+  const row = await prisma.auditLog.findUnique({
+    where: { id: `seed-run-${tag}` },
+    select: { metadata: true },
+  })
+  const planned = row?.metadata?.planned
+  return Array.isArray(planned) ? planned.filter((id) => typeof id === 'string') : []
 }
 
 /** Убрать манифест и маркеры прогона — последним шагом уборки. */
