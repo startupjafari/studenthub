@@ -15,7 +15,7 @@
 // вместе с ним одним запросом. Остаётся академический каркас — его и разбираем ниже
 // снизу вверх.
 
-import { clearRun, loadUniversitiesByTag } from './lib/marker.mjs'
+import { clearRun, loadPlannedUniversities, loadUniversitiesByTag } from './lib/marker.mjs'
 import { DEMO_UNIVERSITY_ID } from './lib/ids.mjs'
 
 // Пользователей за один DELETE. Каскад уносит десятки строк на человека, и снос
@@ -125,12 +125,34 @@ async function deleteUniversity(prisma, universityId, log) {
  */
 export async function runCleanup(prisma, config) {
   const tag = config.tag
-  const uniIds = await loadUniversitiesByTag(prisma, tag)
-  if (uniIds.length === 0) {
+  // Два источника, и второй важнее первого. Маркеры — это вузы, доведённые до конца;
+  // манифест — те, что прогон СОБИРАЛСЯ залить. Прогон, убитый посреди работы, попадает
+  // только во второй список, и без него его строки не удалить ничем, кроме ручного SQL.
+  const done = await loadUniversitiesByTag(prisma, tag)
+  const planned = await loadPlannedUniversities(prisma, tag)
+  const candidates = [...new Set([...done, ...planned])].sort()
+  if (candidates.length === 0) {
     console.log(`cleanup: прогонов с меткой "${tag}" не найдено — удалять нечего`)
     return { universities: 0, counts: {} }
   }
-  for (const uniId of uniIds) assertDeletable(uniId)
+  for (const uniId of candidates) assertDeletable(uniId)
+
+  // Запланированный вуз мог не начаться вовсе: в базе его нет, и трогать нечего.
+  const existing = await prisma.university.findMany({
+    where: { id: { in: candidates } },
+    select: { id: true },
+  })
+  const uniIds = existing.map((u) => u.id)
+  const missing = candidates.length - uniIds.length
+  if (missing > 0) {
+    console.log(`cleanup: ${missing} вуз(ов) из манифеста в базе нет — пропущены`)
+  }
+  if (uniIds.length === 0) {
+    // Строк нет, но манифест и маркеры остались — убираем их, чтобы метка не висела.
+    await clearRun(prisma, tag, candidates)
+    console.log(`cleanup: данных с меткой "${tag}" в базе нет, манифест снят`)
+    return { universities: 0, counts: {} }
+  }
 
   console.log(`cleanup: метка "${tag}", вузов к удалению ${uniIds.length}`)
   const total = {}
@@ -147,7 +169,7 @@ export async function runCleanup(prisma, config) {
 
   // Манифест и маркеры — последними: пока они на месте, прерванную уборку можно
   // просто перезапустить, и она продолжит с того же списка вузов.
-  await clearRun(prisma, tag, uniIds)
+  await clearRun(prisma, tag, candidates)
 
   const rows = Object.values(total).reduce((sum, n) => sum + n, 0)
   console.log(`cleanup: удалено ${rows.toLocaleString('ru-RU')} строк из ${uniIds.length} вузов`)

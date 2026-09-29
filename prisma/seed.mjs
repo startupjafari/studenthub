@@ -12,7 +12,7 @@ import { makeRandom } from './seed/lib/rng.mjs'
 import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
-import { assertRowBudget, seedUniversities } from './seed/index.mjs'
+import { assertRowBudget, estimateBytes, humanBytes, seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
@@ -155,7 +155,11 @@ async function main() {
   // работы, на половине последнего вуза.
   const budget = assertRowBudget(config)
   if (budget > 0) {
-    console.log(`  оценка объёма: ~${budget.toLocaleString('ru-RU')} строк`)
+    // Размер — рядом со строками: том измеряется гигабайтами, и сравнивать надо с ним.
+    // Прогон, которому не хватит места, падает у Postgres ошибкой 53100 на середине.
+    console.log(
+      `  оценка объёма: ~${budget.toLocaleString('ru-RU')} строк, ~${humanBytes(estimateBytes(budget))} в базе`,
+    )
   }
   if (config.tag) console.log(`  метка прогона: ${config.tag}`)
 
@@ -205,6 +209,13 @@ async function main() {
       ...TWO_FACTOR_RESET,
     },
   })
+
+  // ── Каталог услуг (справочник платформы) ────────────────────────────────────
+  // Категории и глобальные шаблоны услуг (universityId = null). Это СПРАВОЧНИК, а не
+  // демо-данные: на глобальные шаблоны ссылаются заявки в любом вузе, и без категорий
+  // генератор падает на application_services_category_id_fkey. Поэтому шаг идёт до
+  // демо-вуза и выполняется независимо от него.
+  await seedServiceCatalog(prisma)
 
   // ── Демо-вуз «Алатау» ───────────────────────────────────────────────────────
   // Выключается флагом SEED_DEMO_UNIVERSITY=0, и на боевой базе его надо выключать:
@@ -525,11 +536,6 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       credits: 5,
     },
   })
-
-  // ── Каталог услуг (справочник платформы) ────────────────────────────────────
-  // Категории и глобальные шаблоны услуг (universityId = null). Вынесен в отдельный
-  // шаг: он нужен и профилю test, где демо-вуза нет (prisma/seed/steps/05-service-catalog.mjs).
-  await seedServiceCatalog(prisma)
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  БОЛЬШОЙ РЕАЛИСТИЧНЫЙ SEED: университет «Алатау» — 5 факультетов, 15 групп,
