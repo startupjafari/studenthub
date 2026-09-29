@@ -806,7 +806,11 @@ export function ConversationList({
                   onTouchMove={onRowTouchMove}
                   onTouchEnd={(e) => onRowTouchEnd(e, c.id)}
                   className={cn(
-                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors duration-150 hover:bg-muted/50 active:bg-muted/70',
+                    // Фон при наведении и нажатии — НЕПРОЗРАЧНЫЙ. Строка лежит поверх панелей свайпа
+                    // («Закрепить», «Удалить» и прочих) и закрывает их собой; полупрозрачная заливка
+                    // заменяла непрозрачный bg-background, и на узком экране сквозь строку проступали
+                    // цветные кнопки под ней.
+                    'relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-2 text-left transition-colors duration-150 hover:bg-muted active:bg-accent',
                     activeId === c.id ? 'bg-primary/10' : '',
                     // Строка, над которой открыто меню, выделена всё время его жизни:
                     // список длинный, курсор уезжает к пунктам меню, и без метки

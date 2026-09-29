@@ -3192,7 +3192,7 @@ export function ChatWindow() {
                 const total = found.length
                 return (
                   <div className="relative z-30 shrink-0">
-                    <header className="flex items-center gap-1 border-b border-border px-2 py-3">
+                    <header className="flex items-center gap-1 border-b border-border px-2 py-2">
                       <button
                         type="button"
                         aria-label={t('cancel')}
@@ -3202,10 +3202,6 @@ export function ChatWindow() {
                         <ChevronLeft className="size-5" aria-hidden />
                       </button>
                       <div className="relative min-w-0 flex-1">
-                        <Search
-                          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                          aria-hidden
-                        />
                         <input
                           autoFocus
                           value={chatSearchRaw}
@@ -3224,7 +3220,10 @@ export function ChatWindow() {
                             }
                           }}
                           placeholder={t('searchInChat')}
-                          className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
+                          // Поле без рамки и заливки, во всю ширину шапки: в режиме поиска
+                          // шапка И ЕСТЬ поле, а коробочка внутри коробочки только сужала
+                          // строку ввода и спорила с границей самой шапки.
+                          className="h-11 w-full border-0 bg-transparent px-2 text-base outline-none placeholder:text-muted-foreground lg:h-10 lg:text-sm"
                         />
                         {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
                           <ul
@@ -3412,15 +3411,6 @@ export function ChatWindow() {
                     {t('offline')}
                   </span>
                 )}
-                {/* Поиск внутри чата (§3). */}
-                <button
-                  type="button"
-                  aria-label={t('searchInChat')}
-                  onClick={() => setChatSearchOpen(true)}
-                  className={HEADER_ICON_BTN}
-                >
-                  <Search className="size-5" aria-hidden />
-                </button>
                 {/* Действия — в меню «три точки». */}
                 <div className="relative">
                   <button
@@ -3448,6 +3438,20 @@ export function ChatWindow() {
                         onClick={() => setHeaderMenuOpen(false)}
                       />
                       <div className="absolute right-0 top-full z-50 mt-1 w-56 origin-top-right overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
+                        {/* Поиск — первым пунктом и только здесь: отдельная лупа в шапке
+                            занимала место рядом с календарём и «тремя точками», а ищут в
+                            переписке реже, чем листают её. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatSearchOpen(true)
+                            setHeaderMenuOpen(false)
+                          }}
+                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
+                        >
+                          <Search className="size-4 shrink-0 opacity-80" aria-hidden />
+                          <span className="flex-1 text-left">{t('searchInChat')}</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
