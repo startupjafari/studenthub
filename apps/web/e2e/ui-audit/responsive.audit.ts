@@ -380,7 +380,7 @@ test.afterAll(() => {
     checked: [],
     skipped: {},
     unavailable:
-      'нет посевного аккаунта EMPLOYER: его создаёт этап companies сида (SEED_SCALE=small и выше), а e2e-стенд гоняет профиль demo',
+      'нет аккаунта EMPLOYER: фикстура e2e работодателя не заводит — компаний и вакансий на тестовом стенде нет',
   })
 
   const outcome = writeReport(collector)
