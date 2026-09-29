@@ -11,6 +11,7 @@ import {
   Bell,
   BellOff,
   Check,
+  ChevronLeft,
   Copy,
   Crown,
   Download,
@@ -997,7 +998,10 @@ function ParticipantsTab({
 //
 // Одна панель на все размеры экрана — второго экрана с тем же содержимым нет:
 // `variant='column'` — докнутая третья колонка на ПК (≥xl), со своей шапкой и крестиком;
-// `variant='modal'` — та же панель внутри системного Modal на планшете и мобильном
+// `variant='fullscreen'` — та же панель во весь экран на планшете и мобильном, со стрелкой
+// возврата в шапке. Именно экран, а не модальное окно: у окна остаются поля по краям и
+// затемнение, из-за которых список участников и сетка медиа живут в «окошке в окошке», а
+// в мессенджерах профиль чата — отдельный экран, из которого возвращаются назад
 // (шапку и крестик даёт Modal). Клик по материалу — onJump к сообщению-источнику.
 export function ChatDetailsPanel({
   chat,
@@ -1022,7 +1026,7 @@ export function ChatDetailsPanel({
   isPrivate: boolean
   peerOnline?: boolean
   myId: string | undefined
-  variant?: 'column' | 'modal'
+  variant?: 'column' | 'fullscreen'
   /**
    * Панель показана прямо сейчас. Колонка на ПК не размонтируется при закрытии (её
    * ширина анимируется), поэтому без этого флага вкладка оставалась бы той, на которой
@@ -1099,21 +1103,25 @@ export function ChatDetailsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      {variant === 'column' && (
-        // Кнопка того же размера, что кнопки шапки чата (lg:size-10): тогда обе шапки
-        // одной высоты и их нижние границы идут одной линией.
-        <div className="flex items-center gap-1 border-b border-border px-2 py-3">
-          <button
-            type="button"
-            aria-label={t('cancel')}
-            onClick={onClose}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-          >
+      {/* Шапка у обоих вариантов одна по геометрии и разная по значку: в колонке панель
+          закрывают крестиком (переписка рядом остаётся), с экрана — возвращаются стрелкой.
+          Кнопка того же размера, что кнопки шапки чата: тогда обе шапки одной высоты и их
+          нижние границы идут одной линией. */}
+      <div className="flex items-center gap-1 border-b border-border px-2 py-3">
+        <button
+          type="button"
+          aria-label={variant === 'column' ? t('cancel') : t('back')}
+          onClick={onClose}
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+        >
+          {variant === 'column' ? (
             <X className="size-5" aria-hidden />
-          </button>
-          <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">{t('details')}</span>
-        </div>
-      )}
+          ) : (
+            <ChevronLeft className="size-5" aria-hidden />
+          )}
+        </button>
+        <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">{t('details')}</span>
+      </div>
 
       <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border p-5">
         {/* Аватар открывается во весь экран (§3 карты) — только настоящая картинка:
