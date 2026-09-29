@@ -12,7 +12,7 @@ import { makeRandom } from './seed/lib/rng.mjs'
 import { staffProfile, studentProfile } from './seed/data/profiles.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
-import { assertRowBudget, seedUniversities } from './seed/index.mjs'
+import { assertRowBudget, estimateBytes, humanBytes, seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
@@ -155,7 +155,11 @@ async function main() {
   // работы, на половине последнего вуза.
   const budget = assertRowBudget(config)
   if (budget > 0) {
-    console.log(`  оценка объёма: ~${budget.toLocaleString('ru-RU')} строк`)
+    // Размер — рядом со строками: том измеряется гигабайтами, и сравнивать надо с ним.
+    // Прогон, которому не хватит места, падает у Postgres ошибкой 53100 на середине.
+    console.log(
+      `  оценка объёма: ~${budget.toLocaleString('ru-RU')} строк, ~${humanBytes(estimateBytes(budget))} в базе`,
+    )
   }
   if (config.tag) console.log(`  метка прогона: ${config.tag}`)
 
