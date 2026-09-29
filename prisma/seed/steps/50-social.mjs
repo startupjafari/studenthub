@@ -162,8 +162,12 @@ export async function seedSocial(prisma, writer, ctx) {
   // ссылаются на уже загруженные объекты пула, копировать нечего.
   const imagesPerUser = sources.length > 0 ? ctx.config.postImagesPerUser : 0
 
+  // Сколько постов реально досталось автору: ниже по нему раздаются реакции, и
+  // «первые два поста» при диапазоне 1-2 или 0-0 существуют не у всех.
+  const postCount = new Map()
   for (const [ai, author] of authors.entries()) {
     const count = random.randInt(postsMin, postsMax)
+    postCount.set(author.id, count)
     for (let pi = 0; pi < count; pi += 1) {
       const postId = child(author.id, 'p', pi)
       const audience = random.pickWeighted(
@@ -266,9 +270,12 @@ export async function seedSocial(prisma, writer, ctx) {
   await writer.flush()
 
   // Реакции на первые два поста каждого автора: пост без реакций выглядит мёртвым, а
-  // раздавать их всем 75 тысячам — это ещё полтора миллиона строк на вуз.
+  // раздавать их всем 75 тысячам — это ещё полтора миллиона строк на вуз. Больше, чем
+  // постов у автора, брать нельзя: реакция на несуществующий пост — это нарушение
+  // внешнего ключа, и при диапазоне «0-0» или «1-2» оно случается на каждом прогоне.
   for (const author of authors) {
-    for (let pi = 0; pi < 2; pi += 1) {
+    const created = Math.min(2, postCount.get(author.id) ?? 0)
+    for (let pi = 0; pi < created; pi += 1) {
       const postId = child(author.id, 'p', pi)
       for (const [ri, userId] of random.sample(commenters, random.randInt(0, 3)).entries()) {
         await writer.add('reaction', {
