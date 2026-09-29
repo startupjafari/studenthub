@@ -95,8 +95,9 @@ model User {
   moderationAreas   String?   @map("moderation_areas")
 
   refreshTokens        RefreshToken[]
-  invitesCreated       Invite[]              @relation("InviteCreatedBy")
-  invitesUsed          Invite[]              @relation("InviteUsedBy")
+  invitesCreated       Invite[]                @relation("InviteCreatedBy")
+  invitesUsed          Invite[]                @relation("InviteUsedBy")
+  demoRequestsReviewed UniversityDemoRequest[] @relation("DemoRequestReviewer")
   files                File[]
   notifications        Notification[]
   notificationSettings NotificationSettings?
@@ -117,11 +118,12 @@ model User {
   applicationsV2 Application[] @relation("StudentApplicationsV2")
 
   // Посты (Ф8): авторство, адресные посты, закрепления; комментарии и реакции.
-  posts         Post[]     @relation("PostAuthor")
-  postsTargeted Post[]     @relation("PostTarget")
-  postsPinned   Post[]     @relation("PostPinnedBy")
+  posts         Post[]         @relation("PostAuthor")
+  postsTargeted Post[]         @relation("PostTarget")
+  postsPinned   Post[]         @relation("PostPinnedBy")
   comments      Comment[]
   reactions     Reaction[]
+  postBookmarks PostBookmark[] @relation("UserPostBookmarks")
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
   chatMemberships   ChatMember[]
@@ -243,6 +245,8 @@ model Invite {
 
   createdBy User  @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
   usedBy    User? @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  demoRequests UniversityDemoRequest[] @relation("DemoRequestInvite")
 
   @@index([status])
   @@index([expiresAt])

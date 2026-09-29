@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -57,6 +57,7 @@ import {
   initialsOf,
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
+import { PostFromUrl } from '../../feed-list'
 import { ShareProfileButton } from './share-profile-button'
 
 function errCode(e: unknown): string {
@@ -67,7 +68,6 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
-  const tChats = useTranslations('Chats')
   const router = useRouter()
 
   const q = useQuery({
@@ -96,10 +96,9 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const canWrite = !!chatsHref && !!me.data && me.data.id !== userId
   const openChat = useMutation({
     mutationFn: () => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
+    // «Запрос отправлен» здесь не говорим: не-другу (§50) запрос уходит только с первым
+    // сообщением, а открытие чата — ещё не он. Тост покажет сам чат, когда сообщение уйдёт.
     onSuccess: (chat) => {
-      // Не-другу уходит запрос на переписку (§50) — в чате это видно только пометкой над
-      // полем ввода, поэтому говорим прямо здесь, сразу после нажатия.
-      if (chat.requestPendingForId) toast.success(tChats('requestSent'))
       router.push(`${chatsHref}?chat=${chat.id}`)
     },
     // Личный чат заводится только внутри своего вуза — молчаливая неудача выглядела бы
@@ -134,7 +133,8 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const u = q.data
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    // flex-1 — как у своего профиля: пустая вкладка тянется до низа экрана.
+    <div className="flex w-full flex-1 flex-col gap-4">
       <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
         {/* Назад — иконкой поверх обложки слева, чтобы не занимать место сверху. */}
         <Button
@@ -226,6 +226,12 @@ export function PublicUserProfile({ userId }: { userId: string }) {
           <ProfileBody data={u} />
         </ProfileTabs>
       )}
+
+      {/* `?post=` — пост, на который нажали в чате: открывается сразу поверх профиля, а
+          под ним — вкладка «Посты», куда человек вернётся, закрыв его. */}
+      <Suspense fallback={null}>
+        <PostFromUrl onOpen={() => setTab('posts')} />
+      </Suspense>
     </div>
   )
 }

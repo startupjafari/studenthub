@@ -164,6 +164,14 @@ export class PostsController {
     return this.posts.repost(user, id, dto, this.ctx(req))
   }
 
+  @Post(':id/bookmark')
+  @ApiOperation({ summary: 'Сохранить пост в избранное или убрать оттуда (переключатель)' })
+  @ApiResponse({ status: 201, description: 'Новое состояние закладки' })
+  @ApiResponse({ status: 404, description: 'POST_NOT_FOUND — пост не виден зрителю' })
+  toggleBookmark(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.posts.toggleBookmark(user, id)
+  }
+
   @Post(':id/reactions')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Поставить реакцию (идемпотентно)' })

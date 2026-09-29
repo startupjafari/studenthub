@@ -22,8 +22,8 @@ import {
   MessagesSquare,
   Pin,
   PinOff,
-  Plus,
   Search,
+  Settings,
   ShieldBan,
   Trash2,
   UserRoundSearch,
@@ -40,7 +40,6 @@ import {
   EmptyState,
   RowContextMenu,
   SegmentedTabs,
-  Skeleton,
   captureAnchor,
   type MenuAnchor,
   type SegmentedTabItem,
@@ -56,6 +55,8 @@ import {
   TYPE_TAG,
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
+import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
+import { useChatActionLabel } from '../lib/use-chat-action-label'
 
 // Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
 type MsgSearchItem = {
@@ -90,8 +91,6 @@ export type ConversationListProps = {
   // «написать человеку» нет — переписка начинается прямо отсюда.
   peopleMatches: DirectoryUser[]
   peopleLoading: boolean
-  // Выдача упёрлась в лимит секции — просим уточнить запрос (курсора у справочника нет).
-  peopleHasMore: boolean
   onOpenPerson: (user: DirectoryUser) => void
   startingPersonId: string | null
   chatById: Map<string, ChatListItem>
@@ -125,7 +124,7 @@ export type ConversationListProps = {
    * чаты, а тянуть справочник участников ради подписи в строке — запрос на каждое нажатие
    * клавиши у собеседника. В личном чате имя и так очевидно, в группе хватает «печатают…».
    */
-  typingByChat: Record<string, Record<string, number>>
+  actionsByChat: ActionsByChat
   onMarkRead: (id: string) => void
   onTogglePin: (c: ChatListItem) => void
   onToggleMute: (c: ChatListItem) => void
@@ -166,7 +165,6 @@ export function ConversationList({
   msgResultsLoading,
   peopleMatches,
   peopleLoading,
-  peopleHasMore,
   onOpenPerson,
   startingPersonId,
   chatById,
@@ -184,7 +182,7 @@ export function ConversationList({
   onRowTouchMove,
   onRowTouchEnd,
   onCloseSwiped,
-  typingByChat,
+  actionsByChat,
   onMarkRead,
   onTogglePin,
   onToggleMute,
@@ -200,11 +198,24 @@ export function ConversationList({
   onDeleteFolder,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
+  const actionLabelOf = useChatActionLabel()
   const tRoles = useTranslations('Roles')
   const [folder, setFolder] = useState<string>('folderAll')
   // Единственный вход к человеку — это поле: пустое состояние не уводит в отдельное окно,
   // а ставит курсор сюда же, где ищут чаты.
   const searchRef = useRef<HTMLInputElement>(null)
+  // Поиск свёрнут в иконку, пока его не открыли; с введённым запросом он открыт всегда.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchExpanded = searchOpen || !!searchRaw
+  // Если поле уже на экране — фокус сразу, иначе его даст autoFocus при появлении.
+  const openSearch = (): void => {
+    setSearchOpen(true)
+    searchRef.current?.focus()
+  }
+  const closeSearch = (): void => {
+    onClearSearch()
+    setSearchOpen(false)
+  }
   // Открытое меню действий строки: id чата + точка нажатия. Одно на список — двух сразу
   // не бывает, и по id же подсвечивается строка, к которой меню относится.
   const [rowMenu, setRowMenu] = useState<{
@@ -303,93 +314,128 @@ export function ConversationList({
           'max-md:duration-300 max-md:animate-in max-md:fade-in max-md:slide-in-from-left-4',
       )}
     >
-      <div className="flex flex-col gap-2 border-b border-border p-3">
-        <div className="flex items-center gap-1.5">
-          {embedded && (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label={t('back')}
-              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-            >
-              <ArrowLeft className="size-5" aria-hidden />
-            </button>
-          )}
-          <span className="min-w-0 flex-1 truncate text-lg font-bold">{t('title')}</span>
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              aria-label={t('blockedTitle')}
-              title={t('blockedTitle')}
-              onClick={onOpenBlocked}
-              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-            >
-              <ShieldBan className="size-5" aria-hidden />
-            </button>
-            <div className="relative">
-              <button
-                type="button"
-                aria-label={t('newChat')}
-                onClick={onToggleNewChat}
-                aria-expanded={newChatOpen}
-                className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-              >
-                <Plus
-                  className={cn(
-                    'size-5 transition-transform duration-200',
-                    newChatOpen && 'rotate-45',
-                  )}
-                  aria-hidden
-                />
-              </button>
-              {newChatOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={onCloseNewChat} />
-                  <div className="absolute right-0 top-full z-50 mt-1 w-52 origin-top-right overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
-                    <button
-                      type="button"
-                      onClick={onNewGroup}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                    >
-                      <Users className="size-4 shrink-0 opacity-80" aria-hidden />
-                      {t('newGroup')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenSaved}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                    >
-                      <Bookmark className="size-4 shrink-0 opacity-80" aria-hidden />
-                      {t('savedMessages')}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-        {/* Единый поиск: по названиям чатов и по сообщениям внутри чатов. */}
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            ref={searchRef}
-            value={searchRaw}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={t('searchAll')}
-            className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-8 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-          />
-          {searchRaw && (
+      {/* Шапка — одна строка: заголовок, справа поиск и меню «три точки». Поиск раскрывается
+          на всю строку, а не отдельной строкой под ней: «назад» и меню на это время уходят,
+          закрывает поиск крестик в поле. Высота — как у шапки чата
+          (py-3 вокруг 40-px кнопок): нижние границы списка и переписки идут одной линией. */}
+      <div className="flex items-center gap-1.5 border-b border-border px-3 py-3">
+        {embedded && !searchExpanded && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label={t('back')}
+            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+          >
+            <ArrowLeft className="size-5" aria-hidden />
+          </button>
+        )}
+        {searchExpanded ? (
+          // Единый поиск: по названиям чатов, сообщениям внутри чатов и людям.
+          <div className="relative min-w-0 flex-1 duration-200 animate-in fade-in slide-in-from-right-2">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              ref={searchRef}
+              autoFocus
+              value={searchRaw}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  closeSearch()
+                }
+              }}
+              // Пустое поле, из которого ушли, сворачивается обратно в заголовок.
+              onBlur={() => {
+                if (!searchRaw) setSearchOpen(false)
+              }}
+              placeholder={t('searchAll')}
+              className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-10 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+            />
+            {/* Крестик — кнопка 32×32, а не 20×20 по размеру значка: в маленький квадрат
+                у края поля промахивались и попадали в само поле. */}
             <button
               type="button"
               aria-label={t('clearSearch')}
-              onClick={onClearSearch}
-              className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+              onClick={closeSearch}
+              className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <X className="size-4" aria-hidden />
+              <X className="size-5" aria-hidden />
             </button>
+          </div>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 truncate text-lg font-bold">{t('title')}</span>
+            <button
+              type="button"
+              aria-label={t('search')}
+              title={t('search')}
+              onClick={openSearch}
+              className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+            >
+              <Search className="size-5" aria-hidden />
+            </button>
+          </>
+        )}
+        <div className={cn('relative shrink-0', searchExpanded && 'hidden')}>
+          <button
+            type="button"
+            aria-label={t('listMenu')}
+            onClick={onToggleNewChat}
+            aria-expanded={newChatOpen}
+            className={cn(
+              'flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90',
+              newChatOpen && 'bg-muted text-foreground',
+            )}
+          >
+            <Settings className="size-5" aria-hidden />
+          </button>
+          {newChatOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={onCloseNewChat} />
+              <div className="absolute right-0 top-full z-50 mt-1 w-52 origin-top-right overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
+                <button
+                  type="button"
+                  onClick={onNewGroup}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <Users className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('newGroup')}
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenSaved}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <Bookmark className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('savedMessages')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCloseNewChat()
+                    onManageFolders()
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <FolderCog className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('foldersManage')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCloseNewChat()
+                    onOpenBlocked()
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <ShieldBan className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('blockedTitle')}
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -399,7 +445,10 @@ export function ConversationList({
           у краёв, доводка активной вкладки) приходит вместе с ним. Свои чипы были
           отдельным языком: заливка `bg-primary` целиком и цель в 28px на десктопе. */}
       {searchTerm.length < 2 && chats.length > 0 && (
-        <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+        <div className="flex items-center border-b border-border px-2 py-1">
+          {/* Кнопки настройки рядом с рядом нет: «Настроить папки» живёт в меню шапки.
+              Ряд вкладок — навигация, и постоянная кнопка-шестерёнка на его краю отъедала
+              место у самих папок ровно там, где их и не хватает — на телефоне. */}
           <SegmentedTabs
             className="min-w-0 flex-1"
             items={folderItems}
@@ -413,23 +462,6 @@ export function ConversationList({
             collapsible={false}
             aria-label={t('foldersTitle')}
           />
-          {/* Свои папки настраиваются здесь же: вкладки — единственное место, где они видны.
-              `self-stretch` — высота берётся от ряда табов, а не задаётся числом: у табов
-              своя шкала (в `compact` — 40px под палец, 28px под курсор) плюс отступы
-              контейнера, и повторять её здесь константой значило бы ломать пару при любой
-              правке табов. Ширина же задаётся руками и держит квадрат: w-11 под 44px ряда
-              на телефоне, lg:w-8 под 32px на десктопе.
-              Поверхность тоже общая с рядом — иначе рядом с обведённым контейнером
-              висела бы голая иконка. */}
-          <button
-            type="button"
-            onClick={onManageFolders}
-            aria-label={t('foldersManage')}
-            title={t('foldersManage')}
-            className="flex w-11 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:w-8 lg:rounded-xl"
-          >
-            <FolderCog className="size-4" aria-hidden />
-          </button>
         </div>
       )}
       <div
@@ -557,11 +589,6 @@ export function ConversationList({
                         )
                       })
                     )}
-                    {peopleHasMore && (
-                      <p className="px-3 pb-1 pt-1 text-xs text-muted-foreground">
-                        {t('refineSearch')}
-                      </p>
-                    )}
                   </div>
                 )}
                 {(msgMatches.length > 0 || msgResultsLoading) && (
@@ -624,11 +651,11 @@ export function ConversationList({
             )}
           </div>
         ) : chatsLoading ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full shrink-0 rounded-xl" />
-            ))}
-          </div>
+          // Пока список едет — пусто. Скелетон-заглушка рисовала десять несуществующих
+          // строк, которые тут же сменялись настоящими: мельтешение вместо ожидания.
+          // Ветку всё равно держим отдельно от «чатов нет»: иначе на секунду загрузки
+          // показывалось бы пустое состояние, и человек успевал бы поверить, что чатов нет.
+          <div className="min-h-0 flex-1" />
         ) : visibleChats.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col p-3">
             <EmptyState
@@ -636,7 +663,7 @@ export function ConversationList({
               title={t('noChats')}
               description={t('noChatsHint')}
               action={
-                <Button size="sm" onClick={() => searchRef.current?.focus()}>
+                <Button size="sm" onClick={openSearch}>
                   <UserRoundSearch className="size-4" aria-hidden />
                   {t('findPeople')}
                 </Button>
@@ -666,7 +693,8 @@ export function ConversationList({
             const tag = TYPE_TAG[c.type]
             // «Печатает» вытесняет превью последнего сообщения: пока собеседник набирает,
             // это и есть самое свежее, что происходит в чате.
-            const typingHere = Object.keys(typingByChat[c.id] ?? {}).length
+            // Имя в строке списка не показываем: места на него нет, строка и так обрезается.
+            const actionHere = actionLabelOf(summarizeActors(actionsByChat[c.id]))
             return (
               <div
                 key={c.id}
@@ -830,10 +858,8 @@ export function ConversationList({
                       )}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5">
-                      {typingHere > 0 ? (
-                        <p className="min-w-0 flex-1 truncate text-xs text-primary">
-                          {typingHere > 1 ? t('typingMany') : t('typingStatus')}
-                        </p>
+                      {actionHere ? (
+                        <p className="min-w-0 flex-1 truncate text-xs text-primary">{actionHere}</p>
                       ) : (
                         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                           {previewWho && <span className="text-foreground/70">{previewWho}</span>}
@@ -961,6 +987,8 @@ export function ConversationList({
               ...(folders.length === 0
                 ? { onClick: onManageFolders }
                 : {
+                    // Во втором меню — только папки: настройка папок живёт у их вкладок,
+                    // а здесь человек отвечает на один вопрос — «в каких папках этот чат».
                     items: [
                       ...[...folders]
                         .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
@@ -975,12 +1003,6 @@ export function ConversationList({
                           keepOpen: true,
                           onClick: () => onToggleChatFolder(f.id, menuChat),
                         })),
-                      {
-                        key: 'folders-manage',
-                        icon: FolderCog,
-                        label: t('foldersManage'),
-                        onClick: onManageFolders,
-                      },
                     ],
                   }),
             },

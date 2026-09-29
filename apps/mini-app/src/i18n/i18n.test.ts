@@ -38,7 +38,7 @@ describe('подстановки', () => {
   beforeEach(() => resetLocale('ru'))
 
   it('подставляет значения по имени', () => {
-    expect(t('complaintsInQueue', { count: 12 })).toBe('12 в очереди')
+    expect(t('ageHours', { count: 12 })).toBe('12 ч')
   })
 
   // Порядок слов в трёх языках разный, поэтому подстановка именованная, а не по позиции.

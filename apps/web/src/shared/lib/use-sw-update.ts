@@ -166,34 +166,54 @@ export function useAppUpdate(): AppUpdate {
   return { version: BUILD_ID, state, check, apply }
 }
 
+/** Не чаще одной перезагрузки за это время: при настоящей поломке сборки — не цикл. */
+const RELOAD_COOLDOWN_MS = 60_000
+
+/**
+ * Ошибка загрузки куска сборки. Имя куска в App Router — путь маршрута, а не номер
+ * (`Loading chunk app/(student)/profile/[id]/page failed`), поэтому шаблон берёт любое имя;
+ * Safari и Firefox сообщают о том же своими словами.
+ */
+export function isChunkLoadError(value: unknown): boolean {
+  const message = value instanceof Error ? `${value.name} ${value.message}` : String(value ?? '')
+  return /ChunkLoadError|Loading (CSS )?chunk .+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(
+    message,
+  )
+}
+
+/**
+ * Перезагрузить страницу после ошибки куска. Раньше — один раз за сессию, и после первой же
+ * пересборки dev-сервера (или второго деплоя за день) следующая такая ошибка оставалась
+ * красным экраном до закрытия вкладки. Теперь — не чаще раза в минуту: цикла при настоящей
+ * поломке нет, а повторное обновление тоже лечится. Возвращает, ушли ли в перезагрузку.
+ */
+export function recoverFromChunkError(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const last = Number(sessionStorage.getItem(RELOADED_KEY) ?? 0)
+    if (last && Date.now() - last < RELOAD_COOLDOWN_MS) return false
+    sessionStorage.setItem(RELOADED_KEY, String(Date.now()))
+  } catch {
+    // Хранилище недоступно (приватный режим) — перезагружаемся без памяти о прошлой попытке.
+  }
+  window.location.reload()
+  return true
+}
+
 /**
  * Страховка на случай, когда обновление уже не спросишь: старая страница просит чанк,
- * которого после деплоя нет. Перезагружаемся один раз за сессию — иначе при настоящей
- * поломке сборки получился бы цикл перезагрузок.
+ * которого после деплоя нет. Ловит ошибки вне React; упавшую отрисовку маршрута ловит
+ * граница ошибок (`ErrorScreen`) тем же `recoverFromChunkError`.
  */
 export function useChunkErrorRecovery(): void {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const isChunkError = (value: unknown): boolean => {
-      const message =
-        value instanceof Error ? `${value.name} ${value.message}` : String(value ?? '')
-      return /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module/i.test(
-        message,
-      )
-    }
-
-    const recover = (): void => {
-      if (sessionStorage.getItem(RELOADED_KEY)) return
-      sessionStorage.setItem(RELOADED_KEY, '1')
-      window.location.reload()
-    }
-
     const onError = (e: ErrorEvent): void => {
-      if (isChunkError(e.error ?? e.message)) recover()
+      if (isChunkLoadError(e.error ?? e.message)) recoverFromChunkError()
     }
     const onRejection = (e: PromiseRejectionEvent): void => {
-      if (isChunkError(e.reason)) recover()
+      if (isChunkLoadError(e.reason)) recoverFromChunkError()
     }
 
     window.addEventListener('error', onError)

@@ -37,13 +37,12 @@ export function CareerUniversityPicker() {
 
   return (
     <Select value={universityId ?? undefined} onValueChange={select}>
-      <SelectTrigger
-        size="sm"
-        className="w-full justify-start gap-2 text-xs"
-        aria-label={t('pickUniversity')}
-      >
+      {/* Значок — слева, стрелка — у правого края, подпись занимает всё между ними. С
+          `justify-start` стрелка прилипала к подписи, и поле выглядело перекошенным:
+          содержимое сбито влево, справа пустота. */}
+      <SelectTrigger size="sm" className="w-full gap-2 text-xs" aria-label={t('pickUniversity')}>
         <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <SelectValue placeholder={t('pickUniversity')} />
+        <SelectValue className="min-w-0 flex-1 text-left" placeholder={t('pickUniversity')} />
       </SelectTrigger>
       <SelectContent>
         {(list.data ?? []).map((u) => (

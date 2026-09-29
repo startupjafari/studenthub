@@ -7,7 +7,7 @@ export { useEscapeBack } from './use-escape-back'
 export { useFormAlert, type FormAlertController } from './use-form-alert'
 export { useErrorToast } from './use-error-toast'
 export { useInfiniteScroll } from './use-infinite-scroll'
-export { OPTIONAL_TEXT } from './optional-field'
+export { OPTIONAL_TEXT, OPTIONAL_NUMBER } from './optional-field'
 export { localId } from './local-id'
 export { useBodyScrollLock } from './use-body-scroll-lock'
 export { hapticTick, hapticCommit } from './haptics'
@@ -33,6 +33,14 @@ export { safeNextPath } from './safe-next'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
 export { relativeTime } from './relative-time'
 export {
+  formatBytes,
+  formatBytesProgress,
+  toByteSize,
+  useByteUnitLabel,
+  type ByteUnit,
+} from './format-bytes'
+export { fileCategoryOfMime, maxUploadBytes, isOversizeOnPick } from './file-limits'
+export {
   usePwaInstall,
   promptPwaInstall,
   type PwaInstallState,
@@ -42,6 +50,8 @@ export {
 export {
   useServiceWorkerUpdate,
   useChunkErrorRecovery,
+  isChunkLoadError,
+  recoverFromChunkError,
   useAppUpdate,
   BUILD_ID,
   type AppUpdate,
@@ -51,3 +61,19 @@ export { useDismissAnimation } from './use-dismiss-animation'
 export { useKeyboardInset } from './use-keyboard-inset'
 export { isIosDevice, isStandalonePwa } from './platform'
 export { useApplicationStatusLabels, type StatusTone } from './career-status'
+export {
+  SeasonLeverProvider,
+  type SeasonLever,
+  useSeasonEnabled,
+  useSeasonGreeting,
+  useSeasonMotionEnabled,
+  useSeasonTheme,
+} from './season'
+export {
+  useFileDownload,
+  saveBlob,
+  downloadKeyOf,
+  type DownloadState,
+  type DownloadSource,
+  type FileDownload,
+} from './file-download'

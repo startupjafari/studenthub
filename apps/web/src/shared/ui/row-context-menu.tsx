@@ -6,6 +6,7 @@ import { useBodyScrollLock } from '../lib/use-body-scroll-lock'
 import { useDismissAnimation } from '../lib/use-dismiss-animation'
 import { cn } from '../lib/utils'
 import { AnchoredMenuLayer, MENU_EXIT_MS, type MenuAnchor } from './anchored-menu'
+import { MenuSeparator, splitDanger } from './menu-separator'
 
 export interface RowContextMenuItem {
   key: string
@@ -39,10 +40,14 @@ export interface RowContextMenuItem {
  * жизни — по той же причине. Подсветка снаружи, а не здесь: меню не знает, как выглядит
  * строка и что у неё уже за фон (активная, непрочитанная).
  *
- * Вложенный список (`items`) раскрывается на месте — тем же полотном, с заголовком-возвратом,
- * а не вылетающей вбок панелью: на телефоне лететь некуда, а два разных поведения на ПК и на
- * телефоне пришлось бы объяснять пользователю дважды.
+ * Вложенный список (`items`) на ПК — вторым меню сбоку, по наведению, как в Telegram Desktop:
+ * папки чата видно сразу, не теряя из виду остальные действия, и отметить чат в нескольких
+ * папках можно, не возвращаясь назад. На телефоне наводить нечем и лететь вбок некуда —
+ * там список раскрывается на месте тем же полотном, с заголовком-возвратом.
  */
+
+/** Ширина меню (w-56) — по ней второе меню встаёт вплотную к первому. */
+const MENU_WIDTH = 224
 export function RowContextMenu({
   x,
   y,
@@ -65,6 +70,9 @@ export function RowContextMenu({
   // приходит заново на каждый рендер родителя, и по ключу галочки внутри обновляются
   // сразу после действия, не закрывая меню.
   const [openKey, setOpenKey] = useState<string | null>(null)
+  // ПК: второе меню сбоку — чей список и у какой строки оно стоит.
+  const [fly, setFly] = useState<{ key: string; left: number; top: number } | null>(null)
+  const flyRef = useRef<HTMLDivElement>(null)
   // Меню не исчезает кадром: сначала уход, потом размонтирование родителем.
   const { closing, dismiss } = useDismissAnimation(onClose, MENU_EXIT_MS)
 
@@ -96,6 +104,27 @@ export function RowContextMenu({
 
   useBodyScrollLock()
 
+  // Второе меню не вылезает за низ экрана: у нижних пунктов длинный список папок иначе
+  // уходил бы за край. Сдвиг вверх — ровно на то, что не влезло.
+  useLayoutEffect(() => {
+    const el = flyRef.current
+    if (!el || !fly) return
+    const { height } = el.getBoundingClientRect()
+    const top = Math.max(8, Math.min(fly.top, window.innerHeight - height - 8))
+    if (top !== fly.top) setFly({ ...fly, top })
+  }, [fly])
+
+  /** Открыть второе меню у строки `row`: справа от меню, а не влезает — слева. */
+  const openFly = (it: RowContextMenuItem, row: HTMLElement): void => {
+    const menu = ref.current?.getBoundingClientRect()
+    const r = row.getBoundingClientRect()
+    if (!menu) return
+    const right = menu.right - 4
+    const left = right + MENU_WIDTH > window.innerWidth - 8 ? menu.left - MENU_WIDTH + 4 : right
+    // -4: первый пункт второго меню встаёт вровень со строкой, а не на отступ ниже.
+    setFly({ key: it.key, left, top: r.top - 4 })
+  }
+
   const run = (it: RowContextMenuItem) => () => {
     if (it.items) {
       setOpenKey(it.key)
@@ -105,57 +134,71 @@ export function RowContextMenu({
     if (!it.keepOpen) dismiss()
   }
 
+  // Раскрытие на месте — только у телефонного полотна. На ПК корень меню не меняется,
+  // вложенный список живёт во втором меню (`fly`).
   const open = openKey ? items.find((it) => it.key === openKey) : undefined
-  const shown = open?.items ?? items
+  const flyItems = fly ? items.find((it) => it.key === fly.key)?.items : undefined
 
-  const list = (variant: 'menu' | 'card'): React.ReactNode => (
-    <>
-      {open && (
+  const list = (variant: 'menu' | 'card' | 'fly'): React.ReactNode => {
+    const drill = variant === 'card' ? open : undefined
+    const shown = variant === 'fly' ? (flyItems ?? []) : (drill?.items ?? items)
+    const card = variant === 'card'
+    const row = (it: RowContextMenuItem): React.ReactNode => {
+      const Icon = it.icon
+      const parentOnDesktop = variant === 'menu' && !!it.items
+      return (
         <button
+          key={it.key}
           type="button"
-          onClick={() => setOpenKey(null)}
+          role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+          aria-checked={it.checked}
+          aria-haspopup={it.items ? 'menu' : undefined}
+          aria-expanded={parentOnDesktop ? fly?.key === it.key : undefined}
+          onClick={parentOnDesktop ? (e) => openFly(it, e.currentTarget as HTMLElement) : run(it)}
+          // ПК: наведение на пункт с вложенным списком открывает второе меню, на любой
+          // другой пункт корня — закрывает его, как в системных меню.
+          onMouseEnter={
+            variant === 'menu'
+              ? (e) => {
+                  if (it.items) openFly(it, e.currentTarget)
+                  else setFly(null)
+                }
+              : undefined
+          }
           className={cn(
-            'flex w-full cursor-pointer items-center border-b border-border text-left font-medium text-foreground transition-colors hover:bg-muted active:bg-muted',
-            variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
+            'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
+            card ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
+            it.danger ? 'text-destructive' : 'text-foreground',
+            parentOnDesktop && fly?.key === it.key && 'bg-muted',
           )}
         >
-          <ChevronLeft
-            className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
-            aria-hidden
-          />
-          <span className="truncate">{open.label}</span>
+          <Icon className={cn('shrink-0 opacity-80', card ? 'size-5' : 'size-4')} aria-hidden />
+          <span className="truncate">{it.label}</span>
+          {it.items && <ChevronRight className="ml-auto size-4 shrink-0 opacity-60" aria-hidden />}
+          {it.checked && <Check className="ml-auto size-4 shrink-0 text-primary" aria-hidden />}
         </button>
-      )}
-      {shown.map((it) => {
-        const Icon = it.icon
-        return (
+      )
+    }
+    // Опасные пункты — всегда в конце и за линией (см. MenuSeparator).
+    const { safe, danger } = splitDanger(shown)
+    return (
+      <>
+        {drill && (
           <button
-            key={it.key}
             type="button"
-            role={it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-            aria-checked={it.checked}
-            aria-haspopup={it.items ? 'menu' : undefined}
-            onClick={run(it)}
-            className={cn(
-              'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
-              variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
-              it.danger ? 'text-destructive' : 'text-foreground',
-            )}
+            onClick={() => setOpenKey(null)}
+            className="flex w-full cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 text-left text-[15px] font-medium text-foreground transition-colors hover:bg-muted active:bg-muted"
           >
-            <Icon
-              className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
-              aria-hidden
-            />
-            <span className="truncate">{it.label}</span>
-            {it.items && (
-              <ChevronRight className="ml-auto size-4 shrink-0 opacity-60" aria-hidden />
-            )}
-            {it.checked && <Check className="ml-auto size-4 shrink-0 text-primary" aria-hidden />}
+            <ChevronLeft className="size-5 shrink-0 opacity-80" aria-hidden />
+            <span className="truncate">{drill.label}</span>
           </button>
-        )
-      })}
-    </>
-  )
+        )}
+        {safe.map(row)}
+        {safe.length > 0 && danger.length > 0 && <MenuSeparator />}
+        {danger.map(row)}
+      </>
+    )
+  }
 
   return (
     <div
@@ -187,6 +230,24 @@ export function RowContextMenu({
       >
         {list('menu')}
       </div>
+
+      {/* ПК: второе меню — вложенный список сбоку от своего пункта. Вне первого меню, а
+          не внутри: у того `overflow-y-auto`, и выехавшая вбок панель была бы обрезана. */}
+      {fly && flyItems && (
+        <div
+          ref={flyRef}
+          role="menu"
+          aria-label={items.find((it) => it.key === fly.key)?.label}
+          style={{ left: fly.left, top: fly.top }}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            'absolute hidden max-h-[70vh] w-56 overflow-y-auto rounded-2xl border border-border bg-popover py-1 shadow-lg duration-150 md:block',
+            closing ? 'animate-out fade-out zoom-out-95' : 'animate-in fade-in zoom-in-95',
+          )}
+        >
+          {list('fly')}
+        </div>
+      )}
 
       {/* Телефон: строка поднимается снимком, действия растут под ней. */}
       <AnchoredMenuLayer

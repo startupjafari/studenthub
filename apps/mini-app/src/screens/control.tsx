@@ -6,6 +6,7 @@ import {
   setMaintenance,
   setNotifications,
   setSections,
+  setSeason,
   setDuty,
   fetchDuty,
   fetchTeam,
@@ -13,6 +14,7 @@ import {
   BANNER_AUDIENCES,
   BANNER_PRESETS,
   NOTIFICATION_KINDS,
+  SEASONS,
   SECTIONS,
   type Duty,
   type NotificationKind,
@@ -25,8 +27,20 @@ import { confirmAction, haptic } from '../telegram/webapp'
 import { t } from '../i18n'
 import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
-import { applyFontScale, isLargeFont } from '../lib/font-scale'
 import { Fold } from '../ui/fold'
+import { StatePlate } from '../ui/state-plate'
+import { SkeletonCards } from '../ui/skeleton'
+import { Tile } from '../ui/tile'
+import {
+  IconBanner,
+  IconBell,
+  IconDuty,
+  IconMaintenance,
+  IconRelease,
+  IconSeason,
+  IconSections,
+  IconUndo,
+} from '../ui/icons'
 
 // Пульт платформы: то, чем админ управляет вебом, не открывая ноутбук.
 //
@@ -74,9 +88,13 @@ export function ControlScreen({ userId }: { userId: string }) {
    * Ответ сервера и есть новое состояние, поэтому перезапрашивать его незачем.
    */
   const run = useCallback(
-    async (question: string, action: () => Promise<PlatformState>) => {
+    async (
+      question: string,
+      action: () => Promise<PlatformState>,
+      confirm?: { ok?: string; destructive?: boolean },
+    ) => {
       if (busy) return
-      if (!(await confirmAction(question))) return
+      if (!(await confirmAction(question, confirm))) return
 
       setBusy(true)
       setError(null)
@@ -95,17 +113,18 @@ export function ControlScreen({ userId }: { userId: string }) {
     [busy],
   )
 
-  if (load.status === 'loading') return <Head hint={t('controlReading')} />
+  // Заглушка той же формы, что приедет (рычаги — стопка карточек), и на весь экран:
+  // строка «Читаю состояние» на пустом поле читалась как сбой, а не как ожидание.
+  if (load.status === 'loading')
+    return (
+      <div className="screen" aria-busy="true">
+        <SkeletonCards />
+      </div>
+    )
   if (load.status === 'error') {
     return (
       <div className="screen">
-        <Head hint={t('controlSubtitle')} />
-        <section className="card">
-          <p>{t('controlReadError')}</p>
-          <button type="button" className="fallback-submit" onClick={() => void reload()}>
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('controlReadError')} onRetry={() => void reload()} />
       </div>
     )
   }
@@ -123,14 +142,31 @@ export function ControlScreen({ userId }: { userId: string }) {
         </section>
       )}
 
-      <MaintenanceCard state={state} busy={busy} run={run} />
-      <BannerCard state={state} busy={busy} run={run} />
-      <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
-      <SectionsCard state={state} busy={busy} run={run} />
-      <ReleaseCard state={state} busy={busy} run={run} />
-      <DutyCard busy={busy} setError={setError} />
-      <FontCard />
-      <UndoCard busy={busy} run={run} />
+      {/*
+       * Рычаги собраны в группы, а не выложены девятью отдельными карточками.
+       *
+       * Порознь между ними оставался одинаковый зазор, и лента читалась как девять
+       * равнозначных экранов. Группами видно устройство раздела: что показывают всем
+       * (техработы, баннер, разделы, оформление, «Что нового»), чем распоряжается команда
+       * (уведомления, дежурство) и что настраивает себе сам смотрящий (размер текста,
+       * откат последнего изменения).
+       */}
+      <section className="card fold-group">
+        <MaintenanceCard state={state} busy={busy} run={run} />
+        <BannerCard state={state} busy={busy} run={run} />
+        <SectionsCard state={state} busy={busy} run={run} />
+        <SeasonCard state={state} busy={busy} run={run} />
+        <ReleaseCard state={state} busy={busy} run={run} />
+      </section>
+
+      <section className="card fold-group">
+        <NotificationsCard state={state} busy={busy} run={run} userId={userId} />
+        <DutyCard busy={busy} setError={setError} />
+      </section>
+
+      <section className="card fold-group">
+        <UndoCard busy={busy} run={run} />
+      </section>
 
       {/* Какая сборка открыта. Не украшение: сервисы на Railway однажды разъехались по
           веткам, и мини-апп неделю ходил в бэкенд за маршрутами, которых там не было. */}
@@ -139,7 +175,11 @@ export function ControlScreen({ userId }: { userId: string }) {
   )
 }
 
-type Run = (question: string, action: () => Promise<PlatformState>) => Promise<void>
+type Run = (
+  question: string,
+  action: () => Promise<PlatformState>,
+  confirm?: { ok?: string; destructive?: boolean },
+) => Promise<void>
 
 /**
  * Дежурство по очереди.
@@ -186,6 +226,11 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
 
   return (
     <Fold
+      icon={
+        <Tile tone="indigo">
+          <IconDuty size={17} />
+        </Tile>
+      }
       title={t('dutyTitle')}
       state={order.length > 1 ? t('dutyStateRota', { count: order.length }) : t('dutyStateManual')}
     >
@@ -230,7 +275,14 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
  */
 function UndoCard({ busy, run }: { busy: boolean; run: Run }) {
   return (
-    <Fold title={t('undoTitle')}>
+    <Fold
+      icon={
+        <Tile tone="gray">
+          <IconUndo size={17} />
+        </Tile>
+      }
+      title={t('undoTitle')}
+    >
       <p className="hint">{t('undoHint')}</p>
       <button
         type="button"
@@ -252,6 +304,11 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
 
   return (
     <Fold
+      icon={
+        <Tile tone="orange">
+          <IconMaintenance size={17} />
+        </Tile>
+      }
       title={t('maintenanceTitle')}
       // Состояние в заголовке: «идут ли сейчас техработы» — вопрос, ради которого этот
       // раздел и открывали чаще прочих.
@@ -344,6 +401,12 @@ function MaintenanceCard({ state, busy, run }: { state: PlatformState; busy: boo
               ? t('maintenanceConfirmExtend', { count: minutes ?? 0 })
               : t('maintenanceConfirmOn', { count: minutes ?? 0 }),
             () => setMaintenance(minutes, code, startsIn * 60),
+            // Остановка платформы — самое тяжёлое действие пульта: лист с красной кнопкой
+            // и её подписью, а не безликое «OK».
+            {
+              destructive: true,
+              ok: active ? t('maintenanceExtend', { count: minutes ?? 0 }) : t('maintenanceEnable'),
+            },
           ).then(() => setCode(''))
         }
       >
@@ -374,7 +437,15 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
 
   if (active) {
     return (
-      <Fold title={t('bannerTitle')} state={t('bannerStateOn')}>
+      <Fold
+        icon={
+          <Tile tone="purple">
+            <IconBanner size={17} />
+          </Tile>
+        }
+        title={t('bannerTitle')}
+        state={t('bannerStateOn')}
+      >
         <p className="hint">{active.text[lang]}</p>
         <p className="hint">{t('bannerUntil', { until: formatDateTime(active.until) })}</p>
         <button
@@ -390,7 +461,15 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
   }
 
   return (
-    <Fold title={t('bannerTitle')} state={t('bannerStateOff')}>
+    <Fold
+      icon={
+        <Tile tone="purple">
+          <IconBanner size={17} />
+        </Tile>
+      }
+      title={t('bannerTitle')}
+      state={t('bannerStateOff')}
+    >
       <p className="hint">{t('bannerHint')}</p>
       <div className="chips">
         {BANNER_PRESETS.map((item) => (
@@ -556,6 +635,11 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
 
   return (
     <Fold
+      icon={
+        <Tile tone="blue">
+          <IconSections size={17} />
+        </Tile>
+      }
       title={t('sectionsTitle')}
       state={
         disabled.size > 0 ? t('sectionsStateOff', { count: disabled.size }) : t('sectionsStateAll')
@@ -594,11 +678,97 @@ function SectionsCard({ state, busy, run }: { state: PlatformState; busy: boolea
   )
 }
 
+/**
+ * Праздничное оформление. Календарь праздников живёт в самом вебе и сюда не приезжает —
+ * здесь ровно два действия, которых календарь дать не может: погасить всё (траур, авария,
+ * любое «сегодня не время») и показать сезон вне его даты.
+ */
+function SeasonCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
+  const { off, override } = state.season
+  const picked = SEASONS.find((season) => season.key === override) ?? null
+
+  return (
+    <Fold
+      icon={
+        <Tile tone="pink">
+          <IconSeason size={17} />
+        </Tile>
+      }
+      title={t('seasonTitle')}
+      state={off ? t('seasonStateOff') : picked ? t(picked.labelKey) : t('seasonStateCalendar')}
+    >
+      <p className="hint">{t('seasonHint')}</p>
+
+      <button
+        type="button"
+        className="toggle-row"
+        disabled={busy}
+        onClick={() => {
+          void run(off ? t('seasonConfirmOn') : t('seasonConfirmOff'), () =>
+            setSeason(!off, override),
+          )
+        }}
+      >
+        <span>{t('seasonSwitch')}</span>
+        <span className={off ? 'toggle-state off' : 'toggle-state'}>
+          {off ? t('sectionOff') : t('sectionOn')}
+        </span>
+      </button>
+
+      {/* Выбор сезона остаётся доступным и при выключенном оформлении: сначала готовят,
+          потом включают — обратный порядок означал бы праздник, мелькнувший у всех. */}
+      <div className="list">
+        <button
+          type="button"
+          className="toggle-row"
+          disabled={busy || override === null}
+          onClick={() => {
+            void run(t('seasonConfirmCalendar'), () => setSeason(off, null))
+          }}
+        >
+          <span>{t('seasonPickCalendar')}</span>
+          <span className={override === null ? 'toggle-state' : 'toggle-state off'}>
+            {override === null ? t('sectionOn') : t('sectionOff')}
+          </span>
+        </button>
+        {SEASONS.map(({ key, labelKey }) => {
+          const name = t(labelKey)
+          const active = override === key
+          return (
+            <button
+              key={key}
+              type="button"
+              className="toggle-row"
+              disabled={busy || active}
+              onClick={() => {
+                void run(t('seasonConfirmPick', { name }), () => setSeason(off, key))
+              }}
+            >
+              <span>{name}</span>
+              <span className={active ? 'toggle-state' : 'toggle-state off'}>
+                {active ? t('sectionOn') : t('sectionOff')}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </Fold>
+  )
+}
+
 function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean; run: Run }) {
   const [version, setVersion] = useState('')
 
   return (
-    <Fold title={t('releaseTitle')} state={state.announcedVersion ?? t('releaseStateNone')}>
+    <Fold
+      icon={
+        <Tile tone="green">
+          <IconRelease size={17} />
+        </Tile>
+      }
+      title={t('releaseTitle')}
+      state={state.announcedVersion ?? t('releaseStateNone')}
+    >
       <p className="hint">
         {state.announcedVersion
           ? t('releaseAnnounced', { version: state.announcedVersion })
@@ -625,15 +795,6 @@ function ReleaseCard({ state, busy, run }: { state: PlatformState; busy: boolean
         {t('releaseAnnounce')}
       </button>
     </Fold>
-  )
-}
-
-function Head({ hint }: { hint: string }) {
-  return (
-    <header className="screen-head">
-      <h1>{t('controlTitle')}</h1>
-      <p className="hint">{hint}</p>
-    </header>
   )
 }
 
@@ -682,6 +843,11 @@ function NotificationsCard({
 
   return (
     <Fold
+      icon={
+        <Tile tone="red">
+          <IconBell size={17} />
+        </Tile>
+      }
       title={t('notifTitle')}
       state={
         current.quietFrom === null
@@ -783,37 +949,6 @@ function NotificationsCard({
       >
         {t('notifSave')}
       </button>
-    </Fold>
-  )
-}
-
-/**
- * Размер текста. Настройка устройства, а не человека: с телефона хочется крупнее, с
- * планшета может и нет, — поэтому живёт в localStorage мини-аппа, а не на сервере.
- */
-function FontCard() {
-  const [large, setLarge] = useState(isLargeFont)
-
-  return (
-    <Fold title={t('fontTitle')} state={large ? t('fontStateLarge') : t('fontStateNormal')}>
-      <p className="hint">{t('fontHint')}</p>
-      <div className="chips-grid">
-        {[false, true].map((value) => (
-          <button
-            key={String(value)}
-            type="button"
-            className="chip"
-            aria-pressed={large === value}
-            onClick={() => {
-              haptic.select()
-              applyFontScale(value)
-              setLarge(value)
-            }}
-          >
-            {value ? t('fontLarge') : t('fontNormal')}
-          </button>
-        ))}
-      </div>
     </Fold>
   )
 }

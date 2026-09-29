@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { haptic, initTelegram, isTelegram, startParam } from './telegram/webapp'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { initTelegram, isTelegram, startParam } from './telegram/webapp'
 import { openSession, type MiniUser } from './api/client'
 import { LinkScreen } from './screens/link'
 import { ComplaintsScreen } from './screens/complaints'
@@ -7,8 +7,18 @@ import { ControlScreen } from './screens/control'
 import { SupportScreen } from './screens/support'
 import { PeopleScreen } from './screens/people'
 import { OverviewScreen } from './screens/overview'
+import { SettingsScreen } from './screens/settings'
+import { useBackButton, useSettingsButton } from './telegram/use-telegram'
 import { fetchBadges, type Badges } from './api/badges'
+import { TabBar } from './ui/tab-bar'
+import { SwipeTabs } from './ui/swipe-tabs'
+import { Tabs } from './ui/tabs'
+import { ScreenHeader } from './ui/screen-header'
+import { IconComplaints, IconControl, IconLogo, IconPeople, IconSupport } from './ui/icons'
 import { t } from './i18n'
+import { navigate } from './lib/navigate'
+import { hideSplash } from './lib/splash'
+import { goBack, useCanGoBack } from './lib/back'
 
 // Мини-апп для администраторов и модераторов платформы.
 //
@@ -29,13 +39,23 @@ type Tab = 'complaints' | 'support' | 'people' | 'control'
 const TABS: {
   id: Tab
   labelKey: 'tabComplaints' | 'tabSupport' | 'tabPeople' | 'tabControl'
+  icon: (filled: boolean) => ReactNode
   adminOnly?: boolean
 }[] = [
-  { id: 'complaints', labelKey: 'tabComplaints' },
-  { id: 'support', labelKey: 'tabSupport' },
+  {
+    id: 'complaints',
+    labelKey: 'tabComplaints',
+    icon: (filled) => <IconComplaints filled={filled} />,
+  },
+  { id: 'support', labelKey: 'tabSupport', icon: (filled) => <IconSupport filled={filled} /> },
   // Люди доступны и модератору: блокировка — его инструмент, а не только админский.
-  { id: 'people', labelKey: 'tabPeople' },
-  { id: 'control', labelKey: 'tabControl', adminOnly: true },
+  { id: 'people', labelKey: 'tabPeople', icon: (filled) => <IconPeople filled={filled} /> },
+  {
+    id: 'control',
+    labelKey: 'tabControl',
+    icon: (filled) => <IconControl filled={filled} />,
+    adminOnly: true,
+  },
 ]
 
 type State =
@@ -54,6 +74,11 @@ export function App() {
 
   useEffect(() => initTelegram(), [])
 
+  // Стрелку возврата просим у клиента только тогда, когда есть куда возвращаться: пока
+  // мы её не просим, Telegram держит в шапке своё «Закрыть», и это единственный выход из
+  // мини-аппа. Показанная на верхнем экране стрелка закрыла бы его собой (lib/back.ts).
+  useBackButton(useCanGoBack() ? goBack : null)
+
   const start = useCallback(async () => {
     if (!isTelegram()) {
       setState({ status: 'outside' })
@@ -70,10 +95,19 @@ export function App() {
     void start()
   }, [start])
 
+  // Заставка держится ровно до того, как стало известно, что показывать. Снимать её по
+  // расписанию, как на сайте, нельзя: за ней прячется обмен initData на токен, и ушедшее
+  // раньше ответа полотно обнажило бы пустой экран.
+  useEffect(() => {
+    if (state.status !== 'starting') hideSplash()
+  }, [state.status])
+
   return (
     <div className="app">
       <main className="content">
-        {state.status === 'starting' && <Starting />}
+        {/* На старте не рисуется ничего: экран закрыт заставкой (lib/splash.ts), и любая
+            надпись под ней — это текст, которого никто не увидит, но который успеет
+            дёрнуть раскладку в момент, когда полотно уходит. */}
         {state.status === 'outside' && <Outside />}
         {state.status === 'link' && (
           <LinkScreen onLinked={(user) => setState({ status: 'ready', user })} />
@@ -111,41 +145,63 @@ function ReadyView({
   // первой доступной, а не рисуем заглушку «нет прав» там, где вкладки просто нет.
   const active = tabs.some((item) => item.id === tab) ? tab : 'complaints'
   const badges = useBadges()
+  // Настройки открываются из меню «⋯» Telegram вместо вкладки: закрыл — и ты в той же
+  // вкладке. Держать её смонтированной под настройками нельзя: её нативные кнопки
+  // (MainButton ответа в поддержке) остались бы висеть под чужим экраном.
+  const [settings, setSettings] = useState(false)
+  useSettingsButton(settings ? null : () => navigate(() => setSettings(true)))
+
+  // Смена раздела ставит новый экран в начало. Без этого вкладка открывалась там, где
+  // была прокрутка предыдущей: пролистал очередь жалоб, ушёл в «Люди» — и попал в
+  // середину пустого экрана, где на вид ничего нет. Мгновенно, а не плавно: плавная
+  // прокрутка соревновалась бы с анимацией самого перехода.
+  const selectTab = useCallback(
+    (next: Tab) => {
+      onTab(next)
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    },
+    [onTab],
+  )
+
+  if (settings) {
+    return <SettingsScreen onBack={() => navigate(() => setSettings(false), 'back')} />
+  }
 
   return (
     <>
-      <div className="tabbar">
-        <div className="tabs" role="tablist">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              className="tab"
-              aria-selected={active === item.id}
-              onClick={() => {
-                haptic.select()
-                onTab(item.id)
-              }}
-            >
-              {t(item.labelKey)}
-              {/* Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки:
-                  до него приходилось обходить все три по очереди. */}
-              {badgeFor(item.id, badges) > 0 && (
-                <span className="tab-badge">{badgeFor(item.id, badges)}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-      {active === 'complaints' && (
-        <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
-      )}
-      {active === 'support' && (
-        <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
-      )}
-      {active === 'people' && <PeopleScreen />}
-      {active === 'control' && <ControlTab userId={userId} />}
+      {/*
+       * Разделы листаются и пальцем: соседние вкладки — это соседние страницы, и ходить
+       * между ними смахиванием быстрее, чем тянуться к панели внизу. Список разделов
+       * передаётся тот же, что и панели, — порядок жеста обязан совпадать с порядком
+       * значков, иначе «вправо» уводит не туда, куда показывает панель.
+       */}
+      <SwipeTabs ids={tabs.map((item) => item.id)} active={active} onSelect={selectTab}>
+        {active === 'complaints' && (
+          <ComplaintsScreen initialId={deepLink?.kind === 'complaint' ? deepLink.id : undefined} />
+        )}
+        {active === 'support' && (
+          <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
+        )}
+        {active === 'people' && <PeopleScreen />}
+        {active === 'control' && <ControlTab userId={userId} />}
+      </SwipeTabs>
+      {/*
+       * Панель вкладок идёт ПОСЛЕ содержимого и в разметке, и на экране: она висит внизу,
+       * у большого пальца. Порядок в DOM совпадает с порядком на экране намеренно —
+       * читалка обойдёт экран так же, как его видит человек, а не начнёт с навигации.
+       */}
+      <TabBar
+        items={tabs.map((item) => ({
+          id: item.id,
+          label: t(item.labelKey),
+          icon: item.icon,
+          // Счётчик отвечает на вопрос «есть ли работа» без открытия вкладки: до него
+          // приходилось обходить все три по очереди.
+          count: badgeFor(item.id, badges),
+        }))}
+        active={active}
+        onSelect={(next) => navigate(() => selectTab(next), 'fade')}
+      />
     </>
   )
 }
@@ -161,24 +217,20 @@ function ControlTab({ userId }: { userId: string }) {
 
   return (
     <>
-      <div className="subtabs">
-        <div className="tabs" role="tablist">
-          {(['summary', 'levers'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              className="tab"
-              aria-selected={sub === value}
-              onClick={() => {
-                haptic.select()
-                setSub(value)
-              }}
-            >
-              {value === 'summary' ? t('controlTabSummary') : t('controlTabLevers')}
-            </button>
-          ))}
-        </div>
+      <div className="screen-top">
+        <ScreenHeader
+          title={t('controlTitle')}
+          tabs={
+            <Tabs
+              items={[
+                { id: 'summary', label: t('controlTabSummary') },
+                { id: 'levers', label: t('controlTabLevers') },
+              ]}
+              active={sub}
+              onSelect={setSub}
+            />
+          }
+        />
       </div>
       {sub === 'summary' ? <OverviewScreen /> : <ControlScreen userId={userId} />}
     </>
@@ -208,34 +260,34 @@ function badgeFor(tab: Tab, badges: Badges): number {
   return 0
 }
 
-function Starting() {
-  // Пустой экран без слова «загрузка»: обмен занимает доли секунды, и надпись успевает
-  // только моргнуть. Заголовок держит место, чтобы страница не прыгнула.
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <h1>{t('appName')}</h1>
-        <p className="hint">{t('checkingAccess')}</p>
-      </header>
-    </div>
-  )
-}
-
+/**
+ * Единственный экран, который видно в обычном браузере, — и потому единственный, который
+ * оформлен не по теме Telegram, а по-своему, как страница самого StudentHub.
+ *
+ * Причина простая: снаружи Telegram никакой темы Telegram нет. Переменные `--tg-theme-*`
+ * подставляются запасными значениями (telegram/webapp.ts), и экран получался белым листом
+ * с чёрным текстом и замком — ни на мини-апп, ни на продукт не похоже. Здесь показывать
+ * себя продолжением клиента нечему, поэтому марка, тёмное полотно и свет за значком берутся
+ * те же, что на заставке запуска (index.html) и на сайте.
+ */
 function Outside() {
   return (
-    <div className="screen">
-      <header className="screen-head">
-        {/* Замок вместо иллюстрации: картинку пришлось бы тащить файлом и красить под
-            тему, а смысл экрана — «сюда нельзя снаружи» — он передаёт и так. */}
-        <p className="screen-emblem" aria-hidden>
-          🔒
+    <div className="outside">
+      <div className="outside-inner">
+        <p className="outside-mark">
+          {/* Обойма вокруг значка: ореол позиционируется от неё и выходит за её края. */}
+          <span className="outside-icon">
+            <span className="outside-halo" aria-hidden />
+            <IconLogo size={44} />
+          </span>
+          {/* Название продукта, а не переводимая строка: марка одинакова во всех локалях. */}
+          <span>StudentHub</span>
         </p>
         <h1>{t('outsideTitle')}</h1>
-        <p className="hint">{t('outsideHint')}</p>
-      </header>
-      <section className="card">
-        <p className="hint">{t('outsideBody')}</p>
-      </section>
+        <p className="outside-hint">{t('outsideHint')}</p>
+        <p className="outside-body">{t('outsideBody')}</p>
+        <p className="outside-footer">© StudentHub 2026 · Мехман Джафари</p>
+      </div>
     </div>
   )
 }

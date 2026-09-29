@@ -15,8 +15,17 @@ import { getDictionary } from '../content'
  *
  * Пункты остаются ссылками, а не кнопками с обработчиком: у каждой версии свой адрес,
  * её можно открыть в новой вкладке и сохранить в закладки.
+ *
+ * `side` — куда раскрываться. В шапке список падает вниз, а в мобильном меню кнопка
+ * прижата к нижнему краю экрана, и вниз ему просто некуда: он уходил за границу окна.
  */
-export function LanguageMenu({ current }: { current: Locale }) {
+export function LanguageMenu({
+  current,
+  side = 'bottom',
+}: {
+  current: Locale
+  side?: 'top' | 'bottom'
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const label = getDictionary(current).footer.language
@@ -61,7 +70,7 @@ export function LanguageMenu({ current }: { current: Locale }) {
       {open && (
         <div
           role="menu"
-          className="sh-swap absolute top-full right-0 z-50 mt-1.5 flex min-w-40 flex-col rounded-xl border border-hairline bg-popover p-1 text-popover-foreground shadow-xl"
+          className={`sh-swap absolute right-0 z-50 flex ${side === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} min-w-40 flex-col rounded-xl border border-hairline bg-popover p-1 text-popover-foreground shadow-xl`}
         >
           {LOCALES.map((locale) => {
             const isCurrent = locale === current

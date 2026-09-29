@@ -2,6 +2,7 @@ import type { Pair, ScheduleChange } from '../../../entities/schedule'
 import type { EventItem } from '../../../entities/event'
 import type { AssignmentItem } from '../../../entities/assignment'
 import { isoWeekParity } from '../../../shared/lib'
+import { calendarHoliday, type Holiday } from '../../../shared/config'
 import { formatYmd, pad } from '../../../shared/ui/calendar-grid'
 
 // Единый академический календарь (задача 9): пары (разворачиваются из недельного
@@ -133,6 +134,25 @@ export function groupByDate(items: CalItem[]): Map<string, CalItem[]> {
   }
   for (const [, list] of map) {
     list.sort((a, b) => (a.start ?? '99').localeCompare(b.start ?? '99'))
+  }
+  return map
+}
+
+/**
+ * Праздники видимого месяца. Считаются из справочника, а не запрашиваются: даты одинаковы
+ * для всех и уже лежат в бандле — сетевой запрос ради них был бы лишним.
+ *
+ * Праздник — не элемент календаря, а свойство дня, поэтому он живёт отдельной картой, а не
+ * строкой в `CalItem`: иначе фильтр «только пары» прятал бы Наурыз, а сортировка по времени
+ * ставила бы его между парами.
+ */
+export function holidaysByDate(dates: Date[]): Map<string, Holiday> {
+  const map = new Map<string, Holiday>()
+  for (const date of dates) {
+    const ds = formatYmd(date)
+    if (map.has(ds)) continue
+    const holiday = calendarHoliday(ds)
+    if (holiday) map.set(ds, holiday)
   }
   return map
 }

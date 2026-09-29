@@ -6,14 +6,26 @@ import { EventsModule } from '../events/events.module'
 import { PostsModule } from '../posts/posts.module'
 import { DocumentsModule } from '../documents/documents.module'
 import { ChatsModule } from '../chats/chats.module'
+import { ComplaintsModule } from '../complaints/complaints.module'
+import { OnboardingModule } from '../onboarding/onboarding.module'
 
 // Планировщик cron-задач очистки (docs/PROJECT.md §10.2). ScheduleModule.forRoot()
 // регистрируется здесь один раз; PrismaService/MINIO_CLIENT/ConfigService — глобальные.
 // EventsModule — для scheduleEventReminders (cron делегирует EventsService.remindDue, §9.3).
 // ChatsModule — для deliverScheduledMessages (доставка отложенных сообщений тем же способом).
 // CronMonitorService живёт здесь же: ему нужен SchedulerRegistry из ScheduleModule (Ф13.8).
+// ComplaintsModule — за размером очереди для сводки и сигнала о заторе: считает его владелец
+// таблицы, а не планировщик (§2.1).
 @Module({
-  imports: [ScheduleModule.forRoot(), EventsModule, PostsModule, DocumentsModule, ChatsModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    EventsModule,
+    PostsModule,
+    DocumentsModule,
+    ChatsModule,
+    ComplaintsModule,
+    OnboardingModule,
+  ],
   providers: [CleanupService, CronMonitorService],
   exports: [CleanupService],
 })

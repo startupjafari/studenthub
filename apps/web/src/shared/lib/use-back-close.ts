@@ -22,7 +22,19 @@ import { useEffect, useRef } from 'react'
  * открываются вообще». Отложенное снятие второй setup успевает отменить (таймер лежит в
  * `ref`, а он у повторно смонтированного экземпляра сохраняется), при настоящем закрытии
  * отменять некому — и запись снимается как раньше.
+ *
+ * Окна бывают вложенными: из поста открывают пересылку или жалобу. `popstate` получают
+ * все открытые окна сразу, а снятие записи вложенного окна (закрыли крестиком) — тоже
+ * `popstate`. Раньше на него закрывался и пост под ним. Поэтому в записи лежит вся цепочка
+ * открытых окон (`shOverlays`), и окно закрывается, только если его id в текущей записи
+ * больше нет: «назад» снимает ровно верхнее окно, а родитель остаётся.
  */
+
+type OverlayState = { shOverlay?: string; shOverlays?: string[] } | null
+
+function overlayStack(): string[] {
+  return (window.history.state as OverlayState)?.shOverlays ?? []
+}
 
 let counter = 0
 
@@ -46,11 +58,16 @@ export function useBackClose(onClose: () => void): void {
       const id = `overlay-${++counter}`
       idRef.current = id
       // Тем же URL: адресная строка и роут не меняются, меняется только длина истории.
-      window.history.pushState({ ...window.history.state, shOverlay: id }, '')
+      window.history.pushState(
+        { ...window.history.state, shOverlay: id, shOverlays: [...overlayStack(), id] },
+        '',
+      )
     }
 
     let closedByBack = false
     const onPop = (): void => {
+      // Сняли запись окна поверх нашего — наша ещё в истории, закрываться не нам.
+      if (idRef.current && overlayStack().includes(idRef.current)) return
       closedByBack = true
       onCloseRef.current()
     }
@@ -65,7 +82,7 @@ export function useBackClose(onClose: () => void): void {
       }
       undoRef.current = setTimeout(() => {
         undoRef.current = null
-        const current = (window.history.state as { shOverlay?: string } | null)?.shOverlay
+        const current = (window.history.state as OverlayState)?.shOverlay
         if (current === idRef.current) window.history.back()
         idRef.current = null
       }, 0)

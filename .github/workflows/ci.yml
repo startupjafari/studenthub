@@ -68,13 +68,26 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
+      # Версии экшенов держим на актуальных мажорах: GitHub снимает с эксплуатации
+      # рантайм node20, и v4 у checkout/setup-node уже принудительно запускались на
+      # node24 с предупреждением.
+      #
+      # Именно v7 у setup-node, а не минимальный переход на v5: в v5 появилось
+      # автокеширование по полю `packageManager` в package.json, и в двух job'ах ниже
+      # (проверка релизной ноты, release.yml) setup-node вызывается БЕЗ pnpm — он попытался
+      # бы настроить кеш pnpm, которого там нет. В v6 автокеширование ограничено npm, а
+      # здесь `packageManager` указывает на pnpm, поэтому само оно не включается.
+      # Явный `cache: pnpm` работает как работал.
+      #
+      # `node-version` — рантайм сборки самого проекта, к этому переходу отношения не
+      # имеет и меняется отдельным решением.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
@@ -82,19 +95,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # MinIO нельзя поднять через `services:` — образу нужен аргумент `server /data`,
-      # который в service-контейнере не передать. Поэтому запускаем шагом.
-      # Образ тянем с quay.io: на Docker Hub репозиторий `minio/minio` больше не
-      # публикуется (pull отдаёт «pull access denied ... repository does not exist»),
-      # quay.io — официальный источник MinIO. Тег пришпилен, чтобы CI не зависел от
-      # свежего `latest`.
+      # MinIO поднимаем шагом, а не через `services:`: там нельзя дождаться готовности
+      # так, как это делает цикл ниже, а стартует сервер не мгновенно.
+      #
+      # Образ — сборка Bitnami, а не официальный `minio/minio`. Официальный больше не
+      # раздаётся публично ни с Docker Hub, ни с quay.io: оба реестра отдают 401
+      # («unauthorized: access to the requested resource is not authorized») даже на
+      # старые пришпиленные теги, и CI упал на ровном месте, без единой правки у нас.
+      # Внутри это тот же сервер MinIO — presigned PUT/GET, `response-content-disposition`
+      # и отказ на запрос без подписи проверены на нашем же SDK.
+      #
+      # `bitnamilegacy` — архив Bitnami: с 28.08.2025 бесплатно остаётся только он, зато
+      # теги там уже не двигаются. Аргумент `server /data` не нужен — его подставляет
+      # точка входа образа, а каталог данных у него свой.
       - name: Start MinIO
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=ci-access \
             -e MINIO_ROOT_PASSWORD=ci-secret \
-            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
@@ -133,6 +153,56 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # Отдельной job'ой, а не шагом в `ci`: проверки безопасности не зависят от базы, MinIO
+  # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
+  # последним. Job лёгкая, идёт параллельно и падает независимо.
+  security:
+    name: аудит зависимостей · секреты
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # fetch-depth: 0 — gitleaks смотрит историю, а не только рабочее дерево: секрет,
+      # закоммиченный и «удалённый» следующим коммитом, из истории никуда не делся.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # --prod: интересуют пакеты, которые реально попадают в рантайм. Уязвимость в
+      # сборочном инструменте тоже бывает важной, но останавливать ею выкладку нельзя —
+      # такие смотрим глазами шагом ниже.
+      #
+      # Порог moderate: на low аудит шумит транзитивными находками, до которых из нашего
+      # кода не дойти, и job начинают игнорировать — а игнорируемая проверка хуже, чем
+      # её отсутствие, потому что создаёт видимость контроля.
+      - name: Аудит прод-зависимостей
+        run: pnpm audit --prod --audit-level moderate
+
+      # Не блокирует: список для глаз, а не ворота.
+      - name: Аудит всех зависимостей (справочно)
+        continue-on-error: true
+        run: pnpm audit --audit-level high
+
+      # Секрет в истории = секрет скомпрометирован, даже если файл давно удалён.
+      # Дешевле поймать на PR, чем ротировать ключи задним числом.
+      - name: Поиск секретов в истории
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Нота «Что нового» пишется до мёржа в main: она едет в бандле вместе с кодом, который
   # описывает, и после выпуска её уже не подложить. Проверка — только на релизном PR.
   release-note:
@@ -144,12 +214,12 @@ jobs:
     steps:
       # fetch-depth: 0 — нужны теги: «выпущена ли уже эта версия» выясняется по ним.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
 

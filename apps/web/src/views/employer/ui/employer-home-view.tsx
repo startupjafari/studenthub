@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 import { Building2, CheckCircle2, Clock, GraduationCap, ShieldAlert } from 'lucide-react'
 import { isAccessActive } from '@studenthub/shared-schemas'
 import { companyKeys, fetchMyCompany, fetchMyCompanyAccess } from '../../../entities/company'
-import { Button, MetricTile, PageHeader, PageLoader } from '../../../shared/ui'
+import { Button, MetricTile, PageHeader, PageLoader, SeasonGreeting } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 /**
@@ -33,6 +33,7 @@ export function EmployerHomeView() {
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={company.data?.name ?? t('title')} subtitle={t('subtitle')} />
+      <SeasonGreeting />
 
       {blocked && (
         <Notice

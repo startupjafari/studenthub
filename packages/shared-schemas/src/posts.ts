@@ -79,7 +79,16 @@ export type PinPostInput = z.infer<typeof PinPostSchema>
 
 // Табы ленты (Ф8+): фильтр всегда пересекается с видимостью зрителя на сервере.
 // ALL — без фильтра; GROUP/UNIVERSITY/TEACHERS — по audience поста; IMPORTANT — закреплённые.
-export const FeedFilterSchema = z.enum(['ALL', 'GROUP', 'UNIVERSITY', 'TEACHERS', 'IMPORTANT'])
+// SAVED — личная полка: посты, которые зритель сам сохранил. Он единственный, кто её видит,
+// и отдельной ручки для неё нет намеренно — это тот же список с тем же правом видеть.
+export const FeedFilterSchema = z.enum([
+  'ALL',
+  'GROUP',
+  'UNIVERSITY',
+  'TEACHERS',
+  'IMPORTANT',
+  'SAVED',
+])
 export type FeedFilterValue = z.infer<typeof FeedFilterSchema>
 
 // Лента — cursor-пагинация (docs/BACKEND_RULES.md §5.3, take ≤ 50).

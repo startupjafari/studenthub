@@ -127,9 +127,12 @@ export class ComplaintsService {
    */
   private async announceIfUrgent(complaint: ComplaintRow): Promise<void> {
     if (complaint.priority !== ComplaintPriority.HIGH) return
+    // Размер очереди строкой ниже: «срочная жалоба» звучит одинаково и когда она одна, и
+    // когда она девятая, а решать, бросать ли текущее дело, приходится по этому тексту.
+    const { count } = await this.queueStats()
     await this.telegram.notifyStaff(
       'complaint',
-      `Срочная жалоба ${TARGET_WORD[complaint.targetType]}`,
+      `Срочная жалоба ${TARGET_WORD[complaint.targetType]}\nЖалоб в очереди: ${count}`,
       `complaint_${complaint.id}`,
       new Date(),
       false,
@@ -447,6 +450,44 @@ export class ComplaintsService {
       ...ctx,
     })
     return updated
+  }
+
+  /**
+   * Размер очереди разбора и возраст самой старой жалобы.
+   *
+   * Живёт здесь, а не у вызывающих, потому что таблица жалоб принадлежит этому модулю
+   * (BACKEND_RULES §2.1). Спрашивают одно и то же двое — ежедневная сводка и команда
+   * бота, — и две копии этого запроса разошлись бы в первый же раз, когда поменяется
+   * набор статусов «в очереди».
+   *
+   * Прав здесь не проверяется: метод не отдаёт ни одной жалобы, только числа, и зовут
+   * его крон и бот, у которых нет ни сессии, ни scope.
+   */
+  async queueStats(): Promise<{ count: number; oldestAt: Date | null }> {
+    const where = { status: { in: [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING] } }
+    const [count, oldest] = await this.prisma.$transaction([
+      this.prisma.complaint.count({ where }),
+      this.prisma.complaint.findFirst({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ])
+    return { count, oldestAt: oldest?.createdAt ?? null }
+  }
+
+  /**
+   * Движение за период: сколько жалоб пришло и сколько разобрано.
+   *
+   * Нужно сводке: ноль в очереди после сорока разобранных жалоб и ноль в тихий день —
+   * разные новости, а без этих чисел выглядели они одинаково.
+   */
+  async dayStats(since: Date): Promise<{ created: number; closed: number }> {
+    const [created, closed] = await this.prisma.$transaction([
+      this.prisma.complaint.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.complaint.count({ where: { resolvedAt: { gte: since } } }),
+    ])
+    return { created, closed }
   }
 
   // ── Доступ модератора к личному чату по жалобе (11.5) ──────────────────────

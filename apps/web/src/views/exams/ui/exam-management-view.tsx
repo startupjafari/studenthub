@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
@@ -194,6 +195,7 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                           <Users aria-hidden />
                           {t('openRoster')}
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onClick={() => remove.mutate(e.id)}>
                           <Trash2 aria-hidden />
                           {t('delete')}

@@ -14,9 +14,7 @@ const CSS = readFileSync(path.join(__dirname, '..', '..', 'app', 'globals.css'),
 type Oklch = { l: number; c: number; h: number }
 type Rgb = [number, number, number]
 
-function tokens(block: string): Record<string, Oklch> {
-  const start = CSS.indexOf(`${block} {`)
-  const body = CSS.slice(start, CSS.indexOf('\n}', start))
+function parseTokens(body: string): Record<string, Oklch> {
   const out: Record<string, Oklch> = {}
   for (const match of body.matchAll(/--([\w-]+):\s*oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)\)/g)) {
     const [, name, l, c, h] = match
@@ -24,6 +22,11 @@ function tokens(block: string): Record<string, Oklch> {
     out[name] = { l: Number(l), c: Number(c), h: Number(h) }
   }
   return out
+}
+
+function tokens(block: string): Record<string, Oklch> {
+  const start = CSS.indexOf(`${block} {`)
+  return parseTokens(CSS.slice(start, CSS.indexOf('\n}', start)))
 }
 
 /** OKLCH → sRGB (значения вне охвата обрезаются, как это делает браузер). */
@@ -120,5 +123,61 @@ describe('контраст токенов темы (WCAG AA)', () => {
     const bg = color(dark, 'background')
     expect(contrast(color(dark, 'foreground'), bg)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(color(dark, 'destructive'), bg)).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
+// Сезонная палитра (globals.css, «Сезон: праздничная палитра») проверяется тем же
+// мерилом, что и базовая тема, и НЕ перечислением: тест сам находит каждый блок
+// `[data-season=…]`, поэтому новый праздник нельзя добавить мимо проверки контраста.
+describe('контраст сезонных палитр (WCAG AA)', () => {
+  const light = tokens(':root')
+  const dark = tokens('.dark')
+
+  const blocks = [...CSS.matchAll(/([^{}]*\[data-season='[^']+'\][^{}]*)\{([^}]*)\}/g)].map(
+    (match) => {
+      const selector = match[1] ?? ''
+      return {
+        seasons: [...selector.matchAll(/data-season='([\w-]+)'/g)].map((s) => s[1] ?? ''),
+        // Именно `.dark[data-season=`, а не вхождение `.dark`: светлая ветка записана
+        // как `:root:not(.dark)[data-season=…]` и по подстроке считалась бы тёмной.
+        isDark: /\.dark\[data-season=/.test(selector),
+        values: parseTokens(match[2] ?? ''),
+      }
+    },
+  )
+
+  it('сезонные блоки в CSS вообще есть', () => {
+    expect(blocks.length).toBeGreaterThan(0)
+  })
+
+  it('у каждого праздника палитра задана в обеих темах', () => {
+    const inLight = new Set(blocks.filter((b) => !b.isDark).flatMap((b) => b.seasons))
+    const inDark = new Set(blocks.filter((b) => b.isDark).flatMap((b) => b.seasons))
+    const gaps = [
+      ...[...inLight].filter((id) => !inDark.has(id)).map((id) => `${id}: нет в тёмной`),
+      ...[...inDark].filter((id) => !inLight.has(id)).map((id) => `${id}: нет в светлой`),
+    ]
+    expect(gaps).toEqual([])
+  })
+
+  it('белый текст на праздничной кнопке читаем, а кольцо фокуса различимо', () => {
+    for (const block of blocks) {
+      const theme = { ...(block.isDark ? dark : light), ...block.values }
+      const where = `${block.isDark ? 'тёмная' : 'светлая'}: ${block.seasons.join(', ')}`
+      const at = (name: string): Rgb => {
+        const token = theme[name]
+        if (!token) throw new Error(`в теме нет токена --${name}`)
+        return toRgb(token)
+      }
+      expect(
+        contrast(at('primary-foreground'), at('primary')),
+        `${where}: текст на bg-primary`,
+      ).toBeGreaterThanOrEqual(4.5)
+      // Кольцо фокуса и активный пункт навигации — элементы управления: 1.4.11, порог 3.
+      expect(
+        contrast(at('ring'), at('background')),
+        `${where}: --ring на фоне`,
+      ).toBeGreaterThanOrEqual(3)
+    }
   })
 })

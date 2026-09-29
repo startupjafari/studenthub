@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  fetchInvites,
-  revokeInvite,
-  revokeSessions,
-  searchPeople,
-  setBlocked,
-  type Invite,
-  type Person,
-} from '../api/people'
+import { fetchInvites, revokeInvite, searchPeople, type Invite, type Person } from '../api/people'
 import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
+import { navigate } from '../lib/navigate'
 import { t } from '../i18n'
+import { IconChevron } from '../ui/icons'
+import { SearchField } from '../ui/search-field'
+import { Tabs } from '../ui/tabs'
+import { ScreenHeader } from '../ui/screen-header'
+import { StatePlate } from '../ui/state-plate'
+import { SkeletonList } from '../ui/skeleton'
 import { formatShortTime, initials } from '../lib/format'
+import { PersonScreen } from './person'
 
 // Люди: найти человека и решить, оставить ли ему доступ.
 //
@@ -24,13 +24,6 @@ import { formatShortTime, initials } from '../lib/format'
 
 const SEARCH_DELAY_MS = 350
 
-// Сроки блокировки — те же три, что на карточке жалобы: 0 — бессрочно.
-const BLOCK_TERMS = [
-  { days: 0, key: 'blockForever' },
-  { days: 7, key: 'blockWeek' },
-  { days: 30, key: 'blockMonth' },
-] as const
-
 type State =
   { status: 'loading' } | { status: 'ready'; items: Person[]; total: number } | { status: 'error' }
 
@@ -38,12 +31,13 @@ export function PeopleScreen() {
   const [query, setQuery] = useState('')
   const [onlyBlocked, setOnlyBlocked] = useState(false)
   const [state, setState] = useState<State>({ status: 'loading' })
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  // Код 2FA для блокировки: одно поле на экран, а не на каждую строку — иначе список
-  // превращается в форму. Срок — рядом с ним и по той же причине.
-  const [code, setCode] = useState('')
-  const [blockDays, setBlockDays] = useState(0)
+  // Приезжал ли уже хоть один ответ. До первого экран показывает ОДНУ заглушку: поиск
+  // над пустотой ищет в том, чего ещё нет. На повторных загрузках поле остаётся —
+  // список перезапрашивается на каждую букву, и исчезающее под пальцем поле хуже пустоты.
+  const [seen, setSeen] = useState(false)
+  // Открытый человек. Список под ним не перезапрашивается: решение по доступу правит
+  // ровно одну строку, и перезапрос ради неё сбросил бы позицию прокрутки.
+  const [open, setOpen] = useState<Person | null>(null)
 
   const load = useCallback(async (search: string, blocked: boolean) => {
     setState({ status: 'loading' })
@@ -52,6 +46,8 @@ export function PeopleScreen() {
       setState({ status: 'ready', items: page.items, total: page.total })
     } catch {
       setState({ status: 'error' })
+    } finally {
+      setSeen(true)
     }
   }, [])
 
@@ -62,166 +58,68 @@ export function PeopleScreen() {
     return () => clearTimeout(timer)
   }, [query, onlyBlocked, load])
 
-  const toggleAccess = useCallback(
-    async (person: Person) => {
-      const name = `${person.lastName} ${person.firstName}`
-      const question = person.isBlocked
-        ? t('peopleConfirmUnblock', { name })
-        : blockDays === 0
-          ? t('peopleConfirmBlock', { name })
-          : t('peopleConfirmBlockFor', { name, days: blockDays })
-      if (!(await confirmAction(question))) return
-
-      setBusy(person.id)
-      setError(null)
-      try {
-        await setBlocked(
-          person.id,
-          !person.isBlocked,
-          person.isBlocked ? undefined : code,
-          person.isBlocked || blockDays === 0 ? undefined : blockDays,
-        )
-        haptic.success()
-        // Правим строку на месте, а не перезапрашиваем список: при включённом фильтре
-        // «только заблокированные» разблокированный человек иначе исчезал бы под пальцем,
-        // не успев показать, что действие сработало.
-        setState((prev) =>
-          prev.status === 'ready'
-            ? {
-                ...prev,
-                items: prev.items.map((item) =>
-                  item.id === person.id ? { ...item, isBlocked: !item.isBlocked } : item,
-                ),
-              }
-            : prev,
-        )
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : t('peopleActionError'))
-      } finally {
-        setBusy(null)
-      }
-    },
-    [blockDays, code],
-  )
-
-  const endSessions = useCallback(async (person: Person) => {
-    const name = `${person.lastName} ${person.firstName}`
-    if (!(await confirmAction(t('peopleConfirmLogout', { name })))) return
-    setBusy(person.id)
-    setError(null)
-    try {
-      await revokeSessions(person.id)
-      haptic.success()
-      setError(t('peopleLoggedOut'))
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
-    } finally {
-      setBusy(null)
-    }
-  }, [])
+  if (open !== null) {
+    return (
+      <PersonScreen
+        person={open}
+        onBack={() => navigate(() => setOpen(null), 'back')}
+        onChanged={(next) => {
+          setOpen(next)
+          setState((prev) =>
+            prev.status === 'ready'
+              ? { ...prev, items: prev.items.map((item) => (item.id === next.id ? next : item)) }
+              : prev,
+          )
+        }}
+      />
+    )
+  }
 
   return (
-    <div className="screen">
-      <header className="screen-head">
-        <h1>{t('peopleTitle')}</h1>
-        <p className="hint">{t('peopleSubtitle')}</p>
-      </header>
-
-      <input
-        className="field"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={t('peopleSearchPlaceholder')}
-        aria-label={t('peopleSearchPlaceholder')}
-        autoCapitalize="off"
-        autoCorrect="off"
+    <div className="screen" aria-busy={state.status === 'loading'}>
+      <ScreenHeader
+        title={t('peopleTitle')}
+        tabs={
+          <Tabs
+            items={[
+              { id: 'all', label: t('peopleAll') },
+              { id: 'blocked', label: t('peopleOnlyBlocked') },
+            ]}
+            active={onlyBlocked ? 'blocked' : 'all'}
+            onSelect={(id) => setOnlyBlocked(id === 'blocked')}
+          />
+        }
       />
 
-      <div className="chips">
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={!onlyBlocked}
-          onClick={() => {
-            haptic.select()
-            setOnlyBlocked(false)
-          }}
-        >
-          {t('peopleAll')}
-        </button>
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={onlyBlocked}
-          onClick={() => {
-            haptic.select()
-            setOnlyBlocked(true)
-          }}
-        >
-          {t('peopleOnlyBlocked')}
-        </button>
-      </div>
-
-      {/* Код спрашивается один раз на экран: блокировка с телефона не должна быть
-          возможна промахом, но и вводить его на каждую строку невыносимо. */}
-      <input
-        className="field"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        placeholder={t('confirmCodeLabel')}
-        aria-label={t('confirmCodeLabel')}
-        value={code}
-        onChange={(event) => setCode(event.target.value.trim())}
-      />
-      <p className="hint">{t('confirmCodeNeeded')}</p>
-
-      {/* Срок блокировки. Разблокировки он не касается: вернуть доступ можно только сразу. */}
-      <div className="chips-grid">
-        {BLOCK_TERMS.map((term) => (
-          <button
-            key={term.days}
-            type="button"
-            className="chip"
-            aria-pressed={blockDays === term.days}
-            onClick={() => {
-              haptic.select()
-              setBlockDays(term.days)
-            }}
-          >
-            {t(term.key)}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <section className="card">
-          <p className="hint-danger">{error}</p>
-        </section>
+      {seen && (
+        <SearchField value={query} onChange={setQuery} placeholder={t('peopleSearchPlaceholder')} />
       )}
 
+      {/* Загрузка показывалась пустотой: экран «Люди» открывается пустым, поиск уходит
+          на сервер с задержкой, и между вводом и ответом под строкой поиска не было
+          ничего — неотличимо от «никого не нашлось». */}
+      {state.status === 'loading' && <SkeletonList />}
+
       {state.status === 'error' && (
-        <section className="card">
-          <p>{t('peopleLoadError')}</p>
-          <button
-            type="button"
-            className="fallback-submit"
-            onClick={() => void load(query, onlyBlocked)}
-          >
-            {t('retry')}
-          </button>
-        </section>
+        <StatePlate title={t('peopleLoadError')} onRetry={() => void load(query, onlyBlocked)} />
       )}
 
       {state.status === 'ready' && state.items.length === 0 && (
-        <section className="card">
-          <p className="hint">{t('peopleEmpty')}</p>
-        </section>
+        <StatePlate title={t('peopleEmpty')} />
       )}
 
       {state.status === 'ready' && state.items.length > 0 && (
         <section className="list">
           {state.items.map((person) => (
-            <div className="toggle-row" key={person.id}>
+            <button
+              type="button"
+              className="row"
+              key={person.id}
+              onClick={() => {
+                haptic.tap()
+                navigate(() => setOpen(person))
+              }}
+            >
               <span className="avatar-sm" aria-hidden>
                 {initials(`${person.lastName} ${person.firstName}`)}
               </span>
@@ -232,32 +130,15 @@ export function PeopleScreen() {
                 <span className="hint">{person.email}</span>
                 {person.isBlocked && <span className="hint hint-danger">{t('peopleBlocked')}</span>}
               </span>
-              <span className="chips">
-                {/* Сброс сессий выгоняет чужого, оставляя доступ хозяину: блокировка
-                    в случае угнанного аккаунта наказала бы пострадавшего. */}
-                <button
-                  type="button"
-                  className="chip"
-                  disabled={busy === person.id}
-                  onClick={() => void endSessions(person)}
-                >
-                  {t('peopleLogout')}
-                </button>
-                <button
-                  type="button"
-                  className={person.isBlocked ? 'chip' : 'chip danger-chip'}
-                  disabled={busy === person.id}
-                  onClick={() => void toggleAccess(person)}
-                >
-                  {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
-                </button>
+              <span className="row-chevron" aria-hidden>
+                <IconChevron size={17} />
               </span>
-            </div>
+            </button>
           ))}
         </section>
       )}
 
-      <InvitesCard />
+      {seen && <InvitesCard />}
     </div>
   )
 }
@@ -287,7 +168,10 @@ function InvitesCard() {
   if (invites === null) return null
 
   return (
-    <section className="card">
+    // Карточка стоит последней на экране и забирает всю оставшуюся высоту. Пустая она
+    // выглядела обрезком в две строки под списком людей — как будто дальше что-то ещё
+    // грузится. Пустое место внизу принадлежит ей, и текст в ней стоит по середине.
+    <section className={`card invites${invites.length === 0 ? ' invites-empty' : ''}`}>
       <h2>{t('invitesTitle')}</h2>
       {error && <p className="hint-danger">{error}</p>}
       {invites.length === 0 && <p className="hint">{t('invitesEmpty')}</p>}
@@ -306,7 +190,13 @@ function InvitesCard() {
               className="chip danger-chip"
               onClick={async () => {
                 const email = invite.email ?? t('invitesNoEmail')
-                if (!(await confirmAction(t('invitesRevokeConfirm', { email })))) return
+                if (
+                  !(await confirmAction(t('invitesRevokeConfirm', { email }), {
+                    destructive: true,
+                    ok: t('invitesRevoke'),
+                  }))
+                )
+                  return
                 try {
                   await revokeInvite(invite.id)
                   haptic.success()

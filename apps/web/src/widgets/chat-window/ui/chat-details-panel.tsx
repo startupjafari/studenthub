@@ -33,6 +33,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Save,
   X,
 } from 'lucide-react'
 import {
@@ -66,17 +67,23 @@ import {
   AvatarImage,
   Button,
   EmptyState,
-  Skeleton,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
   useConfirm,
   MediaViewer as PlainMediaViewer,
+  ProgressRing,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
-import { identityColor, identityInitials } from '../../../shared/lib'
+import {
+  formatBytes,
+  identityColor,
+  identityInitials,
+  useByteUnitLabel,
+  useFileDownload,
+} from '../../../shared/lib'
 import { isOfficialChat } from '../lib/format'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { PeerProfileTab } from './peer-profile-tab'
@@ -106,8 +113,6 @@ const TAB_PANE = 'mt-0 min-h-full flex-col data-[state=active]:flex'
 
 // Плейсхолдеров рисуем с запасом на любую высоту панели: контейнер скелетона —
 // `flex-1 overflow-hidden`, поэтому лишние строки обрезаются, а пустоты снизу нет.
-const SKELETON_ROWS = 16
-const SKELETON_TILES = 24
 
 // §49: относительное «был N назад» из ISO last-seen.
 function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) => string): string {
@@ -117,12 +122,6 @@ function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) =>
   const hr = Math.floor(min / 60)
   if (hr < 24) return t('lastSeenHour', { count: hr })
   return t('lastSeenDay', { count: Math.floor(hr / 24) })
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 // presigned-URL вложения (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
@@ -202,15 +201,9 @@ function MediaTab({ chatId }: { chatId: string }) {
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) {
-    return (
-      <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-1 overflow-hidden p-1">
-        {Array.from({ length: SKELETON_TILES }).map((_, i) => (
-          <Skeleton key={i} className="aspect-square rounded-md" />
-        ))}
-      </div>
-    )
-  }
+  // Пока вкладка едет — пусто. Ветка нужна не ради заглушки, а чтобы на секунду загрузки
+  // не показывалось «здесь пока пусто»: это разные сообщения, и путать их нельзя.
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
   if (items.length === 0)
     return <Empty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   // Для fullscreen-viewer маппим ChatMediaItem → MessageAttachment (viewer сам тянет presigned-URL).
@@ -258,10 +251,19 @@ function FileRow({
   onJump: (id: string) => void
   locale: string
 }) {
+  const unit = useByteUnitLabel()
   const t = useTranslations('Chats')
   // Для голосовых сразу подгружаем URL (нативный плеер); для файлов — по клику на скачивание.
   const url = useFileUrl(item.id, voice)
   const dl = useFileUrl(item.id, false)
+  // Скачивание в приложение с прогрессом — тем же ключом, что у файла в самой переписке.
+  // Ссылка подписывается по нажатию: список файлов длинный, и подписывать все заранее незачем.
+  const download = useFileDownload(`file:${item.id}`, {
+    url: () => dl.refetch().then((r) => r.data),
+    name: item.name ?? t('attachment'),
+    mime: item.mime,
+  })
+  const state = download.state
   const date = new Date(item.createdAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'short',
@@ -295,7 +297,7 @@ function FileRow({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{item.name ?? t('attachment')}</span>
           <span className="block truncate text-xs text-muted-foreground">
-            {formatBytes(item.size)} · {date}
+            {formatBytes(item.size, unit)} · {date}
           </span>
         </span>
       </button>
@@ -306,13 +308,37 @@ function FileRow({
           <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
         )
       ) : (
+        // Кнопка ведёт себя как значок файла в Telegram: «↓» скачать, кольцо с «×» —
+        // идёт скачивание (нажатие отменяет), «сохранить» — файл уже в приложении.
         <button
           type="button"
-          aria-label={t('download')}
-          onClick={() => void dl.refetch().then((r) => r.data && window.open(r.data, '_blank'))}
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label={
+            state.status === 'loading'
+              ? t('downloadCancel')
+              : state.status === 'ready'
+                ? t('save')
+                : t('download')
+          }
+          title={state.status === 'error' ? t('downloadFailed') : undefined}
+          onClick={download.toggle}
+          className={cn(
+            'relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted',
+            state.status === 'ready'
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground',
+            state.status === 'error' && 'text-destructive',
+          )}
         >
-          <Download className="size-4" aria-hidden />
+          {state.status === 'loading' ? (
+            <>
+              <X className="size-3.5" strokeWidth={2.5} aria-hidden />
+              <ProgressRing progress={download.progress} className="text-primary" />
+            </>
+          ) : state.status === 'ready' ? (
+            <Save className="size-4" aria-hidden />
+          ) : (
+            <Download className="size-4" aria-hidden />
+          )}
         </button>
       )}
     </div>
@@ -337,6 +363,7 @@ function VoicePlaylist({
   locale: string
 }) {
   const t = useTranslations('Chats')
+  const unit = useByteUnitLabel()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -453,7 +480,7 @@ function VoicePlaylist({
                 {it.sender ? `${it.sender.lastName} ${it.sender.firstName}` : t('attachment')}
               </span>
               <span className="block truncate text-xs text-muted-foreground">
-                {formatBytes(it.size)} · {date}
+                {formatBytes(it.size, unit)} · {date}
               </span>
               {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
               {active && (
@@ -491,18 +518,7 @@ function FileTab({
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) {
-    return (
-      <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
-        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-2 py-2">
-            <Skeleton className="size-9 shrink-0 rounded-lg" />
-            <Skeleton className="h-4 w-40" />
-          </div>
-        ))}
-      </div>
-    )
-  }
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
   if (items.length === 0) {
     const icon = voice ? (
       <Mic className="size-6" aria-hidden />
@@ -594,18 +610,7 @@ function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => 
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) {
-    return (
-      <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
-        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-2 py-2">
-            <Skeleton className="size-9 shrink-0 rounded-lg" />
-            <Skeleton className="h-4 w-44" />
-          </div>
-        ))}
-      </div>
-    )
-  }
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
   if (items.length === 0)
     return <Empty icon={<Link2 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   return (
@@ -714,8 +719,8 @@ function ParticipantsTab({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      // Не-другу (в т.ч. декану, старосте, админу вуза) уходит запрос на переписку — §50.
-      if (created.requestPendingForId) toast.success(t('requestSent'))
+      // Про запрос на переписку (§50) не говорим: он уйдёт только с первым сообщением,
+      // и тост о нём покажет сам чат.
       onOpenChat(created.id)
     },
     onError: err,
@@ -856,14 +861,7 @@ function ParticipantsTab({
       )}
 
       {members.isLoading ? (
-        <div className="min-h-0 flex-1 space-y-1 overflow-hidden p-2">
-          {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-2 py-2">
-              <Skeleton className="size-9 shrink-0 rounded-full" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-          ))}
-        </div>
+        <div className="min-h-0 flex-1" />
       ) : list.length === 0 ? (
         <Empty icon={<Users className="size-6" aria-hidden />} title={t('sharedEmpty')} />
       ) : (
@@ -1063,12 +1061,14 @@ export function ChatDetailsPanel({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       {variant === 'column' && (
+        // Кнопка того же размера, что кнопки шапки чата (lg:size-10): тогда обе шапки
+        // одной высоты и их нижние границы идут одной линией.
         <div className="flex items-center gap-1 border-b border-border px-2 py-3">
           <button
             type="button"
             aria-label={t('cancel')}
             onClick={onClose}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
           >
             <X className="size-5" aria-hidden />
           </button>
@@ -1199,6 +1199,25 @@ export function ChatDetailsPanel({
             </Button>
           )}
 
+          {/* Приглашение — иконкой в одном ряду со звуком и выходом. Раньше здесь во всю
+              ширину лежал сам адрес: он занимал две строки панели, а прочитать в нём было
+              нечего — это UUID чата. Что именно ложится в буфер, объясняет подпись кнопки. */}
+          {isGroup && (
+            <Button
+              icon
+              variant="outline"
+              size="sm"
+              aria-label={t('inviteLink')}
+              title={t('inviteLink')}
+              onClick={() => {
+                void navigator.clipboard?.writeText(inviteLink)
+                toast.success(t('linkCopied'))
+              }}
+            >
+              <Link2 aria-hidden />
+            </Button>
+          )}
+
           {isGroup && (
             <Button
               variant="outline"
@@ -1232,27 +1251,6 @@ export function ChatDetailsPanel({
             </button>
           )}
         </div>
-      )}
-
-      {/* Ссылка-приглашение видимой строкой (§3 карты), а не иконкой в углу вкладки
-          участников: ссылку зовут «скинуть» устно, и человек должен видеть, ЧТО именно
-          ложится в буфер, прежде чем отправить это в чужой чат. */}
-      {isGroup && (
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard?.writeText(inviteLink)
-            toast.success(t('linkCopied'))
-          }}
-          className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
-        >
-          <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-            <span className="truncate text-sm text-info">{inviteLink}</span>
-            <span className="text-xs text-muted-foreground">{t('inviteLink')}</span>
-          </span>
-          <Copy className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        </button>
       )}
 
       {/* Первой открывается вкладка о самом собеседнике (в группе — её участники):

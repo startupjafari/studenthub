@@ -1,7 +1,14 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 import { ArrowRight } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, PageHeader } from '../../../shared/ui'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  PageHeader,
+  SeasonGreeting,
+} from '../../../shared/ui'
 import { NAV_BY_VARIANT, type NavVariant } from '../../../widgets/app-shell'
 
 // Дашборд ролевого лендинга: плитки-навигация по разделам роли (кроме самого «Дашборда»).
@@ -13,6 +20,7 @@ export async function RoleLanding({ variant }: { variant: NavVariant }) {
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={tNav('dashboard')} />
+      <SeasonGreeting />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((item) => {
           const Icon = item.icon

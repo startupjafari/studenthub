@@ -93,6 +93,12 @@ export async function removeReactionRequest(id: string, emoji: string): Promise<
   await api.delete(`/posts/${id}/reactions/${encodeURIComponent(emoji)}`)
 }
 
+/** Сохранить пост в избранное или убрать оттуда. Переключатель: возвращает новое состояние. */
+export async function toggleBookmarkRequest(id: string): Promise<boolean> {
+  const { data } = await api.post<{ bookmarked: boolean }>(`/posts/${id}/bookmark`)
+  return data.bookmarked
+}
+
 // Засчитать просмотр поста (при открытии в лайтбоксе). Возвращает обновлённое число просмотров.
 export async function incrementPostView(id: string): Promise<number> {
   const { data } = await api.post<{ views: number }>(`/posts/${id}/view`)

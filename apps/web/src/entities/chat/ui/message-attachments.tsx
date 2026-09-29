@@ -3,9 +3,15 @@
 import { useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { FileText, ImageOff, Loader2, Play } from 'lucide-react'
+import { ArrowDown, Check, FileText, ImageOff, Loader2, Play, X } from 'lucide-react'
+import {
+  formatBytes,
+  formatBytesProgress,
+  useByteUnitLabel,
+  useFileDownload,
+} from '../../../shared/lib'
+import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { Skeleton } from '../../../shared/ui'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import { fileKind } from '../lib/file-kind'
 import type { MessageAttachment } from '../model/types'
@@ -21,15 +27,100 @@ function isVoice(att: MessageAttachment): boolean {
 }
 
 // Открывается ли вложение в полноэкранном просмотрщике (картинка или реальное видео, не голосовое).
+//
+// `asDocument` перевешивает mime: снимок, отправленный «без сжатия», получатель видит строкой
+// файла — ровно так, как выбрал отправитель. Иначе выбор способа отправки не доезжал бы дальше
+// окна отправки, а картинка всё равно приходила бы превью.
 function isViewable(att: MessageAttachment): boolean {
-  if (isVoice(att)) return false
+  if (isVoice(att) || att.asDocument) return false
   return att.mime.startsWith('image/') || att.mime.startsWith('video/')
 }
 
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+/** `0:55`, `1:02:30` — длительность ролика бейджем в углу кадра, как в Telegram. */
+function formatDuration(seconds: number): string {
+  const total = Math.round(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m)
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(sec).padStart(2, '0')}`
+}
+
+/** Бейдж длительности: одинаковый в одиночном кадре и в ячейке альбома. */
+function DurationBadge({ seconds }: { seconds: number | null }) {
+  if (seconds == null) return null
+  return (
+    <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[0.65rem] font-medium text-white">
+      {formatDuration(seconds)}
+    </span>
+  )
+}
+
+/**
+ * Скачать снимок или ролик в приложение — плашкой в углу кадра, как в Telegram Web:
+ * «↓ 12 МБ» → кольцо с «×» и мегабайтами → «✓ Сохранить». Нажатие на сам кадр по-прежнему
+ * открывает просмотрщик; плашка — отдельная кнопка и клик до кадра не пропускает.
+ *
+ * Ключ тот же, что у строки файла и у «Скачать» в просмотрщике (`file:<id>`): начатое в
+ * одном месте видно в остальных. В маленькой ячейке альбома — только значок, подпись уходит
+ * в aria-label.
+ */
+function MediaDownloadPill({
+  att,
+  url,
+  compact = false,
+}: {
+  att: MessageAttachment
+  url: string
+  compact?: boolean
+}) {
+  const t = useTranslations('Chats')
+  const unit = useByteUnitLabel()
+  const download = useFileDownload(`file:${att.id ?? 'pending'}`, {
+    url,
+    name: att.name || t('attachment'),
+    mime: att.mime,
+  })
+  const dl = download.state
+  const loading = dl.status === 'loading'
+  const label = loading
+    ? formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
+    : dl.status === 'ready'
+      ? t('save')
+      : dl.status === 'error'
+        ? t('downloadFailed')
+        : formatBytes(att.size, unit)
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        download.toggle()
+      }}
+      aria-label={loading ? t('downloadCancel') : dl.status === 'ready' ? t('save') : t('download')}
+      title={compact ? label : undefined}
+      className={cn(
+        'absolute top-1.5 right-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full bg-black/55 py-0.5 pl-0.5 text-[0.7rem] font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/70',
+        compact ? 'pr-0.5' : 'pr-2',
+        dl.status === 'error' && 'bg-destructive/80 hover:bg-destructive',
+      )}
+    >
+      <span className="relative flex size-5 shrink-0 items-center justify-center">
+        {loading ? (
+          <>
+            <X className="size-3" strokeWidth={3} aria-hidden />
+            <ProgressRing progress={download.progress} />
+          </>
+        ) : dl.status === 'ready' ? (
+          <Check className="size-3.5" strokeWidth={3} aria-hidden />
+        ) : (
+          <ArrowDown className="size-3.5" strokeWidth={3} aria-hidden />
+        )}
+      </span>
+      {!compact && <span className="max-w-40 truncate tabular-nums">{label}</span>}
+    </button>
+  )
 }
 
 // Запасное место под снимок, когда размеров нет (видео, вложения старше полей width/height):
@@ -102,18 +193,54 @@ function MediaFailed({ className, onRetry }: { className?: string; onRetry: () =
   )
 }
 
-// Полупрозрачный оверлей загрузки поверх медиа (Telegram-стиль): затемнение + круг прогресса.
-function MediaUploadOverlay({ progress }: { progress?: number }) {
+/**
+ * Полупрозрачный оверлей загрузки поверх медиа (Telegram-стиль): затемнение, прогресс и отмена.
+ *
+ * Отмена — не украшение: сорокамегабайтный ролик, улетевший не в тот чат, иначе нечем
+ * остановить, и пользователь смотрит, как он доезжает. Крестик поверх круга, как в Telegram.
+ */
+function MediaUploadOverlay({ progress, onCancel }: { progress?: number; onCancel?: () => void }) {
+  const t = useTranslations('Chats')
   const pct = Math.round(Math.min(1, Math.max(0, progress ?? 0)) * 100)
+  const content = onCancel ? (
+    <X className="size-6" aria-hidden />
+  ) : pct > 0 ? (
+    <span className="text-xs font-medium tabular-nums">{pct}%</span>
+  ) : (
+    <Loader2 className="size-6 animate-spin" aria-hidden />
+  )
   return (
     <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
-      <span className="flex size-12 items-center justify-center rounded-full bg-black/55 text-white">
-        {pct > 0 ? (
-          <span className="text-xs font-medium tabular-nums">{pct}%</span>
-        ) : (
-          <Loader2 className="size-6 animate-spin" aria-hidden />
-        )}
-      </span>
+      {onCancel ? (
+        <button
+          type="button"
+          aria-label={t('cancelUpload')}
+          title={t('cancelUpload')}
+          onClick={(e) => {
+            // Оверлей лежит на кнопке-открывашке просмотрщика: без остановки всплытия
+            // отмена заодно открывала бы полноэкранный просмотр отменённого снимка.
+            e.preventDefault()
+            e.stopPropagation()
+            onCancel()
+          }}
+          className="relative flex size-12 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+        >
+          {/* Кольцо прогресса вокруг крестика: сколько уже ушло, видно и при наведении. */}
+          <span
+            aria-hidden
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: `conic-gradient(currentColor ${pct * 3.6}deg, transparent 0deg)`,
+              opacity: 0.35,
+            }}
+          />
+          {content}
+        </button>
+      ) : (
+        <span className="flex size-12 items-center justify-center rounded-full bg-black/55 text-white">
+          {content}
+        </span>
+      )}
     </span>
   )
 }
@@ -122,14 +249,27 @@ function Single({
   att,
   mine,
   onOpen,
+  onCancel,
 }: {
   att: MessageAttachment
   mine: boolean
   onOpen?: () => void
+  /** Прервать загрузку этого сообщения (крестик в оверлее). Нет — отменять нечего. */
+  onCancel?: () => void
 }) {
   const t = useTranslations('Chats')
+  const unit = useByteUnitLabel()
+  // Длительность ролика: читаем у того же элемента, что уже тянет первый кадр.
+  const [duration, setDuration] = useState<number | null>(null)
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
+  // Скачивание файла внутри приложения (shared/lib/file-download): ключ — id файла, тот же,
+  // что у вкладки «Файлы», — начатое там видно здесь, и наоборот.
+  const download = useFileDownload(`file:${att.id ?? 'pending'}`, {
+    url: url ?? '',
+    name: att.name || t('attachment'),
+    mime: att.mime,
+  })
   // Спойлер (§34): размыто до клика.
   const [revealed, setRevealed] = useState(false)
   const blurred = !!att.spoiler && !revealed
@@ -139,7 +279,7 @@ function Single({
   const [broken, setBroken] = useState(false)
   const kind = fileKind(att.name, att.mime)
   // Картинка и видео занимают место кадром, голосовые и файлы — узкой строкой.
-  const framed = !isVoice(att) && (att.mime.startsWith('image/') || att.mime.startsWith('video/'))
+  const framed = isViewable(att)
 
   if (isError || broken) {
     return (
@@ -155,12 +295,15 @@ function Single({
   }
 
   if (isLoading || !url) {
-    // Пока едет presigned-ссылка, скелетон уже знает форму будущего снимка (если размеры есть).
+    // Пока едет presigned-ссылка, место под снимок уже знает его форму (если размеры есть).
+    // Заливка без пульсации: мигающий прямоугольник посреди переписки притягивал взгляд
+    // сильнее самих сообщений, а держать место надо — иначе лента прыгает под руками.
     const frame = frameProps(att)
     return (
-      <Skeleton
+      <div
         className={cn('rounded-lg', MEDIA_TINT, framed ? frame.className : 'h-10 w-40')}
         style={framed ? frame.style : undefined}
+        aria-hidden
       />
     )
   }
@@ -178,7 +321,7 @@ function Single({
     )
   }
 
-  if (att.mime.startsWith('image/')) {
+  if (isViewable(att) && att.mime.startsWith('image/')) {
     // GIF (image/gif) автопроигрывается нативно как <img>; для остальных — lazy-загрузка (§30).
     const isGif = att.mime === 'image/gif'
     // Размеры с сервера: браузер по width/height считает пропорцию и держит место сам —
@@ -224,7 +367,7 @@ function Single({
           )}
           onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         />
-        {!painted && <Skeleton className={cn('absolute inset-0 rounded-lg', MEDIA_TINT)} />}
+        {!painted && <span className={cn('absolute inset-0 rounded-lg', MEDIA_TINT)} aria-hidden />}
         {blurred && painted && (
           <button
             type="button"
@@ -239,17 +382,17 @@ function Single({
             GIF
           </span>
         )}
-        {uploading && <MediaUploadOverlay progress={att.progress} />}
+        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} />}
+        {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
       </span>
     )
   }
-  if (att.mime.startsWith('video/')) {
+  if (isViewable(att) && att.mime.startsWith('video/')) {
     // Превью-кадр с кнопкой play; клик открывает полноэкранный просмотрщик (как в Telegram).
+    // Контейнер, а не кнопка: поверх кадра лежат две кнопки — открыть ролик (весь кадр) и
+    // скачать (плашка в углу), а кнопку в кнопку вложить нельзя.
     return (
-      <button
-        type="button"
-        onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
-        disabled={uploading}
+      <div
         className={cn(
           'relative block w-fit max-w-full overflow-hidden rounded-lg',
           // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
@@ -261,7 +404,11 @@ function Single({
           src={url}
           preload="metadata"
           muted
-          onLoadedMetadata={() => setPainted(true)}
+          onLoadedMetadata={(e) => {
+            setPainted(true)
+            const d = e.currentTarget.duration
+            if (Number.isFinite(d)) setDuration(d)
+          }}
           onError={() => setBroken(true)}
           className={cn(
             'max-h-64 max-w-full transition-opacity duration-200',
@@ -269,33 +416,47 @@ function Single({
             blurred && 'scale-105 blur-xl',
           )}
         />
+        {/* Длительность прячем под спойлером вместе с кадром: по ней узнаётся ролик. */}
+        {!blurred && !uploading && <DurationBadge seconds={duration} />}
         {uploading ? (
-          <MediaUploadOverlay progress={att.progress} />
+          <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />
         ) : blurred ? (
-          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-white">
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="absolute inset-0 flex cursor-pointer items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
+          >
             {t('spoiler')}
-          </span>
+          </button>
         ) : (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors hover:bg-black/30">
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={t('attachment')}
+            className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/20 transition-colors hover:bg-black/30"
+          >
             <span className="flex size-12 items-center justify-center rounded-full bg-black/50 text-white">
               <Play className="size-6 translate-x-0.5" aria-hidden />
             </span>
-          </span>
+          </button>
         )}
-      </button>
+        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} />}
+      </div>
     )
   }
-  // Карточка файла в стиле Telegram: круглая иконка + имя + размер, клик — скачать.
+  // Карточка файла в стиле Telegram: круглая иконка + имя + размер. Нажатие скачивает файл
+  // в приложение с прогрессом на значке (второе нажатие — отмена), готовый — сохраняет на
+  // устройство. Раньше это была ссылка: браузер открывал PDF поверх приложения, а
+  // прогресса и отмены не было вовсе.
+  const dl = download.state
+  const loading = dl.status === 'loading'
   return (
-    <a
-      href={uploading ? undefined : url}
-      target="_blank"
-      rel="noopener noreferrer"
-      download
-      className={cn(
-        'flex min-w-[220px] items-center gap-2 py-0.5',
-        uploading && 'pointer-events-none',
-      )}
+    <button
+      type="button"
+      onClick={download.toggle}
+      disabled={uploading}
+      aria-label={loading ? t('downloadCancel') : dl.status === 'ready' ? t('save') : t('download')}
+      className="flex min-w-[220px] cursor-pointer items-center gap-2 py-0.5 text-left disabled:cursor-default"
     >
       {/* Значок расширения (§7 карты): цвет задаёт тип документа — в переписке с десятком
           вложений он различает архив, таблицу и картинку раньше, чем прочитано имя. */}
@@ -307,6 +468,8 @@ function Single({
       >
         {uploading ? (
           <Loader2 className="size-5 animate-spin" aria-hidden />
+        ) : loading ? (
+          <X className="size-4" strokeWidth={2.5} aria-hidden />
         ) : kind.ext ? (
           <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
             {kind.ext}
@@ -314,16 +477,51 @@ function Single({
         ) : (
           <FileText className="size-5" aria-hidden />
         )}
+        {loading && <ProgressRing progress={download.progress} />}
+        {/* Угловой значок — что сделает нажатие: «↓» скачать, галочка — уже скачано.
+            Обводка цветом пузыря отделяет его от значка расширения. */}
+        {!uploading && !loading && (
+          <span
+            aria-hidden
+            className={cn(
+              'absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full border-2',
+              mine
+                ? 'border-primary bg-primary-foreground text-primary'
+                : 'border-muted bg-background text-foreground',
+            )}
+          >
+            {dl.status === 'ready' ? (
+              <Check className="size-2.5" strokeWidth={3.5} />
+            ) : (
+              <ArrowDown className="size-2.5" strokeWidth={3.5} />
+            )}
+          </span>
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{att.name || t('attachment')}</span>
         <span className={cn('block text-xs', mine ? 'opacity-70' : 'text-muted-foreground')}>
-          {uploading && att.progress != null
-            ? `${humanSize(att.size)} · ${Math.round(att.progress * 100)}%`
-            : humanSize(att.size)}
+          {/* Прогресс мегабайтами, а не процентами: «11.5 / 40.1 МБ» сразу говорит и сколько
+              осталось, и сколько весит файл, — процент отвечает только на первое. */}
+          {uploading && att.progress != null ? (
+            formatBytesProgress(att.progress * att.size, att.size, unit)
+          ) : loading ? (
+            formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
+          ) : dl.status === 'ready' ? (
+            <>
+              {formatBytes(att.size, unit)} ·{' '}
+              <span className={cn('font-semibold', mine ? 'underline' : 'text-primary')}>
+                {t('save')}
+              </span>
+            </>
+          ) : dl.status === 'error' ? (
+            <span className={mine ? 'underline' : 'text-destructive'}>{t('downloadFailed')}</span>
+          ) : (
+            formatBytes(att.size, unit)
+          )}
         </span>
       </span>
-    </a>
+    </button>
   )
 }
 
@@ -332,21 +530,25 @@ function Single({
 function GridTile({
   att,
   onOpen,
+  onCancel,
   className,
 }: {
   att: MessageAttachment
   onOpen?: () => void
+  onCancel?: () => void
   className?: string
 }) {
   const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
   const uploading = !!att.uploading
   const isVid = att.mime.startsWith('video/')
   const [painted, setPainted] = useState(false)
   const [broken, setBroken] = useState(false)
-  // Спойлер (§34) — и в альбоме тоже. Сервер помечает им ВСЕ вложения сообщения
-  // (chats.service: updateMany по messageId), а рисовала его только одиночная картинка:
-  // отправив под спойлером три снимка, отправитель видел их открытыми у всех.
+  const [duration, setDuration] = useState<number | null>(null)
+  // Спойлер (§34) — и в альбоме тоже. Он ставится на отдельное вложение (chats.service:
+  // spoilerIndexes), поэтому в одном альбоме скрытые и открытые кадры соседствуют, а рисовала
+  // спойлер когда-то только одиночная картинка: три снимка под спойлером уходили открытыми.
   const [revealed, setRevealed] = useState(false)
   const blurred = !!att.spoiler && !revealed
   const failed = isError || broken
@@ -355,34 +557,34 @@ function GridTile({
     setPainted(false)
     refetch()
   }
+  // Контейнер, а не кнопка: нажатие по ячейке ловит слой-кнопка во весь кадр, а плашка
+  // скачивания в углу — отдельная кнопка рядом с ним (вложить кнопку в кнопку нельзя).
   return (
-    <button
-      type="button"
-      // Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
-      // Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик.
-      onClick={uploading ? undefined : failed ? retry : blurred ? () => setRevealed(true) : onOpen}
-      disabled={uploading}
-      className={cn('relative block overflow-hidden', MEDIA_TINT, className)}
-    >
+    <div className={cn('relative block overflow-hidden', MEDIA_TINT, className)}>
       {failed ? (
         <span className="absolute inset-0 flex items-center justify-center">
           <ImageOff className="size-5 opacity-60" aria-hidden />
         </span>
       ) : isLoading || !url ? (
-        <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />
+        <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />
       ) : isVid ? (
         <>
           <video
             src={url}
             preload="metadata"
             muted
-            onLoadedMetadata={() => setPainted(true)}
+            onLoadedMetadata={(e) => {
+              setPainted(true)
+              const d = e.currentTarget.duration
+              if (Number.isFinite(d)) setDuration(d)
+            }}
             onError={() => setBroken(true)}
             className={cn(
               'absolute inset-0 size-full object-cover transition-[filter] duration-200',
               blurred && 'scale-105 blur-xl',
             )}
           />
+          {!uploading && !blurred && <DurationBadge seconds={duration} />}
           {!uploading && !blurred && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/15">
               <span className="flex size-10 items-center justify-center rounded-full bg-black/50 text-white">
@@ -409,16 +611,29 @@ function GridTile({
               blurred && 'scale-105 blur-xl',
             )}
           />
-          {!painted && <Skeleton className={cn('absolute inset-0 rounded-none', MEDIA_TINT)} />}
+          {!painted && <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />}
         </>
       )}
       {blurred && painted && (
-        <span className="absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
           {t('spoiler')}
         </span>
       )}
-      {uploading && <MediaUploadOverlay progress={att.progress} />}
-    </button>
+      {/* Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
+          Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик. */}
+      {!uploading && (
+        <button
+          type="button"
+          aria-label={failed ? tCommon('retry') : blurred ? t('spoiler') : t('attachment')}
+          onClick={failed ? retry : blurred ? () => setRevealed(true) : onOpen}
+          className="absolute inset-0 z-[1] cursor-pointer"
+        />
+      )}
+      {url && painted && !uploading && !blurred && !failed && (
+        <MediaDownloadPill att={att} url={url} compact />
+      )}
+      {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
+    </div>
   )
 }
 
@@ -433,9 +648,11 @@ function GridTile({
 function MediaGrid({
   items,
   onOpen,
+  onCancel,
 }: {
   items: MessageAttachment[]
   onOpen: (att: MessageAttachment) => void
+  onCancel?: () => void
 }) {
   const n = items.length
   const cols = n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3'
@@ -446,7 +663,13 @@ function MediaGrid({
       style={{ width, maxWidth: '100%' }}
     >
       {items.map((att) => (
-        <GridTile key={att.id} att={att} onOpen={() => onOpen(att)} className="aspect-square" />
+        <GridTile
+          key={att.id}
+          att={att}
+          onOpen={() => onOpen(att)}
+          onCancel={onCancel}
+          className="aspect-square"
+        />
       ))}
     </div>
   )
@@ -455,11 +678,14 @@ function MediaGrid({
 export function MessageAttachments({
   media,
   mine,
+  onCancel,
   viewerMeta,
   viewerActions,
 }: {
   media: MessageAttachment[]
   mine: boolean
+  /** Прервать загрузку сообщения целиком: вложения уходят одним запросом, отменяется он же. */
+  onCancel?: () => void
   viewerMeta?: MediaViewerMeta
   viewerActions?: MediaViewerActions
 }) {
@@ -473,14 +699,20 @@ export function MessageAttachments({
   return (
     <div className="mt-1 flex flex-col gap-1.5">
       {viewable.length >= 2 ? (
-        <MediaGrid items={viewable} onOpen={openViewer} />
+        <MediaGrid items={viewable} onOpen={openViewer} onCancel={onCancel} />
       ) : (
         viewable.map((att) => (
-          <Single key={att.id} att={att} mine={mine} onOpen={() => openViewer(att)} />
+          <Single
+            key={att.id}
+            att={att}
+            mine={mine}
+            onOpen={() => openViewer(att)}
+            onCancel={onCancel}
+          />
         ))
       )}
       {others.map((att) => (
-        <Single key={att.id} att={att} mine={mine} />
+        <Single key={att.id} att={att} mine={mine} onCancel={onCancel} />
       ))}
       {viewerIndex !== null && (
         <MediaViewer

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { IconChevron } from './icons'
 
 /**
  * Складной раздел.
@@ -13,19 +14,25 @@ import type { ReactNode } from 'react'
 export function Fold({
   title,
   state,
+  icon,
   children,
 }: {
   title: string
   state?: string
+  /** Цветная плитка слева: по ней раздел находят взглядом раньше, чем читают подпись. */
+  icon?: ReactNode
   children: ReactNode
 }) {
   return (
     <details className="card fold">
       <summary>
+        {icon}
         <span className="fold-title">{title}</span>
         {state && <span className="fold-state">{state}</span>}
+        {/* Тот же шеврон, что у строк списков: текстовый «›» был другого веса и
+            высоты, и на одном экране стояли две разные стрелки «здесь продолжение». */}
         <span className="fold-chevron" aria-hidden>
-          ›
+          <IconChevron size={17} />
         </span>
       </summary>
       <div className="fold-body">{children}</div>

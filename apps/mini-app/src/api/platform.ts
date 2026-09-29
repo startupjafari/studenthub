@@ -47,6 +47,7 @@ export interface PlatformState {
   } | null
   disabledSections: string[]
   announcedVersion: string | null
+  season: { off: boolean; override: string | null }
 }
 
 /** Разделы, которые можно погасить. Совпадает с PLATFORM_SECTIONS в shared-schemas. */
@@ -58,6 +59,31 @@ export const SECTIONS = [
   { key: 'portfolio', labelKey: 'sectionPortfolio' },
   { key: 'career', labelKey: 'sectionCareer' },
 ] as const
+
+/**
+ * Сезоны, которые можно включить принудительно. Совпадает с SEASON_IDS в shared-schemas;
+ * подписи здесь свои — словарь мини-аппа отдельный, как и у разделов выше.
+ */
+export const SEASONS = [
+  { key: 'new-year', labelKey: 'seasonNewYear' },
+  { key: 'new-year-eve', labelKey: 'seasonNewYearEve' },
+  { key: 'orthodox-christmas', labelKey: 'seasonOrthodoxChristmas' },
+  { key: 'womens-day', labelKey: 'seasonWomensDay' },
+  { key: 'nauryz', labelKey: 'seasonNauryz' },
+  { key: 'unity-day', labelKey: 'seasonUnityDay' },
+  { key: 'defender-day', labelKey: 'seasonDefenderDay' },
+  { key: 'victory-day', labelKey: 'seasonVictoryDay' },
+  { key: 'kurban-ait', labelKey: 'seasonKurbanAit' },
+  { key: 'oraza-ait', labelKey: 'seasonOrazaAit' },
+  { key: 'capital-day', labelKey: 'seasonCapitalDay' },
+  { key: 'constitution-day', labelKey: 'seasonConstitutionDay' },
+  { key: 'republic-day', labelKey: 'seasonRepublicDay' },
+  { key: 'independence-day', labelKey: 'seasonIndependenceDay' },
+  { key: 'knowledge-day', labelKey: 'seasonKnowledgeDay' },
+  { key: 'teachers-day', labelKey: 'seasonTeachersDay' },
+  { key: 'languages-day', labelKey: 'seasonLanguagesDay' },
+  { key: 'students-day', labelKey: 'seasonStudentsDay' },
+] as const satisfies readonly { key: string; labelKey: MessageKey }[]
 
 /**
  * Готовые формулировки объявлений.
@@ -153,6 +179,14 @@ export async function setBanner(
 
 export async function setSections(disabled: string[]): Promise<PlatformState> {
   return apiPatch<PlatformState>('/platform/sections', { disabled })
+}
+
+/**
+ * Праздничное оформление. Состояние целиком: выключатель и подмена едут вместе, потому
+ * что сервер хранит их одной строкой и половинчатое обновление стёрло бы вторую половину.
+ */
+export async function setSeason(off: boolean, override: string | null): Promise<PlatformState> {
+  return apiPatch<PlatformState>('/platform/season', { off, override })
 }
 
 export async function announceRelease(version: string | null): Promise<PlatformState> {

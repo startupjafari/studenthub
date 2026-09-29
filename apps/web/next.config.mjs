@@ -181,6 +181,22 @@ function securityHeaders() {
     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
     // Камера нужна сканеру QR (вход по QR, отметка посещаемости) — на своём origin.
     { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
+    // HSTS: браузер сам переписывает http:// на https:// и не даёт кликнуть «продолжить»
+    // мимо предупреждения о сертификате. Заголовок есть в docker/nginx/nginx.conf, но в
+    // деплое на Railway nginx в цепочке нет — Next отдаёт страницы сам, и полагаться на
+    // чужой edge в вопросе, уйдут ли auth-cookie по открытому каналу, не стоит.
+    //
+    // Только в проде: в dev платформа живёт на http://localhost, и HSTS приколотил бы
+    // localhost к https для ВСЕХ проектов на машине (заголовок кэшируется браузером на
+    // год и по домену, а не по порту). preload не добавляем — это билет в один конец.
+    ...(isDev
+      ? []
+      : [
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000; includeSubDomains',
+          },
+        ]),
   ]
 }
 

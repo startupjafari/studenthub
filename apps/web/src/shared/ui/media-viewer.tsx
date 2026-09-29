@@ -3,8 +3,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
-import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, X } from 'lucide-react'
-import { useBackClose, useBodyScrollLock, useMediaGestures } from '../lib'
+import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, Save, X } from 'lucide-react'
+import {
+  downloadKeyOf,
+  useBackClose,
+  useBodyScrollLock,
+  useFileDownload,
+  useMediaGestures,
+} from '../lib'
+import { ProgressRing } from './progress-ring'
+import { cn } from '../lib/utils'
 import { VideoPlayer } from './video-player'
 
 export interface MediaViewerItem {
@@ -30,6 +38,7 @@ export function MediaViewer({
   trailing,
   downloadUrl,
   downloadName,
+  downloadKey,
   onContextMenuCapture,
 }: {
   items: MediaViewerItem[]
@@ -43,6 +52,11 @@ export function MediaViewer({
   trailing?: ReactNode
   downloadUrl?: string
   downloadName?: string | null
+  /**
+   * Ключ скачивания (shared/lib/file-download): у вложения чата — `file:<id>`, тот же, что у
+   * строки файла в переписке, чтобы начатое там было видно здесь. Нет — путь объекта.
+   */
+  downloadKey?: string
   onContextMenuCapture?: (e: React.MouseEvent) => void
 }) {
   const t = useTranslations('Common')
@@ -146,16 +160,13 @@ export function MediaViewer({
       {/* Верхняя панель: скачать + закрыть */}
       <div className="flex items-center justify-end gap-1 p-3" onClick={(e) => e.stopPropagation()}>
         {dl && (
-          <a
-            href={dl}
-            download={downloadName ?? cur.name ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={t('download')}
-            className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <Download className="size-5" aria-hidden />
-          </a>
+          <ViewerDownload
+            key={downloadKey ?? downloadKeyOf(dl)}
+            downloadKey={downloadKey ?? downloadKeyOf(dl)}
+            url={dl}
+            name={downloadName ?? cur.name ?? t('download')}
+            mime={cur.mime}
+          />
         )}
         <button
           type="button"
@@ -172,6 +183,9 @@ export function MediaViewer({
         className="relative flex flex-1 items-center justify-center overflow-hidden px-2 py-1 sm:px-4 sm:py-2"
         onClick={onClose}
       >
+        {/* Стрелки — полосы во всю высоту области медиа, шириной с прежнюю кнопку: целятся
+            не в кружок, а «в край экрана», и промах по 40-пиксельной кнопке закрывал
+            просмотр кликом по фону. Кружок прежнего размера — растёт только зона нажатия. */}
         {items.length > 1 && index > 0 && (
           <button
             type="button"
@@ -180,9 +194,11 @@ export function MediaViewer({
               e.stopPropagation()
               onIndexChange(index - 1)
             }}
-            className="absolute left-2 z-10 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-center"
           >
-            <ChevronLeft className="size-6" aria-hidden />
+            <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+              <ChevronLeft className="size-6" aria-hidden />
+            </span>
           </button>
         )}
 
@@ -205,6 +221,9 @@ export function MediaViewer({
                 onVideoRef={setMedia}
                 onLoadedMetadata={measureFit}
                 videoStyle={transform}
+                // Повёрнутому кадру панель не нужна: она осталась бы горизонтальной поверх
+                // повёрнутой картинки. Воспроизведение поворот не прерывает.
+                controlsHidden={rotation % 360 !== 0}
                 videoClassName="rounded-lg transition-transform"
               />
             ) : (
@@ -230,9 +249,11 @@ export function MediaViewer({
               e.stopPropagation()
               onIndexChange(index + 1)
             }}
-            className="absolute right-2 z-10 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+            className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-center"
           >
-            <ChevronRight className="size-6" aria-hidden />
+            <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+              <ChevronRight className="size-6" aria-hidden />
+            </span>
           </button>
         )}
       </div>
@@ -264,5 +285,57 @@ export function MediaViewer({
       </div>
     </div>,
     document.body,
+  )
+}
+
+/**
+ * «Скачать» в просмотрщике — как у файла в Telegram Web: нажатие скачивает в приложение
+ * (кольцо прогресса вокруг кнопки, повторное нажатие — отмена), готовое — второе нажатие
+ * сохраняет на устройство (на телефоне — через «Поделиться → Сохранить»). Раньше ссылка
+ * открывала файл новой вкладкой поверх приложения.
+ */
+function ViewerDownload({
+  downloadKey,
+  url,
+  name,
+  mime,
+}: {
+  downloadKey: string
+  url: string
+  name: string
+  mime: string
+}) {
+  const t = useTranslations('Common')
+  const download = useFileDownload(downloadKey, { url, name, mime })
+  const { state } = download
+  return (
+    <button
+      type="button"
+      onClick={download.toggle}
+      aria-label={
+        state.status === 'loading'
+          ? t('downloadCancel')
+          : state.status === 'ready'
+            ? t('save')
+            : t('download')
+      }
+      title={state.status === 'error' ? t('downloadFailed') : undefined}
+      className={cn(
+        'relative flex size-9 items-center justify-center rounded-full transition-colors hover:bg-white/10',
+        state.status === 'ready' ? 'text-white' : 'text-white/80 hover:text-white',
+        state.status === 'error' && 'text-red-400',
+      )}
+    >
+      {state.status === 'loading' ? (
+        <>
+          <X className="size-4" strokeWidth={2.5} aria-hidden />
+          <ProgressRing progress={download.progress} />
+        </>
+      ) : state.status === 'ready' ? (
+        <Save className="size-5" aria-hidden />
+      ) : (
+        <Download className="size-5" aria-hidden />
+      )}
+    </button>
   )
 }

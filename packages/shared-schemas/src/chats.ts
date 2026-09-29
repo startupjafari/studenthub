@@ -17,6 +17,38 @@ export const ChatTypeSchema = z.enum([
 ])
 export type ChatTypeValue = z.infer<typeof ChatTypeSchema>
 
+/**
+ * Текст сообщения: нормализуем ДО проверки длины.
+ *
+ * Без этого «пустое» сообщение проходило в обход интерфейса. Композер сам делает `trim()`
+ * перед отправкой, и в браузере правило соблюдалось, но по WS напрямую уезжали и строка из
+ * одних пробелов, и один U+200B, и три перевода строки: `min(1)` считает их непустыми, а
+ * обрезки в схеме не было. REST-путь обрезал текст сам (`sendMessageRest`), WS-путь — нет,
+ * и два пути расходились в поведении.
+ *
+ * Чиним в схеме, а не в сервисе: она общая для REST, WS и отложенной отправки, поэтому
+ * правило перестаёт зависеть от того, каким путём пришло сообщение.
+ *
+ * Невидимые символы `trim()` не берёт — вырезаем их отдельно: нулевой ширины пробелы
+ * (U+200B–U+200D), word joiner (U+2060) и BOM (U+FEFF). Длина считается уже по очищенному
+ * тексту: сообщение из 4000 символов и пробелов по краям отклонять незачем.
+ */
+const INVISIBLE_RE = /[\u200b-\u200d\u2060\ufeff]/g
+
+const messageText = (max = 4000) =>
+  z
+    .string()
+    .transform((v) => v.replace(INVISIBLE_RE, '').trim())
+    .pipe(z.string().min(1, 'Сообщение не может быть пустым').max(max))
+
+/** То же, но текст необязателен: у сообщения с вложениями его может не быть вовсе. */
+const optionalMessageText = (max = 4000) =>
+  z
+    .string()
+    .transform((v) => v.replace(INVISIBLE_RE, '').trim())
+    .pipe(z.string().max(max))
+    .optional()
+
 // ── REST ─────────────────────────────────────────────────────────────────────
 
 // Список чатов (cursor). Потолок страницы выше общего курсорного (50) намеренно: клиент
@@ -227,7 +259,7 @@ export type ChatMediaQueryInput = z.infer<typeof ChatMediaQuerySchema>
 export const MessageSendRestSchema = z
   .object({
     chatId: z.string().min(1),
-    content: z.string().max(4000).optional(),
+    content: optionalMessageText(),
     replyToId: z.string().min(1).optional(),
     // Ответ с цитатой фрагмента: выделенный кусок исходного сообщения. Хранится копией —
     // оригинал могут отредактировать, и смещения в тексте поехали бы. Без replyToId
@@ -235,6 +267,17 @@ export const MessageSendRestSchema = z
     replyQuote: z.string().min(1).max(500).optional(),
     // §34: пометить все вложения сообщения спойлером (размытие до клика).
     spoiler: z.coerce.boolean().optional(),
+    // §34: спойлер не на всё сообщение, а поимённо — номера вложений в порядке их отправки
+    // («0,3,4»). В альбоме из десяти снимков скрыть могут один, и общий флаг этого не выражает.
+    // `spoiler: true` остаётся коротким «скрыть всё» и старые клиенты не ломает.
+    spoilerIndexes: z
+      .string()
+      .regex(/^\d+(,\d+)*$/, 'Ожидались номера вложений через запятую')
+      .optional(),
+    // §9: отправить вложения «без сжатия» — получатель видит строки файлов, а не превью,
+    // даже если это картинки. Флаг всего сообщения: в одном сообщении вложения уходят
+    // одним способом, как и выбирают его в диалоге отправки — один раз на всю отправку.
+    asFiles: z.coerce.boolean().optional(),
     // multipart отдаёт поля строками, поэтому coerce (в отличие от WS-схемы ниже).
     silent: z.coerce.boolean().optional(),
   })
@@ -251,7 +294,7 @@ export type MessageSendRestInput = z.infer<typeof MessageSendRestSchema>
 // его до отправки). Время — строго в будущем и не дальше года.
 export const ScheduleMessageSchema = z
   .object({
-    content: z.string().min(1).max(4000),
+    content: messageText(),
     replyToId: z.string().min(1).optional(),
     replyQuote: z.string().min(1).max(500).optional(),
     silent: z.boolean().optional(),
@@ -271,7 +314,7 @@ export type ScheduleMessageInput = z.infer<typeof ScheduleMessageSchema>
 // Правка отложенного до отправки: текст и/или новое время.
 export const UpdateScheduledMessageSchema = z
   .object({
-    content: z.string().min(1).max(4000).optional(),
+    content: messageText().optional(),
     scheduledAt: z.string().datetime().optional(),
   })
   .strict()
@@ -307,7 +350,7 @@ export type ChatJoinInput = z.infer<typeof ChatJoinSchema>
 export const MessageSendSchema = z
   .object({
     chatId: z.string().min(1),
-    content: z.string().min(1).max(4000),
+    content: messageText(),
     replyToId: z.string().min(1).optional(),
     // Ответ с цитатой фрагмента: выделенный кусок исходного сообщения. Хранится копией —
     // оригинал могут отредактировать, и смещения в тексте поехали бы. Без replyToId
@@ -328,7 +371,7 @@ export const MessageSendSchema = z
 export type MessageSendInput = z.infer<typeof MessageSendSchema>
 
 export const MessageEditSchema = z
-  .object({ messageId: z.string().min(1), content: z.string().min(1).max(4000) })
+  .object({ messageId: z.string().min(1), content: messageText() })
   .strict()
 export type MessageEditInput = z.infer<typeof MessageEditSchema>
 
@@ -343,5 +386,123 @@ export type MessageReadInput = z.infer<typeof MessageReadSchema>
 export const TypingSchema = z.object({ chatId: z.string().min(1) }).strict()
 export type TypingInput = z.infer<typeof TypingSchema>
 
+/**
+ * Что человек делает в чате прямо сейчас (§9.1). Показывается остальным участникам короткой
+ * подписью вместо статуса — «печатает…», «записывает голосовое…».
+ *
+ * Это НЕ тип сообщения. Тип сообщения в проекте вообще не хранится: вид вложения выводится
+ * при рендере из mime, имени файла (`voice-…`) и флага asDocument. Действие живёт секунды,
+ * никуда не сохраняется и существует только пока идёт.
+ *
+ * Список намеренно короткий — ровно то, что в продукте есть и что заметно длится:
+ *
+ * - `TYPING` — набор текста;
+ * - `RECORDING_VOICE` — запись голосового (самый длинный «немой» промежуток: 10–60 секунд);
+ * - `UPLOADING_PHOTO` / `UPLOADING_VIDEO` / `UPLOADING_FILE` — отправка вложения.
+ *
+ * Аудиофайла отдельным действием нет: mp3 уходит обычным вложением через скрепку, и для
+ * получателя это «отправляет файл…». Стикеров, GIF, геолокации и контактов в продукте нет —
+ * действий под них не заводим.
+ */
+export const CHAT_ACTIONS = [
+  'TYPING',
+  'RECORDING_VOICE',
+  'UPLOADING_PHOTO',
+  'UPLOADING_VIDEO',
+  'UPLOADING_FILE',
+] as const
+export type ChatAction = (typeof CHAT_ACTIONS)[number]
+export const ChatActionSchema = z.enum(CHAT_ACTIONS)
+
+/**
+ * Payload события `chat:action`. `action: null` — «действие закончилось».
+ *
+ * Полей `startedAt`/`expiresAt`/`messageId` здесь нет намеренно. Время жизни подписи держит
+ * получатель (сбрасывает через несколько секунд без обновления), поэтому серверные часы не
+ * нужны, а сообщения в момент действия ещё не существует.
+ */
+export const ChatActionPayloadSchema = z
+  .object({ chatId: z.string().min(1), action: ChatActionSchema.nullable() })
+  .strict()
+export type ChatActionPayloadInput = z.infer<typeof ChatActionPayloadSchema>
+
 export const AuthRefreshSchema = z.object({ token: z.string().min(1) }).strict()
 export type AuthRefreshInput = z.infer<typeof AuthRefreshSchema>
+
+// ── Крупные вложения чата: прямая загрузка в хранилище (Фаза 19.0) ───────────
+// Файлы больше FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES через multipart-запрос не проходят:
+// тело целиком ложится в память процесса. Такие уходят в хранилище напрямую, а сообщение
+// создаётся уже по ключам загруженных объектов.
+//
+// Пара presign/multipart своя, а не общая из /files, по тому же принципу, что у документов и
+// материалов: бакет определяет модуль, а членство в чате проверяется на каждом шаге.
+
+/** Подписанная ссылка на одиночный PUT вложения чата. */
+export const ChatAttachmentPresignSchema = z.object({ mime: z.string().min(1).max(120) }).strict()
+export type ChatAttachmentPresignInput = z.infer<typeof ChatAttachmentPresignSchema>
+
+/** Открыть многочастную загрузку вложения чата. */
+export const ChatAttachmentMultipartStartSchema = z
+  .object({ mime: z.string().min(1).max(120), size: z.number().int().positive() })
+  .strict()
+export type ChatAttachmentMultipartStartInput = z.infer<typeof ChatAttachmentMultipartStartSchema>
+
+/** Подписи на диапазон частей вложения чата. */
+export const ChatAttachmentMultipartUrlsSchema = z
+  .object({
+    key: z.string().min(1).max(300),
+    uploadId: z.string().min(1).max(300),
+    from: z.number().int().min(1),
+    to: z.number().int().min(1),
+  })
+  .strict()
+  .refine((v) => v.to >= v.from, {
+    path: ['to'],
+    message: 'Конец диапазона частей не может быть меньше начала',
+  })
+export type ChatAttachmentMultipartUrlsInput = z.infer<typeof ChatAttachmentMultipartUrlsSchema>
+
+/**
+ * Отправка сообщения по уже загруженным объектам.
+ *
+ * Спойлер здесь у каждого вложения свой, а не номерами, как в multipart-варианте: там номер —
+ * единственный способ сослаться на файл внутри одного тела запроса, а тут вложения и так
+ * перечислены поштучно.
+ *
+ * `parts` заполнены — объект собирается из частей; пусто — он уже лежит целиком (одиночный PUT).
+ */
+export const MessageSendUploadedSchema = z
+  .object({
+    content: optionalMessageText(),
+    replyToId: z.string().min(1).optional(),
+    replyQuote: z.string().min(1).max(500).optional(),
+    silent: z.boolean().optional(),
+    // §9: показывать вложения строками файлов, а не превью.
+    asFiles: z.boolean().optional(),
+    attachments: z
+      .array(
+        z
+          .object({
+            key: z.string().min(1).max(300),
+            uploadId: z.string().min(1).max(300).optional(),
+            name: z.string().min(1).max(255).optional(),
+            spoiler: z.boolean().optional(),
+            parts: z
+              .array(
+                z
+                  .object({ part: z.number().int().min(1), etag: z.string().min(1).max(200) })
+                  .strict(),
+              )
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+  })
+  .strict()
+  .refine((v) => !v.replyQuote || !!v.replyToId, {
+    path: ['replyQuote'],
+    message: 'Цитата возможна только вместе с ответом на сообщение',
+  })
+export type MessageSendUploadedInput = z.infer<typeof MessageSendUploadedSchema>

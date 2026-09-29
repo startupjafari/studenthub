@@ -13,9 +13,19 @@ function makeService() {
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
     // Снятие временных блокировок по сроку.
-    user: { findMany: jest.fn(async () => []) as Mock, updateMany: jest.fn() as Mock },
+    user: {
+      findMany: jest.fn(async () => []) as Mock,
+      updateMany: jest.fn() as Mock,
+      // Имя дежурного для сводки.
+      findUnique: jest.fn(async () => null) as Mock,
+    },
   }
-  const minio = { listObjectsV2: jest.fn() as Mock, removeObject: jest.fn() as Mock }
+  const minio = {
+    listObjectsV2: jest.fn() as Mock,
+    removeObject: jest.fn() as Mock,
+    listIncompleteUploadsQuery: jest.fn() as Mock,
+    abortMultipartUpload: jest.fn() as Mock,
+  }
   const config = { get: jest.fn((k: string) => k) as Mock } // возвращает имя ключа как имя бакета
   const events = { remindDue: jest.fn().mockResolvedValue(0) as Mock }
   const posts = { publishDueScheduled: jest.fn().mockResolvedValue(0) as Mock }
@@ -41,11 +51,24 @@ function makeService() {
   const chats = { deliverDueScheduled: jest.fn(async () => 0) as Mock }
   const audit = { record: jest.fn(async () => undefined) as Mock }
   // Суточная сводка: cron спрашивает час отправки у состояния платформы и пишет в Telegram.
-  const support = { closeStale: jest.fn(async () => 0) as Mock }
+  const support = {
+    closeStale: jest.fn(async () => 0) as Mock,
+    queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock,
+    dayStats: jest.fn(async () => ({ created: 0, closed: 0 })) as Mock,
+  }
+  // Размер очереди жалоб и движение за сутки считает владелец таблицы; планировщик только
+  // спрашивает.
+  const complaints = {
+    queueStats: jest.fn(async () => ({ count: 0, oldestAt: null })) as Mock,
+    dayStats: jest.fn(async () => ({ created: 0, closed: 0 })) as Mock,
+  }
+  // Уборка неподтверждённых заявок вузов: крон только делегирует владельцу таблицы.
+  const demoRequests = { purgeUnconfirmed: jest.fn(async () => 0) as Mock }
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
     rotateDuty: jest.fn(async () => null) as Mock,
+    duty: jest.fn(async () => ({ dutyUserId: null, rotation: [] as string[] })) as Mock,
     notificationPolicy: jest.fn(async () => ({
       quietFrom: null,
       quietTo: null,
@@ -66,6 +89,8 @@ function makeService() {
     audit as never,
     redis as never,
     support as never,
+    complaints as never,
+    demoRequests as never,
     telegram as never,
     platform as never,
   )
@@ -207,6 +232,64 @@ describe('CleanupService', () => {
       await expect(service.cleanOrphanFiles()).resolves.toBe(0)
     })
   })
+
+  describe('sweepIncompleteUploads', () => {
+    const page = (uploads: { key: string; uploadId: string; initiated: Date }[]) => ({
+      uploads,
+      prefixes: [],
+      isTruncated: false,
+      nextKeyMarker: '',
+      nextUploadIdMarker: '',
+    })
+
+    it('отменяет брошенные загрузки и не трогает начатые только что', async () => {
+      const { service, minio } = makeService()
+      const stale = new Date(Date.now() - 30 * 60 * 60 * 1000)
+      const fresh = new Date()
+      minio.listIncompleteUploadsQuery
+        .mockResolvedValueOnce(
+          page([
+            { key: 'user-1/a.mp4', uploadId: 'u1', initiated: stale },
+            { key: 'user-2/b.mp4', uploadId: 'u2', initiated: fresh },
+          ]),
+        )
+        .mockResolvedValue(page([]))
+      minio.abortMultipartUpload.mockResolvedValue(undefined)
+
+      const aborted = await service.sweepIncompleteUploads()
+
+      expect(aborted).toBe(1)
+      expect(minio.abortMultipartUpload).toHaveBeenCalledTimes(1)
+      expect(minio.abortMultipartUpload).toHaveBeenCalledWith(
+        'MINIO_BUCKET_AVATARS',
+        'user-1/a.mp4',
+        'u1',
+      )
+    })
+
+    it('дочитывает список до конца: брошенные загрузки могут быть на второй странице', async () => {
+      const { service, minio } = makeService()
+      const stale = new Date(Date.now() - 30 * 60 * 60 * 1000)
+      minio.listIncompleteUploadsQuery
+        .mockResolvedValueOnce({
+          ...page([{ key: 'user-1/a.mp4', uploadId: 'u1', initiated: stale }]),
+          isTruncated: true,
+          nextKeyMarker: 'user-1/a.mp4',
+          nextUploadIdMarker: 'u1',
+        })
+        .mockResolvedValueOnce(page([{ key: 'user-1/b.mp4', uploadId: 'u2', initiated: stale }]))
+        .mockResolvedValue(page([]))
+      minio.abortMultipartUpload.mockResolvedValue(undefined)
+
+      await expect(service.sweepIncompleteUploads()).resolves.toBe(2)
+    })
+
+    it('недоступный бакет не роняет задачу', async () => {
+      const { service, minio } = makeService()
+      minio.listIncompleteUploadsQuery.mockRejectedValue(new Error('minio down'))
+      await expect(service.sweepIncompleteUploads()).resolves.toBe(0)
+    })
+  })
 })
 
 describe('CleanupService — Redis-лок задач (Ф13.9)', () => {
@@ -281,7 +364,10 @@ describe('CleanupService.sendDailyDigest', () => {
     })
 
     await expect(c.service.sendDailyDigest()).resolves.toBe(1)
-    expect(c.telegram.notifyStaff).toHaveBeenCalledWith('digest', expect.stringContaining('0'))
+    expect(c.telegram.notifyStaff).toHaveBeenCalledWith(
+      'digest',
+      expect.stringContaining('Жалобы: в очереди 0, пришло 0, разобрано 0'),
+    )
   })
 })
 

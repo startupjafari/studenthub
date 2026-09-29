@@ -24,6 +24,18 @@ export interface UploadFileParams {
   messageId?: string
   /** Оригинальное имя файла при загрузке (Ф9+): для отображения в чате как в Telegram. */
   name?: string
+  /** Принимать архивы (категория «по приглашению», см. FILE_UPLOAD.OPT_IN_CATEGORIES). */
+  allowArchives?: boolean
+}
+
+/**
+ * Категория «по приглашению» (архив) без явного разрешения модуля не принимается.
+ * Проверка здесь, а не в каждом модуле: забытый белый список в новом разделе иначе молча
+ * пускал бы туда архивы, потому что общий детектор их узнаёт.
+ */
+function optInRefused(category: FileCategory, allowArchives: boolean | undefined): boolean {
+  const optIn = (FILE_UPLOAD.OPT_IN_CATEGORIES as readonly FileCategory[]).includes(category)
+  return optIn && !allowArchives
 }
 
 // Сколько байт читать из MinIO для определения типа: file-type смотрит только заголовок,
@@ -96,6 +108,7 @@ export class FileService {
     materialId,
     messageId,
     name,
+    allowArchives,
   }: UploadFileParams) {
     const detected = await detectAllowedFileType(buffer)
     if (!detected) {
@@ -103,6 +116,9 @@ export class FileService {
         'FILE_TYPE_NOT_ALLOWED',
         'Тип файла не поддерживается или не распознан',
       )
+    }
+    if (optInRefused(detected.category, allowArchives)) {
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Архивы здесь не принимаются')
     }
     if (expectedCategory && detected.category !== expectedCategory) {
       throw new AppException(
@@ -175,6 +191,156 @@ export class FileService {
   }
 
   /**
+   * Открыть многочастную загрузку (Фаза 19): файлы больше `MULTIPART_THRESHOLD_BYTES`
+   * заливаются частями по отдельным подписанным ссылкам.
+   *
+   * Число частей считает сервер и отказывает заранее: клиент мог бы попросить подписи на
+   * тысячу частей файла, который потом не подтвердит, и оплачивало бы это хранилище.
+   * Категория здесь НЕ проверяется — реальный тип известен только после сборки, на `complete`;
+   * заранее проверяется лишь общий потолок, чтобы не открывать загрузку заведомо лишнего.
+   */
+  async startMultipart(params: {
+    bucket: string
+    mime: string
+    size: number
+    ownerId: string
+  }): Promise<{ key: string; uploadId: string; partSize: number; partCount: number }> {
+    const ceiling = Math.max(...Object.values(FILE_UPLOAD.MAX_BYTES))
+    if (params.size > ceiling) {
+      throw new AppException('BAD_REQUEST', 'Файл больше максимально допустимого размера')
+    }
+    const partSize = FILE_UPLOAD.MULTIPART_PART_BYTES
+    const partCount = Math.ceil(params.size / partSize)
+    if (partCount > FILE_UPLOAD.MULTIPART_MAX_PARTS) {
+      throw new AppException('BAD_REQUEST', 'Слишком много частей для одного файла')
+    }
+
+    const ext =
+      (params.mime.split('/')[1] ?? 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 10) || 'bin'
+    const key = `${params.ownerId}/${randomUUID()}.${ext}`
+    // Тот же префикс владельца, что и у одиночного presign: на нём держится вся проверка
+    // прав и на подписи частей, и на сборке.
+    const uploadId = await this.minio.initiateNewMultipartUpload(params.bucket, key, {
+      'Content-Type': params.mime,
+    })
+    return { key, uploadId, partSize, partCount }
+  }
+
+  /**
+   * Подписи на диапазон частей. Нумерация с единицы — как в протоколе S3.
+   *
+   * Диапазоном, а не по ссылке за запрос: полусотня частей означала бы полсотни обращений
+   * за подписью и упёрлась бы в троттлер. Диапазон же нужен для докачки — после обрыва
+   * клиент просит только недостающие номера.
+   */
+  async presignParts(params: {
+    bucket: string
+    key: string
+    uploadId: string
+    ownerId: string
+    from: number
+    to: number
+  }): Promise<{ parts: { part: number; url: string }[]; expiresAt: string }> {
+    this.assertKeyOwner(params.key, params.ownerId)
+    if (params.to > FILE_UPLOAD.MULTIPART_MAX_PARTS) {
+      throw new AppException('BAD_REQUEST', 'Номер части выходит за допустимый предел')
+    }
+
+    const ttlSeconds = TTL.PRESIGNED_URL_MINUTES * 60
+    const parts: { part: number; url: string }[] = []
+    for (let part = params.from; part <= params.to; part += 1) {
+      // Подпись с query-параметрами uploadId/partNumber — это и есть PUT части в протоколе S3.
+      const url = await this.minioPublic.presignedUrl(
+        'PUT',
+        params.bucket,
+        params.key,
+        ttlSeconds,
+        {
+          uploadId: params.uploadId,
+          partNumber: String(part),
+        },
+      )
+      parts.push({ part, url })
+    }
+    return { parts, expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString() }
+  }
+
+  /**
+   * Собрать объект из частей и проверить его так же, как обычную прямую загрузку.
+   *
+   * Сборку делает сервер, а не подписанная ссылка на `complete`, ровно ради второй половины:
+   * после склейки объект проходит `confirmDirectUpload` — размер из `statObject`, тип по
+   * magic bytes. Отдай мы сборку клиенту, в приватном бакете появлялись бы объекты, которых
+   * никто не смотрел.
+   *
+   * `etag` частей приходят от клиента: в minio@8 `listParts` объявлен protected, и взять их
+   * серверу неоткуда. Подлог бесполезен — MinIO сверяет их сам и отвергает чужие.
+   */
+  async completeMultipart(params: {
+    bucket: string
+    key: string
+    uploadId: string
+    ownerId: string
+    parts: { part: number; etag: string }[]
+    name?: string
+    /** Привязка собранного объекта к сообщению чата (Ф19.0). */
+    messageId?: string
+    expectedCategory?: FileCategory
+    allowedMimes?: ReadonlySet<string>
+    /** Принимать архивы — только вложения чата. */
+    allowArchives?: boolean
+  }) {
+    this.assertKeyOwner(params.key, params.ownerId)
+    // Порядок частей задаёт порядок байтов в объекте: части приходят параллельно и
+    // подтверждаются в произвольном порядке, а склеивать их надо по номерам.
+    const ordered = [...params.parts].sort((a, b) => a.part - b.part)
+    try {
+      await this.minio.completeMultipartUpload(params.bucket, params.key, params.uploadId, ordered)
+    } catch (e) {
+      this.logger.warn(`Сборка многочастной загрузки не удалась: ${String(e)}`)
+      throw new AppException('BAD_REQUEST', 'Не удалось собрать файл из частей')
+    }
+    return this.confirmDirectUpload({
+      bucket: params.bucket,
+      key: params.key,
+      ownerId: params.ownerId,
+      name: params.name,
+      messageId: params.messageId,
+      expectedCategory: params.expectedCategory,
+      allowedMimes: params.allowedMimes,
+      allowArchives: params.allowArchives,
+    })
+  }
+
+  /** Отменить загрузку: MinIO удаляет уже залитые части. Молча, если отменять уже нечего. */
+  async abortMultipart(params: {
+    bucket: string
+    key: string
+    uploadId: string
+    ownerId: string
+  }): Promise<void> {
+    this.assertKeyOwner(params.key, params.ownerId)
+    try {
+      await this.minio.abortMultipartUpload(params.bucket, params.key, params.uploadId)
+    } catch (e) {
+      // Отмена — операция уборки: её зовут и из размонтирования компонента, и повторно.
+      // Отсутствующая загрузка здесь не ошибка вызывающего.
+      this.logger.warn(`Отмена многочастной загрузки не удалась: ${String(e)}`)
+    }
+  }
+
+  /**
+   * Ключ обязан принадлежать вызывающему. Вынесено из `confirmDirectUpload`: та же проверка
+   * нужна на каждом шаге многочастной загрузки — зная чужой ключ и uploadId, иначе можно
+   * дописать часть в чужой объект.
+   */
+  private assertKeyOwner(key: string, ownerId: string): void {
+    if (!key.startsWith(`${ownerId}/`)) {
+      throw new AppException('FORBIDDEN', 'Ключ не принадлежит вызывающему')
+    }
+  }
+
+  /**
    * Подтверждение прямой (presigned) загрузки. Ничему из запроса не верим:
    *
    * - ключ обязан принадлежать вызывающему (префикс владельца, см. `presignPut`);
@@ -197,11 +363,13 @@ export class FileService {
     /** Если задано — реальный MIME обязан входить в набор (напр. документ → PDF/JPG/PNG). */
     allowedMimes?: ReadonlySet<string>
     materialId?: string
+    /** Вложение сообщения чата: объект уже в бакете, запись создаётся сразу привязанной. */
+    messageId?: string
     name?: string
+    /** Принимать архивы (FILE_UPLOAD.OPT_IN_CATEGORIES) — только вложения чата. */
+    allowArchives?: boolean
   }) {
-    if (!params.key.startsWith(`${params.ownerId}/`)) {
-      throw new AppException('FORBIDDEN', 'Ключ не принадлежит вызывающему')
-    }
+    this.assertKeyOwner(params.key, params.ownerId)
 
     let size: number
     try {
@@ -230,6 +398,10 @@ export class FileService {
       await this.discard(params.bucket, params.key)
       throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Тип файла не поддерживается')
     }
+    if (optInRefused(detected.category, params.allowArchives)) {
+      await this.discard(params.bucket, params.key)
+      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Архивы здесь не принимаются')
+    }
 
     const maxBytes = FILE_UPLOAD.MAX_BYTES[detected.category]
     if (size > maxBytes) {
@@ -245,6 +417,7 @@ export class FileService {
         size,
         ownerId: params.ownerId,
         materialId: params.materialId,
+        messageId: params.messageId,
         name: params.name?.slice(0, 255) || null,
       },
       select: FILE_SELECT,

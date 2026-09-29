@@ -38,6 +38,12 @@ export interface ModalProps {
   /** Кнопка «назад» слева от заголовка (шаговые сценарии). Не показывать на первом шаге. */
   onBack?: () => void
   backLabel?: string
+  /**
+   * Действие в шапке справа от заголовка, перед крестиком: меню «…» окна отправки вложений.
+   * Отдельным слотом, а не внутри `title`: заголовок обрезается по `truncate`, и вложенная в
+   * него кнопка уезжала бы вместе с длинным текстом.
+   */
+  headerAction?: ReactNode
   size?: keyof typeof SIZE
   /**
    * Высота окна: `auto` (по умолчанию) — по содержимому, до `max-h-[90vh]`; `stable` —
@@ -53,6 +59,11 @@ export interface ModalProps {
    * `bodyClassName="overflow-hidden p-0"`.
    */
   bodyClassName?: string
+  /**
+   * Своя шапка вместо стандартной: окно рисует её само (пересылка в духе Telegram —
+   * крестик слева, действие справа). Заголовок остаётся для читалки, скрытым.
+   */
+  header?: boolean
 }
 
 // Единая оболочка модального окна на Radix Dialog: [← (опц.)] Заголовок … [крестик].
@@ -63,11 +74,13 @@ export function Modal({
   title,
   onBack,
   backLabel,
+  headerAction,
   size = 'xl',
   height = 'auto',
   children,
   className,
   bodyClassName,
+  header = true,
 }: ModalProps) {
   const t = useTranslations('Common')
   // Системная «назад» на Android закрывает окно, а не приложение.
@@ -91,31 +104,37 @@ export function Modal({
             className,
           )}
         >
-          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label={backLabel ?? t('close')}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          {!header && (
+            <DialogPrimitive.Title className="sr-only">{title ?? t('close')}</DialogPrimitive.Title>
+          )}
+          {header && (
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {onBack && (
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    aria-label={backLabel ?? t('close')}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ArrowLeft className="size-5" aria-hidden />
+                  </button>
+                )}
+                <DialogPrimitive.Title
+                  className={cn('min-w-0 truncate text-base font-semibold', !title && 'sr-only')}
                 >
-                  <ArrowLeft className="size-5" aria-hidden />
-                </button>
-              )}
-              <DialogPrimitive.Title
-                className={cn('min-w-0 truncate text-base font-semibold', !title && 'sr-only')}
+                  {title ?? t('close')}
+                </DialogPrimitive.Title>
+              </div>
+              {headerAction}
+              <DialogPrimitive.Close
+                aria-label={t('close')}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                {title ?? t('close')}
-              </DialogPrimitive.Title>
+                <X className="size-4" aria-hidden />
+              </DialogPrimitive.Close>
             </div>
-            <DialogPrimitive.Close
-              aria-label={t('close')}
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <X className="size-4" aria-hidden />
-            </DialogPrimitive.Close>
-          </div>
+          )}
           <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto p-5', bodyClassName)}>
             {children}
           </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -71,6 +71,8 @@ function Toggle({
 
 export function NotificationsBell() {
   const t = useTranslations('Notifications')
+  // Заголовок поповера связывается с ним через aria-labelledby.
+  const headingId = useId()
   const locale = useLocale()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -208,10 +210,16 @@ export function NotificationsBell() {
         <div
           // data-overlay — маркер открытого слоя для глобального Esc.
           data-overlay
+          // Слой со своим заголовком и набором действий — для скринридера это диалог, а не
+          // безымянный div: без роли он объявлялся просто группой текста, и заголовок
+          // «Уведомления» ничем не связывался с содержимым. Не modal: страница за поповером
+          // остаётся доступной, и фокус мы не запираем.
+          role="dialog"
+          aria-labelledby={headingId}
           className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-background sm:w-96"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <span className="text-sm font-semibold">
+            <span id={headingId} className="text-sm font-semibold">
               {view === 'list' ? t('title') : t('settings')}
             </span>
             <div className="flex items-center gap-1">

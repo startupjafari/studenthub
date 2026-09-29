@@ -295,6 +295,12 @@ export function RichTextField({
     editorProps: {
       attributes: {
         class: cn('min-w-0 px-3 py-2 text-sm leading-relaxed', className),
+        // Роль задаём руками: у `contenteditable` неявной ARIA-роли нет, и TipTap её не
+        // добавляет. Без неё поле уходило в дерево доступности абзацем — скринридер
+        // объявлял placeholder текстом, а не полем ввода, и `getByRole('textbox')` его
+        // не находил (на этом локаторе стоит e2e чата).
+        role: 'textbox',
+        'aria-multiline': 'true',
         ...(id ? { id } : {}),
         ...(ariaLabel ? { 'aria-label': ariaLabel } : {}),
       },

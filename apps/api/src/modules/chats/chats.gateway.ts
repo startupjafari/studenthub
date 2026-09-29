@@ -8,12 +8,14 @@ import {
 } from '@nestjs/websockets'
 import type { Server, Socket } from 'socket.io'
 import {
+  ChatActionPayloadSchema,
   ChatJoinSchema,
   MessageDeleteSchema,
   MessageEditSchema,
   MessageReadSchema,
   MessageSendSchema,
   TypingSchema,
+  type ChatAction,
 } from '@studenthub/shared-schemas'
 import type { ZodSchema } from 'zod'
 import { captureUnexpected, isExpectedBusinessError } from '../../common/monitoring'
@@ -158,12 +160,30 @@ export class ChatGateway {
     }
   }
 
+  /**
+   * Что человек делает в чате прямо сейчас (§9.1): набирает текст, записывает голосовое,
+   * отправляет вложение. `action: null` — действие закончилось.
+   */
+  @SubscribeMessage('chat:action')
+  async onChatAction(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() raw: unknown,
+  ): Promise<void> {
+    const data = this.parse(client, 'chat:action', ChatActionPayloadSchema, raw)
+    if (!data) return
+    await this.relayAction(client, 'chat:action', data.chatId, data.action)
+  }
+
+  // Старые имена событий остаются рабочими: §9.2a — именованные события не удаляются, клиенты
+  // переезжают постепенно. Здесь это просто частный случай действия TYPING.
   @SubscribeMessage('typing:start')
   async onTypingStart(
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
-    await this.relayTyping(client, 'typing:start', 'typing:started', raw)
+    const data = this.parse(client, 'typing:start', TypingSchema, raw)
+    if (!data) return
+    await this.relayAction(client, 'typing:start', data.chatId, 'TYPING')
   }
 
   @SubscribeMessage('typing:stop')
@@ -171,37 +191,50 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
-    await this.relayTyping(client, 'typing:stop', 'typing:stopped', raw)
+    const data = this.parse(client, 'typing:stop', TypingSchema, raw)
+    if (!data) return
+    await this.relayAction(client, 'typing:stop', data.chatId, null)
   }
 
   /**
-   * «Печатает» уходит в личные комнаты участников, а не только в `chat:{id}`: подпись нужна и
+   * Действие уходит в личные комнаты участников, а не только в `chat:{id}`: подпись нужна и
    * в строке списка чатов, а в комнату чата входят только с открытой перепиской (§1 карты
    * интерфейса). В больших чатах служба возвращает `room` — там подпись остаётся прежней,
-   * видимой только с открытым чатом; причины — в `ChatsService.typingAudience`.
+   * видимой только с открытым чатом; причины — в `ChatsService.actionAudience`.
    *
    * Отправитель исключён в обоих путях: `client.to(...)` не шлёт самому себе, а в веерном
-   * списке его id отфильтрован — иначе своя же подпись «печатает» встала бы в свою строку.
+   * списке его id отфильтрован — иначе своя же подпись встала бы в свою строку.
+   *
+   * Рядом с `chat:action` шлём и старые `typing:started`/`typing:stopped` — ровно для действия
+   * TYPING. Клиент прошлой версии продолжает показывать «печатает…», не зная про новые
+   * действия; на остальные действия он просто ничего не получает, и это лучше, чем подпись,
+   * которую он не сумеет перевести.
    */
-  private async relayTyping(
+  private async relayAction(
     client: Socket,
-    event: 'typing:start' | 'typing:stop',
-    out: 'typing:started' | 'typing:stopped',
-    raw: unknown,
+    event: string,
+    chatId: string,
+    action: ChatAction | null,
   ): Promise<void> {
     const uid = this.userId(client)
-    const data = this.parse(client, event, TypingSchema, raw)
-    if (!uid || !data) return
+    if (!uid) return
     try {
-      const payload = { chatId: data.chatId, userId: uid }
-      const audience = await this.chats.typingAudience(uid, data.chatId)
+      const payload = { chatId, userId: uid, action }
+      const audience = await this.chats.actionAudience(uid, chatId)
       if (audience.kind === 'denied') return
+
+      const legacy =
+        action === 'TYPING' ? 'typing:started' : action === null ? 'typing:stopped' : null
       if (audience.kind === 'room') {
-        client.to(`chat:${data.chatId}`).emit(out, payload)
+        const room = client.to(`chat:${chatId}`)
+        room.emit('chat:action', payload)
+        if (legacy) room.emit(legacy, { chatId, userId: uid })
         return
       }
       for (const userId of audience.userIds) {
-        this.server.to(`user:${userId}`).emit(out, payload)
+        const target = this.server.to(`user:${userId}`)
+        target.emit('chat:action', payload)
+        if (legacy) target.emit(legacy, { chatId, userId: uid })
       }
     } catch (error) {
       this.fail(client, event, error)

@@ -27,6 +27,26 @@ export function needsDirectUpload(size: number): boolean {
  * `Authorization` в запросе к MinIO лишний — сторонний заголовок может не совпасть с
  * подписью, и на 401 сработал бы refresh-цикл интерцептора для чужого хоста.
  */
+/**
+ * Залить файл по готовой подписанной ссылке. Отдельно от {@link uploadDirect} — доменные
+ * сценарии (вложение чата) сами решают, что делать с ключом после заливки, и шаг `confirm`
+ * у них свой.
+ */
+export async function putPresigned(
+  url: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  await axios.put(url, file, {
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    signal,
+    onUploadProgress: (event: AxiosProgressEvent) => {
+      if (onProgress && event.total) onProgress(Math.min(1, event.loaded / event.total))
+    },
+  })
+}
+
 async function putToStorage(
   target: PresignedTarget,
   file: File,

@@ -20,8 +20,10 @@ import {
   type UniversitySize,
 } from '../api/overview'
 import { t } from '../i18n'
+import { StatePlate } from '../ui/state-plate'
+import { SkeletonCards } from '../ui/skeleton'
 import { Fold } from '../ui/fold'
-import { formatShortTime } from '../lib/format'
+import { formatNumber, formatShortTime } from '../lib/format'
 
 // Сводка платформы: утренний взгляд «всё ли в порядке» до того, как открыть ноутбук.
 //
@@ -47,6 +49,8 @@ type State =
       overview: PlatformOverview
       health: HealthReport | null
       extras: Extras
+      /** Когда сводка собрана: «всё в порядке» без времени проверки ничего не утверждает. */
+      checkedAt: string
     }
   | { status: 'error' }
 
@@ -86,6 +90,7 @@ export function OverviewScreen() {
         overview,
         health,
         extras: { invites, universities, actions, queues, storage, changes, activity },
+        checkedAt: new Date().toISOString(),
       })
     } catch {
       setState({ status: 'error' })
@@ -97,48 +102,46 @@ export function OverviewScreen() {
   }, [load])
 
   if (state.status === 'loading') {
+    // Заглушка на весь экран, а не одна карточка сводки: раньше под ней оставалось
+    // пустое поле в две трети высоты, и загрузка была неотличима от «сводка пустая».
     return (
-      <section className="card">
-        <h2>{t('overviewTitle')}</h2>
-        <p className="hint">{t('controlReading')}</p>
-      </section>
+      <div className="screen" aria-busy="true">
+        <SkeletonCards />
+      </div>
     )
   }
 
   if (state.status === 'error') {
     return (
-      <section className="card">
-        <h2>{t('overviewTitle')}</h2>
-        <p className="hint">{t('overviewError')}</p>
-        <button type="button" className="fallback-submit" onClick={() => void load()}>
-          {t('retry')}
-        </button>
-      </section>
+      <div className="screen">
+        <StatePlate
+          title={t('overviewTitle')}
+          text={t('overviewError')}
+          onRetry={() => void load()}
+        />
+      </div>
     )
   }
 
   const { overview, health, extras } = state
+  const hasQueues = extras.queues.some((queue) => queue.waiting > 0 || queue.failed > 0)
+  const hasActivity = !!extras.activity && extras.activity.max > 0
+  const hasDetails =
+    extras.universities.length > 0 ||
+    extras.actions.length > 0 ||
+    hasQueues ||
+    !!extras.storage ||
+    hasActivity ||
+    extras.changes.length > 0
 
+  // Те же поля и промежутки, что у пульта рядом: без обёртки карточки сводки ложились
+  // вплотную к краям экрана и друг к другу.
   return (
-    <>
-      {/* Живость сервисов — первым блоком. Сводку открывают утром с одним вопросом:
-          всё ли работает. Внизу, под тепловой картой и журналом изменений, ответ лежал
-          дальше, чем этот вопрос задают. */}
-      {health && (
-        <section className="card">
-          <h2>{t('healthTitle')}</h2>
-          <div className="list">
-            {(Object.keys(HEALTH_LABEL) as (keyof HealthReport)[]).map((key) => (
-              <div className="toggle-row" key={key}>
-                <span>{t(HEALTH_LABEL[key])}</span>
-                <span className={health[key] === 'ok' ? 'toggle-state' : 'toggle-state off'}>
-                  {health[key] === 'ok' ? t('healthOk') : t('healthFail')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+    <div className="screen">
+      {/* Ответ на утренний вопрос «всё ли в порядке» — одной карточкой наверху, до любых
+          чисел. Раньше его приходилось собирать из трёх мест: живость сервисов, очереди
+          задач внизу и журнал. Теперь вердикт и его причины — здесь, подробности — ниже. */}
+      <HealthHero health={health} queues={extras.queues} checkedAt={state.checkedAt} />
 
       <section className="card">
         <h2>{t('overviewTitle')}</h2>
@@ -176,105 +179,161 @@ export function OverviewScreen() {
         </section>
       )}
 
-      {extras.universities.length > 0 && (
-        <Fold title={t('overviewTopUniversities')} state={String(extras.universities.length)}>
-          <div className="list">
-            {[...extras.universities]
-              .sort((a, b) => b.total - a.total)
-              .slice(0, TOP_UNIVERSITIES)
-              .map((university) => (
-                <div className="toggle-row" key={university.id}>
-                  <span>{university.name}</span>
-                  <span className="toggle-state">
-                    {university.students.toLocaleString()} {t('overviewStudents')}
-                  </span>
-                </div>
-              ))}
-          </div>
-        </Fold>
-      )}
-
-      {extras.actions.length > 0 && (
-        <Fold title={t('overviewTopActions')}>
-          <div className="list">
-            {extras.actions.slice(0, TOP_ACTIONS).map((action) => (
-              <div className="toggle-row" key={action.action}>
-                {/* Машинный код действия — он же и в журнале аудита: свой перевод
-                    развёл бы два названия одного события. */}
-                <span className="mono">{action.action}</span>
-                <span className="toggle-state">{action.value.toLocaleString()}</span>
+      {/* Подробности — одной группой строк, как рычаги на соседней вкладке: шесть
+          отдельных карточек с одинаковым зазором читались как шесть равнозначных
+          экранов, а это один раздел «подробнее». */}
+      {hasDetails && (
+        <section className="card fold-group fold-group-plain">
+          {extras.universities.length > 0 && (
+            <Fold title={t('overviewTopUniversities')} state={String(extras.universities.length)}>
+              <div className="list">
+                {[...extras.universities]
+                  .sort((a, b) => b.total - a.total)
+                  .slice(0, TOP_UNIVERSITIES)
+                  .map((university) => (
+                    <div className="toggle-row" key={university.id}>
+                      <span>{university.name}</span>
+                      <span className="toggle-state">
+                        {formatNumber(university.students)} {t('overviewStudents')}
+                      </span>
+                    </div>
+                  ))}
               </div>
-            ))}
-          </div>
-        </Fold>
-      )}
+            </Fold>
+          )}
 
-      {/* Очереди показываем только когда в них что-то есть: пустая таблица нулей
-          каждое утро приучает не смотреть на этот блок вовсе. */}
-      {extras.queues.some((queue) => queue.waiting > 0 || queue.failed > 0) && (
-        <Fold
-          title={t('queuesTitle')}
-          state={t('queuesWaiting', {
-            count: extras.queues.reduce((sum, queue) => sum + queue.waiting, 0),
-          })}
-        >
-          <div className="list">
-            {extras.queues
-              .filter((queue) => queue.waiting > 0 || queue.failed > 0)
-              .map((queue) => (
-                <div className="toggle-row" key={queue.name}>
-                  <span className="mono">{queue.name}</span>
-                  <span className={queue.failed > 0 ? 'toggle-state off' : 'toggle-state'}>
-                    {queue.failed > 0
-                      ? t('queuesFailed', { count: queue.failed })
-                      : t('queuesWaiting', { count: queue.waiting })}
-                  </span>
-                </div>
-              ))}
-          </div>
-        </Fold>
-      )}
-
-      {extras.storage && (
-        <Fold title={t('storageTitle')} state={formatBytes(extras.storage.bytes)}>
-          <p className="hint">
-            {t('storageUsed', {
-              files: extras.storage.files.toLocaleString(),
-              size: formatBytes(extras.storage.bytes),
-            })}
-          </p>
-        </Fold>
-      )}
-
-      {extras.activity && extras.activity.max > 0 && <ActivityCard grid={extras.activity} />}
-
-      {/* Кто двигал рычаги: без ответа на «кто включил техработы» команда жить не может,
-          а публичное состояние его не отдаёт — посетителю знать незачем. */}
-      {extras.changes.length > 0 && (
-        <Fold title={t('changesTitle')}>
-          <div className="list">
-            {extras.changes.slice(0, 5).map((change) => (
-              <div className="toggle-row" key={`${change.action}-${change.at}`}>
-                <span className="mono">{change.action}</span>
-                <span className="toggle-state">
-                  {t('changesBy', {
-                    who: change.by ? change.by.firstName : t('changesNobody'),
-                    when: formatShortTime(change.at),
-                  })}
-                </span>
+          {extras.actions.length > 0 && (
+            <Fold title={t('overviewTopActions')}>
+              <div className="list">
+                {extras.actions.slice(0, TOP_ACTIONS).map((action) => (
+                  <div className="toggle-row" key={action.action}>
+                    {/* Машинный код действия — он же и в журнале аудита: свой перевод
+                      развёл бы два названия одного события. */}
+                    <span className="mono">{action.action}</span>
+                    <span className="toggle-state">{formatNumber(action.value)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Fold>
+            </Fold>
+          )}
+
+          {/* Очереди показываем только когда в них что-то есть: пустая таблица нулей
+            каждое утро приучает не смотреть на этот блок вовсе. */}
+          {hasQueues && (
+            <Fold
+              title={t('queuesTitle')}
+              state={t('queuesWaiting', {
+                count: extras.queues.reduce((sum, queue) => sum + queue.waiting, 0),
+              })}
+            >
+              <div className="list">
+                {extras.queues
+                  .filter((queue) => queue.waiting > 0 || queue.failed > 0)
+                  .map((queue) => (
+                    <div className="toggle-row" key={queue.name}>
+                      <span className="mono">{queue.name}</span>
+                      <span className={queue.failed > 0 ? 'toggle-state off' : 'toggle-state'}>
+                        {queue.failed > 0
+                          ? t('queuesFailed', { count: queue.failed })
+                          : t('queuesWaiting', { count: queue.waiting })}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </Fold>
+          )}
+
+          {extras.storage && (
+            <Fold title={t('storageTitle')} state={formatBytes(extras.storage.bytes)}>
+              <p className="hint">
+                {t('storageUsed', {
+                  files: formatNumber(extras.storage.files),
+                  size: formatBytes(extras.storage.bytes),
+                })}
+              </p>
+            </Fold>
+          )}
+
+          {hasActivity && extras.activity && <ActivityCard grid={extras.activity} />}
+
+          {/* Кто двигал рычаги: без ответа на «кто включил техработы» команда жить не может,
+            а публичное состояние его не отдаёт — посетителю знать незачем. */}
+          {extras.changes.length > 0 && (
+            <Fold title={t('changesTitle')}>
+              <div className="list">
+                {extras.changes.slice(0, 5).map((change) => (
+                  <div className="toggle-row" key={`${change.action}-${change.at}`}>
+                    <span className="mono">{change.action}</span>
+                    <span className="toggle-state">
+                      {t('changesBy', {
+                        who: change.by ? change.by.firstName : t('changesNobody'),
+                        when: formatShortTime(change.at),
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Fold>
+          )}
+        </section>
       )}
-    </>
+    </div>
+  )
+}
+
+/**
+ * Главная карточка сводки: зелёная «всё в порядке» или красная со списком проблем.
+ *
+ * Проблема — только то, что требует действия сейчас: сервис не отвечает, задачи в очереди
+ * упали, проверка живости не ответила вовсе. Длинная очередь жалоб проблемой не считается:
+ * она не пустеет никогда, и красная карточка каждое утро научила бы её не замечать.
+ */
+function HealthHero({
+  health,
+  queues,
+  checkedAt,
+}: {
+  health: HealthReport | null
+  queues: QueueCount[]
+  checkedAt: string
+}) {
+  const problems: string[] = []
+  if (!health) problems.push(t('heroHealthUnknown'))
+  else {
+    for (const key of Object.keys(HEALTH_LABEL) as (keyof HealthReport)[]) {
+      if (health[key] !== 'ok') problems.push(t('heroServiceDown', { name: t(HEALTH_LABEL[key]) }))
+    }
+  }
+  const failed = queues.reduce((sum, queue) => sum + queue.failed, 0)
+  if (failed > 0) problems.push(t('heroQueueFailed', { count: failed }))
+  const ok = problems.length === 0
+
+  return (
+    <section className={`hero ${ok ? 'hero-ok' : 'hero-bad'}`} role="status">
+      <span className="hero-icon" aria-hidden>
+        {ok ? '✓' : '!'}
+      </span>
+      <span className="hero-body">
+        <h2>{ok ? t('heroOkTitle') : t('heroProblemsTitle', { count: problems.length })}</h2>
+        {ok ? (
+          <span className="hint">{t('heroOkText')}</span>
+        ) : (
+          <ul className="hero-list">
+            {problems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+        )}
+        <span className="hint">{t('heroChecked', { time: formatShortTime(checkedAt) })}</span>
+      </span>
+    </section>
   )
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="stat">
-      <b>{value.toLocaleString()}</b>
+      <b>{formatNumber(value)}</b>
       <span>{label}</span>
     </div>
   )
@@ -298,7 +357,7 @@ function Spark({ points, label }: { points: number[]; label: string }) {
       <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden>
         <path d={path} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
-      <span className="hint">{points.at(-1)?.toLocaleString() ?? 0}</span>
+      <span className="hint">{formatNumber(points.at(-1) ?? 0)}</span>
     </div>
   )
 }

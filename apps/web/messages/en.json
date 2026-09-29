@@ -77,7 +77,9 @@
     "vacancyReview": "Job moderation",
     "candidates": "Candidates",
     "careerAnalytics": "Metrics",
-    "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}"
+    "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}",
+    "demoRequests": "University requests",
+    "setup": "University setup"
   },
   "Products": {
     "switch": "Switch product",
@@ -147,6 +149,167 @@
     "verifyOkText": "Sign in and request access from a university.",
     "verifyFailTitle": "Could not confirm",
     "verifyNoToken": "The link has no confirmation token."
+  },
+  "Demo": {
+    "title": "Request a trial",
+    "subtitle": "Tell us about your university — we will get in touch and open access for setup.",
+    "brandSlogan": "One platform for the whole university — from timetable to diploma",
+    "brandSubtitle": "We will create your university and open access so you can complete the setup step by step — from faculties to the timetable.",
+    "optional": "optional",
+    "toLogin": "Sign in",
+    "fieldUniversity": "University name",
+    "fieldCity": "City",
+    "fieldStudents": "Students",
+    "fieldStudentsHint": "e.g. 4000",
+    "fieldContactName": "Your name",
+    "fieldContactRole": "Position",
+    "fieldEmail": "Work email",
+    "emailHint": "We will send the confirmation here, and access once the request is approved.",
+    "fieldPhone": "Phone",
+    "fieldComment": "Comment",
+    "consent": "I consent to the processing of the personal data provided in order to review this request and contact me.",
+    "consentRequired": "The request cannot be sent without consent",
+    "submit": "Send request",
+    "note": "A request does not create an account. Access is granted by invitation after review.",
+    "sentTitle": "Request sent",
+    "sentText": "We have sent an email to {email}. Confirm the address and the request will reach us for review.",
+    "verifyNoToken": "The link has no confirmation code",
+    "verifyOkTitle": "Address confirmed",
+    "verifyOkText": "The request is queued for review. The answer will come to the same address.",
+    "verifyFailTitle": "Could not confirm"
+  },
+  "DemoAdmin": {
+    "title": "University requests",
+    "subtitle": "Who is asking for access and what we decided",
+    "detailTitle": "University request",
+    "tabNEW": "New",
+    "tabAPPROVED": "Approved",
+    "tabREJECTED": "Rejected",
+    "emptyNEW": "No new requests",
+    "emptyAPPROVED": "No approved requests yet",
+    "emptyREJECTED": "No rejected requests",
+    "colUniversity": "University",
+    "colContact": "Contact",
+    "colEmail": "Email",
+    "colCreatedAt": "Submitted",
+    "colStatus": "Status",
+    "statusPENDING_EMAIL": "Address not confirmed",
+    "statusNEW": "New",
+    "statusAPPROVED": "Approved",
+    "statusREJECTED": "Rejected",
+    "fieldRole": "Position",
+    "fieldPhone": "Phone",
+    "fieldCity": "City",
+    "fieldStudents": "Students",
+    "fieldWebsite": "Website",
+    "fieldConsent": "Data consent",
+    "fieldComment": "Comment",
+    "fieldUniversityName": "University name",
+    "fieldShortName": "Short name",
+    "fieldReason": "Rejection reason",
+    "fieldNote": "Note",
+    "noteInternal": "Visible only to us, never sent in the email.",
+    "back": "Back",
+    "approve": "Approve",
+    "approveConfirm": "Create university and send access",
+    "approveExplain": "We will create the university and send an administrator invitation to {email}. The university starts inactive — it goes live once its own team fills in the structure.",
+    "approved": "Request approved",
+    "reject": "Reject",
+    "rejectConfirm": "Reject request",
+    "rejected": "Request rejected",
+    "reasonNOT_ELIGIBLE": "The platform is intended for higher and vocational education institutions.",
+    "reasonDUPLICATE": "We already have a request from this university and are working on it.",
+    "reasonINSUFFICIENT_INFO": "The request did not make it clear which institution it came from.",
+    "reasonNO_CAPACITY": "We cannot take on a new university for testing right now.",
+    "reasonOTHER": "We cannot open access for this request right now."
+  },
+  "Setup": {
+    "title": "University setup",
+    "subtitle": "Fill in the structure of {university} — the platform walks you through it",
+    "progress": "{done} of {total}",
+    "counted": "added: {n}",
+    "skipped": "skipped",
+    "add": "Add",
+    "faculty": "Faculty",
+    "needFaculties": "Create at least one faculty first — a group attaches to it.",
+    "invite": "Invite",
+    "inviteCreated": "Invite created. The link is shown only once — copy it and send it to the dean.",
+    "copyLink": "Copy",
+    "linkCopied": "Link copied",
+    "termStarts": "Start",
+    "termEnds": "End",
+    "termEndsBeforeStart": "A term cannot end before it starts",
+    "checkDone": "done",
+    "checkMissing": "not filled",
+    "launchBlocked": "{n, plural, one {# step left} other {# steps left}} — fill them in and the university can go live.",
+    "profileName": "Name",
+    "profileShortName": "Short name",
+    "profileCity": "City",
+    "profileTimezone": "Time zone",
+    "profileFix": "The platform edits these details. If something is wrong, write to us and we will fix it.",
+    "profileConfirm": "Looks right",
+    "launch": "Go live",
+    "launchReady": "Everything required is filled in. Once live, the platform opens to everyone you have invited.",
+    "launched": "The university is live",
+    "launchedAlready": "The university is live and running",
+    "toDashboard": "To overview",
+    "bannerTitle": "University setup is not finished",
+    "bannerText": "{done} of {total} steps done. Until the university goes live the platform stays closed even to invited people.",
+    "bannerAction": "Continue",
+    "step": {
+      "profile": {
+        "title": "About the university",
+        "short": "Check the details",
+        "hint": "Everything else starts from this data: the name sits at the top for everyone who signs in, and the time zone decides when a class begins. Check and confirm — if something is wrong, write to us, we edit the details."
+      },
+      "faculties": {
+        "title": "Faculties",
+        "short": "Add faculties",
+        "hint": "A faculty is the top level of the structure: groups, deans and access rights all rest on it. Without faculties no further step can be completed.",
+        "placeholder": "Faculty name"
+      },
+      "specialties": {
+        "title": "Specialities",
+        "short": "Speciality reference list",
+        "hint": "The list a student picks their speciality from in their profile. Start with the main ones — you can add the rest later in the specialities section.",
+        "placeholder": "Speciality name"
+      },
+      "groups": {
+        "title": "Groups",
+        "short": "Add groups",
+        "hint": "A group is what the schedule, the gradebook and the chats attach to. A student is invited into a group, not into the university at large, so without groups no student can be invited.",
+        "placeholder": "Group name"
+      },
+      "rooms": {
+        "title": "Rooms",
+        "short": "Add rooms",
+        "hint": "Rooms are needed by the schedule and by the printed QR above the door: a student scans the code and sees what is happening here right now.",
+        "placeholder": "Room number or name"
+      },
+      "terms": {
+        "title": "Academic year",
+        "short": "Create a term",
+        "hint": "A term sets the boundaries of the study period. Without one you cannot build a schedule or open the gradebook: a class has nowhere to land in time.",
+        "placeholder": "Term name"
+      },
+      "subjects": {
+        "title": "Subjects",
+        "short": "Subject reference list",
+        "hint": "The university's shared list of disciplines — courses and the schedule are assembled from it. Start with the main ones and add more as you build the schedule.",
+        "placeholder": "Subject name"
+      },
+      "deans": {
+        "title": "Deans",
+        "short": "Invite the deans",
+        "hint": "This is where the chain starts: you invite the dean, the dean invites the monitors and the students. That way each next person comes from whoever is responsible for them, not from a general list. The invite link appears right after you create it.",
+        "placeholder": "Dean's email — optional"
+      },
+      "launch": {
+        "title": "Go live",
+        "short": "Check and go live",
+        "hint": "Until the university goes live it exists but does not work. Going live opens the platform to everyone you have invited."
+      }
+    }
   },
   "CareerAdmin": {
     "companiesTitle": "Companies",
@@ -680,6 +843,9 @@
     "close": "Close",
     "empty": "Empty",
     "download": "Download",
+    "downloadCancel": "Cancel download",
+    "downloadFailed": "Couldn't download — tap to retry",
+    "save": "Save",
     "previous": "Previous",
     "next": "Next",
     "rotate": "Rotate",
@@ -687,6 +853,11 @@
     "pause": "Pause",
     "mute": "Mute",
     "unmute": "Unmute",
+    "volume": "Volume",
+    "speed": "Playback speed",
+    "pip": "Picture in picture",
+    "fullscreen": "Full screen",
+    "exitFullscreen": "Exit full screen",
     "seek": "Seek",
     "cancel": "Cancel",
     "confirmTitle": "Confirm action",
@@ -696,7 +867,11 @@
     "endAfterStart": "End must be later than start",
     "numberRange": "Enter a number between {min} and {max}",
     "urlInvalid": "The link must start with http:// or https://",
-    "endNotBeforeStart": "The end date cannot be earlier than the start date"
+    "endNotBeforeStart": "The end date cannot be earlier than the start date",
+    "byteUnitB": "B",
+    "byteUnitKb": "KB",
+    "byteUnitMb": "MB",
+    "byteUnitGb": "GB"
   },
   "Auth": {
     "loginTitle": "Sign in",
@@ -1003,6 +1178,8 @@
     "offline": "Offline",
     "cropTitle": "Crop photo",
     "cropHint": "Drag and zoom to choose the area",
+    "cropAngle": "Rotation angle",
+    "cropFlip": "Flip",
     "zoom": "Zoom",
     "addContent": "Add",
     "publish": "Publish",
@@ -1097,7 +1274,6 @@
     "filterScheduled": "Scheduled",
     "actions": "Actions",
     "albumAll": "All",
-    "albumNone": "No album",
     "albumCreate": "New album",
     "albumRename": "Rename",
     "albumDelete": "Delete album",
@@ -1162,7 +1338,7 @@
     "INVITE_EXPIRED": "Invite has expired",
     "INVITE_USED": "Invite already used",
     "INVITE_REVOKED": "Invite was revoked",
-    "FILE_TYPE_NOT_ALLOWED": "File type is not supported",
+    "FILE_TYPE_NOT_ALLOWED": "File type is not supported: photos, video, PDF and Office documents are accepted",
     "FILE_TOO_LARGE": "File exceeds the allowed size",
     "FILE_DIRECT_UPLOAD_REQUIRED": "File is too large to upload via the server",
     "VALIDATION_ERROR": "Check the form fields",
@@ -1520,12 +1696,15 @@
     "share": "Share",
     "shareToChat": "Send to chat",
     "postUnavailable": "Post unavailable",
+    "sharedPostLabel": "Post",
+    "sharedPostOpen": "Open",
     "sharedToChat": "Post sent to chat",
     "repost": "Repost",
     "repostTitle": "Repost",
     "repostComment": "Comment",
     "repostPlaceholder": "Add a comment (optional)",
     "reposted": "Reposted",
+    "repostedBy": "Reposted by <link>{name}</link>",
     "targetRequired": "Choose where to publish",
     "contentTooLong": "Text is too long",
     "mediaCount": "{count, plural, one {# attachment} other {# attachments}}",
@@ -1599,7 +1778,12 @@
     "publishPost": "Publish",
     "postUpdated": "Post updated",
     "save": "Save",
-    "edited": "edited"
+    "edited": "edited",
+    "commentAuthorTag": "Author",
+    "viewReplies": "{count, plural, one {View # reply} other {View # replies}}",
+    "hideReplies": "Hide replies",
+    "filterSaved": "Saved",
+    "bookmark": "Save"
   },
   "Chats": {
     "title": "Chats",
@@ -1613,9 +1797,21 @@
     "select": "Select",
     "selectedCount": "Selected: {count}",
     "deleteSelectedConfirm": "Delete selected messages ({count})?",
-    "typingStatus": "typing…",
-    "typingStatusName": "{name} is typing…",
-    "typingMany": "typing…",
+    "actions": {
+      "TYPING": "{count, plural, one {is typing…} other {are typing…}}",
+      "RECORDING_VOICE": "{count, plural, one {is recording a voice message…} other {are recording voice messages…}}",
+      "UPLOADING_PHOTO": "{count, plural, one {is sending a photo…} other {are sending photos…}}",
+      "UPLOADING_VIDEO": "{count, plural, one {is sending a video…} other {are sending videos…}}",
+      "UPLOADING_FILE": "{count, plural, one {is sending a file…} other {are sending files…}}"
+    },
+    "actionsNamed": {
+      "TYPING": "{name} is typing…",
+      "RECORDING_VOICE": "{name} is recording a voice message…",
+      "UPLOADING_PHOTO": "{name} is sending a photo…",
+      "UPLOADING_VIDEO": "{name} is sending a video…",
+      "UPLOADING_FILE": "{name} is sending a file…"
+    },
+    "actionsMany": "{count, plural, one {# participant is doing something…} other {# participants are doing something…}}",
     "unreadMessages": "Unread",
     "memberActions": "Actions",
     "openProfile": "Open profile",
@@ -1627,7 +1823,6 @@
     "messagePlaceholder": "Message…",
     "send": "Send",
     "edited": "edited",
-    "typing": "{count, plural, one {is typing} other {are typing}}",
     "typePrivate": "Private chat",
     "typeGroupOfficial": "Group chat",
     "typeFaculty": "Faculty chat",
@@ -1644,6 +1839,7 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "reply": "Reply",
+    "quickReaction": "React with {emoji}",
     "replyingTo": "Reply to {name}",
     "cancelReply": "Cancel reply",
     "attach": "Attach file",
@@ -1691,6 +1887,8 @@
     "lastSeenDay": "last seen {count}d ago",
     "loadMore": "Load more",
     "download": "Download",
+    "downloadCancel": "Cancel download",
+    "downloadFailed": "Couldn't download · Retry",
     "openLink": "Open link",
     "createPoll": "Poll",
     "createPollSubmit": "Create",
@@ -1706,6 +1904,8 @@
     "attachPhoto": "Photo or video",
     "attachCamera": "Camera",
     "attachFile": "File",
+    "dropHint": "Drop the files to attach them to the message",
+    "attachTooLarge": "“{name}” is larger than {max} — not sent",
     "emoji": "Emoji",
     "emojiSearch": "Search emoji",
     "mediaFailed": "Couldn't load",
@@ -1734,6 +1934,10 @@
     "forwardedFrom": "Forwarded from {name}",
     "forwarded": "Forwarded",
     "forwardCaption": "Add a caption…",
+    "sharedProfileLabel": "Profile",
+    "sharedProfileOpen": "Open",
+    "forwardSelectMany": "Select several",
+    "forwardSelectOne": "Send right away",
     "edit": "Edit",
     "delete": "Delete",
     "copyText": "Copy text",
@@ -1753,6 +1957,15 @@
     "pinnedNext": "Next pinned",
     "sendPhotosTitle": "{count, plural, one {Send # photo} other {Send # photos}}",
     "sendFilesTitle": "{count, plural, one {Send # file} other {Send # files}}",
+    "sendVideosTitle": "{count, plural, one {Send # video} other {Send # videos}}",
+    "sendUncompressed": "Send without compression",
+    "sendCompressed": "Send compressed",
+    "groupAsAlbum": "Group into album",
+    "ungroupAlbum": "Ungroup album",
+    "spoilerOff": "Remove spoiler",
+    "spoilerAll": "Hide all",
+    "albumStacks": "{count, plural, one {Will be sent as # message} other {Will be sent as # messages}}",
+    "separateMessages": "{count, plural, one {Will be sent as # message} other {Will be sent as # messages}}",
     "cancel": "Cancel",
     "addMore": "Add",
     "captionPlaceholder": "Caption…",
@@ -1804,12 +2017,19 @@
     "revokeAdmin": "Remove admin",
     "blockedTitle": "Blocked users",
     "blockedEmpty": "You haven't blocked anyone",
+    "blockedAdd": "Block a user",
+    "addMembers": "Add members",
+    "next": "Next",
+    "createGroup": "Create group",
+    "groupMembersCount": "{count, plural, one {# member} other {# members}}",
+    "removeMember": "Remove from group",
     "ban": "Ban",
     "unban": "Unban",
     "banned": "Banned",
     "memberBanned": "Member banned",
     "memberUnbanned": "Member unbanned",
     "changeAvatar": "Change photo",
+    "avatarUpdateFailed": "Could not upload the group photo",
     "removeAvatar": "Remove photo",
     "avatarUpdated": "Avatar updated",
     "avatarRemoved": "Avatar removed",
@@ -1847,18 +2067,25 @@
     "unmuteImportantOnly": "Unmute all",
     "foldersTitle": "Chat folders",
     "foldersManage": "Manage folders",
+    "foldersSection": "Folders",
+    "foldersSettings": "Folder settings",
+    "foldersReorder": "Reorder",
+    "foldersSelectedChats": "Selected chats",
+    "foldersAddChats": "Add chats",
+    "foldersRemoveChat": "Remove from folder",
+    "foldersPickTitle": "Chats in folder",
+    "foldersChatTypes": "Chat types",
+    "foldersChatsSection": "Chats",
+    "foldersDone": "Done",
     "folderEdit": "Configure folder",
     "foldersDescription": "Your own tabs over the list: group the chats you read together.",
     "foldersEmpty": "No folders of your own yet",
     "foldersCreate": "New folder",
-    "foldersRename": "Rename",
     "foldersDelete": "Delete folder",
     "foldersDeleteConfirm": "Delete the folder “{name}”? The chats stay where they are.",
     "foldersSave": "Save",
-    "foldersCancel": "Cancel",
     "foldersNameLabel": "Folder name",
     "foldersNamePlaceholder": "For example, “Studies”",
-    "foldersPickChats": "Chats in folder: {count}",
     "foldersChatCount": "{count, plural, one {# chat} other {# chats}}",
     "foldersLimit": "More than {max} folders is not supported",
     "folderAdd": "Add to folder",
@@ -1877,7 +2104,7 @@
     "requestDeclined": "Request declined",
     "peopleSection": "People",
     "findPeople": "Find someone",
-    "refineSearch": "Not everyone is shown — refine your search",
+    "listMenu": "Menu",
     "folderArchive": "Archive",
     "archive": "Move to archive",
     "unarchive": "Restore from archive",
@@ -1909,7 +2136,8 @@
     "pause": "Pause",
     "chatActions": "Chat actions",
     "typeSupportPlatform": "StudentHub support",
-    "tagSupportPlatform": "Support"
+    "tagSupportPlatform": "Support",
+    "cancelUpload": "Cancel upload"
   },
   "Events": {
     "title": "Events",
@@ -2239,6 +2467,7 @@
     "telegramCopy": "Copy code",
     "telegramCopyFailed": "Copying failed — type the code manually",
     "telegramExpiresIn": "Code valid for another {time}",
+    "telegramExpired": "The code has expired — get a new one",
     "telegramHint": "Open the bot in Telegram and enter the code on the linking screen.",
     "telegramRateLimit": "Too many codes in a row. Try again later",
     "telegramFailed": "Could not get a code. Please try again",
@@ -2306,7 +2535,11 @@
     "telegramLastSeen": "Last opened {date}",
     "telegramRevoke": "Revoke",
     "telegramRevokeConfirm": "Revoke the link? The mini app will stop opening on that phone. You can link again with a new code.",
-    "telegramRevoked": "The link is revoked"
+    "telegramRevoked": "The link is revoked",
+    "seasonDecor": "Holiday theming",
+    "seasonDecorDesc": "Accent colour and a greeting on national and university holidays",
+    "seasonMotion": "Holiday motion",
+    "seasonMotionDesc": "Sparse particles on the home screen, once per holiday day"
   },
   "Offline": {
     "title": "You are offline",
@@ -2733,7 +2966,8 @@
       "month": "Month",
       "agenda": "Agenda"
     },
-    "more": "+{count} more"
+    "more": "+{count} more",
+    "dayOff": "non-working day"
   },
   "Courses": {
     "title": "Courses",
@@ -3633,5 +3867,82 @@
     "send": "Send",
     "sent": "Your message was sent",
     "appended": "Added to your open request"
+  },
+  "Season": {
+    "new-year": {
+      "name": "New Year",
+      "greeting": "Happy New Year!"
+    },
+    "new-year-eve": {
+      "name": "New Year's Eve",
+      "greeting": "Happy New Year's Eve!"
+    },
+    "orthodox-christmas": {
+      "name": "Orthodox Christmas",
+      "greeting": "Merry Christmas!"
+    },
+    "womens-day": {
+      "name": "International Women's Day",
+      "greeting": "Happy International Women's Day!"
+    },
+    "nauryz": {
+      "name": "Nauryz Meyramy",
+      "greeting": "Happy Nauryz Meyramy!"
+    },
+    "unity-day": {
+      "name": "Kazakhstan People's Unity Day",
+      "greeting": "Happy Kazakhstan People's Unity Day!"
+    },
+    "defender-day": {
+      "name": "Defender of the Fatherland Day",
+      "greeting": "Happy Defender of the Fatherland Day!"
+    },
+    "victory-day": {
+      "name": "Victory Day",
+      "greeting": "Happy Victory Day!"
+    },
+    "kurban-ait": {
+      "name": "Kurban Ait",
+      "greeting": "Blessed Kurban Ait!"
+    },
+    "oraza-ait": {
+      "name": "Oraza Ait",
+      "greeting": "Blessed Oraza Ait!"
+    },
+    "capital-day": {
+      "name": "Capital City Day",
+      "greeting": "Happy Capital City Day!"
+    },
+    "constitution-day": {
+      "name": "Constitution Day",
+      "greeting": "Happy Constitution Day!"
+    },
+    "republic-day": {
+      "name": "Republic Day",
+      "greeting": "Happy Republic Day!"
+    },
+    "independence-day": {
+      "name": "Independence Day",
+      "greeting": "Happy Independence Day!"
+    },
+    "knowledge-day": {
+      "name": "Knowledge Day",
+      "greeting": "Happy Knowledge Day! Have a great academic year"
+    },
+    "teachers-day": {
+      "name": "Teachers' Day",
+      "greeting": "Happy Teachers' Day!"
+    },
+    "languages-day": {
+      "name": "Languages Day of the People of Kazakhstan",
+      "greeting": "Happy Languages Day of the People of Kazakhstan!"
+    },
+    "students-day": {
+      "name": "International Students' Day",
+      "greeting": "Happy International Students' Day!"
+    },
+    "repression-victims-day": {
+      "name": "Day of Remembrance of the Victims of Political Repression and Famine"
+    }
   }
 }

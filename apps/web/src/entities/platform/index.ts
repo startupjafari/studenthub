@@ -1,5 +1,6 @@
 export type {
   PlatformState,
+  PlatformSeason,
   PlatformBanner,
   PlatformMaintenance,
   PlatformLocalizedText,

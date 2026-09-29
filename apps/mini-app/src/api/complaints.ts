@@ -76,18 +76,6 @@ export async function fetchComplaint(id: string): Promise<ComplaintCard> {
 }
 
 /**
- * Медиана времени разбора за последний месяц, часы. Показывается над разобранными:
- * очередь отвечает на «сколько осталось», а медиана — на «быстро ли мы это делаем».
- * По отказу молчит: список жалоб важнее цифры над ним.
- */
-export async function fetchResolutionMedian(): Promise<number | null> {
-  const report = await apiGet<{ medianHours: number | null }>(
-    '/analytics/platform/complaints-latency',
-  )
-  return report.medianHours
-}
-
-/**
  * Переписка вокруг цели — только для жалоб на сообщение. Доступ открывается самой жалобой
  * и пишется в аудит: читать чужие чаты «просто так» нельзя, а разобрать жалобу на
  * сообщение, не видя соседних реплик, невозможно.

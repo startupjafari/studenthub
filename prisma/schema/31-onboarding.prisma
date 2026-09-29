@@ -1,0 +1,121 @@
+// Домен «Приход вуза на платформу» (docs/PROJECT.md §31).
+//
+// Две таблицы на две разные фазы одного пути:
+//   UniversityDemoRequest — снаружи внутрь: заявка с лендинга до того, как вуз существует;
+//   UniversityOnboarding  — уже внутри: состояние мастера первичной настройки.
+//
+// Разделены, потому что живут разное время и принадлежат разным людям. Заявка — это
+// переписка с платформой, она остаётся в журнале после того, как вуз заведён и работает.
+// Мастер — рабочее состояние самого вуза, и когда вуз запущен, заявка к нему отношения
+// уже не имеет.
+
+/// Заявка вуза на тестирование платформы. Единственный способ попасть внутрь снаружи.
+///
+/// Здесь лежат персональные данные живого человека (имя, рабочая почта, телефон),
+/// полученные по публичной форме. Отсюда три поля, которых не было бы у внутренней
+/// таблицы: `consentAt` — момент согласия, `ip`/`userAgent` — чем это согласие
+/// подтверждается. Без них согласие нечем доказать, а значит, его как бы и нет.
+model UniversityDemoRequest {
+  id String @id @default(uuid())
+
+  // ── Вуз ─────────────────────────────────────────────────────────────────────
+  // Строками, а не ссылкой на University: вуза на этот момент ещё не существует.
+  // Он появится только при одобрении, и до тех пор это просто слова из формы.
+  universityName   String  @map("university_name")
+  city             String?
+  country          String?
+  website          String?
+  studentsEstimate Int?    @map("students_estimate")
+
+  // ── Контактное лицо ─────────────────────────────────────────────────────────
+  contactName String  @map("contact_name")
+  contactRole String? @map("contact_role")
+  email       String
+  phone       String?
+  comment     String?
+
+  status DemoRequestStatus @default(PENDING_EMAIL)
+
+  // ── Подтверждение адреса ────────────────────────────────────────────────────
+  // Токен хранится хэшем — как refresh-токены и как подтверждение компании
+  // (BACKEND_RULES §11): в открытом виде в БД его быть не должно.
+  // Оба поля гасятся в NULL сразу после перехода по ссылке: токен одноразовый.
+  emailVerificationHash      String?   @unique @map("email_verification_hash")
+  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
+
+  // ── Согласие на обработку персональных данных ───────────────────────────────
+  /// Момент, когда человек отметил согласие в форме. NOT NULL: заявки без согласия
+  /// не бывает — форма без отметки не отправляется, а строка без него нечитаема.
+  consentAt      DateTime @map("consent_at")
+  /// Версия текста согласия, показанного в форме. Текст со временем меняется, и без
+  /// версии невозможно ответить, с чем именно согласился человек в тот день.
+  consentVersion String   @map("consent_version")
+  ip             String?
+  userAgent      String?  @map("user_agent")
+
+  // ── Решение ─────────────────────────────────────────────────────────────────
+  reviewedAt      DateTime?            @map("reviewed_at")
+  reviewedById    String?              @map("reviewed_by_id")
+  rejectionReason DemoRejectionReason? @map("rejection_reason")
+  /// Заметка модератора. Внутренняя: заявителю не показывается и в письмо не уходит.
+  reviewNote      String?              @map("review_note")
+
+  /// Вуз, заведённый по этой заявке. Появляется в момент одобрения.
+  universityId String? @map("university_id")
+  /// Приглашение админу вуза, выписанное тем же действием. Хранится, чтобы модератор
+  /// видел, дошло ли дело до входа, и мог выписать приглашение заново, не создавая
+  /// второй вуз.
+  inviteId     String? @map("invite_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  university University? @relation("UniversityDemoRequest", fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reviewedBy User?       @relation("DemoRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  invite     Invite?     @relation("DemoRequestInvite", fields: [inviteId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([status, createdAt])
+  @@index([email])
+  @@index([universityId])
+  @@index([reviewedById])
+  @@index([inviteId])
+  @@map("university_demo_requests")
+}
+
+/// Состояние мастера первичной настройки вуза.
+///
+/// Пройденность шагов здесь НЕ хранится, и это главное решение этой таблицы. «Шаг
+/// „Факультеты“ пройден» рядом с пустым списком факультетов — рассинхрон, который
+/// невозможно заметить и который потом ловят месяцами. Поэтому пройденность шага
+/// считается по самим данным: есть факультеты — шаг пройден, удалили последний — нет.
+///
+/// В таблице лежит только то, чего в данных нет: подтверждение реквизитов (их нельзя
+/// отличить от заполненных при создании), осознанно пропущенные шаги, свёрнутый мастер
+/// и момент запуска.
+model UniversityOnboarding {
+  id           String @id @default(uuid())
+  universityId String @unique @map("university_id")
+
+  /// Шаг «О вузе» пройден. Отдельным полем, потому что по данным его не отличить:
+  /// название и город заполняются при создании вуза, и «уже есть» здесь не значит
+  /// «человек это проверил».
+  profileConfirmedAt DateTime? @map("profile_confirmed_at")
+
+  /// Шаги, которые админ вуза осознанно пропустил. Мастер перестаёт их требовать,
+  /// но не прячет: пропущенный шаг виден в чек-листе запуска отдельной пометкой.
+  skippedSteps String[] @default([]) @map("skipped_steps")
+
+  /// Мастер свёрнут — человек ушёл работать и вернётся позже. Не то же самое, что
+  /// пройден: `completedAt` остаётся пустым, и мастер зовёт обратно.
+  dismissedAt DateTime? @map("dismissed_at")
+
+  /// Момент запуска: вуз переведён в ACTIVE, мастер закрыт.
+  completedAt DateTime? @map("completed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  university University @relation("UniversityOnboarding", fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("university_onboarding")
+}

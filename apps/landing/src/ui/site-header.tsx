@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { ChevronRight, GraduationCap, Menu, X } from 'lucide-react'
 import type { Locale } from '../config/site'
-import { PLATFORM_LINKS, SALES_EMAIL, localePath } from '../config/site'
+import { PLATFORM_LINKS, localePath } from '../config/site'
 import type { Dictionary } from '../content'
 import { AnimatePresence, EASE, motion, useReducedMotion } from './motion'
 import { Container, LinkButton } from './primitives'
@@ -32,8 +32,6 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
   const [menuOpen, setMenuOpen] = useState(false)
   const calm = useReducedMotion()
   const [activeSection, setActiveSection] = useState<string | null>(null)
-
-  const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(dict.cta.mailSubject)}`
 
   const links = [
     { id: 'product', label: dict.nav.product },
@@ -65,14 +63,19 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
     return () => observer.disconnect()
   }, [])
 
-  // Открытое меню не должно прокручивать страницу под собой.
+  /*
+    Открытое меню не должно прокручивать страницу под собой.
+
+    Замок — класс на <html>, а не `body.style.overflow`: правила в globals.css
+    (`.sh-menu-open`) заодно держат шапку на месте и гасят её размытие. Полоса прокрутки
+    при этом не пропадает скачком — у документа `scrollbar-gutter: stable`, и страница под
+    меню не сдвигается вбок на её ширину.
+  */
   useEffect(() => {
     if (!menuOpen) return
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previous
-    }
+    const root = document.documentElement
+    root.classList.add('sh-menu-open')
+    return () => root.classList.remove('sh-menu-open')
   }, [menuOpen])
 
   return (
@@ -94,23 +97,25 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
             animate={{ opacity: 1 }}
             exit={calm ? undefined : { opacity: 0 }}
             transition={{ duration: 0.22, ease: EASE }}
-            className="fixed inset-0 z-40 flex flex-col bg-background pt-[calc(4.5rem+env(safe-area-inset-top))] lg:hidden"
+            // Верхний отступ равен высоте шапки и следует за её сжатием (.sh-menu в
+            // globals.css): фиксированные 4.5rem под сжатой шапкой давали щель в 1rem.
+            className="sh-menu fixed inset-0 z-40 flex flex-col bg-background lg:hidden"
           >
             <nav
               aria-label={dict.nav.product}
               className="flex-1 overflow-y-auto overscroll-contain"
             >
               <Container className="flex flex-col py-2">
+                {/* Каскад пунктов — CSS-анимация (.sh-menu-link), а не Framer Motion: она
+                    идёт в потоке композитора и не делит кадр с проявлением самого меню. */}
                 {links.map((link, index) => (
-                  <motion.a
+                  <a
                     key={link.id}
                     href={`#${link.id}`}
                     onClick={() => setMenuOpen(false)}
-                    initial={calm ? false : { opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.35, delay: 0.04 * index, ease: EASE }}
+                    style={{ '--i': index } as CSSProperties}
                     className={[
-                      'font-display flex min-h-16 items-center justify-between gap-4 border-b border-hairline',
+                      'sh-menu-link font-display flex min-h-16 items-center justify-between gap-4 border-b border-hairline',
                       'text-lg font-semibold tracking-[-0.02em] outline-none',
                       'focus-visible:ring-4 focus-visible:ring-ring/25',
                       activeSection === link.id ? 'text-primary' : 'text-foreground',
@@ -118,7 +123,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
                   >
                     {link.label}
                     <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-                  </motion.a>
+                  </a>
                 ))}
               </Container>
             </nav>
@@ -130,9 +135,9 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
                 <span className="text-xs tracking-[0.14em] text-muted-foreground uppercase">
                   {dict.footer.language}
                 </span>
-                <LanguageMenu current={locale} />
+                <LanguageMenu current={locale} side="top" />
               </div>
-              <LinkButton href={mailto} external className="w-full">
+              <LinkButton href={PLATFORM_LINKS.demoRequest} external className="w-full">
                 {dict.nav.demo}
               </LinkButton>
             </Container>
@@ -140,7 +145,9 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
         )}
       </AnimatePresence>
 
-      <header className="sh-header z-50 border-b border-hairline bg-background/70 backdrop-blur-xl">
+      {/* Размытие под шапкой — через .sh-header в globals.css, а не утилитой: там же оно
+          выключается на тач-устройствах и под открытым меню, где стоит дороже всего. */}
+      <header className="sh-header z-50 border-b border-hairline">
         <Container className="sh-header__bar flex items-center justify-between gap-2 sm:gap-4">
           {/* items-center на строке и на самой ссылке: иконка выше строчных букв, и без
             общего центрирования логотип оптически выпадает вверх. */}
@@ -197,7 +204,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
           */}
             <span className="hidden xl:block">
               <LinkButton
-                href={mailto}
+                href={PLATFORM_LINKS.demoRequest}
                 external
                 variant="ghost"
                 size="sm"

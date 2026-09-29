@@ -99,6 +99,13 @@ const POST_SELECT = {
 
 type PostRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT }>
 
+/**
+ * Пост с личным признаком зрителя. Сохранён ли пост — вопрос про ПАРУ «зритель + пост»,
+ * поэтому признак не лежит в POST_SELECT: включать закладки отношением значило бы отдать
+ * наружу, КТО ещё сохранил пост. Считается отдельным запросом на страницу выдачи.
+ */
+type ViewerPost = PostRow & { bookmarked: boolean }
+
 // Поля scope для проверки прав (без тяжёлых relation'ов).
 const POST_SCOPE_SELECT = {
   id: true,
@@ -178,7 +185,10 @@ export class PostsService {
   // Where-условие таба ленты. Всегда применяется через AND поверх visibilityWhere.
   // «Преподаватели» = посты ОТ преподавателей (audience TEACHERS адресован преподавателям и
   // студентам не виден — как таб бесполезен); «Важное» = закреплённые.
-  private feedFilterWhere(filter?: FeedFilterValue): Prisma.PostWhereInput | null {
+  private feedFilterWhere(
+    filter: FeedFilterValue | undefined,
+    viewerId: string,
+  ): Prisma.PostWhereInput | null {
     switch (filter) {
       case 'GROUP':
         return { audience: PostAudience.GROUP }
@@ -188,6 +198,11 @@ export class PostsService {
         return { author: { role: Role.TEACHER } }
       case 'IMPORTANT':
         return { pinnedAt: { not: null } }
+      case 'SAVED':
+        // Полка зрителя, а не «популярное»: фильтр по ЕГО закладке. Пересечение с
+        // видимостью остаётся — сохранённый пост, который человек больше не имеет права
+        // видеть (ушёл из группы), в полке не появится.
+        return { bookmarks: { some: { userId: viewerId } } }
       default:
         return null
     }
@@ -210,7 +225,18 @@ export class PostsService {
 
   // ── Лента (задача 8.3) — cursor-пагинация + приоритет ──────────────────────
 
-  async feed(viewer: JwtPayload, query: FeedQueryInput): Promise<Paginated<PostRow>> {
+  /** Отмечает посты страницы личной закладкой зрителя: один индексный запрос на выдачу. */
+  private async withBookmarks(viewerId: string, rows: PostRow[]): Promise<ViewerPost[]> {
+    if (rows.length === 0) return []
+    const saved = await this.prisma.postBookmark.findMany({
+      where: { userId: viewerId, postId: { in: rows.map((row) => row.id) } },
+      select: { postId: true },
+    })
+    const ids = new Set(saved.map((row) => row.postId))
+    return rows.map((row) => ({ ...row, bookmarked: ids.has(row.id) }))
+  }
+
+  async feed(viewer: JwtPayload, query: FeedQueryInput): Promise<Paginated<ViewerPost>> {
     // authorId (вкладка «Посты» в профиле) всегда пересекается с видимостью зрителя —
     // нельзя увидеть чужие посты в обход прав (IDOR-защита).
     const base = this.visibilityWhere(viewer)
@@ -220,7 +246,7 @@ export class PostsService {
       ;(base.AND as Prisma.PostWhereInput[]).push({ status: 'PUBLISHED' })
     }
     // Таб ленты сужает выдачу поверх видимости (через AND) — обойти права нельзя.
-    const filterWhere = this.feedFilterWhere(query.filter)
+    const filterWhere = this.feedFilterWhere(query.filter, viewer.sub)
     if (filterWhere) (base.AND as Prisma.PostWhereInput[]).push(filterWhere)
     const where: Prisma.PostWhereInput = query.authorId
       ? { AND: [{ authorId: query.authorId }, base] }
@@ -239,8 +265,9 @@ export class PostsService {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
-    const items = hasNext ? rows.slice(0, query.limit) : rows
-    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    const nextCursor = hasNext ? page[page.length - 1]?.id : undefined
+    const items = await this.withBookmarks(viewer.sub, page)
     // Для вкладки «Посты» в профиле (authorId) отдаём общий счётчик — для бейджа на табе.
     // В общей ленте счётчик не считаем (лишний COUNT на горячем пути).
     const total = query.authorId ? await this.prisma.post.count({ where }) : undefined
@@ -251,8 +278,31 @@ export class PostsService {
     })
   }
 
-  async getById(viewer: JwtPayload, id: string): Promise<PostRow> {
-    return this.findVisibleOrThrow(viewer, id, POST_SELECT)
+  async getById(viewer: JwtPayload, id: string): Promise<ViewerPost> {
+    const post = await this.findVisibleOrThrow(viewer, id, POST_SELECT)
+    const [withFlag] = await this.withBookmarks(viewer.sub, [post])
+    return withFlag as ViewerPost
+  }
+
+  /**
+   * Сохранить пост или убрать из сохранённого. Переключатель, а не две ручки: клиент не
+   * обязан знать текущее состояние, чтобы нажать кнопку, — иначе два быстрых нажатия подряд
+   * расходились бы с сервером.
+   */
+  async toggleBookmark(viewer: JwtPayload, id: string): Promise<{ bookmarked: boolean }> {
+    // Сохранить можно только то, что зритель имеет право видеть: иначе закладка становится
+    // способом проверить существование чужого поста по id.
+    await this.findVisibleOrThrow(viewer, id, { id: true })
+    const existing = await this.prisma.postBookmark.findUnique({
+      where: { userId_postId: { userId: viewer.sub, postId: id } },
+      select: { id: true },
+    })
+    if (existing) {
+      await this.prisma.postBookmark.delete({ where: { id: existing.id } })
+      return { bookmarked: false }
+    }
+    await this.prisma.postBookmark.create({ data: { userId: viewer.sub, postId: id } })
+    return { bookmarked: true }
   }
 
   /** Бросает NOT_FOUND, если пост не виден зрителю. Используется share-to-chat (ChatsService). */

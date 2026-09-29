@@ -226,6 +226,7 @@ const MESSAGE_SELECT = {
       size: true,
       name: true,
       spoiler: true,
+      asDocument: true,
       width: true,
       height: true,
     },
@@ -337,7 +338,8 @@ export class ChatsService {
   }
 
   /**
-   * Кому показать «печатает» (§1 карты интерфейса: подпись видна и в строке списка, не только
+   * Кому показать действие — «печатает», «записывает голосовое», «отправляет фото»
+   * (§1 карты интерфейса: подпись видна и в строке списка, не только
    * в открытом чате).
    *
    * Комнаты `chat:{id}` для этого мало: в неё входят только с открытой перепиской, а строка
@@ -353,7 +355,7 @@ export class ChatsService {
    * по нему же. Сверх потолка членство не проверяем — рассылку по комнате `chat:{id}` и так
    * может получить только тот, кто в неё вошёл, а вход проверяет членство в БД.
    */
-  async typingAudience(
+  async actionAudience(
     userId: string,
     chatId: string,
   ): Promise<{ kind: 'users'; userIds: string[] } | { kind: 'room' } | { kind: 'denied' }> {
@@ -1612,6 +1614,146 @@ export class ChatsService {
     )
   }
 
+  /** Бакет вложений чата. Имя приходит из конфигурации, а не зашито строкой. */
+  private chatBucket(): string {
+    return this.config.get('MINIO_BUCKET_CHAT', { infer: true })
+  }
+
+  /**
+   * Подписанная ссылка на прямую загрузку вложения (Фаза 19.0).
+   *
+   * Своя пара, а не общая из `/files`, по тому же принципу, что у документов и материалов:
+   * бакет определяет модуль, а членство в чате проверяется здесь — общий маршрут о чатах
+   * ничего не знает и пустил бы кого угодно писать в `chat-media`.
+   */
+  async presignAttachment(userId: string, chatId: string, mime: string) {
+    await this.assertMembership(userId, chatId)
+    await this.assertCanSend(chatId, userId)
+    return this.files.presignPut(this.chatBucket(), mime, userId)
+  }
+
+  /** Открыть многочастную загрузку вложения (файлы больше порога одиночного PUT). */
+  async startAttachmentMultipart(userId: string, chatId: string, mime: string, size: number) {
+    await this.assertMembership(userId, chatId)
+    await this.assertCanSend(chatId, userId)
+    return this.files.startMultipart({ bucket: this.chatBucket(), mime, size, ownerId: userId })
+  }
+
+  /** Подписи на диапазон частей вложения. */
+  async attachmentPartUrls(
+    userId: string,
+    chatId: string,
+    input: { key: string; uploadId: string; from: number; to: number },
+  ) {
+    await this.assertMembership(userId, chatId)
+    return this.files.presignParts({ bucket: this.chatBucket(), ownerId: userId, ...input })
+  }
+
+  /**
+   * Сообщение по уже загруженным объектам (Фаза 19.0).
+   *
+   * Отличие от multipart-пути ровно одно: байтов через API не проходит вовсе — они уже в
+   * хранилище. Всё остальное то же самое, и проверки те же: членство, право писать, владение
+   * ключом и реальный тип по содержимому. Объявленному клиентом не верим и здесь: подтверждение
+   * читает объект из хранилища само.
+   *
+   * Сообщение создаётся ПЕРЕД привязкой файлов, потому что `File.messageId` требует
+   * существующего сообщения. Если ни один объект не подтвердился, пустое сообщение удаляем —
+   * иначе в ленте оставался бы пузырь без содержимого.
+   */
+  async sendMessageFromUploads(
+    senderId: string,
+    chatId: string,
+    input: {
+      content?: string
+      replyToId?: string
+      replyQuote?: string
+      silent?: boolean
+      asFiles?: boolean
+      attachments: {
+        key: string
+        uploadId?: string
+        name?: string
+        spoiler?: boolean
+        parts?: { part: number; etag: string }[]
+      }[]
+    },
+  ): Promise<MessageRow> {
+    await this.assertMembership(senderId, chatId)
+    await this.assertCanSend(chatId, senderId)
+    await this.assertReplyInChat(chatId, input.replyToId)
+    const bucket = this.chatBucket()
+    // Нормализацию текста делает схема (MessageSendUploadedSchema → messageText).
+    const content = input.content ?? ''
+
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId,
+          seq: await this.allocateSeq(chatId, tx),
+          senderId,
+          content,
+          replyToId: input.replyToId,
+          replyQuote: input.replyQuote,
+          silent: input.silent ?? false,
+        },
+        select: { id: true },
+      }),
+    )
+
+    let attached = 0
+    for (const attachment of input.attachments) {
+      // Многочастная загрузка сначала собирается, одиночная уже лежит объектом целиком.
+      const file =
+        attachment.parts && attachment.uploadId
+          ? await this.files.completeMultipart({
+              bucket,
+              key: attachment.key,
+              uploadId: attachment.uploadId,
+              ownerId: senderId,
+              parts: attachment.parts,
+              name: attachment.name,
+              messageId: created.id,
+              // Вложения чата — единственное место, где принимаются архивы.
+              allowArchives: true,
+            })
+          : await this.files.confirmDirectUpload({
+              bucket,
+              key: attachment.key,
+              ownerId: senderId,
+              name: attachment.name,
+              messageId: created.id,
+              allowArchives: true,
+            })
+      attached += 1
+      if (attachment.spoiler || input.asFiles) {
+        await this.prisma.file.update({
+          where: { id: file.id },
+          data: {
+            ...(attachment.spoiler ? { spoiler: true } : {}),
+            ...(input.asFiles ? { asDocument: true } : {}),
+          },
+        })
+      }
+    }
+
+    if (attached === 0 && content.length === 0) {
+      await this.prisma.message.delete({ where: { id: created.id } })
+      throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
+    }
+
+    const message = await this.prisma.message.findUniqueOrThrow({
+      where: { id: created.id },
+      select: MESSAGE_SELECT,
+    })
+    await this.bumpChat(chatId)
+    await this.enqueueLinkPreview(created.id, chatId, content)
+    await this.notifyNewMessage(chatId, senderId, message)
+    // REST-путь не проходит через ChatGateway — эмитим сами, ровно один раз (§10).
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+    return message
+  }
+
   /**
    * Отправка сообщения с вложениями через REST (multipart, 9+). Текст опционален, если есть файлы.
    * Порядок: создать сообщение → загрузить файлы в приватный бакет chat-media с привязкой к
@@ -1625,6 +1767,8 @@ export class ChatsService {
       replyToId?: string
       replyQuote?: string
       spoiler?: boolean
+      spoilerIndexes?: string
+      asFiles?: boolean
       silent?: boolean
     },
     files: { buffer: Buffer; name?: string }[],
@@ -1632,7 +1776,9 @@ export class ChatsService {
     await this.assertMembership(senderId, input.chatId)
     await this.assertCanSend(input.chatId, senderId)
     await this.assertReplyInChat(input.chatId, input.replyToId)
-    const content = input.content?.trim() ?? ''
+    // Текст уже нормализован схемой (обрезан, без невидимых символов) — здесь только
+    // проверка, что сообщение не пустое совсем: без текста оно осмысленно лишь с вложением.
+    const content = input.content ?? ''
     if (content.length === 0 && files.length === 0) {
       throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
     }
@@ -1651,20 +1797,37 @@ export class ChatsService {
         select: { id: true },
       }),
     )
+    // Порядок загрузки = порядок вложений в сообщении, и по нему же приходят номера
+    // спойлеров: скрыть могут один снимок из десяти, а не весь альбом.
+    const uploaded: { id: string }[] = []
     for (const file of files) {
-      await this.files.upload({
-        buffer: file.buffer,
-        bucket,
-        ownerId: senderId,
-        messageId: created.id,
-        name: file.name,
+      uploaded.push(
+        await this.files.upload({
+          buffer: file.buffer,
+          bucket,
+          ownerId: senderId,
+          messageId: created.id,
+          name: file.name,
+          // Вложения чата — единственное место, где принимаются архивы.
+          allowArchives: true,
+        }),
+      )
+    }
+    // §34: спойлер — свойство отдельного вложения. `spoiler: true` скрывает всё сообщение,
+    // `spoilerIndexes` — перечисленные номера; номера вне диапазона просто игнорируются.
+    const spoilerAt = new Set((input.spoilerIndexes ?? '').split(',').filter(Boolean).map(Number))
+    const spoilerIds = uploaded.filter((_, i) => input.spoiler || spoilerAt.has(i)).map((f) => f.id)
+    if (spoilerIds.length > 0) {
+      await this.prisma.file.updateMany({
+        where: { id: { in: spoilerIds } },
+        data: { spoiler: true },
       })
     }
-    // §34: помечаем все вложения сообщения спойлером (размытие до клика на клиенте).
-    if (input.spoiler && files.length > 0) {
+    // §9 «без сжатия», в отличие от спойлера, выбирают один раз на всю отправку.
+    if (input.asFiles && uploaded.length > 0) {
       await this.prisma.file.updateMany({
         where: { messageId: created.id },
-        data: { spoiler: true },
+        data: { asDocument: true },
       })
     }
     const message = await this.prisma.message.findUniqueOrThrow({
@@ -1827,17 +1990,47 @@ export class ChatsService {
     return { chatId: msg.chatId }
   }
 
+  /**
+   * Отметка «прочитано до этого сообщения».
+   *
+   * Отметка — время самого сообщения, а не «сейчас»: раньше любое прочтение ставило
+   * `lastReadAt = now()` и тем самым помечало прочитанным всё сразу, хотя клиент сообщает, до
+   * какого сообщения человек действительно долистал. Счётчик непрочитанного считает чужие
+   * сообщения новее отметки — с временем сообщения он уменьшается по мере чтения, как в
+   * Telegram, и остаток ниже остаётся непрочитанным.
+   *
+   * Отметка только растёт: прочтение более старого сообщения, пришедшее позже (два
+   * устройства, переставленные события), её не откатывает.
+   *
+   * Читателю отдельно уходит `chat:read` в его личную комнату: комната чата есть только
+   * у тех, у кого он открыт, а счётчик в списке и на других устройствах тоже должен
+   * обновиться.
+   */
   async markRead(
     userId: string,
     chatId: string,
     messageId: string,
   ): Promise<{ chatId: string; messageId: string; userId: string; readAt: Date }> {
     await this.assertMembership(userId, chatId)
-    const readAt = new Date()
-    await this.prisma.chatMember.updateMany({
-      where: { chatId, userId },
-      data: { lastReadAt: readAt },
+    const message = await this.prisma.message.findFirst({
+      where: { id: messageId, chatId },
+      select: { createdAt: true },
     })
+    if (!message) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+    await this.prisma.chatMember.updateMany({
+      where: {
+        chatId,
+        userId,
+        OR: [{ lastReadAt: null }, { lastReadAt: { lt: message.createdAt } }],
+      },
+      data: { lastReadAt: message.createdAt },
+    })
+    const member = await this.prisma.chatMember.findFirst({
+      where: { chatId, userId },
+      select: { lastReadAt: true },
+    })
+    const readAt = member?.lastReadAt ?? message.createdAt
+    this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
     return { chatId, messageId, userId, readAt }
   }
 

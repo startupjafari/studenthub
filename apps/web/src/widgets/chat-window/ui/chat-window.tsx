@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -33,7 +33,11 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
-import { CHAT_FOLDER_LIMITS, type CreateChatPollInput } from '@studenthub/shared-schemas'
+import {
+  CHAT_FOLDER_LIMITS,
+  type ChatAction,
+  type CreateChatPollInput,
+} from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
@@ -53,6 +57,10 @@ import {
   pinMessageRequest,
   searchMessages,
   sendMessageWithAttachments,
+  sendMessageWithUploaded,
+  presignChatAttachment,
+  startChatAttachmentMultipart,
+  chatAttachmentPartUrls,
   setChatMutedRequest,
   setChatPinnedRequest,
   setChatArchivedRequest,
@@ -69,6 +77,9 @@ import {
   toggleReactionRequest,
   unpinMessageRequest,
   AttachmentDialog,
+  ALBUM_MAX_ITEMS,
+  compressImages,
+  convertUnsupportedImages,
   ForwardDialog,
   MessageContextMenu,
   fetchChatUpdates,
@@ -81,17 +92,35 @@ import {
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
+  type AttachmentSendOptions,
   type MessageAttachment,
   type MessageMenuAnchor,
 } from '../../../entities/chat'
+import {
+  needsDirectUpload,
+  needsMultipartUpload,
+  putPresigned,
+  uploadResumable,
+} from '../../../shared/api'
+import { firstUnreadIndex, unreadAfter } from '../lib/read-tracking'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
+import {
+  applyAction,
+  summarizeActors,
+  sweepActions,
+  uploadActionOf,
+  UPLOAD_ACTION_DELAY_MS,
+  type ActionsByChat,
+} from '../lib/chat-actions'
+import { useChatActionSender, useEndChatActionOnUnmount } from '../lib/use-chat-action'
+import { useChatActionLabel } from '../lib/use-chat-action-label'
 import { ChatDetailsPanel } from './chat-details-panel'
-import { ChatFoldersDialog } from './chat-folders-dialog'
+import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
-import { BlockedUsersDialog } from './blocked-users-dialog'
-import { CreateGroupDialog } from './create-group-dialog'
+import { BlockedUsersPanel } from './blocked-users-panel'
+import { CreateGroupPanel } from './create-group-panel'
 import { ScheduleSendDialog } from './schedule-send-dialog'
 import { ScheduledPanel } from './scheduled-panel'
 import {
@@ -101,9 +130,9 @@ import {
   Button,
   DateJumpPicker,
   formatYmd,
+  MenuSeparator,
   Modal,
   RowContextMenu,
-  Skeleton,
   useConfirm,
   type RichTextHandle,
 } from '../../../shared/ui'
@@ -111,12 +140,16 @@ import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import { cn } from '../../../shared/lib/utils'
 import {
   createSpring,
+  formatBytes,
   hapticTick,
+  isOversizeOnPick,
+  maxUploadBytes,
   prefersReducedMotion,
   rubberband,
   saveFile,
   useChatListSlot,
   useMediaQuery,
+  useByteUnitLabel,
   useSetChatOpen,
   useSwipeRows,
 } from '../../../shared/lib'
@@ -133,7 +166,42 @@ import {
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
-const PEOPLE_IN_SEARCH = 8
+const PEOPLE_IN_SEARCH = 20
+
+/**
+ * Вложение не влезло в лимит категории. Отдельный тип, потому что сообщение об этом
+ * называет файл и его предел, а не переводится по коду ошибки сервера.
+ */
+class OversizeAttachmentError extends Error {
+  constructor(readonly file: File) {
+    super('attachment is too large')
+  }
+}
+
+/** Что уходит одной multipart-отправкой: поля сообщения + сами файлы. */
+interface UploadPayload {
+  content?: string
+  replyToId?: string
+  replyQuote?: string
+  files: File[]
+  /** Номера вложений под спойлером внутри этой пачки. */
+  spoilerIndexes?: number[]
+  asFiles?: boolean
+  silent?: boolean
+}
+
+/** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
+function isMediaFile(f: File): boolean {
+  return f.type.startsWith('image/') || f.type.startsWith('video/')
+}
+
+/** Разрезать вложения по потолку одного сообщения. Пустой список даёт пустой результат. */
+function chunkFiles(files: File[]): File[][] {
+  const out: File[][] = []
+  for (let i = 0; i < files.length; i += ALBUM_MAX_ITEMS)
+    out.push(files.slice(i, i + ALBUM_MAX_ITEMS))
+  return out
+}
 
 // Ширина одной кнопки свайп-панели строки списка (w-[4.5rem]).
 const ROW_BTN_W = 72
@@ -144,9 +212,6 @@ const ROW_BTN_W = 72
 const FOCUS_RETRY_MS = 50
 const FOCUS_TRIES = 10
 
-/** Пустая карта набирающих: общая ссылка, чтобы отсутствие набора не перерисовывало ленту. */
-const NO_TYPING: Record<string, number> = {}
-
 // Сколько закреплений полоса показывает шкалой. Дальше деления тоньше волоса и читаются
 // как сплошная линия — там честнее число «3/12».
 const PINNED_SCALE_MAX = 6
@@ -154,18 +219,11 @@ const PINNED_SCALE_MAX = 6
 // Высота пометки дня в потоке ленты: строка 20 px + вертикальные отступы my-2 (8+8).
 // По ней понимаем, ушла ли пометка под верх — тогда её подменяет прилипший заголовок.
 const DAY_LABEL_H = 36
+/** Как часто уходит отметка о прочтении при прокрутке: последним дочитанным сообщением. */
+const READ_EMIT_MS = 800
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
-const MESSAGE_SKELETONS = [
-  { mine: false, size: 'h-10 w-48' },
-  { mine: true, size: 'h-14 w-56' },
-  { mine: false, size: 'h-10 w-36' },
-  { mine: true, size: 'h-10 w-44' },
-  { mine: false, size: 'h-20 w-52' },
-  { mine: true, size: 'h-10 w-32' },
-]
-
 // Иконочные кнопки шапок чата (обычная, поиск, выбор сообщений) — одна геометрия на все три
 // режима: 44 px под палец (§13) и 40 px под курсор, иконка внутри size-5. Раньше в одном ряду
 // стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
@@ -193,13 +251,26 @@ function highlightTerm(text: string, term: string): React.ReactNode {
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
+  const actionLabelOf = useChatActionLabel()
   const tErr = useTranslations('Errors')
+  const unitLabel = useByteUnitLabel()
   const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const router = useRouter()
   const pathname = usePathname()
   const qc = useQueryClient()
   const socket = useRealtimeSocket()
+  // Отправка «я сейчас это делаю». Сокет читаем через ref внутри хука, поэтому пересоздания
+  // соединения не роняют уже идущее действие.
+  const chatActions = useChatActionSender((chatId, action) => {
+    socket?.emit('chat:action', { chatId, action })
+  })
+  useEndChatActionOnUnmount(chatActions)
+  // Для эффектов, которым нужен только «стоп»: сам отправитель стабилен, но линтеру об этом
+  // не известно, а тащить его в зависимости эффекта по смене чата нельзя — эффект должен
+  // срабатывать ровно на смену чата.
+  const chatActionsRef = useRef(chatActions)
+  chatActionsRef.current = chatActions
   const me = useAppSelector((s) => s.auth.user)
   const myId = me?.id
   const confirm = useConfirm()
@@ -252,7 +323,8 @@ export function ChatWindow() {
    * (§1 карты интерфейса), а события теперь приходят в личную комнату по всем чатам, где
    * состоит смотрящий, а не только по открытому.
    */
-  const [typingByChat, setTypingByChat] = useState<Record<string, Record<string, number>>>({})
+  // Кто что делает в чатах прямо сейчас (§9.1). Состояние эфемерное — только в памяти вкладки.
+  const [actionsByChat, setActionsByChat] = useState<ActionsByChat>({})
   const [connected, setConnected] = useState(true)
   // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
   // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
@@ -279,6 +351,9 @@ export function ChatWindow() {
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  // Перетаскивание файлов в переписку: подсветка зоны и счётчик вложенных dragenter/dragleave.
+  const [dropActive, setDropActive] = useState(false)
+  const dragDepth = useRef(0)
   // Создание опроса (§38) — диалог из attachment-меню композера.
   const [pollCreatorOpen, setPollCreatorOpen] = useState(false)
   // Единый поиск в панели чатов: по названиям чатов + по сообщениям (глобально).
@@ -333,7 +408,14 @@ export function ChatWindow() {
   const [detailsOpen, setDetailsOpen] = useState(false)
   // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
   const [showScrollDown, setShowScrollDown] = useState(false)
-  const [newSinceScroll, setNewSinceScroll] = useState(0)
+  // Прочитано до этого момента в открытом чате (время сообщения). Растёт по мере того, как
+  // сообщения появляются на экране, — от него считается «непрочитанных ниже» на кнопке «вниз».
+  const [readUpTo, setReadUpTo] = useState<string | null>(null)
+  const readUpToRef = useRef<string | null>(null)
+  // Отметка о прочтении уходит на сервер не на каждый кадр прокрутки, а раз в READ_EMIT_MS —
+  // последним дочитанным сообщением.
+  const pendingReadRef = useRef<{ chatId: string; id: string } | null>(null)
+  const readTimerRef = useRef<number | null>(null)
   // Плавающий заголовок даты (Telegram-стиль §6): дата верхнего видимого сообщения, гаснет вне скролла.
   const [floatingDay, setFloatingDay] = useState<string | null>(null)
   const [floatingDayShown, setFloatingDayShown] = useState(false)
@@ -371,7 +453,6 @@ export function ChatWindow() {
   }, [activeId])
 
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
-  const [openUnread, setOpenUnread] = useState(0)
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
   const chatsRef = useRef<ChatListItem[] | undefined>(undefined)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
@@ -406,7 +487,6 @@ export function ChatWindow() {
   const loadingOlderRef = useRef(false)
   // Был ли пользователь у нижнего края при прошлом событии скролла (для отметки прочтения по факту).
   const wasAtBottomRef = useRef(true)
-  const typingSentAt = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<RichTextHandle>(null)
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
@@ -494,22 +574,20 @@ export function ChatWindow() {
 
   // Люди своего вуза — в той же выдаче, что чаты и сообщения (Telegram-стиль): отдельного
   // входа «написать человеку» нет, переписка начинается прямо из строки поиска.
-  // Восемь строк, а не вся выдача: люди стоят между чатами и сообщениями, и полный список
-  // на два десятка однофамильцев увёл бы секцию «Сообщения» за пределы экрана. Кому мало —
-  // дописывает запрос, об этом говорит подсказка в конце секции.
+  // Не больше двадцати строк: люди стоят между чатами и сообщениями, и полная выдача
+  // увела бы секцию «Сообщения» далеко за пределы экрана.
   const listPeopleResults = useQuery({
     queryKey: directoryKeys.search(listSearchTerm, PEOPLE_IN_SEARCH),
     queryFn: () => fetchUserDirectory(listSearchTerm, PEOPLE_IN_SEARCH),
     enabled: listSearchTerm.length >= 2,
   })
 
-  // Клик по человеку: находим/заводим личный чат и открываем его. Не-другу это отправит
-  // запрос на переписку (§50) — говорим об этом тостом, потому что чат откроется одинаково.
+  // Клик по человеку: находим/заводим личный чат и открываем его. Запрос на переписку
+  // не-другу (§50) это ещё не отправляет — он уйдёт с первым сообщением (см. requestWaiting).
   const startDirect = useMutation({
     mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
     onSuccess: (chat) => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      if (chat.requestPendingForId) toast.success(t('requestSent'))
       setListSearchRaw('')
       setListSearchTerm('')
       setActiveId(chat.id)
@@ -683,6 +761,30 @@ export function ChatWindow() {
     onSuccess: invalidateFolders,
     onError: folderError,
   })
+
+  /**
+   * Новый порядок вкладок после перетаскивания папки.
+   *
+   * Отдельной ручки «переставить всё» у API нет — уезжает по PATCH на каждую сдвинувшуюся
+   * папку. Кэш переписываем сразу: порядок правят перетаскиванием, и вернуться на секунду
+   * к старому читалось бы как «не получилось».
+   */
+  const reorderFolders = (ids: string[]): void => {
+    const byId = new Map(folderList.map((f) => [f.id, f]))
+    const next = ids.flatMap((id, position) => {
+      const f = byId.get(id)
+      return f ? [{ ...f, position }] : []
+    })
+    const previous = folderList
+    qc.setQueryData<ChatFolder[]>(chatKeys.folders(), next)
+    const moved = next.filter((f) => byId.get(f.id)?.position !== f.position)
+    void Promise.all(moved.map((f) => updateChatFolderRequest(f.id, { position: f.position })))
+      .catch((e) => {
+        qc.setQueryData<ChatFolder[]>(chatKeys.folders(), previous)
+        folderError(e)
+      })
+      .finally(invalidateFolders)
+  }
 
   const mute = useMutation({
     mutationFn: ({
@@ -929,11 +1031,20 @@ export function ChatWindow() {
   // Запись голосового: по завершению отправляем сразу как вложение (Telegram-стиль).
   const voice = useVoiceRecorder({
     onRecorded: (file) => {
+      chatActions.end()
       if (!activeId) return
       sendFiles({ replyToId: replyTo?.id, files: [file], silent: silentSend })
     },
-    onError: (kind) =>
-      toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied')),
+    // Собеседник видит «записывает голосовое…» всё время записи — это самый длинный
+    // промежуток в чате, когда снаружи не происходит ничего.
+    onStart: () => {
+      if (activeId) chatActions.begin(activeId, 'RECORDING_VOICE')
+    },
+    onStop: () => chatActions.end(),
+    onError: (kind) => {
+      chatActions.end()
+      toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied'))
+    },
   })
 
   // ── Оптимистичная отправка медиа (Telegram-стиль) ─────────────────────────────
@@ -946,10 +1057,20 @@ export function ChatWindow() {
     { tempId: string; chatId: string; sig: string; localUrls: string[] }[]
   >([])
   const createdObjectUrls = useRef<string[]>([])
+  // Прерыватели загрузок: сообщение уходит одним multipart-запросом, значит и отменяется
+  // он целиком. Ключ — tempId оптимистичного пузыря, крестик на котором нажали.
+  const uploadAborts = useRef(new Map<string, AbortController>())
   const mediaRetry = useRef<
     Map<
       string,
-      { chatId: string; content?: string; replyToId?: string; files: File[]; spoiler?: boolean }
+      {
+        chatId: string
+        content?: string
+        replyToId?: string
+        files: File[]
+        spoilerIndexes?: number[]
+        asFiles?: boolean
+      }
     >
   >(new Map())
 
@@ -1016,24 +1137,137 @@ export function ChatWindow() {
     return { tempId: taken.tempId, localUrls: taken.localUrls }
   }
 
+  /**
+   * Прямая загрузка вложений в хранилище с последующей отправкой сообщения по ключам (Ф19.0).
+   *
+   * Прогресс агрегируется по всем файлам сразу: пользователь отправил одно сообщение и ждёт
+   * одну полосу, а не пять по очереди. Вес файлов при этом разный, поэтому доля считается по
+   * байтам, а не по числу готовых файлов — иначе стомегабайтный ролик и стокилобайтная
+   * картинка двигали бы полосу одинаково.
+   */
+  async function uploadDirectAttachments(
+    tempId: string,
+    chatId: string,
+    fields: Omit<UploadPayload, 'files'>,
+    files: File[],
+    signal: AbortSignal,
+  ): Promise<ChatMessage> {
+    const total = files.reduce((sum, f) => sum + f.size, 0)
+    const sent = new Map<number, number>()
+    const report = (): void => {
+      let done = 0
+      for (const value of sent.values()) done += value
+      setUploadProgress(chatId, tempId, total > 0 ? Math.min(1, done / total) : 0)
+    }
+
+    const attachments: {
+      key: string
+      uploadId?: string
+      name?: string
+      spoiler?: boolean
+      parts?: { part: number; etag: string }[]
+    }[] = []
+
+    // Последовательно, а не параллельно: внутри многочастной загрузки и так три части в
+    // работе, и запускать пять таких одновременно значит забить канал и замедлить всё.
+    for (const [i, file] of files.entries()) {
+      const spoiler = fields.spoilerIndexes?.includes(i)
+      const onProgress = (f: number): void => {
+        sent.set(i, f * file.size)
+        report()
+      }
+
+      if (needsMultipartUpload(file.size)) {
+        const parts: { part: number; etag: string }[] = []
+        const target = await uploadResumable<{ key: string; uploadId: string }>({
+          file,
+          bucket: 'CHAT',
+          start: (mime, size) => startChatAttachmentMultipart(chatId, mime, size),
+          urls: (range) => chatAttachmentPartUrls(chatId, range),
+          // Сборку делает сервер на отправке сообщения — она же привязывает файл к пузырю.
+          // Отдельным шагом объект собрался бы раньше сообщения и остался сиротой, если бы
+          // отправка не дошла.
+          complete: async (input) => {
+            parts.push(...input.parts)
+            return { key: input.key, uploadId: input.uploadId }
+          },
+          onProgress,
+          signal,
+        })
+        attachments.push({
+          key: target.key,
+          uploadId: target.uploadId,
+          name: file.name,
+          spoiler,
+          parts,
+        })
+      } else {
+        const presigned = await presignChatAttachment(
+          chatId,
+          file.type || 'application/octet-stream',
+        )
+        await putPresigned(presigned.url, file, onProgress, signal)
+        attachments.push({ key: presigned.key, name: file.name, spoiler })
+      }
+      sent.set(i, file.size)
+      report()
+    }
+
+    return sendMessageWithUploaded(chatId, {
+      content: fields.content,
+      replyToId: fields.replyToId,
+      replyQuote: fields.replyQuote,
+      silent: fields.silent,
+      asFiles: fields.asFiles,
+      attachments,
+    })
+  }
+
   async function uploadFiles(
     tempId: string,
     chatId: string,
-    content: string | undefined,
-    replyToId: string | undefined,
-    files: File[],
-    spoiler?: boolean,
-    replyQuote?: string,
-    silent?: boolean,
+    payload: UploadPayload,
   ): Promise<void> {
+    const { files, ...fields } = payload
+    const abort = new AbortController()
+    uploadAborts.current.set(tempId, abort)
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
+
+    // «Отправляет фото…» показываем не сразу: сжатый снимок улетает за доли секунды, и подпись
+    // успела бы только мигнуть. Ждём UPLOAD_ACTION_DELAY_MS — за это время короткая загрузка
+    // успевает закончиться, и собеседник ничего лишнего не увидит.
+    const uploadAction = uploadActionOf(files)
+    const actionDelay = uploadAction
+      ? setTimeout(() => chatActions.begin(chatId, uploadAction), UPLOAD_ACTION_DELAY_MS)
+      : null
+
     try {
-      const real = await sendMessageWithAttachments(
-        chatId,
-        { content, replyToId, spoiler, replyQuote, silent },
-        files,
-        (f) => setUploadProgress(chatId, tempId, f),
-      )
+      // Сжимаем здесь, а не перед показом пузыря: пузырь уже висит в ленте с локальным
+      // превью, и ждать ради него пережатия одиннадцати снимков незачем. «Без сжатия» —
+      // единственный режим, где байты уходят ровно те, что выбрали.
+      // «Без сжатия» отправляет байты как есть — но HEIC так не дойдёт вовсе: сервер не
+      // принимает этот тип. Его переводим в JPEG в обоих режимах, остальное не трогаем.
+      const payloadFiles = fields.asFiles
+        ? await convertUnsupportedImages(files)
+        : await compressImages(files)
+      // Повторная проверка размера уже по итоговым байтам: при выборе снимок мерился самым
+      // мягким лимитом, потому что сжатие ещё впереди, — здесь видно, помогло ли оно.
+      const oversize = payloadFiles.find((f) => f.size > maxUploadBytes(f.type))
+      if (oversize) {
+        throw new OversizeAttachmentError(oversize)
+      }
+      // Крупные вложения через API не проходят: тело multipart-запроса целиком ложится в
+      // память процесса. Хоть один такой файл — и всё сообщение уходит прямым путём, потому
+      // что сообщение создаётся одним запросом, и делить его между двумя путями некуда.
+      const real = payloadFiles.some((f) => needsDirectUpload(f.size))
+        ? await uploadDirectAttachments(tempId, chatId, fields, payloadFiles, abort.signal)
+        : await sendMessageWithAttachments(
+            chatId,
+            fields,
+            payloadFiles,
+            (f) => setUploadProgress(chatId, tempId, f),
+            abort.signal,
+          )
       mediaRetry.current.delete(tempId)
       // Обычно примиряет эхо message:new; страховка на случай гонки/фонового чата.
       const stillPending = pendingMedia.current.find((p) => p.tempId === tempId)
@@ -1048,12 +1282,51 @@ export function ChatWindow() {
       }
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     } catch (e) {
-      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+      // Отменил сам пользователь — пузырь уже убран, и ни ошибки, ни предложения повторить
+      // быть не должно: он именно этого и добивался.
+      if (abort.signal.aborted) return
+      // Загрузка не удалась — помечаем пузырь ошибкой, оставляем для повтора (клик по значку).
       setSendState((s) => ({ ...s, [tempId]: 'failed' }))
       setUploadProgress(chatId, tempId, 0)
-      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      if (e instanceof OversizeAttachmentError) {
+        warnOversize(e.file)
+      } else {
+        toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      }
+    } finally {
+      // Подпись снимаем в finally: отмена, ошибка сети и успешная отправка должны гасить её
+      // одинаково, иначе у собеседника останется «отправляет файл…» от загрузки, которой нет.
+      if (actionDelay) clearTimeout(actionDelay)
+      if (uploadAction) chatActions.end()
+      uploadAborts.current.delete(tempId)
     }
+  }
+
+  /**
+   * Отмена загрузки по крестику: рвём запрос и убираем пузырь совсем.
+   *
+   * Именно убираем, а не оставляем «не отправлено» с предложением повторить: отмену нажимают,
+   * когда файл улетел не в тот чат или не тот файл, и висящий после этого пузырь с кнопкой
+   * «ещё раз» предлагает ровно то, от чего отказались.
+   */
+  function cancelUpload(m: ChatMessage): void {
+    const tempId = m.id
+    uploadAborts.current.get(tempId)?.abort()
+    uploadAborts.current.delete(tempId)
+    mediaRetry.current.delete(tempId)
+    const pending = pendingMedia.current.find((p) => p.tempId === tempId)
+    pendingMedia.current = pendingMedia.current.filter((p) => p.tempId !== tempId)
+    // Локальные превью больше не нужны — освобождаем, иначе объекты висят до перезагрузки.
+    for (const url of pending?.localUrls ?? []) URL.revokeObjectURL(url)
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(m.chatId), (old) =>
+      (old ?? []).filter((x) => x.id !== tempId),
+    )
+    setSendState((s) => {
+      const next = { ...s }
+      delete next[tempId]
+      return next
+    })
   }
 
   function sendFiles(payload: {
@@ -1061,7 +1334,8 @@ export function ChatWindow() {
     replyToId?: string
     replyQuote?: string
     files: File[]
-    spoiler?: boolean
+    spoilerIndexes?: number[]
+    asFiles?: boolean
     silent?: boolean
   }): void {
     if (!activeId || !me || payload.files.length === 0) return
@@ -1078,7 +1352,8 @@ export function ChatWindow() {
       mime: f.type || 'application/octet-stream',
       size: f.size,
       name: f.name,
-      spoiler: payload.spoiler,
+      spoiler: payload.spoilerIndexes?.includes(i),
+      asDocument: payload.asFiles,
       localUrl: localUrls[i],
       uploading: true,
       progress: 0,
@@ -1128,7 +1403,8 @@ export function ChatWindow() {
       content: payload.content,
       replyToId: payload.replyToId,
       files: payload.files,
-      spoiler: payload.spoiler,
+      spoilerIndexes: payload.spoilerIndexes,
+      asFiles: payload.asFiles,
     })
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
     // Сбрасываем композер/диалог сразу — как в Telegram (пузырь уже в ленте, грузится в фоне).
@@ -1136,16 +1412,51 @@ export function ChatWindow() {
     setAttachFiles([])
     setAttachOpen(false)
     setReplyTo(null)
-    void uploadFiles(
-      tempId,
-      chatId,
-      payload.content,
-      payload.replyToId,
-      payload.files,
-      payload.spoiler,
-      payload.replyQuote,
-      payload.silent,
-    )
+    void uploadFiles(tempId, chatId, {
+      content: payload.content,
+      replyToId: payload.replyToId,
+      replyQuote: payload.replyQuote,
+      files: payload.files,
+      spoilerIndexes: payload.spoilerIndexes,
+      asFiles: payload.asFiles,
+      silent: payload.silent,
+    })
+  }
+
+  /**
+   * Отправка выбранных вложений выбранным в диалоге способом.
+   *
+   * Альбом режется на стопки по {@link ALBUM_MAX_ITEMS} — столько вложений несёт одно
+   * сообщение; без группировки каждый снимок уходит своим. Подпись, ответ и цитата достаются
+   * только первому сообщению: отвечают один раз, а повторённая у одиннадцати снимков подпись
+   * превратилась бы в одиннадцать одинаковых строк подряд.
+   */
+  function sendAttachments(caption: string, options: AttachmentSendOptions): void {
+    const files = attachFiles
+    if (files.length === 0) return
+    const media = files.filter(isMediaFile)
+    const docs = files.filter((f) => !isMediaFile(f))
+    // Как файлы уходит всё вместе списком; иначе медиа собирается по правилу группировки,
+    // а документы, выбранные заодно со снимками, идут своей пачкой.
+    const batches: File[][] = options.asFiles
+      ? chunkFiles(files)
+      : [...(options.grouped ? chunkFiles(media) : media.map((f) => [f])), ...chunkFiles(docs)]
+
+    // Спойлеры выбраны по снимкам, а уходят пачками — номер считается внутри своей пачки.
+    const spoilered = new Set(options.spoilered)
+    batches.forEach((batch, i) => {
+      sendFiles({
+        content: i === 0 ? caption || undefined : undefined,
+        replyToId: i === 0 ? replyTo?.id : undefined,
+        // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
+        // отправки, а не текста.
+        replyQuote: i === 0 ? (replyQuote ?? undefined) : undefined,
+        files: batch,
+        spoilerIndexes: batch.flatMap((f, j) => (spoilered.has(f) ? [j] : [])),
+        asFiles: options.asFiles,
+        silent: silentSend,
+      })
+    })
   }
 
   // Вход/выход из комнаты чата при смене активного чата.
@@ -1352,6 +1663,19 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
+  // Своё прочтение с другого устройства (или подтверждение этого): сервер шлёт его в личную
+  // комнату. Счётчик в списке и сводка в навигации берутся с сервера — там отметка уже
+  // сохранена. Список перезапрашиваем с задержкой: при быстром чтении отметки идут одна за
+  // другой, и дёргать список на каждую незачем.
+  const listRefreshRef = useRef<number | null>(null)
+  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+    if (listRefreshRef.current) window.clearTimeout(listRefreshRef.current)
+    listRefreshRef.current = window.setTimeout(() => {
+      listRefreshRef.current = null
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    }, 1500)
+  })
   useRealtimeEvent<{ messageId: string; chatId: string }>(
     'message:deleted',
     ({ messageId, chatId }) => {
@@ -1364,43 +1688,29 @@ export function ChatWindow() {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     },
   )
-  useRealtimeEvent<{ chatId: string; userId: string }>('typing:started', ({ chatId, userId }) => {
-    if (userId === myId) return
-    setTypingByChat((prev) => ({ ...prev, [chatId]: { ...prev[chatId], [userId]: Date.now() } }))
-  })
-  useRealtimeEvent<{ chatId: string; userId: string }>('typing:stopped', ({ chatId, userId }) => {
-    setTypingByChat((prev) => {
-      const inChat = prev[chatId]
-      if (!inChat || !(userId in inChat)) return prev
-      const rest = { ...inChat }
-      delete rest[userId]
-      const next = { ...prev }
-      if (Object.keys(rest).length === 0) delete next[chatId]
-      else next[chatId] = rest
-      return next
-    })
-  })
+  // Только `chat:action`: сервер шлёт рядом и старые typing:started/typing:stopped, но они
+  // для клиентов прошлой версии — здесь это был бы тот же факт вторым путём.
+  useRealtimeEvent<{ chatId: string; userId: string; action: ChatAction | null }>(
+    'chat:action',
+    ({ chatId, userId, action }) => {
+      if (userId === myId) return
+      setActionsByChat((prev) => applyAction(prev, chatId, userId, action))
+    },
+  )
 
-  // Автоочистка «печатает» через 4с без обновления. Нужна не только от потерянного
-  // `typing:stopped`: набирающий мог закрыть вкладку, и подпись висела бы вечно — в строке
-  // списка это заметнее, чем в шапке, потому что туда никто не заходит её сбрасывать.
+  // Автоочистка подписей без подтверждения (см. ACTION_TTL_MS). Нужна не только от потерянного
+  // «стоп»: человек мог закрыть вкладку, и подпись висела бы вечно — в строке списка это
+  // заметнее, чем в шапке, потому что туда никто не заходит её сбрасывать.
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTypingByChat((prev) => {
-        const now = Date.now()
-        const next: Record<string, Record<string, number>> = {}
-        let changed = false
-        for (const [chatId, users] of Object.entries(prev)) {
-          const alive: Record<string, number> = {}
-          for (const [uid, ts] of Object.entries(users)) if (now - ts < 4000) alive[uid] = ts
-          if (Object.keys(alive).length !== Object.keys(users).length) changed = true
-          if (Object.keys(alive).length > 0) next[chatId] = alive
-        }
-        return changed ? next : prev
-      })
-    }, 2000)
+    const timer = setInterval(() => setActionsByChat((prev) => sweepActions(prev)), 2000)
     return () => clearInterval(timer)
   }, [])
+
+  // Ушли из чата — действие закончилось. Без этого «печатает…» висело бы в покинутом диалоге
+  // до таймаута: набор текста явного «стоп» не шлёт.
+  useEffect(() => {
+    return () => chatActionsRef.current.end()
+  }, [activeId])
 
   // Сообщаем оболочке, открыт ли чат (полноэкранный режим → скрыть нижнюю навигацию на мобильном).
   useEffect(() => {
@@ -1427,22 +1737,16 @@ export function ChatWindow() {
     // на первой вкладке.
   }, [activeId])
 
-  // Снимок числа непрочитанных РОВНО при открытии чата (до отметки прочтения/инвалидации списка).
+  // Новый чат — прочтение начинается заново: плашку «Непрочитанные» и отметку «прочитано до»
+  // ставит первичный скролл, когда лента загрузится. Недоотправленную отметку прошлого чата
+  // отправляем сразу, а не теряем при переключении.
   useEffect(() => {
-    const c = chatsRef.current?.find((x) => x.id === activeId)
-    setOpenUnread(c?.unreadCount ?? 0)
     setUnreadDividerId(null)
+    readUpToRef.current = null
+    setReadUpTo(null)
+    return () => flushRead()
+    // flushRead читает refs — актуальный на момент ухода из чата, пересоздавать эффект незачем.
   }, [activeId])
-
-  // Как только сообщения загрузились — фиксируем id первого непрочитанного (последние openUnread в ленте).
-  // Приблизительно: точную границу «моё последнее прочитанное» API пока не отдаёт (только unreadCount).
-  useEffect(() => {
-    if (unreadDividerId || openUnread <= 0 || !messages.data?.length) return
-    const len = messages.data.length
-    if (len < openUnread) return
-    const target = messages.data[len - openUnread]
-    if (target) setUnreadDividerId(target.id)
-  }, [messages.data, openUnread, unreadDividerId])
 
   // Расстояние от низа < порога — пользователь «у низа» (auto-scroll и отметка прочтения уместны).
   function nearBottom(): boolean {
@@ -1473,22 +1777,44 @@ export function ChatWindow() {
 
     if (firstForChat) {
       scrolledForRef.current = activeId
-      setNewSinceScroll(0)
       setShowScrollDown(false)
+      // Как в Telegram: чат с непрочитанным открывается на первом непрочитанном, а не в самом
+      // низу. Раньше лента сразу уезжала вниз и тут же отправляла «прочитано» по последнему
+      // сообщению — двадцать непрочитанных гасли, хотя человек их не видел.
+      const unreadAtOpen = chatsRef.current?.find((c) => c.id === activeId)?.unreadCount ?? 0
+      const firstUnread = firstUnreadIndex(list, unreadAtOpen, myId)
+      setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
+      // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
+      // непрочитанным оказалось всё загруженное.
+      readUpToRef.current =
+        firstUnread === null
+          ? (last?.createdAt ?? null)
+          : firstUnread > 0
+            ? (list[firstUnread - 1]?.createdAt ?? '')
+            : ''
+      setReadUpTo(readUpToRef.current)
+      const position = (): void => {
+        if (firstUnread === null) toBottom('auto')
+        else virtualizerRef.current?.scrollToIndex(firstUnread, { align: 'start' })
+      }
       requestAnimationFrame(() => {
-        toBottom('auto')
-        window.setTimeout(() => toBottom('auto'), 120)
+        position()
+        // Второй проход — после того как virtua измерила строки: первая раскладка идёт по
+        // оценке высот. Прочтение отмечаем уже по настоящему кадру.
+        window.setTimeout(() => {
+          position()
+          markVisibleReadRef.current()
+        }, 120)
       })
-      if (last) emitRead(activeId, last.id)
       return
     }
 
     if (last && last.id !== prevLastId) {
       if (last.senderId === myId || nearBottom()) {
         toBottom('smooth')
-        emitRead(activeId, last.id)
+        // Прочитано — то, что оказалось на экране после доводки прокрутки.
+        window.setTimeout(() => markVisibleReadRef.current(), 350)
       } else {
-        setNewSinceScroll((n) => n + 1)
         setShowScrollDown(true)
       }
     }
@@ -1554,11 +1880,9 @@ export function ChatWindow() {
     }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
     setShowScrollDown(!atBottom)
-    if (atBottom && !wasAtBottomRef.current) {
-      setNewSinceScroll(0)
-      const last = messages.data?.[messages.data.length - 1]
-      if (last && socket && activeId) emitRead(activeId, last.id)
-    }
+    // Прочитано то, что проехало через экран, — на каждом шаге прокрутки, а не только
+    // у самого низа: как в Telegram, счётчик тает по мере чтения.
+    markVisibleRead()
     wasAtBottomRef.current = atBottom
     // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
     if (el.scrollTop < 100 && canLoadOlder && !loadingOlderRef.current) {
@@ -1594,7 +1918,6 @@ export function ChatWindow() {
       const len = messages.data?.length ?? 0
       if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: true })
     }
-    setNewSinceScroll(0)
     setShowScrollDown(false)
   }
 
@@ -1650,6 +1973,83 @@ export function ChatWindow() {
     if (peekChatIdRef.current === chatId) return
     socket?.emit('message:read', { chatId, messageId })
   }
+
+  /** Отправить накопленную отметку о прочтении сейчас (уход из чата, закрытие вкладки). */
+  function flushRead(): void {
+    if (readTimerRef.current) {
+      window.clearTimeout(readTimerRef.current)
+      readTimerRef.current = null
+    }
+    const pending = pendingReadRef.current
+    pendingReadRef.current = null
+    if (pending) emitRead(pending.chatId, pending.id)
+  }
+
+  /**
+   * Прочитано то, что человек увидел: последнее сообщение над нижней кромкой ленты (над
+   * панелью ввода — на телефоне она лежит поверх ленты). Только вперёд, только в видимой
+   * вкладке и не в режиме «открыть без прочтения».
+   *
+   * Счётчик в списке чатов правим сразу — остаток чужих сообщений ниже прочитанного, как
+   * его посчитает сервер; сама отметка уходит не чаще раза в READ_EMIT_MS.
+   */
+  function markVisibleRead(): void {
+    const chatId = activeId
+    const data = messages.data
+    const vh = virtualizerRef.current
+    if (!chatId || !data?.length || !vh) return
+    if (typeof document !== 'undefined' && document.hidden) return
+    if (peekChatIdRef.current === chatId) return
+    const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize - composerH)
+    let idx = Math.min(Math.max(vh.findItemIndex(bottom), 0), data.length - 1)
+    // Своё недоотправленное сообщение (временный id) сервер не знает — берём ближайшее
+    // настоящее выше него.
+    while (idx >= 0 && data[idx]?.id.startsWith('tmp:')) idx -= 1
+    const msg = data[idx]
+    if (!msg) return
+    if (readUpToRef.current !== null && msg.createdAt <= readUpToRef.current) return
+    readUpToRef.current = msg.createdAt
+    setReadUpTo(msg.createdAt)
+    pendingReadRef.current = { chatId, id: msg.id }
+    if (!readTimerRef.current) readTimerRef.current = window.setTimeout(flushRead, READ_EMIT_MS)
+    // В «прыгнутом» окне ниже загруженного есть ещё сообщения — остаток отсюда не посчитать,
+    // его пришлёт сервер (chat:read → список перезапросится).
+    if (canLoadNewer) return
+    const remaining = unreadAfter(data, msg.createdAt, myId)
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+      (old ?? []).map((c) =>
+        c.id === chatId ? { ...c, unreadCount: remaining, unread: remaining > 0 } : c,
+      ),
+    )
+  }
+  // Свежая версия для слушателей окна (фокус, видимость вкладки): те живут дольше рендера.
+  const markVisibleReadRef = useRef(markVisibleRead)
+  markVisibleReadRef.current = markVisibleRead
+
+  // Вернулись во вкладку — дочитываем то, что на экране: пока она была скрыта, «прочитано»
+  // не ставилось. Закрывают вкладку — отправляем накопленную отметку, а не теряем её.
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (!document.hidden) markVisibleReadRef.current()
+    }
+    const onHide = (): void => flushRead()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      window.removeEventListener('pagehide', onHide)
+    }
+  }, [])
+
+  // Непрочитанных ниже того, что видно, — число на кнопке «вниз», как в Telegram. Считается
+  // от отметки «прочитано до», поэтому тает вместе с прокруткой, а новые чужие сообщения,
+  // пришедшие, пока человек читает выше, его увеличивают.
+  const unreadBelow = useMemo(
+    () => unreadAfter(messages.data ?? [], readUpTo, myId),
+    [messages.data, readUpTo, myId],
+  )
 
   function markChatRead(chatId: string): void {
     const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
@@ -1728,14 +2128,13 @@ export function ChatWindow() {
             : x,
         ),
       )
-      void uploadFiles(
-        m.id,
-        media.chatId,
-        media.content,
-        media.replyToId,
-        media.files,
-        media.spoiler,
-      )
+      void uploadFiles(m.id, media.chatId, {
+        content: media.content,
+        replyToId: media.replyToId,
+        files: media.files,
+        spoilerIndexes: media.spoilerIndexes,
+        asFiles: media.asFiles,
+      })
       return
     }
     emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined, {
@@ -1806,7 +2205,7 @@ export function ChatWindow() {
       replyQuote: replyQuote ?? undefined,
       silent: silentSend,
     })
-    socket.emit('typing:stop', { chatId: activeId })
+    chatActions.end()
     setText('')
     draftsRef.current.delete(activeId)
     // #3: отправили — гасим серверный черновик (и локальный таймер сохранения).
@@ -2068,11 +2467,9 @@ export function ChatWindow() {
     const m = before.match(/(?:^|\s)@(\S*)$/)
     setMentionQuery(m ? (m[1] ?? '') : null)
     if (!socket || !activeId) return
-    const now = Date.now()
-    if (now - typingSentAt.current > 3000) {
-      typingSentAt.current = now
-      socket.emit('typing:start', { chatId: activeId })
-    }
+    // Явного «перестал печатать» нет намеренно: подпись гаснет у получателя по таймауту.
+    // Это дешевле лишнего события и переживает закрытие вкладки и потерю сети.
+    chatActions.ping(activeId, 'TYPING')
   }
 
   // Вставка упоминания: заменяет «@запрос» перед курсором на «@Имя Фамилия ».
@@ -2101,10 +2498,40 @@ export function ChatWindow() {
           .slice(0, 6)
 
   // Выбор файлов открывает диалог отправки; повторный выбор при открытом диалоге — добавляет.
+  /**
+   * Сообщить, что файл не влезает в лимит своей категории, и назвать сам лимит: «больше»
+   * без числа оставляет человека гадать, до скольки сжимать.
+   */
+  function warnOversize(file: File): void {
+    toast.error(
+      t('attachTooLarge', {
+        name: file.name,
+        max: formatBytes(maxUploadBytes(file.type), unitLabel),
+      }),
+    )
+  }
+
+  /**
+   * Перетаскивание принимаем, только когда тащат файлы и в открытый чат, куда вообще можно
+   * писать. Текст и ссылки из других вкладок сюда ронять незачем — их вставляют в поле.
+   */
+  function canDropFiles(e: DragEvent): boolean {
+    if (!activeId || !connected || editing) return false
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+  }
+
   function addFiles(list: FileList | null): void {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
-    setAttachFiles((prev) => (attachOpen ? [...prev, ...arr] : arr))
+    // Отсекаем неподъёмное сразу при выборе: иначе файл сначала уезжал на сервер целиком и
+    // только там получал 413 — полминуты ожидания ради ошибки.
+    const accepted = arr.filter((f) => {
+      if (!isOversizeOnPick(f)) return true
+      warnOversize(f)
+      return false
+    })
+    if (accepted.length === 0) return
+    setAttachFiles((prev) => (attachOpen ? [...prev, ...accepted] : accepted))
     setAttachOpen(true)
   }
 
@@ -2263,12 +2690,14 @@ export function ChatWindow() {
     searchJumpedFor.current = null
   }
 
-  const typingUsers = (activeId ? typingByChat[activeId] : undefined) ?? NO_TYPING
-  const typingCount = Object.keys(typingUsers).length
-  // Подпись «печатает…» для шапки (Telegram-стиль): в группе — с именем первого набирающего.
-  const firstTyperId = Object.keys(typingUsers)[0]
-  const firstTyperName = firstTyperId
-    ? membersQuery.data?.find((u) => u.id === firstTyperId)?.firstName
+  // Подпись действия для шапки (Telegram-стиль): в группе — с именем начавшего раньше всех.
+  const actionSummary = summarizeActors(activeId ? actionsByChat[activeId] : undefined)
+  const actorName = actionSummary
+    ? membersQuery.data?.find(
+        (u) =>
+          u.id ===
+          (actionSummary.kind === 'single' ? actionSummary.userId : actionSummary.firstUserId),
+      )?.firstName
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
   const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
@@ -2321,12 +2750,33 @@ export function ChatWindow() {
   const showSend = !!editing || hasText
   const recMMSS = `${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`
   const isPrivate = activeChat?.type === 'PRIVATE'
+  // Имя показываем только в групповом чате: в личном собеседник и так один.
+  const actionLabel = actionLabelOf(actionSummary, { name: actorName, withName: !isPrivate })
   const memberIds = Object.keys(presence)
   const otherId = memberIds.find((id) => id !== myId)
   const otherOnline = isPrivate && otherId ? presence[otherId] === true : false
   const onlineOthers = memberIds.filter((id) => id !== myId && presence[id]).length
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
+  // Запрос на переписку ушёл и ждёт ответа — поле ввода закрывает плашка. Уходит запрос
+  // первым сообщением, поэтому до него поле открыто. Пока запрос висит, писать может
+  // только инициатор, так что любое сообщение в чате — его: lastMessage хватает, пока
+  // лента не загрузилась, а лента — сразу после отправки, до обновления списка чатов.
+  const requestWaiting =
+    !!activeChat?.requestOutgoing && (!!activeChat.lastMessage || (messages.data?.length ?? 0) > 0)
+  // Тост «запрос отправлен» — в момент, когда запрос правда ушёл: в этом же чате ожидания не
+  // было и появилось. Смотрим на переход, а не на отправку, потому что путей у первого
+  // сообщения несколько (текст, медиа, голос). Смена чата — не переход: открыть чат с уже
+  // висящим запросом не значит отправить его снова.
+  const requestWaitingRef = useRef<{ chatId: string | null; waiting: boolean }>({
+    chatId: null,
+    waiting: false,
+  })
+  useEffect(() => {
+    const prev = requestWaitingRef.current
+    if (prev.chatId === activeId && !prev.waiting && requestWaiting) toast.success(t('requestSent'))
+    requestWaitingRef.current = { chatId: activeId, waiting: requestWaiting }
+  }, [activeId, requestWaiting, t])
 
   // Пропсы панели деталей чата — одни и те же для колонки (ПК) и модалки (планшет/мобильный),
   // чтобы презентация решалась одним `isWide`, а не двумя разными экранами.
@@ -2377,6 +2827,7 @@ export function ChatWindow() {
     copyText,
     deleteMessage,
     retrySend,
+    cancelUpload,
     toggleSelect,
     enterSelect,
     onCopiedImage,
@@ -2396,6 +2847,7 @@ export function ChatWindow() {
     copyText,
     deleteMessage,
     retrySend,
+    cancelUpload,
     toggleSelect,
     enterSelect,
     onCopiedImage,
@@ -2413,6 +2865,7 @@ export function ChatWindow() {
       forward: (m) => msgHandlersRef.current.setForwardMsg(m),
       del: (m) => msgHandlersRef.current.deleteMessage(m),
       retry: (m) => msgHandlersRef.current.retrySend(m),
+      cancelUpload: (m) => msgHandlersRef.current.cancelUpload(m),
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
       startSelect: (m) => msgHandlersRef.current.enterSelect(m),
       copiedImage: (ok) => msgHandlersRef.current.onCopiedImage(ok),
@@ -2478,7 +2931,6 @@ export function ChatWindow() {
       msgResultsLoading={listMsgResults.isLoading}
       peopleMatches={listPeopleResults.data?.items ?? []}
       peopleLoading={listPeopleResults.isLoading}
-      peopleHasMore={listPeopleResults.data?.hasMore ?? false}
       onOpenPerson={(u) => startDirect.mutate(u.id)}
       startingPersonId={startDirect.isPending ? (startDirect.variables ?? null) : null}
       chatById={chatById}
@@ -2496,7 +2948,7 @@ export function ChatWindow() {
       onRowTouchMove={chatRows.onRowTouchMove}
       onRowTouchEnd={chatRows.onRowTouchEnd}
       onCloseSwiped={chatRows.closeRow}
-      typingByChat={typingByChat}
+      actionsByChat={actionsByChat}
       onMarkRead={markChatRead}
       onOpenInNewTab={(c) => {
         // Тот же адрес, что и у «Написать» из профиля (?chat=<id>) — второе окно открывается
@@ -2525,12 +2977,129 @@ export function ChatWindow() {
     />
   )
 
+  // Настройка папок (§2) — панель на месте списка чатов, а не окно поверх него: сборка
+  // папки идёт по всему списку диалогов, и в окне ей всегда было тесно.
+  const foldersPanel = (
+    <ChatFoldersPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      folders={folderList}
+      chats={chats.data ?? []}
+      busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
+      editId={foldersEditId}
+      onClose={() => setFoldersOpen(false)}
+      onCreate={(input) => createFolder.mutate(input)}
+      onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
+      onDelete={(id) => {
+        const folder = folderList.find((f) => f.id === id)
+        if (!folder) return
+        void confirm({
+          title: t('foldersDeleteConfirm', { name: folder.name }),
+          destructive: true,
+        }).then((ok) => {
+          if (ok) deleteFolder.mutate(id)
+        })
+      }}
+      onReorder={reorderFolders}
+    />
+  )
+
+  const blockedPanel = (
+    <BlockedUsersPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      onClose={() => setBlockedOpen(false)}
+    />
+  )
+
+  const createGroupPanel = (
+    <CreateGroupPanel
+      embedded={embedded}
+      hidden={!!activeId}
+      onClose={() => setCreateGroupOpen(false)}
+      onCreated={(chatId) => {
+        setCreateGroupOpen(false)
+        setActiveId(chatId)
+      }}
+    />
+  )
+
+  // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
+  // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
+  // снятие блокировки — среди обычных пунктов.
+  const headerBlockItem =
+    isPrivate && otherId && activeChat ? (
+      <button
+        type="button"
+        disabled={block.isPending}
+        onClick={() => {
+          block.mutate({ userId: otherId, blocked: activeChat.blocked })
+          setHeaderMenuOpen(false)
+        }}
+        className={cn(
+          'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
+          !activeChat.blocked && 'text-destructive',
+        )}
+      >
+        <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
+        <span className="flex-1 text-left">
+          {activeChat.blocked ? t('unblockUser') : t('blockUser')}
+        </span>
+      </button>
+    ) : null
+
   return (
     <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
-      {embedded && listSlot ? createPortal(chatList, listSlot) : chatList}
+      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, список
+          чатов уступает ему место — и на телефоне во весь экран, и в сайдбаре десктопа. */}
+      {(() => {
+        const column = foldersOpen
+          ? foldersPanel
+          : blockedOpen
+            ? blockedPanel
+            : createGroupOpen
+              ? createGroupPanel
+              : chatList
+        return embedded && listSlot ? createPortal(column, listSlot) : column
+      })()}
 
-      {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран. */}
-      <section className={cn('min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}>
+      {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран.
+          Она же зона перетаскивания: файл роняют в переписку целиком, а не точно в поле
+          ввода. Счётчик dragDepth — чтобы подсветка не мигала, когда курсор проходит над
+          вложенными элементами: dragleave прилетает на каждый из них. */}
+      <section
+        className={cn('relative min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}
+        onDragEnter={(e) => {
+          if (!canDropFiles(e)) return
+          dragDepth.current += 1
+          setDropActive(true)
+        }}
+        onDragOver={(e) => {
+          if (!canDropFiles(e)) return
+          // Без preventDefault браузер откроет файл вместо того, чтобы отдать его нам.
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDragLeave={(e) => {
+          if (!canDropFiles(e)) return
+          dragDepth.current = Math.max(0, dragDepth.current - 1)
+          if (dragDepth.current === 0) setDropActive(false)
+        }}
+        onDrop={(e) => {
+          if (!canDropFiles(e)) return
+          e.preventDefault()
+          dragDepth.current = 0
+          setDropActive(false)
+          addFiles(e.dataTransfer.files)
+        }}
+      >
+        {dropActive && (
+          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 duration-150 animate-in fade-in">
+            <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
+              {t('dropHint')}
+            </span>
+          </div>
+        )}
         {!activeId ? (
           <div className="flex flex-1 items-center justify-center p-6 duration-300 animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">
@@ -2600,7 +3169,8 @@ export function ChatWindow() {
                 список найденных сообщений. Список — главное: без него единственным
                 способом добраться до нужного совпадения было жать ↓ и смотреть, куда
                 прыгнула переписка. Он лежит поверх ленты (absolute), чтобы прыжок к
-                сообщению был виден за ним и переписка не сжималась. */}
+                сообщению был виден за ним и переписка не сжималась, и открывается
+                под самим полем ввода, а не во всю ширину шапки. */}
             {chatSearchOpen &&
               (() => {
                 const found = chatSearchResults.data?.items ?? []
@@ -2625,6 +3195,10 @@ export function ChatWindow() {
                           autoFocus
                           value={chatSearchRaw}
                           onChange={(e) => setChatSearchRaw(e.target.value)}
+                          // Кнопки «показать список» нет: выдача, закрытая выбором
+                          // совпадения, снова открывается возвратом в поле.
+                          onFocus={() => setSearchListOpen(true)}
+                          onClick={() => setSearchListOpen(true)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault()
@@ -2637,6 +3211,41 @@ export function ChatWindow() {
                           placeholder={t('searchInChat')}
                           className="h-11 w-full rounded-xl border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:h-10"
                         />
+                        {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
+                          <ul
+                            aria-label={t('searchResults')}
+                            className="absolute inset-x-0 top-full z-10 mt-1 max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
+                          >
+                            {found.map((m, i) => (
+                              <li key={m.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => pickSearchResult(i)}
+                                  className={cn(
+                                    'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
+                                    i === searchIdx && 'bg-primary/10',
+                                  )}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-baseline gap-1.5">
+                                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                                        {m.senderId === myId ? t('you') : senderName(m)}
+                                      </span>
+                                      <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                                        {listTime(m.createdAt, locale)}
+                                      </span>
+                                    </div>
+                                    {/* Совпавший кусок подсвечен: из строки в две строки видно,
+                                      то ли это сообщение, ещё до перехода к нему. */}
+                                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                      {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
+                                    </p>
+                                  </div>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                       {/* Фильтр «От кого» (§4) — только в группах. */}
                       {activeIsGroup && (
@@ -2731,59 +3340,7 @@ export function ChatWindow() {
                       >
                         <ChevronDown className="size-5" aria-hidden />
                       </button>
-                      {/* Вернуть список, когда из него уже выбрали сообщение. */}
-                      <button
-                        type="button"
-                        aria-label={t('searchResults')}
-                        title={t('searchResults')}
-                        disabled={total === 0}
-                        aria-expanded={searchListOpen}
-                        onClick={() => setSearchListOpen((v) => !v)}
-                        className={cn(
-                          HEADER_ICON_BTN,
-                          'disabled:opacity-40',
-                          searchListOpen && 'bg-primary/10 text-primary',
-                        )}
-                      >
-                        <ListIcon className="size-5" aria-hidden />
-                      </button>
                     </header>
-
-                    {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
-                      <ul
-                        aria-label={t('searchResults')}
-                        className="absolute inset-x-0 top-full max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain border-b border-border bg-background shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
-                      >
-                        {found.map((m, i) => (
-                          <li key={m.id}>
-                            <button
-                              type="button"
-                              onClick={() => pickSearchResult(i)}
-                              className={cn(
-                                'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
-                                i === searchIdx && 'bg-primary/10',
-                              )}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-baseline gap-1.5">
-                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-                                    {m.senderId === myId ? t('you') : senderName(m)}
-                                  </span>
-                                  <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
-                                    {listTime(m.createdAt, locale)}
-                                  </span>
-                                </div>
-                                {/* Совпавший кусок подсвечен: из строки в две строки видно,
-                                  то ли это сообщение, ещё до перехода к нему. */}
-                                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                                  {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
-                                </p>
-                              </div>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
                   </div>
                 )
               })()}
@@ -2849,14 +3406,8 @@ export function ChatWindow() {
                     )}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {typingCount > 0 ? (
-                      <span className="text-primary">
-                        {isPrivate || typingCount > 1 || !firstTyperName
-                          ? isPrivate
-                            ? t('typingStatus')
-                            : t('typingMany')
-                          : t('typingStatusName', { name: firstTyperName })}
-                      </span>
+                    {actionLabel ? (
+                      <span className="text-primary">{actionLabel}</span>
                     ) : isPrivate ? (
                       otherOnline ? (
                         t('online')
@@ -3028,25 +3579,8 @@ export function ChatWindow() {
                           )}
                           <span className="flex-1 text-left">{t('export')}</span>
                         </button>
-                        {isPrivate && otherId && activeChat && (
-                          <button
-                            type="button"
-                            disabled={block.isPending}
-                            onClick={() => {
-                              block.mutate({ userId: otherId, blocked: activeChat.blocked })
-                              setHeaderMenuOpen(false)
-                            }}
-                            className={cn(
-                              'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
-                              !activeChat.blocked && 'text-destructive',
-                            )}
-                          >
-                            <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
-                            <span className="flex-1 text-left">
-                              {activeChat.blocked ? t('unblockUser') : t('blockUser')}
-                            </span>
-                          </button>
-                        )}
+                        {/* «Разблокировать» не красный — остаётся среди обычных пунктов. */}
+                        {activeChat?.blocked && headerBlockItem}
                         {activeChat && (
                           <button
                             type="button"
@@ -3065,6 +3599,10 @@ export function ChatWindow() {
                             <span className="flex-1 text-left">{t('clearHistory')}</span>
                           </button>
                         )}
+                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть
+                            всегда, когда есть чат, поэтому линия зависит только от него. */}
+                        {activeChat && <MenuSeparator />}
+                        {!activeChat?.blocked && headerBlockItem}
                         {activeChat && (
                           <button
                             type="button"
@@ -3211,19 +3749,10 @@ export function ChatWindow() {
                 // по его высоте, иначе последнее сообщение уезжает под панель.
                 style={{ paddingBottom: composerH + 8 }}
               >
-                {messages.isLoading ? (
-                  <div className="flex flex-col gap-3">
-                    {MESSAGE_SKELETONS.map((bubble, i) => (
-                      <div
-                        key={i}
-                        className={cn('flex', bubble.mine ? 'justify-end' : 'justify-start')}
-                        aria-hidden
-                      >
-                        <Skeleton className={cn('rounded-2xl', bubble.size)} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+                {/* Пока лента едет — пусто. Пузыри-заглушки читались как настоящие
+                    сообщения: человек начинал их читать ровно в тот момент, когда они
+                    сменялись реальной перепиской. */}
+                {messages.isLoading ? null : (
                   <Virtualizer ref={virtualizerRef} scrollRef={messagesScrollRef} shift={shiftMode}>
                     {(messages.data ?? []).map((m, i) => {
                       const mine = m.senderId === myId
@@ -3290,7 +3819,7 @@ export function ChatWindow() {
                   </Virtualizer>
                 )}
               </div>
-              {/* Кнопка «вниз» со счётчиком новых — появляется, когда пролистано вверх (Telegram-стиль). */}
+              {/* Кнопка «вниз» со счётчиком непрочитанных ниже — появляется, когда пролистано вверх (Telegram-стиль). */}
               {showScrollDown && (
                 <button
                   type="button"
@@ -3300,9 +3829,9 @@ export function ChatWindow() {
                   style={{ bottom: composerH + 12 }}
                 >
                   <ChevronDown className="size-5" aria-hidden />
-                  {newSinceScroll > 0 && (
+                  {unreadBelow > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-bold text-primary-foreground">
-                      {newSinceScroll > 99 ? '99+' : newSinceScroll}
+                      {unreadBelow > 99 ? '99+' : unreadBelow}
                     </span>
                   )}
                 </button>
@@ -3323,15 +3852,11 @@ export function ChatWindow() {
                     'absolute inset-x-0 bottom-0 z-30',
                     'pointer-events-none px-3 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]',
                     // Плашка ловит указатель сама: прокручивать ленту «сквозь» непрозрачную
-                    // поверхность всё равно негде.
+                    // поверхность всё равно негде. py-2 вокруг 44-px ряда — та же высота, что
+                    // у плашки профиля внизу сайдбара: их верхние границы идут одной линией.
                     'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2',
                   )}
                 >
-                  {activeChat?.requestOutgoing && (
-                    <p className="mx-auto mb-1 w-fit rounded-full bg-muted/80 px-2 py-0.5 text-center text-xs text-muted-foreground backdrop-blur">
-                      {t('requestPending')}
-                    </p>
-                  )}
                   <ChatComposer
                     editing={editing}
                     onCancelEdit={() => {
@@ -3353,6 +3878,7 @@ export function ChatWindow() {
                     onScheduleSend={() => setScheduleOpen(true)}
                     blocked={!!blockedActive}
                     iBlocked={!!activeChat?.blocked}
+                    requestPending={requestWaiting}
                     otherId={otherId}
                     onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
                     text={text}
@@ -3525,16 +4051,6 @@ export function ChatWindow() {
         <ScheduledPanel chatId={activeId} onClose={() => setScheduledOpen(false)} />
       )}
 
-      {createGroupOpen && (
-        <CreateGroupDialog
-          onClose={() => setCreateGroupOpen(false)}
-          onCreated={(chatId) => {
-            setCreateGroupOpen(false)
-            setActiveId(chatId)
-          }}
-        />
-      )}
-
       {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
       {pinnedMenu &&
         (() => {
@@ -3627,18 +4143,6 @@ export function ChatWindow() {
         </Modal>
       )}
 
-      <ChatFoldersDialog
-        open={foldersOpen}
-        onOpenChange={setFoldersOpen}
-        folders={folderList}
-        chats={chats.data ?? []}
-        busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
-        editId={foldersEditId}
-        onCreate={(input) => createFolder.mutate(input)}
-        onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
-        onDelete={(id) => deleteFolder.mutate(id)}
-      />
-
       {pollCreatorOpen && (
         <PollCreator
           onClose={() => setPollCreatorOpen(false)}
@@ -3647,24 +4151,11 @@ export function ChatWindow() {
         />
       )}
 
-      {blockedOpen && <BlockedUsersDialog onClose={() => setBlockedOpen(false)} />}
-
       {attachOpen && (
         <AttachmentDialog
           files={attachFiles}
           sending={false}
-          onSend={(caption, spoiler) =>
-            sendFiles({
-              content: caption || undefined,
-              replyToId: replyTo?.id,
-              // Цитата и «без звука» действуют и на сообщение с вложениями: это свойства
-              // отправки, а не текста.
-              replyQuote: replyQuote ?? undefined,
-              files: attachFiles,
-              spoiler,
-              silent: silentSend,
-            })
-          }
+          onSend={(caption, options) => sendAttachments(caption, options)}
           onAddMore={() => fileInputRef.current?.click()}
           onRemove={(i) =>
             setAttachFiles((prev) => {

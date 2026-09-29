@@ -46,19 +46,20 @@ model Post {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  author           User        @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  targetUser       User?       @relation("PostTarget", fields: [targetUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  pinnedBy         User?       @relation("PostPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  university       University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  faculty          Faculty?    @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  group            Group?      @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  original         Post?       @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  reposts          Post[]      @relation("PostRepost")
+  author           User           @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  targetUser       User?          @relation("PostTarget", fields: [targetUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  pinnedBy         User?          @relation("PostPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university       University?    @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty          Faculty?       @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group            Group?         @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  original         Post?          @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reposts          Post[]         @relation("PostRepost")
   media            File[]
   reactions        Reaction[]
   comments         Comment[]
+  bookmarks        PostBookmark[]
   // Сообщения, в которых этот пост расшарен превью-карточкой (Ф9+ share-to-chat).
-  sharedInMessages Message[]   @relation("MessageSharedPost")
+  sharedInMessages Message[]      @relation("MessageSharedPost")
 
   // Фильтр видимости по audience-скоупу + cursor-пагинация по времени (docs/PROJECT.md §6.2).
   @@index([audience])
@@ -92,6 +93,34 @@ model Reaction {
   @@index([postId])
   @@index([userId])
   @@map("reactions")
+}
+
+/**
+ * Избранное ленты: личная полка постов.
+ * Имя не `Bookmark` — оно занято закладкой на статью профиля (13-profile.prisma), и это
+ * другой смысл: там сохраняют длинный текст к прочтению, здесь — пост ленты. Одна таблица
+ * на два домена означала бы полиморфную ссылку и проверку «а что это было» в каждом запросе.
+ * Отдельная таблица, а не флаг на посте, по очевидной причине — признак принадлежит паре
+ * «человек + пост», а не посту. Из этого же следует, что он НИКОГДА не уходит другим:
+ * сколько людей сохранили пост, не показывается и в ответе не считается. Реакции видны
+ * всем намеренно, закладка — нет; это разные по смыслу действия, и путать их нельзя.
+ * Уникальность пары держит идемпотентность: повторное сохранение не создаёт второй строки,
+ * и клиенту не нужно знать, сохранял он уже или нет.
+ */
+model PostBookmark {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  postId    String   @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation("UserPostBookmarks", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, postId])
+  // Полка открывается «моё, сверху свежее» — индекс ровно под этот запрос.
+  @@index([userId, createdAt])
+  @@index([postId])
+  @@map("post_bookmarks")
 }
 
 model Comment {

@@ -15,6 +15,8 @@ function setup() {
     complaint: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
+      // Самая старая жалоба в очереди: её возраст идёт в сводку.
+      findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'c-new' }),
       update: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -404,7 +406,9 @@ describe('ComplaintsService.create — уведомление команды п�
     // всей команде, и без неё двое открывают одну и ту же.
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
       'complaint',
-      'Срочная жалоба на пользователя',
+      // Второй строкой — размер очереди: «срочная жалоба» звучит одинаково и когда она
+      // одна, и когда она девятая.
+      expect.stringContaining('Срочная жалоба на пользователя\nЖалоб в очереди:'),
       'complaint_c-1',
       expect.any(Date),
       false,

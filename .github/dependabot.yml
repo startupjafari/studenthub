@@ -1,0 +1,54 @@
+# Обновления зависимостей и GitHub Actions.
+#
+# Зачем. Уязвимость в fastify < 5.12.1 (подделка X-Forwarded-* при trustProxy — ровно тот
+# механизм, на котором держится троттлинг логина по IP) прожила в репозитории незамеченной
+# до ручного аудита. Пакеты протухают молча, и единственный способ узнать об этом вовремя —
+# чтобы кто-то регулярно смотрел. Пусть смотрит бот.
+#
+# Раз в неделю и пачками по экосистемам: ежедневный поток PR'ов в репозитории с одним
+# автором не читают, а закрывают не глядя.
+version: 2
+updates:
+  # Патчи и минорные версии — одной группой: их смотрят по changelog'у пачкой, а не по
+  # одному PR на пакет. Мажорные приходят отдельными PR: там нужен разбор.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Almaty
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      # Тип и scope латиницей, описание по-русски — как в остальной истории (AGENTS.md).
+      prefix: 'chore(deps)'
+      prefix-development: 'chore(deps-dev)'
+    groups:
+      patch-and-minor:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # Мажорные Next/React/NestJS/Prisma переезжают вместе с кодом, а не по PR от бота:
+      # они всегда тянут правки в приложении. Безопасность здесь ни при чём — эти четыре
+      # обновляются руками и осознанно.
+      - dependency-name: next
+        update-types: [version-update:semver-major]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      - dependency-name: '@nestjs/*'
+        update-types: [version-update:semver-major]
+      - dependency-name: prisma
+        update-types: [version-update:semver-major]
+      - dependency-name: '@prisma/client'
+        update-types: [version-update:semver-major]
+
+  # Actions пришпилены по мажорной версии (actions/checkout@v4) и сами не обновляются.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: 'ci'

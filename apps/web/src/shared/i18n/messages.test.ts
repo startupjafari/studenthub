@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { HOLIDAYS } from '../config/holidays'
 
 // Страж словарей: ключ, которого нет ни в одной локали, тесты и сборка раньше не ловили —
 // next-intl падает уже в рантайме (MISSING_MESSAGE), и на экран уходит сам ключ. Так дважды
@@ -129,6 +130,44 @@ describe('словари i18n', () => {
       if (absent.length > 0) missing.push(`Nav.group.${group} — нет в ${absent.join(', ')}`)
     }
     expect(missing).toEqual([])
+  })
+
+  /**
+   * Тексты праздников берутся по `holiday.id` (season-greeting.tsx, calendar-view.tsx) —
+   * ключ собирается из значения, и проверка выше его не видит. Сверяем в обе стороны, и
+   * разными мерками: название нужно всякому празднику, который показывает календарь, а
+   * поздравление — только тем, кого мы оформляем. Обратная проверка ловит строки,
+   * оставшиеся от выключенного праздника.
+   */
+  it('у каждого праздника есть нужные ему тексты в Season', () => {
+    const named = HOLIDAYS.filter((holiday) => holiday.tier !== 'SOFT').map((h) => h.id)
+    const greeted = HOLIDAYS.filter((holiday) => holiday.decorated).map((h) => h.id)
+    expect(named.length).toBeGreaterThan(0)
+    expect(greeted.length).toBeGreaterThan(0)
+
+    const problems: string[] = []
+    const require = (ids: string[], leaf: 'name' | 'greeting') => {
+      for (const id of ids) {
+        const key = `Season.${id}.${leaf}`
+        const absent = LOCALES.filter((locale) => !dicts[locale].has(key))
+        if (absent.length > 0) problems.push(`${key} — нет в ${absent.join(', ')}`)
+      }
+    }
+    require(named, 'name')
+    require(greeted, 'greeting')
+
+    for (const key of dicts.ru) {
+      if (!key.startsWith('Season.')) continue
+      const [, id, leaf] = key.split('.')
+      if (!id || !leaf) continue
+      if (leaf === 'name' && !named.includes(id)) problems.push(`${key} — нет в календаре`)
+      else if (leaf === 'greeting' && !greeted.includes(id)) {
+        problems.push(`${key} — праздник не оформляется`)
+      } else if (leaf !== 'name' && leaf !== 'greeting') {
+        problems.push(`${key} — у праздника нет такого текста`)
+      }
+    }
+    expect(problems).toEqual([])
   })
 
   it('наборы ключей ru/en/kk совпадают', () => {

@@ -2,7 +2,23 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      `user-scalable=no` — против зума по фокусу на поле.
+
+      Android-клиент увеличивает страницу, когда палец встаёт в поле ввода, и обратно её
+      не возвращает: мини-апп остаётся растянутым, половина экрана уходит за край, а
+      вернуть масштаб внутри Telegram нечем — адресной строки и кнопки «сбросить» там нет.
+      Одного размера текста в поле (styles.css, `pointer: coarse`) не хватило: он лечит
+      Safari на iOS, где этот параметр вообще игнорируется, а Android смотрит именно сюда.
+
+      Цена решения названа прямо: вместе с зумом по фокусу уходит и зум пальцами. Взамен
+      у мини-аппа есть свой крупный шрифт — «⋯» → «Настройки» → размер текста
+      (lib/font-scale.ts); он и остаётся способом сделать текст больше.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <title>StudentHub</title>
     <!--
       SDK Telegram подключается ТОЛЬКО с telegram.org и только этим тегом: библиотека
@@ -11,9 +27,175 @@
       Telegram обновляет его вместе с клиентом.
     -->
     <script src="https://telegram.org/js/telegram-web-app.js?57"></script>
+    <!--
+      Заставка запуска — та же, что на сайте (apps/web/src/shared/ui/app-splash.tsx).
+
+      Стили лежат здесь, в разметке, а не в styles.css: таблица стилей приезжает вместе с
+      модулем приложения, и заставка, оформленная в ней, полсекунды висела бы голой
+      разметкой. Полотно обязано быть готовым в ПЕРВОЙ отрисовке — до него на экране не
+      должно быть ничего.
+
+      Цвета — литералы тёмной темы сайта, а не переменные Telegram: заставка остаётся
+      тёмной в обеих темах клиента, как и на сайте. Заодно она закрывает собой момент,
+      когда applyTheme ещё не проставил переменные и приложение нарисовалось бы белым.
+    -->
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 400;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Вигнетка, а не заливка: перепад мал, но именно он превращает полотно в
+           пространство с передним планом, а не в плоский прямоугольник. */
+        background: radial-gradient(120% 90% at 50% 46%, #181b22 0%, #0f1115 52%, #08090c 100%);
+        color: #f3f4f6;
+        font:
+          600 15px/1.2 -apple-system,
+          BlinkMacSystemFont,
+          'SF Pro Text',
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Уход полотна — на forwards: анимация всегда доходит до конца и не может запереть
+         приложение под непрозрачным слоем, даже если сценарий снятия не отработал. */
+      #splash.gone {
+        animation: splash-out 300ms ease forwards;
+        pointer-events: none;
+      }
+
+      @keyframes splash-out {
+        to {
+          opacity: 0;
+          visibility: hidden;
+        }
+      }
+
+      .splash-mark {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        animation: splash-mark-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      @keyframes splash-mark-in {
+        from {
+          opacity: 0;
+          transform: scale(0.94);
+        }
+      }
+
+      /* Обойма вокруг значка: ореол позиционируется от неё и выходит далеко за края. */
+      .splash-icon {
+        position: relative;
+        display: inline-flex;
+        flex: 0 0 auto;
+        width: 40px;
+        height: 40px;
+        color: #2b72e5;
+        /* Тень своего цвета, а не чёрная: на тёмном полотне чёрная невидима, а цветная
+           читается как отсвет самой марки — знак встаёт НАД полотном. */
+        filter: drop-shadow(0 6px 12px rgb(43 114 229 / 0.45));
+      }
+
+      .splash-icon svg {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Ореол — источник света ЗА маркой: разгорается дольше всей остальной заставки,
+         поэтому свет ощущается как приход, а не как включённая лампа. */
+      .splash-halo {
+        position: absolute;
+        inset: -150%;
+        border-radius: 50%;
+        background: radial-gradient(
+          closest-side,
+          rgb(43 114 229 / 0.28) 0%,
+          rgb(43 114 229 / 0.1) 38%,
+          rgb(43 114 229 / 0.02) 62%,
+          transparent 78%
+        );
+        animation: splash-halo-in 1280ms cubic-bezier(0.32, 0.72, 0.28, 1) 120ms both;
+      }
+
+      @keyframes splash-halo-in {
+        from {
+          opacity: 0;
+          transform: scale(0.82);
+        }
+      }
+
+      /* Подпись внизу: тихий тон и никакого движения — она не должна тянуть взгляд. */
+      .splash-footer {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: calc(24px + env(safe-area-inset-bottom));
+        margin: 0;
+        color: #9ca3af;
+        font-size: 12px;
+        font-weight: 400;
+        text-align: center;
+      }
+
+      /* Пониженное движение: марка показывается сразу и целиком — выключено движение,
+         а не оформление, поэтому вигнетка, тень и ореол остаются на месте. */
+      @media (prefers-reduced-motion: reduce) {
+        .splash-mark,
+        .splash-halo {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Полотно лежит ПОСЛЕ корня приложения: пока оно в разметке, под ним ничего не видно,
+      и очерёдность загрузки перестаёт быть заметной. aria-hidden — читалке здесь нечего
+      сообщать: логотип не говорит ничего, чего не скажет заголовок документа.
+    -->
+    <div id="splash" aria-hidden="true">
+      <span class="splash-mark">
+        <span class="splash-icon">
+          <span class="splash-halo"></span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"
+            />
+            <path d="M22 10v6" />
+            <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5" />
+          </svg>
+        </span>
+        StudentHub
+      </span>
+      <p class="splash-footer">© StudentHub 2026 · Мехман Джафари</p>
+    </div>
+    <script>
+      // Страховка: полотно уходит само, даже если модуль приложения не загрузился совсем.
+      // Шесть секунд — заведомо дольше проверки доступа; снимет её обычно приложение
+      // (lib/splash.ts), и этот таймер до дела не дойдёт.
+      setTimeout(function () {
+        var splash = document.getElementById('splash')
+        if (splash) splash.className = 'gone'
+      }, 6000)
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

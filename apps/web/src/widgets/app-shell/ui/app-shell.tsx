@@ -325,6 +325,8 @@ function BottomNav({
               <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
               {tNav('profile')}
             </Link>
+            {/* Выход — опасное действие: последним и за своей линией (правило для всех меню). */}
+            <div className={hairline} aria-hidden />
             <button type="button" onClick={logout} className={cn(menuRow, 'text-destructive')}>
               <LogOut className="size-5 shrink-0 opacity-80" aria-hidden />
               {tShell('logout')}

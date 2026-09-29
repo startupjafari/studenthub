@@ -2,28 +2,23 @@
 
 import { memo } from 'react'
 import { useTranslations } from 'next-intl'
-import {
-  AlertCircle,
-  Check,
-  CheckCheck,
-  ChevronDown,
-  Forward,
-  Loader2,
-  Pin,
-  Reply,
-} from 'lucide-react'
+import { AlertCircle, Check, CheckCheck, ChevronDown, Forward, Loader2, Pin } from 'lucide-react'
 import {
   ChatPollView,
   LinkPreviewCard,
   MessageAttachments,
   MessageContent,
   ReactionBar,
-  SharedPostCard,
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
+import { ChatSharedPost, ChatSharedProfile, parseProfileShare } from './shared-cards'
 import { Avatar, AvatarFallback } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+
+// Эмодзи быстрой реакции в углу пузыря. Один на весь продукт: кнопка одна, и выбирать
+// «свой» эмодзи здесь негде — остальные ставятся из контекстного меню сообщения.
+const QUICK_REACTION = '🔥'
 
 // Системные события группы (§20) → i18n-ключ. Текст строит клиент из actor/target/title.
 const SYSTEM_KEY: Record<string, string> = {
@@ -54,6 +49,8 @@ export type MessageActions = {
   forward: (m: ChatMessage) => void
   del: (m: ChatMessage) => void
   retry: (m: ChatMessage) => void
+  /** Прервать загрузку вложений ещё не отправленного сообщения (крестик в оверлее). */
+  cancelUpload: (m: ChatMessage) => void
   toggleSelect: (id: string) => void
   /** Ctrl/Cmd + клик по сообщению — вход в режим выделения прямо с него (§5 карты). */
   startSelect: (m: ChatMessage) => void
@@ -129,6 +126,8 @@ function MessageItemInner({
         title: m.systemMeta?.title ?? '',
       })
     : null
+  // Пересланный профиль приходит текстом «Имя + ссылка» — узнаём и рисуем карточкой.
+  const profileShare = m.sharedPost || m.poll ? null : parseProfileShare(m.content)
 
   return (
     <div>
@@ -231,17 +230,24 @@ function MessageItemInner({
               mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
             )}
           >
-            {/* Быстрая кнопка «Ответить» при наведении. У своих — слева, у чужих — справа. */}
+            {/* Быстрая реакция при наведении: один клик — «огонь», повторный снимает её.
+                У своих — слева, у чужих — справа. Раньше здесь была кнопка «Ответить», но
+                ответ и так висит на свайпе и в контекстном меню, а поставить реакцию мышью
+                было больше некуда, кроме как через то же меню. Остальные эмодзи — там же
+                (CHAT_REACTION_EMOJIS), сбоку у низа пузыря стоит первый из них по частоте. */}
             <button
               type="button"
-              aria-label={t('reply')}
-              onClick={() => actions.reply(m)}
+              aria-label={t('quickReaction', { emoji: QUICK_REACTION })}
+              title={t('quickReaction', { emoji: QUICK_REACTION })}
+              onClick={() => actions.react(m.id, QUICK_REACTION)}
+              // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу кнопка закрывала
+              // имя отправителя. Сбоку у низа она не заслоняет ни текст, ни время с галочками.
               className={cn(
-                'absolute -top-2 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100',
-                mine ? '-left-2' : '-right-2',
+                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
+                mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
               )}
             >
-              <Reply className="size-3.5" aria-hidden />
+              <span aria-hidden>{QUICK_REACTION}</span>
             </button>
             {!mine && firstOfRun && (
               <p className="mb-0.5 flex items-center gap-1.5 text-xs">
@@ -291,6 +297,12 @@ function MessageItemInner({
               <MessageAttachments
                 media={m.media}
                 mine={mine}
+                // Отменять есть что только у своего, ещё не доехавшего сообщения.
+                onCancel={
+                  m.id.startsWith('tmp:') && m.media.some((a) => a.uploading)
+                    ? () => actions.cancelUpload(m)
+                    : undefined
+                }
                 viewerMeta={{
                   senderName: senderNameText,
                   createdAt: m.createdAt,
@@ -308,11 +320,20 @@ function MessageItemInner({
             )}
             {m.sharedPost && (
               <div className={cn(m.media.length > 0 && 'mt-1')}>
-                <SharedPostCard post={m.sharedPost} />
+                <ChatSharedPost post={m.sharedPost} mine={mine} />
               </div>
             )}
             {m.poll ? (
               <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
+            ) : profileShare ? (
+              // Пересланный профиль — карточкой вместо сырого «Имя + ссылка».
+              <div className={cn(m.media.length > 0 && 'mt-1')}>
+                <ChatSharedProfile
+                  userId={profileShare.userId}
+                  name={profileShare.name}
+                  mine={mine}
+                />
+              </div>
             ) : (
               m.content && (
                 // select-text точечно снимает select-none со строки: он там ради тач-жестов
@@ -323,58 +344,62 @@ function MessageItemInner({
                 </div>
               )
             )}
-            {m.linkPreview && <LinkPreviewCard preview={m.linkPreview} mine={mine} />}
-            <span
-              className={cn(
-                'mt-0.5 flex items-center gap-1 text-[0.65rem]',
-                mine ? 'justify-end' : 'justify-start',
-              )}
-            >
-              {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
-              <span className="opacity-60">
-                {new Date(m.createdAt).toLocaleTimeString(locale, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-                {m.editedAt && ` · ${t('edited')}`}
-              </span>
-              {mine && readState === 'pending' && (
-                <Loader2 className="size-3 animate-spin opacity-60" aria-label={t('sending')} />
-              )}
-              {mine && readState === 'failed' && (
-                <button
-                  type="button"
-                  onClick={() => actions.retry(m)}
-                  aria-label={t('sendFailedRetry')}
-                  title={t('sendFailedRetry')}
-                >
-                  <AlertCircle className="size-3.5 text-destructive" aria-hidden />
-                </button>
-              )}
-              {mine && readState === 'read' && (
-                <span
-                  className="flex items-center gap-0.5"
-                  title={readCount > 0 ? t('readByCount', { count: readCount }) : undefined}
-                >
-                  <CheckCheck className="size-3.5" aria-hidden />
-                  {readCount > 0 && (
-                    <span className="text-[10px] leading-none opacity-70">{readCount}</span>
-                  )}
+            {/* Превью ссылки у пересланного профиля не нужно: карточка уже и есть превью. */}
+            {m.linkPreview && !profileShare && (
+              <LinkPreviewCard preview={m.linkPreview} mine={mine} />
+            )}
+            {/* Нижняя строка пузыря — как в Telegram: реакции слева, время и галочки справа.
+                Высота строки заранее равна высоте чипа реакции: раньше реакции шли отдельной
+                строкой под временем, и первая же реакция увеличивала пузырь на строку — лента
+                под ним прыгала. Много реакций переносятся, время остаётся в последней строке. */}
+            <div className="mt-0.5 flex min-h-[22px] flex-wrap items-center gap-x-2 gap-y-1">
+              <ReactionBar
+                reactions={m.reactions}
+                myId={myId}
+                ownBubble={mine}
+                onToggle={(emoji) => actions.react(m.id, emoji)}
+              />
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-[0.65rem]">
+                {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
+                <span className="opacity-60">
+                  {new Date(m.createdAt).toLocaleTimeString(locale, {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  {m.editedAt && ` · ${t('edited')}`}
                 </span>
-              )}
-              {mine && readState === 'delivered' && (
-                <CheckCheck className="size-3.5 opacity-60" aria-hidden />
-              )}
-              {mine && readState === 'sent' && (
-                <Check className="size-3.5 opacity-60" aria-hidden />
-              )}
-            </span>
-            <ReactionBar
-              reactions={m.reactions}
-              myId={myId}
-              ownBubble={mine}
-              onToggle={(emoji) => actions.react(m.id, emoji)}
-            />
+                {mine && readState === 'pending' && (
+                  <Loader2 className="size-3 animate-spin opacity-60" aria-label={t('sending')} />
+                )}
+                {mine && readState === 'failed' && (
+                  <button
+                    type="button"
+                    onClick={() => actions.retry(m)}
+                    aria-label={t('sendFailedRetry')}
+                    title={t('sendFailedRetry')}
+                  >
+                    <AlertCircle className="size-3.5 text-destructive" aria-hidden />
+                  </button>
+                )}
+                {mine && readState === 'read' && (
+                  <span
+                    className="flex items-center gap-0.5"
+                    title={readCount > 0 ? t('readByCount', { count: readCount }) : undefined}
+                  >
+                    <CheckCheck className="size-3.5" aria-hidden />
+                    {readCount > 0 && (
+                      <span className="text-[10px] leading-none opacity-70">{readCount}</span>
+                    )}
+                  </span>
+                )}
+                {mine && readState === 'delivered' && (
+                  <CheckCheck className="size-3.5 opacity-60" aria-hidden />
+                )}
+                {mine && readState === 'sent' && (
+                  <Check className="size-3.5 opacity-60" aria-hidden />
+                )}
+              </span>
+            </div>
           </div>
           {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
           <button

@@ -8,6 +8,8 @@ import { AppModule } from '../src/app.module'
 import { throttlerStorageStub } from './throttler-storage.stub'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
+import { Client as MinioClient } from 'minio'
+import { FILE_UPLOAD } from '@studenthub/shared-config'
 
 const PASSWORD = 'Passw0rd!'
 
@@ -78,6 +80,27 @@ describe('Chats (e2e) — изоляция и доставка', () => {
   }
 
   const auth = (t: string): { Authorization: string } => ({ Authorization: `Bearer ${t}` })
+
+  // Прямая загрузка идёт в настоящий MinIO мимо приложения — иначе проверять нечего:
+  // весь смысл пути в том, что байты через API не проходят.
+  const minio = new MinioClient({
+    endPoint: process.env.MINIO_ENDPOINT ?? 'localhost',
+    port: Number(process.env.MINIO_PORT ?? 9000),
+    useSSL: process.env.MINIO_USE_SSL === 'true',
+    accessKey: process.env.MINIO_ACCESS_KEY ?? '',
+    secretKey: process.env.MINIO_SECRET_KEY ?? '',
+  })
+  const chatBucket = process.env.MINIO_BUCKET_CHAT ?? 'chat-media'
+  // TRUNCATE чистит БД, но не хранилище: объекты за собой убираем сами, иначе dev-бакет
+  // обрастает мусором от каждого прогона.
+  const createdKeys: string[] = []
+
+  /** PUT по подписанной ссылке и ETag из ответа — то же самое делает браузер. */
+  async function putSigned(url: string, body: Buffer): Promise<string> {
+    const res = await fetch(url, { method: 'PUT', body: new Uint8Array(body) })
+    expect(res.status).toBe(200)
+    return (res.headers.get('etag') ?? '').replace(/"/g, '')
+  }
 
   async function createGroupChat(token: string, memberIds: string[]): Promise<string> {
     const res = await request(server)
@@ -334,6 +357,147 @@ describe('Chats (e2e) — изоляция и доставка', () => {
       expect(rows.some((r) => r.id === ownerId)).toBe(false)
       const reader = rows.find((r) => r.id === readerId)
       expect(reader?.lastReadAt).toBeTruthy()
+    })
+  })
+
+  // Крупные вложения (Ф19.0): байты идут в хранилище напрямую, сообщение создаётся по ключам.
+  describe('Прямая загрузка вложений', () => {
+    // Валидный 1×1 PNG: тип определяется по magic bytes, а не по объявленному mime.
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    )
+
+    afterAll(async () => {
+      if (createdKeys.length) {
+        await minio.removeObjects(chatBucket, createdKeys).catch(() => undefined)
+      }
+    })
+
+    async function chatFor(): Promise<{ token: string; chatId: string }> {
+      const memberId = await makeStudent('dm@a.io')
+      await makeStudent('du@a.io')
+      const token = await login('dm@a.io')
+      const chatId = await createGroupChat(token, [memberId])
+      return { token, chatId }
+    }
+
+    it('одиночный PUT: объект попадает в хранилище, сообщение создаётся по ключу', async () => {
+      const { token, chatId } = await chatFor()
+
+      const presign = await request(server)
+        .post(`/api/v1/chats/${chatId}/attachments/presign`)
+        .set(auth(token))
+        .send({ mime: 'image/png' })
+        .expect(201)
+      const { key, url } = presign.body.data as { key: string; url: string }
+      createdKeys.push(key)
+      await putSigned(url, PNG)
+
+      const sent = await request(server)
+        .post(`/api/v1/chats/${chatId}/messages/uploaded`)
+        .set(auth(token))
+        .send({ content: 'снимок', attachments: [{ key, name: 'shot.png' }] })
+        .expect(201)
+
+      const media = sent.body.data.media as { mime: string; size: number; name: string }[]
+      expect(media).toHaveLength(1)
+      // Тип определён по содержимому объекта, а не по тому, что объявил клиент.
+      expect(media[0]?.mime).toBe('image/png')
+      expect(media[0]?.size).toBe(PNG.byteLength)
+      expect(media[0]?.name).toBe('shot.png')
+    })
+
+    it('многочастная: части склеиваются, объект проходит проверку типа', async () => {
+      const { token, chatId } = await chatFor()
+      // PDF, а не картинка: 12 МБ переваливают лимит IMAGE, а для DOCUMENT это в пределах.
+      // Две части — минимальный честный многочастный случай (минимум части у S3 — 5 МиБ).
+      const body = Buffer.concat([
+        Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n'),
+        Buffer.alloc(12 * 1024 * 1024 - 45, 0x20),
+      ])
+
+      const started = await request(server)
+        .post(`/api/v1/chats/${chatId}/attachments/multipart/start`)
+        .set(auth(token))
+        .send({ mime: 'application/pdf', size: body.byteLength })
+        .expect(201)
+      const { key, uploadId, partSize, partCount } = started.body.data as {
+        key: string
+        uploadId: string
+        partSize: number
+        partCount: number
+      }
+      createdKeys.push(key)
+      expect(partSize).toBe(FILE_UPLOAD.MULTIPART_PART_BYTES)
+      expect(partCount).toBe(2)
+
+      const urls = await request(server)
+        .post(`/api/v1/chats/${chatId}/attachments/multipart/urls`)
+        .set(auth(token))
+        .send({ key, uploadId, from: 1, to: partCount })
+        .expect(201)
+      const signed = urls.body.data.parts as { part: number; url: string }[]
+      expect(signed).toHaveLength(2)
+
+      const parts: { part: number; etag: string }[] = []
+      for (const item of signed) {
+        const offset = (item.part - 1) * partSize
+        const etag = await putSigned(item.url, body.subarray(offset, offset + partSize))
+        // Без ETag сборка невозможна — именно его браузеру закрывает отсутствие CORS-настройки.
+        expect(etag).not.toBe('')
+        parts.push({ part: item.part, etag })
+      }
+
+      const sent = await request(server)
+        .post(`/api/v1/chats/${chatId}/messages/uploaded`)
+        .set(auth(token))
+        .send({ attachments: [{ key, uploadId, name: 'lecture.pdf', parts }] })
+        .expect(201)
+
+      const media = sent.body.data.media as { mime: string; size: number }[]
+      expect(media).toHaveLength(1)
+      expect(media[0]?.mime).toBe('application/pdf')
+      // Собранный объект — ровно исходный файл, а не последняя часть.
+      expect(media[0]?.size).toBe(body.byteLength)
+    })
+
+    it('не участник не получает подписанную ссылку в чужой чат', async () => {
+      const { chatId } = await chatFor()
+      const outsiderTok = await login('du@a.io')
+
+      await request(server)
+        .post(`/api/v1/chats/${chatId}/attachments/presign`)
+        .set(auth(outsiderTok))
+        .send({ mime: 'image/png' })
+        .expect(403)
+    })
+
+    it('чужой ключ не привязывается к сообщению', async () => {
+      const { token, chatId } = await chatFor()
+      const presign = await request(server)
+        .post(`/api/v1/chats/${chatId}/attachments/presign`)
+        .set(auth(token))
+        .send({ mime: 'image/png' })
+        .expect(201)
+      const { key, url } = presign.body.data as { key: string; url: string }
+      createdKeys.push(key)
+      await putSigned(url, PNG)
+
+      // Второй участник знает ключ (он виден в подписанной ссылке), но объект не его.
+      const otherId = await makeStudent('thief@a.io')
+      await request(server)
+        .post(`/api/v1/chats/${chatId}/members`)
+        .set(auth(token))
+        .send({ userId: otherId })
+      const thiefTok = await login('thief@a.io')
+
+      const res = await request(server)
+        .post(`/api/v1/chats/${chatId}/messages/uploaded`)
+        .set(auth(thiefTok))
+        .send({ attachments: [{ key }] })
+        .expect(403)
+      expect(res.body.error.code).toBe('FORBIDDEN')
     })
   })
 })

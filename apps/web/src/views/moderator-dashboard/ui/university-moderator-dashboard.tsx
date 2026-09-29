@@ -11,6 +11,7 @@ import {
   EmptyState,
   MetricTile,
   PageHeader,
+  SeasonGreeting,
   SectionPanel,
   Skeleton,
 } from '../../../shared/ui'
@@ -234,6 +235,7 @@ export function UniversityModeratorDashboard() {
   return (
     <div className="flex w-full flex-col gap-4">
       <PageHeader title={tNav('dashboard')} subtitle={t('dashSubtitle')} />
+      <SeasonGreeting />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricTile

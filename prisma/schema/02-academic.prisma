@@ -32,6 +32,8 @@ model University {
   terms            Term[]
   companyAccess    CompanyUniversityAccess[] @relation("UniversityCompanyAccess")
   vacancyReviews   VacancyUniversityReview[] @relation("UniversityVacancyReviews")
+  demoRequests     UniversityDemoRequest[]   @relation("UniversityDemoRequest")
+  onboarding       UniversityOnboarding?     @relation("UniversityOnboarding")
 
   @@index([status])
   @@map("universities")

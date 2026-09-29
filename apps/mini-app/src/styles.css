@@ -8,8 +8,35 @@
  */
 
 :root {
-  --radius: 12px;
-  --gap: 12px;
+  /*
+   * Базовый кегль документа — через переменную, а не числом.
+   *
+   * Режим крупного шрифта (lib/font-scale.ts) умножает её, и вся шкала `--text-*` (она в
+   * em) едет следом. Раньше он ставил документу `font-size: 115%`, но кегль тела был
+   * задан абсолютными пикселями — процент уходил в пустоту, и настройка не меняла ровно
+   * ничего. Заметить это было негде: своего масштаба в мини-аппе нет, а зум пальцами
+   * выключен (index.html), так что крупный шрифт — единственный способ читать крупнее.
+   */
+  --font-scale: 1;
+  font-size: calc(15px * var(--font-scale));
+
+  /*
+   * Радиусы — шкала, а не одно число на всё.
+   *
+   * Углы вложенных поверхностей обязаны быть концентричными: внутренний радиус равен
+   * внешнему минус отступ. Иначе между внешним и внутренним скруглением остаётся зазор
+   * переменной толщины, и вложенный блок выглядит вдавленным в угол криво. Отсюда
+   * --radius-inner = --radius-card − 14px (это padding карточки).
+   */
+  --radius-card: 20px;
+  --radius-inner: 6px;
+  --radius-control: 14px;
+  /* Капсула — форма всего нажимаемого: кнопок, чипов, вкладок. По ней элемент читается
+     как кнопка до того, как прочитана надпись. */
+  --radius-pill: 999px;
+  /* Прежнее имя остаётся: им пользуются места, где форма второстепенна (скелетон, плитки). */
+  --radius: var(--radius-card);
+  --gap: 14px;
   --side: 16px;
   /*
    * Четыре ступени текста на всё приложение. До них размеры расставлялись по месту —
@@ -21,9 +48,92 @@
   --text-head: 1.13em;
   --text-body: 1em;
   --text-small: 0.87em;
+  /*
+   * Трекинг зависит от кегля, и одного значения на все размеры не существует: крупный
+   * заголовок с нулевым трекингом выглядит рыхлым — буквы расходятся тем сильнее, чем
+   * они больше, — а мелкая подпись с отрицательным слипается.
+   */
+  --track-title: -0.022em;
+  --track-head: -0.01em;
+  --track-small: 0.006em;
   /* Минимальная высота того, во что попадают пальцем. Меньше 44 промахиваются — это не
      догадка, а нижняя граница, на которой сходятся и Apple, и Material. */
   --tap: 44px;
+
+  /*
+   * Стекло.
+   *
+   * Плавающая поверхность не закрашивает содержимое, а лежит над ним слоем: под ней видно,
+   * что экран продолжается, и полоса вкладок перестаёт быть полосой, отрезающей верх.
+   * Тон берём от фона Telegram — слой обязан читаться продолжением клиента, а не наклейкой
+   * чужого приложения, и своей палитры здесь по-прежнему нет.
+   */
+  --glass: color-mix(in srgb, var(--tg-theme-bg-color) 70%, transparent);
+  --glass-strong: color-mix(in srgb, var(--tg-theme-bg-color) 86%, transparent);
+  /* saturate поверх blur: размытие обесцвечивает то, что под ним, и без подмешанной
+     насыщенности стекло выглядит грязным, а не прозрачным. */
+  --glass-filter: saturate(180%) blur(20px);
+  /* Светлый кант сверху — не краска, а блик: им материал ловит свет и получает толщину.
+     Потому он белый в обеих темах, а не производная от цвета текста. */
+  --glass-edge: rgb(255 255 255 / 0.4);
+  /*
+   * Тени — чёрный с прозрачностью, а не цвет палитры. В тёмной теме Telegram они почти
+   * не видны, и это правильно: там поверхности разделяет светлый кант, а не тень.
+   */
+  --shadow-float: 0 10px 30px -12px rgb(0 0 0 / 0.3), 0 2px 8px -5px rgb(0 0 0 / 0.16);
+  --shadow-rest: 0 1px 3px -1px rgb(0 0 0 / 0.1);
+  /*
+   * Палитра значков — единственные свои цвета в приложении.
+   *
+   * Всё остальное берётся из переменных Telegram, и это правило не меняется: фон, текст,
+   * поверхности и акцент по-прежнему принадлежат клиенту. Но строка списка без цветного
+   * квадратика со значком не опознаётся с одного взгляда — глаз ищет строку по цвету
+   * раньше, чем читает подпись, и в монохромном списке приходится прочитывать все восемь.
+   *
+   * Цвета взяты системные: они проверены на обоих фонах и ни с какой темой Telegram не
+   * спорят, потому что живут внутри квадратика 30×30 и наружу не выходят.
+   */
+  --tint-red: #ff3b30;
+  --tint-orange: #ff9500;
+  --tint-green: #34c759;
+  --tint-teal: #30b0c7;
+  --tint-blue: #007aff;
+  --tint-indigo: #5856d6;
+  --tint-purple: #af52de;
+  --tint-pink: #ff2d55;
+  --tint-gray: #8e8e93;
+  /*
+   * Одна кривая отклика на всё приложение: быстро уходит, мягко приезжает. Разнобой
+   * таймингов между экранами читается как неаккуратность, даже когда его не замечают.
+   */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --press: 120ms;
+  /* Высота нижней панели разделов вместе с её полями. Держим числом, потому что место
+     под неё резервирует содержимое: панель вынута из потока. */
+  --tabbar-h: 64px;
+  /*
+   * Безопасные отступы. В полноэкранном режиме (телефон) приложение лежит под вырезом и
+   * под плавающими кнопками Telegram «Закрыть» и «⋯» — их высоту клиент сам кладёт в
+   * `--tg-safe-area-inset-*` (вырез) и `--tg-content-safe-area-inset-*` (свои кнопки).
+   * Вне полного экрана и вне Telegram переменных нет — отступ нулевой, а снизу остаётся
+   * системный `env()`: «полоска» жестов iPhone есть и там.
+   */
+  --safe-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+}
+
+/* В тёмной теме системные цвета берутся светлее: иначе синий и фиолетовый тонут в фоне.
+   Схему проставляет applyTheme — она приходит от Telegram, а не от системы. */
+:root[data-scheme='dark'] {
+  --tint-red: #ff453a;
+  --tint-orange: #ff9f0a;
+  --tint-green: #30d158;
+  --tint-teal: #40c8e0;
+  --tint-blue: #0a84ff;
+  --tint-indigo: #5e5ce6;
+  --tint-purple: #bf5af2;
+  --tint-pink: #ff375f;
+  --tint-gray: #98989d;
 }
 
 * {
@@ -39,14 +149,34 @@ body {
 body {
   background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
+  /* 1rem — это базовый кегль документа вместе с масштабом, см. --font-scale выше. */
   font:
-    15px/1.4 -apple-system,
+    1rem/1.45 -apple-system,
     BlinkMacSystemFont,
     'SF Pro Text',
     'Segoe UI',
     Roboto,
     sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Системный шрифт умеет оптический размер: у крупного кегля он сам сужает пропорции
+     и подтягивает штрихи. Отключённым по умолчанию его держать незачем. */
+  font-optical-sizing: auto;
+  /*
+   * Длинный текст переносится, а не наезжает и не прячется. Правило одно на всё
+   * приложение, а не на отдельные строки: почта, ссылка или фамилия без пробелов не
+   * имеют мест для переноса, и такая строка вылезала из своей колонки под соседнюю
+   * кнопку — «mehmand…@gmail.com» ложился прямо под «Отозвать».
+   *
+   * `anywhere`, а не `break-word`: только он уменьшает минимальную ширину текста, и
+   * флекс-колонка с текстом наконец может сжаться, уступив место кнопке. Обычные слова
+   * по-прежнему переносятся по пробелам — внутри слова строка рвётся, лишь когда иначе
+   * не помещается. Там, где перенос запрещён (`white-space: nowrap` у чипов и вкладок),
+   * правило ничего не меняет.
+   *
+   * Пара к нему — действия в строке не сжимаются (`.chip`, `.toggle-state`): уступает
+   * место текст, а не кнопка.
+   */
+  overflow-wrap: anywhere;
 }
 
 .app {
@@ -57,45 +187,274 @@ body {
 
 .content {
   flex: 1;
-  /* Запас снизу — под «шторку» жестов iPhone; MainButton Telegram рисует сам под областью
-     приложения и высоту не отнимает. Полсотни пикселей, а не двадцать: последняя кнопка
-     экрана упиралась в самый край, и нажать её, не задев жест закрытия, было нельзя. */
-  padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  /*
+   * Запас снизу — под плавающую панель вкладок и под «шторку» жестов iPhone. Панель
+   * вынута из потока (position: fixed), поэтому место под неё обязано оставить
+   * содержимое: иначе последняя строка списка навсегда остаётся под ней.
+   *
+   * MainButton Telegram рисует сам под областью приложения и высоту не отнимает.
+   */
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--tabbar-h) + 16px + var(--safe-bottom));
 }
 
-.back-fallback {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  width: 100%;
-  padding: 10px var(--side);
-  border: 0;
-  border-bottom: 1px solid var(--tg-theme-section-separator-color);
-  background: var(--tg-theme-section-bg-color);
-  color: var(--tg-theme-link-color);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+/*
+ * Экран во весь рост (lib/chrome.ts): панель разделов уходит, и высота, которую под неё
+ * резервировало содержимое, возвращается экрану. Обнулённой переменной хватает на обоих
+ * концах — и на запасе снизу у .content, и на посадке поля ввода (.composer): они оба
+ * считают место от неё, и вычитать её вручную в двух местах было бы приглашением
+ * разойтись.
+ */
+body.full-screen {
+  --tabbar-h: 0px;
+}
+
+body.full-screen .tabbar {
+  display: none;
 }
 
 .screen {
+  /* Тянется на всю оставшуюся высоту: это опора для плашки пустоты, которой иначе не от
+     чего расти, — а без неё «ничего нет» выглядит как незагрузившийся первый элемент. */
+  flex: 1;
   padding: var(--side);
   display: flex;
   flex-direction: column;
   gap: var(--gap);
 }
 
-/* Знак на экране-заглушке: крупно и по центру — читателю тут не действовать, а понять. */
-.screen-emblem {
-  margin: 8px 0 4px;
-  font-size: 40px;
-  line-height: 1;
+/*
+ * Одно действие внизу экрана — вход в переписку на карточке обращения.
+ *
+ * Прилипает к низу над панелью разделов, как поле ввода: это единственный выход с экрана
+ * вперёд, и искать его прокруткой не должно быть нужно. `margin-top: auto` прижимает
+ * кнопку к низу, когда содержимого мало, — иначе на коротком обращении она висела бы
+ * посреди экрана.
+ */
+.screen-action {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + 10px + var(--safe-bottom));
+  z-index: 90;
+  margin-top: auto;
+}
+
+.screen-action .fallback-submit {
+  margin-top: 0;
+}
+
+/*
+ * Плашка пустоты и отказа: занимает всё, что осталось от экрана, текст — в её середине.
+ *
+ * Прижимать её к заголовку нельзя: двумя строками под шапкой она читается как первая
+ * запись списка, за которой вот-вот появятся остальные. Пустой экран должен выглядеть
+ * пустым.
+ */
+.plate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Нижняя граница высоты — на случай, когда над плашкой длинная шапка с фильтрами:
+     иначе на низком экране она сожмётся в ту самую полоску, от которой уходим. */
+  min-height: 42vh;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.plate h2 {
+  margin: 0;
+}
+
+/* Кнопка повтора не растягивается во всю ширину плашки: она про одно действие,
+   а не про весь экран. Селектор с .plate — базовое правило кнопки идёт ниже по файлу
+   и иначе перебивает ширину. */
+.plate .plate-action {
+  width: auto;
+  min-width: 11em;
+  margin-top: 10px;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
+/*
+ * Свои приглашения в разделе «Люди»: последний блок экрана, и всё, что осталось от
+ * высоты, — его. Прижатая к списку карточка в две строки читалась как недогрузившийся
+ * кусок списка, а не как отдельный блок.
+ */
+.invites {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Пустая — текст по середине блока: так «выданных приглашений нет» читается ответом,
+   а не подписью к пустому месту под ней. */
+.invites-empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/*
+ * «Откройте из Telegram» — единственный экран, который видно в обычном браузере.
+ *
+ * И единственный со своими цветами. Правило «палитра только из переменных Telegram»
+ * держится на том, что мини-апп обязан выглядеть продолжением клиента, — а снаружи
+ * клиента нет и продолжать нечего: переменные подставляются запасными значениями, и
+ * экран выходил белым листом с чёрным текстом. Поэтому здесь — тёмное полотно с
+ * вигнеткой, марка и свет за ней, ровно как на заставке запуска (index.html) и на сайте.
+ *
+ * `position: fixed` во весь экран, а не поток: экран тупиковый, под ним нет ни панели
+ * разделов, ни прокручиваемого содержимого, а фон страницы за полем и отступами остался
+ * бы светлым.
+ */
+.outside {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  overflow-y: auto;
+  background: radial-gradient(120% 90% at 50% 46%, #181b22 0%, #0f1115 52%, #08090c 100%);
+  color: #f3f4f6;
+}
+
+/* Центрируется через `margin: auto`, а не `justify-content`: при переполнении по высоте
+   центрирование флексом срезает верх, и первые строки становятся недостижимы. */
+.outside-inner {
+  margin: auto;
+  max-width: 26rem;
+  padding: 40px 24px calc(40px + env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.outside-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0;
+  font-size: 1.85em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.outside-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #2b72e5;
+  /* Тень своего цвета, а не чёрная: на тёмном полотне чёрная невидима, а цветная
+     читается как отсвет самой марки — знак встаёт НАД полотном. */
+  filter: drop-shadow(0 6px 12px rgb(43 114 229 / 0.45));
+}
+
+/* Ореол — источник света за маркой. Статичный: экран не запускается и ничего не ждёт,
+   а разгорание здесь читалось бы как загрузка, которой нет. */
+.outside-halo {
+  position: absolute;
+  inset: -150%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgb(43 114 229 / 0.28) 0%,
+    rgb(43 114 229 / 0.1) 38%,
+    rgb(43 114 229 / 0.02) 62%,
+    transparent 78%
+  );
+}
+
+.outside h1 {
+  margin: 28px 0 0;
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: var(--track-title);
+}
+
+.outside-hint {
+  margin: 6px 0 0;
+  color: #9ca3af;
+  font-size: var(--text-small);
+}
+
+/* Объяснение — на своей поверхности, приподнятой над полотном светлым кантом вместо
+   тени: на тёмном фоне тень не видна, а отделить абзац от полотна нужно. */
+.outside-body {
+  margin: 26px 0 0;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  color: #d1d5db;
+  font-size: var(--text-small);
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* Подпись: тише всего на экране — она не должна тянуть взгляд. */
+.outside-footer {
+  margin: 28px 0 0;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .screen-head h1 {
   margin: 4px 0 2px;
   font-size: var(--text-title);
-  font-weight: 600;
+  font-weight: 700;
+  /* Крупному кеглю нужен сжатый трекинг и плотный интерлиньяж: заголовок держится
+     одним пятном, а не расползается на три строки воздуха. */
+  line-height: 1.12;
+  letter-spacing: var(--track-title);
+}
+
+/* Строка шапки: возврат, название и — если они есть — состояния экрана. */
+.head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.head-row h1 {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/*
+ * Рядом с переключателем название уменьшается.
+ *
+ * Крупный заголовок съедал столько ширины, что «Открытые / Мои / Закрытые» оставалось
+ * место в полтора слова. Название при этом не перестаёт быть главным на экране: оно
+ * остаётся самым тяжёлым по начертанию, просто перестаёт быть самым широким.
+ */
+.head-row.with-tabs h1 {
+  font-size: 1.24em;
+}
+
+.head-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Переключатель в шапке ниже и мельче, чем в потоке экрана: он тут спутник заголовка,
+   а не самостоятельный блок. */
+.head-tabs .tabs {
+  padding: 3px;
+}
+
+.head-tabs .tab {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: var(--text-small);
+}
+
+.head-tabs .tab-lens {
+  top: 3px;
+  bottom: 3px;
 }
 
 .screen-head p {
@@ -111,43 +470,91 @@ body {
   color: var(--tg-theme-destructive-text-color);
 }
 
+/* Метка статуса — целиком и одной строкой: рядом с длинным текстом уступает место он
+   (общее правило переноса у body), а «ЖДЁТ» не должно рваться на «ЖД-ЁТ». */
 .badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
   background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-hint-color);
   font-size: 12px;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 
 /* Карточки и строки — как секции в самом Telegram: сгруппированный блок со скруглением
-   по краям группы, а не у каждой строки. */
+   по краям группы, а не у каждой строки. Радиус крупнее прежнего: у мелкого скругления
+   поверхность выглядит вырезанной из бумаги, у крупного — отлитой. */
 .card {
   background: var(--tg-theme-section-bg-color);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   padding: 14px;
+  /* Тень слабая, почти незаметная: карточка не висит над экраном, она на нём лежит.
+     Заметная тень на каждой из шести карточек экрана превращает список в свалку. */
+  box-shadow: var(--shadow-rest);
 }
 
 .card h2 {
   margin: 6px 0 2px;
   font-size: var(--text-head);
   font-weight: 600;
+  letter-spacing: var(--track-head);
+}
+
+/*
+ * Абзацы в карточке — на своём шаге, а не на браузерном em. Браузерное поле сверху и
+ * снизу разносило строки карточки «кто это» по одной на экран и оставляло под последней
+ * лишнюю полосу пустоты, из-за которой карточка выглядела недогруженной.
+ */
+.card > p {
+  margin: 8px 0 0;
+}
+
+.card > p:first-child {
+  margin-top: 0;
+}
+
+/* Подряд идущие подписи — одна группа фактов: шаг между ними вдвое меньше. */
+.card > p.hint + p.hint {
+  margin-top: 4px;
 }
 
 .card-accent {
   cursor: pointer;
-  box-shadow: inset 0 0 0 1.5px var(--tg-theme-button-color);
+  box-shadow:
+    inset 0 0 0 1.5px var(--tg-theme-button-color),
+    var(--shadow-rest);
 }
 
 .list {
   background: var(--tg-theme-section-bg-color);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-rest);
   overflow: hidden;
 }
 
+/*
+ * Список внутри карточки не рисует вторую карточку. Своя тень и скругление давали белую
+ * плашку на белом — карточка в карточке, — а строки получали двойной отступ слева.
+ * Строки доходят до краёв карточки, и их текст встаёт на одну вертикаль с заголовком.
+ */
+.card .list {
+  margin: 8px -14px 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.card .list:last-child {
+  margin-bottom: -14px;
+}
+
 .row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -163,10 +570,24 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-.row + .row {
-  border-top: 1px solid var(--tg-theme-section-separator-color);
+/*
+ * Разделитель не доходит до левого края.
+ *
+ * Линия во всю ширину режет список на полосы и спорит со скруглением группы. Сдвинутая
+ * под текст, она говорит ровно то, что нужно: строки соседние, а колонка слева (время,
+ * кружок с инициалами) — общая для них.
+ */
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
 }
 
+/* Подсветка на нажатии, без выдержки: строка отвечает касанию, а не результату запроса. */
 .row:active {
   background: var(--tg-theme-secondary-bg-color);
 }
@@ -193,21 +614,43 @@ body {
   min-width: 0;
 }
 
+/* Жирное начертание браузера (700) на мелком кегле выглядит грубо и спорит с заголовками
+   экрана. Полужирного хватает, чтобы имя читалось первым. */
+.row-body b,
+.row b,
+.toggle-row b {
+  font-weight: 600;
+}
+
+/* Тише текста строки: это указатель «здесь есть продолжение», а не содержание. */
 .row-chevron {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  margin-left: 2px;
   color: var(--tg-theme-hint-color);
-  font-size: 20px;
+  opacity: 0.5;
 }
 
 /*
- * Плитки сводки. Колонок не три фиксированных, а сколько влезет: пять чисел в сетке 3×2
- * оставляли в последнем ряду одну плитку и дыру рядом с ней, а подпись «Жалоб в очереди»
- * ломалась на две строки и делала эту плитку выше остальных.
+ * Плитки сводки: пять чисел рядами 2 + 3, а не 3 + 2 с дырой в конце. Сверху — масштаб
+ * платформы (вузы, пользователи), под ним — сегодняшняя жизнь (за сутки, за неделю,
+ * жалобы). Сетка на шесть долей: первые две плитки берут по три, остальные — по две.
+ * «Сколько влезет» (auto-fit) на ширине телефона давало ровно ту дыру, от которой уходили.
  */
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6.2em, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
+}
+
+.stats > .stat {
+  grid-column: span 2;
+}
+
+.stats > .stat:nth-child(-n + 2) {
+  grid-column: span 3;
 }
 
 .stat {
@@ -218,7 +661,8 @@ body {
   gap: 2px;
   min-height: 72px;
   padding: 12px 6px;
-  border-radius: var(--radius);
+  /* Внутри карточки — концентрично её углу: радиус группы минус её отступ. */
+  border-radius: var(--radius-control);
   background: var(--tg-theme-secondary-bg-color);
   text-align: center;
 }
@@ -231,9 +675,12 @@ body {
 
 .stat b {
   font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-head);
 }
 
 .avatar {
+  flex-shrink: 0;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -264,9 +711,9 @@ body {
 /* Код набирают с экрана другого устройства: крупно, моноширинно, с разрядкой. */
 .code-input {
   width: 100%;
-  padding: 14px;
-  border: 1px solid var(--tg-theme-section-separator-color);
-  border-radius: var(--radius);
+  padding: 16px 14px;
+  border: 0;
+  border-radius: var(--radius-control);
   background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -276,11 +723,6 @@ body {
   text-transform: uppercase;
 }
 
-.code-input:focus {
-  outline: 2px solid var(--tg-theme-button-color);
-  outline-offset: -1px;
-}
-
 /*
  * Запасная кнопка подтверждения — для браузера и для клиентов, где MainButton недоступен.
  * В Telegram она дублирует главную кнопку внизу, и это осознанно: лучше две кнопки, чем
@@ -288,17 +730,23 @@ body {
  */
 .fallback-submit {
   width: 100%;
-  min-height: var(--tap);
+  min-height: 50px;
   margin-top: 12px;
-  padding: 13px;
+  padding: 14px;
   border: 0;
-  border-radius: var(--radius);
+  /* Капсула: главное действие экрана обязано отличаться от карточки не только цветом,
+     но и формой — иначе залитый прямоугольник читается как ещё один блок содержимого. */
+  border-radius: var(--radius-pill);
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
   font: inherit;
   font-weight: 600;
+  letter-spacing: var(--track-head);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    opacity var(--press) var(--ease-out);
 }
 
 /* Скелетон вместо спиннера: высота строк известна, список не прыгает при загрузке. */
@@ -306,7 +754,7 @@ body {
   display: block;
   margin-top: 10px;
   height: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-inner);
   background: var(--tg-theme-secondary-bg-color);
   animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
@@ -318,6 +766,65 @@ body {
 
 .skeleton-line {
   width: 75%;
+}
+
+.skeleton-line.short {
+  width: 52%;
+}
+
+/*
+ * Заглушка занимает весь оставшийся экран (ui/skeleton.tsx — зачем).
+ *
+ * Оба контейнера — обычные флекс-элементы экрана, растущие на остаток высоты. Само
+ * содержимое лежит в слое вне потока и высоту не задаёт: иначе запас строк удлинял бы
+ * экран загрузки и включал прокрутку вместо обрезки (подробнее — в ui/skeleton.tsx).
+ */
+.skeleton-fill,
+.skeleton-cards {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* У списка `overflow: hidden` уже есть ради скруглений — обрезка идёт ПО скруглённому
+   краю, нижний угол остаётся круглым, а не срезанным по прямой. Карточкам его нужно
+   задать: они лежат стопкой, своей общей рамки у них нет. */
+.skeleton-cards {
+  overflow: hidden;
+}
+
+.skeleton-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.skeleton-layer-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+/*
+ * Карточки не сжимаются, а обрезаются.
+ *
+ * Слой карточек — флекс-колонка с заданной высотой, и по умолчанию лишние карточки не
+ * ушли бы за край, а поделили бы её между собой: восемь сплюснутых прямоугольников с
+ * вылезающими наружу полосками вместо четырёх с половиной нормальных.
+ */
+.skeleton-layer-cards > .card {
+  flex-shrink: 0;
+}
+
+/* Пульсация вразнобой: синхронная лента одинаково мигающих строк выглядит как сбой
+   отрисовки, а не как ожидание. Сдвиг мелкий — ряд остаётся единым целым. */
+.skeleton-fill .row:nth-child(even) .skeleton,
+.skeleton-cards .card:nth-child(even) .skeleton {
+  animation-delay: 0.2s;
+}
+
+.skeleton-fill .row:nth-child(3n) .skeleton,
+.skeleton-cards .card:nth-child(3n) .skeleton {
+  animation-delay: 0.4s;
 }
 
 @keyframes skeleton-pulse {
@@ -340,63 +847,309 @@ body {
 /* ── Управление платформой ─────────────────────────────────────────────────── */
 
 /*
- * Переключатель разделов.
+ * Нижняя панель разделов — плавающая капсула.
  *
- * Прилипает к верху: экраны здесь длинные, и уехавшая наверх навигация означает, что
- * сменить раздел можно только домотав до начала. Фон непрозрачный — под ним проезжает
- * содержимое, и просвечивающая полоса читалась бы как артефакт.
+ * Внизу, а не вверху: телефон держат одной рукой, и до верхнего края большой палец не
+ * достаёт — за разделами, между которыми ходят весь день, тянуться не должно.
+ *
+ * Капсула, а не полоса во всю ширину: панель не забирает себе нижний край экрана, а лежит
+ * над содержимым — по краям от неё видно, что список продолжается. Четыре раздела при
+ * этом помещаются, потому что подпись мелкая, а значок над ней, а не рядом.
+ *
+ * Сама обёртка касаний не ловит: невидимая полоса во всю ширину съедала бы нажатия по
+ * строкам, которые видно рядом с капсулой.
  */
 .tabbar {
-  position: sticky;
-  top: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(6px + var(--safe-bottom));
   z-index: 100;
-  padding: 8px var(--side);
-  /* Полупрозрачно с размытием: под полосой проезжает содержимое, и непрозрачная плашка
-     обрубала бы его как ножом. Цвет — тот же фон страницы, чтобы в любой теме Telegram
-     полоса читалась её продолжением, а не наклейкой. */
-  background: color-mix(in srgb, var(--tg-theme-secondary-bg-color) 80%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  padding: 0 var(--side);
+  pointer-events: none;
 }
 
-/* Клиенты без color-mix (старые WebView) получают непрозрачный фон — это хуже по виду,
-   но текст под полосой не просвечивает. */
+.tabbar-row {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: var(--radius-pill);
+  pointer-events: auto;
+  /* Стекло плотнее, чем у переключателей в потоке: под капсулой проезжает список, и
+     сквозь лёгкое стекло подписи разделов читались поверх чужих строк. */
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .tabbar-row {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
 @supports not (background: color-mix(in srgb, red 50%, transparent)) {
-  .tabbar {
+  .tabbar-row {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+.tabbar-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 46px;
+  padding: 5px 2px;
+  border: 0;
+  /* Пузырь, а не прямоугольник со скруглением: капсула панели круглая, и подложка
+     внутри неё обязана быть той же формы — 14px на высоте 46px давали угловатую
+     плитку, спорившую с обводкой панели. */
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--tg-theme-hint-color);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--press) var(--ease-out),
+    transform var(--press) var(--ease-out);
+}
+
+/*
+ * Выбранный раздел — цветом и плашкой под значком с подписью.
+ *
+ * Плашка нужна ровно затем же, зачем залитый значок: цвет различает, только пока его
+ * видно. На капсуле со стеклом, под которой проезжает содержимое, одного цвета мало —
+ * подложка держит выбор независимо от того, что оказалось под панелью.
+ */
+.tabbar-item[aria-selected='true'] {
+  color: var(--tg-theme-button-color);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar-item[aria-selected='true'] {
     background: var(--tg-theme-secondary-bg-color);
   }
 }
 
+/*
+ * Переезжающий пузырь под выбранным разделом.
+ *
+ * Отдельным элементом, а не фоном кнопки: фон нельзя сдвинуть из одной кнопки в другую —
+ * он гаснет здесь и зажигается там. Разделы листаются пальцем, и при перекраске отметка
+ * внизу прыгала, пока содержимое ехало за пальцем плавно.
+ *
+ * Положение и ширину задаёт React по замеру (ui/tab-bar.tsx), css отвечает за форму
+ * и за то, как пузырь едет.
+ */
+.tabbar-bubble {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+  pointer-events: none;
+  transition:
+    transform 280ms var(--ease-out),
+    width 280ms var(--ease-out);
+}
+
+/* Пузырь замерен и нарисован отдельно — фон самой кнопки больше не нужен, иначе
+   на месте выбранного раздела окажутся две подложки одна на другой. */
+.tabbar-row[data-bubble='on'] .tabbar-item[aria-selected='true'] {
+  background: none;
+}
+
+.tabbar-row {
+  position: relative;
+}
+
+/* Подпись и значок — поверх пузыря. */
+.tabbar-item {
+  position: relative;
+  z-index: 1;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabbar-bubble {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar-bubble {
+    transition: none;
+  }
+}
+
+.tabbar-item:active {
+  transform: scale(0.94);
+}
+
+.tabbar-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+
+.tabbar-label {
+  font-size: 10.5px;
+  line-height: 1.1;
+  letter-spacing: var(--track-small);
+}
+
+/*
+ * Счётчик — в правом верхнем углу значка, внахлёст и с прорезью по краю.
+ *
+ * Прорезь (кольцо цветом панели) отделяет его от линий значка: без неё цифра сливается
+ * с рисунком и читается как его часть. Сидит он на значке, а не в строке подписи: там
+ * он сдвигал бы её вбок, и раздел с работой был бы шире соседних.
+ *
+ * Цвет акцентный, а не красный. Красный в системе значит «пропущенное, требующее
+ * внимания лично»; здесь же счётчик говорит, сколько работы в очереди, и красным он
+ * держал бы тревогу постоянно — очередь не пустеет никогда. Telegram считает непрочитанное
+ * тем же акцентом.
+ */
+.tabbar-count {
+  position: absolute;
+  top: -5px;
+  left: 13px;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  box-shadow: 0 0 0 2px var(--tg-theme-bg-color);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+}
+
+/*
+ * Переключатель состояний экрана: «в очереди / разобранные», «сводка / рычаги».
+ *
+ * Стекла ему не нужно — он лежит в потоке экрана, и под ним ничего не проезжает. Стекло
+ * осталось у одной поверхности, которая действительно висит над содержимым: у нижней
+ * панели разделов. Так по материалу видно, что принадлежит экрану, а что — приложению.
+ */
 .tabs {
+  position: relative;
   display: flex;
   gap: 4px;
-  padding: 4px;
-  background: var(--tg-theme-bg-color);
-  border-radius: 16px;
+  padding: 5px;
+  border-radius: var(--radius-pill);
+  /*
+   * Дорожка серая и нейтральная, а не цветная: в системном переключателе акцент вообще
+   * не участвует — выбранное поднято светлой подложкой, как физическая клавиша. Цветом
+   * здесь красить нечего, и когда красили, ряд разделов спорил по громкости с главной
+   * кнопкой экрана.
+   */
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 18%, transparent);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .tabs {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+/*
+ * Плашка выделения, переезжающая между вкладками.
+ *
+ * Отдельным элементом, а не фоном выбранной кнопки: фон нельзя сдвинуть из одной кнопки
+ * в другую — он может только погаснуть здесь и зажечься там. Положение и ширину ей
+ * задаёт React по замеру (ui/tabs.tsx), css отвечает за форму и за то, как она едет.
+ */
+.tab-lens {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  border-radius: var(--radius-pill);
+  /* Подложка светлее дорожки — как приподнятая клавиша. Тонкий контур под тенью нужен
+     в тёмной теме, где одной тени не видно. */
+  background: var(--tg-theme-section-bg-color);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.16),
+    0 0 0 0.5px rgb(0 0 0 / 0.04);
+  pointer-events: none;
+  transition:
+    transform 280ms var(--ease-out),
+    width 280ms var(--ease-out);
 }
 
 .tab {
+  position: relative;
+  /* Надпись выше плашки: иначе переезжающий акцент закрывает текст вкладки, к которой
+     приехал. */
+  z-index: 1;
   flex: 1;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--tg-theme-hint-color);
   font: inherit;
   font-weight: 500;
+  letter-spacing: var(--track-head);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    background-color var(--press) var(--ease-out),
+    color var(--press) var(--ease-out);
 }
 
-/* Активная вкладка — акцентом, а не сменой серого на чёрный: в тёмной теме Telegram
-   фон приложения почти сливается с фоном полосы, и выбранный раздел был неразличим. */
+/* Отклик на нажатии, а не на отпускании: между касанием и ответом сервера проходит
+   заметное время, и без него тап выглядит несработавшим. */
+.tab:active {
+  transform: scale(0.96);
+}
+
+/* Надпись выбранного — обычного цвета текста и плотнее; её выделяет подложка, а не
+   краска. Невыбранные приглушены, но остаются читаемыми: это не запрещённые пункты. */
+.tab {
+  color: color-mix(in srgb, var(--tg-theme-text-color) 62%, transparent);
+}
+
 .tab[aria-selected='true'] {
-  background: var(--tg-theme-button-color);
-  color: var(--tg-theme-button-text-color);
+  color: var(--tg-theme-text-color);
+  font-weight: 600;
 }
 
-/* Готовые варианты (сроки, формулировки): выбор тапом вместо ввода с клавиатуры. */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  .tab {
+    color: var(--tg-theme-hint-color);
+  }
+}
+
+/* Замера ещё нет — подложку рисует сама кнопка. Форма и цвет те же, что у плашки. */
+.tabs:not([data-lens='on']) .tab[aria-selected='true'] {
+  background: var(--tg-theme-section-bg-color);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
+}
+
+/*
+ * В тёмной теме «клавиша» светлее дорожки, а не цвета секции: у Telegram секция и фон
+ * почти одного тона, и плашка выбора сливалась с дорожкой — выбранное было не отличить.
+ */
+:root[data-scheme='dark'] .tab-lens,
+:root[data-scheme='dark'] .tabs:not([data-lens='on']) .tab[aria-selected='true'] {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 42%, var(--tg-theme-section-bg-color));
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -409,35 +1162,118 @@ body {
  *
  * «15 мин / 30 мин / 60 мин / 120 мин» переносом давало три чипа в строке и один под
  * ними: рваный край читается как «здесь что-то сломалось», а попадать пальцем в разные
- * по ширине цели дольше. Сетка выравнивает и то и другое.
+ * по ширине цели дольше.
+ *
+ * Flex, а не grid. У сетки колонка `minmax(4.6em, 1fr)` может оказаться уже надписи, а
+ * чип не переносится (`white-space: nowrap`) — и текст вылезал за свою ячейку на соседнюю.
+ * Так «Обращения» наезжало на «Ответы», а «Через 12 ч» уходило за край карточки: ряд
+ * выглядел сломанным ровно в тех местах, где надпись длиннее типовой.
+ *
+ * У flex-элемента минимальная ширина по умолчанию равна его содержимому, поэтому уже
+ * надписи чип не станет НИКОГДА — вместо наложения ряд честно переносится. Равная ширина
+ * при этом сохраняется: всем задана одна основа и одинаковый рост.
  */
 .chips-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(5.4em, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
 
+.chips-grid > .chip {
+  flex: 1 1 4.6em;
+}
+
 .chip {
-  min-height: 40px;
-  padding: 9px 14px;
-  border: 1px solid var(--tg-theme-section-separator-color);
-  border-radius: 999px;
-  background: transparent;
+  min-height: 34px;
+  padding: 7px 13px;
+  font-size: var(--text-small);
+  /* Не переносить: «Не срочно» ломалось на две строки и делало свой чип вдвое выше
+     соседних — ряд фильтров выглядел сломанным. */
+  white-space: nowrap;
+  /* В строке рядом с длинным текстом место уступает текст: он переносится, а чип
+     остаётся целым. В сетке вариантов (.chips-grid) доля задана явно и перекрывает это. */
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  /* Невыбранный чип — не пустой контур, а лёгкая поверхность: контур на фоне карточки
+     теряется, и ряд вариантов выглядит списком подписей, а не набором кнопок.
+     Тот же выбор тона, что у поля: на фоне экрана — цвет секции, в карточке — фон.
+     Одним secondary_bg на оба случая фильтры над списком совпадали с фоном страницы
+     и читались голым текстом. */
+  background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--press) var(--ease-out),
+    background-color var(--press) var(--ease-out);
 }
 
-.chip:active {
+.card .chip {
   background: var(--tg-theme-secondary-bg-color);
 }
 
+/* На стекле поля ввода ни секция, ни фон не годятся: в тёмной теме оба чёрные, как само
+   стекло. Нейтральный тон поверх — тот же, что у дорожки переключателя. */
+.composer .chip {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 16%, transparent);
+}
+
+/* Одиночный чип в карточке («Скопировать ссылку», «Беру в работу») стоит отдельной
+   строкой и без отступа прилипал к заголовку над собой. */
+.card > .chip {
+  margin-top: 12px;
+}
+
+/*
+ * Фильтры над списком — одной строкой с прокруткой вбок, во всю ширину экрана.
+ * Переносом последний тег уезжал на вторую строку один и выглядел отвалившимся.
+ */
+.screen > .chips {
+  flex-wrap: nowrap;
+  margin: 0 calc(-1 * var(--side));
+  padding: 0 var(--side);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.screen > .chips::-webkit-scrollbar {
+  display: none;
+}
+
+.screen > .chips .chip {
+  flex: 0 0 auto;
+}
+
+.screen > .chips-grid {
+  margin-top: 0;
+}
+
+.chip:active {
+  transform: scale(0.96);
+}
+
+/*
+ * Выбранный чип — тоном, а не сплошной заливкой.
+ *
+ * Сплошной акцент занят переключателем разделов, и когда фильтр залит так же, экран
+ * показывает две одинаково громкие полосы подряд: непонятно, что здесь главное. Тон
+ * оставляет выбор очевидным, но на ступень тише — иерархия задаётся плотностью краски,
+ * а не только её наличием.
+ */
 .chip[aria-pressed='true'] {
-  border-color: transparent;
-  background: var(--tg-theme-button-color);
-  color: var(--tg-theme-button-text-color);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 16%, transparent);
+  color: var(--tg-theme-button-color);
+  font-weight: 600;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .chip[aria-pressed='true'] {
+    background: var(--tg-theme-button-color);
+    color: var(--tg-theme-button-text-color);
+  }
 }
 
 .chip:disabled {
@@ -465,18 +1301,51 @@ body {
   }
 }
 
-/* Разрушительное действие отличается цветом, а не только текстом: палитру для него
-   Telegram отдаёт отдельно (destructive_text_color). */
-.fallback-submit.danger {
-  background: transparent;
-  color: var(--tg-theme-destructive-text-color);
-  border: 1px solid var(--tg-theme-destructive-text-color);
+/*
+ * Третья ступень — без заливки, цветом ссылки. Для действия рядом с главным, которое
+ * с ним не спорит («Завершить сессии» под «Заблокировать»): два залитых прямоугольника
+ * подряд читаются как выбор из двух главных действий.
+ */
+.fallback-submit.plain {
+  min-height: var(--tap);
+  margin-top: 4px;
+  padding: 10px 14px;
+  background: none;
+  color: var(--tg-theme-link-color);
+  font-weight: 500;
 }
 
-/* Отклик на касание есть у строк списка — у кнопок его не было, и нажатие выглядело
-   как «не сработало», пока не приедет ответ сервера. */
+/*
+ * Разрушительное действие отличается цветом, а не только текстом: палитру для него
+ * Telegram отдаёт отдельно (destructive_text_color).
+ *
+ * Заливка тоном вместо контура. Обведённая кнопка рядом с залитой и приглушённой читается
+ * как третий, отдельный вид элемента; одинаковая заливка разной краской оставляет разницу
+ * там, где она есть, — в цвете.
+ */
+.fallback-submit.danger {
+  border: 0;
+  background: color-mix(in srgb, var(--tg-theme-destructive-text-color) 14%, transparent);
+  color: var(--tg-theme-destructive-text-color);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .fallback-submit.danger {
+    background: transparent;
+    border: 1px solid var(--tg-theme-destructive-text-color);
+  }
+}
+
+/*
+ * Отклик на касание есть у строк списка — у кнопок его не было, и нажатие выглядело
+ * как «не сработало», пока не приедет ответ сервера.
+ *
+ * Сжатие, а не одна прозрачность: палец закрывает кнопку целиком, и изменение размера
+ * видно по краям, которые из-под пальца видны, — а падение яркости под ним не видно.
+ */
 .fallback-submit:active {
-  opacity: 0.72;
+  transform: scale(0.97);
+  opacity: 0.86;
 }
 
 .fallback-submit:disabled {
@@ -485,6 +1354,7 @@ body {
 
 /* Строка-переключатель раздела: подпись слева, состояние справа. */
 .toggle-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -499,8 +1369,28 @@ body {
   cursor: pointer;
 }
 
-.toggle-row + .toggle-row {
-  border-top: 1px solid var(--tg-theme-section-separator-color);
+.toggle-row + .toggle-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
+}
+
+.toggle-row:active {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Строка внутри карточки, а не списка: подсветка обязана повторять её углы, иначе
+   при нажатии из-под неё выглядывают прямые. */
+.toggle-row:first-child:active {
+  border-radius: var(--radius-inner) var(--radius-inner) 0 0;
+}
+
+.toggle-row:last-child:active {
+  border-radius: 0 0 var(--radius-inner) var(--radius-inner);
 }
 
 .toggle-state {
@@ -513,15 +1403,91 @@ body {
   color: var(--tg-theme-destructive-text-color);
 }
 
+/*
+ * Поле ввода — залитая поверхность без рамки.
+ *
+ * Рамка в 1px спорит с хайрлайнами разделителей: два разных серых контура на одном экране
+ * читаются как разметка таблицы. Заливка отделяет поле от карточки тем же способом, каким
+ * от неё отделены чипы, — тоном, а не линией.
+ */
 .field {
   width: 100%;
   margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--tg-theme-section-separator-color);
-  border-radius: 10px;
-  background: var(--tg-theme-bg-color);
+  padding: 13px 14px;
+  border: 0;
+  border-radius: var(--radius-control);
+  /* На фоне экрана поле должно быть светлее фона, внутри карточки — темнее её. Один цвет
+     на оба случая не годится: secondary_bg у Telegram совпадает с фоном страницы, и поле
+     поиска на экране просто исчезало — оставался висеть в воздухе плейсхолдер. */
+  background: var(--tg-theme-section-bg-color);
   color: var(--tg-theme-text-color);
   font: inherit;
+}
+
+.card .field,
+.card .code-input {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Уголок растягивания браузера торчал точкой в углу залитого поля: высоту записки
+   задаёт `rows`, тянуть её пальцем на телефоне всё равно нечем. */
+textarea.field {
+  display: block;
+  resize: none;
+  line-height: 1.35;
+}
+
+/*
+ * Строка поиска: лупа слева и поле без собственной рамки.
+ *
+ * Подсказка «Поиск по переписке и фамилии» исчезает с первой набранной буквой, и дальше
+ * поле ничем не отличается от любого другого. Значок остаётся и отвечает на «куда я
+ * набираю» без чтения.
+ */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  background: var(--tg-theme-section-bg-color);
+}
+
+.card .search {
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+.search-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--tg-theme-hint-color);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0;
+  border: 0;
+  background: none;
+  color: var(--tg-theme-text-color);
+  font: inherit;
+}
+
+.search-input:focus {
+  outline: none;
+}
+
+/* Обводку при вводе с клавиатуры получает вся строка целиком, а не поле внутри неё. */
+.search:focus-within {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: 1px;
+}
+
+.field:focus-visible,
+.code-input:focus-visible {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: 1px;
 }
 
 /* Заголовок группы в списке (разделение по дням). */
@@ -564,12 +1530,72 @@ body {
 }
 
 /* Предпросмотр объявления — так, как его увидят пользователи. */
+/*
+ * Предпросмотр объявления — так, как его увидят пользователи.
+ *
+ * Тоном акцента, а не серым: рядом стоит поле ввода ровно такой же формы и такого же
+ * цвета, и предпросмотр читался как второе поле. Здесь же не ввод, а показ — и заливка
+ * говорит об этом раньше подписи.
+ */
 .preview {
   margin: 6px 0 0;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--tg-theme-secondary-bg-color);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 12%, transparent);
   font-size: 14px;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .preview {
+    background: var(--tg-theme-secondary-bg-color);
+  }
+}
+
+/*
+ * Листание разделов пальцем (ui/swipe-tabs.tsx).
+ *
+ * `pan-y` отдаёт браузеру вертикальную прокрутку и оставляет нам горизонталь. Без него
+ * выходит «или-или»: страница либо прокручивается, либо ловит жест.
+ *
+ * Обёртка занимает место экрана целиком (`flex: 1`), потому что встаёт между .content и
+ * самим экраном: без этого экран перестал бы растягиваться, и плашки пустоты, которым не
+ * от чего расти, схлопнулись бы в полоску под шапкой.
+ */
+.swipe-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  touch-action: pan-y;
+}
+
+/* Во время жеста содержимое едет за пальцем — тогда же поднимается и слой. Постоянным
+   его держать нельзя: transform создаёт систему координат для position: fixed, и шапка
+   с тостом внутри экрана начали бы считать края от обёртки, а не от окна. */
+.swipe-tabs.dragging {
+  will-change: transform;
+}
+
+/* Возврат на место — с той же кривой, что и остальные отклики. Во время жеста перехода
+   нет: содержимое обязано идти за пальцем без задержки. */
+.swipe-tabs:not(.dragging) {
+  transition: transform 220ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swipe-tabs:not(.dragging) {
+    transition: none;
+  }
+}
+
+/*
+ * Ряды, которые прокручиваются вбок сами, забирают горизонталь обратно: иначе жест
+ * разделов съедал бы их прокрутку, и до дальней вкладки или фишки было бы не добраться.
+ */
+.tabs,
+.screen > .chips,
+.composer-templates {
+  touch-action: pan-x;
 }
 
 /* Четыре вкладки в ширину телефона не помещаются — ряд прокручивается, а не сжимает
@@ -583,15 +1609,26 @@ body {
   display: none;
 }
 
+/* Равные доли дорожки, но не уже собственной надписи: пока вкладки помещаются, они
+   одной ширины, как в системном переключателе, и дорожка не кончается пустым хвостом
+   справа; длинная надпись берёт сколько нужно, не поместились — ряд прокручивается. */
 .tab {
-  flex: 0 0 auto;
+  flex: 1 0 0;
+  min-width: max-content;
   white-space: nowrap;
 }
 
-/* Разрушительное действие в строке списка. */
+/* Разрушительное действие в строке списка — тем же тоном, что разрушительная кнопка. */
 .chip.danger-chip {
-  border-color: var(--tg-theme-destructive-text-color);
+  background: color-mix(in srgb, var(--tg-theme-destructive-text-color) 14%, transparent);
   color: var(--tg-theme-destructive-text-color);
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .chip.danger-chip {
+    background: transparent;
+    border: 1px solid var(--tg-theme-destructive-text-color);
+  }
 }
 
 /* Спарклайн: подпись — кривая — последнее значение. */
@@ -625,12 +1662,25 @@ body {
   text-align: center;
 }
 
-/* Индикатор потягивания: стрелка вниз, пока не хватает, и знак обновления, когда хватит. */
+/*
+ * Индикатор потягивания: стрелка вниз, пока не хватает, и знак обновления, когда хватит.
+ *
+ * Прозрачность и размер задаёт жест (доля пройденного пути), а не css: индикатор обязан
+ * появляться ВМЕСТЕ с движением пальца, а не возникать готовым на середине. Css отвечает
+ * только за то, что происходит в момент, когда порог взят.
+ */
 .pull-hint {
   margin: 0;
   color: var(--tg-theme-hint-color);
   font-size: 18px;
   text-align: center;
+  transform-origin: center;
+}
+
+/* Порог взят — знак меняется и подаётся акцентом вместе с хаптикой: до отпускания видно,
+   что отпускать уже можно. */
+.pull-hint.ready {
+  color: var(--tg-theme-button-color);
 }
 
 /* Тепловая карта 7×24. Клетки резиновые: на узком экране они сжимаются, но строка дня
@@ -657,7 +1707,7 @@ body {
 .heatmap-cell {
   flex: 1 1 0;
   height: 12px;
-  border-radius: 2px;
+  border-radius: 3px;
   background: var(--tg-theme-button-color, #2ea6ff);
 }
 
@@ -684,6 +1734,97 @@ body {
   padding: 0;
 }
 
+/*
+ * Группа рычагов: одна карточка, внутри — строки с волосяными разделителями.
+ *
+ * Карточка-на-строку давала девять одинаковых прямоугольников с одинаковым зазором:
+ * лента читалась как девять равнозначных экранов, а не как раздел с устройством.
+ * Внутри группы строки теряют собственный фон, скругление и тень — их держит группа.
+ */
+.fold-group {
+  padding: 0;
+  overflow: hidden;
+}
+
+.fold-group .fold {
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.fold-group .fold + .fold > summary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 56px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
+}
+
+/* Группа без плиток (разделы сводки): линия начинается там же, где текст, — от поля. */
+.fold-group-plain .fold + .fold > summary::before {
+  left: 14px;
+}
+/* Отступ линии — под плиткой значка, а не под её краем: линия должна начинаться там,
+   где начинается текст, иначе она режет колонку значков. */
+.fold-group .fold > summary {
+  position: relative;
+}
+
+/*
+ * Цветной квадратик со значком в строке.
+ *
+ * Скруглённый квадрат, а не круг: круг в списке читается как аватар, то есть как человек,
+ * — а это раздел настроек. Значок белый поверх заливки: цвет несёт сам квадратик.
+ */
+.tile {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--tile-color, var(--tint-gray));
+  color: #fff;
+}
+
+.tile-red {
+  --tile-color: var(--tint-red);
+}
+
+.tile-orange {
+  --tile-color: var(--tint-orange);
+}
+
+.tile-green {
+  --tile-color: var(--tint-green);
+}
+
+.tile-teal {
+  --tile-color: var(--tint-teal);
+}
+
+.tile-blue {
+  --tile-color: var(--tint-blue);
+}
+
+.tile-indigo {
+  --tile-color: var(--tint-indigo);
+}
+
+.tile-purple {
+  --tile-color: var(--tint-purple);
+}
+
+.tile-pink {
+  --tile-color: var(--tint-pink);
+}
+
+.tile-gray {
+  --tile-color: var(--tint-gray);
+}
+
 .fold > summary {
   display: flex;
   align-items: center;
@@ -701,26 +1842,43 @@ body {
 
 .fold > summary:active {
   background: var(--tg-theme-secondary-bg-color);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .fold-title {
   flex: 1;
+  min-width: 0;
   font-size: var(--text-head);
   font-weight: 600;
+  /*
+   * Переносим, а не обрезаем — и без потолка по строкам. Раньше здесь стояло многоточие,
+   * потом обрезка на второй строке: «Уведомления команде» превращалось в «Уведомления
+   * кома…», и строку приходилось открывать, чтобы понять, что в ней. Название раздела
+   * нужно целиком. Значение справа при этом не страдает: оно короткое и стоит своей
+   * колонкой. Слова длиннее колонки переносит общее правило у body.
+   */
 }
 
-/* Состояние — справа и серым: это ответ на «что там сейчас», а не заголовок. */
+/*
+ * Состояние — справа и акцентом.
+ *
+ * Серым оно читалось как подпись к заголовку, хотя это ОТВЕТ: «выключены», «нет», «Base».
+ * В системных настройках значение справа тоже подаётся цветом ссылки — по нему видно, что
+ * строка показывает текущий выбор, а не просто называет раздел.
+ */
 .fold-state {
-  color: var(--tg-theme-hint-color);
+  flex: 0 0 auto;
+  color: var(--tg-theme-link-color);
   font-size: var(--text-small);
   text-align: right;
 }
 
 .fold-chevron {
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
   color: var(--tg-theme-hint-color);
-  font-size: 18px;
+  opacity: 0.5;
   transition: transform 0.15s ease;
 }
 
@@ -728,12 +1886,38 @@ body {
   transform: rotate(90deg);
 }
 
+/* Линия под раскрытой шапкой — с тем же отступом слева, что и разделители строк:
+   два разных способа разделить соседние блоки на одном экране читаются как недосмотр. */
 .fold[open] > summary {
-  border-bottom: 1px solid var(--tg-theme-section-separator-color);
+  background-image: linear-gradient(
+    to right,
+    transparent 14px,
+    var(--tg-theme-section-separator-color) 14px
+  );
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
 }
 
 .fold-body {
   padding: 2px 14px 14px;
+}
+
+/*
+ * Раздел раскрывается мягко, а не скачком: `<details>` показывает содержимое мгновенно, и
+ * на карточке с пятью рычагами это выглядело как подмена экрана. Анимируется только
+ * раскрытие — закрытие браузер делает, убирая содержимое из разметки, и анимировать там
+ * уже нечего.
+ */
+.fold[open] > .fold-body {
+  animation: fold-open 220ms var(--ease-out);
+}
+
+@keyframes fold-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 /* Подзаголовок внутри развёрнутого раздела: у техработ он меняется вместе с состоянием
@@ -745,16 +1929,42 @@ body {
   font-weight: 600;
 }
 
+/*
+ * Подзаголовок группы внутри карточки («Блокировка»): мелко и тише, как заголовок секции
+ * в настройках iOS. Отступ сверху больше шага карточки — он и отделяет группу, линия не
+ * нужна.
+ */
+.card .card-sub {
+  margin: 20px 0 0;
+  color: var(--tg-theme-hint-color);
+  font-size: var(--text-small);
+  font-weight: 600;
+  letter-spacing: var(--track-small);
+}
+
+.card .card-sub + .chips-grid {
+  margin-top: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fold-chevron {
     transition: none;
   }
+
+  .fold[open] > .fold-body {
+    animation: none;
+  }
 }
 
-/* Переключатель «Сводка / Рычаги» внутри раздела: та же полоса, но своя, не липкая —
-   в отличие от разделов, между этими двумя ходят редко. */
-.subtabs {
-  margin: 12px var(--side) 0;
+/*
+ * Шапка над экраном, у которого её нет своей.
+ *
+ * «Управление» — это два разных занятия (посмотреть сводку и подвигать рычаги), и каждое
+ * рисует свой экран со своими отступами. Общее у них — название раздела и переключатель
+ * между ними, поэтому шапка живёт снаружи обоих и получает те же поля, что дал бы .screen.
+ */
+.screen-top {
+  padding: var(--side) var(--side) 0;
 }
 
 /*
@@ -808,6 +2018,111 @@ body {
 }
 
 /*
+ * Экран переписки: разговор, а не страница.
+ *
+ * Страница прокручивается целиком, и поле ввода, прилипшее к её низу, лежит ПОВЕРХ
+ * текста: длинное сообщение продолжалось под ним и уходило под нижний край экрана.
+ * Здесь прокручивается только лента реплик, а полоса собеседника и поле ввода стоят по
+ * краям и не двигаются — ровно так устроен любой мессенджер, включая чаты платформы.
+ *
+ * `fixed`, а не `flex: 1` в потоке: экран открывается поверх раздела, и высота ему нужна
+ * ровно экранная, без запаса, который .content резервирует под панель разделов.
+ */
+.chat {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  /*
+   * Высота — видимая область глазами самого Telegram.
+   *
+   * Экран прибит к окну и прокручивается только внутри, поэтому поле ответа обязано
+   * помещаться в то, что осталось от экрана под клавиатурой: уехав под клавиши, обратно
+   * оно не вернётся. А сколько осталось — вопрос к клиенту, а не к странице.
+   * `--tg-viewport-height` проставляет сам telegram-web-app.js по числу от нативной
+   * оболочки и обновляет на каждое изменение (событие `viewportChanged`).
+   *
+   * Своя арифметика здесь уже была и оказалась неверной: разница между `innerHeight` и
+   * `visualViewport` на Android вычитала клавиатуру ВТОРОЙ раз — клиент к тому моменту
+   * успевал ужать окно сам, — и переписка съёживалась вдвое, оставляя под собой чёрную
+   * полосу. Два источника правды об одной высоте не бывают согласованы; берём тот,
+   * который и распоряжается окном.
+   *
+   * Запасное `100%` — вне Telegram (и в клиентах постарше): для прибитого к окну элемента
+   * это ровно высота окна, а клавиатуру там ужимает сам браузер.
+   */
+  height: var(--tg-viewport-height, 100%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-theme-secondary-bg-color);
+}
+
+/* Полоса собеседника: то же стекло, что у панели разделов, и отступ под вырез сверху. */
+.chat-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(var(--safe-top) + 8px) var(--side) 8px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: 0 1px 0 0 var(--tg-theme-section-separator-color);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .chat-head {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+/* Имя собеседника переносится, а не режется многоточием: больше нигде на экране
+   переписки его целиком не видно, а отвечать надо, зная, кому. */
+.chat-head-name {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-head);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: var(--track-head);
+}
+
+/*
+ * Лента реплик — единственное, что здесь прокручивается. `min-height: 0` обязателен:
+ * без него флекс-колонка не даёт потомку сжаться ниже содержимого, и прокрутка
+ * переезжает на весь экран, то есть возвращается ровно та беда, от которой уходим.
+ */
+.chat-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Прокрутка не утекает наружу: дотянув ленту до края, свайп иначе начинает тянуть сам
+     мини-апп, а вниз это его закрытие. */
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap) var(--side);
+}
+
+/* Реплики прижаты к низу: короткая переписка начинается от поля ввода, а не висит под
+   полосой собеседника с пустотой внизу — так же ведут себя чаты платформы. */
+.chat-body > .thread {
+  margin-top: auto;
+}
+
+/*
+ * Поле ввода в разговоре стоит в потоке, а не прилипает: под ним ничего нет, прилипать
+ * не к чему, а `sticky` внутри прокручиваемой ленты положил бы его поверх реплик.
+ */
+.chat > .composer {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0 var(--side) calc(10px + var(--safe-bottom));
+}
+
+/*
  * Переписка поддержки — пузырями.
  *
  * Строками списка диалог выглядел таблицей «имя — текст — время»: кто кому отвечает,
@@ -822,9 +2137,11 @@ body {
 
 .bubble {
   max-width: 82%;
-  padding: 8px 12px;
-  border-radius: 16px;
-  background: var(--tg-theme-section-bg-color);
+  padding: 9px 13px;
+  border-radius: 20px;
+  /* Не section-bg: у Telegram он совпадает с фоном карточки, внутри которой лежит
+     переписка, — чужая реплика оказывалась белым на белом и пузырём не выглядела. */
+  background: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
   font-size: var(--text-body);
   overflow-wrap: anywhere;
@@ -836,12 +2153,48 @@ body {
   align-self: flex-end;
   background: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: 7px;
 }
 
 .bubble.theirs {
   align-self: flex-start;
-  border-bottom-left-radius: 6px;
+  border-bottom-left-radius: 7px;
+}
+
+/*
+ * Текст сообщения (ui/message-text.tsx).
+ *
+ * `pre-wrap` — потому что переводы строк в сообщении значат ровно то, что значат: список
+ * из четырёх пунктов, набранный с новой строки, схлопывался в одну фразу.
+ *
+ * Ссылка красится цветом самой реплики, а не ссылочным: в своём пузыре он лёг бы синим
+ * по синему. Отличает её подчёркивание — оно читается на любом фоне.
+ */
+.msg {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.msg a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Подложка кода берётся от цвета текста самой реплики: серая тонула бы в синем пузыре
+   своих слов, а вторая пара цветов на один элемент — лишняя. */
+.msg code {
+  padding: 1px 4px;
+  border-radius: var(--radius-inner);
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .msg code {
+    background: rgb(127 127 127 / 0.2);
+  }
 }
 
 .bubble-author {
@@ -858,4 +2211,611 @@ body {
   font-size: var(--text-small);
   opacity: 0.7;
   text-align: right;
+}
+
+/*
+ * ── Настройки доступности ────────────────────────────────────────────────────
+ *
+ * Стекло и пружины — это украшение поверх работы, и человек вправе их выключить. Три
+ * системные настройки читаются независимо друг от друга, и ни одна не должна отнимать
+ * смысл: отключённое движение оставляет отклик, отключённая прозрачность — иерархию.
+ */
+
+/* Меньше движения: отклик остаётся, но перестаёт быть перемещением. */
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .chip,
+  .fallback-submit,
+  .tabbar-item,
+  .tab-lens {
+    transition: none;
+  }
+
+  .tab:active,
+  .chip:active,
+  .tabbar-item:active,
+  .fallback-submit:active {
+    transform: none;
+    opacity: 0.8;
+  }
+}
+
+/*
+ * Меньше прозрачности: стекло становится плотным.
+ *
+ * Именно плотным, а не бесцветным — плавающая капсула обязана остаться отделённой от
+ * содержимого, иначе вкладки сольются со списком под ними. Роль, которую играло размытие,
+ * берут на себя непрозрачный фон и тень.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  .tabbar {
+    background: var(--tg-theme-bg-color);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/*
+ * Больше контраста: поверхности получают видимую границу.
+ *
+ * Тень и кант различимы не для всех глаз и не на всех экранах — при этой настройке
+ * разделение обязано быть линией, которую видно наверняка.
+ */
+@media (prefers-contrast: more) {
+  .card,
+  .list,
+  .tabs {
+    box-shadow: inset 0 0 0 1px var(--tg-theme-section-separator-color);
+  }
+
+  .chip {
+    box-shadow: inset 0 0 0 1px var(--tg-theme-section-separator-color);
+  }
+}
+
+/*
+ * Клавиатурный фокус.
+ *
+ * Мини-апп открывают с телефона, но открывают и с десктопного клиента Telegram, где ходят
+ * табом. Отдельным правилом на всё нажимаемое, а не по месту: пропущенный элемент заметен
+ * только тому, кто им пользуется, — то есть никогда не заметен нам.
+ */
+.row:focus-visible,
+.tab:focus-visible,
+.chip:focus-visible,
+.toggle-row:focus-visible,
+.tabbar-item:focus-visible,
+.fallback-submit:focus-visible,
+.fold > summary:focus-visible {
+  outline: 2px solid var(--tg-theme-button-color);
+  outline-offset: -2px;
+}
+
+/* Шапка блока настроек: плитка со значком и название — как строка раздела в «Управлении». */
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/*
+ * Разбор подряд: строка «Разобрано 3 · осталось 9» с «Пропустить» и тонкая полоса под ней.
+ * Полоса — акцентом темы: это ход работы, а не тревога.
+ */
+.triage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.triage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.triage-bar {
+  display: block;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 22%, transparent);
+  overflow: hidden;
+}
+
+.triage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tg-theme-button-color);
+  transition: width 240ms var(--ease-out);
+}
+
+/*
+ * Строка со свайпом. Верхний слой — сама строка на фоне секции, под ним подложка
+ * действия: она видна, только пока строку тянут. `overflow: hidden` у `.list` обрезает
+ * подложку по скруглению группы.
+ */
+.swipe {
+  position: relative;
+  touch-action: pan-y;
+}
+
+.swipe-top {
+  position: relative;
+  background: var(--tg-theme-section-bg-color);
+}
+
+.swipe-top.settling {
+  transition: transform 220ms var(--ease-out);
+}
+
+/* Разделитель между строками: строки теперь в обёртках, и прежний `.row + .row` их не видит. */
+.swipe + .swipe .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 56px;
+  right: 0;
+  height: 1px;
+  background: var(--tg-theme-section-separator-color);
+}
+
+.swipe-under {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--text-small);
+}
+
+.swipe-under.from-right {
+  justify-content: flex-end;
+}
+
+/* «Нарушения нет» — серым: обратимое и спокойное решение, не тревога. */
+.swipe-neutral {
+  background: var(--tint-gray);
+}
+
+.swipe-accent {
+  background: var(--tg-theme-button-color);
+}
+
+/*
+ * Тост над панелью разделов: «Отмечено: нарушения нет · Отменить». Стекло то же, что у
+ * панели, — это её сосед, а не всплывающее окно поверх содержимого.
+ */
+.toast {
+  position: fixed;
+  left: var(--side);
+  right: var(--side);
+  bottom: calc(var(--tabbar-h) + 18px + var(--safe-bottom));
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--tap);
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--radius-control);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
+  font-size: var(--text-small);
+  animation: toast-in 200ms var(--ease-out);
+}
+
+.toast-action {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--tg-theme-link-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .swipe-top.settling {
+    animation: none;
+    transition: none;
+  }
+}
+
+/*
+ * Главная карточка сводки. Цвет вердикта — подложкой и кружком, а не текстом: вердикт
+ * считывается с расстояния вытянутой руки, до того как прочитан. Подложка — тон поверх
+ * фона секции, а не заливка: карточка остаётся карточкой темы Telegram.
+ */
+.hero {
+  --hero-tone: var(--tint-gray);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--hero-tone) 12%, var(--tg-theme-section-bg-color));
+  box-shadow: var(--shadow-rest);
+}
+
+.hero-ok {
+  --hero-tone: var(--tint-green);
+}
+
+.hero-bad {
+  --hero-tone: var(--tint-red);
+}
+
+.hero-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--hero-tone);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.hero-body h2 {
+  margin: 0;
+  font-size: var(--text-head);
+  letter-spacing: var(--track-head);
+}
+
+.hero-list {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .hero {
+    background: var(--tg-theme-section-bg-color);
+  }
+}
+
+/* Строка-действие в списке неактивна, пока идёт запрос. */
+.row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Разделитель дня в переписке — плашкой по центру, как в Telegram. */
+.thread-day {
+  align-self: center;
+  margin: 6px 0 2px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 16%, transparent);
+  color: var(--tg-theme-hint-color);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+/*
+ * Поле ввода поддержки. Прилипает к низу над панелью разделов: ответ пишут там, где
+ * кончается переписка, и до него не надо листать. Стекло то же, что у панели, — это одна
+ * плавающая группа, а не карточка посреди экрана.
+ */
+.composer {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + 10px + var(--safe-bottom));
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: calc(var(--radius-control) + 8px);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-edge),
+    var(--shadow-float);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .composer {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+/* Заготовки — одной строкой с прокруткой вбок: в три ряда они съедали пол-экрана. */
+.composer-templates {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -8px;
+  padding: 0 8px;
+}
+
+.composer-templates::-webkit-scrollbar {
+  display: none;
+}
+
+.composer-templates .chip {
+  flex: 0 0 auto;
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 9px 14px;
+  border: 1px solid var(--tg-theme-section-separator-color);
+  border-radius: 20px;
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  font: inherit;
+  line-height: 1.35;
+  resize: none;
+  outline: none;
+}
+
+.composer-field::placeholder {
+  color: var(--tg-theme-hint-color);
+}
+
+/* Круглая кнопка справа: «отправить» акцентом, микрофон — тише, он не главное. */
+.composer-round {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  cursor: pointer;
+  transition: transform var(--press) var(--ease-out);
+}
+
+.composer-round.quiet {
+  background: color-mix(in srgb, var(--tg-theme-button-color) 14%, transparent);
+  color: var(--tg-theme-button-color);
+}
+
+.composer-round:active {
+  transform: scale(0.92);
+}
+
+.composer-round:disabled {
+  opacity: 0.45;
+}
+
+.composer-row.recording {
+  align-items: center;
+  min-height: 40px;
+  padding-left: 10px;
+}
+
+.composer-rec {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Точка записи пульсирует: видно, что микрофон слушает, даже если не смотреть на секунды. */
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tint-red);
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.composer-text-btn {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--tg-theme-link-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot {
+    animation: none;
+  }
+}
+
+/*
+ * Сжатая шапка: появляется, когда крупный заголовок уехал за верх. Во всю ширину и под
+ * вырез — в полноэкранном режиме над ней кнопки Telegram, поэтому отступ сверху тот же,
+ * что у содержимого (`--safe-top`), а стекло тянется до самого края.
+ */
+.compact-head {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(44px + var(--safe-top));
+  /* Поля симметричные: своей кнопки возврата в шапке больше нет, и место под неё слева
+     оставляло название сдвинутым от центра. */
+  padding: var(--safe-top) 20px 0;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: 0 1px 0 0 var(--tg-theme-section-separator-color);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.compact-head.shown {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* Единственное место, где многоточие допустимо: это копия крупного заголовка экрана,
+   который виден целиком, стоит лишь прокрутить вверх. Полоса обязана остаться в одну
+   строку — она накрывает содержимое, и в две строки съедала бы его. */
+.compact-title {
+  overflow: hidden;
+  font-weight: 600;
+  letter-spacing: var(--track-head);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .compact-head {
+    background: var(--tg-theme-bg-color);
+  }
+}
+
+/*
+ * Переходы между экранами (lib/navigate.ts). Вглубь — новый экран въезжает справа, старый
+ * отступает влево; назад — наоборот; смена вкладки — растворение по умолчанию. Панель
+ * разделов в переходе не участвует: она одна на все экраны и должна стоять на месте.
+ */
+.tabbar {
+  view-transition-name: tabbar;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+  animation-timing-function: var(--ease-out);
+}
+
+:root[data-nav='forward']::view-transition-old(root) {
+  animation-name: nav-out-left;
+}
+
+:root[data-nav='forward']::view-transition-new(root) {
+  animation-name: nav-in-right;
+}
+
+:root[data-nav='back']::view-transition-old(root) {
+  animation-name: nav-out-right;
+}
+
+:root[data-nav='back']::view-transition-new(root) {
+  animation-name: nav-in-left;
+}
+
+:root[data-nav='fade']::view-transition-old(root),
+:root[data-nav='fade']::view-transition-new(root) {
+  animation-duration: 180ms;
+}
+
+@keyframes nav-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24%);
+  }
+}
+
+@keyframes nav-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(-10%);
+  }
+}
+
+@keyframes nav-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-10%);
+  }
+}
+
+@keyframes nav-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(24%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compact-head {
+    transition: none;
+  }
+}
+
+/*
+ * Поле ввода не должно масштабировать экран.
+ *
+ * Safari на iOS зумит страницу при фокусе, если текст поля меньше 16px, — а весь
+ * интерфейс мини-аппа набран пятнадцатым. Из этого зума нет выхода: встроенный браузер
+ * Telegram не даёт вернуть масштаб, и ответ в поддержке дописывают по увеличенному
+ * экрану, у которого половина ушла за край.
+ *
+ * `max(16px, 1em)`, а не ровно 16: поле обязано быть не мельче порога, но и не мельче
+ * остального текста — при крупном шрифте (lib/font-scale.ts) оно растёт вместе с ним.
+ * Поле кода исключено: там свои 22px, и общее правило сделало бы его мельче.
+ *
+ * Только на тач-устройствах: в десктопном клиенте Telegram зума при фокусе нет, а поля
+ * там остаются в размере интерфейса.
+ *
+ * Классы перечислены рядом с тегами, и блок стоит ПОСЛЕДНИМ в файле, — иначе `font:
+ * inherit` у `.composer-field` и `.field` перебивает правило: у класса вес выше, чем у
+ * имени тега, и объявлен он ниже по файлу.
+ *
+ * Чего здесь СОЗНАТЕЛЬНО нет — `user-scalable=no` в мета-вьюпорте. Он убрал бы зум
+ * заодно и с жеста, то есть отнял бы у человека возможность увеличить экран вообще.
+ * Лечим причину (размер текста в поле), а не запрещаем масштабирование.
+ */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not(.code-input),
+  textarea,
+  select,
+  .field,
+  .search-input,
+  .composer-field {
+    font-size: max(16px, 1em);
+  }
 }

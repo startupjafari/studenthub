@@ -14,6 +14,7 @@ import { PlatformService } from './platform.service'
 import { SetMaintenanceDto } from './dto/set-maintenance.dto'
 import { SetBannerDto } from './dto/set-banner.dto'
 import { SetSectionsDto } from './dto/set-sections.dto'
+import { SetSeasonDto } from './dto/set-season.dto'
 import { AnnounceReleaseDto } from './dto/announce-release.dto'
 import { SetNotificationsDto } from './dto/set-notifications.dto'
 import { SetDutyDto } from './dto/set-duty.dto'
@@ -122,6 +123,20 @@ export class PlatformController {
     @Req() req: FastifyRequest,
   ) {
     return this.platform.setSections(user.sub, dto, this.ctx(req))
+  }
+
+  @Patch('season')
+  @ApiBearerAuth()
+  @Roles(Role.PLATFORM_ADMIN)
+  @MiniAllowed()
+  @ApiOperation({ summary: 'Праздничное оформление: выключить или задать сезон' })
+  @ApiResponse({ status: 200, description: 'Новое состояние' })
+  setSeason(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: SetSeasonDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.platform.setSeason(user.sub, dto, this.ctx(req))
   }
 
   @Patch('notifications')

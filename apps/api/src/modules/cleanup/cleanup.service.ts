@@ -15,8 +15,11 @@ import { PostsService } from '../posts/posts.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
+import { ComplaintsService } from '../complaints/complaints.service'
+import { DemoRequestsService } from '../onboarding/demo-requests.service'
 import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
+import { digestText, humanAge } from '../../common/telegram/digest'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
@@ -38,17 +41,32 @@ const LOCK_TTL_MS = {
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
+  sweepIncompleteUploads: 60 * 60 * 1000,
   sendDailyDigest: 10 * 60 * 1000,
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
+  purgeUnconfirmedDemoRequests: 10 * 60 * 1000,
   liftExpiredBlocks: 4 * 60 * 1000,
   rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
+// Сколько ждём подтверждения адреса в заявке вуза, прежде чем удалить её (§31).
+//
+// Неделя, а не сутки: ссылка живёт 24 часа, но человек мог подать заявку в пятницу и
+// открыть почту в понедельник — переотправка письма ему тогда ещё доступна. Дальше
+// хранить незачем: заявку не подтвердили, а персональные данные в ней настоящие.
+const DEMO_REQUEST_UNCONFIRMED_DAYS = 7
 // Не трогаем свежие объекты MinIO — они могут быть в процессе загрузки (запись File ещё не создана).
 const ORPHAN_SAFETY_MINUTES = 60
+
+// Через сколько часов брошенная многочастная загрузка считается мусором (Фаза 19).
+//
+// Незавершённая загрузка НЕ ВИДНА как объект: `cleanOrphanFiles` перечисляет объекты бакета и
+// её не найдёт, а место её части занимают. Сутки — потолок осмысленной докачки: клиент хранит
+// состояние ровно столько же, дальше продолжать всё равно нечего.
+const INCOMPLETE_UPLOAD_TTL_HOURS = 24
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -96,6 +114,8 @@ export class CleanupService {
     private readonly audit: AuditService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly support: SupportService,
+    private readonly complaints: ComplaintsService,
+    private readonly demoRequests: DemoRequestsService,
     private readonly telegram: TelegramNotifyService,
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
   ) {}
@@ -267,12 +287,10 @@ export class CleanupService {
   }
 
   private async cleanOrphanFilesTask(): Promise<number> {
-    const buckets = [
-      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
-      this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
-      this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
-      this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
-    ]
+    // Все бакеты, а не четыре исторических: с прямой загрузкой вложений чата (Ф19.0) объект
+    // попадает в `chat-media` ДО создания сообщения, и не дошедшая до отправки загрузка
+    // осталась бы там навсегда — этот бакет в списке не значился.
+    const buckets = this.mediaBuckets()
     const safetyBefore = new Date(Date.now() - ORPHAN_SAFETY_MINUTES * 60 * 1000)
     let removed = 0
 
@@ -304,6 +322,84 @@ export class CleanupService {
     return removed
   }
 
+  // Брошенные многочастные загрузки (Фаза 19). Ежедневно, 04:30 — следом за чисткой сирот.
+  @Cron('30 4 * * *', { name: 'sweepIncompleteUploads' })
+  async sweepIncompleteUploads(): Promise<number | null> {
+    return this.locks.run('sweepIncompleteUploads', LOCK_TTL_MS.sweepIncompleteUploads, () =>
+      this.sweepIncompleteUploadsTask(),
+    )
+  }
+
+  /**
+   * Отменить многочастные загрузки, начатые больше суток назад.
+   *
+   * Почему отдельной задачей, а не внутри `cleanOrphanFiles`: тот перечисляет ОБЪЕКТЫ, а
+   * незавершённая загрузка объектом ещё не стала — её части лежат в хранилище отдельно и в
+   * листинге не показываются. Найти их можно только запросом списка загрузок.
+   *
+   * Это второй рубеж. Первый — правило `AbortIncompleteMultipartUpload` на самом бакете:
+   * оно работает, даже когда приложение лежит. Дублирование намеренное — место кончается
+   * молча, и заметно это становится, когда уже поздно.
+   */
+  private async sweepIncompleteUploadsTask(): Promise<number> {
+    const buckets = this.mediaBuckets()
+    const before = new Date(Date.now() - INCOMPLETE_UPLOAD_TTL_HOURS * 60 * 60 * 1000)
+    let aborted = 0
+
+    for (const bucket of buckets) {
+      try {
+        let keyMarker = ''
+        let uploadIdMarker = ''
+        for (;;) {
+          // Постраничный запрос, а не поток `listIncompleteUploads`: тот отдаёт только ключ,
+          // uploadId и размер, а нам нужна дата начала — без неё свежую загрузку не отличить
+          // от брошенной, и мы бы рвали то, что прямо сейчас грузится.
+          const page = await this.minio.listIncompleteUploadsQuery(
+            bucket,
+            '',
+            keyMarker,
+            uploadIdMarker,
+            '',
+          )
+          for (const upload of page.uploads) {
+            if (upload.initiated >= before) continue
+            await this.minio.abortMultipartUpload(bucket, upload.key, upload.uploadId)
+            aborted += 1
+          }
+          if (!page.isTruncated) break
+          keyMarker = page.nextKeyMarker
+          uploadIdMarker = page.nextUploadIdMarker
+        }
+      } catch (err) {
+        // MinIO недоступен/бакета нет — логируем и продолжаем (graceful degradation).
+        this.logger.warn(
+          `sweepIncompleteUploads: бакет ${bucket} пропущен: ${(err as Error).message}`,
+        )
+      }
+    }
+    this.logger.log(`sweepIncompleteUploads: отменено брошенных загрузок ${aborted}`)
+    return aborted
+  }
+
+  /**
+   * Все бакеты с пользовательскими медиа. Многочастная загрузка возможна в любой из них,
+   * поэтому список шире, чем у `cleanOrphanFiles` (тот исторически знает только четыре —
+   * его расширение это отдельная задача, а не побочный эффект этой).
+   */
+  private mediaBuckets(): string[] {
+    return [
+      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
+      this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+      this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
+      this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
+      this.config.get('MINIO_BUCKET_CHAT', { infer: true }),
+      this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }),
+      this.config.get('MINIO_BUCKET_DOCUMENTS', { infer: true }),
+      this.config.get('MINIO_BUCKET_PROFILE_MEDIA', { infer: true }),
+      this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true }),
+    ]
+  }
+
   // Ежедневная сводка команде платформы. Ежечасно, а отправляет только в тот час,
   // который админ выбрал: хранить расписание в cron-выражении значило бы перезапускать
   // приложение ради смены времени.
@@ -318,19 +414,40 @@ export class CleanupService {
     const policy = await this.platform.notificationPolicy()
     if (policy.digestHour === null || policy.digestHour !== new Date().getHours()) return 0
 
-    const [complaints, tickets] = await Promise.all([
-      this.prisma.complaint.count({ where: { status: { in: ['PENDING', 'REVIEWING'] } } }),
-      this.prisma.chat.count({ where: { type: 'SUPPORT_PLATFORM', supportClosedAt: null } }),
+    // Числа спрашиваем у модулей-владельцев, а не считаем здесь: тот же ответ отдаёт
+    // команда бота `/queue`, и две копии запроса разошлись бы при первой же правке
+    // набора статусов «в очереди».
+    const since = new Date(Date.now() - DAY_MS)
+    const [complaints, tickets, complaintsDay, ticketsDay, duty] = await Promise.all([
+      this.complaints.queueStats(),
+      this.support.queueStats(),
+      this.complaints.dayStats(since),
+      this.support.dayStats(since),
+      this.platform.duty(),
     ])
 
     // Сводку шлём, даже когда всё разобрано: «ноль и ноль» — это тоже новость, и по её
-    // отсутствию нельзя отличить спокойный день от сломавшейся отправки.
+    // отсутствию нельзя отличить спокойный день от сломавшейся отправки. Текст собирает
+    // общая функция: ту же сводку отдаёт команда бота `/digest`.
     await this.telegram.notifyStaff(
       'digest',
-      `Сводка за день: жалоб в очереди ${complaints}, открытых обращений ${tickets}`,
+      digestText({
+        complaints: { ...complaints, ...complaintsDay },
+        tickets: { ...tickets, ...ticketsDay },
+        dutyName: await this.dutyName(duty.dutyUserId),
+      }),
     )
-    this.logger.log(`sendDailyDigest: жалоб ${complaints}, обращений ${tickets}`)
+    this.logger.log(`sendDailyDigest: жалоб ${complaints.count}, обращений ${tickets.count}`)
     return 1
+  }
+
+  /** Имя дежурного для сводки. Только команда платформы — тех, о ком жалуются, здесь нет. */
+  private async dutyName(userId: string | null): Promise<string | null> {
+    if (!userId) return null
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } })
+      .catch(() => null)
+    return user ? `${user.firstName} ${user.lastName}`.trim() : null
   }
 
   // Очередь жалоб выросла сверх порога. Ежечасно, с паузой между сигналами.
@@ -342,9 +459,7 @@ export class CleanupService {
   }
 
   private async alertQueueBacklogTask(): Promise<number> {
-    const pending = await this.prisma.complaint.count({
-      where: { status: { in: ['PENDING', 'REVIEWING'] } },
-    })
+    const { count: pending, oldestAt } = await this.complaints.queueStats()
     if (pending < QUEUE_BACKLOG_THRESHOLD) {
       // Очередь разгребли — снимаем паузу, чтобы следующий всплеск не пропустить.
       await this.redis.del(QUEUE_BACKLOG_KEY).catch(() => undefined)
@@ -358,9 +473,36 @@ export class CleanupService {
       .catch(() => null)
     if (first === null) return 0
 
-    await this.telegram.notifyStaff('complaint', `В очереди накопилось жалоб: ${pending}`)
+    // С возрастом самого старого: «накопилось десять» за час и «накопилось десять» за
+    // трое суток — разные поводы, а сигнал был один и тот же.
+    await this.telegram.notifyStaff(
+      'complaint',
+      [
+        `В очереди накопилось жалоб: ${pending}`,
+        ...(oldestAt ? [`Старейшая ждёт: ${humanAge(Date.now() - oldestAt.getTime())}`] : []),
+      ].join('\n'),
+    )
     this.logger.log(`alertQueueBacklog: жалоб ${pending}`)
     return pending
+  }
+
+  // Неподтверждённые заявки вузов. Ежедневно в 04:30, до уборки обращений.
+  //
+  // Пока такая заявка жива, она занимает адрес: подать новую с него нельзя. Плюс в ней
+  // лежат персональные данные из публичной формы, которые никто не подтвердил.
+  @Cron('30 4 * * *', { name: 'purgeUnconfirmedDemoRequests' })
+  async purgeUnconfirmedDemoRequests(): Promise<number | null> {
+    return this.locks.run(
+      'purgeUnconfirmedDemoRequests',
+      LOCK_TTL_MS.purgeUnconfirmedDemoRequests,
+      async () => {
+        const removed = await this.demoRequests.purgeUnconfirmed(
+          new Date(Date.now() - DEMO_REQUEST_UNCONFIRMED_DAYS * DAY_MS),
+        )
+        this.logger.log(`purgeUnconfirmedDemoRequests: удалено ${removed}`)
+        return removed
+      },
+    )
   }
 
   // Обращения без движения. Ежедневно в 05:00, после уборки файлов.

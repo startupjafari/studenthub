@@ -16,7 +16,14 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
-import { AnchoredMenuLayer, EmojiPicker, MENU_EXIT_MS, type MenuAnchor } from '../../../shared/ui'
+import {
+  AnchoredMenuLayer,
+  EmojiPicker,
+  MENU_EXIT_MS,
+  MenuSeparator,
+  splitDanger,
+  type MenuAnchor,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import {
   useSheetDragClose,
@@ -242,32 +249,39 @@ export function MessageContextMenu({
       : []),
   ]
 
-  const actionsList = (variant: 'menu' | 'card'): React.ReactNode => (
-    <div className="py-1">
-      {items.map((it) => {
-        const Icon = it.icon
-        return (
-          <button
-            key={it.key}
-            type="button"
-            role="menuitem"
-            onClick={run(it.onClick)}
-            className={cn(
-              'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
-              variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
-              it.danger ? 'text-destructive' : 'text-foreground',
-            )}
-          >
-            <Icon
-              className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
-              aria-hidden
-            />
-            <span className="truncate">{it.label}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
+  const actionsList = (variant: 'menu' | 'card'): React.ReactNode => {
+    const row = (it: ActionDef): React.ReactNode => {
+      const Icon = it.icon
+      return (
+        <button
+          key={it.key}
+          type="button"
+          role="menuitem"
+          onClick={run(it.onClick)}
+          className={cn(
+            'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
+            variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
+            it.danger ? 'text-destructive' : 'text-foreground',
+          )}
+        >
+          <Icon
+            className={cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')}
+            aria-hidden
+          />
+          <span className="truncate">{it.label}</span>
+        </button>
+      )
+    }
+    // Опасные пункты — всегда в конце и за линией (см. MenuSeparator).
+    const { safe, danger } = splitDanger(items)
+    return (
+      <div className="py-1">
+        {safe.map(row)}
+        {safe.length > 0 && danger.length > 0 && <MenuSeparator />}
+        {danger.map(row)}
+      </div>
+    )
+  }
 
   const reactAndClose = (emoji: string): void => {
     actions.onReact(emoji)

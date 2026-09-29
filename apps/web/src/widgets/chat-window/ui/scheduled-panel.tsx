@@ -10,7 +10,7 @@ import {
   fetchScheduled,
   type ScheduledMessage,
 } from '../../../entities/chat'
-import { EmptyState, Modal, Skeleton } from '../../../shared/ui'
+import { EmptyState, Modal } from '../../../shared/ui'
 
 function whenText(iso: string, locale: string): string {
   return new Date(iso).toLocaleString(locale, {
@@ -52,9 +52,9 @@ export function ScheduledPanel({ chatId, onClose }: { chatId: string; onClose: (
   return (
     <Modal onClose={onClose} title={t('scheduledTitle')} size="md">
       <div className="flex flex-col gap-2">
-        {list.isPending ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)
-        ) : rows.length === 0 ? (
+        {/* Пока список едет — пусто: ветка нужна лишь для того, чтобы не мигнуть
+            пустым состоянием до прихода данных. */}
+        {list.isPending ? null : rows.length === 0 ? (
           <EmptyState icon={<Clock className="size-6" aria-hidden />} title={t('scheduledEmpty')} />
         ) : (
           rows.map((r) => (

@@ -152,16 +152,12 @@ export function ProfileMediaGrid({
 
   const allItems = (q.data ?? []).filter((m) => m.type === kind)
   const filtered =
-    isPhoto && albumFilter !== 'all'
-      ? allItems.filter((m) =>
-          albumFilter === 'none' ? m.albumId === null : m.albumId === albumFilter,
-        )
-      : allItems
+    isPhoto && albumFilter !== 'all' ? allItems.filter((m) => m.albumId === albumFilter) : allItems
   const items = [...filtered].sort((a, b) => {
     const d = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     return sort === 'new' ? d : -d
   })
-  const activeAlbumId = albumFilter !== 'all' && albumFilter !== 'none' ? albumFilter : null
+  const activeAlbumId = albumFilter !== 'all' ? albumFilter : null
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -341,12 +337,6 @@ export function ProfileMediaGrid({
                       />
                     ),
                   )}
-                  <FilterOption
-                    active={albumFilter === 'none'}
-                    onClick={() => setAlbumFilter('none')}
-                    label={t('albumNone')}
-                    count={allItems.filter((m) => m.albumId === null).length}
-                  />
                 </FilterGroup>
               )}
               <FilterGroup title={t('sortBy')}>
@@ -364,9 +354,9 @@ export function ProfileMediaGrid({
             </div>
           }
         >
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-1 flex-col gap-4">
             {items.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                 {t('albumEmpty')}
               </p>
             ) : isPhoto ? (
@@ -454,7 +444,9 @@ function AlbumRowInput({
   saveLabel: string
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-lg bg-muted/60 px-1.5 py-1">
+    <div className="flex min-w-0 items-center gap-0.5 rounded-lg bg-muted/60 px-1.5 py-1">
+      {/* w-0 + flex-1: у поля своя ширина «на 20 знаков», и без обнуления оно не
+          ужималось под узкую колонку фильтров. */}
       <input
         autoFocus
         value={value}
@@ -467,7 +459,7 @@ function AlbumRowInput({
           }
         }}
         placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
+        className="w-0 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
       />
       <button
         type="button"
@@ -535,8 +527,10 @@ function VideoTile({
           className="aspect-video w-full bg-neutral-900 object-cover"
         />
         <span className="absolute inset-0 flex items-center justify-center bg-black/15 transition-colors group-hover:bg-black/30">
-          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-foreground">
-            <Play className="size-5 fill-current" aria-hidden />
+          {/* Цвет значка — постоянный тёмный, а не `text-foreground`: кружок белый в обеих
+              темах, и в тёмной «▶» цвета текста сливался с ним. */}
+          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-neutral-900">
+            <Play className="size-5 translate-x-0.5 fill-current" aria-hidden />
           </span>
         </span>
         {duration !== null && (

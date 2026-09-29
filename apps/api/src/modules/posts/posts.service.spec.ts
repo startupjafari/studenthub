@@ -24,6 +24,12 @@ function setup() {
       upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({}),
     },
+    postBookmark: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+    },
     comment: {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
@@ -641,5 +647,88 @@ describe('PostsService.update — правка только своей публ�
       .update(viewer(Role.STUDENT), 'p1', { content: 'текст' }, ctx)
       .catch((e: AppException) => e)
     expect((err as AppException).code).toBe('NOT_FOUND')
+  })
+})
+
+// ── Избранное: личная полка ─────────────────────────────────────────────────
+describe('PostsService — избранное', () => {
+  it('лента помечает посты, сохранённые зрителем', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([postRow({ id: 'p1' }), postRow({ id: 'p2' })])
+    prisma.postBookmark.findMany.mockResolvedValue([{ postId: 'p2' }])
+
+    const res = await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+
+    expect(res.items.map((p) => [p.id, p.bookmarked])).toEqual([
+      ['p1', false],
+      ['p2', true],
+    ])
+  })
+
+  it('признак спрашивается ТОЛЬКО за зрителя — чужие закладки наружу не уходят', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([postRow({ id: 'p1' })])
+
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+
+    expect(prisma.postBookmark.findMany.mock.calls[0][0].where).toEqual({
+      userId: 'u-1',
+      postId: { in: ['p1'] },
+    })
+  })
+
+  it('пустая страница не ходит в базу за закладками', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([])
+
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+
+    expect(prisma.postBookmark.findMany).not.toHaveBeenCalled()
+  })
+
+  it('таб SAVED сужает выдачу закладкой зрителя, не отменяя видимость', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([])
+
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20, filter: 'SAVED' })
+
+    const where = JSON.stringify(prisma.post.findMany.mock.calls[0][0].where)
+    expect(where).toContain('"bookmarks":{"some":{"userId":"u-1"}}')
+    // Видимость осталась в том же AND — фильтр её не заменяет.
+    expect(where).toContain('grp-1')
+  })
+
+  it('сохраняет пост, если закладки ещё нет', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
+
+    await expect(service.toggleBookmark(viewer(Role.STUDENT), 'p1')).resolves.toEqual({
+      bookmarked: true,
+    })
+    expect(prisma.postBookmark.create).toHaveBeenCalledWith({
+      data: { userId: 'u-1', postId: 'p1' },
+    })
+  })
+
+  it('повторное нажатие снимает закладку, а не создаёт вторую', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
+    prisma.postBookmark.findUnique.mockResolvedValue({ id: 'b1' })
+
+    await expect(service.toggleBookmark(viewer(Role.STUDENT), 'p1')).resolves.toEqual({
+      bookmarked: false,
+    })
+    expect(prisma.postBookmark.delete).toHaveBeenCalledWith({ where: { id: 'b1' } })
+    expect(prisma.postBookmark.create).not.toHaveBeenCalled()
+  })
+
+  it('нельзя сохранить пост, которого зритель не видит', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(null)
+
+    await expect(service.toggleBookmark(viewer(Role.STUDENT), 'p-alien')).rejects.toBeInstanceOf(
+      AppException,
+    )
+    expect(prisma.postBookmark.create).not.toHaveBeenCalled()
   })
 })

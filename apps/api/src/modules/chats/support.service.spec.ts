@@ -36,6 +36,8 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
     user: { findMany: jest.fn().mockResolvedValue([{ id: 'staff-1' }, { id: 'staff-2' }]) },
     // Счётчики тегов считаются одним запросом: массив в GROUP BY Prisma не умеет.
     $queryRaw: jest.fn().mockResolvedValue([]),
+    // Размер очереди для уведомления и сводки: count + findFirst одной транзакцией.
+    $transaction: jest.fn().mockResolvedValue([0, null]),
   }
   const chats = {
     createMessage: jest.fn().mockResolvedValue({ message: { id: 'msg-1' }, recipientIds: [] }),
@@ -184,7 +186,9 @@ describe('SupportService — уведомление команды', () => {
     // один ответ, а третье обращение не берёт никто.
     expect(telegram.notifyStaff).toHaveBeenCalledWith(
       'ticket',
-      'Новое обращение в поддержку',
+      // Второй строкой — размер очереди: одно обращение в спокойный день и одно поверх
+      // десяти неразобранных требуют разной срочности.
+      expect.stringContaining('Новое обращение в поддержку\nОткрытых обращений:'),
       'support_ticket-1',
       expect.any(Date),
       false,
