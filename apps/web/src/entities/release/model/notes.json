@@ -1,5 +1,122 @@
 [
   {
+    "version": "1.3.0",
+    "date": "2026-09-29",
+    "showModal": true,
+    "content": {
+      "ru": {
+        "title": "Чаты доросли до мессенджера, а лента — до «Сохранённого»",
+        "intro": "Самое большое обновление с начала осени. Главное в нём — переписка: пересылка, папки, вложения до 500 МБ и спойлеры. Кроме неё — избранные посты, свой редактор фото и видео, линия поддержки прямо из настроек и праздничное оформление.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "📨",
+                "title": "Пересылка и папки",
+                "text": "Сообщение пересылается сразу в несколько чатов, с подписью и с «Избранным» в начале списка. Сами чаты раскладываются по папкам — вкладками над списком, а не поиском по всей ленте диалогов."
+              },
+              {
+                "icon": "📎",
+                "title": "Вложения до 500 МБ",
+                "text": "Файл добавляется перетаскиванием и прямо из буфера обмена. Крупные уходят частями и переживают обрыв связи, снимок можно отправить без сжатия или спрятать под спойлер, а скачивание идёт с полосой прогресса и кнопкой отмены."
+              },
+              {
+                "icon": "👀",
+                "title": "Видно, что происходит",
+                "text": "В шапке чата и в списке диалогов видно не только «печатает», но и «записывает голосовое» или «отправляет фото». Чат открывается на первом непрочитанном, и непрочитанное гаснет по мере чтения, а не всё разом."
+              },
+              {
+                "icon": "🗂",
+                "title": "Вложения календарём и очистка истории",
+                "text": "Все фото, видео и файлы переписки открываются календарём с миниатюрами, а историю можно очистить за выбранный период. У официальных чатов вуза появился знак подлинности."
+              }
+            ]
+          },
+          {
+            "heading": "Лента, профиль и поддержка",
+            "items": [
+              {
+                "icon": "🔖",
+                "title": "«Сохранённое» в ленте",
+                "text": "Пост добавляется в избранное одной кнопкой и лежит в отдельной вкладке. Сам пост открывается окном поверх ленты: комментарии отправляются без перерисовки страницы, а репост показывает исходную запись целиком."
+              },
+              {
+                "icon": "🎬",
+                "title": "Свой редактор фото и видео",
+                "text": "Перед отправкой кадр можно обрезать, повернуть и отразить — в полноэкранной панели, а не в тесном окне. Видео в профиль загружается так же, как фотографии."
+              },
+              {
+                "icon": "🛟",
+                "title": "Поддержка платформы из настроек",
+                "text": "Вопрос к команде платформы пишется прямо в настройках, ответ приходит отдельной перепиской. Оттуда же можно пожаловаться, если в чате или в ленте вам грубят."
+              },
+              {
+                "icon": "🎉",
+                "title": "Праздничное оформление",
+                "text": "К государственным праздникам Казахстана платформа меняет оформление и поздравляет на главной, а сами праздники и выходные видны в календаре. Не нравится — выключается в настройках."
+              }
+            ]
+          }
+        ]
+      },
+      "en": {
+        "title": "Chats grew into a messenger, and the feed got Saved posts",
+        "intro": "The biggest update since the start of autumn. Chats come first: forwarding, folders, attachments up to 500 MB and spoilers. Alongside them — saved posts, a built-in photo and video editor, a support line right in settings, and seasonal theming.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "📨",
+                "title": "Forwarding and folders",
+                "text": "A message can be forwarded to several chats at once, with a caption and with Saved messages at the top of the list. Chats themselves are sorted into folders shown as tabs above the list, instead of being searched for across the whole conversation list."
+              },
+              {
+                "icon": "📎",
+                "title": "Attachments up to 500 MB",
+                "text": "Files are added by drag and drop or straight from the clipboard. Large ones upload in parts and survive a dropped connection, a photo can be sent uncompressed or hidden behind a spoiler, and downloads show a progress bar and a cancel button."
+              },
+              {
+                "icon": "👀",
+                "title": "You can see what is going on",
+                "text": "The chat header and the conversation list show more than “typing”: also “recording a voice message” or “sending a photo”. A chat opens at the first unread message, and unread marks clear as you read rather than all at once."
+              },
+              {
+                "icon": "🗂",
+                "title": "Attachments by date, history cleanup",
+                "text": "Every photo, video and file in a conversation opens as a calendar with thumbnails, and history can be cleared for a chosen period. Official university chats now carry a verified mark."
+              }
+            ]
+          },
+          {
+            "heading": "Feed, profile and support",
+            "items": [
+              {
+                "icon": "🔖",
+                "title": "Saved posts in the feed",
+                "text": "A post is bookmarked with one button and waits in its own tab. The post itself opens in a window over the feed: comments are sent without redrawing the page, and a repost shows the original entry in full."
+              },
+              {
+                "icon": "🎬",
+                "title": "A built-in photo and video editor",
+                "text": "Before sending, a frame can be cropped, rotated and flipped — in a full-screen panel instead of a cramped dialog. Profile videos are uploaded the same way as photos."
+              },
+              {
+                "icon": "🛟",
+                "title": "Platform support from settings",
+                "text": "A question to the platform team is written right in settings, and the answer arrives as a separate conversation. Rudeness in a chat or in the feed can be reported from there too."
+              },
+              {
+                "icon": "🎉",
+                "title": "Seasonal theming",
+                "text": "On Kazakhstan's public holidays the platform changes its look and greets you on the home screen, and the holidays and days off are visible in the calendar. Not your thing — turn it off in settings."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
     "version": "1.2.1",
     "date": "2026-09-21",
     "showModal": true,
