@@ -1,10 +1,5 @@
 import { Role } from '@studenthub/shared-types'
-import {
-  TelegramHookService,
-  humanAge,
-  nextInRotation,
-  parseCommand,
-} from './telegram-hook.service'
+import { TelegramHookService, nextInRotation, parseCommand } from './telegram-hook.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { SupportService } from '../chats/support.service'
@@ -19,7 +14,9 @@ function setup(env: Record<string, string | undefined> = {}) {
     user: { findMany: jest.fn().mockResolvedValue([]) },
     $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
     telegramAccount: {
+      // Одна строка на два запроса: привязка для `actorFor` и она же для /me.
       findFirst: jest.fn().mockResolvedValue({
+        linkedAt: new Date('2026-09-12T10:00:00Z'),
         user: {
           id: 'staff-1',
           role: Role.PLATFORM_MODERATOR,
@@ -27,6 +24,8 @@ function setup(env: Record<string, string | undefined> = {}) {
           universityId: null,
           facultyId: null,
           groupId: null,
+          firstName: 'Иван',
+          lastName: 'Иванов',
         },
       }),
     },
@@ -39,10 +38,12 @@ function setup(env: Record<string, string | undefined> = {}) {
   const support = {
     assign: jest.fn().mockResolvedValue({ assigneeId: 'staff-1' }),
     queueStats: jest.fn().mockResolvedValue({ count: 0, oldestAt: null }),
+    dayStats: jest.fn().mockResolvedValue({ created: 0, closed: 0 }),
   }
   const complaints = {
     take: jest.fn().mockResolvedValue({ takenBy: 'staff-1' }),
     queueStats: jest.fn().mockResolvedValue({ count: 0, oldestAt: null }),
+    dayStats: jest.fn().mockResolvedValue({ created: 0, closed: 0 }),
   }
   const platform = {
     maintenanceActive: jest.fn().mockResolvedValue(false),
@@ -209,14 +210,6 @@ describe('nextInRotation', () => {
   })
 })
 
-describe('humanAge', () => {
-  it('минуты, часы и сутки', () => {
-    expect(humanAge(20 * 60_000)).toBe('20 мин')
-    expect(humanAge(5 * 3_600_000)).toBe('5 ч')
-    expect(humanAge(70 * 3_600_000)).toBe('2 сут')
-  })
-})
-
 describe('TelegramHookService — команды', () => {
   it('постороннему не отвечает ни одним числом', async () => {
     const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
@@ -297,6 +290,47 @@ describe('TelegramHookService — команды', () => {
     cap.restore()
   })
 
+  it('/digest отвечает сводкой за сутки', async () => {
+    const { service, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    complaints.dayStats.mockResolvedValue({ created: 4, closed: 4 })
+    support.queueStats.mockResolvedValue({ count: 1, oldestAt: new Date() })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/digest'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('Жалобы: в очереди 0, пришло 4, разобрано 4')
+    expect(text).toContain('Обращения: открыто 1')
+    cap.restore()
+  })
+
+  // Уведомления молчат и когда дежурит другой, и когда идут тихие часы, и когда привязка
+  // отозвана — выглядит это одинаково, и /me отвечает, какая из причин.
+  it('/me говорит роль и что с дежурством', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'staff-1', rotation: ['staff-1'] })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/me'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('Иван Иванов')
+    expect(text).toContain('модератор платформы')
+    expect(text).toContain('Сейчас дежурите вы')
+    cap.restore()
+  })
+
+  it('/me не выдаёт дежурство за своё, когда дежурит другой', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'staff-2', rotation: ['staff-1', 'staff-2'] })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/me'))
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Дежурит другой')
+    cap.restore()
+  })
+
   it('сбой запроса не оставляет человека без ответа', async () => {
     const { service, complaints } = setup({ TELEGRAM_BOT_TOKEN: 't' })
     complaints.queueStats.mockRejectedValue(new Error('база легла'))
@@ -305,6 +339,41 @@ describe('TelegramHookService — команды', () => {
     await service.handleMessage(privateMsg('/queue'))
 
     expect(String(cap.sent[0]?.body.text)).toContain('Не получилось')
+    cap.restore()
+  })
+})
+
+// ── Меню команд в Telegram ───────────────────────────────────────────────────
+
+describe('TelegramHookService — профиль бота', () => {
+  /** Ждём микрозадачи: onModuleInit намеренно не ждёт Telegram, чтобы не тормозить старт. */
+  const settle = () => new Promise((resolve) => setImmediate(resolve))
+
+  it('на старте рассказывает Telegram о командах и о себе', async () => {
+    const { service } = setup({ TELEGRAM_BOT_TOKEN: 't', TELEGRAM_WEBHOOK_SECRET: 's'.repeat(16) })
+    const cap = captureSend()
+
+    service.onModuleInit()
+    await settle()
+
+    const methods = cap.sent.map((call) => call.method)
+    expect(methods).toContain('setMyCommands')
+    expect(methods).toContain('setMyDescription')
+    const commands = cap.sent.find((call) => call.method === 'setMyCommands')?.body
+    expect(JSON.stringify(commands)).toContain('digest')
+    cap.restore()
+  })
+
+  // Список команд, ни одна из которых не отвечает, хуже пустого меню: без вебхука
+  // сообщения до нас не доходят.
+  it('без вебхука меню не рисует', async () => {
+    const { service } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    const cap = captureSend()
+
+    service.onModuleInit()
+    await settle()
+
+    expect(cap.sent).toHaveLength(0)
     cap.restore()
   })
 })

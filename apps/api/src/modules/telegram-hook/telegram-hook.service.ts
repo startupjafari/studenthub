@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { Client as MinioClient } from 'minio'
 import type Redis from 'ioredis'
@@ -13,6 +13,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { SupportService } from '../chats/support.service'
 import { ComplaintsService } from '../complaints/complaints.service'
+import { digestText, humanAge } from '../../common/telegram/digest'
 
 // Входящие обновления от бота: единственное место, где Telegram пишет НАМ.
 //
@@ -59,18 +60,54 @@ export interface CallbackQuery {
 }
 
 /**
+ * Команды бота. Один список на три места: справка в переписке, меню команд в Telegram
+ * (`setMyCommands`) и разбор входящего сообщения. Разойдясь, они начали бы обещать разное:
+ * меню предлагало бы команду, на которую бот молчит, — а это хуже пустого меню.
+ */
+const BOT_COMMANDS: readonly { command: string; description: string }[] = [
+  { command: 'queue', description: 'Что ждёт разбора прямо сейчас' },
+  { command: 'digest', description: 'Сводка за сутки' },
+  { command: 'duty', description: 'Кто дежурит и что с тихими часами' },
+  { command: 'status', description: 'Техработы и живость сервисов' },
+  { command: 'me', description: 'Кем бот меня видит' },
+  { command: 'help', description: 'Что умеет бот' },
+]
+
+/**
  * Тексты ответов. Вынесены из методов, потому что их читает человек, а не программа:
- * править формулировку удобнее там, где видно все три сразу.
+ * править формулировку удобнее там, где видно все сразу.
  */
 const HELP = [
   'Бот пишет команде платформы StudentHub: новые жалобы, обращения в поддержку, ответы и',
   'ежедневная сводка. Разбор — в мини-аппе, кнопка «Открыть» ниже.',
   '',
   'Команды:',
-  '/queue — сколько жалоб и обращений ждёт разбора',
-  '/duty — кто дежурит и что с тихими часами',
-  '/status — техработы и живость сервисов',
+  ...BOT_COMMANDS.map(({ command, description }) => `/${command} — ${description}`),
 ].join('\n')
+
+/**
+ * Описание бота на пустом экране переписки — то, что человек читает ДО первого `/start`,
+ * и единственное место, где бот объясняет себя, пока ему не написали.
+ */
+const ABOUT = [
+  'Служебный бот платформы StudentHub.',
+  '',
+  'Пишет команде платформы о новых жалобах, обращениях в поддержку и авариях, отвечает на',
+  'команды о состоянии очереди и раз в сутки присылает сводку. Разбор — в мини-аппе.',
+  'Тем, чей Telegram не привязан к аккаунту платформы, бот не отвечает ничем.',
+].join('\n')
+
+/** Строка под именем бота в профиле. Telegram режет её по 120 символам. */
+const SHORT_ABOUT = 'Служебный бот StudentHub: очередь, дежурство и состояние сервисов.'
+
+/** Окно, за которое считается движение в сводке. */
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Роль по-русски. Сюда доходят только две: остальных `actorFor` не пропускает. */
+const ROLE_WORD: Partial<Record<Role, string>> = {
+  [Role.PLATFORM_ADMIN]: 'администратор платформы',
+  [Role.PLATFORM_MODERATOR]: 'модератор платформы',
+}
 
 /**
  * Ответ тому, чей Telegram не привязан. Никаких данных: это единственный ответ, который
@@ -110,17 +147,8 @@ export function nextInRotation(duty: {
   return rotation[index === -1 ? 0 : (index + 1) % rotation.length] ?? null
 }
 
-/** Возраст по-человечески: минуты до часа, дальше часы, дальше сутки. */
-export function humanAge(ms: number): string {
-  const minutes = Math.floor(ms / 60_000)
-  if (minutes < 60) return `${minutes} мин`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 48) return `${hours} ч`
-  return `${Math.floor(hours / 24)} сут`
-}
-
 @Injectable()
-export class TelegramHookService {
+export class TelegramHookService implements OnModuleInit {
   private readonly logger = new Logger(TelegramHookService.name)
 
   constructor(
@@ -132,6 +160,38 @@ export class TelegramHookService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(MINIO_CLIENT) private readonly minio: MinioClient,
   ) {}
+
+  /**
+   * Рассказать Telegram о боте: меню команд, описание на пустом экране переписки и строку
+   * в профиле.
+   *
+   * Без этого команды существуют только в коде: в переписке не видно ни кнопки «Меню», ни
+   * подсказок при вводе `/`, и человек, открывший бота впервые, видит пустой экран без
+   * единого слова о том, что здесь можно спросить.
+   *
+   * Не ждём ответа и не роняем старт: Telegram — чужая инфраструктура, и её недоступность
+   * не повод не поднять API. Вызовы идемпотентны, поэтому повтор при каждом рестарте
+   * безвреден.
+   */
+  onModuleInit(): void {
+    void this.syncProfile()
+  }
+
+  private async syncProfile(): Promise<void> {
+    if (!this.config.get('TELEGRAM_BOT_TOKEN', { infer: true })) return
+    // Меню рисуем, только когда настроен вебхук: без него входящие сообщения до нас не
+    // доходят, и список команд, ни одна из которых не отвечает, хуже пустого меню.
+    if (!this.config.get('TELEGRAM_WEBHOOK_SECRET', { infer: true })) return
+
+    await this.call('setMyCommands', {
+      commands: BOT_COMMANDS,
+      // Только личная переписка: в группе бот молчит, и команды там обещали бы ответ,
+      // которого не будет.
+      scope: { type: 'all_private_chats' },
+    })
+    await this.call('setMyDescription', { description: ABOUT })
+    await this.call('setMyShortDescription', { short_description: SHORT_ABOUT })
+  }
 
   /**
    * Совпадает ли секрет из заголовка с настроенным. Секрета нет — вебхук выключен.
@@ -205,21 +265,25 @@ export class TelegramHookService {
       return
     }
 
-    const text = await this.runCommand(command).catch((error: unknown) => {
+    const text = await this.runCommand(command, actor).catch((error: unknown) => {
       this.logger.warn(`Команда ${command} не выполнена: ${String(error)}`)
       return 'Не получилось получить данные. Попробуйте открыть мини-апп'
     })
     await this.reply(chatId, text)
   }
 
-  private async runCommand(command: string): Promise<string> {
+  private async runCommand(command: string, actor: JwtPayload): Promise<string> {
     switch (command) {
       case 'queue':
         return this.queueText()
+      case 'digest':
+        return this.digestReply()
       case 'duty':
         return this.dutyText()
       case 'status':
         return this.statusText()
+      case 'me':
+        return this.meText(actor)
       default:
         return HELP
     }
@@ -238,6 +302,62 @@ export class TelegramHookService {
       .filter((d): d is Date => d !== null)
       .sort((a, b) => a.getTime() - b.getTime())[0]
     if (oldest) lines.push(`Старейшее ждёт: ${humanAge(Date.now() - oldest.getTime())}`)
+    return lines.join('\n')
+  }
+
+  /**
+   * Та же сводка, что приходит раз в сутки, но по запросу.
+   *
+   * Сводка приходит в выбранный час, а спрашивают «что там за сутки» когда угодно — чаще
+   * всего вернувшись к работе через день. Текст собирает общая функция: сводка из крона и
+   * сводка по запросу обязаны отвечать одинаково.
+   */
+  private async digestReply(): Promise<string> {
+    const since = new Date(Date.now() - DAY_MS)
+    const [complaints, tickets, complaintsDay, ticketsDay, duty] = await Promise.all([
+      this.complaints.queueStats(),
+      this.support.queueStats(),
+      this.complaints.dayStats(since),
+      this.support.dayStats(since),
+      this.platform.duty(),
+    ])
+    const names = await this.namesOf(duty.dutyUserId ? [duty.dutyUserId] : [])
+    return digestText({
+      complaints: { ...complaints, ...complaintsDay },
+      tickets: { ...tickets, ...ticketsDay },
+      dutyName: duty.dutyUserId ? (names.get(duty.dutyUserId) ?? null) : null,
+    })
+  }
+
+  /**
+   * Кем бот видит написавшего.
+   *
+   * Вопрос «а я вообще привязан и почему мне ничего не приходит» возникает раньше всех
+   * остальных: уведомления молчат и когда Telegram не привязан, и когда дежурит другой, и
+   * когда идут тихие часы — а выглядит это одинаково. Здесь видно, какая из трёх причин.
+   */
+  private async meText(actor: JwtPayload): Promise<string> {
+    const [account, duty] = await Promise.all([
+      this.prisma.telegramAccount.findFirst({
+        where: { userId: actor.sub, revokedAt: null },
+        select: { linkedAt: true, user: { select: { firstName: true, lastName: true } } },
+      }),
+      this.platform.duty(),
+    ])
+    if (!account) return UNLINKED
+
+    const lines = [
+      `Вы: ${`${account.user.firstName} ${account.user.lastName}`.trim()}`,
+      `Роль: ${ROLE_WORD[actor.role] ?? actor.role}`,
+      `Telegram привязан: ${account.linkedAt.toLocaleDateString('ru-RU')}`,
+    ]
+    lines.push(
+      duty.dutyUserId === null
+        ? 'Дежурного нет — уведомления приходят всей команде'
+        : duty.dutyUserId === actor.sub
+          ? 'Сейчас дежурите вы — уведомления приходят только вам'
+          : 'Дежурит другой — уведомления идут ему, не вам',
+    )
     return lines.join('\n')
   }
 
