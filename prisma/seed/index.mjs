@@ -10,7 +10,7 @@
 import { fileURLToPath } from 'node:url'
 import { loadCities, resolveKzUniversities } from './data/universities.mjs'
 import { universityId } from './lib/ids.mjs'
-import { clearMarkers, loadDoneUniversities, markUniversityDone } from './lib/marker.mjs'
+import { clearMarkers, loadDoneUniversities, markUniversityDone, recordRun } from './lib/marker.mjs'
 import { runPool } from './lib/pool.mjs'
 import { createProgress } from './lib/progress.mjs'
 import { universityRandom } from './lib/rng.mjs'
@@ -36,6 +36,11 @@ const KATO_PATH = fileURLToPath(new URL('./data/kato.json', import.meta.url))
 // разы (60 постов и 55 опросов на человека — это больше половины всех строк).
 const BASE_ROWS_PER_STUDENT = 165
 const OPTIONS_PER_POLL = 3.5
+// Байт на строку в среднем по всем таблицам, включая индексы. Замер: полный прогон —
+// 21 млн строк и ~32 ГБ базы. Оценка грубая (строка чата и строка посещаемости весят
+// по-разному), но её задача одна: дать число, сопоставимое с размером тома. Строки с
+// размером диска не сравнить, а гигабайты — можно.
+const BYTES_PER_ROW = 1600
 
 function contentRowsPerUser(config) {
   const avg = ([min, max]) => (min + max) / 2
@@ -82,18 +87,30 @@ export function estimateTotalRows(config) {
  * 50 млн строк это уже заметный рост, 300 млн — размер, из которого не выбраться
  * ничем, кроме долгой ручной уборки.
  */
+export function estimateBytes(rows) {
+  return rows * BYTES_PER_ROW
+}
+
+/** «12,4 ГБ» / «310 МБ» — то, чем измеряется том, а не число строк. */
+export function humanBytes(bytes) {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} ГБ`
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} МБ`
+  return `${Math.round(bytes / 1024)} КБ`
+}
+
 export function assertRowBudget(config) {
   const estimate = estimateTotalRows(config)
   const nf = (n) => n.toLocaleString('ru-RU')
+  const size = humanBytes(estimateBytes(estimate))
   if (estimate > config.maxRowsHard) {
     throw new Error(
-      `Оценка прогона — ${nf(estimate)} строк, жёсткий потолок ${nf(config.maxRowsHard)}. ` +
-        'Уменьшите число вузов, студентов или диапазоны контента.',
+      `Оценка прогона — ${nf(estimate)} строк (~${size}), жёсткий потолок ` +
+        `${nf(config.maxRowsHard)}. Уменьшите число вузов, студентов или диапазоны контента.`,
     )
   }
   if (estimate > config.maxRowsSoft && !config.confirmBig) {
     throw new Error(
-      `Оценка прогона — ${nf(estimate)} строк, это больше мягкого потолка ` +
+      `Оценка прогона — ${nf(estimate)} строк (~${size}), это больше мягкого потолка ` +
         `${nf(config.maxRowsSoft)}. Если объём осознанный — SEED_CONFIRM_BIG=1.`,
     )
   }
@@ -128,6 +145,17 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     `Генератор вузов: ${indices.length} шт. (${config.from}..${config.to}), ` +
       `параллельно ${config.concurrency}, ожидается ~${estimate.toLocaleString('ru-RU')} строк`,
   )
+
+  // Манифест ДО первой записи: список вузов, которые прогон собирается залить. Маркер
+  // ставится только после успешного завершения вуза, и прогон, убитый посреди работы
+  // (кончилось место на диске, таймаут job'а, отмена), оставил бы строки, о которых не
+  // знает никто. По этому списку уборка находит и такие вузы тоже.
+  if (config.tag) {
+    await recordRun(prisma, config.tag, {
+      planned: indices.map(universityId),
+      startedAt: new Date().toISOString(),
+    })
+  }
 
   const progress = createProgress({ total: indices.length, label: 'Вузы' })
   const counts = {}
