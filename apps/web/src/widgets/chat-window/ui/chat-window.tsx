@@ -281,6 +281,9 @@ export function ChatWindow() {
   // Достаточно широкий экран (≥xl) — правая панель деталей докается третьей колонкой,
   // не закрывая переписку (Telegram-стиль §1). На узких экранах — прежнее модальное окно.
   const isWide = useMediaQuery('(min-width: 1280px)')
+  // Телефон. На нём окно со списком закреплённых не показываем вовсе: полоса закрепления
+  // сама листает их по нажатию, а окно поверх чата ради того же списка — лишний слой.
+  const isPhone = useMediaQuery('(max-width: 767px)')
   const embedded = isDesktop && !!listSlot
   // Открытый чат — полноэкранная поверхность на мобильном: просим оболочку скрыть нижнюю навигацию,
   // иначе фиксированная панель перекрывает поле ввода сообщения.
@@ -4032,12 +4035,16 @@ export function ChatWindow() {
               ariaLabel={t('pinnedMessage')}
               onClose={() => setPinnedMenu(null)}
               items={[
-                {
-                  key: 'pinned-all',
-                  icon: ListIcon,
-                  label: t('pinnedMessages'),
-                  onClick: () => setPinnedListOpen(true),
-                },
+                ...(isPhone
+                  ? []
+                  : [
+                      {
+                        key: 'pinned-all',
+                        icon: ListIcon,
+                        label: t('pinnedMessages'),
+                        onClick: () => setPinnedListOpen(true),
+                      },
+                    ]),
                 {
                   key: 'unpin',
                   icon: PinOff,
@@ -4057,7 +4064,7 @@ export function ChatWindow() {
         })()}
 
       {/* Все закрепления чата отдельным списком — из полосы или из её меню. */}
-      {pinnedListOpen && (
+      {pinnedListOpen && !isPhone && (
         <Modal
           onClose={() => setPinnedListOpen(false)}
           title={t('pinnedMessages')}
