@@ -35,7 +35,16 @@ export function LinkScreen({ onLinked }: { onLinked: (user: MiniUser) => void })
     }
   }
 
-  useMainButton(code.length === CODE_LENGTH ? t('linkSubmit') : null, () => void submit())
+  // Подтверждение — только главной кнопкой Telegram. Своей кнопки в потоке экрана нет:
+  // сюда не попасть из обычного браузера (app.tsx показывает ему «Откройте из Telegram»),
+  // то есть MainButton существует всегда, а две одинаковые кнопки на одном экране читаются
+  // как два разных действия. Пока код не набран целиком, кнопки нет вовсе — нажимать её
+  // было бы не на что.
+  useMainButton(
+    pending ? t('linkPending') : code.length === CODE_LENGTH ? t('linkSubmit') : null,
+    () => void submit(),
+    { busy: pending },
+  )
 
   return (
     <div className="screen">
@@ -77,11 +86,6 @@ export function LinkScreen({ onLinked }: { onLinked: (user: MiniUser) => void })
       />
 
       {error && <p className="hint hint-danger">{error}</p>}
-
-      {/* Вне Telegram главной кнопки нет — нужна своя, иначе экран нечем подтвердить. */}
-      <button type="button" className="fallback-submit" onClick={() => void submit()}>
-        {pending ? t('linkPending') : t('linkSubmit')}
-      </button>
     </div>
   )
 }

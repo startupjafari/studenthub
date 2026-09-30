@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="StudentHub">
+  <rect width="512" height="512" rx="96" fill="#2563eb"/>
+  <path d="M256 96 448 192 256 288 64 192 256 96Z" fill="#fff"/>
+  <path d="M144 236v84c0 34 50 60 112 60s112-26 112-60v-84l-112 56-112-56Z" fill="#bfdbfe"/>
+  <rect x="440" y="192" width="16" height="96" rx="8" fill="#fff"/>
+</svg>
