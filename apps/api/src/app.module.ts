@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common'
-import { ConfigModule } from '@nestjs/config'
+import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'
 import type Redis from 'ioredis'
 import { SentryModule } from '@sentry/nestjs/setup'
-import { validateEnv } from './config/env.schema'
+import { validateEnv, type EnvVars } from './config/env.schema'
 import { CommonModule } from './common/common.module'
 import { PrismaModule } from './common/prisma/prisma.module'
 import { REDIS_CLIENT } from './common/redis/redis.constants'
@@ -91,11 +91,22 @@ import { AppController } from './app.controller'
       // RedisModule глобальный, но импорт указан явно: фабрика обязана получить готовый
       // REDIS_CLIENT, а не зависеть от порядка разбора графа модулей.
       imports: [RedisModule],
-      inject: [REDIS_CLIENT],
-      useFactory: (redis: Redis) => ({
-        throttlers: [{ ttl: 60_000, limit: 100 }],
-        storage: new ResilientThrottlerStorage(new ThrottlerStorageRedisService(redis)),
-      }),
+      inject: [REDIS_CLIENT, ConfigService],
+      useFactory: (redis: Redis, config: ConfigService<EnvVars, true>) => {
+        // Выключатель для тестового стенда — и только для него: в проде флаг не
+        // действует, каким бы он туда ни попал. Проверка по NODE_ENV, а не по доверию к
+        // тому, кто заполняет переменные окружения.
+        const skip =
+          config.get('THROTTLE_DISABLED', { infer: true }) &&
+          config.get('NODE_ENV', { infer: true }) !== 'production'
+        return {
+          throttlers: [{ ttl: 60_000, limit: 100 }],
+          storage: new ResilientThrottlerStorage(new ThrottlerStorageRedisService(redis)),
+          // skipIf снимает и пер-маршрутные лимиты из @Throttle: на стенде мешают именно
+          // они — вход 5/15 мин выбирается первыми же сценариями.
+          skipIf: () => skip,
+        }
+      },
     }),
     CommonModule,
     PrismaModule,
