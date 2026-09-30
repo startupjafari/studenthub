@@ -7,9 +7,13 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
 
 // PWA (задача 13.2): service worker в public/, офлайн-фолбэк, кэш расписания NetworkFirst.
 // В dev отключён, чтобы не мешать HMR.
+//
+// На e2e-стенде (E2E=1, playwright.config.ts) — тоже. Стенд собирается прод-сборкой, а
+// прод-сборка с PWA и кэширует страницы между тестами чужим service worker'ом, и пишет
+// свежий sw.js прямо в public/ — то есть правит рабочее дерево во время прогона.
 const withPWA = withPWAInit({
   dest: 'public',
-  disable: process.env.NODE_ENV === 'development',
+  disable: process.env.NODE_ENV === 'development' || process.env.E2E === '1',
   register: true,
   cacheOnFrontEndNav: true,
   // Кастомный код SW (Web Push: push/notificationclick) — из apps/web/worker/, компилируется
