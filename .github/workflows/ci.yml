@@ -126,6 +126,17 @@ jobs:
           docker logs minio >&2 || true
           exit 1
 
+      # Кеш turbo между прогонами: lint, typecheck, test и build ходят через него, и
+      # неизменившийся пакет пересобирать незачем. Ключ с sha — чтобы запись была новой
+      # каждый раз, restore-keys поднимают ближайший предыдущий.
+      - name: Кеш turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
       - name: Generate Prisma Client
         run: pnpm db:generate
 
