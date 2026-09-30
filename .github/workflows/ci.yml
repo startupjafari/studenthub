@@ -313,6 +313,53 @@ jobs:
           path: apps/web/playwright-report
           retention-days: 7
 
+  # Сборка образов всех четырёх приложений — без публикации.
+  #
+  # Railway собирает их сам по push в main, то есть сломанный Dockerfile или пропавший
+  # базовый образ обнаруживались уже на выкатке, когда код в main. Здесь та же сборка идёт
+  # на PR, и падает до мёржа.
+  #
+  # fail-fast: false — узнать хочется про все сломанные приложения сразу, а не про первое.
+  docker:
+    name: образ · ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, web, landing, mini-app]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Контекст — корень репозитория: все четыре Dockerfile копируют pnpm-lock.yaml и
+      # манифесты воркспейса, из каталога приложения их не видно.
+      #
+      # build-args задаются одним списком на все приложения: аргумент, о котором Dockerfile
+      # не знает, он просто игнорирует. Значения здесь — заглушки для сборки, в образ
+      # Railway приезжают свои (они build-time, см. docs/RAILWAY.md).
+      - name: Собрать образ
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          build-args: |
+            NEXT_PUBLIC_API_URL=/api/v1
+            NEXT_PUBLIC_WS_URL=https://ci.example.com
+            NEXT_PUBLIC_APP_URL=https://ci.example.com
+            NEXT_PUBLIC_APP_NAME=StudentHub
+            NEXT_PUBLIC_SITE_URL=https://ci.example.com
+            NEXT_PUBLIC_SALES_EMAIL=ci@example.com
+            API_PROXY_TARGET=https://ci.example.com
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
   # Отдельной job'ой, а не шагом в `ci`: проверки безопасности не зависят от базы, MinIO
   # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
   # последним. Job лёгкая, идёт параллельно и падает независимо.
