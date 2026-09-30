@@ -1,4 +1,18 @@
-name: CI
+name: CI · проверки, тесты, сборка
+
+# СХЕМА ПРОГОНА
+#
+#   push в develop / main ─┐
+#   pull request в main ───┴─► все пять job'ов стартуют разом и не ждут друг друга:
+#
+#       Код ............ линт → типы → юнит-тесты → тесты сида → e2e api → сборка
+#       Веб ............ Playwright поднимает свои api и web и проходит сценарии
+#       Образ · <app> .. docker build четырёх приложений, без публикации
+#       Безопасность ... уязвимости в зависимостях + поиск секретов в истории
+#       Нота ........... «Что нового» для версии написана (только на PR в main)
+#
+#   Та же схема попадает в сводку запуска (вкладка Summary) — шаг «Схема прогона».
+#   Красный любой job = не мёржим: они независимы, но отвечают за одно и то же.
 
 # Проверки гоняем на интеграционных ветках, а не на каждой фича-ветке:
 #   push develop — обычный цикл разработки;
@@ -18,7 +32,7 @@ concurrency:
 
 jobs:
   ci:
-    name: lint · typecheck · test · build
+    name: Код · линт, типы, тесты, сборка
     runs-on: ubuntu-latest
     # Весь прогон укладывается в ~6 минут. Потолок нужен не для медленных шагов, а для
     # зависших: если e2e не смог поднять AppModule, jest остаётся с открытыми соединениями
@@ -67,10 +81,39 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
 
     steps:
-      - name: Checkout
+      # Схема — в сводку запуска (вкладка Summary), а не только комментарием в этом файле:
+      # красный квадрат в списке проверок должен объясняться там же, где его видно.
+      # Шаг идёт первым и ничего не требует — ни кода, ни зависимостей.
+      - name: Схема прогона — в сводку запуска
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Что проверяет этот прогон
+
+          ```mermaid
+          flowchart LR
+            T["push develop / main<br/>pull request в main"]
+            T --> A["Код<br/>линт · типы · тесты · сборка"]
+            T --> B["Веб<br/>сценарии Playwright"]
+            T --> C["Образы<br/>api · web · landing · mini-app"]
+            T --> D["Безопасность<br/>зависимости · секреты"]
+            T --> E["Нота «Что нового»<br/>только на PR в main"]
+          ```
+
+          Job'ы независимы и идут параллельно — красный любой из них означает «не мёржим».
+
+          | Проверка | Что делает | Если красная |
+          |---|---|---|
+          | **Код** | eslint, `tsc --noEmit`, юнит-тесты api и веба, тесты сида, интеграционные тесты api с базой, сборка всех приложений | сломан код или тест — смотреть упавший шаг |
+          | **Веб** | Playwright поднимает свои api и web на отдельных портах и базе и проходит вход, ленту, публикацию, заявку, расписание | сломан путь пользователя; к прогону приложен отчёт `playwright-report` со скриншотами и трассой |
+          | **Образ · app** | `docker build` четырёх приложений без публикации | Railway не соберёт этот образ на выкатке |
+          | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории | уязвимость в рантайм-зависимости или секрет в коммите |
+          | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
+          MD
+
+      - name: Забрать код
         uses: actions/checkout@v7
 
-      - name: Setup pnpm
+      - name: Поставить pnpm
         uses: pnpm/action-setup@v6
 
       # Версии экшенов держим на актуальных мажорах: GitHub снимает с эксплуатации
@@ -86,13 +129,13 @@ jobs:
       #
       # `node-version` — рантайм сборки самого проекта, к этому переходу отношения не
       # имеет и меняется отдельным решением.
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
       # MinIO поднимаем шагом, а не через `services:`: там нельзя дождаться готовности
@@ -108,7 +151,7 @@ jobs:
       # `bitnamilegacy` — архив Bitnami: с 28.08.2025 бесплатно остаётся только он, зато
       # теги там уже не двигаются. Аргумент `server /data` не нужен — его подставляет
       # точка входа образа, а каталог данных у него свой.
-      - name: Start MinIO
+      - name: Поднять MinIO — S3-хранилище для тестов
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
@@ -129,7 +172,7 @@ jobs:
       # Кеш turbo между прогонами: lint, typecheck, test и build ходят через него, и
       # неизменившийся пакет пересобирать незачем. Ключ с sha — чтобы запись была новой
       # каждый раз, restore-keys поднимают ближайший предыдущий.
-      - name: Кеш turbo
+      - name: Кеш turbo между прогонами
         uses: actions/cache@v4
         with:
           path: .turbo
@@ -137,10 +180,10 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-
 
-      - name: Generate Prisma Client
+      - name: Сгенерировать Prisma Client
         run: pnpm db:generate
 
-      - name: Apply migrations (CI database)
+      - name: Применить миграции в базу CI
         run: pnpm db:deploy
 
       # Схема и миграции обязаны сходиться. Расхождение («поправил prisma/schema, миграцию
@@ -152,7 +195,7 @@ jobs:
       # Отдельная пустая база: migrate diff проигрывает в ней всю историю миграций, чтобы
       # получить схему «как на самом деле», и сравнивает с prisma/schema. Код выхода 2 —
       # это «есть расхождение», ради него и --exit-code.
-      - name: Схема и миграции не разошлись
+      - name: Сверить схему Prisma с миграциями
         run: |
           docker run --rm --network host -e PGPASSWORD=postgres postgres:16-alpine \
             psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE studenthub_shadow'
@@ -162,25 +205,25 @@ jobs:
             --shadow-database-url postgresql://postgres:postgres@localhost:5432/studenthub_shadow \
             --exit-code
 
-      - name: Lint
+      - name: Линт всего монорепо (eslint)
         run: pnpm lint
 
-      - name: Typecheck
+      - name: Проверить типы (tsc --noEmit)
         run: pnpm typecheck
 
-      - name: Test (unit)
+      - name: Юнит-тесты api и веба
         run: pnpm test
 
       # Тесты сида — на встроенном раннере Node, без БД и без MinIO: проверяют чистую
       # логику (детерминизм PRNG, порядок флаша буферов, структурность id, план вуза,
       # гарды конфигурации). Отдельным шагом, потому что turbo про них не знает.
-      - name: Test (seed)
+      - name: Тесты генератора данных (сида)
         run: pnpm test:seed
 
-      - name: Test (e2e)
+      - name: Интеграционные тесты api (jest + база)
         run: pnpm --filter api test:e2e
 
-      - name: Build
+      - name: Собрать все приложения
         run: pnpm build
 
   # Сквозные сценарии веба. Отдельной job'ой, а не шагом в `ci`: прогон поднимает СВОИ
@@ -192,7 +235,7 @@ jobs:
   # линтом, типами, vitest и сборкой — то есть ни один путь пользователя целиком не
   # проходился, и «кнопка не открывает диалог» ловилось руками.
   web-e2e:
-    name: e2e веба · playwright
+    name: Веб · сквозные сценарии Playwright
     runs-on: ubuntu-latest
     # Прогон поднимает api (nest build) и web (next dev) и идёт около десяти минут.
     # Потолок нужен против зависших серверов: Playwright ждёт порт до 180 с на каждый,
@@ -245,26 +288,26 @@ jobs:
       MINIO_SECRET_KEY: ci-secret
 
     steps:
-      - name: Checkout
+      - name: Забрать код
         uses: actions/checkout@v7
 
-      - name: Setup pnpm
+      - name: Поставить pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
       # Базу под прогон сервис postgres не создаёт: POSTGRES_DB заводит ровно одну.
       # Схему в ней ставит сам prepare-db.mjs (db push), от нас нужна пустая база.
       # psql берём из того же образа, что и сервис: на раннере клиент postgres есть не
       # всегда, а образ уже скачан под сервис-контейнер и ничего не стоит.
-      - name: Создать базу для e2e
+      - name: Создать отдельную базу studenthub_e2e
         run: |
           docker run --rm --network host -e PGPASSWORD=postgres postgres:16-alpine \
             psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE studenthub_e2e'
@@ -272,7 +315,7 @@ jobs:
       # MinIO нужен по-настоящему: сценарий заявок грузит документ в хранилище.
       # Бакеты заводить не нужно — их создаёт сам api на старте (MinioBucketsService).
       # Образ и его происхождение — см. комментарий в job `ci`.
-      - name: Start MinIO
+      - name: Поднять MinIO — хранилище для сценария заявок
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
@@ -290,13 +333,13 @@ jobs:
           docker logs minio >&2 || true
           exit 1
 
-      - name: Generate Prisma Client
+      - name: Сгенерировать Prisma Client
         run: pnpm db:generate
 
       # Общие пакеты нужны собранными: webServer поднимает api и web из исходников, а те
       # импортируют @studenthub/* из dist. Без этого шага прогон падает не на сценарии, а
       # на старте серверов — «has no exported member» из shared-schemas.
-      - name: Собрать общие пакеты
+      - name: Собрать общие пакеты (packages/*)
         run: pnpm exec turbo run build --filter='./packages/*'
 
       # Ключ по лок-файлу: браузер переустанавливается, когда меняется версия Playwright.
@@ -309,14 +352,14 @@ jobs:
       # Только chromium: проекты конфигурации запускают его одного, остальные движки
       # скачивались бы впустую. --with-deps ставит системные библиотеки (быстро и из кеша
       # apt), сам браузер приезжает из кеша шага выше.
-      - name: Установить браузер
+      - name: Поставить Chromium для Playwright
         run: pnpm --filter web exec playwright install --with-deps chromium
 
-      - name: E2E (web)
+      - name: Прогнать сценарии веба — поднимает свои api и web
         run: pnpm --filter web e2e
 
       # Отчёт нужен именно при падении: по нему видно шаг, скриншот и трассу повтора.
-      - name: Отчёт Playwright
+      - name: Отчёт Playwright — только при падении
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -332,7 +375,7 @@ jobs:
   #
   # fail-fast: false — узнать хочется про все сломанные приложения сразу, а не про первое.
   docker:
-    name: образ · ${{ matrix.app }}
+    name: Образ · ${{ matrix.app }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -342,10 +385,10 @@ jobs:
         app: [api, web, landing, mini-app]
 
     steps:
-      - name: Checkout
+      - name: Забрать код
         uses: actions/checkout@v7
 
-      - name: Setup Buildx
+      - name: Поставить docker buildx
         uses: docker/setup-buildx-action@v3
 
       # Контекст — корень репозитория: все четыре Dockerfile копируют pnpm-lock.yaml и
@@ -354,7 +397,7 @@ jobs:
       # build-args задаются одним списком на все приложения: аргумент, о котором Dockerfile
       # не знает, он просто игнорирует. Значения здесь — заглушки для сборки, в образ
       # Railway приезжают свои (они build-time, см. docs/RAILWAY.md).
-      - name: Собрать образ
+      - name: Собрать образ ${{ matrix.app }} — без публикации
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -375,28 +418,28 @@ jobs:
   # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
   # последним. Job лёгкая, идёт параллельно и падает независимо.
   security:
-    name: аудит зависимостей · секреты
+    name: Безопасность · уязвимости и секреты
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       # fetch-depth: 0 — gitleaks смотрит историю, а не только рабочее дерево: секрет,
       # закоммиченный и «удалённый» следующим коммитом, из истории никуда не делся.
-      - name: Checkout
+      - name: Забрать код со всей историей
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Setup pnpm
+      - name: Поставить pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
       # --prod: интересуют пакеты, которые реально попадают в рантайм. Уязвимость в
@@ -406,17 +449,17 @@ jobs:
       # Порог moderate: на low аудит шумит транзитивными находками, до которых из нашего
       # кода не дойти, и job начинают игнорировать — а игнорируемая проверка хуже, чем
       # её отсутствие, потому что создаёт видимость контроля.
-      - name: Аудит прод-зависимостей
+      - name: Уязвимости в прод-зависимостях — блокирует
         run: pnpm audit --prod --audit-level moderate
 
       # Не блокирует: список для глаз, а не ворота.
-      - name: Аудит всех зависимостей (справочно)
+      - name: Уязвимости во всех зависимостях — справочно
         continue-on-error: true
         run: pnpm audit --audit-level high
 
       # Секрет в истории = секрет скомпрометирован, даже если файл давно удалён.
       # Дешевле поймать на PR, чем ротировать ключи задним числом.
-      - name: Поиск секретов в истории
+      - name: Поиск секретов в истории (gitleaks)
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -424,22 +467,22 @@ jobs:
   # Нота «Что нового» пишется до мёржа в main: она едет в бандле вместе с кодом, который
   # описывает, и после выпуска её уже не подложить. Проверка — только на релизном PR.
   release-note:
-    name: нота «Что нового»
+    name: Релиз · нота «Что нового»
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
       # fetch-depth: 0 — нужны теги: «выпущена ли уже эта версия» выясняется по ним.
-      - name: Checkout
+      - name: Забрать код с тегами
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Setup Node
+      - name: Поставить Node 20
         uses: actions/setup-node@v7
         with:
           node-version: 20
 
-      - name: Для следующего релиза текст написан
+      - name: Нота «Что нового» для следующей версии написана
         run: node scripts/release.mjs check-unreleased
