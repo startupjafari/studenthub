@@ -45,6 +45,20 @@ updates:
       - dependency-name: '@prisma/client'
         update-types: [version-update:semver-major]
 
+  # Базовые образы четырёх приложений (node:20-alpine, nginx:1.27-alpine). Причина та же,
+  # что в шапке файла: обновления приходят молча, а в базовом образе живёт вся системная
+  # часть контейнера. Раз в месяц — как у actions: чаще их всё равно не читают.
+  - package-ecosystem: docker
+    directories:
+      - /apps/api
+      - /apps/web
+      - /apps/landing
+      - /apps/mini-app
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: 'chore(deps)'
+
   # Actions пришпилены по мажорной версии (actions/checkout@v4) и сами не обновляются.
   - package-ecosystem: github-actions
     directory: /
