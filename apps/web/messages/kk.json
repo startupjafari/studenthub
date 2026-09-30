@@ -950,7 +950,12 @@
     "inviteInvalidTitle": "Шақыру жарамсыз",
     "inviteInvalidText": "Шақыру мерзімі бітті немесе ол бұрын пайдаланылған. Әкімшіден жаңа шақыру сұраңыз.",
     "backToHome": "Басты бетке",
-    "identifierPlaceholder": "you@example.com немесе username"
+    "identifierPlaceholder": "you@example.com немесе username",
+    "birthDate": "Туған күні",
+    "birthDateHint": "Заңды өкілдің келісімі қажет пе, соны анықтау үшін керек",
+    "consent": "Мен құпиялылық саясаты мен пайдаланушы келісімін қабылдаймын",
+    "consentRequired": "Келісімсіз тіркелу мүмкін емес",
+    "guardianConsent": "Маған 18 жас толмаған, және заңды өкілім дербес деректерімді өңдеуге келісім берді"
   },
   "Legal": {
     "privacyLink": "Құпиялылық саясаты",

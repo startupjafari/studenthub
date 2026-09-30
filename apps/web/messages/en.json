@@ -950,7 +950,12 @@
     "inviteInvalidTitle": "Invite is invalid",
     "inviteInvalidText": "The invite has expired or was already used. Request a new invite from an administrator.",
     "backToHome": "Back to sign in",
-    "identifierPlaceholder": "you@example.com or username"
+    "identifierPlaceholder": "you@example.com or username",
+    "birthDate": "Date of birth",
+    "birthDateHint": "Needed to determine whether a legal representative’s consent is required",
+    "consent": "I accept the privacy policy and the terms of use",
+    "consentRequired": "Registration is not possible without consent",
+    "guardianConsent": "I am under 18, and my legal representative has consented to the processing of my personal data"
   },
   "Legal": {
     "privacyLink": "Privacy Policy",

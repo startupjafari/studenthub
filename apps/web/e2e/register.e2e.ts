@@ -33,6 +33,11 @@ test.describe('Регистрация по инвайту', () => {
     await page.locator('#lastName').fill('Проверкин')
     await page.locator('#username').fill(username)
     await page.locator('#password').fill('E2ePassw0rd!')
+    // Дата рождения и согласие обязательны с сентября 2026: без них форма не отправится.
+    // Дата заведомо совершеннолетняя — вторая галочка (согласие представителя) тогда не
+    // появляется, и сценарий проверяет обычный путь.
+    await page.locator('#birthDate').fill('1995-05-17')
+    await page.getByRole('checkbox').first().check()
     await page.getByRole('button', { name: 'Создать аккаунт' }).click()
 
     await page.waitForURL((url) => !url.pathname.startsWith('/register'), { timeout: 30_000 })
