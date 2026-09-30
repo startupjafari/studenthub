@@ -132,6 +132,25 @@ jobs:
       - name: Apply migrations (CI database)
         run: pnpm db:deploy
 
+      # Схема и миграции обязаны сходиться. Расхождение («поправил prisma/schema, миграцию
+      # не сгенерировал») до сих пор не ловилось ничем: db:deploy применяет то, что лежит в
+      # prisma/migrations, а db:generate читает схему — обе команды зелёные, а на проде
+      # запрос уходит к колонке, которой там нет. Цена ошибки здесь выше обычного: на прод
+      # миграции накатываются отдельным ручным workflow, и отката у `prisma migrate` нет.
+      #
+      # Отдельная пустая база: migrate diff проигрывает в ней всю историю миграций, чтобы
+      # получить схему «как на самом деле», и сравнивает с prisma/schema. Код выхода 2 —
+      # это «есть расхождение», ради него и --exit-code.
+      - name: Схема и миграции не разошлись
+        run: |
+          docker run --rm --network host -e PGPASSWORD=postgres postgres:16-alpine \
+            psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE studenthub_shadow'
+          pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema \
+            --shadow-database-url postgresql://postgres:postgres@localhost:5432/studenthub_shadow \
+            --exit-code
+
       - name: Lint
         run: pnpm lint
 
@@ -232,10 +251,12 @@ jobs:
 
       # Базу под прогон сервис postgres не создаёт: POSTGRES_DB заводит ровно одну.
       # Схему в ней ставит сам prepare-db.mjs (db push), от нас нужна пустая база.
+      # psql берём из того же образа, что и сервис: на раннере клиент postgres есть не
+      # всегда, а образ уже скачан под сервис-контейнер и ничего не стоит.
       - name: Создать базу для e2e
-        env:
-          PGPASSWORD: postgres
-        run: psql -h localhost -U postgres -c 'CREATE DATABASE studenthub_e2e'
+        run: |
+          docker run --rm --network host -e PGPASSWORD=postgres postgres:16-alpine \
+            psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE studenthub_e2e'
 
       # MinIO нужен по-настоящему: сценарий заявок грузит документ в хранилище.
       # Бакеты заводить не нужно — их создаёт сам api на старте (MinioBucketsService).
