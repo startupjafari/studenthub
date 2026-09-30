@@ -15,7 +15,9 @@ export default defineConfig({
   // Именование флоу — <flow>.e2e.ts (FRONTEND_RULES §12); дефолтный шаблон Playwright
   // (*.spec.ts / *.test.ts) их не подхватывает, поэтому задаём свой.
   testMatch: /.*\.e2e\.ts$/,
-  timeout: 60_000,
+  // В CI потолок выше: `next dev` компилирует страницу при первом заходе на неё, и на
+  // холодном раннере это десятки секунд — время уходит не на сценарий, а на сборку.
+  timeout: process.env.CI ? 120_000 : 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
