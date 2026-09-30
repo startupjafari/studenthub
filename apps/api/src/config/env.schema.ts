@@ -81,6 +81,14 @@ export const envSchema = z.object({
     .transform((v) => v === 'true'),
 
   // SMTP используется с Фазы 3 — пока необязателен.
+  /**
+   * Порог сигнала о росте хранилища, гигабайты. Не задан — сводка только пишется в лог.
+   *
+   * Отдельной переменной, а не константой: место в томе зависит от тарифа, и менять
+   * порог приходится там же, где меняют том, — в настройках сервиса.
+   */
+  STORAGE_ALERT_GB: optionalEnv(z.coerce.number().positive()),
+
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().optional(),
