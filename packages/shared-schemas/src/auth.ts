@@ -28,8 +28,42 @@ export const PasswordSchema = z
   .regex(/[0-9]/, 'Нужна хотя бы одна цифра')
   .regex(/[^A-Za-zА-Яа-я0-9]/, 'Нужен хотя бы один спецсимвол')
 
+/**
+ * Редакция правовых документов, на которую даётся согласие при регистрации.
+ *
+ * Дата, а не порядковый номер: её видно в самой политике («Редакция от 30 сентября 2026
+ * года»), и по записи в базе понятно, какой текст человек принимал. Меняется ВМЕСТЕ с
+ * текстом документов (apps/web/messages/*.json, ключ `Legal`) — иначе в базе останется
+ * ссылка на редакцию, которой никто не видел.
+ */
+export const LEGAL_VERSION = '2026-09-30'
+
+/** Возраст совершеннолетия в РК: до него согласие даёт законный представитель. */
+export const AGE_OF_MAJORITY = 18
+
+/** Полных лет на дату. Дата рождения — ISO `YYYY-MM-DD`. */
+export function ageAt(birthDate: string, at: Date = new Date()): number {
+  const [y, m, d] = birthDate.split('-').map(Number)
+  let age = at.getFullYear() - (y ?? 0)
+  const monthDiff = at.getMonth() + 1 - (m ?? 1)
+  // День рождения ещё не наступил в этом году — год не засчитан.
+  if (monthDiff < 0 || (monthDiff === 0 && at.getDate() < (d ?? 1))) age -= 1
+  return age
+}
+
+/** Совершеннолетний ли человек с такой датой рождения. */
+export function isAdult(birthDate: string, at: Date = new Date()): boolean {
+  return ageAt(birthDate, at) >= AGE_OF_MAJORITY
+}
+
 // Регистрация по инвайту (docs/PROJECT.md §7.3): форма принимает имя пользователя, имя, пароль, фото.
 // Роль и scope НЕ здесь — они берутся из инвайта на сервере. email — из инвайта либо этой формы.
+//
+// Дата рождения и согласие обязательны с сентября 2026. Причина не в форме, а в законе:
+// согласие на обработку персональных данных лица младше 18 лет даёт законный представитель,
+// и согласие самого несовершеннолетнего юридической силы не имеет. Отличить одного от
+// другого можно только по дате рождения, поэтому она спрашивается здесь, а не остаётся
+// необязательным полем профиля.
 export const RegisterByInviteSchema = z
   .object({
     token: z.string().min(1),
@@ -38,8 +72,41 @@ export const RegisterByInviteSchema = z
     lastName: z.string().min(1).max(100),
     password: PasswordSchema,
     email: z.string().email().optional(),
+    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
+    /** Согласие с политикой и соглашением. Только `true`: отказ — это незаполненная форма. */
+    consent: z.literal(true),
+    /** Согласие законного представителя. Обязательно, если на дату регистрации нет 18. */
+    guardianConsent: z.boolean().optional(),
   })
   .strict()
+  .superRefine((v, ctx) => {
+    const born = new Date(`${v.birthDate}T00:00:00Z`)
+    if (Number.isNaN(born.getTime())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Некорректная дата',
+        path: ['birthDate'],
+      })
+      return
+    }
+    const age = ageAt(v.birthDate)
+    // Верхняя граница — защита от опечатки в годе, а не от долгожителей.
+    if (age < 0 || age > 120) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Проверьте дату рождения',
+        path: ['birthDate'],
+      })
+      return
+    }
+    if (age < AGE_OF_MAJORITY && v.guardianConsent !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Нужно согласие законного представителя',
+        path: ['guardianConsent'],
+      })
+    }
+  })
 
 export type RegisterByInviteInput = z.infer<typeof RegisterByInviteSchema>
 

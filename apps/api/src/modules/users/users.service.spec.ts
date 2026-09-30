@@ -313,6 +313,12 @@ describe('UserService — закрытый профиль (видимость п
       universityId: null,
       facultyId: null,
       groupId: null,
+      // Поля согласия к видимости профиля отношения не имеют, но входят в тип: с
+      // сентября 2026 пользователь без записанного согласия не создаётся.
+      birthDate: new Date('2000-01-01T00:00:00Z'),
+      consentAt: new Date('2026-09-30T00:00:00Z'),
+      consentVersion: '2026-09-30',
+      consentByGuardian: false,
     })
     expect(tx.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -336,6 +342,12 @@ describe('UserService — закрытый профиль (видимость п
       universityId: null,
       facultyId: null,
       groupId: null,
+      // Поля согласия к видимости профиля отношения не имеют, но входят в тип: с
+      // сентября 2026 пользователь без записанного согласия не создаётся.
+      birthDate: new Date('2000-01-01T00:00:00Z'),
+      consentAt: new Date('2026-09-30T00:00:00Z'),
+      consentVersion: '2026-09-30',
+      consentByGuardian: false,
     })
     expect(tx.user.create).toHaveBeenLastCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ profileVisibility: 'PUBLIC' }) }),
