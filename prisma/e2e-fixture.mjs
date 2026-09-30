@@ -17,6 +17,10 @@
 // расписания группы, и проверить отправку сообщения в него можно только если пара есть.
 // Сам тест создать её не может: он ходит под студентом, а расписание ведёт декан.
 //
+// ОДИН ПОСТ — сценарий ленты проверяет, что карточка публикации отрисовалась. Написать
+// его сам он тоже не может: композер есть у сотрудников, а лента смотрится из-под
+// студента. Пустая лента — тоже состояние, но проверяет его другой тест.
+//
 // Запускается из apps/web/e2e/prepare-db.mjs на DATABASE_URL_TEST, после `db push
 // --force-reset`. На непустой или нетестовой базе не запускается — проверки в самом
 // prepare-db.mjs.
@@ -39,6 +43,7 @@ const GROUP_ID = 'seed-group-001'
 const INVITE_TOKEN = 'seed-invite-university-admin-token'
 const SCHEDULE_ID = 'seed-schedule-001'
 const PAIR_ID = 'seed-pair-001'
+const POST_ID = 'seed-post-001'
 // Предмет пары. Его же ищет apps/web/e2e/chat.e2e.ts — имя чата предмета берётся отсюда.
 const SUBJECT = 'Машинное обучение'
 // г. Алматы. `University.city` хранит код КАТО, а не название.
@@ -172,7 +177,24 @@ await prisma.pair.upsert({
   },
 })
 
+// Пост в ленте: автор — декан, аудитория «весь вуз», чтобы его видел любой аккаунт вуза.
+const dean = await prisma.user.findUnique({ where: { email: 'dean@studenthub.app' } })
+if (dean) {
+  await prisma.post.upsert({
+    where: { id: POST_ID },
+    update: {},
+    create: {
+      id: POST_ID,
+      authorId: dean.id,
+      audience: 'UNIVERSITY',
+      universityId: UNIVERSITY_ID,
+      title: 'Объявление деканата',
+      content: 'Публикация для e2e: лента не должна быть пустой.',
+    },
+  })
+}
+
 await prisma.$disconnect()
 console.log(
-  `e2e-fixture: ${USERS.length + 1} аккаунт(ов), вуз, факультет, группа, инвайт, каталог услуг, пара «${SUBJECT}» готовы`,
+  `e2e-fixture: ${USERS.length + 1} аккаунт(ов), вуз, факультет, группа, инвайт, каталог услуг, пара «${SUBJECT}», пост готовы`,
 )
