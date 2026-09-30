@@ -153,6 +153,145 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # Сквозные сценарии веба. Отдельной job'ой, а не шагом в `ci`: прогон поднимает СВОИ
+  # экземпляры api и web (playwright.config.ts, webServer) на своих портах и своей базе —
+  # с основным прогоном ему делить нечего, а спрятанное за двадцатью минутами падение
+  # сценария узнаётся последним.
+  #
+  # Почему это вообще появилось: сценариев веба в CI не было вовсе. Фронт проверялся
+  # линтом, типами, vitest и сборкой — то есть ни один путь пользователя целиком не
+  # проходился, и «кнопка не открывает диалог» ловилось руками.
+  web-e2e:
+    name: e2e веба · playwright
+    runs-on: ubuntu-latest
+    # Прогон поднимает api (nest build) и web (next dev) и идёт около десяти минут.
+    # Потолок нужен против зависших серверов: Playwright ждёт порт до 180 с на каждый,
+    # а упавший на старте api оставляет прогон висеть на ретраях.
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studenthub_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Две РАЗНЫЕ базы здесь обязательны, и это не аккуратность ради аккуратности:
+      # e2e/prepare-db.mjs отказывается работать, если DATABASE_URL_TEST совпадает с
+      # DATABASE_URL или если имя базы не похоже на тестовое. Сразу за проверкой идёт
+      # `prisma db push --force-reset`, и ценой ошибки в конфигурации была бы снесённая
+      # рабочая база.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studenthub_ci
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/studenthub_e2e
+      # Нечувствительные CI-значения (не секреты): нужны валидации окружения api.
+      JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-32ch
+      JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-32
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-ci-totp-key-32
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+      MINIO_ACCESS_KEY: ci-access
+      MINIO_SECRET_KEY: ci-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Базу под прогон сервис postgres не создаёт: POSTGRES_DB заводит ровно одну.
+      # Схему в ней ставит сам prepare-db.mjs (db push), от нас нужна пустая база.
+      - name: Создать базу для e2e
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -c 'CREATE DATABASE studenthub_e2e'
+
+      # MinIO нужен по-настоящему: сценарий заявок грузит документ в хранилище.
+      # Бакеты заводить не нужно — их создаёт сам api на старте (MinioBucketsService).
+      # Образ и его происхождение — см. комментарий в job `ci`.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=ci-access \
+            -e MINIO_ROOT_PASSWORD=ci-secret \
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
+          echo "Waiting for MinIO to become healthy..."
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
+              echo "MinIO is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO did not become healthy in time" >&2
+          docker logs minio >&2 || true
+          exit 1
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      # Общие пакеты нужны собранными: webServer поднимает api и web из исходников, а те
+      # импортируют @studenthub/* из dist. Без этого шага прогон падает не на сценарии, а
+      # на старте серверов — «has no exported member» из shared-schemas.
+      - name: Собрать общие пакеты
+        run: pnpm exec turbo run build --filter='./packages/*'
+
+      # Ключ по лок-файлу: браузер переустанавливается, когда меняется версия Playwright.
+      - name: Кеш браузеров Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # Только chromium: проекты конфигурации запускают его одного, остальные движки
+      # скачивались бы впустую. --with-deps ставит системные библиотеки (быстро и из кеша
+      # apt), сам браузер приезжает из кеша шага выше.
+      - name: Установить браузер
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: E2E (web)
+        run: pnpm --filter web e2e
+
+      # Отчёт нужен именно при падении: по нему видно шаг, скриншот и трассу повтора.
+      - name: Отчёт Playwright
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+
   # Отдельной job'ой, а не шагом в `ci`: проверки безопасности не зависят от базы, MinIO
   # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
   # последним. Job лёгкая, идёт параллельно и падает независимо.
