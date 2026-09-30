@@ -1,5 +1,12 @@
-name: Release
+name: Release · описание опубликованного релиза
 
+# СХЕМА ПРОГОНА
+#
+#   человек опубликовал релиз (тег vX.Y.Z) ─► нота «Что нового» для версии написана?
+#       ├─ нет ........... прогон красный, описание не трогаем
+#       └─ да ─► тело релиза пустое? ─► да: собрать описание (нота + коммиты) и записать
+#                                       нет: оставить как есть — текст написан руками
+#
 # Срабатывает, когда человек опубликовал релиз в интерфейсе GitHub (Releases → Draft a new
 # release → тег vX.Y.Z на main). Всё остальное собирается здесь:
 #
@@ -27,27 +34,27 @@ concurrency:
 
 jobs:
   notes:
-    name: описание релиза
+    name: Описание релиза — проверить и заполнить
     runs-on: ubuntu-latest
 
     steps:
       # fetch-depth: 0 — нужны и теги, и история: описание строится по диапазону
       # «предыдущий тег → этот».
-      - name: Checkout
+      - name: Забрать код по тегу релиза, с историей
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.release.tag_name }}
 
-      - name: Setup Node
+      - name: Поставить Node 20
         uses: actions/setup-node@v7
         with:
           node-version: 20
 
-      - name: Для версии есть нота «Что нового»
+      - name: Проверить, что для версии написана нота «Что нового»
         run: node scripts/release.mjs verify "${{ github.event.release.tag_name }}"
 
-      - name: Собрать описание релиза
+      - name: Заполнить описание релиза — только если тело пустое
         if: ${{ !github.event.release.body }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
