@@ -1,0 +1,99 @@
+name: Smoke (после выкатки)
+
+# Проверка, что уехавшее на прод живое.
+#
+# Railway деплоит по push в main и о результате никому не сообщает: до сих пор «поднялось
+# ли» проверял человек глазами, а в худшем случае — узнавал от студента. Этот прогон ждёт,
+# пока платформа подхватит новый образ, и стучится в те же две точки, куда стучится
+# пользователь: health-эндпоинт API и главную страницу веба.
+#
+# Почему не в ci.yml: тот прогон про код, этот — про среду. Красный smoke не означает, что
+# код плохой, он означает, что прод не отвечает, и разбираться нужно в Railway.
+#
+# АДРЕСА берутся из переменных репозитория (Settings → Secrets and variables → Actions →
+# Variables), а не из секретов: публичный домен не тайна, а в логе прогона его видеть
+# полезно. Переменные не заданы — прогон не падает, а пишет, чего не хватает: лучше явный
+# пропуск, чем красный main у того, кто про эту проверку ещё не знает.
+#
+#   SMOKE_API_URL — например https://api.example.kz  (корень домена, без пути)
+#   SMOKE_WEB_URL — например https://app.example.kz
+#
+# Ручной запуск (workflow_dispatch) нужен для проверки после ручных операций: применения
+# миграций, смены переменных, перезапуска сервиса.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-production
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: прод отвечает
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      API_URL: ${{ vars.SMOKE_API_URL }}
+      WEB_URL: ${{ vars.SMOKE_WEB_URL }}
+
+    steps:
+      - name: Адреса заданы
+        id: guard
+        run: |
+          if [ -z "${API_URL}" ] && [ -z "${WEB_URL}" ]; then
+            echo "::warning::Переменные SMOKE_API_URL и SMOKE_WEB_URL не заданы — проверять нечего. Задайте их в Settings → Secrets and variables → Actions → Variables."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Railway забирает образ не мгновенно: сборка и перезапуск занимают минуты. Ждём и
+      # опрашиваем, а не проверяем один раз — иначе прогон ловил бы старую версию или
+      # окно перезапуска и краснел бы на ровном месте.
+      #
+      # 24 попытки по 15 секунд — шесть минут. Дольше ждать нет смысла: если за это время
+      # сервис не поднялся, дело не в медленном деплое.
+      - name: API отвечает на health-эндпоинте
+        if: steps.guard.outputs.skip != 'true' && env.API_URL != ''
+        run: |
+          # Путь тот же, что у healthcheck Railway (apps/api/railway.json): health живёт
+          # под глобальным префиксом API, отдельного /health в обход префикса нет.
+          url="${API_URL%/}/api/v1/health"
+          echo "Проверяю $url"
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 10 "$url" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "API отвечает 200"
+              cat /tmp/health.json
+              exit 0
+            fi
+            echo "  попытка $i: $code"
+            sleep 15
+          done
+          echo "::error::API не ответил 200 за шесть минут — последний код: $code"
+          cat /tmp/health.json || true
+          exit 1
+
+      # Главную страницу проверяем отдельно: api и web на Railway — разные сервисы, и
+      # выкатка одного не говорит ничего о втором. Веб отдаёт 200 и на экране входа —
+      # этого достаточно, чтобы отличить «поднялся» от «502 от платформы».
+      - name: Веб отдаёт страницу
+        if: steps.guard.outputs.skip != 'true' && env.WEB_URL != ''
+        run: |
+          url="${WEB_URL%/}/"
+          echo "Проверяю $url"
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
+            case "$code" in
+              200 | 30[0-9])
+                echo "Веб отвечает $code"
+                exit 0
+                ;;
+            esac
+            echo "  попытка $i: $code"
+            sleep 15
+          done
+          echo "::error::Веб не ответил за шесть минут — последний код: $code"
+          exit 1
