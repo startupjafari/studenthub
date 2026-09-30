@@ -45,19 +45,31 @@ model User {
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
   // ── Профиль (общие поля, у всех ролей) ──────────────────────────────────────
-  middleName String?   @map("middle_name")
-  phone      String?
-  showPhone  Boolean   @default(false) @map("show_phone")
-  bio        String?
-  birthDate  DateTime? @map("birth_date")
-  gender     String?
-  languages  String[]  @default([])
-  telegram   String?
-  instagram  String?
-  website    String?
-  headline   String?
-  timezone   String?
-  country    String?
+  middleName        String?   @map("middle_name")
+  phone             String?
+  showPhone         Boolean   @default(false) @map("show_phone")
+  bio               String?
+  birthDate         DateTime? @map("birth_date")
+  // Согласие на обработку персональных данных, данное при регистрации (§ПДн).
+  //
+  // Три поля, а не флаг: доказать согласие можно только вместе с тем, КОГДА оно дано и на
+  // КАКУЮ редакцию документов — редакция меняется, а согласие остаётся привязанным к той,
+  // которую человек видел. `consentByGuardian` отмечает согласие за несовершеннолетнего:
+  // до 18 лет его даёт законный представитель, и это разные основания обработки.
+  //
+  // NULL у записей, созданных до появления полей: задним числом согласие не выдумывается.
+  consentAt         DateTime? @map("consent_at")
+  consentVersion    String?   @map("consent_version")
+  consentByGuardian Boolean   @default(false) @map("consent_by_guardian")
+
+  gender    String?
+  languages String[] @default([])
+  telegram  String?
+  instagram String?
+  website   String?
+  headline  String?
+  timezone  String?
+  country   String?
 
   // ── Профиль студента/старосты ───────────────────────────────────────────────
   course            Int?
