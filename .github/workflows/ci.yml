@@ -1,4 +1,28 @@
-name: CI
+name: codeChecks
+
+# СХЕМА ПРОГОНА
+#
+#   push в develop / main ─┐
+#   pull request в main ───┤
+#   ночью, 21:47 UTC ──────┴─► job'ы стартуют разом и друг друга не ждут:
+#
+#       Код ............ линт → типы → юнит-тесты → тесты сида → e2e api → сборка
+#       Веб ............ Playwright поднимает свои api и web и проходит сценарии
+#       Безопасность ... уязвимости в зависимостях + поиск секретов в истории
+#       Прогоны ........ линт самих workflow: actionlint и zizmor
+#       Нота ........... «Что нового» для версии написана (только на PR в main)
+#       Миграции ....... применены ли на проде (только на PR в main)
+#       Сводка ......... числа недели в Telegram (ночью по понедельникам)
+#       Сообщить ....... уведомление в Telegram, если упало на main или ночью
+#
+#   Единственная зависимость между job'ами — образы:
+#
+#       Какие образы ──► Образ · <app> .. docker build + trivy + запуск контейнера
+#       пересобирать                     только для приложений, которых коснулось
+#                                        изменение; на push в main — для всех
+#
+#   Та же схема попадает в сводку запуска (вкладка Summary) — шаг «Схема прогона».
+#   Красный любой job = не мёржим: они независимы, но отвечают за одно и то же.
 
 # Проверки гоняем на интеграционных ветках, а не на каждой фича-ветке:
 #   push develop — обычный цикл разработки;
@@ -6,20 +30,49 @@ name: CI
 #     который никто не проверял: Railway деплоит по push в main, и красный прогон
 #     после факта уже ничего не останавливает;
 #   push main — страховка на случай правки в main мимо PR (hotfix, правка через web-UI).
+#
+# Ночью тот же прогон идёт по расписанию. Смысл не в повторе: уязвимости появляются в уже
+# смёрженном коде — advisory публикуют после того, как зависимость установлена, а дыру в
+# базовом образе находят после того, как образ собран. Плюс ночью сценарии идут без
+# повторов, и плавающий тест, который днём прячется за ретраем, становится виден.
 on:
   push:
     branches: [develop, main]
   pull_request:
     branches: [main]
+  schedule:
+    # 21:47 UTC — 02:47 по Алматы (UTC+5): к утру результат готов. Минуты не круглые
+    # намеренно: в начале часа GitHub запускает расписания всего мира, и очередь длиннее.
+    - cron: '47 21 * * *'
 
+# Токен прогона — только на чтение кода. По умолчанию GitHub выдаёт job'у заметно больше
+# прав, чем нужно, а в публичном репозитории этот токен достаётся в том числе сторонним
+# экшенам из `uses:`. Шагу, которому понадобится больше (запись результатов сканирования,
+# комментарий в PR), права добавляются точечно на уровне job'а.
+permissions:
+  contents: read
+
+# Событие в группе — чтобы ночной прогон не отменял тот, что идёт по пушу в ту же ветку:
+# у них разная задача, и ночной не должен забирать результат у рабочего.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
+# Образ раннера пришпилен во всех прогонах репозитория: `ubuntu-latest` переезжает на
+# Ubuntu 26.04 с 19.10.2026, и переезд произошёл бы молча — посреди обычной недели, на
+# правке, которая к нему отношения не имеет. Меняются системные библиотеки, а на них
+# завязаны зависимости браузера Playwright и сборка нативных модулей. Переход делаем
+# отдельным PR, когда есть кому разбирать его падения.
 jobs:
   ci:
-    name: lint · typecheck · test · build
-    runs-on: ubuntu-latest
+    name: Код · линт, типы, тесты, сборка
+    runs-on: ubuntu-24.04
+    # Числа для еженедельной сводки: считаются здесь, читаются job'ом «Сводка за неделю».
+    outputs:
+      coverage-api: ${{ steps.coverage.outputs.api }}
+      coverage-web: ${{ steps.coverage.outputs.web }}
+      size-web: ${{ steps.size.outputs.web }}
+      size-mini: ${{ steps.size.outputs.mini }}
     # Весь прогон укладывается в ~6 минут. Потолок нужен не для медленных шагов, а для
     # зависших: если e2e не смог поднять AppModule, jest остаётся с открытыми соединениями
     # и не выходит — без этого лимита шаг досиживает до дефолтных 6 часов.
@@ -67,15 +120,56 @@ jobs:
       NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      # Схема — в сводку запуска (вкладка Summary), а не только комментарием в этом файле:
+      # красный квадрат в списке проверок должен объясняться там же, где его видно.
+      # Шаг идёт первым и ничего не требует — ни кода, ни зависимостей.
+      - name: Схема прогона — в сводку запуска
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Что проверяет этот прогон
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+          ```mermaid
+          flowchart LR
+            T["push develop / main<br/>pull request в main"]
+            T --> A["Код<br/>линт · типы · тесты · сборка"]
+            T --> B["Веб<br/>сценарии Playwright"]
+            T --> C0["Какие образы<br/>пересобирать"]
+            C0 --> C["Образы<br/>сборка · trivy · запуск"]
+            T --> D["Безопасность<br/>уязвимости · секреты"]
+            T --> E["Прогоны<br/>actionlint · zizmor"]
+            T --> F["Нота «Что нового»<br/>только на PR в main"]
+            T --> G["Миграции прод-БД<br/>применены? только на PR в main"]
+          ```
+
+          Job'ы идут параллельно и друг друга не ждут — кроме образов: они собираются только
+          для приложений, которых коснулось изменение (на push в `main` — все четыре).
+          Красный любой из них означает «не мёржим».
+
+          | Проверка | Что делает | Если красная |
+          |---|---|---|
+          | **Код** | eslint, `tsc --noEmit`, юнит-тесты api и веба с покрытием (таблица ниже), тесты сида, сверка OpenAPI-схемы с кодом, интеграционные тесты api с базой, сборка всех приложений | сломан код или тест — смотреть упавший шаг |
+          | **Веб** | Playwright поднимает свои api и web на отдельных портах и базе и проходит вход, ленту, публикацию, заявку, расписание | сломан путь пользователя; к прогону приложен отчёт `playwright-report` со скриншотами и трассой |
+          | **Образ · app** | `docker build` четырёх приложений без публикации, trivy по собранному образу, затем запуск контейнера и проверка, что он отвечает | Railway не соберёт или не запустит этот образ на выкатке; находки trivy пока не блокируют и лежат таблицей ниже |
+          | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории; аудит всех зависимостей — отдельной таблицей ниже на этой же странице, он не блокирует | уязвимость в рантайм-зависимости или секрет в коммите |
+          | **Прогоны** | actionlint и zizmor по файлам `.github/workflows`: синтаксис, выражения, shell внутри `run`, права токена, подстановка ввода в команды | сломан или небезопасен сам прогон |
+          | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
+          | **Миграции прод-БД** | `prisma migrate status` против боевой базы: всё ли из `prisma/migrations` там уже есть | после мёржа Railway выкатит код на старую схему — сначала прогон «Прод-БД · миграции» в режиме `deploy` |
+          MD
+
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       # Версии экшенов держим на актуальных мажорах: GitHub снимает с эксплуатации
       # рантайм node20, и v4 у checkout/setup-node уже принудительно запускались на
-      # node24 с предупреждением.
+      # node24 с предупреждением. По той же причине подняты cache (v6), upload-artifact
+      # (v7), docker/build-push-action (v7) и docker/setup-buildx-action (v4) — там, кроме
+      # рантайма и перехода на ESM, ломающих изменений во входных параметрах нет.
+      # Новые мажоры приносит dependabot (`.github/dependabot.yml`, раз в месяц).
       #
       # Именно v7 у setup-node, а не минимальный переход на v5: в v5 появилось
       # автокеширование по полю `packageManager` в package.json, и в двух job'ах ниже
@@ -86,13 +180,13 @@ jobs:
       #
       # `node-version` — рантайм сборки самого проекта, к этому переходу отношения не
       # имеет и меняется отдельным решением.
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
       # MinIO поднимаем шагом, а не через `services:`: там нельзя дождаться готовности
@@ -108,7 +202,7 @@ jobs:
       # `bitnamilegacy` — архив Bitnami: с 28.08.2025 бесплатно остаётся только он, зато
       # теги там уже не двигаются. Аргумент `server /data` не нужен — его подставляет
       # точка входа образа, а каталог данных у него свой.
-      - name: Start MinIO
+      - name: Поднять MinIO — S3-хранилище для тестов
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
@@ -116,7 +210,7 @@ jobs:
             -e MINIO_ROOT_PASSWORD=ci-secret \
             bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
               echo "MinIO is up"; exit 0
             fi
@@ -126,59 +220,844 @@ jobs:
           docker logs minio >&2 || true
           exit 1
 
-      - name: Generate Prisma Client
+      # Кеш turbo между прогонами: lint, typecheck, test и build ходят через него, и
+      # неизменившийся пакет пересобирать незачем. Ключ с sha — чтобы запись была новой
+      # каждый раз, restore-keys поднимают ближайший предыдущий.
+      - name: Кеш turbo между прогонами
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Сгенерировать Prisma Client
         run: pnpm db:generate
 
-      - name: Apply migrations (CI database)
+      - name: Применить миграции в базу CI
         run: pnpm db:deploy
 
-      - name: Lint
+      # Схема и миграции обязаны сходиться. Расхождение («поправил prisma/schema, миграцию
+      # не сгенерировал») до сих пор не ловилось ничем: db:deploy применяет то, что лежит в
+      # prisma/migrations, а db:generate читает схему — обе команды зелёные, а на проде
+      # запрос уходит к колонке, которой там нет. Цена ошибки здесь выше обычного: на прод
+      # миграции накатываются отдельным ручным workflow, и отката у `prisma migrate` нет.
+      #
+      # Отдельная пустая база: migrate diff проигрывает в ней всю историю миграций, чтобы
+      # получить схему «как на самом деле», и сравнивает с prisma/schema. Код выхода 2 —
+      # это «есть расхождение», ради него и --exit-code.
+      - name: Сверить схему Prisma с миграциями
+        run: |
+          docker run --rm --network host -e PGPASSWORD=postgres postgres:16-alpine \
+            psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE studenthub_shadow'
+          pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema \
+            --shadow-database-url postgresql://postgres:postgres@localhost:5432/studenthub_shadow \
+            --exit-code
+
+      - name: Линт всего монорепо (eslint)
         run: pnpm lint
 
-      - name: Typecheck
+      - name: Проверить типы (tsc --noEmit)
         run: pnpm typecheck
 
-      - name: Test (unit)
-        run: pnpm test
+      # Через turbo, а не напрямую, чтобы не терять кеш задач: на коммите, который не
+      # трогал код приложения, его тесты не перезапускаются.
+      - name: Юнит-тесты api и веба — с покрытием
+        run: pnpm exec turbo run test:cov --filter=api --filter=web
+
+      # Покрытие — в сводку запуска, без порога. Порог, выставленный до того, как увидишь
+      # реальные числа, либо красит прогон в красный и его начинают обходить, либо стоит
+      # так низко, что ничего не значит. Сначала несколько недель цифр, потом порог чуть
+      # ниже достигнутого — отдельной задачей.
+      #
+      # `if: always()` — покрытие интересно и когда тесты упали: видно, что успели пройти.
+      - name: Покрытие тестами — в сводку
+        id: coverage
+        if: always()
+        run: |
+          {
+            echo "## Покрытие тестами"
+            echo ""
+            echo "| Приложение | Что считаем | Покрыто | Всего | Доля |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          found=no
+          for app in api web; do
+            f="apps/$app/coverage/coverage-summary.json"
+            if [ ! -s "$f" ]; then
+              echo "| $app | отчёта нет — шаг с тестами не дошёл до конца | — | — | — |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            found=yes
+            # Только четыре настоящие метрики: в отчёте рядом лежит ещё branchesTrue,
+            # у которого при нуле ветвлений pct равен строке "Unknown" — в таблице это
+            # выглядело бы как «Unknown%».
+            jq -r --arg app "$app" '
+              {lines:"строки", statements:"инструкции", functions:"функции", branches:"ветвления"} as $names
+              | .total
+              | to_entries[]
+              | select($names[.key] != null)
+              | "| \($app) | \($names[.key]) | \(.value.covered) | \(.value.total) | \(.value.pct)% |"
+            ' "$f" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          if [ "$found" = yes ]; then
+            {
+              echo ""
+              echo "Порога пока нет — это наблюдение за динамикой, а не ворота."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Доля покрытых строк — в выводы job'а, для еженедельной сводки.
+          for app in api web; do
+            f="apps/$app/coverage/coverage-summary.json"
+            pct='—'
+            if [ -s "$f" ]; then pct=$(jq -r '.total.lines.pct' "$f"); fi
+            echo "$app=$pct" >> "$GITHUB_OUTPUT"
+          done
 
       # Тесты сида — на встроенном раннере Node, без БД и без MinIO: проверяют чистую
       # логику (детерминизм PRNG, порядок флаша буферов, структурность id, план вуза,
       # гарды конфигурации). Отдельным шагом, потому что turbo про них не знает.
-      - name: Test (seed)
+      - name: Тесты генератора данных (сида)
         run: pnpm test:seed
 
-      - name: Test (e2e)
+      - name: Интеграционные тесты api (jest + база)
         run: pnpm --filter api test:e2e
 
-      - name: Build
+      - name: Собрать все приложения
         run: pnpm build
 
-  # Отдельной job'ой, а не шагом в `ci`: проверки безопасности не зависят от базы, MinIO
-  # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
-  # последним. Job лёгкая, идёт параллельно и падает независимо.
-  security:
-    name: аудит зависимостей · секреты
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+      # Контракт api. Схема лежит в репозитории (apps/api/openapi.json) и обязана
+      # совпадать с кодом — ровно как prisma/schema с миграциями. Расхождение означает,
+      # что контракт поменяли, а web и mini-app об этом не знают.
+      #
+      # Экспорт идёт после сборки: скрипт поднимает граф модулей из dist в режиме preview
+      # (без создания провайдеров и без обращения к базе) и читает метаданные Swagger.
+      - name: Экспортировать OpenAPI-схему
+        run: pnpm --filter api run openapi
+
+      - name: Схема в репозитории совпадает с кодом
+        run: |
+          if ! git diff --quiet -- apps/api/openapi.json; then
+            echo "::error::apps/api/openapi.json отстал от кода. Выполните pnpm --filter api run openapi и закоммитьте результат." >&2
+            git --no-pager diff --stat -- apps/api/openapi.json >&2
+            exit 1
+          fi
+          echo "Схема актуальна."
+
+      # Что именно меняется в контракте — в сводку PR. Не блокирует: ломающее изменение
+      # бывает осознанным, и оба клиента живут в этом же репозитории, то есть едут вместе
+      # с ним. Задача шага — чтобы оно не прошло незамеченным.
+      #
+      # ОГРАНИЧЕНИЕ. Сравниваются пути, методы, параметры и тела запросов. Схемы ОТВЕТОВ
+      # в документ сейчас почти не попадают (на 481 операцию описана одна): patchNestJsSwagger()
+      # выключен в main.ts из-за несовместимости nestjs-zod и @nestjs/swagger 11, и zod-DTO
+      # до Swagger не доходят. Когда тот TODO закроют, сравнение станет полным само.
+      - name: Ломающие изменения контракта (oasdiff)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --depth=1 origin "$BASE_SHA" >/dev/null 2>&1 || true
+
+          if ! git cat-file -e "$BASE_SHA:apps/api/openapi.json" 2>/dev/null; then
+            {
+              echo "## Контракт API"
+              echo ""
+              echo "В базовой ветке схемы ещё нет — сравнивать не с чем."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          mkdir -p .oasdiff
+          git show "$BASE_SHA:apps/api/openapi.json" > .oasdiff/base.json
+          cp apps/api/openapi.json .oasdiff/head.json
+
+          out=$(docker run --rm -v "$PWD/.oasdiff":/spec tufin/oasdiff:v1.32.1 \
+            breaking /spec/base.json /spec/head.json 2>&1) || true
+
+          {
+            echo "## Контракт API"
+            echo ""
+            if [ -z "$out" ] || [ "$out" = "No changes detected" ]; then
+              echo "Ломающих изменений нет."
+            else
+              echo "Изменения, которые могут сломать web или mini-app:"
+              echo ""
+              echo '```'
+              echo "$out"
+              echo '```'
+              echo ""
+              echo "Шаг не блокирует мёрж — оба клиента едут в этом же репозитории."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Размер бандлов — в сводку запуска, пока без порога. Цифр по прод-сборке ни у кого
+      # нет: локально .next — это сборка dev-сервера, и её размеры к делу не относятся.
+      # Порог ставим отдельной задачей, когда прогон несколько раз напечатает настоящие
+      # числа; поставленный наугад, он либо ничего не ловит, либо красит прогон в красный
+      # на ровном месте.
+      #
+      # Меряется gzip-размер готовых файлов (@size-limit/file). Замер времени загрузки из
+      # preset-app не берём: он поднимает браузер — лишний вес и лишний источник
+      # нестабильности в прогоне.
+      - name: Размер бандлов — в сводку
+        id: size
+        if: always()
+        run: |
+          {
+            echo "## Размер бандлов"
+            echo ""
+            echo "| Приложение | Что меряем | Размер (gzip) |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for app in web mini-app; do
+            out=$(pnpm --filter "$app" exec size-limit --json 2>/dev/null) || out=''
+            if [ -z "$out" ]; then
+              echo "| $app | посчитать не удалось — сборки нет или шаг не дошёл | — |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            echo "$out" | jq -r --arg app "$app" '
+              .[] | "| \($app) | \(.name) | \((.size / 1024 * 10 | round) / 10) КБ |"
+            ' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          {
+            echo ""
+            echo "Порога пока нет — это наблюдение за динамикой, а не ворота."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Суммарный размер по каждому приложению — в выводы job'а.
+          for app in web mini-app; do
+            out=$(pnpm --filter "$app" exec size-limit --json 2>/dev/null) || out=''
+            kb='—'
+            if [ -n "$out" ]; then
+              kb=$(echo "$out" | jq -r '[.[].size] | add | . / 1024 * 10 | round / 10')
+            fi
+            key=web
+            if [ "$app" = mini-app ]; then key=mini; fi
+            echo "$key=$kb" >> "$GITHUB_OUTPUT"
+          done
+
+  # Сквозные сценарии веба. Отдельной job'ой, а не шагом в `ci`: прогон поднимает СВОИ
+  # экземпляры api и web (playwright.config.ts, webServer) на своих портах и своей базе —
+  # с основным прогоном ему делить нечего, а спрятанное за двадцатью минутами падение
+  # сценария узнаётся последним.
+  #
+  # Почему это вообще появилось: сценариев веба в CI не было вовсе. Фронт проверялся
+  # линтом, типами, vitest и сборкой — то есть ни один путь пользователя целиком не
+  # проходился, и «кнопка не открывает диалог» ловилось руками.
+  web-e2e:
+    name: Веб · сквозные сценарии Playwright
+    runs-on: ubuntu-24.04
+    # Прогон поднимает api (nest build) и web (next dev) и идёт около десяти минут.
+    # Потолок нужен против зависших серверов: Playwright ждёт порт до 180 с на каждый,
+    # а упавший на старте api оставляет прогон висеть на ретраях.
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studenthub_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Две РАЗНЫЕ базы здесь обязательны, и это не аккуратность ради аккуратности:
+      # e2e/prepare-db.mjs отказывается работать, если DATABASE_URL_TEST совпадает с
+      # DATABASE_URL или если имя базы не похоже на тестовое. Сразу за проверкой идёт
+      # `prisma db push --force-reset`, и ценой ошибки в конфигурации была бы снесённая
+      # рабочая база.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studenthub_ci
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/studenthub_e2e
+      # Нечувствительные CI-значения (не секреты): нужны валидации окружения api.
+      JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-32ch
+      JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-32
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-ci-totp-key-32
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+      MINIO_ACCESS_KEY: ci-access
+      MINIO_SECRET_KEY: ci-secret
 
     steps:
-      # fetch-depth: 0 — gitleaks смотрит историю, а не только рабочее дерево: секрет,
-      # закоммиченный и «удалённый» следующим коммитом, из истории никуда не делся.
-      - name: Checkout
+      - name: Забрать код
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # Базу под прогон сервис postgres не создаёт: POSTGRES_DB заводит ровно одну.
+      # Схему в ней ставит сам prepare-db.mjs (db push), от нас нужна пустая база.
+      # psql берём из того же образа, что и сервис: на раннере клиент postgres есть не
+      # всегда, а образ уже скачан под сервис-контейнер и ничего не стоит.
+      - name: Создать отдельную базу studenthub_e2e
+        run: |
+          docker run --rm --network host -e PGPASSWORD=postgres postgres:16-alpine \
+            psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE studenthub_e2e'
+
+      # MinIO нужен по-настоящему: сценарий заявок грузит документ в хранилище.
+      # Бакеты заводить не нужно — их создаёт сам api на старте (MinioBucketsService).
+      # Образ и его происхождение — см. комментарий в job `ci`.
+      - name: Поднять MinIO — хранилище для сценария заявок
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=ci-access \
+            -e MINIO_ROOT_PASSWORD=ci-secret \
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
+          echo "Waiting for MinIO to become healthy..."
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
+              echo "MinIO is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO did not become healthy in time" >&2
+          docker logs minio >&2 || true
+          exit 1
+
+      - name: Сгенерировать Prisma Client
+        run: pnpm db:generate
+
+      # Общие пакеты нужны собранными: webServer поднимает api и web из исходников, а те
+      # импортируют @studenthub/* из dist. Без этого шага прогон падает не на сценарии, а
+      # на старте серверов — «has no exported member» из shared-schemas.
+      - name: Собрать общие пакеты (packages/*)
+        run: pnpm exec turbo run build --filter='./packages/*'
+
+      # Кеш сборки Next для e2e-стенда.
+      #
+      # Из тех минут, что идёт этот job, бóльшая часть уходит не на сценарии, а на
+      # `npx next build` внутри webServer (playwright.config.ts: в CI стенд поднимается на
+      # прод-сборке, потому что `next dev` компилирует страницу при первом заходе и
+      # сценарии падали по таймауту на компиляции). Собственного кеша у этой сборки не
+      # было: у job'а «Код» есть кеш turbo, а здесь каждый прогон собирал с нуля.
+      #
+      # Кешируем только .next-e2e/cache — внутренний кеш компилятора. Готовый вывод
+      # сборки не кешируем намеренно: стенд должен подниматься на том коде, который
+      # проверяют.
+      #
+      # Ключ с sha — чтобы запись была новой каждый прогон, restore-keys поднимают
+      # ближайшую предыдущую. Лок-файл в ключе: сменились зависимости — кеш компилятора
+      # всё равно не пригодится.
+      - name: Кеш сборки e2e-стенда (Next)
+        uses: actions/cache@v6
+        with:
+          path: apps/web/.next-e2e/cache
+          key: next-e2e-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            next-e2e-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      # Ключ по лок-файлу: браузер переустанавливается, когда меняется версия Playwright.
+      - name: Кеш браузеров Playwright
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # Только chromium: проекты конфигурации запускают его одного, остальные движки
+      # скачивались бы впустую. --with-deps ставит системные библиотеки (быстро и из кеша
+      # apt), сам браузер приезжает из кеша шага выше.
+      - name: Поставить Chromium для Playwright
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Прогнать сценарии веба — поднимает свои api и web
+        env:
+          # Ночью — без повторов: см. комментарий в playwright.config.ts. Днём переменная
+          # пустая, и конфиг остаётся при своём одном ретрае.
+          PW_RETRIES: ${{ github.event_name == 'schedule' && '0' || '' }}
+        run: pnpm --filter web e2e
+
+      # Находки axe — в сводку запуска. Сам сценарий на них не падает (см. комментарий
+      # в e2e/a11y.e2e.ts), поэтому единственный способ их увидеть — напечатать здесь.
+      - name: Доступность — находки axe в сводку
+        if: always()
+        run: |
+          f=apps/web/a11y-axe.json
+          if [ ! -s "$f" ]; then
+            {
+              echo "## Доступность · axe"
+              echo ""
+              echo "Списка нет — сценарий доступности не дошёл до конца."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count=$(jq 'length' "$f")
+          {
+            echo "## Доступность · axe"
+            echo ""
+            if [ "$count" = 0 ]; then
+              echo "Нарушений WCAG 2.1 A/AA на ключевых экранах не найдено."
+            else
+              echo "Найдено **$count** нарушений. Сценарий на них не падает: сначала"
+              echo "смотрим список, потом ставим утверждение на нужном уровне серьёзности."
+              echo ""
+              echo "| Экран | Правило | Серьёзность | Элементов | Что не так |"
+              echo "|---|---|---|---|---|"
+              jq -r '
+                sort_by(.route, .rule)[]
+                | "| `\(.route)` | \(.rule) | \(.impact) | \(.elements) | \(.help) |"
+              ' "$f"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Отчёт нужен именно при падении: по нему видно шаг, скриншот и трассу повтора.
+      - name: Отчёт Playwright — только при падении
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+
+  # Какие образы вообще нужно пересобирать.
+  #
+  # До сих пор правка в лендинге пересобирала и api, и веб, и мини-апп — четыре сборки
+  # вместо одной, каждая по несколько минут. Этот job считает список один раз, остальное
+  # делает матрица ниже.
+  #
+  # Считаем сами, без стороннего экшена: правило «что на что влияет» здесь в три строки,
+  # а отдавать ради него ещё одному `uses:` рабочий каталог не хочется.
+  #
+  # Главное в этом месте — ошибаться в сторону «собрать лишнее». Пропущенная сборка
+  # означает, что сломанный Dockerfile уедет в main незамеченным, поэтому любое сомнение
+  # (неизвестный диапазон коммитов, правка общего кода, push в main) разворачивается в
+  # полный список.
+  changes:
+    name: Какие образы пересобирать
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+
+    steps:
+      - name: Забрать код со всей историей
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Диапазон коммитов нужно уметь сравнить: на мелкой копии базового коммита
+          # может не оказаться.
+          fetch-depth: 0
+
+      - name: Посчитать список приложений
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Шаг выполняется с `bash -e`, поэтому проверки оформлены через `if`, а не
+          # цепочками `[ … ] && …`: ложное условие в конце строки прервало бы весь шаг,
+          # и прогон упал бы там, где всего лишь «нет, это не push в main».
+          ALL='["api","web","landing","mini-app"]'
+
+          decide_all() {
+            echo "apps=$ALL" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Образы к пересборке"
+              echo ""
+              echo "Собираем все четыре: $1."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+
+          # push в main — последняя проверка перед тем, как Railway соберёт прод по этим
+          # же Dockerfile. Здесь экономить нечего.
+          if [ "$EVENT" = push ] && [ "$REF_NAME" = main ]; then
+            decide_all "push в main"
+          fi
+
+          # Ночной прогон проверяет всё целиком: он ищет не ошибку в изменении, а то, что
+          # испортилось само — новую уязвимость в базовом образе, например.
+          if [ "$EVENT" = schedule ]; then
+            decide_all "ночной прогон"
+          fi
+
+          # Пустой или нулевой базовый коммит — это новая ветка или force-push: диапазона
+          # нет, сравнивать не с чем.
+          case "$BASE_SHA" in
+            '' | 0000000000000000000000000000000000000000) decide_all "неизвестен базовый коммит" ;;
+          esac
+
+          git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || decide_all "базовый коммит недоступен"
+
+          files=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          if [ -z "$files" ]; then
+            echo 'apps=[]' >> "$GITHUB_OUTPUT"
+            {
+              echo "## Образы к пересборке"
+              echo ""
+              echo "Ни один: изменений в файлах нет."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Общий код и корневые файлы задевают все четыре образа: packages/* попадают в
+          # каждую сборку, лок-файл и turbo.json определяют, что вообще установится, а
+          # правка самого ci.yml меняет то, как эти образы собираются.
+          if echo "$files" | grep -qE '^(packages/|pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|turbo\.json|tsconfig\.base\.json|\.github/workflows/ci\.yml)'; then
+            decide_all "изменён общий код или корневые файлы"
+          fi
+
+          selected=''
+          add() { case " $selected " in *" $1 "*) ;; *) selected="$selected $1" ;; esac; }
+
+          for app in api web landing mini-app; do
+            if echo "$files" | grep -q "^apps/$app/"; then
+              add "$app"
+            fi
+          done
+          # Схема и миграции едут внутрь образа api.
+          if echo "$files" | grep -q '^prisma/'; then
+            add api
+          fi
+
+          apps=$(printf '%s' "$selected" | tr ' ' '\n' | grep -v '^$' | jq -R . | jq -s -c .)
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Образы к пересборке"
+            echo ""
+            if [ "$apps" = '[]' ]; then
+              echo "Ни один: изменения не задевают ни одно приложение."
+            else
+              echo "Собираем: \`$apps\`. Остальные образы изменения не задевают."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Сборка образов всех четырёх приложений — без публикации.
+  #
+  # Railway собирает их сам по push в main, то есть сломанный Dockerfile или пропавший
+  # базовый образ обнаруживались уже на выкатке, когда код в main. Здесь та же сборка идёт
+  # на PR, и падает до мёржа.
+  #
+  # fail-fast: false — узнать хочется про все сломанные приложения сразу, а не про первое.
+  docker:
+    name: Образ · ${{ matrix.app }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    # Матрица приезжает из job'а выше. Пустой список означает «изменения не задевают ни
+    # одно приложение» — тогда job не запускается вовсе: матрица без значений это не
+    # «ничего не делать», а ошибка конфигурации прогона.
+    needs: changes
+    if: needs.changes.outputs.apps != '[]'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
+
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Линт Dockerfile до сборки: ошибку в инструкции дешевле увидеть сразу, чем через
+      # несколько минут сборки.
+      #
+      # Порог warning, а не стандартный info: на info hadolint считает замечанием
+      # «несколько RUN подряд — объедините». В наших Dockerfile'ах они разделены
+      # намеренно, по слоям кеша, и объединять их значило бы пересобирать всё из-за
+      # правки в одной строке. Ошибки и предупреждения при этом блокируют.
+      - name: Линт Dockerfile (hadolint)
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
+            hadolint --no-color --failure-threshold warning - < "apps/$APP/Dockerfile"
+
+      - name: Поставить docker buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Контекст — корень репозитория: все четыре Dockerfile копируют pnpm-lock.yaml и
+      # манифесты воркспейса, из каталога приложения их не видно.
+      #
+      # build-args задаются одним списком на все приложения: аргумент, о котором Dockerfile
+      # не знает, он просто игнорирует. Значения здесь — заглушки для сборки, в образ
+      # Railway приезжают свои (они build-time, см. docs/RAILWAY.md).
+      - name: Собрать образ ${{ matrix.app }} — без публикации
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          # load: true — образ кладётся в локальный демон раннера под именем из tags,
+          # иначе сканировать нечего: buildx по умолчанию оставляет результат в своём
+          # кеше, а не в docker images. Тег локальный и никуда не публикуется.
+          load: true
+          tags: studenthub-${{ matrix.app }}:ci
+          build-args: |
+            NEXT_PUBLIC_API_URL=/api/v1
+            NEXT_PUBLIC_WS_URL=https://ci.example.com
+            NEXT_PUBLIC_APP_URL=https://ci.example.com
+            NEXT_PUBLIC_APP_NAME=StudentHub
+            NEXT_PUBLIC_SITE_URL=https://ci.example.com
+            NEXT_PUBLIC_SALES_EMAIL=ci@example.com
+            API_PROXY_TARGET=https://ci.example.com
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+      # Уязвимости в самом образе, а не в наших зависимостях. Шаг «Безопасность» смотрит
+      # на package.json, и до базового образа ему не дотянуться: node:20-alpine и
+      # nginx:1.27-alpine приносят с собой системные библиотеки — openssl, zlib, musl, —
+      # и дыры там такие же настоящие. Railway собирает прод по этим же Dockerfile, то
+      # есть базовый образ у прода и у нас один и тот же.
+      #
+      # ignore-unfixed: true — показываем только то, что можно починить обновлением
+      # базового образа. Уязвимость без патча не говорит, что делать, и в списке мешает.
+      #
+      # scanners: vuln — поиск секретов внутри образа не включаем: за секреты отвечает
+      # gitleaks по всей истории репозитория, и дублировать его здесь незачем.
+      - name: Уязвимости в образе ${{ matrix.app }} (trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: studenthub-${{ matrix.app }}:ci
+          # json, а не table: из одного отчёта и таблица в сводке, и число для
+          # еженедельной сводки в Telegram. Таблицу рисуем сами шагом ниже.
+          format: json
+          output: trivy-${{ matrix.app }}.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          scanners: vuln
+          # Пока не блокирует — см. комментарий у шага ниже.
+          exit-code: '0'
+          # База уязвимостей приезжает из ghcr.io. Анонимные загрузки там лимитированы,
+          # и упавший из-за лимита шаг выглядел бы как найденная уязвимость. Токен
+          # прогона нужен здесь только чтобы загрузка была аутентифицированной.
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
+
+      # Находки — в сводку запуска, а не в лог: лог docker-сборки длинный, и таблица в
+      # нём теряется. Шаг пока не блокирует мёрж осознанно: первый прогон почти наверняка
+      # покажет находки в базовом образе, и правильный порядок — сначала увидеть список и
+      # обновить базовые образы, а уже потом ставить exit-code: 1 выше и здесь.
+      # Имя приложения идёт в shell переменной окружения, а не подстановкой: матрица
+      # приезжает из job'а «Какие образы пересобирать», то есть её значения вычисляются,
+      # а не перечислены здесь списком, и подставлять такое прямо в команду нельзя.
+      - name: Находки по образу ${{ matrix.app }} — в сводку
+        if: always()
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          f="trivy-$APP.json"
+          count=0
+          if [ -s "$f" ]; then
+            count=$(jq '[.Results[]?.Vulnerabilities // [] | length] | add // 0' "$f")
+          fi
+          # Число — в файл: его забирает еженедельная сводка.
+          echo "$count" > "trivy-count-$APP.txt"
+
+          {
+            echo "## Образ $APP — уязвимости базового образа"
+            echo ""
+            if [ ! -s "$f" ]; then
+              echo "Отчёт trivy не найден — смотреть лог шага."
+            elif [ "$count" = 0 ]; then
+              echo "Находок уровня HIGH и CRITICAL с доступным исправлением нет."
+            else
+              echo "Найдено **$count**. Чинится обновлением базового образа."
+              echo ""
+              echo "| Где | Уровень | Пакет | Чинится в | CVE |"
+              echo "|---|---|---|---|---|"
+              jq -r '
+                [ .Results[]? | .Target as $t | (.Vulnerabilities // [])[]
+                  | "| \($t) | \(.Severity) | \(.PkgName) \(.InstalledVersion) | \(.FixedVersion // "—") | \(.VulnerabilityID) |" ]
+                | unique | .[]
+              ' "$f"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Счётчик находок — только ночью: из него собирается еженедельная сводка. В
+      # обычных прогонах артефакт никому не нужен и только засоряет список.
+      - name: Счётчик находок ${{ matrix.app }} — артефактом
+        if: always() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-count-${{ matrix.app }}
+          path: trivy-count-${{ matrix.app }}.txt
+          retention-days: 7
+
+      # ── Проверка, что образ не только собрался, но и работает ──
+      #
+      # Сборка говорит только «Dockerfile исполним до конца». Она не ловит ни
+      # неправильный CMD, ни файл, забытый в COPY, ни переменную окружения, без которой
+      # приложение падает на старте. Всё это обнаруживалось на выкатке Railway, то есть
+      # когда код уже в main.
+      #
+      # api поднимают вместе с Postgres, Redis и MinIO: PrismaService делает $connect()
+      # в onModuleInit, без базы приложение не стартует вовсе. Миграции не нужны —
+      # индикатор живости выполняет SELECT 1.
+      - name: Поднять зависимости api — Postgres, Redis, MinIO
+        if: matrix.app == 'api'
+        run: |
+          docker run -d --name smoke-pg --network host \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=studenthub_smoke \
+            postgres:16-alpine
+          docker run -d --name smoke-redis --network host redis:7-alpine
+          docker run -d --name smoke-minio --network host \
+            -e MINIO_ROOT_USER=ci-access -e MINIO_ROOT_PASSWORD=ci-secret \
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
+
+          # 45 попыток по две секунды: холодный Postgres на раннере инициализирует кластер,
+          # а MinIO после старта ещё настраивает себя через mc — минуты на двоих не хватает.
+          for _ in $(seq 1 45); do
+            pg=$(docker exec smoke-pg pg_isready -U postgres >/dev/null 2>&1 && echo ok || echo no)
+            redis=$(docker exec smoke-redis redis-cli ping 2>/dev/null | tr -d '\r')
+            minio=$(curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1 && echo ok || echo no)
+            if [ "$pg" = ok ] && [ "$redis" = PONG ] && [ "$minio" = ok ]; then
+              echo "Зависимости подняты"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Зависимости api не поднялись за полторы минуты" >&2
+          for c in smoke-pg smoke-redis smoke-minio; do
+            echo "--- docker logs $c ---" >&2
+            docker logs "$c" >&2 || true
+          done
+          exit 1
+
+      # Проверяем ровно одно: контейнер поднялся и отвечает по HTTP. Для api — что
+      # health-эндпоинт вернул 200, то есть Nest собрал граф модулей и достучался до всех
+      # трёх зависимостей. Для остальных — что сервер вообще ответил: веб и мини-апп без
+      # живого API законно отдают и 3xx, и 5xx на конкретной странице, и делать из этого
+      # красный прогон значило бы проверять не то. Отсутствие ответа — это и есть
+      # «образ не работает».
+      - name: Запустить образ ${{ matrix.app }} и дождаться ответа
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          case "$APP" in
+            api)      port=3001; path=/api/v1/health; need_200=yes ;;
+            mini-app) port=8080; path=/;              need_200=no  ;;
+            *)        port=3000; path=/;              need_200=no  ;;
+          esac
+
+          if [ "$APP" = api ]; then
+            # Значения те же, что у job «Код»: это не секреты, а минимум, на котором
+            # проходит валидация окружения (apps/api/src/config/env.schema.ts).
+            docker run -d --name smoke-app --network host \
+              -e PORT=3001 \
+              -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/studenthub_smoke \
+              -e JWT_ACCESS_SECRET=ci-access-secret-ci-access-secret-32ch \
+              -e JWT_REFRESH_SECRET=ci-refresh-secret-ci-refresh-secret-32 \
+              -e TOTP_ENCRYPTION_KEY=ci-totp-encryption-key-ci-totp-key-32 \
+              -e REDIS_HOST=localhost -e REDIS_PORT=6379 \
+              -e MINIO_ENDPOINT=localhost -e MINIO_PORT=9000 -e MINIO_USE_SSL=false \
+              -e MINIO_ACCESS_KEY=ci-access -e MINIO_SECRET_KEY=ci-secret \
+              "studenthub-$APP:ci" >/dev/null
+          else
+            docker run -d --name smoke-app --network host -e "PORT=$port" "studenthub-$APP:ci" >/dev/null
+          fi
+
+          # Стучимся и по loopback, и по имени хоста. Next в образе web встаёт не на
+          # 0.0.0.0 и не на `::`, а на HOSTNAME — его Docker выставляет в имя контейнера,
+          # и с `--network host` это имя раннера. На 127.0.0.1 такой слушатель не
+          # отвечает: первый прогон этой проверки упал именно здесь, при живом
+          # контейнере с «Ready in 341ms» в логе.
+          #
+          # Перебор, а не фиксированный HOSTNAME в `docker run`: иначе мы проверяли бы
+          # образ в режиме, которым он не работает на проде. api и landing слушают `::`,
+          # nginx мини-аппа — все интерфейсы; им подходит любой адрес из списка.
+          #
+          # В списке и имя, и основной адрес машины: имя хоста может резолвиться не в тот
+          # адрес, на котором поднялся слушатель (на WSL, например, оно уходит в
+          # 127.0.1.1), и одного имени мало.
+          hosts="$(hostname) $(hostname -I 2>/dev/null | awk '{print $1}') 127.0.0.1"
+
+          ok=no
+          for _ in $(seq 1 45); do
+            code=000
+            for h in $hosts; do
+              # Без `|| c=000` подстановка вернула бы код неудачи curl, а сам curl при
+              # этом уже напечатал в неё «000» — склеивалось «000000», и проверка «ответ
+              # есть» проходила на пустом месте.
+              c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$h:$port$path" 2>/dev/null) || c=000
+              if [ "$c" != 000 ]; then code=$c; break; fi
+            done
+            if [ "$need_200" = yes ] && [ "$code" = 200 ]; then ok=yes; break; fi
+            if [ "$need_200" = no ] && [ "$code" != 000 ]; then ok=yes; break; fi
+            # Контейнер, успевший умереть, ждать бессмысленно — ответа уже не будет.
+            if [ -z "$(docker ps -q -f name=smoke-app)" ]; then break; fi
+            sleep 2
+          done
+
+          if [ "$ok" = yes ]; then
+            echo "- Образ **$APP** поднялся и ответил по \`$path\` (HTTP $code)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::error::Образ $APP не ответил по $path ни на $hosts — последний код: ${code:-нет ответа}" >&2
+          echo "--- docker logs ---" >&2
+          docker logs smoke-app >&2 || true
+          exit 1
+
+  # Отдельной job'ой, а не шагом в `ci`: проверки безопасности не зависят от базы, MinIO
+  # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
+  # последним. Job лёгкая, идёт параллельно и падает независимо.
+  security:
+    name: Безопасность · уязвимости и секреты
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      # fetch-depth: 0 — gitleaks смотрит историю, а не только рабочее дерево: секрет,
+      # закоммиченный и «удалённый» следующим коммитом, из истории никуда не делся.
+      - name: Забрать код со всей историей
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Поставить Node 20 и кеш pnpm-store
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
       # --prod: интересуют пакеты, которые реально попадают в рантайм. Уязвимость в
@@ -188,40 +1067,364 @@ jobs:
       # Порог moderate: на low аудит шумит транзитивными находками, до которых из нашего
       # кода не дойти, и job начинают игнорировать — а игнорируемая проверка хуже, чем
       # её отсутствие, потому что создаёт видимость контроля.
-      - name: Аудит прод-зависимостей
+      - name: Уязвимости в прод-зависимостях — блокирует
         run: pnpm audit --prod --audit-level moderate
 
-      # Не блокирует: список для глаз, а не ворота.
-      - name: Аудит всех зависимостей (справочно)
-        continue-on-error: true
-        run: pnpm audit --audit-level high
+      # Не блокирует: список для глаз, а не ворота. Но «для глаз» значит, что эти глаза
+      # должны что-то увидеть, а раньше шаг стоял под `continue-on-error` — и единственным
+      # следом находок была безымянная аннотация «Process completed with exit code 1» у
+      # зелёного job'а: на вкладке Summary красная строчка без названия шага и без
+      # содержимого. Теперь находки уходят в сводку запуска таблицей, а шаг завершается
+      # успехом явно (`exit 0` в конце), поэтому ложной аннотации больше нет.
+      #
+      # Ровно это и отличает мягкую проверку от сломанной: мягкая обязана быть заметной.
+      - name: Уязвимости во всех зависимостях — в сводку, без блокировки
+        run: |
+          set -o pipefail
+          report=$(pnpm audit --audit-level high --json 2>/dev/null) || true
+
+          if [ -z "$report" ]; then
+            {
+              echo "## Уязвимости в зависимостях (справочно)"
+              echo ""
+              echo "Аудит не отдал отчёт — смотреть лог шага."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count=$(echo "$report" | jq '.advisories | length')
+
+          {
+            echo "## Уязвимости в зависимостях (справочно)"
+            echo ""
+            if [ "$count" = "0" ]; then
+              echo "Находок уровня high и выше нет."
+            else
+              echo "Найдено **$count** на уровне high и выше. Шаг не блокирует мёрж:"
+              echo "рантайм закрывает шаг выше (\`pnpm audit --prod\`), здесь — в том числе"
+              echo "сборочные зависимости. Разбирать глазами."
+              echo ""
+              echo "| Уровень | Пакет | Чинится в | Путь | Что это |"
+              echo "|---|---|---|---|---|"
+              echo "$report" | jq -r '
+                .advisories[]
+                | "| \(.severity) | \(.module_name) | \(.patched_versions) | `\(.findings[0].paths[0] // "—")` | [\(.title)](\(.url // "https://github.com/advisories")) |"
+              '
+            fi
+            echo ""
+            echo "Итог по всем уровням: $(echo "$report" | jq -r '.metadata.vulnerabilities | "critical \(.critical), high \(.high), moderate \(.moderate), low \(.low)"')."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Выход всегда нулевой: находки — информация, а не ворота.
+          exit 0
 
       # Секрет в истории = секрет скомпрометирован, даже если файл давно удалён.
       # Дешевле поймать на PR, чем ротировать ключи задним числом.
-      - name: Поиск секретов в истории
-        uses: gitleaks/gitleaks-action@v3
+      - name: Поиск секретов в истории (gitleaks)
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # По умолчанию экшен комментирует строку с находкой прямо в PR, и ради этого ему
+          # нужен токен с правом записи в pull requests. Отдаём ему read-only, а комментарии
+          # выключаем: сигнал о находке — красный job, подробности лежат в артефакте
+          # gitleaks-results.sarif. Выдавать стороннему экшену запись в публичном
+          # репозитории ради удобной подсветки — размен не в нашу пользу.
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+
+  # Линт самих прогонов. Отдельной job'ой и без зависимостей — она не трогает ни базу, ни
+  # зависимости проекта и укладывается в полминуты.
+  #
+  # Зачем вообще: ошибку в YAML прогона до сих пор ловил только сам прогон, то есть уже
+  # после пуша и только в тех шагах, до которых дошло выполнение. Опечатка в имени шага,
+  # несуществующее поле, ошибка в выражении ${{ }} или в shell-скрипте внутри run —
+  # всё это видно статически.
+  #
+  # Два инструмента отвечают за разное:
+  #   actionlint — синтаксис, схема полей, выражения и shellcheck по каждому run-скрипту;
+  #   zizmor     — безопасность: подстановка пользовательского ввода прямо в команды,
+  #                избыточные права токена, отравление кеша, непришпиленные экшены.
+  #
+  # Оба запускаются из docker-образов по закреплённому тегу, а не через сторонние экшены:
+  # добавлять ради линтера безопасности ещё два внешних `uses:` — не то, что хочется.
+  workflows:
+    name: Прогоны · actionlint и zizmor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Внутри каждого `run:` actionlint ещё и прогоняет shellcheck — неиспользуемые
+      # переменные, незакавыченные подстановки, несуществующие команды.
+      - name: Синтаксис, выражения и shell-скрипты прогонов (actionlint)
+        run: |
+          docker run --rm -v "$PWD":/repo --workdir /repo \
+            rhysd/actionlint:1.7.12 -color
+
+      # Проверяется весь каталог .github, а не только workflows: там же лежат композитные
+      # экшены и настройка dependabot, и правила zizmor касаются их не меньше.
+      #
+      # --format github — находки приезжают аннотациями прямо к строкам файла, а не
+      # текстом в логе. Политика пришпиливания версий задана в .github/zizmor.yml и
+      # передаётся явно, чтобы результат не зависел от порядка поиска конфигурации.
+      #
+      # Режим — офлайн (по умолчанию). Онлайн добавляет проверку known-vulnerable-actions:
+      # сверку версий экшенов с опубликованными advisory. Ради неё zizmor'у нужно отдать
+      # токен прогона; включать это стоит отдельным решением, а не заодно с линтером.
+      - name: Безопасность прогонов (zizmor)
+        run: |
+          docker run --rm -v "$PWD":/repo \
+            ghcr.io/zizmorcore/zizmor:1.30.1 \
+            --no-progress \
+            --format github \
+            --config /repo/.github/zizmor.yml \
+            /repo/.github
+
+  # Сводка за неделю — в Telegram.
+  #
+  # Ночной прогон молчит, когда всё хорошо, и это правильно: уведомление, приходящее
+  # каждый день, перестают читать на третий. Но числа, которые он считает — находки
+  # trivy, покрытие, размеры бандлов, — лежат в сводке запуска, куда по своей воле не
+  # заходит никто. Раз в неделю их стоит принести самому.
+  #
+  # День недели проверяется в шаге, а не в `if`: выражения GitHub не умеют работать с
+  # датой. Job стартует каждую ночь и в остальные шесть дней заканчивается за секунды.
+  digest:
+    name: Сводка за неделю
+    needs: [ci, web-e2e, changes, docker, security, workflows]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Понедельник ли сегодня
+        id: when
+        run: |
+          if [ "$(date -u +%u)" = 1 ]; then
+            echo "send=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "send=no" >> "$GITHUB_OUTPUT"
+            echo "Сегодня не понедельник — сводка не отправляется."
+          fi
+
+      - name: Забрать код
+        if: steps.when.outputs.send == 'yes'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Счётчики находок trivy — по одному файлу на образ. merge-multiple: все в один
+      # каталог, чтобы не разбирать вложенность.
+      - name: Забрать счётчики находок
+        if: steps.when.outputs.send == 'yes'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: trivy-count-*
+          path: trivy-counts
+          merge-multiple: true
+
+      # Все значения приезжают переменными окружения: это вычисленные выводы других
+      # job'ов, а такое в команду не подставляют — то же правило, что и для matrix.
+      - name: Собрать текст сводки
+        if: steps.when.outputs.send == 'yes'
+        id: text
+        env:
+          COV_API: ${{ needs.ci.outputs.coverage-api }}
+          COV_WEB: ${{ needs.ci.outputs.coverage-web }}
+          SIZE_WEB: ${{ needs.ci.outputs.size-web }}
+          SIZE_MINI: ${{ needs.ci.outputs.size-mini }}
+          R_CI: ${{ needs.ci.result }}
+          R_WEB: ${{ needs['web-e2e'].result }}
+          R_DOCKER: ${{ needs.docker.result }}
+          R_SECURITY: ${{ needs.security.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          total=0
+          for f in trivy-counts/trivy-count-*.txt; do
+            [ -s "$f" ] || continue
+            n=$(tr -dc '0-9' < "$f")
+            total=$((total + ${n:-0}))
+          done
+
+          {
+            echo 'text<<DIGEST'
+            echo "Сводка StudentHub за неделю."
+            echo ""
+            echo "Покрытие тестами (строки): api ${COV_API}%, веб ${COV_WEB}%"
+            echo "Размер бандлов (gzip): веб ${SIZE_WEB} КБ, мини-апп ${SIZE_MINI} КБ"
+            echo "Уязвимости в образах (HIGH и выше, с исправлением): $total"
+            echo ""
+            echo "Ночной прогон: код ${R_CI}, веб ${R_WEB}, образы ${R_DOCKER}, безопасность ${R_SECURITY}"
+            echo ""
+            echo "Подробности — в сводке прогона:"
+            echo "$RUN_URL"
+            echo 'DIGEST'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Отправить в Telegram
+        if: steps.when.outputs.send == 'yes'
+        uses: ./.github/actions/notify-telegram
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: ${{ steps.text.outputs.text }}
+
+  # Миграции прод-БД применены до мёржа в main.
+  #
+  # Порядок «сначала Прод-БД · миграции в режиме deploy, потом мёрж» до сих пор жил в
+  # docs/RELEASE.md и в голове. Railway выкатывает по push в main, то есть новый код
+  # встречает ту схему, которая на проде есть сейчас. Отката у `prisma migrate` нет, и
+  # цена ошибки здесь выше, чем у любой другой проверки в этом файле: приложение уходит
+  # в прод и обращается к колонке, которой там ещё нет.
+  #
+  # Проверка только читает: `migrate status` сравнивает историю из prisma/migrations с
+  # таблицей _prisma_migrations и ничего не меняет.
+  #
+  # Секрета нет — не падаем, а пишем, чего не хватает. Репозиторий публичный, и PR из
+  # форка секретов не получает: такой PR краснел бы не по делу.
+  migrations:
+    name: Миграции прод-БД применены
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Поставить Node 20 и кеш pnpm-store
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Установить зависимости (frozen-lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Сверить применённые миграции с prisma/migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            {
+              echo "## Миграции прод-БД"
+              echo ""
+              echo "Секрет \`DATABASE_PUBLIC_URL\` недоступен — проверка пропущена."
+              echo "Так бывает у PR из форка: секреты туда не передаются."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Проверка миграций пропущена — нет доступа к секрету."
+            exit 0
+          fi
+
+          set +e
+          out=$(pnpm exec prisma migrate status 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+
+          # На код возврата не полагаемся: у `migrate status` он менялся между версиями
+          # Prisma, а строка про актуальность схемы стабильна и однозначна.
+          if echo "$out" | grep -q "Database schema is up to date"; then
+            {
+              echo "## Миграции прод-БД"
+              echo ""
+              echo "Схема прода совпадает с \`prisma/migrations\` — мёрж безопасен."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "## Миграции прод-БД — не применены"
+            echo ""
+            echo "На проде нет части миграций из этой ветки. Railway выкатывает по push в"
+            echo "\`main\`, то есть после мёржа новый код встретит старую схему."
+            echo ""
+            echo "Порядок: запустить прогон **Прод-БД · миграции** в режиме \`status\`,"
+            echo "посмотреть SQL глазами, затем в режиме \`deploy\` — и только потом мёрж."
+            echo ""
+            echo '```'
+            echo "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error::Миграции прод-БД не применены — мёрж в main приведёт к рассинхрону схемы (код выхода prisma: $code)" >&2
+          exit 1
+
+  # Уведомление о падении — туда, где его увидят.
+  #
+  # Два случая, когда красный прогон некому заметить вовремя:
+  #   main ....... Railway уже начал выкатку, и чем позже об этом узнают, тем дольше прод
+  #                живёт со сломанным кодом;
+  #   ночной ..... утром никто не идёт смотреть вкладку Actions по своей воле.
+  #
+  # На PR и push в develop уведомление не нужно: там человек и так смотрит на галочку.
+  #
+  # always() + contains(needs.*.result, 'failure') — а не просто failure(): job со
+  # сборкой образов может быть пропущен (изменение не задело ни одно приложение), а
+  # пропущенная зависимость сама по себе отменила бы этот job.
+  notify:
+    name: Сообщить о падении
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    needs: [ci, web-e2e, changes, docker, security, workflows]
+    if: >-
+      always()
+      && contains(needs.*.result, 'failure')
+      && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+
+    steps:
+      # Экшен уведомления лежит в этом же репозитории — без кода его не выполнить.
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Написать в Telegram
+        uses: ./.github/actions/notify-telegram
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            Прогон CI упал.
+
+            Ветка: ${{ github.ref_name }}
+            Запуск: ${{ github.event_name }}
+            Коммит: ${{ github.sha }}
+
+            Что именно упало:
+            код ${{ needs.ci.result }}, веб ${{ needs['web-e2e'].result }}, образы ${{ needs.docker.result }}, безопасность ${{ needs.security.result }}, прогоны ${{ needs.workflows.result }}
+
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   # Нота «Что нового» пишется до мёржа в main: она едет в бандле вместе с кодом, который
   # описывает, и после выпуска её уже не подложить. Проверка — только на релизном PR.
   release-note:
-    name: нота «Что нового»
+    name: Релиз · нота «Что нового»
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
       # fetch-depth: 0 — нужны теги: «выпущена ли уже эта версия» выясняется по ним.
-      - name: Checkout
+      - name: Забрать код с тегами
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
-      - name: Setup Node
+      - name: Поставить Node 20
         uses: actions/setup-node@v7
         with:
           node-version: 20
 
-      - name: Для следующего релиза текст написан
+      - name: Нота «Что нового» для следующей версии написана
         run: node scripts/release.mjs check-unreleased

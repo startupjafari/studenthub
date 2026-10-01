@@ -4,9 +4,22 @@
 // и группой, к которым эти аккаунты привязаны, инвайт для сценария регистрации и одна
 // запись КАТО, чтобы город вуза было во что резолвить.
 //
-// Всё остальное — расписание, оценки, документы, чаты, посты — тесты создают сами или
-// проверяют на пустых состояниях: пустой экран это тоже состояние, и у него тоже есть
-// вёрстка.
+// Всё остальное — оценки, документы, посты — тесты создают сами или проверяют на пустых
+// состояниях: пустой экран это тоже состояние, и у него тоже есть вёрстка.
+//
+// Два исключения, и оба вынужденные.
+//
+// КАТАЛОГ УСЛУГ — справочник платформы, а не демо-данные: глобальные шаблоны услуг видны
+// всем вузам, и заявка студента ссылается именно на них. Без него сценарий заявок не
+// находит ни одной услуги и падает на пустом каталоге, хотя проверяет совсем другое.
+//
+// РАСПИСАНИЕ С ОДНОЙ ПАРОЙ — потому что чат предмета создаётся ЛЕНИВО, по парам активного
+// расписания группы, и проверить отправку сообщения в него можно только если пара есть.
+// Сам тест создать её не может: он ходит под студентом, а расписание ведёт декан.
+//
+// ОДИН ПОСТ — сценарий ленты проверяет, что карточка публикации отрисовалась. Написать
+// его сам он тоже не может: композер есть у сотрудников, а лента смотрится из-под
+// студента. Пустая лента — тоже состояние, но проверяет его другой тест.
 //
 // Запускается из apps/web/e2e/prepare-db.mjs на DATABASE_URL_TEST, после `db push
 // --force-reset`. На непустой или нетестовой базе не запускается — проверки в самом
@@ -19,6 +32,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
+import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 
 const prisma = new PrismaClient()
 
@@ -27,6 +41,11 @@ const UNIVERSITY_ID = 'seed-university-001'
 const FACULTY_ID = 'seed-faculty-001'
 const GROUP_ID = 'seed-group-001'
 const INVITE_TOKEN = 'seed-invite-university-admin-token'
+const SCHEDULE_ID = 'seed-schedule-001'
+const PAIR_ID = 'seed-pair-001'
+const POST_ID = 'seed-post-001'
+// Предмет пары. Его же ищет apps/web/e2e/chat.e2e.ts — имя чата предмета берётся отсюда.
+const SUBJECT = 'Машинное обучение'
 // г. Алматы. `University.city` хранит код КАТО, а не название.
 const ALMATY = '750000000'
 
@@ -128,5 +147,54 @@ for (const [role, email, firstName, lastName, scope] of USERS) {
   })
 }
 
+// Каталог услуг: категории и глобальные шаблоны. Шаг идемпотентный (фиксированные id +
+// upsert), поэтому повторный прогон фикстуры ничего не ломает.
+await seedServiceCatalog(prisma)
+
+// Расписание группы с одной парой — ради чата предмета (см. шапку файла).
+// Преподаватель проставляется: в чат предмета он входит по своим парам, и без него
+// проверять чат предмета можно было бы только от студента.
+const teacher = await prisma.user.findUnique({ where: { email: 'teacher@studenthub.app' } })
+const schedule = await prisma.schedule.upsert({
+  where: { id: SCHEDULE_ID },
+  update: { isActive: true },
+  create: { id: SCHEDULE_ID, groupId: GROUP_ID, name: 'Осенний семестр', isActive: true },
+})
+await prisma.pair.upsert({
+  where: { id: PAIR_ID },
+  update: { subject: SUBJECT, teacherId: teacher?.id ?? null },
+  create: {
+    id: PAIR_ID,
+    scheduleId: schedule.id,
+    groupId: GROUP_ID,
+    subject: SUBJECT,
+    teacherId: teacher?.id ?? null,
+    // Понедельник, первая пара. Конкретные день и время тестам безразличны — важно лишь,
+    // что пара есть и расписание активно.
+    dayOfWeek: 1,
+    startTime: '09:00',
+    endTime: '10:30',
+  },
+})
+
+// Пост в ленте: автор — декан, аудитория «весь вуз», чтобы его видел любой аккаунт вуза.
+const dean = await prisma.user.findUnique({ where: { email: 'dean@studenthub.app' } })
+if (dean) {
+  await prisma.post.upsert({
+    where: { id: POST_ID },
+    update: {},
+    create: {
+      id: POST_ID,
+      authorId: dean.id,
+      audience: 'UNIVERSITY',
+      universityId: UNIVERSITY_ID,
+      title: 'Объявление деканата',
+      content: 'Публикация для e2e: лента не должна быть пустой.',
+    },
+  })
+}
+
 await prisma.$disconnect()
-console.log(`e2e-fixture: ${USERS.length + 1} аккаунт(ов), вуз, факультет, группа, инвайт готовы`)
+console.log(
+  `e2e-fixture: ${USERS.length + 1} аккаунт(ов), вуз, факультет, группа, инвайт, каталог услуг, пара «${SUBJECT}», пост готовы`,
+)

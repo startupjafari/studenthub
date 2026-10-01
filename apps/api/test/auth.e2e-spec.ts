@@ -6,6 +6,7 @@ import request from 'supertest'
 import { authenticator } from 'otplib'
 import { AppModule } from '../src/app.module'
 import { throttlerStorageStub } from './throttler-storage.stub'
+import { LEGAL_VERSION } from '@studenthub/shared-schemas'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { PasswordService } from '../src/common/security/password.service'
 
@@ -153,6 +154,13 @@ describe('Auth (e2e)', () => {
   })
 
   describe('POST /auth/register-by-invite', () => {
+    /** Дата рождения, дающая ровно 16 лет на сегодня: тест не должен протухать со временем. */
+    function minorBirthDate(): string {
+      const d = new Date()
+      d.setFullYear(d.getFullYear() - 16)
+      return d.toISOString().slice(0, 10)
+    }
+
     async function makeInvite(token: string) {
       return prisma.invite.create({
         data: {
@@ -175,6 +183,8 @@ describe('Auth (e2e)', () => {
         firstName: 'Иван',
         lastName: 'Деканов',
         password: 'Passw0rd!',
+        birthDate: '1995-05-17',
+        consent: true,
       })
       expect([200, 201]).toContain(res.status)
       expect(res.body.data.accessToken).toEqual(expect.any(String))
@@ -182,6 +192,69 @@ describe('Auth (e2e)', () => {
       const user = await prisma.user.findUnique({ where: { email: 'newadmin@t.io' } })
       expect(user?.role).toBe('UNIVERSITY_ADMIN')
       expect(user?.universityId).toBe('uni-e2e')
+      // Согласие фиксируется вместе с редакцией документов: без этой пары доказать, на
+      // какой текст человек соглашался, нечем.
+      expect(user?.consentAt).toBeInstanceOf(Date)
+      expect(user?.consentVersion).toBe(LEGAL_VERSION)
+      expect(user?.consentByGuardian).toBe(false)
+    })
+
+    // Схема отклоняет такой запрос раньше сервиса — отсюда 422, а не 400: до бизнес-логики
+    // дело не доходит. Проверка в самом сервисе остаётся вторым рубежом (основание обработки
+    // данных несовершеннолетнего — не то место, где хватает одной проверки), и покрыта она
+    // юнит-тестом, а не этим сценарием.
+    it('несовершеннолетний без согласия представителя не регистрируется', async () => {
+      await prisma.invite.create({
+        data: {
+          token: 'e2e-minor',
+          role: 'STUDENT',
+          email: 'minor@t.io',
+          universityId: 'uni-e2e',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 3_600_000),
+          createdById: adminId,
+        },
+      })
+      const res = await request(server).post('/api/v1/auth/register-by-invite').send({
+        token: 'e2e-minor',
+        username: 'minor_one',
+        firstName: 'Асем',
+        lastName: 'Нурланова',
+        password: 'Passw0rd!',
+        birthDate: minorBirthDate(),
+        consent: true,
+      })
+      expect(res.status).toBe(422)
+      expect(await prisma.user.findUnique({ where: { email: 'minor@t.io' } })).toBeNull()
+    })
+
+    it('несовершеннолетний с согласием представителя регистрируется', async () => {
+      await prisma.invite.create({
+        data: {
+          token: 'e2e-minor-ok',
+          role: 'STUDENT',
+          email: 'minor-ok@t.io',
+          universityId: 'uni-e2e',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 3_600_000),
+          createdById: adminId,
+        },
+      })
+      const res = await request(server).post('/api/v1/auth/register-by-invite').send({
+        token: 'e2e-minor-ok',
+        username: 'minor_two',
+        firstName: 'Алия',
+        lastName: 'Сериккызы',
+        password: 'Passw0rd!',
+        birthDate: minorBirthDate(),
+        consent: true,
+        guardianConsent: true,
+      })
+      expect([200, 201]).toContain(res.status)
+
+      const user = await prisma.user.findUnique({ where: { email: 'minor-ok@t.io' } })
+      // Основание обработки другое, и это видно в записи.
+      expect(user?.consentByGuardian).toBe(true)
     })
 
     // Инвайт без email — приглашение отдали ссылкой (мессенджер, распечатка), а не письмом.
@@ -204,6 +277,8 @@ describe('Auth (e2e)', () => {
         firstName: 'Ерлан',
         lastName: 'Онласынов',
         password: 'Passw0rd!',
+        birthDate: '1995-05-17',
+        consent: true,
         email: 'erlan@t.io',
       })
       expect([200, 201]).toContain(res.status)
@@ -230,6 +305,8 @@ describe('Auth (e2e)', () => {
         firstName: 'A',
         lastName: 'B',
         password: 'Passw0rd!',
+        birthDate: '1995-05-17',
+        consent: true,
       })
       expect(res.status).toBe(400)
       expect(res.body.error.code).toBe('BAD_REQUEST')
@@ -261,6 +338,8 @@ describe('Auth (e2e)', () => {
         firstName: 'A',
         lastName: 'B',
         password: 'Passw0rd!',
+        birthDate: '1995-05-17',
+        consent: true,
       }
       const first = await request(server).post('/api/v1/auth/register-by-invite').send(body)
       expect([200, 201]).toContain(first.status)

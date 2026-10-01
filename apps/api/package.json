@@ -13,7 +13,8 @@
     "test:watch": "jest --config jest.config.cjs --watch",
     "test:cov": "jest --config jest.config.cjs --coverage",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config jest-e2e.cjs --maxWorkers=1",
-    "clean": "rm -rf dist .turbo coverage tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
+    "clean": "rm -rf dist .turbo coverage tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
+    "openapi": "node scripts/export-openapi.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -26,7 +27,7 @@
     "@nestjs/core": "^11.1.6",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-fastify": "^11.1.6",
+    "@nestjs/platform-fastify": "^11.2.7",
     "@nestjs/platform-socket.io": "^11.1.28",
     "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "^11.2.0",

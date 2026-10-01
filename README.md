@@ -1,5 +1,9 @@
 # StudentHub
 
+[![codeChecks](https://github.com/startupjafari/studenthub/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/startupjafari/studenthub/actions/workflows/ci.yml)
+[![codeqlScan](https://github.com/startupjafari/studenthub/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/startupjafari/studenthub/actions/workflows/codeql.yml)
+[![prodSmoke](https://github.com/startupjafari/studenthub/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/startupjafari/studenthub/actions/workflows/smoke.yml)
+
 Закрытая многоролевая образовательная платформа для университетов: академическая жизнь
 (расписание, заявки в деканат, учебные материалы) и социальная активность (лента, чаты,
 события) в одном приложении. 8 ролей, регистрация **только по инвайтам**.

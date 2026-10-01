@@ -10,6 +10,7 @@ import { PasswordService } from '../../common/security/password.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { AppException } from '../../common/exceptions/app.exception'
+import { isAdult, LEGAL_VERSION } from '@studenthub/shared-schemas'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { UserService, type UserProfile } from '../users/users.service'
@@ -109,9 +110,20 @@ export class AuthService {
       lastName: string
       password: string
       email?: string
+      birthDate: string
+      consent: true
+      guardianConsent?: boolean
     },
     ctx: RequestContext,
   ): Promise<SessionResult> {
+    // Возраст пересчитываем на сервере, хотя схема это уже проверила: клиент можно обойти,
+    // а основание обработки персональных данных несовершеннолетнего — не то место, где
+    // достаточно доверия к форме. Согласие за лицо младше 18 лет даёт законный
+    // представитель, и без его отметки регистрация не проходит.
+    const minor = !isAdult(input.birthDate)
+    if (minor && input.guardianConsent !== true) {
+      throw new AppException('BAD_REQUEST', 'Нужно согласие законного представителя')
+    }
     const passwordHash = await this.passwords.hash(input.password)
 
     const user = await this.prisma.$transaction(async (tx) => {
@@ -130,6 +142,12 @@ export class AuthService {
         universityId: invite.universityId,
         facultyId: invite.facultyId,
         groupId: invite.groupId,
+        birthDate: new Date(`${input.birthDate}T00:00:00Z`),
+        // Что подписали и когда — вместе с самим фактом: редакция документов меняется, а
+        // согласие остаётся привязанным к той, которую человек видел.
+        consentAt: new Date(),
+        consentVersion: LEGAL_VERSION,
+        consentByGuardian: minor,
       })
       await this.invites.markUsed(tx, invite.id, created.sub)
       return created

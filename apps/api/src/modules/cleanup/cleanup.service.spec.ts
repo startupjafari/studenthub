@@ -8,7 +8,7 @@ function makeService() {
     invite: { findMany: jest.fn() as Mock, updateMany: jest.fn() as Mock },
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     auditLog: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
-    file: { findMany: jest.fn() as Mock },
+    file: { findMany: jest.fn() as Mock, groupBy: jest.fn(async () => []) as Mock },
     // Счётчики суточной сводки.
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
@@ -45,6 +45,10 @@ function makeService() {
       return 'OK'
     }) as Mock,
     get: jest.fn(async (key: string) => store.get(key) ?? null) as Mock,
+    del: jest.fn(async (key: string) => {
+      store.delete(key)
+      return 1
+    }) as Mock,
   }
   // Доставка отложенных сообщений чатов: cron только делегирует, поэтому в тесте достаточно
   // счётчика — сама доставка проверяется в chats.service.spec.ts.
@@ -422,5 +426,65 @@ describe('CleanupService.rotateDuty', () => {
     c.platform.rotateDuty.mockResolvedValue('user-2')
     await expect(c.service.rotateDuty()).resolves.toBe('user-2')
     expect(c.platform.rotateDuty).toHaveBeenCalled()
+  })
+})
+
+describe('reportStorageUsage', () => {
+  // Гигабайт в байтах — порог задаётся в гигабайтах, объёмы в тесте считаем от него.
+  const GB = 1024 * 1024 * 1024
+
+  function withUsage(bytesByBucket: Record<string, number>, limitGb?: number) {
+    const harness = makeService()
+    harness.prisma.file.groupBy.mockResolvedValue(
+      Object.entries(bytesByBucket).map(([bucket, size]) => ({ bucket, _sum: { size } })),
+    )
+    // Конфиг в общем моке отдаёт имя ключа — для порога это строка, а нужен либо number,
+    // либо undefined.
+    harness.config.get.mockImplementation((key: string) =>
+      key === 'STORAGE_ALERT_GB' ? limitGb : key,
+    )
+    // Общий мок Redis всегда отвечает «OK», а сигнал держится на SET NX: без эмуляции
+    // «ключ уже есть» второй прогон повторил бы сообщение, и тест этого не заметил бы.
+    const taken = new Set<string>()
+    harness.redis.set.mockImplementation(
+      async (key: string, _value: string, _ex?: string, _ttl?: number, mode?: string) => {
+        if (mode === 'NX' && taken.has(key)) return null
+        taken.add(key)
+        return 'OK'
+      },
+    )
+    harness.redis.del.mockImplementation(async (key: string) => {
+      taken.delete(key)
+      return 1
+    })
+    return harness
+  }
+
+  it('без порога только считает и не сигналит', async () => {
+    const { service, telegram } = withUsage({ documents: 5 * GB })
+
+    await expect(service.reportStorageUsage()).resolves.toBe(5 * GB)
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+
+  it('ниже порога молчит и снимает прошлую паузу', async () => {
+    const { service, telegram, redis } = withUsage({ 'chat-media': 2 * GB }, 10)
+
+    await service.reportStorageUsage()
+
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
+    // Пауза снимается, иначе следующий подход к порогу был бы проглочен.
+    expect(redis.del).toHaveBeenCalledWith('platform:storage-alerted')
+  })
+
+  it('выше порога сигналит один раз', async () => {
+    const { service, telegram } = withUsage({ 'chat-media': 12 * GB, documents: 1 * GB }, 10)
+
+    await service.reportStorageUsage()
+    await service.reportStorageUsage()
+
+    // Второй прогон упирается в SET NX по ключу паузы.
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+    expect(telegram.notifyStaff.mock.calls[0][1]).toContain('13.0 ГБ')
   })
 })

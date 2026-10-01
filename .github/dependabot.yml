@@ -7,6 +7,12 @@
 #
 # Раз в неделю и пачками по экосистемам: ежедневный поток PR'ов в репозитории с одним
 # автором не читают, а закрывают не глядя.
+#
+# Про cooldown. У каждого набора обновлений стоит выдержка в неделю: бот не возьмёт
+# версию, опубликованную только что. Скомпрометированную версию — подменённый пакет в
+# npm, переписанный тег экшена, пересобранный базовый образ — обнаруживают не мгновенно:
+# её сначала публикуют, какое-то время раздают, и только потом она попадает в advisory и
+# исчезает из реестра. Неделя означает, что в это окно бот не принесёт её нам в PR.
 version: 2
 updates:
   # Патчи и минорные версии — одной группой: их смотрят по changelog'у пачкой, а не по
@@ -18,6 +24,12 @@ updates:
       day: monday
       time: '06:00'
       timezone: Asia/Almaty
+    # Выдержка перед тем, как взять свежую версию. Подмена пакета в npm обнаруживается
+    # не мгновенно: вредоносную версию публикуют, её какое-то время скачивают, и только
+    # потом она попадает в advisory и исчезает из реестра. Неделя ожидания означает, что
+    # бот не принесёт такую версию в тот же день, когда её опубликовали.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     versioning-strategy: increase
     commit-message:
@@ -45,10 +57,30 @@ updates:
       - dependency-name: '@prisma/client'
         update-types: [version-update:semver-major]
 
+  # Базовые образы четырёх приложений (node:20-alpine, nginx:1.27-alpine). Причина та же,
+  # что в шапке файла: обновления приходят молча, а в базовом образе живёт вся системная
+  # часть контейнера. Раз в месяц — как у actions: чаще их всё равно не читают.
+  - package-ecosystem: docker
+    directories:
+      - /apps/api
+      - /apps/web
+      - /apps/landing
+      - /apps/mini-app
+    schedule:
+      interval: monthly
+    # Выдержка в неделю — см. «Про cooldown» в шапке файла.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'chore(deps)'
+
   # Actions пришпилены по мажорной версии (actions/checkout@v4) и сами не обновляются.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    # Выдержка в неделю — см. «Про cooldown» в шапке файла.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: 'ci'

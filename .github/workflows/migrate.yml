@@ -1,5 +1,16 @@
-name: Migrate (Railway)
+name: prodDbMigrate
+# Заголовок запуска: в списке прогонов ручные операции выглядели одинаково, и что
+# именно делали — читалось только внутри. Теперь видно режим и кто запустил.
+run-name: Миграции прод-БД · ${{ inputs.mode }} · запустил ${{ github.actor }}
 
+# СХЕМА ПРОГОНА
+#
+#   режим status ─► статус миграций → SQL к применению → конец, база не тронута
+#   режим deploy ─► статус миграций → SQL к применению → применить → статус после
+#
+#   Порядок в релизе: сначала status (посмотреть, что уедет), потом deploy, и только
+#   потом мёрж в main. Отката нет — `prisma migrate` не умеет назад.
+#
 # Применение миграций к проду. Отдельно от деплоя и только руками.
 #
 # Почему не в CMD контейнера: api может подняться в нескольких экземплярах и перезапускается
@@ -7,7 +18,7 @@ name: Migrate (Railway)
 # фиксирует явно («Миграции применяются отдельным шагом (migrate deploy) до старта»).
 #
 # Почему с раннера, а не с ноутбука: у Railway закрыт прямой доступ к Postgres из части
-# сетей, у GitHub-раннера egress открыт — тот же приём, что в workflow `Seed (Railway)`.
+# сетей, у GitHub-раннера egress открыт — тот же приём, что в workflow `SEED`.
 #
 # Порядок в релизе: сначала `status` (посмотреть, что не применено и какой SQL уедет),
 # потом `deploy`, и только затем — мёрж в main, с которого Railway соберёт новый код.
@@ -25,14 +36,23 @@ on:
           - status
           - deploy
 
+# Прогон ходит в прод-БД, а с кодом только читает: токену хватает contents: read.
+permissions:
+  contents: read
+
 concurrency:
   group: migrate-railway
   cancel-in-progress: false
 
 jobs:
   migrate:
-    name: ${{ inputs.mode }}
-    runs-on: ubuntu-latest
+    name: ${{ inputs.mode }} · миграции прод-БД
+    runs-on: ubuntu-24.04
+    # Потолок нужен не для долгих шагов, а для зависших: прогон держит открытое соединение
+    # с боевой базой через публичный прокси Railway, и job без лимита досиживает до
+    # дефолтных шести часов — всё это время занимая соединение и блокируя повторный запуск
+    # (concurrency: migrate-railway, cancel-in-progress: false).
+    timeout-minutes: 20
     # Секрет prod-БД живёт в окружении, чтобы его можно было закрыть ревью и правилами.
     environment: production
 
@@ -40,49 +60,70 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
 
     steps:
-      - name: Guard — секрет задан
+      - name: Проверить, что секрет с адресом прод-БД задан
         run: |
           if [ -z "${DATABASE_URL}" ]; then
             echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
             exit 1
           fi
 
-      - name: Checkout
+      # План прогона — в сводку запуска: что именно сейчас произойдёт с боевой базой,
+      # видно до того, как это произошло, и остаётся в истории запусков.
+      - name: Схема прогона — в сводку запуска
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Миграции прод-БД · режим `${{ inputs.mode }}`
+
+          ```mermaid
+          flowchart LR
+            A["статус миграций"] --> B["SQL к применению"]
+            B --> C{"режим"}
+            C -- status --> D["конец<br/>база не тронута"]
+            C -- deploy --> E["применить миграции"] --> F["статус после"]
+          ```
+
+          Отката нет: `prisma migrate` не умеет назад. Если SQL в шаге ниже выглядит не так,
+          как ожидалось, — прогон нужно остановить, а не «посмотреть, что получится».
+          MD
+
+      - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma Client
+      - name: Сгенерировать Prisma Client
         run: pnpm db:generate
 
       # Что в БД уже применено, а что нет. Шаг не падает на «есть неприменённые»:
       # это и есть ожидаемое состояние перед релизом.
-      - name: Статус миграций
+      - name: Показать, какие миграции ещё не применены
         run: pnpm db:status || true
 
       # SQL, который отделяет прод от схемы в репозитории — глазами, до применения
       # (BACKEND_RULES §5.2). В режиме status на этом всё и заканчивается.
-      - name: SQL к применению
+      - name: Показать SQL, который уедет в базу
         run: |
           pnpm exec prisma migrate diff \
             --from-url "$DATABASE_URL" \
             --to-schema-datamodel prisma/schema \
             --script
 
-      - name: Применить миграции (db:deploy)
+      - name: Применить миграции — только в режиме deploy
         if: ${{ inputs.mode == 'deploy' }}
         run: pnpm db:deploy
 
-      - name: Статус после применения
+      - name: Показать статус после применения
         if: ${{ inputs.mode == 'deploy' }}
         run: pnpm db:status

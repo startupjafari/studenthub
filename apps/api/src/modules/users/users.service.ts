@@ -1562,6 +1562,10 @@ export class UserService {
       universityId: string | null
       facultyId: string | null
       groupId: string | null
+      birthDate: Date
+      consentAt: Date
+      consentVersion: string
+      consentByGuardian: boolean
     },
   ): Promise<JwtPayload> {
     try {

@@ -1,4 +1,5 @@
 import { expect, test } from './support/fixtures'
+import { clickUntil } from './support/interaction'
 
 // Создание и обработка заявки (план 13.4) — сквозной путь через две роли в одном тесте:
 // студент подаёт заявку, декан тут же принимает её в работу. Обе вкладки живут в своих
@@ -13,6 +14,7 @@ const PNG_1X1 = Buffer.from(
   'base64',
 )
 
+const CATEGORY = 'Учебные'
 const SERVICE = 'Транскрипт'
 
 test('заявка проходит путь от подачи студентом до принятия деканом', async ({
@@ -22,14 +24,9 @@ test('заявка проходит путь от подачи студенто�
   // ── Шаг 1: документ в хранилище. Без него мастер не пустит дальше шага «Документы»:
   // требование обязательное, а seed хранилище не наполняет.
   await page.goto('/documents')
-  // Раздел открывается на «Обзоре» — загрузка живёт во вкладке «Мои документы». Клик повторяем до
-  // результата: первый может уйти раньше гидратации, и тогда обработчика на кнопке ещё нет
-  // (тот же приём, что в support/sign-in.ts).
+  // Раздел открывается на «Обзоре» — загрузка живёт во вкладке «Мои документы».
   const uploadBtn = page.getByRole('button', { name: 'Загрузить документ' }).first()
-  await expect(async () => {
-    await page.getByRole('button', { name: 'Мои документы' }).click()
-    await expect(uploadBtn).toBeVisible({ timeout: 2_000 })
-  }).toPass({ timeout: 40_000 })
+  await clickUntil(page.getByRole('button', { name: 'Мои документы' }), uploadBtn)
   await uploadBtn.click()
 
   const uploadModal = page.getByRole('dialog')
@@ -53,29 +50,36 @@ test('заявка проходит путь от подачи студенто�
   await expect(page.getByText(docTitle).first()).toBeVisible({ timeout: 20_000 })
 
   // ── Шаг 2: заявка. Каталог → услуга → данные → документы → проверка → отправка.
+  // Мастер идёт модальным окном поверх списка заявок, поэтому все шаги ищем внутри него:
+  // кнопка «Создать заявку» есть и в шапке страницы, и на шаге услуги.
   await page.goto('/applications')
-  const service = page.getByText(SERVICE).first()
-  await expect(async () => {
-    await page.getByRole('button', { name: 'Создать заявку' }).first().click()
-    await expect(service).toBeVisible({ timeout: 2_000 })
-  }).toPass({ timeout: 40_000 })
-  await service.click()
+  const wizard = page.getByRole('dialog')
+  const category = wizard.locator('#application-category')
+  await clickUntil(page.getByRole('button', { name: 'Создать заявку' }).first(), category)
+
+  // Каталог — два списка, а не плитка со всеми услугами: сначала категория, потом услуга
+  // внутри неё. Контролы — Radix Select, список рисуется в портале рядом с окном.
+  await category.click()
+  await page.getByRole('option', { name: CATEGORY }).click()
+  await wizard.locator('#application-service').click()
+  await page.getByRole('option', { name: SERVICE }).click()
+  await wizard.getByRole('button', { name: 'Далее' }).click()
 
   // Шаг услуги: пока черновика нет, кнопка называется «Создать заявку» — она и создаёт его
   // на сервере (дальше по мастеру та же кнопка станет «Далее»).
-  await page.getByRole('button', { name: 'Создать заявку' }).first().click()
+  await wizard.getByRole('button', { name: 'Создать заявку' }).click()
   // Шаг данных: у «Транскрипта» своих полей нет, но способ получения обязателен всегда —
   // без него «Далее» остаётся заблокированной.
-  await page.getByRole('radio').first().check()
-  await page.getByRole('button', { name: 'Далее' }).first().click()
+  await wizard.getByRole('radio').first().check()
+  await wizard.getByRole('button', { name: 'Далее' }).click()
 
   // Шаг документов: прикладываем загруженное удостоверение из хранилища.
-  await page.getByRole('button', { name: 'Выбрать из хранилища' }).first().click()
-  await page.getByRole('button', { name: docTitle }).first().click()
-  await page.getByRole('button', { name: 'Далее' }).first().click()
+  await wizard.getByRole('button', { name: 'Выбрать из хранилища' }).first().click()
+  await wizard.getByRole('button', { name: docTitle }).first().click()
+  await wizard.getByRole('button', { name: 'Далее' }).click()
 
-  await expect(page.getByText('Проверьте перед отправкой')).toBeVisible({ timeout: 15_000 })
-  await page.getByRole('button', { name: 'Отправить заявку' }).click()
+  await expect(wizard.getByText('Проверьте перед отправкой')).toBeVisible({ timeout: 15_000 })
+  await wizard.getByRole('button', { name: 'Отправить заявку' }).click()
 
   // Заявка ушла — она появляется в «Моих заявках» со статусом «Отправлена».
   await expect(page.getByText('Отправлена').first()).toBeVisible({ timeout: 20_000 })

@@ -104,9 +104,14 @@ function noteMarkdown(note) {
   return lines.join('\n')
 }
 
-function changelogMarkdown(tag) {
+/**
+ * `ref` — чем закончить диапазон коммитов. По умолчанию сам тег, но для черновика
+ * релиза тега ещё нет: прогон после выкатки зовёт с `HEAD`. Ссылка на сравнение при
+ * этом остаётся с тегом — к моменту публикации он уже будет создан.
+ */
+function changelogMarkdown(tag, ref = tag) {
   const from = previousTag(tag)
-  const parsed = commitsSince(from, tag)
+  const parsed = commitsSince(from, ref)
     .map(parseCommit)
     .filter((c) => c !== null)
 
@@ -136,9 +141,13 @@ function changelogMarkdown(tag) {
   return lines.join('\n')
 }
 
-const [, , command, arg] = process.argv
+const [, , command, arg, rangeEnd] = process.argv
 
-if (command === 'check-unreleased') {
+if (command === 'latest') {
+  // Версия самой свежей ноты — из неё прогон после выкатки собирает имя тега для
+  // черновика релиза. Печатаем без префикса `v`: его добавляет вызывающая сторона.
+  console.log(latestNote(readNotes()).version)
+} else if (command === 'check-unreleased') {
   const note = latestNote(readNotes())
   const tag = `v${note.version}`
   if (releaseTags().includes(tag)) {
@@ -165,8 +174,8 @@ if (command === 'check-unreleased') {
   const note = readNotes().find((n) => n.version === stripV(arg))
   const parts = []
   if (note) parts.push(noteMarkdown(note))
-  parts.push(changelogMarkdown(arg))
+  parts.push(changelogMarkdown(arg, rangeEnd))
   console.log(parts.join('\n'))
 } else {
-  fail('Команды: check-unreleased | verify <tag> | body <tag>')
+  fail('Команды: latest | check-unreleased | verify <tag> | body <tag> [ref]')
 }

@@ -12,7 +12,11 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Camera, Eye, EyeOff, ShieldAlert, Trash2 } from 'lucide-react'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
-import { RegisterByInviteSchema, type RegisterByInviteInput } from '@studenthub/shared-schemas'
+import {
+  isAdult,
+  RegisterByInviteSchema,
+  type RegisterByInviteInput,
+} from '@studenthub/shared-schemas'
 import { Badge, Button, Input, Label, Skeleton } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
@@ -111,6 +115,12 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     resolver: zodResolver(schema),
     defaultValues: { token },
   })
+
+  // Дата рождения решает, нужна ли вторая галочка: до 18 лет согласие даёт законный
+  // представитель, и спрашивать его у совершеннолетнего незачем. Полная дата — иначе
+  // `isAdult` посчитает возраст по обрывку и покажет галочку не тому.
+  const birthDate = watch('birthDate') ?? ''
+  const needsGuardian = /^\d{4}-\d{2}-\d{2}$/.test(birthDate) && !isAdult(birthDate)
 
   const password = watch('password') ?? ''
   const score = passwordScore(password)
@@ -367,6 +377,22 @@ export function RegisterByInviteForm({ token }: { token: string }) {
         )}
 
         <div className="flex flex-col gap-2">
+          <Label htmlFor="birthDate">{t('birthDate')}</Label>
+          <Input
+            id="birthDate"
+            type="date"
+            autoComplete="bday"
+            aria-invalid={!!errors.birthDate}
+            {...register('birthDate')}
+          />
+          {errors.birthDate ? (
+            <p className="text-xs text-destructive">{errors.birthDate.message}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('birthDateHint')}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
           <Label htmlFor="password">{t('password')}</Label>
           <div className="relative">
             <Input
@@ -402,6 +428,38 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             </div>
           )}
           {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+        </div>
+
+        {/* Согласие — явным действием, а не мелким шрифтом под кнопкой: нужно доказуемое
+            «да», и в базу пишется дата вместе с редакцией документов. */}
+        <div className="flex flex-col gap-3">
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
+              aria-invalid={!!errors.consent}
+              {...register('consent')}
+            />
+            <span className="text-muted-foreground">{t('consent')}</span>
+          </label>
+          {errors.consent && <p className="text-xs text-destructive">{t('consentRequired')}</p>}
+
+          {needsGuardian && (
+            <>
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
+                  aria-invalid={!!errors.guardianConsent}
+                  {...register('guardianConsent')}
+                />
+                <span className="text-muted-foreground">{t('guardianConsent')}</span>
+              </label>
+              {errors.guardianConsent && (
+                <p className="text-xs text-destructive">{errors.guardianConsent.message}</p>
+              )}
+            </>
+          )}
         </div>
 
         <Button type="submit" size="xl" loading={isSubmitting} className="mt-1 w-full">

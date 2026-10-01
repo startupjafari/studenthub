@@ -49,6 +49,7 @@ const LOCK_TTL_MS = {
   liftExpiredBlocks: 4 * 60 * 1000,
   rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
+  reportStorageUsage: 10 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -69,6 +70,18 @@ const ORPHAN_SAFETY_MINUTES = 60
 const INCOMPLETE_UPLOAD_TTL_HOURS = 24
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+// Учёт занятого хранилища.
+//
+// Лимиты стоят на КАЖДЫЙ файл (изображение 10 МБ, видео и документ по 500), а на общий
+// объём — ни одного: тысяча студентов с видео в чатах наполняет том незаметно, и упор в
+// него выглядит как случайный сбой загрузки в середине дня. Сводка в логе даёт скорость
+// роста, сигнал — повод заказать место заранее.
+//
+// Сутки молчания после сигнала: место не появляется само, и повторять каждый час нечего.
+const STORAGE_ALERT_KEY = 'platform:storage-alerted'
+const STORAGE_ALERT_SILENCE_SEC = 24 * 60 * 60
+const GB = 1024 * 1024 * 1024
 
 // Сигнал о накоплении очереди жалоб.
 //
@@ -575,6 +588,60 @@ export class CleanupService {
     return down.length
   }
 
+  // Занятое хранилище. Ежедневно в 04:45 — после уборки сирот и брошенных загрузок,
+  // чтобы считать то, что осталось, а не то, что через минуту удалят.
+  @Cron('45 4 * * *', { name: 'reportStorageUsage' })
+  async reportStorageUsage(): Promise<number | null> {
+    return this.locks.run('reportStorageUsage', LOCK_TTL_MS.reportStorageUsage, () =>
+      this.reportStorageUsageTask(),
+    )
+  }
+
+  /**
+   * Сводка занятого места по бакетам и сигнал при превышении порога.
+   *
+   * Считаем по таблице `File`, а не обходом бакетов: запись о файле есть у каждого объекта,
+   * который кому-то принадлежит, а перечисление девяти бакетов целиком — это минуты работы
+   * и лишняя нагрузка на MinIO ради числа, которое уже лежит в базе. Осиротевшие объекты в
+   * сумму не попадают, но их за полчаса до этого подмёл `cleanOrphanFiles`.
+   *
+   * Возвращает суммарный объём в байтах — по нему видно движение в логе прогона.
+   */
+  private async reportStorageUsageTask(): Promise<number> {
+    const perBucket = await this.prisma.file.groupBy({
+      by: ['bucket'],
+      _sum: { size: true },
+    })
+    const rows = perBucket
+      .map((b) => ({ bucket: b.bucket, bytes: b._sum.size ?? 0 }))
+      .sort((a, b) => b.bytes - a.bytes)
+    const bytes = rows.reduce((acc, r) => acc + r.bytes, 0)
+    const detail = rows.map((r) => `${r.bucket} ${formatBytes(r.bytes)}`).join(', ')
+    this.logger.log(`reportStorageUsage: всего ${formatBytes(bytes)} (${detail})`)
+
+    const limitGb = this.config.get('STORAGE_ALERT_GB', { infer: true })
+    if (!limitGb) return bytes
+
+    if (bytes < limitGb * GB) {
+      // Ушли под порог (место добавили или что-то удалили) — снимаем паузу, чтобы
+      // следующий подход к порогу не пропустить.
+      await this.redis.del(STORAGE_ALERT_KEY).catch(() => undefined)
+      return bytes
+    }
+
+    // SET NX: между инстансами побеждает один, повторного сигнала не будет.
+    const first = await this.redis
+      .set(STORAGE_ALERT_KEY, String(bytes), 'EX', STORAGE_ALERT_SILENCE_SEC, 'NX')
+      .catch(() => null)
+    if (first === null) return bytes
+
+    await this.telegram.notifyStaff(
+      'digest',
+      `Хранилище занято на ${formatBytes(bytes)} — порог ${limitGb} ГБ пройден\n${detail}`,
+    )
+    return bytes
+  }
+
   // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---
   // deleteExpiredStories ('*/30 * * * *') — удаление истёкших Story из БД и MinIO. Модель Story — Ф14.
 
@@ -606,4 +673,10 @@ export class CleanupService {
       stream.on('error', reject)
     })
   }
+}
+
+/** Байты по-человечески: до гигабайта — мегабайты, дальше гигабайты с десятой долей. */
+function formatBytes(bytes: number): string {
+  if (bytes < GB) return `${Math.round(bytes / (1024 * 1024))} МБ`
+  return `${(bytes / GB).toFixed(1)} ГБ`
 }

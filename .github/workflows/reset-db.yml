@@ -1,5 +1,15 @@
-name: Reset DB (Railway)
+name: prodDbReset
+# Заголовок запуска: в списке прогонов ручные операции выглядели одинаково, и что
+# именно делали — читалось только внутри. Теперь видно режим и кто запустил.
+run-name: ОЧИСТКА прод-БД · останется ${{ inputs.admin_email }} · запустил ${{ github.actor }}
 
+# СХЕМА ПРОГОНА
+#
+#   подтверждение RESET ─► миграции (по галочке) ─► TRUNCATE всех таблиц
+#                          ─► остаётся один PLATFORM_ADMIN ─► КАТО (по галочке) ─► итог
+#
+#   Обратного хода нет. Слепок базы перед прогоном — Railway → Postgres → Backups.
+#
 # РУЧНОЙ полный сброс прод-БД: все таблицы пустые, остаётся один PLATFORM_ADMIN.
 #
 # Зачем: перед реальным запуском нужно убрать демо-данные сида (тысячи пользователей
@@ -10,7 +20,7 @@ name: Reset DB (Railway)
 # набрано RESET. Слепок БД Railway перед прогоном — на совести запускающего:
 # Railway → Postgres → Backups.
 #
-# Требуется секрет репозитория DATABASE_PUBLIC_URL (как у workflow «Seed (Railway)»).
+# Требуется секрет репозитория DATABASE_PUBLIC_URL (как у workflow «SEED»).
 # Пароль администратора: секрет RESET_ADMIN_PASSWORD, если он задан; иначе скрипт
 # сгенерирует пароль и напечатает его в лог прогона.
 
@@ -35,14 +45,21 @@ on:
         default: true
 
 # Сброс и seed не должны идти одновременно по одной БД.
+# Прогон ходит в прод-БД, а с кодом только читает: токену хватает contents: read.
+permissions:
+  contents: read
+
 concurrency:
   group: db-write-railway
   cancel-in-progress: false
 
 jobs:
   reset:
-    name: reset → один администратор
-    runs-on: ubuntu-latest
+    name: Сброс — в базе остаётся один администратор
+    runs-on: ubuntu-24.04
+    # С запасом на заливку справочника КАТО по галочке. Причина лимита та же, что у
+    # миграций: зависший job держит соединение с прод-БД часами.
+    timeout-minutes: 30
     # Окружение production: секрет прод-БД можно закрыть ревьюером/правилами.
     environment: production
 
@@ -51,9 +68,11 @@ jobs:
 
     steps:
       # Подтверждение проверяем ДО checkout: неверный ввод не должен ничего запускать.
-      - name: Guard — подтверждение и секрет
+      - name: Проверить подтверждение RESET и секрет с адресом БД
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "${{ inputs.confirm }}" != "RESET" ]; then
+          if [ "$CONFIRM" != "RESET" ]; then
             echo "::error::Подтверждение не совпало: ожидалось RESET." >&2
             exit 1
           fi
@@ -62,31 +81,52 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout
+      # План прогона — в сводку запуска: что именно сейчас произойдёт с боевой базой,
+      # видно до того, как это произошло, и остаётся в истории запусков.
+      - name: Схема прогона — в сводку запуска
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Сброс прод-БД
+
+          ```mermaid
+          flowchart LR
+            A["подтверждение RESET"] --> B["миграции<br/>по галочке"]
+            B --> C["TRUNCATE всех таблиц"]
+            C --> D["остаётся один<br/>PLATFORM_ADMIN"]
+            D --> E["справочник КАТО<br/>по галочке"]
+          ```
+
+          Схема таблиц не меняется — журнал миграций цел, повторный `db:deploy` не нужен.
+          Обратного хода нет: данные восстанавливаются только из слепка Railway.
+          MD
+
+      - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Setup Node
+      - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Prisma Client
+      - name: Сгенерировать Prisma Client
         run: pnpm db:generate
 
       # По умолчанию включено: на пустой БД (или после новых миграций) TRUNCATE нечего
       # делать, пока таблиц нет. На уже развёрнутой БД шаг просто ничего не меняет.
-      - name: Apply migrations (db:deploy)
+      - name: Применить миграции перед сбросом — по галочке
         if: ${{ inputs.run_migrations }}
         run: pnpm db:deploy
 
-      - name: Reset (db:reset:admin)
+      - name: Очистить таблицы, оставив одного администратора
         env:
           RESET_CONFIRM: RESET
           # БД Railway не localhost — гард скрипта снимается осознанно здесь.
@@ -97,20 +137,26 @@ jobs:
 
       # КАТО — не демо-данные, а часть развёртывания: `University.city` хранит 9-значный
       # код, и без справочника его не во что резолвить. Сидер идемпотентен.
-      - name: Seed КАТО (db:seed:kato)
+      - name: Залить справочник КАТО — по галочке
         if: ${{ inputs.run_seed_kato }}
         run: pnpm db:seed:kato
 
-      - name: Итог
+      # admin_email — ввод запускающего, в shell идёт переменной окружения, а не подстановкой.
+      # Сам секрет с паролем сюда не попадает вовсе: нужен только факт «задан или нет»,
+      # и его вычисляет выражение, а в шаг приезжает true/false.
+      - name: Итог — в сводку запуска
+        env:
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
+          ADMIN_PASSWORD_SET: ${{ secrets.RESET_ADMIN_PASSWORD != '' }}
         run: |
           {
             echo "### Сброс БД выполнен"
             echo ""
-            echo "В базе остался один пользователь — PLATFORM_ADMIN \`${{ inputs.admin_email }}\`."
-            if [ -n "${{ secrets.RESET_ADMIN_PASSWORD }}" ]; then
+            echo "В базе остался один пользователь — PLATFORM_ADMIN \`$ADMIN_EMAIL\`."
+            if [ "$ADMIN_PASSWORD_SET" = "true" ]; then
               echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
             else
-              echo "Пароль сгенерирован и напечатан в логе шага «Reset (db:reset:admin)» — сохраните его и смените после входа."
+              echo "Пароль сгенерирован и напечатан в логе шага «Очистить таблицы, оставив одного администратора» — сохраните его и смените после входа."
               echo ""
               echo "Он остаётся в логе этого прогона: после входа и смены пароля лог можно удалить (Actions → прогон → Delete run)."
             fi

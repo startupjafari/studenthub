@@ -950,12 +950,17 @@
     "inviteInvalidTitle": "Invite is invalid",
     "inviteInvalidText": "The invite has expired or was already used. Request a new invite from an administrator.",
     "backToHome": "Back to sign in",
-    "identifierPlaceholder": "you@example.com or username"
+    "identifierPlaceholder": "you@example.com or username",
+    "birthDate": "Date of birth",
+    "birthDateHint": "Needed to determine whether a legal representative’s consent is required",
+    "consent": "I accept the privacy policy and the terms of use",
+    "consentRequired": "Registration is not possible without consent",
+    "guardianConsent": "I am under 18, and my legal representative has consented to the processing of my personal data"
   },
   "Legal": {
     "privacyLink": "Privacy Policy",
     "termsLink": "Terms of Service",
-    "updated": "Version of 29 August 2026",
+    "updated": "Version of 30 September 2026",
     "privacy": {
       "title": "Privacy Policy",
       "intro": "StudentHub is a closed platform your university grants access to by invitation. This page explains what data is processed, why, and who can see it.",
@@ -989,7 +994,11 @@
           "body": "We use technical cookies for the sign-in session and browser local storage for interface settings and drafts. There are no advertising or third-party trackers on the platform, and no data is shared with ad networks."
         },
         {
-          "heading": "8. Changes to this policy",
+          "heading": "8. Minors",
+          "body": "If you are under 18, consent to the processing of personal data is given on your behalf by a legal representative — a parent or guardian; consent given by a minor alone has no legal force. The university collects that consent at enrolment, together with the rest of the documents; the platform works with the data only to the extent the university passed it on."
+        },
+        {
+          "heading": "9. Changes to this policy",
           "body": "We announce changes inside the platform. By continuing to use StudentHub after an update, you accept the new version."
         }
       ]
@@ -1000,7 +1009,7 @@
       "sections": [
         {
           "heading": "1. General provisions",
-          "body": "Access to the platform is granted by your university. Registration is only possible with a personal invitation; the invitation link must not be passed on to anyone else."
+          "body": "Access to the platform is granted by your university. Registration is only possible with a personal invitation; the invitation link must not be passed on to anyone else. If you are under 18, these terms are accepted on your behalf by your legal representative."
         },
         {
           "heading": "2. Your account",
