@@ -57,7 +57,7 @@ updates:
       - dependency-name: '@prisma/client'
         update-types: [version-update:semver-major]
 
-  # Базовые образы четырёх приложений (node:20-alpine, nginx:1.27-alpine). Причина та же,
+  # Базовые образы четырёх приложений (node:24-alpine, nginx:1.27-alpine). Причина та же,
   # что в шапке файла: обновления приходят молча, а в базовом образе живёт вся системная
   # часть контейнера. Раз в месяц — как у actions: чаще их всё равно не читают.
   - package-ecosystem: docker
@@ -71,6 +71,13 @@ updates:
     # Выдержка в неделю — см. «Про cooldown» в шапке файла.
     cooldown:
       default-days: 7
+    # Мажорную версию Node бот не приносит: ветку выбирает человек, и выбирает Active LTS.
+    # Иначе получается PR #282 — бот поднял api с node:20-alpine до node:26-alpine, в 26-й
+    # нет corepack, сборка легла, и образ прода чинился уже постфактум. Смена мажора Node
+    # задевает и Dockerfile, и setup-node, и локальную машину — это отдельная задача.
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: 'chore(deps)'
 

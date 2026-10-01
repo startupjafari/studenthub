@@ -180,10 +180,10 @@ jobs:
       #
       # `node-version` — рантайм сборки самого проекта, к этому переходу отношения не
       # имеет и меняется отдельным решением.
-      - name: Поставить Node 20 и кеш pnpm-store
+      - name: Поставить Node 24 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Установить зависимости (frozen-lockfile)
@@ -514,10 +514,10 @@ jobs:
       - name: Поставить pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Поставить Node 20 и кеш pnpm-store
+      - name: Поставить Node 24 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Установить зависимости (frozen-lockfile)
@@ -839,7 +839,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
       # Уязвимости в самом образе, а не в наших зависимостях. Шаг «Безопасность» смотрит
-      # на package.json, и до базового образа ему не дотянуться: node:20-alpine и
+      # на package.json, и до базового образа ему не дотянуться: node:24-alpine и
       # nginx:1.27-alpine приносят с собой системные библиотеки — openssl, zlib, musl, —
       # и дыры там такие же настоящие. Railway собирает прод по этим же Dockerfile, то
       # есть базовый образ у прода и у нас один и тот же.
@@ -1051,10 +1051,10 @@ jobs:
       - name: Поставить pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Поставить Node 20 и кеш pnpm-store
+      - name: Поставить Node 24 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Установить зависимости (frozen-lockfile)
@@ -1300,10 +1300,10 @@ jobs:
       - name: Поставить pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Поставить Node 20 и кеш pnpm-store
+      - name: Поставить Node 24 и кеш pnpm-store
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Установить зависимости (frozen-lockfile)
@@ -1421,10 +1421,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Поставить Node 20
+      - name: Поставить Node 24
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Нота «Что нового» для следующей версии написана
         run: node scripts/release.mjs check-unreleased
