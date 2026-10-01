@@ -6,6 +6,10 @@ module.exports = {
   testRegex: '.*\\.spec\\.ts$',
   moduleFileExtensions: ['ts', 'js', 'json'],
   clearMocks: true,
+  // Репортёры покрытия (действуют только при --coverage): text-summary печатает итог в
+  // лог шага, json-summary даёт машиночитаемый файл — из него прогон собирает таблицу в
+  // сводке запуска, lcov остаётся для просмотра в браузере локально.
+  coverageReporters: ['text-summary', 'json-summary', 'lcov'],
   // Workspace-пакеты собираются в ESM; в jest (CommonJS) резолвим их исходники
   // и снимаем .js-расширения из NodeNext-импортов, чтобы ts-jest компилировал .ts.
   moduleNameMapper: {
