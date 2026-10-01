@@ -5,7 +5,7 @@
 # src/api/complaints.ts), поэтому в слой зависимостей копируется только его package.json —
 # правки в shared-* кэш этого слоя не сбрасывают.
 
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN corepack enable
 WORKDIR /repo
 
