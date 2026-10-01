@@ -2,8 +2,15 @@
 # Контекст сборки — КОРЕНЬ монорепо: docker build -f apps/web/Dockerfile .
 # NEXT_PUBLIC_* инлайнятся на этапе build → передавайте build-arg.
 
-FROM node:20-alpine AS base
-RUN corepack enable
+# Node 24 — Active LTS: поддержка до 30.04.2028. На 20-й оставаться нельзя, он EOL
+# с 30.04.2026 — патчи безопасности для него больше не выходят. На 26-ю не идём: она
+# станет LTS только 28.10.2026, до тех пор это Current.
+#
+# pnpm ставится через npm, а не `corepack enable`: из образов Node начиная с 26-й corepack
+# убрали, и сборка падает с `corepack: not found`. Версия продублирована из `packageManager`
+# в корневом package.json — меняя её там, поправьте и здесь.
+FROM node:24-alpine AS base
+RUN npm install --global pnpm@10.33.2
 WORKDIR /repo
 
 FROM base AS deps
@@ -35,7 +42,7 @@ ENV API_PROXY_TARGET=${API_PROXY_TARGET}
 RUN pnpm exec turbo run build --filter=web
 
 # ── runner: только standalone-вывод Next ──
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
