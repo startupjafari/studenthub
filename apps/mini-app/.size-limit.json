@@ -1,0 +1,10 @@
+[
+  {
+    "name": "JS мини-аппа",
+    "path": "dist/assets/*.js"
+  },
+  {
+    "name": "CSS мини-аппа",
+    "path": "dist/assets/*.css"
+  }
+]

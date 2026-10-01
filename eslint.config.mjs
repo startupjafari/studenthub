@@ -73,6 +73,7 @@ export default tseslint.config(
     files: [
       'prisma/**/*.mjs',
       'scripts/**/*.mjs',
+      'apps/api/scripts/**/*.mjs',
       'apps/web/e2e/**/*.mjs',
       'apps/landing/scripts/**/*.mjs',
       'apps/mini-app/scripts/**/*.mjs',

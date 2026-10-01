@@ -27,6 +27,10 @@ pnpm-debug.log*
 
 # Coverage / test artifacts
 coverage/
+# Список находок axe из e2e-сценария доступности — артефакт прогона, не исходник.
+apps/web/a11y-axe.json
+# Рабочий каталог сравнения OpenAPI-схем в прогоне.
+.oasdiff/
 playwright-report/
 test-results/
 
