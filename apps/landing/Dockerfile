@@ -5,7 +5,7 @@
 # и не тянет ни одного workspace-пакета (docs/LANDING.md §3). Копируем только его
 # package.json — значит кэш этого слоя не сбрасывается от правок в shared-*.
 
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -39,7 +39,7 @@ ENV NEXT_PUBLIC_SALES_EMAIL=${NEXT_PUBLIC_SALES_EMAIL}
 RUN pnpm --filter landing build
 
 # ── runner: только standalone-вывод Next ──
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
