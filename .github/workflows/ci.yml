@@ -7,7 +7,7 @@ name: CI · проверки, тесты, сборка
 #
 #       Код ............ линт → типы → юнит-тесты → тесты сида → e2e api → сборка
 #       Веб ............ Playwright поднимает свои api и web и проходит сценарии
-#       Образ · <app> .. docker build четырёх приложений + trivy по образу, без публикации
+#       Образ · <app> .. docker build четырёх приложений + trivy + запуск контейнера
 #       Безопасность ... уязвимости в зависимостях + поиск секретов в истории
 #       Прогоны ........ линт самих workflow: actionlint и zizmor
 #       Нота ........... «Что нового» для версии написана (только на PR в main)
@@ -107,7 +107,7 @@ jobs:
             T["push develop / main<br/>pull request в main"]
             T --> A["Код<br/>линт · типы · тесты · сборка"]
             T --> B["Веб<br/>сценарии Playwright"]
-            T --> C["Образы<br/>сборка · trivy"]
+            T --> C["Образы<br/>сборка · trivy · запуск"]
             T --> D["Безопасность<br/>уязвимости · секреты"]
             T --> E["Прогоны<br/>actionlint · zizmor"]
             T --> F["Нота «Что нового»<br/>только на PR в main"]
@@ -119,7 +119,7 @@ jobs:
           |---|---|---|
           | **Код** | eslint, `tsc --noEmit`, юнит-тесты api и веба, тесты сида, интеграционные тесты api с базой, сборка всех приложений | сломан код или тест — смотреть упавший шаг |
           | **Веб** | Playwright поднимает свои api и web на отдельных портах и базе и проходит вход, ленту, публикацию, заявку, расписание | сломан путь пользователя; к прогону приложен отчёт `playwright-report` со скриншотами и трассой |
-          | **Образ · app** | `docker build` четырёх приложений без публикации, затем trivy по собранному образу | Railway не соберёт этот образ на выкатке; находки trivy пока не блокируют и лежат таблицей ниже |
+          | **Образ · app** | `docker build` четырёх приложений без публикации, trivy по собранному образу, затем запуск контейнера и проверка, что он отвечает | Railway не соберёт или не запустит этот образ на выкатке; находки trivy пока не блокируют и лежат таблицей ниже |
           | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории; аудит всех зависимостей — отдельной таблицей ниже на этой же странице, он не блокирует | уязвимость в рантайм-зависимости или секрет в коммите |
           | **Прогоны** | actionlint и zizmor по файлам `.github/workflows`: синтаксис, выражения, shell внутри `run`, права токена, подстановка ввода в команды | сломан или небезопасен сам прогон |
           | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
@@ -488,6 +488,101 @@ jobs:
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Проверка, что образ не только собрался, но и работает ──
+      #
+      # Сборка говорит только «Dockerfile исполним до конца». Она не ловит ни
+      # неправильный CMD, ни файл, забытый в COPY, ни переменную окружения, без которой
+      # приложение падает на старте. Всё это обнаруживалось на выкатке Railway, то есть
+      # когда код уже в main.
+      #
+      # api поднимают вместе с Postgres, Redis и MinIO: PrismaService делает $connect()
+      # в onModuleInit, без базы приложение не стартует вовсе. Миграции не нужны —
+      # индикатор живости выполняет SELECT 1.
+      - name: Поднять зависимости api — Postgres, Redis, MinIO
+        if: matrix.app == 'api'
+        run: |
+          docker run -d --name smoke-pg --network host \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=studenthub_smoke \
+            postgres:16-alpine
+          docker run -d --name smoke-redis --network host redis:7-alpine
+          docker run -d --name smoke-minio --network host \
+            -e MINIO_ROOT_USER=ci-access -e MINIO_ROOT_PASSWORD=ci-secret \
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
+
+          # 45 попыток по две секунды: холодный Postgres на раннере инициализирует кластер,
+          # а MinIO после старта ещё настраивает себя через mc — минуты на двоих не хватает.
+          for _ in $(seq 1 45); do
+            pg=$(docker exec smoke-pg pg_isready -U postgres >/dev/null 2>&1 && echo ok || echo no)
+            redis=$(docker exec smoke-redis redis-cli ping 2>/dev/null | tr -d '\r')
+            minio=$(curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1 && echo ok || echo no)
+            if [ "$pg" = ok ] && [ "$redis" = PONG ] && [ "$minio" = ok ]; then
+              echo "Зависимости подняты"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Зависимости api не поднялись за полторы минуты" >&2
+          for c in smoke-pg smoke-redis smoke-minio; do
+            echo "--- docker logs $c ---" >&2
+            docker logs "$c" >&2 || true
+          done
+          exit 1
+
+      # Проверяем ровно одно: контейнер поднялся и отвечает по HTTP. Для api — что
+      # health-эндпоинт вернул 200, то есть Nest собрал граф модулей и достучался до всех
+      # трёх зависимостей. Для остальных — что сервер вообще ответил: веб и мини-апп без
+      # живого API законно отдают и 3xx, и 5xx на конкретной странице, и делать из этого
+      # красный прогон значило бы проверять не то. Отсутствие ответа — это и есть
+      # «образ не работает».
+      - name: Запустить образ ${{ matrix.app }} и дождаться ответа
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          case "$APP" in
+            api)      port=3001; path=/api/v1/health; need_200=yes ;;
+            mini-app) port=8080; path=/;              need_200=no  ;;
+            *)        port=3000; path=/;              need_200=no  ;;
+          esac
+
+          if [ "$APP" = api ]; then
+            # Значения те же, что у job «Код»: это не секреты, а минимум, на котором
+            # проходит валидация окружения (apps/api/src/config/env.schema.ts).
+            docker run -d --name smoke-app --network host \
+              -e PORT=3001 \
+              -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/studenthub_smoke \
+              -e JWT_ACCESS_SECRET=ci-access-secret-ci-access-secret-32ch \
+              -e JWT_REFRESH_SECRET=ci-refresh-secret-ci-refresh-secret-32 \
+              -e TOTP_ENCRYPTION_KEY=ci-totp-encryption-key-ci-totp-key-32 \
+              -e REDIS_HOST=localhost -e REDIS_PORT=6379 \
+              -e MINIO_ENDPOINT=localhost -e MINIO_PORT=9000 -e MINIO_USE_SSL=false \
+              -e MINIO_ACCESS_KEY=ci-access -e MINIO_SECRET_KEY=ci-secret \
+              "studenthub-$APP:ci" >/dev/null
+          else
+            docker run -d --name smoke-app --network host -e "PORT=$port" "studenthub-$APP:ci" >/dev/null
+          fi
+
+          ok=no
+          for _ in $(seq 1 45); do
+            # Без `|| code=000` подстановка вернула бы код неудачи curl, а сам curl при
+            # этом уже напечатал в неё «000» — склеивалось «000000», и проверка «ответ
+            # есть» проходила на пустом месте.
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port$path" 2>/dev/null) || code=000
+            if [ "$need_200" = yes ] && [ "$code" = 200 ]; then ok=yes; break; fi
+            if [ "$need_200" = no ] && [ "$code" != 000 ]; then ok=yes; break; fi
+            # Контейнер, успевший умереть, ждать бессмысленно — ответа уже не будет.
+            if [ -z "$(docker ps -q -f name=smoke-app)" ]; then break; fi
+            sleep 2
+          done
+
+          if [ "$ok" = yes ]; then
+            echo "- Образ **$APP** поднялся и ответил по \`$path\` (HTTP $code)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::error::Образ $APP не ответил по $path — последний код: ${code:-нет ответа}" >&2
+          echo "--- docker logs ---" >&2
+          docker logs smoke-app >&2 || true
+          exit 1
 
   # Отдельной job'ой, а не шагом в `ci`: проверки безопасности не зависят от базы, MinIO
   # и сборки, и держать их за двадцатью минутами прогона — значит узнавать об уязвимости
