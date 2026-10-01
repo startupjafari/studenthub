@@ -59,8 +59,10 @@ jobs:
     steps:
       # Подтверждение проверяем ДО checkout: неверный ввод не должен ничего запускать.
       - name: Проверить подтверждение RESET и секрет с адресом БД
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "${{ inputs.confirm }}" != "RESET" ]; then
+          if [ "$CONFIRM" != "RESET" ]; then
             echo "::error::Подтверждение не совпало: ожидалось RESET." >&2
             exit 1
           fi
@@ -127,13 +129,19 @@ jobs:
         if: ${{ inputs.run_seed_kato }}
         run: pnpm db:seed:kato
 
+      # admin_email — ввод запускающего, в shell идёт переменной окружения, а не подстановкой.
+      # Сам секрет с паролем сюда не попадает вовсе: нужен только факт «задан или нет»,
+      # и его вычисляет выражение, а в шаг приезжает true/false.
       - name: Итог — в сводку запуска
+        env:
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
+          ADMIN_PASSWORD_SET: ${{ secrets.RESET_ADMIN_PASSWORD != '' }}
         run: |
           {
             echo "### Сброс БД выполнен"
             echo ""
-            echo "В базе остался один пользователь — PLATFORM_ADMIN \`${{ inputs.admin_email }}\`."
-            if [ -n "${{ secrets.RESET_ADMIN_PASSWORD }}" ]; then
+            echo "В базе остался один пользователь — PLATFORM_ADMIN \`$ADMIN_EMAIL\`."
+            if [ "$ADMIN_PASSWORD_SET" = "true" ]; then
               echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
             else
               echo "Пароль сгенерирован и напечатан в логе шага «Очистить таблицы, оставив одного администратора» — сохраните его и смените после входа."

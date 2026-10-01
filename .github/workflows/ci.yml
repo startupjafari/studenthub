@@ -167,7 +167,7 @@ jobs:
             -e MINIO_ROOT_PASSWORD=ci-secret \
             bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
               echo "MinIO is up"; exit 0
             fi
@@ -331,7 +331,7 @@ jobs:
             -e MINIO_ROOT_PASSWORD=ci-secret \
             bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
               echo "MinIO is up"; exit 0
             fi
@@ -474,9 +474,11 @@ jobs:
           report=$(pnpm audit --audit-level high --json 2>/dev/null) || true
 
           if [ -z "$report" ]; then
-            echo "## Уязвимости в зависимостях (справочно)" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Аудит не отдал отчёт — смотреть лог шага." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## Уязвимости в зависимостях (справочно)"
+              echo ""
+              echo "Аудит не отдал отчёт — смотреть лог шага."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 

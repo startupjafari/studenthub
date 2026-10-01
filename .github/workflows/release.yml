@@ -51,14 +51,20 @@ jobs:
         with:
           node-version: 20
 
+      # Имя тега приходит из события и в shell попадает только через переменную окружения:
+      # подставленное прямо в команду, оно выполнилось бы как часть этой команды — тег
+      # создаёт человек, и имя у него произвольное.
       - name: Проверить, что для версии написана нота «Что нового»
-        run: node scripts/release.mjs verify "${{ github.event.release.tag_name }}"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/release.mjs verify "$TAG"
 
       - name: Заполнить описание релиза — только если тело пустое
         if: ${{ !github.event.release.body }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          node scripts/release.mjs body "${{ github.event.release.tag_name }}" > release-body.md
-          gh release edit "${{ github.event.release.tag_name }}" --notes-file release-body.md
+          node scripts/release.mjs body "$TAG" > release-body.md
+          gh release edit "$TAG" --notes-file release-body.md
