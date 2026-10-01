@@ -12,14 +12,15 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "size": "size-limit"
   },
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@size-limit/preset-app": "^14.1.0",
+    "@size-limit/file": "^12.1.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.3",
@@ -28,7 +29,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "eslint": "^9.39.1",
     "jsdom": "^25.0.1",
-    "size-limit": "^14.1.0",
+    "size-limit": "^12.1.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vitest": "^3.2.7"
