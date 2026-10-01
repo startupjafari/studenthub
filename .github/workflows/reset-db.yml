@@ -49,7 +49,7 @@ concurrency:
 jobs:
   reset:
     name: Сброс — в базе остаётся один администратор
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Окружение production: секрет прод-БД можно закрыть ревьюером/правилами.
     environment: production
 

@@ -35,7 +35,7 @@ concurrency:
 jobs:
   notes:
     name: Описание релиза — проверить и заполнить
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       # fetch-depth: 0 — нужны и теги, и история: описание строится по диапазону

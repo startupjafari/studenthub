@@ -85,7 +85,7 @@ concurrency:
 jobs:
   seed:
     name: ${{ inputs.mode }} · ${{ inputs.universities }} вузов
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Отдельное окружение — чтобы секрет прод-БД можно было ограничить ревью и правилами.
     environment: production
     # Потолок job'а у GitHub — 6 часов. Берём почти весь: 500 вузов без контента идут
