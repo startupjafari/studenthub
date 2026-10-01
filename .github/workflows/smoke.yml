@@ -34,6 +34,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Прогон не забирает код и ходит только по публичным адресам прода — токен ему не нужен
+# вовсе. Пустой набор прав это и означает.
+permissions: {}
+
 concurrency:
   group: smoke-production
   cancel-in-progress: true

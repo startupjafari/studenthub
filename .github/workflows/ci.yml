@@ -3,12 +3,13 @@ name: CI · проверки, тесты, сборка
 # СХЕМА ПРОГОНА
 #
 #   push в develop / main ─┐
-#   pull request в main ───┴─► все пять job'ов стартуют разом и не ждут друг друга:
+#   pull request в main ───┴─► все шесть job'ов стартуют разом и не ждут друг друга:
 #
 #       Код ............ линт → типы → юнит-тесты → тесты сида → e2e api → сборка
 #       Веб ............ Playwright поднимает свои api и web и проходит сценарии
 #       Образ · <app> .. docker build четырёх приложений, без публикации
 #       Безопасность ... уязвимости в зависимостях + поиск секретов в истории
+#       Прогоны ........ линт самих workflow: actionlint и zizmor
 #       Нота ........... «Что нового» для версии написана (только на PR в main)
 #
 #   Та же схема попадает в сводку запуска (вкладка Summary) — шаг «Схема прогона».
@@ -25,6 +26,13 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [main]
+
+# Токен прогона — только на чтение кода. По умолчанию GitHub выдаёт job'у заметно больше
+# прав, чем нужно, а в публичном репозитории этот токен достаётся в том числе сторонним
+# экшенам из `uses:`. Шагу, которому понадобится больше (запись результатов сканирования,
+# комментарий в PR), права добавляются точечно на уровне job'а.
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -101,7 +109,8 @@ jobs:
             T --> B["Веб<br/>сценарии Playwright"]
             T --> C["Образы<br/>api · web · landing · mini-app"]
             T --> D["Безопасность<br/>уязвимости · секреты"]
-            T --> E["Нота «Что нового»<br/>только на PR в main"]
+            T --> E["Прогоны<br/>actionlint · zizmor"]
+            T --> F["Нота «Что нового»<br/>только на PR в main"]
           ```
 
           Job'ы независимы и идут параллельно — красный любой из них означает «не мёржим».
@@ -112,14 +121,17 @@ jobs:
           | **Веб** | Playwright поднимает свои api и web на отдельных портах и базе и проходит вход, ленту, публикацию, заявку, расписание | сломан путь пользователя; к прогону приложен отчёт `playwright-report` со скриншотами и трассой |
           | **Образ · app** | `docker build` четырёх приложений без публикации | Railway не соберёт этот образ на выкатке |
           | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории; аудит всех зависимостей — отдельной таблицей ниже на этой же странице, он не блокирует | уязвимость в рантайм-зависимости или секрет в коммите |
+          | **Прогоны** | actionlint и zizmor по файлам `.github/workflows`: синтаксис, выражения, shell внутри `run`, права токена, подстановка ввода в команды | сломан или небезопасен сам прогон |
           | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
           MD
 
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       # Версии экшенов держим на актуальных мажорах: GitHub снимает с эксплуатации
       # рантайм node20, и v4 у checkout/setup-node уже принудительно запускались на
@@ -167,7 +179,7 @@ jobs:
             -e MINIO_ROOT_PASSWORD=ci-secret \
             bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
               echo "MinIO is up"; exit 0
             fi
@@ -298,9 +310,11 @@ jobs:
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
@@ -331,7 +345,7 @@ jobs:
             -e MINIO_ROOT_PASSWORD=ci-secret \
             bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to become healthy..."
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
               echo "MinIO is up"; exit 0
             fi
@@ -395,6 +409,8 @@ jobs:
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить docker buildx
         uses: docker/setup-buildx-action@v4
@@ -436,10 +452,11 @@ jobs:
       - name: Забрать код со всей историей
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Поставить pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
@@ -474,9 +491,11 @@ jobs:
           report=$(pnpm audit --audit-level high --json 2>/dev/null) || true
 
           if [ -z "$report" ]; then
-            echo "## Уязвимости в зависимостях (справочно)" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Аудит не отдал отчёт — смотреть лог шага." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## Уязвимости в зависимостях (справочно)"
+              echo ""
+              echo "Аудит не отдал отчёт — смотреть лог шага."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
@@ -509,9 +528,64 @@ jobs:
       # Секрет в истории = секрет скомпрометирован, даже если файл давно удалён.
       # Дешевле поймать на PR, чем ротировать ключи задним числом.
       - name: Поиск секретов в истории (gitleaks)
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # По умолчанию экшен комментирует строку с находкой прямо в PR, и ради этого ему
+          # нужен токен с правом записи в pull requests. Отдаём ему read-only, а комментарии
+          # выключаем: сигнал о находке — красный job, подробности лежат в артефакте
+          # gitleaks-results.sarif. Выдавать стороннему экшену запись в публичном
+          # репозитории ради удобной подсветки — размен не в нашу пользу.
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+
+  # Линт самих прогонов. Отдельной job'ой и без зависимостей — она не трогает ни базу, ни
+  # зависимости проекта и укладывается в полминуты.
+  #
+  # Зачем вообще: ошибку в YAML прогона до сих пор ловил только сам прогон, то есть уже
+  # после пуша и только в тех шагах, до которых дошло выполнение. Опечатка в имени шага,
+  # несуществующее поле, ошибка в выражении ${{ }} или в shell-скрипте внутри run —
+  # всё это видно статически.
+  #
+  # Два инструмента отвечают за разное:
+  #   actionlint — синтаксис, схема полей, выражения и shellcheck по каждому run-скрипту;
+  #   zizmor     — безопасность: подстановка пользовательского ввода прямо в команды,
+  #                избыточные права токена, отравление кеша, непришпиленные экшены.
+  #
+  # Оба запускаются из docker-образов по закреплённому тегу, а не через сторонние экшены:
+  # добавлять ради линтера безопасности ещё два внешних `uses:` — не то, что хочется.
+  workflows:
+    name: Прогоны · actionlint и zizmor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Внутри каждого `run:` actionlint ещё и прогоняет shellcheck — неиспользуемые
+      # переменные, незакавыченные подстановки, несуществующие команды.
+      - name: Синтаксис, выражения и shell-скрипты прогонов (actionlint)
+        run: |
+          docker run --rm -v "$PWD":/repo --workdir /repo \
+            rhysd/actionlint:1.7.12 -color
+
+      # --format github — находки приезжают аннотациями прямо к строкам файла, а не
+      # текстом в логе. Политика пришпиливания версий задана в .github/zizmor.yml и
+      # передаётся явно, чтобы результат не зависел от порядка поиска конфигурации.
+      #
+      # Режим — офлайн (по умолчанию). Онлайн добавляет проверку known-vulnerable-actions:
+      # сверку версий экшенов с опубликованными advisory. Ради неё zizmor'у нужно отдать
+      # токен прогона; включать это стоит отдельным решением, а не заодно с линтером.
+      - name: Безопасность прогонов (zizmor)
+        run: |
+          docker run --rm -v "$PWD":/repo \
+            ghcr.io/zizmorcore/zizmor:1.30.1 \
+            --no-progress \
+            --format github \
+            --config /repo/.github/zizmor.yml \
+            /repo/.github/workflows
 
   # Нота «Что нового» пишется до мёржа в main: она едет в бандле вместе с кодом, который
   # описывает, и после выпуска её уже не подложить. Проверка — только на релизном PR.
@@ -526,6 +600,7 @@ jobs:
       - name: Забрать код с тегами
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Поставить Node 20
