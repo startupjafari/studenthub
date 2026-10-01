@@ -21,12 +21,12 @@
 
 ```mermaid
 flowchart LR
-  A["PR в develop<br/>зависимости в PR"] --> B["push в develop<br/>Проверки"]
-  B --> C["PR develop → main<br/>Проверки + нота «Что нового»"]
-  C --> D["Прод-БД · миграции<br/>режим deploy, руками, до мёржа"]
+  A["PR в develop<br/>dependencyReview"] --> B["push в develop<br/>codeChecks"]
+  B --> C["PR develop → main<br/>codeChecks + нота «Что нового»"]
+  C --> D["prodDbMigrate<br/>режим deploy, руками, до мёржа"]
   D --> E["мёрж в main<br/>Railway выкатывает"]
-  E --> F["Прод · отвечает?"]
-  F --> G["Релиз · описание по тегу"]
+  E --> F["prodSmoke<br/>прод отвечает?"]
+  F --> G["releaseNotes<br/>описание по тегу"]
 ```
 
 Миграции применяются **до** мёржа в `main`: Railway деплоит по push в `main`, и новый код
