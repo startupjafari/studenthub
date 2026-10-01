@@ -559,6 +559,20 @@ jobs:
         with:
           persist-credentials: false
 
+      # Линт Dockerfile до сборки: ошибку в инструкции дешевле увидеть сразу, чем через
+      # несколько минут сборки.
+      #
+      # Порог warning, а не стандартный info: на info hadolint считает замечанием
+      # «несколько RUN подряд — объедините». В наших Dockerfile'ах они разделены
+      # намеренно, по слоям кеша, и объединять их значило бы пересобирать всё из-за
+      # правки в одной строке. Ошибки и предупреждения при этом блокируют.
+      - name: Линт Dockerfile (hadolint)
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
+            hadolint --no-color --failure-threshold warning - < "apps/$APP/Dockerfile"
+
       - name: Поставить docker buildx
         uses: docker/setup-buildx-action@v4
 
