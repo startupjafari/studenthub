@@ -2,7 +2,7 @@
 # Multi-stage: сборка монорепо (turbo: shared-* → api) → минимальный runner.
 # Контекст сборки — КОРЕНЬ монорепо: docker build -f apps/api/Dockerfile .
 
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -37,7 +37,7 @@ RUN pnpm exec turbo run build --filter=api
 RUN pnpm --filter api --prod deploy /app --legacy
 
 # ── runner ──
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
