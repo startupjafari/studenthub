@@ -40,7 +40,7 @@ concurrency:
 jobs:
   migrate:
     name: ${{ inputs.mode }} · миграции прод-БД
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Секрет prod-БД живёт в окружении, чтобы его можно было закрыть ревью и правилами.
     environment: production
 

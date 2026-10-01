@@ -30,10 +30,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Образ раннера пришпилен во всех прогонах репозитория: `ubuntu-latest` переезжает на
+# Ubuntu 26.04 с 19.10.2026, и переезд произошёл бы молча — посреди обычной недели, на
+# правке, которая к нему отношения не имеет. Меняются системные библиотеки, а на них
+# завязаны зависимости браузера Playwright и сборка нативных модулей. Переход делаем
+# отдельным PR, когда есть кому разбирать его падения.
 jobs:
   ci:
     name: Код · линт, типы, тесты, сборка
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Весь прогон укладывается в ~6 минут. Потолок нужен не для медленных шагов, а для
     # зависших: если e2e не смог поднять AppModule, jest остаётся с открытыми соединениями
     # и не выходит — без этого лимита шаг досиживает до дефолтных 6 часов.
@@ -95,7 +100,7 @@ jobs:
             T --> A["Код<br/>линт · типы · тесты · сборка"]
             T --> B["Веб<br/>сценарии Playwright"]
             T --> C["Образы<br/>api · web · landing · mini-app"]
-            T --> D["Безопасность<br/>зависимости · секреты"]
+            T --> D["Безопасность<br/>уязвимости · секреты"]
             T --> E["Нота «Что нового»<br/>только на PR в main"]
           ```
 
@@ -106,7 +111,7 @@ jobs:
           | **Код** | eslint, `tsc --noEmit`, юнит-тесты api и веба, тесты сида, интеграционные тесты api с базой, сборка всех приложений | сломан код или тест — смотреть упавший шаг |
           | **Веб** | Playwright поднимает свои api и web на отдельных портах и базе и проходит вход, ленту, публикацию, заявку, расписание | сломан путь пользователя; к прогону приложен отчёт `playwright-report` со скриншотами и трассой |
           | **Образ · app** | `docker build` четырёх приложений без публикации | Railway не соберёт этот образ на выкатке |
-          | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории | уязвимость в рантайм-зависимости или секрет в коммите |
+          | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории; аудит всех зависимостей — отдельной таблицей ниже на этой же странице, он не блокирует | уязвимость в рантайм-зависимости или секрет в коммите |
           | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
           MD
 
@@ -118,7 +123,10 @@ jobs:
 
       # Версии экшенов держим на актуальных мажорах: GitHub снимает с эксплуатации
       # рантайм node20, и v4 у checkout/setup-node уже принудительно запускались на
-      # node24 с предупреждением.
+      # node24 с предупреждением. По той же причине подняты cache (v6), upload-artifact
+      # (v7), docker/build-push-action (v7) и docker/setup-buildx-action (v4) — там, кроме
+      # рантайма и перехода на ESM, ломающих изменений во входных параметрах нет.
+      # Новые мажоры приносит dependabot (`.github/dependabot.yml`, раз в месяц).
       #
       # Именно v7 у setup-node, а не минимальный переход на v5: в v5 появилось
       # автокеширование по полю `packageManager` в package.json, и в двух job'ах ниже
@@ -173,7 +181,7 @@ jobs:
       # неизменившийся пакет пересобирать незачем. Ключ с sha — чтобы запись была новой
       # каждый раз, restore-keys поднимают ближайший предыдущий.
       - name: Кеш turbo между прогонами
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
@@ -236,7 +244,7 @@ jobs:
   # проходился, и «кнопка не открывает диалог» ловилось руками.
   web-e2e:
     name: Веб · сквозные сценарии Playwright
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Прогон поднимает api (nest build) и web (next dev) и идёт около десяти минут.
     # Потолок нужен против зависших серверов: Playwright ждёт порт до 180 с на каждый,
     # а упавший на старте api оставляет прогон висеть на ретраях.
@@ -344,7 +352,7 @@ jobs:
 
       # Ключ по лок-файлу: браузер переустанавливается, когда меняется версия Playwright.
       - name: Кеш браузеров Playwright
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -361,7 +369,7 @@ jobs:
       # Отчёт нужен именно при падении: по нему видно шаг, скриншот и трассу повтора.
       - name: Отчёт Playwright — только при падении
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: apps/web/playwright-report
@@ -376,7 +384,7 @@ jobs:
   # fail-fast: false — узнать хочется про все сломанные приложения сразу, а не про первое.
   docker:
     name: Образ · ${{ matrix.app }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     strategy:
@@ -389,7 +397,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Поставить docker buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Контекст — корень репозитория: все четыре Dockerfile копируют pnpm-lock.yaml и
       # манифесты воркспейса, из каталога приложения их не видно.
@@ -398,7 +406,7 @@ jobs:
       # не знает, он просто игнорирует. Значения здесь — заглушки для сборки, в образ
       # Railway приезжают свои (они build-time, см. docs/RAILWAY.md).
       - name: Собрать образ ${{ matrix.app }} — без публикации
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
@@ -419,7 +427,7 @@ jobs:
   # последним. Job лёгкая, идёт параллельно и падает независимо.
   security:
     name: Безопасность · уязвимости и секреты
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -452,10 +460,51 @@ jobs:
       - name: Уязвимости в прод-зависимостях — блокирует
         run: pnpm audit --prod --audit-level moderate
 
-      # Не блокирует: список для глаз, а не ворота.
-      - name: Уязвимости во всех зависимостях — справочно
-        continue-on-error: true
-        run: pnpm audit --audit-level high
+      # Не блокирует: список для глаз, а не ворота. Но «для глаз» значит, что эти глаза
+      # должны что-то увидеть, а раньше шаг стоял под `continue-on-error` — и единственным
+      # следом находок была безымянная аннотация «Process completed with exit code 1» у
+      # зелёного job'а: на вкладке Summary красная строчка без названия шага и без
+      # содержимого. Теперь находки уходят в сводку запуска таблицей, а шаг завершается
+      # успехом явно (`exit 0` в конце), поэтому ложной аннотации больше нет.
+      #
+      # Ровно это и отличает мягкую проверку от сломанной: мягкая обязана быть заметной.
+      - name: Уязвимости во всех зависимостях — в сводку, без блокировки
+        run: |
+          set -o pipefail
+          report=$(pnpm audit --audit-level high --json 2>/dev/null) || true
+
+          if [ -z "$report" ]; then
+            echo "## Уязвимости в зависимостях (справочно)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Аудит не отдал отчёт — смотреть лог шага." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count=$(echo "$report" | jq '.advisories | length')
+
+          {
+            echo "## Уязвимости в зависимостях (справочно)"
+            echo ""
+            if [ "$count" = "0" ]; then
+              echo "Находок уровня high и выше нет."
+            else
+              echo "Найдено **$count** на уровне high и выше. Шаг не блокирует мёрж:"
+              echo "рантайм закрывает шаг выше (\`pnpm audit --prod\`), здесь — в том числе"
+              echo "сборочные зависимости. Разбирать глазами."
+              echo ""
+              echo "| Уровень | Пакет | Чинится в | Путь | Что это |"
+              echo "|---|---|---|---|---|"
+              echo "$report" | jq -r '
+                .advisories[]
+                | "| \(.severity) | \(.module_name) | \(.patched_versions) | `\(.findings[0].paths[0] // "—")` | [\(.title)](\(.url // "https://github.com/advisories")) |"
+              '
+            fi
+            echo ""
+            echo "Итог по всем уровням: $(echo "$report" | jq -r '.metadata.vulnerabilities | "critical \(.critical), high \(.high), moderate \(.moderate), low \(.low)"')."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Выход всегда нулевой: находки — информация, а не ворота.
+          exit 0
 
       # Секрет в истории = секрет скомпрометирован, даже если файл давно удалён.
       # Дешевле поймать на PR, чем ротировать ключи задним числом.
@@ -469,7 +518,7 @@ jobs:
   release-note:
     name: Релиз · нота «Что нового»
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:

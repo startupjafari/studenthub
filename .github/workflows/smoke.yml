@@ -41,7 +41,7 @@ concurrency:
 jobs:
   smoke:
     name: Прод отвечает — API и веб
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     env:
