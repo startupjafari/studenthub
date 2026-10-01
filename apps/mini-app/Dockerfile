@@ -22,7 +22,7 @@ COPY apps/mini-app apps/mini-app
 RUN pnpm --filter mini-app build
 
 # ── runtime: nginx раздаёт dist и проксирует /api ──
-FROM nginx:1.27-alpine AS runner
+FROM nginx:1.29-alpine AS runner
 
 # Шаблон, а не готовый конфиг: nginx:alpine прогоняет /etc/nginx/templates/*.template
 # через envsubst при старте, и адрес API с портом приезжают переменными окружения.
