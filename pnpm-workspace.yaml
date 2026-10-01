@@ -20,4 +20,6 @@ packages:
 # Пока лок собирается с той же выдержкой, спотыкаться не обо что.
 #
 # На `pnpm install --frozen-lockfile` не влияет: там версии не разрешаются заново.
+# А вот `pnpm deploy` в apps/api/Dockerfile дерево разрешает, поэтому запускается с
+# `--config.minimumReleaseAge=0` — почему это безопасно, расписано там же.
 minimumReleaseAge: 10080

@@ -40,8 +40,21 @@ RUN cp -r /repo/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma /repo/n
 # turbo собирает workspace-зависимости api (shared-*) по графу ^build, затем сам api.
 # Прямой `pnpm --filter api build` их пропускает → api не находит dist shared-пакетов.
 RUN pnpm exec turbo run build --filter=api
-# prod-зависимости для runner
-RUN pnpm --filter api --prod deploy /app --legacy
+# prod-зависимости для runner.
+#
+# minimumReleaseAge=0 отключает выдержку из pnpm-workspace.yaml для этой одной команды.
+# Легаси-deploy не раскладывает /app по локу напрямую: он заново прогоняет разрешение по
+# всему воркспейсу, и выдержка проверяет каждую версию в дереве — в том числе зависимости
+# чужих приложений (сборка падала на undici 7.30.0 из дерева apps/web). Защиты здесь
+# никакой: версии всё равно приходят из лока (сверено — все 424 пакета в /app совпадают с
+# pnpm-lock.yaml, из реестра не скачивается ничего), а сам лок собран с выдержкой. Без
+# флага образ не собирается ровно неделю после каждого обновления любой зависимости.
+#
+# --frozen-lockfile не помогает: deploy его игнорирует и разрешает дерево в любом случае.
+# Отказаться от --legacy тоже нельзя: новый deploy требует inject-workspace-packages=true
+# для всего воркспейса (ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE), а это другой способ
+# раскладки node_modules во всём репозитории.
+RUN pnpm --filter api --prod deploy /app --legacy --config.minimumReleaseAge=0
 
 # ── runner ──
 FROM node:24-alpine AS runner
