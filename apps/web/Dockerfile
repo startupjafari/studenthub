@@ -2,7 +2,7 @@
 # Контекст сборки — КОРЕНЬ монорепо: docker build -f apps/web/Dockerfile .
 # NEXT_PUBLIC_* инлайнятся на этапе build → передавайте build-arg.
 
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -35,7 +35,7 @@ ENV API_PROXY_TARGET=${API_PROXY_TARGET}
 RUN pnpm exec turbo run build --filter=web
 
 # ── runner: только standalone-вывод Next ──
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
