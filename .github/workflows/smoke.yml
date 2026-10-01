@@ -188,10 +188,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Поставить Node 20
+      - name: Поставить Node 24
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           package-manager-cache: false
 
       - name: Создать черновик, если версии ещё нет
