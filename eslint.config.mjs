@@ -84,7 +84,7 @@ export default tseslint.config(
         process: 'readonly',
         URL: 'readonly',
         URLSearchParams: 'readonly',
-        // Глобалы Node 20, нужные сиду для скачивания медиа (fetch/таймеры/Buffer).
+        // Глобалы Node 24, нужные сиду для скачивания медиа (fetch/таймеры/Buffer).
         fetch: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
