@@ -26,6 +26,13 @@ on:
   pull_request:
     branches: [main]
 
+# Токен прогона — только на чтение кода. По умолчанию GitHub выдаёт job'у заметно больше
+# прав, чем нужно, а в публичном репозитории этот токен достаётся в том числе сторонним
+# экшенам из `uses:`. Шагу, которому понадобится больше (запись результатов сканирования,
+# комментарий в PR), права добавляются точечно на уровне job'а.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -117,6 +124,8 @@ jobs:
 
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить pnpm
         uses: pnpm/action-setup@v6
@@ -298,6 +307,8 @@ jobs:
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить pnpm
         uses: pnpm/action-setup@v6
@@ -395,6 +406,8 @@ jobs:
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить docker buildx
         uses: docker/setup-buildx-action@v4
@@ -436,6 +449,7 @@ jobs:
       - name: Забрать код со всей историей
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Поставить pnpm
@@ -514,6 +528,12 @@ jobs:
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # По умолчанию экшен комментирует строку с находкой прямо в PR, и ради этого ему
+          # нужен токен с правом записи в pull requests. Отдаём ему read-only, а комментарии
+          # выключаем: сигнал о находке — красный job, подробности лежат в артефакте
+          # gitleaks-results.sarif. Выдавать стороннему экшену запись в публичном
+          # репозитории ради удобной подсветки — размен не в нашу пользу.
+          GITLEAKS_ENABLE_COMMENTS: 'false'
 
   # Нота «Что нового» пишется до мёржа в main: она едет в бандле вместе с кодом, который
   # описывает, и после выпуска её уже не подложить. Проверка — только на релизном PR.
@@ -528,6 +548,7 @@ jobs:
       - name: Забрать код с тегами
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Поставить Node 20

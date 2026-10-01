@@ -42,6 +42,10 @@ on:
         default: true
 
 # Сброс и seed не должны идти одновременно по одной БД.
+# Прогон ходит в прод-БД, а с кодом только читает: токену хватает contents: read.
+permissions:
+  contents: read
+
 concurrency:
   group: db-write-railway
   cancel-in-progress: false
@@ -92,6 +96,8 @@ jobs:
 
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить pnpm
         uses: pnpm/action-setup@v6
