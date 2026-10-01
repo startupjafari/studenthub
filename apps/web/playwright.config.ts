@@ -21,7 +21,10 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // Один повтор в CI — против редких таймаутов на медленном раннере. Ночной прогон
+  // выставляет PW_RETRIES=0 намеренно: повтор прячет плавающий тест, а ночью его как раз
+  // и ищут — код тот же, что днём, значит упавшее упало не из-за изменения.
+  retries: process.env.PW_RETRIES ? Number(process.env.PW_RETRIES) : process.env.CI ? 1 : 0,
   workers: 1,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
 
