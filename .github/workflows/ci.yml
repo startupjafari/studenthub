@@ -11,6 +11,8 @@ name: Проверки · код, тесты, образы
 #       Безопасность ... уязвимости в зависимостях + поиск секретов в истории
 #       Прогоны ........ линт самих workflow: actionlint и zizmor
 #       Нота ........... «Что нового» для версии написана (только на PR в main)
+#       Миграции ....... применены ли на проде (только на PR в main)
+#       Сводка ......... числа недели в Telegram (ночью по понедельникам)
 #       Сообщить ....... уведомление в Telegram, если упало на main или ночью
 #
 #   Единственная зависимость между job'ами — образы:
@@ -65,6 +67,12 @@ jobs:
   ci:
     name: Код · линт, типы, тесты, сборка
     runs-on: ubuntu-24.04
+    # Числа для еженедельной сводки: считаются здесь, читаются job'ом «Сводка за неделю».
+    outputs:
+      coverage-api: ${{ steps.coverage.outputs.api }}
+      coverage-web: ${{ steps.coverage.outputs.web }}
+      size-web: ${{ steps.size.outputs.web }}
+      size-mini: ${{ steps.size.outputs.mini }}
     # Весь прогон укладывается в ~6 минут. Потолок нужен не для медленных шагов, а для
     # зависших: если e2e не смог поднять AppModule, jest остаётся с открытыми соединениями
     # и не выходит — без этого лимита шаг досиживает до дефолтных 6 часов.
@@ -130,6 +138,7 @@ jobs:
             T --> D["Безопасность<br/>уязвимости · секреты"]
             T --> E["Прогоны<br/>actionlint · zizmor"]
             T --> F["Нота «Что нового»<br/>только на PR в main"]
+            T --> G["Миграции прод-БД<br/>применены? только на PR в main"]
           ```
 
           Job'ы идут параллельно и друг друга не ждут — кроме образов: они собираются только
@@ -144,6 +153,7 @@ jobs:
           | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории; аудит всех зависимостей — отдельной таблицей ниже на этой же странице, он не блокирует | уязвимость в рантайм-зависимости или секрет в коммите |
           | **Прогоны** | actionlint и zizmor по файлам `.github/workflows`: синтаксис, выражения, shell внутри `run`, права токена, подстановка ввода в команды | сломан или небезопасен сам прогон |
           | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
+          | **Миграции прод-БД** | `prisma migrate status` против боевой базы: всё ли из `prisma/migrations` там уже есть | после мёржа Railway выкатит код на старую схему — сначала прогон «Прод-БД · миграции» в режиме `deploy` |
           MD
 
       - name: Забрать код
@@ -264,6 +274,7 @@ jobs:
       #
       # `if: always()` — покрытие интересно и когда тесты упали: видно, что успели пройти.
       - name: Покрытие тестами — в сводку
+        id: coverage
         if: always()
         run: |
           {
@@ -299,6 +310,14 @@ jobs:
               echo "Порога пока нет — это наблюдение за динамикой, а не ворота."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+          # Доля покрытых строк — в выводы job'а, для еженедельной сводки.
+          for app in api web; do
+            f="apps/$app/coverage/coverage-summary.json"
+            pct='—'
+            if [ -s "$f" ]; then pct=$(jq -r '.total.lines.pct' "$f"); fi
+            echo "$app=$pct" >> "$GITHUB_OUTPUT"
+          done
 
       # Тесты сида — на встроенном раннере Node, без БД и без MinIO: проверяют чистую
       # логику (детерминизм PRNG, порядок флаша буферов, структурность id, план вуза,
@@ -387,6 +406,7 @@ jobs:
       # preset-app не берём: он поднимает браузер — лишний вес и лишний источник
       # нестабильности в прогоне.
       - name: Размер бандлов — в сводку
+        id: size
         if: always()
         run: |
           {
@@ -411,6 +431,18 @@ jobs:
             echo ""
             echo "Порога пока нет — это наблюдение за динамикой, а не ворота."
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Суммарный размер по каждому приложению — в выводы job'а.
+          for app in web mini-app; do
+            out=$(pnpm --filter "$app" exec size-limit --json 2>/dev/null) || out=''
+            kb='—'
+            if [ -n "$out" ]; then
+              kb=$(echo "$out" | jq -r '[.[].size] | add | . / 1024 * 10 | round / 10')
+            fi
+            key=web
+            if [ "$app" = mini-app ]; then key=mini; fi
+            echo "$key=$kb" >> "$GITHUB_OUTPUT"
+          done
 
   # Сквозные сценарии веба. Отдельной job'ой, а не шагом в `ci`: прогон поднимает СВОИ
   # экземпляры api и web (playwright.config.ts, webServer) на своих портах и своей базе —
@@ -821,8 +853,10 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: studenthub-${{ matrix.app }}:ci
-          format: table
-          output: trivy-${{ matrix.app }}.txt
+          # json, а не table: из одного отчёта и таблица в сводке, и число для
+          # еженедельной сводки в Telegram. Таблицу рисуем сами шагом ниже.
+          format: json
+          output: trivy-${{ matrix.app }}.json
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           scanners: vuln
@@ -845,17 +879,43 @@ jobs:
         env:
           APP: ${{ matrix.app }}
         run: |
+          f="trivy-$APP.json"
+          count=0
+          if [ -s "$f" ]; then
+            count=$(jq '[.Results[]?.Vulnerabilities // [] | length] | add // 0' "$f")
+          fi
+          # Число — в файл: его забирает еженедельная сводка.
+          echo "$count" > "trivy-count-$APP.txt"
+
           {
             echo "## Образ $APP — уязвимости базового образа"
             echo ""
-            if [ ! -s "trivy-$APP.txt" ]; then
+            if [ ! -s "$f" ]; then
+              echo "Отчёт trivy не найден — смотреть лог шага."
+            elif [ "$count" = 0 ]; then
               echo "Находок уровня HIGH и CRITICAL с доступным исправлением нет."
             else
-              echo '```'
-              cat "trivy-$APP.txt"
-              echo '```'
+              echo "Найдено **$count**. Чинится обновлением базового образа."
+              echo ""
+              echo "| Где | Уровень | Пакет | Чинится в | CVE |"
+              echo "|---|---|---|---|---|"
+              jq -r '
+                [ .Results[]? | .Target as $t | (.Vulnerabilities // [])[]
+                  | "| \($t) | \(.Severity) | \(.PkgName) \(.InstalledVersion) | \(.FixedVersion // "—") | \(.VulnerabilityID) |" ]
+                | unique | .[]
+              ' "$f"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Счётчик находок — только ночью: из него собирается еженедельная сводка. В
+      # обычных прогонах артефакт никому не нужен и только засоряет список.
+      - name: Счётчик находок ${{ matrix.app }} — артефактом
+        if: always() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-count-${{ matrix.app }}
+          path: trivy-count-${{ matrix.app }}.txt
+          retention-days: 7
 
       # ── Проверка, что образ не только собрался, но и работает ──
       #
@@ -1103,6 +1163,181 @@ jobs:
             --format github \
             --config /repo/.github/zizmor.yml \
             /repo/.github
+
+  # Сводка за неделю — в Telegram.
+  #
+  # Ночной прогон молчит, когда всё хорошо, и это правильно: уведомление, приходящее
+  # каждый день, перестают читать на третий. Но числа, которые он считает — находки
+  # trivy, покрытие, размеры бандлов, — лежат в сводке запуска, куда по своей воле не
+  # заходит никто. Раз в неделю их стоит принести самому.
+  #
+  # День недели проверяется в шаге, а не в `if`: выражения GitHub не умеют работать с
+  # датой. Job стартует каждую ночь и в остальные шесть дней заканчивается за секунды.
+  digest:
+    name: Сводка за неделю
+    needs: [ci, web-e2e, changes, docker, security, workflows]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Понедельник ли сегодня
+        id: when
+        run: |
+          if [ "$(date -u +%u)" = 1 ]; then
+            echo "send=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "send=no" >> "$GITHUB_OUTPUT"
+            echo "Сегодня не понедельник — сводка не отправляется."
+          fi
+
+      - name: Забрать код
+        if: steps.when.outputs.send == 'yes'
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Счётчики находок trivy — по одному файлу на образ. merge-multiple: все в один
+      # каталог, чтобы не разбирать вложенность.
+      - name: Забрать счётчики находок
+        if: steps.when.outputs.send == 'yes'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: trivy-count-*
+          path: trivy-counts
+          merge-multiple: true
+
+      # Все значения приезжают переменными окружения: это вычисленные выводы других
+      # job'ов, а такое в команду не подставляют — то же правило, что и для matrix.
+      - name: Собрать текст сводки
+        if: steps.when.outputs.send == 'yes'
+        id: text
+        env:
+          COV_API: ${{ needs.ci.outputs.coverage-api }}
+          COV_WEB: ${{ needs.ci.outputs.coverage-web }}
+          SIZE_WEB: ${{ needs.ci.outputs.size-web }}
+          SIZE_MINI: ${{ needs.ci.outputs.size-mini }}
+          R_CI: ${{ needs.ci.result }}
+          R_WEB: ${{ needs['web-e2e'].result }}
+          R_DOCKER: ${{ needs.docker.result }}
+          R_SECURITY: ${{ needs.security.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          total=0
+          for f in trivy-counts/trivy-count-*.txt; do
+            [ -s "$f" ] || continue
+            n=$(tr -dc '0-9' < "$f")
+            total=$((total + ${n:-0}))
+          done
+
+          {
+            echo 'text<<DIGEST'
+            echo "Сводка StudentHub за неделю."
+            echo ""
+            echo "Покрытие тестами (строки): api ${COV_API}%, веб ${COV_WEB}%"
+            echo "Размер бандлов (gzip): веб ${SIZE_WEB} КБ, мини-апп ${SIZE_MINI} КБ"
+            echo "Уязвимости в образах (HIGH и выше, с исправлением): $total"
+            echo ""
+            echo "Ночной прогон: код ${R_CI}, веб ${R_WEB}, образы ${R_DOCKER}, безопасность ${R_SECURITY}"
+            echo ""
+            echo "Подробности — в сводке прогона:"
+            echo "$RUN_URL"
+            echo 'DIGEST'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Отправить в Telegram
+        if: steps.when.outputs.send == 'yes'
+        uses: ./.github/actions/notify-telegram
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: ${{ steps.text.outputs.text }}
+
+  # Миграции прод-БД применены до мёржа в main.
+  #
+  # Порядок «сначала Прод-БД · миграции в режиме deploy, потом мёрж» до сих пор жил в
+  # docs/RELEASE.md и в голове. Railway выкатывает по push в main, то есть новый код
+  # встречает ту схему, которая на проде есть сейчас. Отката у `prisma migrate` нет, и
+  # цена ошибки здесь выше, чем у любой другой проверки в этом файле: приложение уходит
+  # в прод и обращается к колонке, которой там ещё нет.
+  #
+  # Проверка только читает: `migrate status` сравнивает историю из prisma/migrations с
+  # таблицей _prisma_migrations и ничего не меняет.
+  #
+  # Секрета нет — не падаем, а пишем, чего не хватает. Репозиторий публичный, и PR из
+  # форка секретов не получает: такой PR краснел бы не по делу.
+  migrations:
+    name: Миграции прод-БД применены
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Поставить Node 20 и кеш pnpm-store
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Установить зависимости (frozen-lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Сверить применённые миграции с prisma/migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            {
+              echo "## Миграции прод-БД"
+              echo ""
+              echo "Секрет \`DATABASE_PUBLIC_URL\` недоступен — проверка пропущена."
+              echo "Так бывает у PR из форка: секреты туда не передаются."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Проверка миграций пропущена — нет доступа к секрету."
+            exit 0
+          fi
+
+          set +e
+          out=$(pnpm exec prisma migrate status 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+
+          # На код возврата не полагаемся: у `migrate status` он менялся между версиями
+          # Prisma, а строка про актуальность схемы стабильна и однозначна.
+          if echo "$out" | grep -q "Database schema is up to date"; then
+            {
+              echo "## Миграции прод-БД"
+              echo ""
+              echo "Схема прода совпадает с \`prisma/migrations\` — мёрж безопасен."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "## Миграции прод-БД — не применены"
+            echo ""
+            echo "На проде нет части миграций из этой ветки. Railway выкатывает по push в"
+            echo "\`main\`, то есть после мёржа новый код встретит старую схему."
+            echo ""
+            echo "Порядок: запустить прогон **Прод-БД · миграции** в режиме \`status\`,"
+            echo "посмотреть SQL глазами, затем в режиме \`deploy\` — и только потом мёрж."
+            echo ""
+            echo '```'
+            echo "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error::Миграции прод-БД не применены — мёрж в main приведёт к рассинхрону схемы (код выхода prisma: $code)" >&2
+          exit 1
 
   # Уведомление о падении — туда, где его увидят.
   #
