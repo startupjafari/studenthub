@@ -1,0 +1,6 @@
+[
+  {
+    "name": "JS приложения (все чанки)",
+    "path": ".next/static/chunks/**/*.js"
+  }
+]

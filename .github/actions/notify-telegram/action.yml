@@ -1,0 +1,50 @@
+name: Уведомление в Telegram
+description: Шлёт короткое сообщение о прогоне. Без заданных секретов тихо пропускает шаг.
+
+# Отдельным композитным экшеном, а не повторённым шагом: уведомление нужно в нескольких
+# местах, а правило «нет секретов — не падаем» должно быть записано один раз.
+#
+# Почему не падаем без секретов. Уведомления настраивает человек, и до тех пор, пока он
+# этого не сделал, прогон не должен краснеть из-за того, что ему некуда написать. Ровно
+# как у Smoke с адресами прода: лучше явный пропуск, чем красная галочка у того, кто про
+# эту проверку ещё не знает.
+
+inputs:
+  token:
+    description: 'Токен бота (секрет TELEGRAM_BOT_TOKEN)'
+    required: false
+  chat-id:
+    description: 'Идентификатор чата или канала (секрет TELEGRAM_CHAT_ID)'
+    required: false
+  text:
+    description: 'Текст сообщения — обычный текст, без разметки'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Отправить сообщение
+      shell: bash
+      env:
+        TG_TOKEN: ${{ inputs.token }}
+        TG_CHAT: ${{ inputs.chat-id }}
+        TG_TEXT: ${{ inputs.text }}
+      run: |
+        if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+          echo "Секреты TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID не заданы — уведомление пропущено."
+          echo "Задать: Settings → Secrets and variables → Actions → New repository secret."
+          exit 0
+        fi
+
+        # --data-urlencode, а не подстановка в URL: в тексте есть переводы строк, ссылки и
+        # имя ветки, которое пишет человек. Разметку не включаем вовсе — иначе любой
+        # спецсимвол в имени ветки ломал бы отправку.
+        if ! curl -fsS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+          --data-urlencode "chat_id=${TG_CHAT}" \
+          --data-urlencode "text=${TG_TEXT}" \
+          --data-urlencode "disable_web_page_preview=true" \
+          -o /dev/null; then
+          # Неудачная отправка не должна ронять прогон: это уведомление о проблеме,
+          # а не сама проблема. Но в логе след остаётся.
+          echo "::warning::Не удалось отправить уведомление в Telegram."
+        fi

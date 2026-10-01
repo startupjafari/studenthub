@@ -22,5 +22,24 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // Покрытие считается только при --coverage. Репортёры те же, что у api: text-summary
+    // печатает итог в лог шага, json-summary читает прогон и кладёт таблицу в сводку
+    // запуска, html остаётся для просмотра локально.
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'json-summary', 'html'],
+      // Только исходники приложения. Без этого vitest берёт в знаменатель всё, что найдёт
+      // по умолчанию, включая вывод сборки в .next — первый прогон насчитал 158 тысяч
+      // инструкций и 8% покрытия, то есть мерил не то.
+      include: ['src/**/*.{ts,tsx}'],
+      // Тесты, конфиги и сгенерированный код в знаменателе только портят картину.
+      exclude: [
+        'src/**/*.{test,spec}.{ts,tsx}',
+        'src/**/*.d.ts',
+        '**/node_modules/**',
+        'e2e/**',
+        '*.config.{ts,mjs,js}',
+      ],
+    },
   },
 })

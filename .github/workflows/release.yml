@@ -1,4 +1,4 @@
-name: Release · описание опубликованного релиза
+name: Релиз · описание по тегу
 
 # СХЕМА ПРОГОНА
 #
@@ -36,6 +36,9 @@ jobs:
   notes:
     name: Описание релиза — проверить и заполнить
     runs-on: ubuntu-24.04
+    # Прогон читает git и вызывает gh — укладывается в полминуты. Лимит здесь против
+    # зависшего сетевого вызова, а не против медленных шагов.
+    timeout-minutes: 10
 
     steps:
       # fetch-depth: 0 — нужны и теги, и история: описание строится по диапазону
@@ -43,22 +46,34 @@ jobs:
       - name: Забрать код по тегу релиза, с историей
         uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.event.release.tag_name }}
 
+      # package-manager-cache: false — прогон запускается по событию release и ничего не
+      # устанавливает (скрипт ноты ходит только в git и в gh). Включённый по умолчанию кеш
+      # пакетного менеджера здесь не экономит ничего, зато заводит ещё один путь, по
+      # которому в прогон релиза попадает содержимое, собранное в другом прогоне.
       - name: Поставить Node 20
         uses: actions/setup-node@v7
         with:
           node-version: 20
+          package-manager-cache: false
 
+      # Имя тега приходит из события и в shell попадает только через переменную окружения:
+      # подставленное прямо в команду, оно выполнилось бы как часть этой команды — тег
+      # создаёт человек, и имя у него произвольное.
       - name: Проверить, что для версии написана нота «Что нового»
-        run: node scripts/release.mjs verify "${{ github.event.release.tag_name }}"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/release.mjs verify "$TAG"
 
       - name: Заполнить описание релиза — только если тело пустое
         if: ${{ !github.event.release.body }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          node scripts/release.mjs body "${{ github.event.release.tag_name }}" > release-body.md
-          gh release edit "${{ github.event.release.tag_name }}" --notes-file release-body.md
+          node scripts/release.mjs body "$TAG" > release-body.md
+          gh release edit "$TAG" --notes-file release-body.md

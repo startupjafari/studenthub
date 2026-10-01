@@ -1,4 +1,7 @@
-name: Reset DB · очистить прод-БД до одного администратора (Railway)
+name: Прод-БД · очистить до администратора
+# Заголовок запуска: в списке прогонов ручные операции выглядели одинаково, и что
+# именно делали — читалось только внутри. Теперь видно режим и кто запустил.
+run-name: ОЧИСТКА прод-БД · останется ${{ inputs.admin_email }} · запустил ${{ github.actor }}
 
 # СХЕМА ПРОГОНА
 #
@@ -42,6 +45,10 @@ on:
         default: true
 
 # Сброс и seed не должны идти одновременно по одной БД.
+# Прогон ходит в прод-БД, а с кодом только читает: токену хватает contents: read.
+permissions:
+  contents: read
+
 concurrency:
   group: db-write-railway
   cancel-in-progress: false
@@ -50,6 +57,9 @@ jobs:
   reset:
     name: Сброс — в базе остаётся один администратор
     runs-on: ubuntu-24.04
+    # С запасом на заливку справочника КАТО по галочке. Причина лимита та же, что у
+    # миграций: зависший job держит соединение с прод-БД часами.
+    timeout-minutes: 30
     # Окружение production: секрет прод-БД можно закрыть ревьюером/правилами.
     environment: production
 
@@ -59,8 +69,10 @@ jobs:
     steps:
       # Подтверждение проверяем ДО checkout: неверный ввод не должен ничего запускать.
       - name: Проверить подтверждение RESET и секрет с адресом БД
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          if [ "${{ inputs.confirm }}" != "RESET" ]; then
+          if [ "$CONFIRM" != "RESET" ]; then
             echo "::error::Подтверждение не совпало: ожидалось RESET." >&2
             exit 1
           fi
@@ -90,9 +102,11 @@ jobs:
 
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - name: Поставить Node 20 и кеш pnpm-store
         uses: actions/setup-node@v7
@@ -127,13 +141,19 @@ jobs:
         if: ${{ inputs.run_seed_kato }}
         run: pnpm db:seed:kato
 
+      # admin_email — ввод запускающего, в shell идёт переменной окружения, а не подстановкой.
+      # Сам секрет с паролем сюда не попадает вовсе: нужен только факт «задан или нет»,
+      # и его вычисляет выражение, а в шаг приезжает true/false.
       - name: Итог — в сводку запуска
+        env:
+          ADMIN_EMAIL: ${{ inputs.admin_email }}
+          ADMIN_PASSWORD_SET: ${{ secrets.RESET_ADMIN_PASSWORD != '' }}
         run: |
           {
             echo "### Сброс БД выполнен"
             echo ""
-            echo "В базе остался один пользователь — PLATFORM_ADMIN \`${{ inputs.admin_email }}\`."
-            if [ -n "${{ secrets.RESET_ADMIN_PASSWORD }}" ]; then
+            echo "В базе остался один пользователь — PLATFORM_ADMIN \`$ADMIN_EMAIL\`."
+            if [ "$ADMIN_PASSWORD_SET" = "true" ]; then
               echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
             else
               echo "Пароль сгенерирован и напечатан в логе шага «Очистить таблицы, оставив одного администратора» — сохраните его и смените после входа."
