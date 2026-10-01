@@ -523,8 +523,11 @@ export class CompaniesService {
     const base =
       name
         .toLowerCase()
+        // Прогоны не-буквенно-цифровых схлопываются в один дефис, поэтому с краёв
+        // достаточно снять по одному: двух подряд там уже не бывает. Прежний `-+$`
+        // на строке из дефисов разворачивался квадратично (js/polynomial-redos).
         .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
+        .replace(/^-|-$/g, '')
         .slice(0, 32) || 'company'
 
     for (let attempt = 0; attempt < 5; attempt++) {
