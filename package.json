@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.33.2",
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=24.0.0",
     "pnpm": ">=10.0.0"
   },
   "scripts": {
@@ -31,7 +31,7 @@
     "db:seed:media": "SEED_ONLY=media node prisma/seed.mjs",
     "db:seed:kato": "SEED_ONLY=kato node prisma/seed.mjs",
     "db:reset:admin": "node prisma/reset-to-admin.mjs",
-    "test:seed": "node --test prisma/seed/"
+    "test:seed": "node --test 'prisma/seed/**/*.test.mjs'"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
