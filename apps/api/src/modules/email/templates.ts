@@ -2,7 +2,9 @@
 // Десять типов: приглашение, подтверждение email компании, приветствие, статус заявки,
 // изменение расписания, напоминание о событии, офлайн-зеркало in-app уведомления и три
 // письма прихода вуза — подтверждение адреса заявки, одобрение, отказ.
-// Тексты — на русском (основной язык); полноценный i18n писем — в Ф13.1.
+// Тексты — в email-strings.ts на трёх языках; язык берётся из `locale` в payload'е job'а,
+// то есть из User.locale получателя. У внешних адресатов (компания, заявка вуза с лендинга)
+// учётной записи ещё нет — для них русский по умолчанию.
 // Payload содержит только необходимый минимум: адрес и данные для рендера, без целых сущностей.
 //
 // Единый стиль (§ ниже): у всех писем один каркас — синяя шапка с названием платформы,
@@ -17,6 +19,7 @@
 // письма — сразу о событии: имя отправителя в почтовом клиенте и так «StudentHub».
 
 import { pickWebBase } from '../../config/web-base'
+import { emailDict, type EmailDict } from './email-strings'
 
 export interface RenderedEmail {
   subject: string
@@ -24,7 +27,19 @@ export interface RenderedEmail {
   text: string
 }
 
-export interface InvitePayload {
+/**
+ * Язык письма. Общий для всех payload'ов: продюсер кладёт сюда `User.locale` получателя.
+ *
+ * Необязательное поле намеренно. Во-первых, часть писем уходит людям без учётной записи
+ * (подтверждение компании, заявка вуза с лендинга) — языка у них взять неоткуда.
+ * Во-вторых, job'ы, положенные в очередь предыдущей версией кода, приходят без него, и
+ * отправить их всё равно надо. Нет языка — русский.
+ */
+export interface LocalizedEmailPayload {
+  locale?: string | null
+}
+
+export interface InvitePayload extends LocalizedEmailPayload {
   to: string
   inviteUrl: string
   roleLabel: string
@@ -37,7 +52,7 @@ export interface InvitePayload {
  * Единственный сценарий на платформе, где email не проверен инвайтом заранее, — поэтому
  * до перехода по ссылке компания не видна ни одному вузу.
  */
-export interface CompanyVerificationPayload {
+export interface CompanyVerificationPayload extends LocalizedEmailPayload {
   to: string
   companyName: string
   verifyUrl: string
@@ -51,7 +66,7 @@ export interface CompanyVerificationPayload {
  * в очередь попадали бы заявки, поданные с чужого рабочего адреса. Подтверждение
  * ничего не обещает — только переводит заявку в очередь.
  */
-export interface DemoVerificationPayload {
+export interface DemoVerificationPayload extends LocalizedEmailPayload {
   to: string
   universityName: string
   verifyUrl: string
@@ -63,7 +78,7 @@ export interface DemoVerificationPayload {
  * Отдельное письмо «вас пригласили» после письма «заявка одобрена» выглядело бы
  * как дубль, а человек всё равно нажимает первую попавшуюся ссылку.
  */
-export interface DemoApprovedPayload {
+export interface DemoApprovedPayload extends LocalizedEmailPayload {
   to: string
   universityName: string
   contactName: string
@@ -75,19 +90,19 @@ export interface DemoApprovedPayload {
  * Заявка отклонена. Причина — из закрытого списка, уже приведённая к человеческой
  * формулировке на стороне сервиса: шаблон не знает про enum'ы.
  */
-export interface DemoRejectedPayload {
+export interface DemoRejectedPayload extends LocalizedEmailPayload {
   to: string
   universityName: string
   reasonText: string
   canReapply: boolean
 }
 
-export interface WelcomePayload {
+export interface WelcomePayload extends LocalizedEmailPayload {
   to: string
   firstName: string
 }
 
-export interface ApplicationStatusPayload {
+export interface ApplicationStatusPayload extends LocalizedEmailPayload {
   to: string
   firstName: string
   applicationId: string
@@ -95,21 +110,21 @@ export interface ApplicationStatusPayload {
   comment?: string
 }
 
-export interface ScheduleChangePayload {
+export interface ScheduleChangePayload extends LocalizedEmailPayload {
   to: string
   firstName: string
   groupName?: string
   summary: string
 }
 
-export interface EventReminderPayload {
+export interface EventReminderPayload extends LocalizedEmailPayload {
   to: string
   firstName: string
   eventTitle: string
   startsAtLabel: string
 }
 
-export interface NotificationPayload {
+export interface NotificationPayload extends LocalizedEmailPayload {
   to: string
   firstName: string
   notificationTitle: string
@@ -183,13 +198,13 @@ function facts(rows: [label: string, value: string][]): string {
  * Целевое действие письма: кнопка плюс та же ссылка текстом. Текстовый дубль обязателен —
  * часть клиентов вырезает оформление кнопки, и без него письмо становится тупиком.
  */
-function action(url: string, label: string): string {
+function action(url: string, label: string, t: EmailDict): string {
   const safe = esc(url)
   return `<p style="margin:0 0 16px;">
       <a href="${safe}" style="display:inline-block;background:${COLOR.brand};color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:12px;font-size:15px;font-weight:bold;">${label}</a>
     </p>
     <p style="margin:0 0 16px;font-size:13px;line-height:1.6;color:${COLOR.muted};">
-      Если кнопка не открывается, скопируйте ссылку:<br />
+      ${t.common.linkFallback}<br />
       <a href="${safe}" style="color:${COLOR.brand};word-break:break-all;">${safe}</a>
     </p>`
 }
@@ -199,18 +214,21 @@ function action(url: string, label: string): string {
  * писем рядом с темой: без неё туда попадает первый попавшийся кусок вёрстки.
  * `footerExtra` — дополнительная строка подвала (например, как отключить письма).
  */
-function layout(options: {
-  preheader: string
-  heading: string
-  body: string
-  footerExtra?: string
-}): string {
+function layout(
+  options: {
+    preheader: string
+    heading: string
+    body: string
+    footerExtra?: string
+  },
+  t: EmailDict,
+): string {
   const base = appUrl()
   const brandLink = base
-    ? `<p style="margin:8px 0 0;"><a href="${esc(base)}" style="color:${COLOR.muted};text-decoration:underline;">Открыть ${BRAND}</a></p>`
+    ? `<p style="margin:8px 0 0;"><a href="${esc(base)}" style="color:${COLOR.muted};text-decoration:underline;">${t.common.openApp}</a></p>`
     : ''
   return `<!doctype html>
-<html lang="ru">
+<html lang="${t.htmlLang}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -237,7 +255,7 @@ function layout(options: {
             </tr>
             <tr>
               <td style="padding:20px 32px;border-top:1px solid ${COLOR.border};color:${COLOR.muted};font-size:12px;line-height:1.5;">
-                <p style="margin:0;">Это автоматическое письмо от платформы ${BRAND}. Отвечать на него не нужно.</p>
+                <p style="margin:0;">${t.common.autoNote}</p>
                 ${options.footerExtra ? `<p style="margin:8px 0 0;">${options.footerExtra}</p>` : ''}
                 ${brandLink}
               </td>
@@ -251,237 +269,262 @@ function layout(options: {
 }
 
 /** Текстовая версия того же письма: абзацы через пустую строку плюс общая подпись. */
-function plain(lines: string[]): string {
+function plain(lines: string[], t: EmailDict): string {
   const base = appUrl()
-  const footer = [`— ${BRAND}. Это автоматическое письмо, отвечать на него не нужно.`]
+  const footer = [t.common.plainSignature]
   if (base) footer.push(base)
   return [...lines.filter(Boolean), '', ...footer].join('\n')
 }
 
 export function renderInvite(data: InvitePayload): RenderedEmail {
+  const t = emailDict(data.locale)
   const invitedBy = data.invitedByName
-    ? `${esc(data.invitedByName)} приглашает вас`
-    : 'Вас пригласили'
-  const subject = `Приглашение в ${BRAND}`
-  const html = layout({
-    preheader: `Роль «${esc(data.roleLabel)}», ссылка действует до ${esc(data.expiresAt)}`,
-    heading: `Приглашение в ${BRAND}`,
-    body:
-      paragraph(`${invitedBy} присоединиться к платформе ${BRAND}.`) +
-      facts([
-        ['Роль', esc(data.roleLabel)],
-        ['Ссылка действует до', esc(data.expiresAt)],
-      ]) +
-      paragraph('Чтобы завершить регистрацию, перейдите по ссылке и задайте пароль.') +
-      action(data.inviteUrl, 'Принять приглашение') +
-      note('Если вы не ожидали приглашение — просто проигнорируйте это письмо.'),
-  })
-  const text = plain([
-    `${data.invitedByName ? `${data.invitedByName} приглашает вас` : 'Вас пригласили'} присоединиться к ${BRAND}.`,
-    `Роль: ${data.roleLabel}`,
-    `Ссылка действует до ${data.expiresAt}`,
-    '',
-    `Завершите регистрацию по ссылке: ${data.inviteUrl}`,
-    '',
-    'Если вы не ожидали приглашение — просто проигнорируйте это письмо.',
-  ])
+    ? t.invite.invitedBy(esc(data.invitedByName))
+    : t.invite.invitedImpersonal
+  const subject = t.invite.subject
+  const html = layout(
+    {
+      preheader: t.invite.preheader(esc(data.roleLabel), esc(data.expiresAt)),
+      heading: t.invite.heading,
+      body:
+        paragraph(t.invite.lead(invitedBy)) +
+        facts([
+          [t.facts.role, esc(data.roleLabel)],
+          [t.facts.validUntil, esc(data.expiresAt)],
+        ]) +
+        paragraph(t.invite.finish) +
+        action(data.inviteUrl, t.invite.action, t) +
+        note(t.invite.note),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.invite.plainLead(
+        data.invitedByName ? t.invite.invitedBy(data.invitedByName) : t.invite.invitedImpersonal,
+      ),
+      `${t.facts.role}: ${data.roleLabel}`,
+      `${t.facts.validUntil} ${data.expiresAt}`,
+      '',
+      t.invite.plainFinish(data.inviteUrl),
+      '',
+      t.invite.note,
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
 export function renderCompanyVerification(data: CompanyVerificationPayload): RenderedEmail {
-  const subject = `Подтвердите email компании в ${BRAND}`
-  const html = layout({
-    preheader: `Компания «${esc(data.companyName)}» ждёт подтверждения адреса`,
-    heading: 'Подтвердите адрес',
-    body:
-      paragraph(
-        `Вы зарегистрировали компанию «${esc(data.companyName)}» в ${BRAND}. Подтвердите адрес, чтобы подать заявку на доступ к студентам университета.`,
-      ) +
-      facts([
-        ['Компания', esc(data.companyName)],
-        ['Ссылка действует до', esc(data.expiresAt)],
-      ]) +
-      action(data.verifyUrl, 'Подтвердить email') +
-      note(
-        'Если вы не регистрировались — просто проигнорируйте это письмо, аккаунт останется неактивным.',
-      ),
-  })
-  const text = plain([
-    `Вы зарегистрировали компанию «${data.companyName}» в ${BRAND}.`,
-    `Ссылка действует до ${data.expiresAt}`,
-    '',
-    `Подтвердите адрес по ссылке: ${data.verifyUrl}`,
-    '',
-    'Если вы не регистрировались — просто проигнорируйте это письмо.',
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.companyVerification.subject
+  const html = layout(
+    {
+      preheader: t.companyVerification.preheader(esc(data.companyName)),
+      heading: t.companyVerification.heading,
+      body:
+        paragraph(t.companyVerification.lead(esc(data.companyName))) +
+        facts([
+          [t.facts.company, esc(data.companyName)],
+          [t.facts.validUntil, esc(data.expiresAt)],
+        ]) +
+        action(data.verifyUrl, t.companyVerification.action, t) +
+        note(t.companyVerification.note),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.companyVerification.lead(data.companyName),
+      `${t.facts.validUntil} ${data.expiresAt}`,
+      '',
+      data.verifyUrl,
+      '',
+      t.companyVerification.plainNote,
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
 export function renderWelcome(data: WelcomePayload): RenderedEmail {
-  const subject = `Добро пожаловать в ${BRAND}`
-  const html = layout({
-    preheader: 'Аккаунт создан — лента, расписание, заявки и чаты уже доступны',
-    heading: `Добро пожаловать, ${esc(data.firstName)}!`,
-    body:
-      paragraph(
-        `Ваш аккаунт в ${BRAND} создан. Теперь вам доступны лента, расписание, заявки, чаты и события вашего университета.`,
-      ) + paragraph('Загляните в профиль и настройте уведомления под себя.'),
-  })
-  const text = plain([
-    `Добро пожаловать, ${data.firstName}! Ваш аккаунт в ${BRAND} создан.`,
-    'Вам доступны лента, расписание, заявки, чаты и события вашего университета.',
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.welcome.subject
+  const html = layout(
+    {
+      preheader: t.welcome.preheader,
+      heading: t.welcome.heading(esc(data.firstName)),
+      body: paragraph(t.welcome.lead) + paragraph(t.welcome.hint),
+    },
+    t,
+  )
+  const text = plain([t.welcome.plainLead(data.firstName), t.welcome.plainWhat], t)
   return { subject, html, text }
 }
 
 export function renderApplicationStatus(data: ApplicationStatusPayload): RenderedEmail {
-  const subject = `Заявка ${data.applicationId}: ${data.statusLabel}`
-  const html = layout({
-    preheader: `Заявка ${esc(data.applicationId)} — ${esc(data.statusLabel)}`,
-    heading: 'Статус заявки изменён',
-    body:
-      paragraph(`${esc(data.firstName)}, статус вашей заявки изменился.`) +
-      facts([
-        ['Заявка', esc(data.applicationId)],
-        ['Статус', esc(data.statusLabel)],
-      ]) +
-      (data.comment ? paragraph(`Комментарий деканата: ${esc(data.comment)}`) : ''),
-  })
-  const text = plain([
-    `${data.firstName}, статус вашей заявки изменился.`,
-    `Заявка: ${data.applicationId}`,
-    `Статус: ${data.statusLabel}`,
-    ...(data.comment ? ['', `Комментарий деканата: ${data.comment}`] : []),
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.applicationStatus.subject(data.applicationId, data.statusLabel)
+  const html = layout(
+    {
+      preheader: t.applicationStatus.preheader(esc(data.applicationId), esc(data.statusLabel)),
+      heading: t.applicationStatus.heading,
+      body:
+        paragraph(t.applicationStatus.lead(esc(data.firstName))) +
+        facts([
+          [t.facts.application, esc(data.applicationId)],
+          [t.facts.status, esc(data.statusLabel)],
+        ]) +
+        (data.comment ? paragraph(t.applicationStatus.comment(esc(data.comment))) : ''),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.applicationStatus.lead(data.firstName),
+      `${t.facts.application}: ${data.applicationId}`,
+      `${t.facts.status}: ${data.statusLabel}`,
+      ...(data.comment ? ['', t.applicationStatus.comment(data.comment)] : []),
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
 export function renderDemoVerification(data: DemoVerificationPayload): RenderedEmail {
-  const subject = `Подтвердите заявку на тестирование ${BRAND}`
-  const html = layout({
-    preheader: `Заявка вуза «${esc(data.universityName)}» ждёт подтверждения адреса`,
-    heading: 'Подтвердите адрес',
-    body:
-      paragraph(
-        `С этого адреса подали заявку на тестирование платформы ${BRAND} для «${esc(
-          data.universityName,
-        )}». Подтвердите, что адрес ваш, — после этого заявку увидит наш сотрудник.`,
-      ) +
-      facts([['Ссылка действует до', esc(data.expiresAt)]]) +
-      action(data.verifyUrl, 'Подтвердить адрес') +
-      note(
-        'Если заявку подавали не вы — просто проигнорируйте это письмо, дальше ничего не произойдёт.',
-      ),
-  })
-  const text = plain([
-    `С этого адреса подали заявку на тестирование ${BRAND} для «${data.universityName}».`,
-    `Ссылка действует до ${data.expiresAt}`,
-    '',
-    `Подтвердите адрес: ${data.verifyUrl}`,
-    '',
-    'Если заявку подавали не вы — просто проигнорируйте это письмо.',
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.demoVerification.subject
+  const html = layout(
+    {
+      preheader: t.demoVerification.preheader(esc(data.universityName)),
+      heading: t.demoVerification.heading,
+      body:
+        paragraph(t.demoVerification.lead(esc(data.universityName))) +
+        facts([[t.facts.validUntil, esc(data.expiresAt)]]) +
+        action(data.verifyUrl, t.demoVerification.action, t) +
+        note(t.demoVerification.note),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.demoVerification.lead(data.universityName),
+      `${t.facts.validUntil} ${data.expiresAt}`,
+      '',
+      data.verifyUrl,
+      '',
+      t.demoVerification.plainNote,
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
 export function renderDemoApproved(data: DemoApprovedPayload): RenderedEmail {
-  const subject = `Доступ к ${BRAND} для «${data.universityName}» открыт`
-  const html = layout({
-    preheader: 'Заявка одобрена — ссылка для входа внутри',
-    heading: 'Заявка одобрена',
-    body:
-      paragraph(
-        `${esc(data.contactName)}, здравствуйте. Мы завели «${esc(
-          data.universityName,
-        )}» на платформе ${BRAND} и открыли вам доступ администратора вуза.`,
-      ) +
-      paragraph(
-        'После входа откроется мастер настройки: он проведёт по шагам — факультеты, специальности, группы, аудитории, семестр, предметы — и в конце покажет, чего не хватает для запуска. Пройти его можно не за один раз: сделанное сохраняется.',
-      ) +
-      facts([['Ссылка действует до', esc(data.expiresAt)]]) +
-      action(data.inviteUrl, 'Начать настройку') +
-      note(
-        'Ссылка одноразовая и рассчитана на вас: по ней задаётся пароль вашего аккаунта. Передавать её коллегам не нужно — их вы пригласите сами из платформы.',
-      ),
-  })
-  const text = plain([
-    `${data.contactName}, здравствуйте.`,
-    `Мы завели «${data.universityName}» на платформе ${BRAND} и открыли вам доступ администратора вуза.`,
-    '',
-    'После входа откроется мастер настройки: факультеты, специальности, группы, аудитории, семестр, предметы. Пройти его можно не за один раз.',
-    '',
-    `Ссылка действует до ${data.expiresAt}`,
-    `Начать настройку: ${data.inviteUrl}`,
-    '',
-    'Ссылка одноразовая: по ней задаётся пароль вашего аккаунта.',
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.demoApproved.subject(data.universityName)
+  const html = layout(
+    {
+      preheader: t.demoApproved.preheader,
+      heading: t.demoApproved.heading,
+      body:
+        paragraph(
+          `${t.demoApproved.greeting(esc(data.contactName))} ${t.demoApproved.lead(esc(data.universityName))}`,
+        ) +
+        paragraph(t.demoApproved.wizard) +
+        facts([[t.facts.validUntil, esc(data.expiresAt)]]) +
+        action(data.inviteUrl, t.demoApproved.action, t) +
+        note(t.demoApproved.note),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.demoApproved.greeting(data.contactName),
+      t.demoApproved.lead(data.universityName),
+      '',
+      t.demoApproved.wizardPlain,
+      '',
+      `${t.facts.validUntil} ${data.expiresAt}`,
+      data.inviteUrl,
+      '',
+      t.demoApproved.notePlain,
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
 export function renderDemoRejected(data: DemoRejectedPayload): RenderedEmail {
-  const subject = `Заявка на тестирование ${BRAND}`
+  const t = emailDict(data.locale)
+  const subject = t.demoRejected.subject
   // Отказ — письмо без кнопки. Кнопка здесь звала бы туда, куда звать нечем.
-  const again = data.canReapply
-    ? 'Если что-то изменится, подайте заявку заново — мы посмотрим её как новую.'
-    : 'Отвечать на это письмо не нужно.'
-  const html = layout({
-    preheader: `Заявка вуза «${esc(data.universityName)}» рассмотрена`,
-    heading: 'Заявка рассмотрена',
-    body:
-      paragraph(
-        `Спасибо за интерес к ${BRAND}. Заявку на тестирование для «${esc(
-          data.universityName,
-        )}» мы сейчас принять не можем.`,
-      ) +
-      paragraph(esc(data.reasonText)) +
-      note(again),
-  })
-  const text = plain([
-    `Спасибо за интерес к ${BRAND}.`,
-    `Заявку на тестирование для «${data.universityName}» мы сейчас принять не можем.`,
-    data.reasonText,
-    '',
-    again,
-  ])
+  const again = data.canReapply ? t.demoRejected.again : t.demoRejected.noReply
+  const html = layout(
+    {
+      preheader: t.demoRejected.preheader(esc(data.universityName)),
+      heading: t.demoRejected.heading,
+      body:
+        paragraph(t.demoRejected.lead(esc(data.universityName))) +
+        paragraph(esc(data.reasonText)) +
+        note(again),
+    },
+    t,
+  )
+  const text = plain([t.demoRejected.lead(data.universityName), data.reasonText, '', again], t)
   return { subject, html, text }
 }
 
 export function renderScheduleChange(data: ScheduleChangePayload): RenderedEmail {
-  const subject = 'Изменение в расписании'
-  const html = layout({
-    preheader: esc(data.summary),
-    heading: 'Расписание изменено',
-    body:
-      paragraph(`${esc(data.firstName)}, в расписании есть изменения.`) +
-      (data.groupName ? facts([['Группа', esc(data.groupName)]]) : '') +
-      paragraph(esc(data.summary)),
-  })
-  const text = plain([
-    `${data.firstName}, в расписании есть изменения.`,
-    ...(data.groupName ? [`Группа: ${data.groupName}`] : []),
-    '',
-    data.summary,
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.scheduleChange.subject
+  const html = layout(
+    {
+      preheader: esc(data.summary),
+      heading: t.scheduleChange.heading,
+      body:
+        paragraph(t.scheduleChange.lead(esc(data.firstName))) +
+        (data.groupName ? facts([[t.facts.group, esc(data.groupName)]]) : '') +
+        paragraph(esc(data.summary)),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.scheduleChange.lead(data.firstName),
+      ...(data.groupName ? [`${t.facts.group}: ${data.groupName}`] : []),
+      '',
+      data.summary,
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
 export function renderEventReminder(data: EventReminderPayload): RenderedEmail {
-  const subject = `Напоминание: ${data.eventTitle}`
-  const html = layout({
-    preheader: `«${esc(data.eventTitle)}» начнётся ${esc(data.startsAtLabel)}`,
-    heading: 'Скоро начнётся событие',
-    body:
-      paragraph(`${esc(data.firstName)}, напоминаем о событии.`) +
-      facts([
-        ['Событие', esc(data.eventTitle)],
-        ['Начало', esc(data.startsAtLabel)],
-      ]),
-  })
-  const text = plain([
-    `${data.firstName}, напоминаем о событии.`,
-    `Событие: ${data.eventTitle}`,
-    `Начало: ${data.startsAtLabel}`,
-  ])
+  const t = emailDict(data.locale)
+  const subject = t.eventReminder.subject(data.eventTitle)
+  const html = layout(
+    {
+      preheader: t.eventReminder.preheader(esc(data.eventTitle), esc(data.startsAtLabel)),
+      heading: t.eventReminder.heading,
+      body:
+        paragraph(t.eventReminder.lead(esc(data.firstName))) +
+        facts([
+          [t.facts.event, esc(data.eventTitle)],
+          [t.facts.startsAt, esc(data.startsAtLabel)],
+        ]),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.eventReminder.lead(data.firstName),
+      `${t.facts.event}: ${data.eventTitle}`,
+      `${t.facts.startsAt}: ${data.startsAtLabel}`,
+    ],
+    t,
+  )
   return { subject, html, text }
 }
 
@@ -490,27 +533,31 @@ export function renderEventReminder(data: EventReminderPayload): RenderedEmail {
 // Единственное письмо, которое человек может получать часто, — поэтому в подвале
 // сказано, где выключить канал.
 export function renderNotification(data: NotificationPayload): RenderedEmail {
+  const t = emailDict(data.locale)
   const base = appUrl()
   const settingsLink = base
-    ? `Отключить письма можно в <a href="${esc(base)}/settings" style="color:${COLOR.muted};text-decoration:underline;">настройках уведомлений</a>.`
-    : 'Отключить письма можно в настройках уведомлений.'
+    ? t.common.settingsLink(
+        `<a href="${esc(base)}/settings" style="color:${COLOR.muted};text-decoration:underline;">${t.common.settingsPlain}</a>`,
+      )
+    : t.common.settingsPlain
   const subject = data.notificationTitle
-  const html = layout({
-    preheader: esc(data.notificationBody),
-    heading: esc(data.notificationTitle),
-    // Текст уведомления приходит из продюсера и может начинаться как угодно — с заглавной
-    // буквы, с «Отправила вам…», с цитаты. Поэтому обращение отдельным законченным
-    // предложением, а не приклеено к телу: иначе выходит «Алия, Отправила вам сообщение».
-    body:
-      paragraph(`${esc(data.firstName)}, у вас новое уведомление:`) +
-      paragraph(esc(data.notificationBody)),
-    footerExtra: settingsLink,
-  })
-  const text = plain([
-    `${data.firstName}, у вас новое уведомление:`,
-    data.notificationBody,
-    '',
-    'Отключить письма можно в настройках уведомлений.',
-  ])
+  const html = layout(
+    {
+      preheader: esc(data.notificationBody),
+      heading: esc(data.notificationTitle),
+      // Текст уведомления приходит из продюсера и может начинаться как угодно — с заглавной
+      // буквы, с «Отправила вам…», с цитаты. Поэтому обращение отдельным законченным
+      // предложением, а не приклеено к телу: иначе выходит «Алия, Отправила вам сообщение».
+      body:
+        paragraph(t.notificationMirror.lead(esc(data.firstName))) +
+        paragraph(esc(data.notificationBody)),
+      footerExtra: settingsLink,
+    },
+    t,
+  )
+  const text = plain(
+    [t.notificationMirror.lead(data.firstName), data.notificationBody, '', t.common.settingsPlain],
+    t,
+  )
   return { subject, html, text }
 }

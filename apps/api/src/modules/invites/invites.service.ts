@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
 import { InviteStatus, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { TTL } from '@studenthub/shared-config'
+import { DEFAULT_LOCALE, TTL } from '@studenthub/shared-config'
 import {
   BULK_INVITE_MAX_ROWS,
   type InviteListQueryInput,
@@ -26,20 +26,7 @@ import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
 import { resolveInviteTarget } from './invite-hierarchy'
 import type { RawBulkRow } from './bulk-parse'
-
-// Человекочитаемые названия ролей для писем (основной язык — русский, полноценный i18n
-// писем — Ф13.1; синхронизировано с apps/web/messages/ru.json → "Roles").
-const ROLE_LABELS_RU: Record<Role, string> = {
-  [Role.PLATFORM_ADMIN]: 'Администратор платформы',
-  [Role.PLATFORM_MODERATOR]: 'Модератор платформы',
-  [Role.UNIVERSITY_ADMIN]: 'Администратор университета',
-  [Role.UNIVERSITY_MODERATOR]: 'Модератор университета',
-  [Role.DEAN]: 'Декан',
-  [Role.TEACHER]: 'Преподаватель',
-  [Role.STAROSTA]: 'Староста',
-  [Role.STUDENT]: 'Студент',
-  [Role.EMPLOYER]: 'Работодатель',
-}
+import { emailDict } from '../email/email-strings'
 
 /**
  * Порядок выборки приглашений по колонке таблицы.
@@ -137,12 +124,37 @@ export class InviteService {
     // Письмо со ссылкой-приглашением (docs/PROJECT.md §7.3, §10.1) — только если известен
     // адрес получателя. Отправка асинхронна (§9.1): HTTP-ответ её не ждёт.
     if (input.email && options.notify !== false) {
-      await this.enqueueInviteEmail(input.email, token, invite.role, expiresAt)
+      await this.enqueueInviteEmail(
+        input.email,
+        token,
+        invite.role,
+        expiresAt,
+        await this.issuerLocale(issuer.sub),
+      )
     }
 
     // Токен возвращается ТОЛЬКО здесь — создателю в момент выдачи (§11.9). Подменяем на
     // сырой: в `invite.token` из базы лежит хэш, по нему зарегистрироваться нельзя.
     return { ...invite, token }
+  }
+
+  /**
+   * Язык письма-приглашения — язык того, кто приглашает.
+   *
+   * У адресата учётной записи ещё нет, то есть его языка взять неоткуда, и выбирать
+   * приходится между «всегда русский» и «как у приглашающего». Второе ближе к правде:
+   * приглашения рассылает сотрудник своего вуза, и вуз, работающий на казахском,
+   * рассылает их казахоязычным студентам.
+   *
+   * Отдельным запросом, а не из токена: язык меняется в настройках, а JWT живёт до
+   * истечения — из токена приходил бы язык на момент входа.
+   */
+  private async issuerLocale(issuerId: string): Promise<string> {
+    const issuer = await this.prisma.user.findUnique({
+      where: { id: issuerId },
+      select: { locale: true },
+    })
+    return issuer?.locale ?? DEFAULT_LOCALE
   }
 
   /**
@@ -156,18 +168,21 @@ export class InviteService {
     token: string,
     role: Role,
     expiresAt: Date,
+    locale: string,
   ): Promise<void> {
     const origin = this.config.get('CORS_ORIGIN', { infer: true }).replace(/\/+$/, '')
     const inviteUrl = `${origin}/register?token=${token}`
+    const t = emailDict(locale)
     try {
       await this.queue.enqueue(
         QUEUES.EMAIL,
         EMAIL_JOBS.SEND_INVITE,
         {
           to: email,
+          locale,
           inviteUrl,
-          roleLabel: ROLE_LABELS_RU[role],
-          expiresAt: new Intl.DateTimeFormat('ru-RU', {
+          roleLabel: t.roles[role],
+          expiresAt: new Intl.DateTimeFormat(t.dateLocale, {
             dateStyle: 'long',
             timeStyle: 'short',
           }).format(expiresAt),
@@ -316,8 +331,13 @@ export class InviteService {
     })
 
     // Письма — best-effort, вне критического пути (сбой Redis не роняет ответ).
-    for (const e of emailsToSend) {
-      await this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt)
+    if (emailsToSend.length > 0) {
+      // Один запрос на всю пачку, и только когда есть кому писать: у загрузки без адресов
+      // (приглашения выдают ссылками) ходить за языком незачем.
+      const locale = await this.issuerLocale(issuer.sub)
+      for (const e of emailsToSend) {
+        await this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, locale)
+      }
     }
 
     return { created, skipped, failed }

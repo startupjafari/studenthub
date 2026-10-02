@@ -20,7 +20,11 @@ const dean: JwtPayload = {
 
 function setup() {
   const group = { findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101' }]) }
-  const user = { findMany: jest.fn().mockResolvedValue([]) }
+  const user = {
+    findMany: jest.fn().mockResolvedValue([]),
+    // Язык писем-приглашений — язык приглашающего (invites.service: issuerLocale).
+    findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }),
+  }
   const invite = { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
   const prisma = {
     group,

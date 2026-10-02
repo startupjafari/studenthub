@@ -32,6 +32,9 @@ const deanA: JwtPayload = {
 
 function setup() {
   const prisma: PrismaMock = {
+    // Язык письма-приглашения берётся из профиля приглашающего (invites.service:
+    // issuerLocale) — без этого мока сервис падает ещё до постановки письма в очередь.
+    user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }) },
     invite: {
       create: jest.fn(),
       findFirst: jest.fn(),
