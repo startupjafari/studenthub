@@ -10,6 +10,7 @@ import type {
   SaveSubmissionDraftInput,
   UpdateAssignmentInput,
 } from '@studenthub/shared-schemas'
+import type { NotificationMessageKey, NotificationParams } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -361,8 +362,8 @@ export class AssignmentsService {
     await this.notifyStudent(
       graded.student.id,
       NOTIFICATION_JOBS.ASSIGNMENT_GRADED,
-      'Работа проверена',
-      `${sub.assignment.course.subject.name}: ${sub.assignment.title}`,
+      'assignments.graded.title',
+      { subject: sub.assignment.course.subject.name, title: sub.assignment.title },
       { url: '/assignments', submissionId },
       `submission-graded:${submissionId}:${graded.attemptNumber}`,
     )
@@ -391,8 +392,8 @@ export class AssignmentsService {
     await this.notifyStudent(
       returned.student.id,
       NOTIFICATION_JOBS.ASSIGNMENT_GRADED,
-      'Работа возвращена на исправление',
-      `${sub.assignment.course.subject.name}: ${sub.assignment.title}`,
+      'assignments.returned.title',
+      { subject: sub.assignment.course.subject.name, title: sub.assignment.title },
       { url: '/assignments', submissionId },
       `submission-returned:${submissionId}:${returned.attemptNumber}`,
     )
@@ -577,8 +578,9 @@ export class AssignmentsService {
       {
         recipientIds: students.map((s) => s.id),
         type: 'SYSTEM',
-        title: 'Новое задание',
-        body: `${a.course.subject.name}: ${a.title}`,
+        titleKey: 'assignments.published.title',
+        bodyKey: 'assignments.course.body',
+        params: { subject: a.course.subject.name, title: a.title },
         data: { url: '/assignments', assignmentId: a.id },
         dedupeKey: `assignment-published:${a.id}`,
       },
@@ -589,15 +591,23 @@ export class AssignmentsService {
   private async notifyStudent(
     userId: string,
     jobName: string,
-    title: string,
-    body: string,
+    titleKey: NotificationMessageKey,
+    params: NotificationParams,
     data: Record<string, unknown>,
     dedupeKey: string,
   ): Promise<void> {
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       jobName,
-      { recipientIds: [userId], type: 'SYSTEM', title, body, data, dedupeKey },
+      {
+        recipientIds: [userId],
+        type: 'SYSTEM',
+        titleKey,
+        bodyKey: 'assignments.course.body',
+        params,
+        data,
+        dedupeKey,
+      },
       { jobId: dedupeKey },
     )
   }

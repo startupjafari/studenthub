@@ -11,11 +11,19 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 
 // Публичная выборка уведомления: без userId и dedupeKey (внутренние поля).
+//
+// `titleKey`/`bodyKey`/`params` отдаём наружу намеренно: человек меняет язык в настройках
+// и ожидает увидеть на новом языке и вчерашние уведомления. Без ключа клиенту нечем их
+// перерисовать — осталась бы двуязычная лента. Текст `title`/`body` при этом остаётся:
+// у части уведомлений словарной статьи нет (имя отправителя, превью сообщения).
 const NOTIFICATION_SELECT = {
   id: true,
   type: true,
   title: true,
   body: true,
+  titleKey: true,
+  bodyKey: true,
+  params: true,
   data: true,
   isRead: true,
   readAt: true,

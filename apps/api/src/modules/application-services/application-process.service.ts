@@ -6,6 +6,7 @@ import {
   REALTIME_EVENTS,
   type ApplicationServiceStatus,
 } from '@studenthub/shared-schemas'
+import type { NotificationMessageKey, NotificationParams } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
@@ -106,8 +107,11 @@ export class ApplicationProcessService {
       action: 'STATUS_CHANGED',
       comment,
       notify: {
-        title: 'Требуется ваше действие',
-        body: `Заявка ${app.number}: требуется исправление`,
+        titleKey: 'applications.needsAction.title',
+        bodyKey: 'applications.needsAction.body',
+        // `number` в схеме nullable (у черновика его ещё нет). До перехода на словарь
+        // шаблонная строка подставила бы в текст слово «null» — здесь это видно явно.
+        params: { number: app.number ?? '' },
       },
     })
   }
@@ -117,7 +121,11 @@ export class ApplicationProcessService {
     const app = await this.load(viewer, id)
     return this.transition(viewer, app, 'IN_PREPARATION', {
       action: 'STATUS_CHANGED',
-      notify: { title: 'Заявка в подготовке', body: `Заявка ${app.number}: началась подготовка` },
+      notify: {
+        titleKey: 'applications.preparing.title',
+        bodyKey: 'applications.preparing.body',
+        params: { number: app.number ?? '' },
+      },
     })
   }
 
@@ -129,7 +137,11 @@ export class ApplicationProcessService {
       action: 'REJECTED',
       comment: reason,
       data: { rejectionReason: reason },
-      notify: { title: 'Заявка отклонена', body: `Заявка ${app.number} отклонена` },
+      notify: {
+        titleKey: 'applications.rejected.title',
+        bodyKey: 'applications.rejected.body',
+        params: { number: app.number ?? '' },
+      },
     })
   }
 
@@ -317,8 +329,9 @@ export class ApplicationProcessService {
       action: 'READY',
       data,
       notify: {
-        title: paper ? 'Документ готов к выдаче' : 'Документ готов',
-        body: `Заявка ${app.number}: результат готов`,
+        titleKey: paper ? 'applications.readyPaper.title' : 'applications.ready.title',
+        bodyKey: 'applications.ready.body',
+        params: { number: app.number ?? '' },
       },
     })
   }
@@ -329,7 +342,11 @@ export class ApplicationProcessService {
     return this.transition(viewer, app, 'ISSUED', {
       action: 'ISSUED',
       data: { issuedAt: new Date(), issuedById: viewer.sub },
-      notify: { title: 'Документ выдан', body: `Заявка ${app.number}: оригинал выдан` },
+      notify: {
+        titleKey: 'applications.issued.title',
+        bodyKey: 'applications.issued.body',
+        params: { number: app.number ?? '' },
+      },
     })
   }
 
@@ -339,8 +356,9 @@ export class ApplicationProcessService {
     return this.transition(viewer, app, 'DELIVERED', {
       action: 'DELIVERED',
       notify: {
-        title: 'Документ предоставлен',
-        body: `Заявка ${app.number}: электронный документ готов`,
+        titleKey: 'applications.provided.title',
+        bodyKey: 'applications.provided.body',
+        params: { number: app.number ?? '' },
       },
     })
   }
@@ -398,7 +416,11 @@ export class ApplicationProcessService {
       action: string
       comment?: string
       data?: Prisma.ApplicationUpdateInput
-      notify?: { title: string; body: string }
+      notify?: {
+        titleKey: NotificationMessageKey
+        bodyKey: NotificationMessageKey
+        params?: NotificationParams
+      }
     },
   ) {
     if (!canTransition(app.status as ApplicationServiceStatus, to)) {
@@ -428,13 +450,7 @@ export class ApplicationProcessService {
       // IN_REVIEW→NEEDS_CORRECTION→…→NEEDS_CORRECTION даёт тот же статус повторно, и
       // ключ вида `${to}:${appId}` глушил бы второе уведомление (студент не узнал бы о
       // повторном отклонении). id события уникален на переход, но стабилен для ретраев job.
-      await this.notify(
-        app.studentId,
-        opts.notify.title,
-        opts.notify.body,
-        app.id,
-        `${to}:${eventId}`,
-      )
+      await this.notify(app.studentId, opts.notify, app.id, `${to}:${eventId}`)
     }
     // Realtime: точечно уведомляем владельца заявки об изменении статуса — окно заявки
     // обновляется вживую (без опроса). Payload минимальный (только статус), без PII.
@@ -446,8 +462,11 @@ export class ApplicationProcessService {
 
   private async notify(
     recipientId: string,
-    title: string,
-    body: string,
+    message: {
+      titleKey: NotificationMessageKey
+      bodyKey: NotificationMessageKey
+      params?: NotificationParams
+    },
     appId: string,
     dedupeKey: string,
   ): Promise<void> {
@@ -457,8 +476,9 @@ export class ApplicationProcessService {
       {
         recipientIds: [recipientId],
         type: 'APP_UPDATE',
-        title,
-        body,
+        titleKey: message.titleKey,
+        bodyKey: message.bodyKey,
+        params: message.params,
         data: { url: `/applications/${appId}` },
         dedupeKey,
       },

@@ -13,6 +13,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
+import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { CareerAccessService } from './career-access.service'
@@ -44,13 +45,16 @@ const STUDENT_SELECT = {
  * Текст уведомления по статусу. Русский — как и остальные письма/уведомления платформы
  * (полноценный i18n уведомлений — отдельная задача, см. модуль email).
  */
-const STATUS_BODY: Record<(typeof EMPLOYER_APPLICATION_STATUSES)[number], string> = {
-  VIEWED: 'Компания посмотрела ваш отклик',
-  SHORTLISTED: 'Вас добавили в шорт-лист',
-  INTERVIEW: 'Вас пригласили на интервью',
-  OFFER: 'Вам сделали предложение',
-  HIRED: 'Вас приняли на работу',
-  REJECTED: 'По этому отклику отказ',
+const STATUS_BODY_KEY: Record<
+  (typeof EMPLOYER_APPLICATION_STATUSES)[number],
+  NotificationMessageKey
+> = {
+  VIEWED: 'career.viewed.body',
+  SHORTLISTED: 'career.shortlisted.body',
+  INTERVIEW: 'career.interview.body',
+  OFFER: 'career.offer.body',
+  HIRED: 'career.hired.body',
+  REJECTED: 'career.rejected.body',
 }
 
 @Injectable()
@@ -266,7 +270,6 @@ export class ApplicationsService {
     await this.transition(application.id, from, input.status, viewer.sub, input.comment)
 
     const vacancyTitle = application.vacancy.title
-    const statusBody = STATUS_BODY[input.status]
 
     // Студент должен узнать о движении по своей заявке — молчание здесь и есть главная
     // претензия к job-бордам.
@@ -281,8 +284,10 @@ export class ApplicationsService {
       {
         recipientIds: [application.studentId],
         type: 'APP_UPDATE',
+        // Заголовок — название вакансии: его пишет работодатель, переводить нечем.
         title: vacancyTitle,
-        body: input.comment ?? statusBody,
+        // Комментарий работодателя так же непереводим; без него — статья по статусу.
+        ...(input.comment ? { body: input.comment } : { bodyKey: STATUS_BODY_KEY[input.status] }),
         data: { url: '/career/applications' },
         dedupeKey,
       },

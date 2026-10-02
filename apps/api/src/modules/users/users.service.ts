@@ -1501,8 +1501,8 @@ export class UserService {
       {
         recipientIds: [userId],
         type: 'SYSTEM',
-        title: 'Предупреждение модератора',
-        body: 'Ваши материалы нарушают правила платформы. При повторном нарушении доступ будет ограничен.',
+        titleKey: 'moderation.warning.title',
+        bodyKey: 'moderation.warning.body',
         data: { warningId: warning.id },
         dedupeKey: `moderation-warning:${warning.id}`,
       },

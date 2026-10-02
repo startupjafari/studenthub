@@ -14,7 +14,7 @@ import {
 const PLACEHOLDERS = /\{(\w+)\}/g
 
 function placeholders(text: string): string[] {
-  return [...text.matchAll(PLACEHOLDERS)].map((m) => m[1]).sort()
+  return [...text.matchAll(PLACEHOLDERS)].map((m) => m[1] ?? '').sort()
 }
 
 describe('словарь уведомлений', () => {
