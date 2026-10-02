@@ -2492,6 +2492,7 @@
     "appearanceTitle": "Appearance",
     "appearanceDesc": "Interface language",
     "language": "Interface language",
+    "languageSaveFailed": "The interface language changed, but saving it to your profile failed — emails will still arrive in the previous language",
     "deleteConfirmTitle": "Delete account?",
     "visibilityTitle": "Profile visibility",
     "visibilityDesc": "Who can see your full profile. A closed profile shows others only your name, photo and role.",

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type { BookSlotInput, CreateSlotInput } from '@studenthub/shared-schemas'
+import type { NotificationMessageKey } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import type { ConsultationMineQueryInput } from '@studenthub/shared-schemas'
@@ -64,7 +65,7 @@ export class ConsultationsService {
       await this.notify(
         slot.studentId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
-        'Консультация отменена',
+        'consultations.cancelled.title',
         this.slotLabel(slot.startsAt),
         '/consultations',
         `consultation-cancelled:${id}`,
@@ -191,7 +192,7 @@ export class ConsultationsService {
     await this.notify(
       slot.teacherId,
       NOTIFICATION_JOBS.CONSULTATION_BOOKED,
-      'Новая запись на консультацию',
+      'consultations.booked.title',
       this.slotLabel(slot.startsAt),
       '/teacher/consultations',
       `consultation-booked:${id}`,
@@ -217,7 +218,7 @@ export class ConsultationsService {
       await this.notify(
         slot.teacherId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
-        'Запись на консультацию отменена',
+        'consultations.bookingCancelled.title',
         this.slotLabel(slot.startsAt),
         '/teacher/consultations',
         `consultation-cancelled:${id}:${actor.sub}`,
@@ -235,7 +236,7 @@ export class ConsultationsService {
         await this.notify(
           slot.studentId,
           NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
-          'Консультация отменена',
+          'consultations.cancelled.title',
           this.slotLabel(slot.startsAt),
           '/consultations',
           `consultation-cancelled:${id}:teacher`,
@@ -268,7 +269,9 @@ export class ConsultationsService {
   private async notify(
     userId: string,
     jobName: string,
-    title: string,
+    titleKey: NotificationMessageKey,
+    // Тело — метка слота «2026-10-02 14:30»: дата и время, а не фраза. Словарной статьи
+    // ей не нужно, переводить в ней нечего.
     body: string,
     url: string,
     dedupeKey: string,
@@ -276,7 +279,7 @@ export class ConsultationsService {
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       jobName,
-      { recipientIds: [userId], type: 'SYSTEM', title, body, data: { url }, dedupeKey },
+      { recipientIds: [userId], type: 'SYSTEM', titleKey, body, data: { url }, dedupeKey },
       { jobId: dedupeKey },
     )
   }

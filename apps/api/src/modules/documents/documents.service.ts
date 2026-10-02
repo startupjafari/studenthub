@@ -10,6 +10,7 @@ import type {
   ReorderDocumentFilesInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
+import type { NotificationMessageKey } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -712,7 +713,7 @@ export class DocumentsService {
       'EXPIRED',
       NOTIFICATION_JOBS.DOCUMENT_EXPIRING,
       'doc-expired',
-      'Срок документа истёк',
+      'documents.expired.title',
     )
     const expiring = await this.sweepStage(
       {
@@ -724,7 +725,7 @@ export class DocumentsService {
       'EXPIRING',
       NOTIFICATION_JOBS.DOCUMENT_EXPIRING,
       'doc-expiring',
-      'Документ скоро истекает',
+      'documents.expiring.title',
     )
     const archived = await this.sweepRetention(now)
     if (expired + expiring + archived > 0) {
@@ -762,7 +763,7 @@ export class DocumentsService {
     nextStatus: string,
     jobName: string,
     dedupePrefix: string,
-    title: string,
+    titleKey: NotificationMessageKey,
   ): Promise<number> {
     let total = 0
     for (;;) {
@@ -784,8 +785,9 @@ export class DocumentsService {
           {
             recipientIds: [doc.ownerId],
             type: 'SYSTEM',
-            title,
-            body: `«${doc.title}»`,
+            titleKey,
+            bodyKey: 'documents.named.body',
+            params: { title: doc.title },
             data: { documentId: doc.id, url: '/documents' },
             dedupeKey: `${dedupePrefix}:${doc.id}`,
           },

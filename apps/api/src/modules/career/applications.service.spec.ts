@@ -185,8 +185,10 @@ describe('ApplicationsService — воронка компании', () => {
         recipientIds: ['stu-1'],
         dedupeKey: expect.any(String),
         type: 'APP_UPDATE',
+        // Заголовок — название вакансии: его пишет работодатель, словарной статьи ему нет.
         title: 'Frontend-стажёр',
-        body: expect.any(String),
+        // Тело — ключ статьи: строку соберёт процессор на языке получателя.
+        bodyKey: expect.any(String),
       }),
       expect.anything(),
     )

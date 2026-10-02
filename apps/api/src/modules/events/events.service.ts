@@ -285,8 +285,9 @@ export class EventsService {
             {
               recipientIds: participants.map((p) => p.userId),
               type: 'EVENT',
-              title: 'Скоро событие',
-              body: `«${event.title}» начнётся примерно через час`,
+              titleKey: 'events.reminder.title',
+              bodyKey: 'events.reminder.body',
+              params: { title: event.title },
               data: { eventId: event.id, url: '/events' },
               // dedupeKey один на событие: повторная доставка отсекается по (пользователь, ключ),
               // а jobId разный — иначе BullMQ отбросил бы все страницы кроме первой.

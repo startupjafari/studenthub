@@ -732,8 +732,9 @@ export class ChatsService {
         // SYSTEM доставляется всегда, мимо пер-типовых настроек уведомлений о сообщениях:
         // само согласие на переписку — не сообщение, и отключать его отдельно нечем.
         type: 'SYSTEM',
-        title: 'Запрос на переписку',
-        body: `${name} хочет вам написать`,
+        titleKey: 'chats.request.title',
+        bodyKey: 'chats.request.body',
+        params: { name },
         data: { kind: 'chat-request', chatId, url: `/chats?c=${chatId}` },
         dedupeKey,
       },
@@ -3090,7 +3091,8 @@ export class ChatsService {
       {
         recipientIds: [senderId],
         type: 'SYSTEM',
-        title: 'Отложенное сообщение не отправлено',
+        titleKey: 'chats.scheduledFailed.title',
+        // Тело — превью самого сообщения: пользовательский ввод, словарной статьи ему нет.
         body: content.slice(0, 140),
         data: { chatId, url: `/chats?c=${chatId}` },
         dedupeKey,

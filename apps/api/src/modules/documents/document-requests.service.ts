@@ -159,8 +159,9 @@ export class DocumentRequestsService {
         {
           recipientIds,
           type: 'SYSTEM',
-          title: 'Новый запрос документов',
-          body: `«${input.title}»`,
+          titleKey: 'documents.request.title',
+          bodyKey: 'documents.named.body',
+          params: { title: input.title },
           data: { requestId: created.id, url: '/documents' },
           dedupeKey: `doc-request:${created.id}`,
         },
@@ -415,8 +416,9 @@ export class DocumentRequestsService {
       {
         recipientIds: [sub.studentId],
         type: 'SYSTEM',
-        title: 'Результат проверки документов',
-        body: `«${sub.request.title}»`,
+        titleKey: 'documents.result.title',
+        bodyKey: 'documents.named.body',
+        params: { title: sub.request.title },
         data: { requestId: sub.requestId, status, url: '/documents' },
         dedupeKey: `doc-result:${submissionId}:${status}`,
       },

@@ -20,6 +20,9 @@ vi.mock('../api/notifications-api', async (orig) => {
 const item = (id: string, isRead: boolean): NotificationItem => ({
   id,
   type: 'SYSTEM',
+  titleKey: null,
+  bodyKey: null,
+  params: null,
   title: id,
   body: '',
   data: null,

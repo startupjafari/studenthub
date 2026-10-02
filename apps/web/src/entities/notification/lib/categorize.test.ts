@@ -11,6 +11,9 @@ function n(
   return {
     id: 'n1',
     type,
+    titleKey: null,
+    bodyKey: null,
+    params: null,
     title: 't',
     body: 'b',
     data,

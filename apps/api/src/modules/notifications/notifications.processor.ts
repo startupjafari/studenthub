@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common'
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq'
 import type { Job } from 'bullmq'
 import { NotificationType, type NotificationSettings, type Prisma } from '@prisma/client'
+import { renderNotificationMessage } from '@studenthub/shared-config'
 import { reportJobFailure } from '../../common/monitoring'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { RealtimeGateway } from '../../common/realtime'
@@ -66,7 +67,13 @@ export class NotificationsProcessor extends WorkerHost {
     for (const ids of chunked(data.recipientIds)) {
       const page = await this.prisma.user.findMany({
         where: { id: { in: ids }, deletedAt: null, isBlocked: false },
-        select: { id: true, email: true, firstName: true, notificationSettings: true },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          locale: true,
+          notificationSettings: true,
+        },
         take: ids.length,
       })
       users.push(...page)
@@ -99,8 +106,14 @@ export class NotificationsProcessor extends WorkerHost {
       data: fresh.map((u) => ({
         userId: u.id,
         type: data.type,
-        title: data.title,
-        body: data.body,
+        // Текст собираем на языке ИМЕННО ЭТОГО получателя: один job — много адресатов,
+        // и язык у каждого свой. Рядом кладём ключ и параметры, чтобы ту же строку можно
+        // было собрать заново, когда человек сменит язык в настройках.
+        title: this.render(data.titleKey, data.title, data.params, u.locale),
+        body: this.render(data.bodyKey, data.body, data.params, u.locale),
+        titleKey: data.titleKey ?? null,
+        bodyKey: data.bodyKey ?? null,
+        params: (data.params ?? undefined) as Prisma.InputJsonValue | undefined,
         data: (data.data ?? undefined) as Prisma.InputJsonValue | undefined,
         dedupeKey: data.dedupeKey,
       })),
@@ -156,6 +169,7 @@ export class NotificationsProcessor extends WorkerHost {
           {
             to: u.email,
             firstName: u.firstName,
+            locale: u.locale,
             notificationTitle: notification.title,
             notificationBody: notification.body,
           },
@@ -169,6 +183,26 @@ export class NotificationsProcessor extends WorkerHost {
     this.logger.log(
       `notifications ${job.name} type=${data.type}: создано ${fresh.length}, WS ${delivered}, push ${queuedPush}, email ${queuedEmail} (requestId=${requestId ?? '-'})`,
     )
+  }
+
+  /**
+   * Строка уведомления для конкретного получателя.
+   *
+   * Порядок: словарная статья по ключу → готовый текст из job'а → пустая строка.
+   *
+   * Готовый текст нужен в двух случаях, и оба настоящие. Первый — строки, которым словарной
+   * статьи не бывает: имя отправителя, превью сообщения, комментарий сотрудника. Второй —
+   * выкатка: job'ы, положенные в очередь предыдущей версией кода, приходят без ключей, и
+   * доставить их всё равно надо.
+   */
+  private render(
+    key: string | undefined,
+    fallback: string | undefined,
+    params: Record<string, string | number> | undefined,
+    locale: string,
+  ): string {
+    const fromDictionary = key ? renderNotificationMessage(locale, key, params) : null
+    return fromDictionary ?? fallback ?? ''
   }
 
   private typeEnabled(type: NotificationType, settings: NotificationSettings | null): boolean {

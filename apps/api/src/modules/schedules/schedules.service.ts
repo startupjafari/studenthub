@@ -638,8 +638,9 @@ export class SchedulesService {
       {
         recipientIds: [...recipientIds],
         type: 'SCHEDULE_CHANGE',
-        title: 'Изменение в расписании',
-        body: `${pair.subject}: ${label} на ${input.date}`,
+        titleKey: 'schedule.changed.title',
+        bodyKey: 'schedule.changed.body',
+        params: { subject: pair.subject, change: label, date: input.date },
         data: { pairId: pair.id, changeId, groupId: pair.groupId, date: input.date },
         // Идемпотентность: одно уведомление на изменение (docs/BACKEND_RULES.md §9.2).
         dedupeKey: `schedule-changed:${changeId}`,

@@ -186,16 +186,25 @@ DRAFT → SUBMITTED → IN_REVIEW → NEEDS_CORRECTION → RESUBMITTED → IN_RE
 студенты/старосты) видят `full` в пределах scope, но `PRIVATE` не пробивают. Оценки (`gpa`)
 видны только владельцу и надзорным ролям — не одногруппникам/старосте.
 Поля `User`: общие (middleName, phone, bio, birthDate, gender, languages, telegram, website,
-headline, timezone), студент/староста (course, enrollmentYear, graduationYear, educationLevel,
+headline, timezone, locale), студент/староста (course, enrollmentYear, graduationYear, educationLevel,
 studyForm, fundingType, specialty, studentCardNumber, academicStatus, gpa, interests, skills,
 dormitory, address, starostaSince, duties), сотрудники (position, jobTitle, academicDegree,
 academicTitle, department, subjects, officeRoom, officeHours, employeeNumber, researchInterests,
 publicationsUrl, appointmentDate, workPhone, responsibilities, moderationAreas). Редактирование —
 `PATCH /users/me` (роль/scope не меняются); форма показывает поля релевантные роли.
 
+**Язык пользователя** (`User.locale` = `ru|kk|en`, по умолчанию `ru`; SSOT —
+`SUPPORTED_LOCALES` в `@studenthub/shared-config`). Хранится в профиле, а не только в
+cookie `NEXT_LOCALE`: письма и push уходят с сервера в момент, когда открытой вкладки нет,
+и cookie браузера им недоступна. Cookie при этом остаётся — её читает next-intl при
+серверном рендере; при входе она приводится к профилю (профиль принадлежит человеку,
+cookie — браузеру). Наружу `locale` уходит только в собственном профиле (`/users/me`,
+`/auth/me`): чужая настройка языка другим пользователям ничего не говорит и в публичной
+карточке была бы лишним персональным полем.
+
 **Доступность полей профиля по роли.** Набор «самоописываемых» полей зависит от роли —
 единый источник `PROFILE_FIELD_ROLES` в `@studenthub/shared-schemas` (одна карта на форму
-и на валидацию). Общие поля (ФИО, headline, bio, phone, telegram, languages, timezone,
+и на валидацию). Общие поля (ФИО, headline, bio, phone, telegram, languages, timezone, locale,
 showEmail/showPhone, profileVisibility) — у всех ролей; личное и соцсети (birthDate, gender,
 country, website, instagram) — студенты и преподаватели; академические (academicDegree,
 academicTitle, department, subjects, officeHours, researchInterests, publicationsUrl) —
@@ -971,6 +980,21 @@ Excel: книга из двух листов — **«Данные» первым
 Базовая конфигурация job'а: `attempts: 3`, exponential backoff от 5 с, `removeOnComplete: true`, `removeOnFail: false`. Payload содержит только идентификаторы. Все job'ы идемпотентны.
 
 Каждый job очереди `notifications`: создать запись `Notification` → отправить WS `notification:new` онлайн-пользователям → для офлайн с включённым каналом поставить задачу в `email` (`send-notification`) / push. Идемпотентность — через `Notification.dedupeKey` (уникален в пределах пользователя): повторный запуск job'а не создаёт дубликат и не рассылает повторно.
+
+**Язык уведомления.** Продюсер кладёт в job не готовый текст, а ключ словарной статьи
+(`titleKey`/`bodyKey`) и параметры (`params`): job один на всех адресатов, а язык у каждого
+свой. Строку собирает процессор — там, где он и так читает получателя вместе с его
+`locale`. В `Notification` пишется и отрисованный текст (`title`/`body` — его требуют push и
+письмо-зеркало, им нужна готовая строка), и ключ с параметрами: они отдаются клиенту, чтобы
+после смены языка перерисовались и вчерашние уведомления. Ключ пуст там, где словарной
+статьи не бывает: имя отправителя в заголовке о сообщении, превью сообщения, комментарий
+сотрудника, метка времени слота — пользовательский ввод переводить нечем. Словарь —
+`NOTIFICATION_MESSAGES` в `@studenthub/shared-config` (общий: те же строки рендерит и
+браузер), письма — `apps/api/src/modules/email/email-strings.ts` (только сервер).
+
+Язык письма приходит в payload'е job'а очереди `email` полем `locale`. У приглашения это
+язык приглашающего: у адресата учётной записи ещё нет. У писем внешним адресатам
+(подтверждение компании, заявка вуза с лендинга) языка нет вовсе — русский по умолчанию.
 
 ### 10.2 Cron (`CleanupService`, `@nestjs/schedule`)
 
