@@ -63,6 +63,16 @@ model User {
   consentByGuardian Boolean   @default(false) @map("consent_by_guardian")
 
   gender    String?
+  // Язык интерфейса и исходящих писем. Строкой, как profileVisibility: SSOT —
+  // SUPPORTED_LOCALES в shared-config (ru | kk | en).
+  //
+  // Поле обязано быть здесь, а не только в cookie NEXT_LOCALE: письмо и push уходят
+  // с сервера в момент, когда у человека нет открытой вкладки, и спросить у браузера
+  // язык не у кого. Для государственного вуза это не настройка удобства — приглашение
+  // и уведомления об учебном процессе суть официальная переписка со студентом.
+  //
+  // `languages` ниже — это НЕ оно: там владение языками для карьерного профиля.
+  locale    String   @default("ru")
   languages String[] @default([])
   telegram  String?
   instagram String?
