@@ -4,6 +4,7 @@ import { store } from '../store/store'
 import { clearAuth, setAccessToken, setAuth, setSessionUser } from '../store/auth-slice'
 import type { AuthUser } from '../store/auth-slice'
 import { logoutRequest } from '../api/auth-api'
+import { syncLocaleCookieFromProfile } from '../i18n/locale-cookie'
 
 // Поля профиля, которые держит стор сессии (остальное читается из кэша `me`).
 function toSessionUser(me: MeResponse): AuthUser {
@@ -14,6 +15,10 @@ function toSessionUser(me: MeResponse): AuthUser {
 export async function establishSession(accessToken: string): Promise<Role> {
   store.dispatch(setAccessToken(accessToken))
   const me = await meRequest()
+  // Язык из профиля — в cookie, которую читает next-intl. Нужно ровно для входа с нового
+  // устройства: там cookie ещё дефолтная, а язык человека уже известен. Перерендер здесь
+  // не вызываем — за входом всегда следует переход, он и подхватит.
+  syncLocaleCookieFromProfile(me.locale)
   store.dispatch(
     setAuth({
       user: toSessionUser(me),

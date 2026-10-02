@@ -27,6 +27,7 @@ import {
   useNotificationMutations,
   type NotificationItem,
   type NotificationType,
+  localizeNotification,
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import {
@@ -312,6 +313,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                 {group.label}
               </p>
               {group.items.map((n) => {
+                const text = localizeNotification(n, locale)
                 const meta = TYPE_META[n.type]
                 const Icon = meta.icon
                 return (
@@ -412,15 +414,15 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                               />
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                              {n.title}
+                              {text.title}
                             </span>
                             <time className="shrink-0 text-[0.7rem] text-muted-foreground">
                               {formatTime(n.createdAt)}
                             </time>
                           </div>
-                          {n.body && (
+                          {text.body && (
                             <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                              {n.body}
+                              {text.body}
                             </p>
                           )}
                           {/* Прямое действие уведомления (deep-link). Строку целиком открывает onOpen —

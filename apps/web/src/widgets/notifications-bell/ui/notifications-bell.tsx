@@ -17,6 +17,7 @@ import {
   useNotificationMutations,
   type NotificationItem,
   type NotificationSettingsData,
+  localizeNotification,
 } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { ensureNotifyPermission, maybeNotify } from '../../../shared/lib/browser-notify'
@@ -103,8 +104,9 @@ export function NotificationsBell() {
   useRealtimeEvent<{ notification: NotificationItem }>('notification:new', (payload) => {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
     void queryClient.invalidateQueries({ queryKey: notificationKeys.list() })
-    toast.info(payload.notification.title, { description: payload.notification.body })
-    maybeNotify(payload.notification.title, payload.notification.body)
+    const incoming = localizeNotification(payload.notification, locale)
+    toast.info(incoming.title, { description: incoming.body })
+    maybeNotify(incoming.title, incoming.body)
   })
 
   // Разрешение на системные уведомления запрашиваем по жесту — при первом открытии колокольчика.
@@ -266,6 +268,9 @@ export function NotificationsBell() {
               ) : (
                 <ul className="divide-y divide-border">
                   {list.data?.map((n) => {
+                    // Текст — на текущем языке: у записи есть ключ словарной статьи, и
+                    // после смены языка вчерашние уведомления переключаются вместе с ней.
+                    const text = localizeNotification(n, locale)
                     // Заявка в друзья с кнопками принять/отклонить прямо в уведомлении.
                     const friendshipId =
                       n.data && n.data.kind === 'friend-request'
@@ -293,10 +298,10 @@ export function NotificationsBell() {
                                   aria-hidden
                                 />
                               )}
-                              <span className="truncate text-sm font-medium">{n.title}</span>
+                              <span className="truncate text-sm font-medium">{text.title}</span>
                             </div>
                             <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                              {n.body}
+                              {text.body}
                             </p>
                             <span className="mt-1 block text-[0.65rem] text-muted-foreground">
                               {formatTime(n.createdAt)}

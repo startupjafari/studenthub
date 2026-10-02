@@ -127,6 +127,7 @@ const PROFILE_SELECT = {
   website: true,
   headline: true,
   timezone: true,
+  locale: true,
   country: true,
   // студент / староста
   course: true,
