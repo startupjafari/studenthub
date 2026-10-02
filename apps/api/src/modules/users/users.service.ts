@@ -179,6 +179,10 @@ export type PublicProfile = Omit<
   | 'address'
   | 'twoFactorEnabled'
   | 'username'
+  // Язык интерфейса — настройка владельца, а не признак профиля: другим пользователям
+  // она ничего не говорит, а в карточке была бы лишним персональным полем. Наружу
+  // уходит только в собственном профиле (/users/me, /auth/me).
+  | 'locale'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
 // Сортировка списка пользователей: имя колонки таблицы → orderBy Prisma. Отображение
