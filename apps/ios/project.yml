@@ -32,6 +32,9 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     from: "7.0.0"
+  SocketIO:
+    url: https://github.com/socketio/socket.io-client-swift
+    from: "16.1.0"
 
 targets:
   StudentHub:
@@ -43,6 +46,8 @@ targets:
     dependencies:
       - package: GRDB
         product: GRDB
+      - package: SocketIO
+        product: SocketIO
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
