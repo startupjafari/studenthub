@@ -181,6 +181,21 @@ export const envSchema = z.object({
    */
   MINI_APP_URL: optionalEnv(z.string().url()),
 
+  /**
+   * Минимальная поддерживаемая версия приложения для iPhone (план iOS, Задача Б3).
+   *
+   * Ниже неё приложение показывает экран обновления и дальше не пускает. По умолчанию
+   * `0.0.0` — не блокируем никого: до первого релиза в App Store любое другое
+   * значение заблокировало бы собственные отладочные сборки, а на проде блокировку
+   * включают осознанно, когда контракт действительно разошёлся.
+   */
+  IOS_MIN_SUPPORTED_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, 'IOS_MIN_SUPPORTED_VERSION: формат SemVer, например 1.2.0')
+    .default('0.0.0'),
+  /** Адрес приложения в App Store — для кнопки «Обновить». Не задан — кнопки не будет. */
+  IOS_STORE_URL: optionalEnv(z.string().url()),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),

@@ -22,13 +22,14 @@ describe('HttpExceptionFilter — отправка в Sentry', () => {
   const send = jest.fn()
   const status = jest.fn(() => ({ send }))
 
-  const hostWith = (user?: { sub: string }): ArgumentsHost =>
+  const hostWith = (user?: { sub: string }, headers: Record<string, string> = {}): ArgumentsHost =>
     ({
       switchToHttp: () => ({
         getRequest: () => ({
           id: 'req-1',
           url: '/api/v1/posts?limit=20',
           method: 'POST',
+          headers,
           ...(user ? { user } : {}),
         }),
         getResponse: () => ({ status }),
@@ -48,7 +49,19 @@ describe('HttpExceptionFilter — отправка в Sentry', () => {
       path: '/api/v1/posts?limit=20',
       method: 'POST',
       code: 'INTERNAL_ERROR',
+      clientVersion: undefined,
     })
+  })
+
+  // Ошибка старой мобильной сборки без этого тега выглядит как общая авария
+  // (план iOS, Задача Б3).
+  it('версия мобильного клиента уходит в трекер', () => {
+    filter.catch(
+      new Error('boom'),
+      hostWith({ sub: 'u-1' }, { 'x-client-version': 'ios/1.2.0+34' }),
+    )
+
+    expect(captureException.mock.calls[0][1]).toMatchObject({ clientVersion: 'ios/1.2.0+34' })
   })
 
   it('штатный отказ 403 в трекер не идёт', () => {

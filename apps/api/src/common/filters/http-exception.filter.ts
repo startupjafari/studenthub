@@ -20,6 +20,7 @@ import {
 import { AppException } from '../exceptions/app.exception'
 import type { CurrentUserData } from '../auth/jwt-payload.type'
 import { captureException } from '../monitoring/sentry'
+import { clientVersionFrom } from '../logging/client-version'
 import { recordServerError } from '../monitoring/error-rate'
 import { REDIS_CLIENT } from '../redis/redis.constants'
 
@@ -88,6 +89,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         path: request.url,
         method: request.method,
         code,
+        clientVersion: clientVersionFrom(request),
       })
       // Счётчик всплеска ошибок (читает ежечасный cron). Только 5xx: на здоровой
       // платформе это единицы в сутки, а не тысячи в минуту, как было у прежнего

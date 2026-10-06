@@ -13508,6 +13508,21 @@
         ]
       }
     },
+    "/client-version": {
+      "get": {
+        "operationId": "ClientVersionController_info",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Версия и ссылка на магазин"
+          }
+        },
+        "summary": "Минимальная поддерживаемая версия мобильного клиента",
+        "tags": [
+          "Клиент"
+        ]
+      }
+    },
     "/platform/state": {
       "get": {
         "operationId": "PlatformController_state",
