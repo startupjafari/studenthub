@@ -1,24 +1,45 @@
 import SwiftUI
 
-/// Корневая сцена: вход, пока сессии нет, и приложение, когда она есть.
+/// Корневая сцена: проверка версии, вход, пока сессии нет, и приложение, когда она
+/// есть.
 ///
 /// За входом — оболочка с пятью вкладками; роль для неё берётся из токена, а не из
 /// ответа сервера: решение о доступе всё равно принимает API, а приложению роль
 /// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
     @State private var session = AppSessionModel()
+    @State private var update = UpdateGateModel()
 
     var body: some View {
         content
             .background(Palette.background)
             .animation(Motion.calm, value: session.state)
+            .animation(Motion.calm, value: update.state)
             .task {
-                await session.restore()
+                // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
+                // по очереди это лишняя секунда к запуску.
+                async let version: Void = update.check()
+                async let restored: Void = session.restore()
+                _ = await (version, restored)
             }
     }
 
     @ViewBuilder
     private var content: some View {
+        // Проверка версии стоит перед сессией: со сборкой старше контракта не
+        // работает и вход, и человек упёрся бы в непонятную ошибку вместо прямого
+        // ответа.
+        if case .blocked(let storeURL) = update.state {
+            ForcedUpdateView(storeURL: storeURL) {
+                Task { await update.check() }
+            }
+        } else {
+            signedState
+        }
+    }
+
+    @ViewBuilder
+    private var signedState: some View {
         switch session.state {
         case .restoring:
             RestoringView()
