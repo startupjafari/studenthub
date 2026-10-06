@@ -17,6 +17,10 @@ final class RealtimeCoordinator {
     /// Кто что делает: чат → (пользователь → действие).
     private(set) var actions: [String: [String: String]] = [:]
     private(set) var onlineUsers: Set<String> = []
+    /// Последняя пришедшая смена статуса заявки. Экран заявок смотрит на неё и
+    /// перечитывает себя: держать копию заявок в координаторе незачем. Время в
+    /// поле — чтобы повторный тот же статус тоже считался новостью.
+    private(set) var applicationStatus: ApplicationStatusChange?
 
     private let transport: RealtimeTransport
     private let session: SessionStore
@@ -141,6 +145,9 @@ final class RealtimeCoordinator {
 
         case .chatUpdated(let chat):
             try? await store.save(chats: [chat])
+
+        case .applicationStatusChanged(let id, let status):
+            applicationStatus = ApplicationStatusChange(id: id, status: status, at: Date())
         }
     }
 
@@ -191,4 +198,12 @@ final class RealtimeCoordinator {
         guard let token = await session.accessToken() else { return }
         await transport.connect(token: token)
     }
+}
+
+
+/// Смена статуса заявки, пришедшая в реальном времени.
+struct ApplicationStatusChange: Equatable {
+    let id: String
+    let status: String
+    let at: Date
 }

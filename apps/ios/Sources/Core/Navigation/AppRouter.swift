@@ -11,6 +11,7 @@ enum AppRoute: Hashable {
     case event(id: String)
     case lesson(id: String)
     case assignment(id: String)
+    case service(id: String)
 }
 
 /// Навигация оболочки: выбранная вкладка и путь внутри каждой.

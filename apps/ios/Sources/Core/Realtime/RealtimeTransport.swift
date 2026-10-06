@@ -136,6 +136,17 @@ actor SocketIORealtimeTransport: RealtimeTransport {
             else { return nil }
             return .presence(userID: userID, online: online)
         }
+        on(RealtimeEvent.Name.envelope) { payload in
+            // Конверт: `{ type, entityId, version, ts, data }`. Разбираем только
+            // известные типы — чужие события приложению ничего не говорят.
+            guard
+                payload["type"] as? String == RealtimeEvent.Name.applicationStatusChanged,
+                let id = payload["entityId"] as? String,
+                let data = payload["data"] as? [String: Any],
+                let status = data["status"] as? String
+            else { return nil }
+            return .applicationStatusChanged(applicationID: id, status: status)
+        }
         on(RealtimeEvent.Name.chatUpdated) { payload in
             guard
                 let raw = payload["chat"],

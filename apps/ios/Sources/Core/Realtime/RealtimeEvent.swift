@@ -21,6 +21,10 @@ enum RealtimeEvent: Equatable {
     case action(chatID: String, userID: String, action: String?)
     case presence(userID: String, online: Bool)
     case chatUpdated(ChatListItemDTO)
+    /// Единый конверт `event` (PROJECT.md §9.2a). Приложению из него нужен пока
+    /// один тип — смена статуса заявки: человек ждёт справку и хочет узнать о ней
+    /// без обновления экрана.
+    case applicationStatusChanged(applicationID: String, status: String)
 
     /// Имена событий сервера. Строки собраны здесь, чтобы опечатка в одной из них
     /// ловилась в одном месте, а не расследовалась по тишине в интерфейсе.
@@ -33,6 +37,9 @@ enum RealtimeEvent: Equatable {
         static let chatAction = "chat:action"
         static let presenceChanged = "presence:changed"
         static let chatUpdated = "chat:updated"
+        /// Единый канал событий поверх именованных.
+        static let envelope = "event"
+        static let applicationStatusChanged = "application.status.changed"
 
         static let join = "chat:join"
         static let leave = "chat:leave"

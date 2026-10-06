@@ -83,6 +83,12 @@ struct AppShellView: View {
             EventsView()
         case .section(.profile):
             ProfileView(userID: nil)
+        case .section(.applications):
+            ApplicationsView()
+        case .section(.serviceCatalog):
+            ServiceCatalogView()
+        case .section(.documents):
+            DocumentsView()
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):
@@ -90,7 +96,9 @@ struct AppShellView: View {
         case .post(let id):
             PostDetailView(postID: id)
         case .application(let id):
-            PlaceholderScreen(title: String(localized: "shell.application", defaultValue: "Заявка"), reference: id)
+            ApplicationDetailView(applicationID: id)
+        case .service(let id):
+            ApplicationFormView(serviceID: id)
         case .event:
             EventsView()
         case .lesson(let id):
