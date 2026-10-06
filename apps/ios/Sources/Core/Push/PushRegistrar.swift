@@ -52,7 +52,7 @@ struct PushRegistrar: Sendable {
     /// это не секрет, а адрес доставки, и его знает вся система.
     private static var lastToken: String? {
         get { UserDefaults.standard.string(forKey: "push.device-token") }
-        nonmutating set {
+        set {
             if let newValue {
                 UserDefaults.standard.set(newValue, forKey: "push.device-token")
             } else {
