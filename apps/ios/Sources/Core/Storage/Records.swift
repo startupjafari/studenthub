@@ -114,3 +114,25 @@ struct DraftRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
         static let isSynced = Column(CodingKeys.isSynced)
     }
 }
+
+/// Папка чатов (§2 эпика «Чаты»): вкладка над списком.
+struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
+    static let databaseTableName = "folder"
+
+    var id: String
+    var name: String
+    var position: Int
+
+    enum Columns {
+        static let position = Column(CodingKeys.position)
+    }
+}
+
+/// Состав папки. Хранится отдельной таблицей, а не массивом в папке: по нему идёт
+/// фильтр списка, и выбирать чаты вложенным запросом дешевле, чем разбирать JSON.
+struct FolderChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
+    static let databaseTableName = "folderChat"
+
+    var folderId: String
+    var chatId: String
+}

@@ -99,6 +99,30 @@ extension AppDatabase {
             )
         }
 
+        migrator.registerMigration("v2.chatFolders") { db in
+            try db.create(table: FolderRecord.databaseTableName) { table in
+                table.primaryKey("id", .text)
+                table.column("name", .text).notNull()
+                table.column("position", .integer).notNull()
+            }
+
+            try db.create(table: FolderChatRecord.databaseTableName) { table in
+                table.column("folderId", .text)
+                    .notNull()
+                    .references(FolderRecord.databaseTableName, onDelete: .cascade)
+                // Без внешнего ключа на чат намеренно: папка приходит целиком, а сами
+                // чаты — страницами, и состав папки может ссылаться на чат, который
+                // в базу ещё не доехал.
+                table.column("chatId", .text).notNull()
+                table.primaryKey(["folderId", "chatId"])
+            }
+            try db.create(
+                index: "folderChat_on_chat",
+                on: FolderChatRecord.databaseTableName,
+                columns: ["chatId"]
+            )
+        }
+
         return migrator
     }
 }

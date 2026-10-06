@@ -37,6 +37,8 @@ struct AppShellView: View {
     @ViewBuilder
     private func root(for tab: AppTab) -> some View {
         switch tab {
+        case .chats:
+            ChatListView()
         case .more:
             MoreView(session: session, role: role)
         default:
