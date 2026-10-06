@@ -18,6 +18,12 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     /// Преподаватель.
     case subjects
     case groups
+    /// Разделы вкладки «Учёба». В списке «Ещё» их нет — там они были бы вторым
+    /// входом в то же место, но маршрут им нужен такой же.
+    case grades
+    case attendance
+    case assignments
+    case materials
 
     var id: String { rawValue }
 
@@ -58,6 +64,14 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "more.subjects", defaultValue: "Дисциплины")
         case .groups:
             return String(localized: "more.groups", defaultValue: "Группы")
+        case .grades:
+            return String(localized: "study.grades", defaultValue: "Оценки")
+        case .attendance:
+            return String(localized: "study.attendance", defaultValue: "Посещаемость")
+        case .assignments:
+            return String(localized: "study.assignments", defaultValue: "Задания")
+        case .materials:
+            return String(localized: "study.materials", defaultValue: "Материалы")
         }
     }
 
@@ -72,6 +86,10 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .groupRequests: return "tray.full"
         case .subjects: return "book"
         case .groups: return "person.2"
+        case .grades: return "graduationcap"
+        case .attendance: return "checkmark.circle"
+        case .assignments: return "list.clipboard"
+        case .materials: return "folder"
         }
     }
 }

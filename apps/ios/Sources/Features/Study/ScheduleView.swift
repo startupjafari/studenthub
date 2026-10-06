@@ -20,8 +20,10 @@ struct ScheduleView: View {
                 }
 
                 ForEach(model.visiblePairs) { item in
-                    PairRow(item: item)
-                        .listRowBackground(Palette.card)
+                    NavigationLink(value: AppRoute.lesson(id: item.id)) {
+                        PairRow(item: item)
+                    }
+                    .listRowBackground(Palette.card)
                 }
 
                 if model.visiblePairs.isEmpty {

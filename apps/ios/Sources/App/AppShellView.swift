@@ -55,6 +55,8 @@ struct AppShellView: View {
             ChatListView()
         case .schedule:
             ScheduleView()
+        case .study:
+            StudyView(role: role)
         case .more:
             MoreView(session: session, role: role)
         default:
@@ -65,6 +67,14 @@ struct AppShellView: View {
     @ViewBuilder
     private func destination(for route: AppRoute) -> some View {
         switch route {
+        case .section(.grades):
+            GradesView()
+        case .section(.attendance):
+            AttendanceView()
+        case .section(.assignments):
+            AssignmentsView()
+        case .section(.materials):
+            MaterialsView()
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):
@@ -76,7 +86,15 @@ struct AppShellView: View {
         case .event(let id):
             PlaceholderScreen(title: String(localized: "shell.event", defaultValue: "Событие"), reference: id)
         case .lesson(let id):
-            PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
+            // Преподаватель с занятия идёт отмечать посещаемость — это главное,
+            // зачем он вообще открывает пару на телефоне.
+            if role == .teacher {
+                AttendanceMarkingView(pairID: id)
+            } else {
+                PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
+            }
+        case .assignment(let id):
+            AssignmentDetailView(assignmentID: id)
         }
     }
 }
