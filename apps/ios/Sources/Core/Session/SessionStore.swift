@@ -10,13 +10,19 @@ import Foundation
 actor SessionStore: AuthorizationProvider {
     private let auth: SessionRefreshing
     private let secrets: SecretStore
+    private let cookies: RefreshCookieStore
 
     private var token: AccessToken?
     private var inFlightRefresh: Task<AccessToken?, Never>?
 
-    init(auth: SessionRefreshing = AuthAPI(), secrets: SecretStore = Keychain()) {
+    init(
+        auth: SessionRefreshing = AuthAPI(),
+        secrets: SecretStore = Keychain(),
+        cookies: RefreshCookieStore = SystemRefreshCookieStore()
+    ) {
         self.auth = auth
         self.secrets = secrets
+        self.cookies = cookies
     }
 
     /// Был ли вход на этом устройстве. По нему холодный старт решает, пробовать
@@ -59,12 +65,16 @@ actor SessionStore: AuthorizationProvider {
     // MARK: - Жизненный цикл сессии
 
     /// Принять сессию, выданную входом или обновлением.
+    ///
+    /// Сервер только что положил свежую refresh-cookie — переносим её в связку
+    /// ключей, пока она на месте: хранилище cookie система вправе очистить, связку
+    /// ключей — нет.
     @discardableResult
     func adopt(_ session: AuthSession) -> AccessToken? {
         guard let parsed = AccessToken(raw: session.accessToken) else { return nil }
         token = parsed
-        if let refreshToken = session.refreshToken {
-            secrets.set(refreshToken, for: .refreshToken)
+        if let refreshCookie = cookies.value() {
+            secrets.set(refreshCookie, for: .refreshToken)
         }
         secrets.set("1", for: .sessionPresent)
         return parsed
@@ -73,13 +83,15 @@ actor SessionStore: AuthorizationProvider {
     /// Выход. Сначала гасим сессию на сервере, затем чистим своё — порядок важен:
     /// после очистки отправить запрос уже нечем, и сессия осталась бы живой.
     func signOut() async {
-        try? await auth.endSession(using: secrets.value(for: .refreshToken))
+        restoreRefreshCookieIfNeeded()
+        try? await auth.endSession()
         forgetSession()
     }
 
     private func performRefresh() async -> AccessToken? {
+        restoreRefreshCookieIfNeeded()
         do {
-            return adopt(try await auth.refresh(using: secrets.value(for: .refreshToken)))
+            return adopt(try await auth.refresh())
         } catch {
             // Сессия невосстановима — забываем её, иначе каждый следующий запрос
             // будет заново ломиться в обновление.
@@ -90,8 +102,16 @@ actor SessionStore: AuthorizationProvider {
         }
     }
 
+    /// Хранилище cookie опустело, а в связке ключей токен есть — возвращаем его на
+    /// место. Без этого очистка кэша системой выглядела бы как выход из аккаунта.
+    private func restoreRefreshCookieIfNeeded() {
+        guard cookies.value() == nil, let stored = secrets.value(for: .refreshToken) else { return }
+        cookies.restore(stored)
+    }
+
     private func forgetSession() {
         token = nil
+        cookies.clear()
         secrets.remove(.refreshToken)
         secrets.remove(.sessionPresent)
     }

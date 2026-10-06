@@ -12,7 +12,7 @@ final class LoginFlowTests: XCTestCase {
     /// Обычный вход без второго фактора: сессия открыта, пароль в форме не остался.
     func testSuccessfulSignInOpensSession() async {
         let issuer = StubIssuer()
-        issuer.signInResult = .success(.session(AuthSession(accessToken: longLivedToken, refreshToken: nil)))
+        issuer.signInResult = .success(.session(AuthSession(accessToken: longLivedToken)))
         let session = makeSession()
         let model = LoginModel(auth: issuer)
         model.identifier = "  student@univer.kz  "
@@ -60,7 +60,7 @@ final class LoginFlowTests: XCTestCase {
     func testVerifiedCodeOpensSession() async {
         let issuer = StubIssuer()
         issuer.signInResult = .success(.twoFactorRequired(challengeToken: "challenge-1"))
-        issuer.verifyResult = .success(AuthSession(accessToken: longLivedToken, refreshToken: nil))
+        issuer.verifyResult = .success(AuthSession(accessToken: longLivedToken))
         let session = makeSession()
         let model = LoginModel(auth: issuer)
         model.identifier = "teacher@univer.kz"
@@ -136,7 +136,9 @@ final class LoginFlowTests: XCTestCase {
     }
 
     private func makeSession() -> AppSessionModel {
-        AppSessionModel(store: SessionStore(auth: SilentRefresher(), secrets: MemorySecrets()))
+        AppSessionModel(
+            store: SessionStore(auth: SilentRefresher(), secrets: MemorySecrets(), cookies: MemoryCookies())
+        )
     }
 }
 
@@ -174,11 +176,22 @@ private final class StubIssuer: SessionIssuing, @unchecked Sendable {
 
 /// Продлевать в этих тестах нечего: сессия приходит из входа, а не из cookie.
 private struct SilentRefresher: SessionRefreshing {
-    func refresh(using storedRefreshToken: String?) async throws -> AuthSession {
+    func refresh() async throws -> AuthSession {
         throw APIError.malformedResponse(statusCode: 0)
     }
 
-    func endSession(using storedRefreshToken: String?) async throws {}
+    func endSession() async throws {}
+}
+
+/// Хранилище cookie системы в юнит-тестах не трогаем: оно общее на процесс, и один
+/// тест протекал бы в другой.
+private final class MemoryCookies: RefreshCookieStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: String?
+
+    func value() -> String? { lock.withLock { stored } }
+    func restore(_ value: String) { lock.withLock { stored = value } }
+    func clear() { lock.withLock { stored = nil } }
 }
 
 /// Связка ключей симулятора в юнит-тестах недоступна без прав на подпись.
