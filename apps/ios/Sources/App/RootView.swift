@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Корневая сцена: вход, пока сессии нет, и приложение, когда она есть.
 ///
-/// Настоящая оболочка — пять вкладок с составом по роли — появится в задаче 0.6;
-/// до неё за входом стоит временный экран, с которого достижимы выход и
-/// подтверждение входа по QR.
+/// За входом — оболочка с пятью вкладками; роль для неё берётся из токена, а не из
+/// ответа сервера: решение о доступе всё равно принимает API, а приложению роль
+/// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
     @State private var session = AppSessionModel()
 
@@ -24,8 +24,14 @@ struct RootView: View {
             RestoringView()
         case .signedOut:
             LoginView(session: session)
-        case .signedIn:
-            SignedInScaffoldView(session: session)
+        case .signedIn(let token):
+            // Роли вне MVP приложение не ведёт: им честнее сказать про браузер,
+            // чем показать оболочку с пятью пустыми вкладками.
+            if token.role.isSupportedOnPhone {
+                AppShellView(session: session, role: token.role)
+            } else {
+                UnsupportedRoleView(session: session)
+            }
         }
     }
 }

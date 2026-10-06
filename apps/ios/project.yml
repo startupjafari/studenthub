@@ -41,6 +41,13 @@ targets:
         # Обычный HTTPS — не предмет экспортного контроля. Без этого ключа каждая
         # сборка в App Store Connect ждёт ответа на вопрос о шифровании.
         ITSAppUsesNonExemptEncryption: false
+        # Своя схема для пушей и ссылок из веба: `studenthub://chats?c=…`.
+        # Универсальные ссылки (https) появятся вместе с apple-app-site-association
+        # на домене — до этого адрес веба открывает браузер, как и раньше.
+        CFBundleURLTypes:
+          - CFBundleURLName: kz.studenthub.app
+            CFBundleURLSchemes:
+              - studenthub
         # Камера нужна ровно для одного — отсканировать QR входа на компьютере.
         # Текст видит человек в системном запросе, поэтому в нём сказано зачем,
         # а не «приложению нужен доступ к камере».
