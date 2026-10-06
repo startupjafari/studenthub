@@ -21,7 +21,7 @@ final class AttachmentTests: XCTestCase {
         )
 
         XCTAssertTrue(ok)
-        try database.reader.read { db in
+        try await database.reader.read { db in
             let message = try MessageRecord.fetchOne(db)
             XCTAssertEqual(message?.remoteId, "server-1")
             XCTAssertEqual(message?.sendState, .sent)
@@ -49,7 +49,7 @@ final class AttachmentTests: XCTestCase {
         )
 
         XCTAssertFalse(ok)
-        try database.reader.read { db in
+        try await database.reader.read { db in
             XCTAssertEqual(try MessageRecord.fetchOne(db)?.sendState, .failed)
             XCTAssertEqual(try AttachmentRecord.fetchOne(db)?.localPath, "/tmp/voice-1.m4a")
         }
@@ -78,7 +78,7 @@ final class AttachmentTests: XCTestCase {
 
         try await store.save(messages: [incoming], chatID: "c-1")
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             XCTAssertEqual(try AttachmentRecord.fetchCount(db), 1)
             XCTAssertEqual(try AttachmentRecord.fetchOne(db)?.localPath, "/tmp/p.png")
         }

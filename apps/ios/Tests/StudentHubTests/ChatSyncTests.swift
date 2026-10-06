@@ -49,7 +49,7 @@ final class ChatStoreTests: XCTestCase {
 
         try await store.save(chats: [item(id: "c-1", title: "ИС-21", seq: 5, text: "Привет")])
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             let chat = try ChatRecord.fetchOne(db, key: "c-1")
             XCTAssertEqual(chat?.title, "ИС-21")
             XCTAssertEqual(chat?.lastSeq, 5)
@@ -68,7 +68,7 @@ final class ChatStoreTests: XCTestCase {
         try await store.save(chats: [item(id: "c-1", seq: 10, text: "свежее")])
         try await store.save(chats: [item(id: "c-1", seq: 4, text: "отставшее")])
 
-        let seq = try database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.lastSeq }
+        let seq = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.lastSeq }
         XCTAssertEqual(seq, 10)
     }
 
@@ -86,7 +86,7 @@ final class ChatStoreTests: XCTestCase {
 
         try await store.save(chats: [item(id: "c-1", draft: "серверное")])
 
-        let draft = try database.reader.read { db in try DraftRecord.fetchOne(db, key: "c-1") }
+        let draft = try await database.reader.read { db in try DraftRecord.fetchOne(db, key: "c-1") }
         XCTAssertEqual(draft?.text, "моё")
     }
 
@@ -96,7 +96,7 @@ final class ChatStoreTests: XCTestCase {
 
         try await store.save(chats: [item(id: "c-1", draft: "с другого устройства")])
 
-        let draft = try database.reader.read { db in try DraftRecord.fetchOne(db, key: "c-1") }
+        let draft = try await database.reader.read { db in try DraftRecord.fetchOne(db, key: "c-1") }
         XCTAssertEqual(draft?.text, "с другого устройства")
         XCTAssertEqual(draft?.isSynced, true)
     }
@@ -115,7 +115,7 @@ final class ChatStoreTests: XCTestCase {
             ChatFolderDTO(id: "f-1", name: "Учёба", position: 0, chatIds: ["c-9"])
         ])
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             XCTAssertEqual(try FolderRecord.fetchCount(db), 1)
             let items = try FolderChatRecord.fetchAll(db)
             XCTAssertEqual(items.map(\.chatId), ["c-9"])
@@ -164,7 +164,8 @@ final class ChatStoreTests: XCTestCase {
                     editedAt: nil,
                     deletedAt: nil,
                     pinnedAt: nil,
-                    createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+                    createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+                    media: nil
                 )
             },
             updatedAt: Date(timeIntervalSince1970: 1_800_000_000)

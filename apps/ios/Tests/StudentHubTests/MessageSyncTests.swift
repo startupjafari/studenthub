@@ -11,7 +11,7 @@ final class MessageStoreTests: XCTestCase {
 
         try await store.save(messages: [dto(id: "m-1", seq: 1), dto(id: "m-2", seq: 2)], chatID: "c-1")
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             XCTAssertEqual(try MessageRecord.fetchCount(db), 2)
             XCTAssertEqual(try ChatRecord.fetchOne(db, key: "c-1")?.lastSeq, 2)
         }
@@ -30,7 +30,7 @@ final class MessageStoreTests: XCTestCase {
             chatID: "c-1"
         )
 
-        let stored = try database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1") }
+        let stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-1") }
         XCTAssertNotNil(stored)
         XCTAssertNotNil(stored?.deletedAt)
     }
@@ -53,7 +53,7 @@ final class MessageStoreTests: XCTestCase {
             chatID: "c-1"
         )
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             XCTAssertEqual(try MessageRecord.fetchCount(db), 1)
             XCTAssertEqual(try MessageRecord.fetchOne(db, key: "m-1")?.content, "стало")
         }
@@ -72,7 +72,7 @@ final class MessageStoreTests: XCTestCase {
 
         try await store.clearHistory(chatID: "c-1")
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             XCTAssertNil(try MessageRecord.fetchOne(db, key: "m-1"))
             XCTAssertNotNil(try MessageRecord.fetchOne(db, key: "local-1"))
             XCTAssertEqual(try ChatRecord.fetchOne(db, key: "c-1")?.lastSeq, 0)
@@ -119,7 +119,8 @@ final class MessageStoreTests: XCTestCase {
             editedAt: nil,
             deletedAt: nil,
             pinnedAt: nil,
-            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            media: nil
         )
     }
 
@@ -162,14 +163,15 @@ final class MessageOutboxTests: XCTestCase {
             editedAt: nil,
             deletedAt: nil,
             pinnedAt: nil,
-            createdAt: Date(timeIntervalSince1970: 1_800_000_100)
+            createdAt: Date(timeIntervalSince1970: 1_800_000_100),
+            media: nil
         )
         let outbox = MessageOutbox(database: database, api: api)
 
         let delivered = await outbox.send(text: "привет", chatID: "c-1", senderID: "u-me", replyToID: nil)
 
         XCTAssertTrue(delivered)
-        let stored = try database.reader.read { db in try MessageRecord.fetchAll(db) }
+        let stored = try await database.reader.read { db in try MessageRecord.fetchAll(db) }
         XCTAssertEqual(stored.count, 1)
         XCTAssertEqual(stored.first?.remoteId, "server-1")
         XCTAssertEqual(stored.first?.seq, 7)
@@ -187,7 +189,7 @@ final class MessageOutboxTests: XCTestCase {
         let delivered = await outbox.send(text: "привет", chatID: "c-1", senderID: "u-me", replyToID: nil)
 
         XCTAssertFalse(delivered)
-        let stored = try database.reader.read { db in try MessageRecord.fetchOne(db) }
+        let stored = try await database.reader.read { db in try MessageRecord.fetchOne(db) }
         XCTAssertEqual(stored?.sendState, .failed)
         XCTAssertNil(stored?.remoteId)
     }
@@ -207,7 +209,8 @@ final class MessageOutboxTests: XCTestCase {
         api.answer = ChatMessageDTO(
             id: "server-1", chatId: "c-1", seq: 1, senderId: "u-me", content: "первое",
             replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
-            pinnedAt: nil, createdAt: Date()
+            pinnedAt: nil, createdAt: Date(),
+            media: nil
         )
         await outbox.flush(chatID: "c-1")
 

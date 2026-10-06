@@ -12,7 +12,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
         await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
         await settle()
 
-        try database.reader.read { db in
+        try await database.reader.read { db in
             let chat = try ChatRecord.fetchOne(db, key: "c-1")
             XCTAssertEqual(chat?.unreadCount, 1)
             XCTAssertEqual(chat?.lastSeq, 2)
@@ -30,7 +30,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
         await transport.emit(.messageNew(message(id: "m-2", seq: 2, sender: "u-other")))
         await settle()
 
-        let unread = try database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.unreadCount }
+        let unread = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.unreadCount }
         XCTAssertEqual(unread, 0)
     }
 
@@ -41,7 +41,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
         await transport.emit(.chatRead(chatID: "c-1", readAt: Date()))
         await settle()
 
-        let unread = try database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.unreadCount }
+        let unread = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.unreadCount }
         XCTAssertEqual(unread, 0)
         _ = coordinator
     }
@@ -55,7 +55,7 @@ final class RealtimeCoordinatorTests: XCTestCase {
         await transport.emit(.messageDeleted(messageID: "m-2", chatID: "c-1"))
         await settle()
 
-        let stored = try database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-2") }
+        let stored = try await database.reader.read { db in try MessageRecord.fetchOne(db, key: "m-2") }
         XCTAssertNotNil(stored?.deletedAt)
         _ = coordinator
     }
@@ -133,7 +133,8 @@ final class RealtimeCoordinatorTests: XCTestCase {
         ChatMessageDTO(
             id: id, chatId: "c-1", seq: seq, senderId: sender, content: "текст",
             replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
-            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_500)
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_500),
+            media: nil
         )
     }
 }

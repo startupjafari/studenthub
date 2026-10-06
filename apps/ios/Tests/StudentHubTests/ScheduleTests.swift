@@ -35,7 +35,7 @@ final class ScheduleStoreTests: XCTestCase {
 
         try await store.save(ScheduleDTO(timezone: "Asia/Almaty", pairs: [pair(id: "p-2")]))
 
-        let ids = try database.reader.read { db in try PairRecord.fetchAll(db).map(\.id) }
+        let ids = try await database.reader.read { db in try PairRecord.fetchAll(db).map(\.id) }
         XCTAssertEqual(ids, ["p-2"])
     }
 
@@ -47,7 +47,7 @@ final class ScheduleStoreTests: XCTestCase {
 
         try await store.save(ScheduleDTO(timezone: nil, pairs: [pair(id: "p-1")]))
 
-        let stored = try database.reader.read { db in try PairRecord.fetchOne(db) }
+        let stored = try await database.reader.read { db in try PairRecord.fetchOne(db) }
         XCTAssertEqual(stored?.teacherName, "Ахметов Руслан")
     }
 
@@ -62,7 +62,7 @@ final class ScheduleStoreTests: XCTestCase {
         try await store.save(changes: [change(id: "c-old", date: old)], from: old)
         try await store.save(changes: [change(id: "c-new", date: now)], from: now)
 
-        let ids = try database.reader.read { db in try PairChangeRecord.fetchAll(db).map(\.id) }
+        let ids = try await database.reader.read { db in try PairChangeRecord.fetchAll(db).map(\.id) }
         XCTAssertEqual(ids, ["c-new"])
     }
 
