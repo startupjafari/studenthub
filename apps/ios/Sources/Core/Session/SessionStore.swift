@@ -28,6 +28,16 @@ actor SessionStore: AuthorizationProvider {
     /// Разобранный токен — для тех, кому нужна роль и scope, а не строка.
     var currentToken: AccessToken? { token }
 
+    /// Холодный старт: поднять сессию и вернуть разобранный токен.
+    ///
+    /// Отдельно от `accessToken()` ради одной строки — та отдаёт строку для
+    /// заголовка, а корневому экрану нужна роль, чтобы решить, что показывать.
+    /// Возврат `nil` означает ровно одно: показывать вход.
+    func restoredToken() async -> AccessToken? {
+        _ = await accessToken()
+        return token
+    }
+
     // MARK: - AuthorizationProvider
 
     func accessToken() async -> String? {

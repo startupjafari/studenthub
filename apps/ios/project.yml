@@ -41,6 +41,10 @@ targets:
         # Обычный HTTPS — не предмет экспортного контроля. Без этого ключа каждая
         # сборка в App Store Connect ждёт ответа на вопрос о шифровании.
         ITSAppUsesNonExemptEncryption: false
+        # Камера нужна ровно для одного — отсканировать QR входа на компьютере.
+        # Текст видит человек в системном запросе, поэтому в нём сказано зачем,
+        # а не «приложению нужен доступ к камере».
+        NSCameraUsageDescription: Чтобы отсканировать QR-код входа на компьютере.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:

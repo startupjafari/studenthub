@@ -7,6 +7,8 @@
     struct TokenGalleryView: View {
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @State private var nudged = false
+        @State private var sampleField = ""
+        @State private var sampleFieldIsInvalid = false
 
         private let surfaces: [(String, Color)] = [
             ("background", Palette.background),
@@ -39,11 +41,49 @@
                         typography
                         radii
                         motion
+                        forms
                     }
                     .padding(Spacing.xl)
                 }
                 .background(Palette.background)
                 .navigationTitle(Text(verbatim: "Дизайн-ядро"))
+            }
+        }
+
+        /// Контролы формы: ровно те, из которых собран вход. Рядом с токенами —
+        /// чтобы расхождение рамки или высоты было видно сразу, а не на экране.
+        private var forms: some View {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
+                Text(verbatim: "Формы")
+                    .font(Typography.sectionTitle)
+                    .foregroundStyle(Palette.foreground)
+
+                VStack(alignment: .leading, spacing: Spacing.md) {
+                    FieldLabel(text: "Поле")
+                    TextField(text: $sampleField) { Text(verbatim: "Поле") }
+                        .labelsHidden()
+                        .formField(isInvalid: sampleFieldIsInvalid)
+                    FieldError(message: sampleFieldIsInvalid ? "Так выглядит ошибка поля" : nil)
+                }
+
+                FormAlert(message: "Так выглядит ошибка формы")
+
+                Button {
+                    sampleFieldIsInvalid.toggle()
+                } label: {
+                    Text(verbatim: "Основное действие")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+
+                Button {} label: {
+                    Text(verbatim: "Загрузка")
+                }
+                .buttonStyle(PrimaryButtonStyle(isLoading: true))
+
+                Button {} label: {
+                    Text(verbatim: "Тихое действие")
+                }
+                .buttonStyle(QuietButtonStyle())
             }
         }
 

@@ -1,30 +1,44 @@
 import SwiftUI
 
-/// Корневая сцена.
+/// Корневая сцена: вход, пока сессии нет, и приложение, когда она есть.
 ///
-/// Настоящая оболочка — пять вкладок с составом по роли — появится в задаче 0.6,
-/// экран входа перед ней — в 0.5. Пока в Debug показываем витрину токенов: так
-/// дизайн-ядро видно на устройстве с первого дня, как витрина `/_dev/design-system`
-/// в вебе.
+/// Настоящая оболочка — пять вкладок с составом по роли — появится в задаче 0.6;
+/// до неё за входом стоит временный экран, с которого достижимы выход и
+/// подтверждение входа по QR.
 struct RootView: View {
+    @State private var session = AppSessionModel()
+
     var body: some View {
-        #if DEBUG
-            TokenGalleryView()
-        #else
-            ScaffoldPlaceholderView()
-        #endif
+        content
+            .background(Palette.background)
+            .animation(Motion.calm, value: session.state)
+            .task {
+                await session.restore()
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch session.state {
+        case .restoring:
+            RestoringView()
+        case .signedOut:
+            LoginView(session: session)
+        case .signedIn:
+            SignedInScaffoldView(session: session)
+        }
     }
 }
 
-private struct ScaffoldPlaceholderView: View {
+/// Холодный старт: признак сессии есть, токен ещё едет. Показываем имя приложения,
+/// а не спиннер во весь экран — ожидание здесь обычно короче, чем заметно глазу.
+private struct RestoringView: View {
     var body: some View {
         VStack(spacing: Spacing.md) {
             Text(verbatim: "StudentHub")
                 .font(Typography.pageTitle)
                 .foregroundStyle(Palette.foreground)
-            Text(verbatim: AppConfiguration.clientVersion)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
+            ProgressView()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.background)

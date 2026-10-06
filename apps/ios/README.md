@@ -37,8 +37,10 @@ xcodebuild -scheme StudentHub -destination 'platform=iOS Simulator,name=iPhone 1
 ## Структура
 
 ```
-Sources/App            точка входа и корневая сцена
-Sources/DesignSystem   токены: цвет, типографика, отступы, радиусы, движение
+Sources/App            точка входа, корневая сцена, сборка зависимостей
+Sources/Core           сеть и сессия: клиент API, конверт ответа, связка ключей
+Sources/Features       экраны по областям продукта: вход, чаты, учёба, заявки
+Sources/DesignSystem   токены и контролы: цвет, типографика, отступы, радиусы, движение, формы
 Resources              ассеты и каталог строк
 Config                 xcconfig по конфигурациям сборки
 Tests                  модульные тесты
