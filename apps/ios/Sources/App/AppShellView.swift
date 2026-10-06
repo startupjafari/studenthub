@@ -11,7 +11,8 @@ struct AppShellView: View {
     /// идентификатор — по нему лента отличает свои сообщения от чужих.
     let viewer: AccessToken
 
-    @State private var router = AppRouter()
+    /// Общий маршрутизатор: по нему же ходит переход из уведомления.
+    @Bindable private var router = AppServices.router
 
     private var role: Role { viewer.role }
 
@@ -35,6 +36,10 @@ struct AppShellView: View {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
             // сессия, выход — её конец.
             AppServices.realtime.start()
+            // Разрешение спрашиваем здесь, а не на экране входа: до входа уведомлять
+            // человека не о чем, и запрос выглядел бы попрошайничеством.
+            await PushRegistrar().requestAuthorization()
+            await AppServices.pushSync.catchUp()
         }
         // Ссылку, которую приложение не знает, не перехватываем: её откроет браузер,
         // где работает полная версия.

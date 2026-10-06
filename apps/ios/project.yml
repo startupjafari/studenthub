@@ -60,6 +60,9 @@ targets:
         # Обычный HTTPS — не предмет экспортного контроля. Без этого ключа каждая
         # сборка в App Store Connect ждёт ответа на вопрос о шифровании.
         ITSAppUsesNonExemptEncryption: false
+        # Тихие пуши: без этого режима система не будит приложение ради догона.
+        UIBackgroundModes:
+          - remote-notification
         # Своя схема для пушей и ссылок из веба: `studenthub://chats?c=…`.
         # Универсальные ссылки (https) появятся вместе с apple-app-site-association
         # на домене — до этого адрес веба открывает браузер, как и раньше.

@@ -52,6 +52,9 @@ final class AppSessionModel {
         // Сначала рвём реальное время: сокет с погашенным токеном сервер всё равно
         // отключит, но уже со своей стороны и с ошибкой в логе.
         await AppServices.realtime.stop()
+        // И отвязываем устройство: иначе следующему человеку на этом телефоне
+        // прилетят чужие уведомления.
+        await PushRegistrar().unregister()
         await store.signOut()
         state = .signedOut
     }

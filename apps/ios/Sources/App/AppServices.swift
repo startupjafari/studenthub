@@ -14,6 +14,13 @@ enum AppServices {
     /// сервер берёт из токена.
     static let qrLogin = QRLoginAPI(client: api)
 
+    /// Навигация. Общая, а не у каждого экрана своя: по нажатию на уведомление
+    /// переход делает делегат приложения, у которого своего состояния нет.
+    static let router = AppRouter()
+
+    /// Что делать по тихому пушу.
+    static let pushSync = PushSync()
+
     /// Ссылки на вложения: кэш по id файла, а не по адресу.
     static let attachmentURLs = AttachmentURLProvider()
 
