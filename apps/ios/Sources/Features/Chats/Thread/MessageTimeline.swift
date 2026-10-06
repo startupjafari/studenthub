@@ -11,6 +11,7 @@ enum MessageTimeline {
 
     struct Item: Identifiable, Hashable {
         let message: MessageRecord
+        let attachments: [AttachmentRecord]
         /// Первое в группе — у него рисуется имя автора.
         let isFirstInGroup: Bool
         /// Последнее в группе — у него хвостик пузыря и время.
@@ -28,6 +29,7 @@ enum MessageTimeline {
 
     static func build(
         from messages: [MessageRecord],
+        attachments: [String: [AttachmentRecord]] = [:],
         viewerID: String,
         calendar: Calendar = .current
     ) -> [Day] {
@@ -54,6 +56,7 @@ enum MessageTimeline {
             buffer.append(
                 Item(
                     message: message,
+                    attachments: attachments[message.id] ?? [],
                     isFirstInGroup: !continues(previous, before: message, calendar: calendar),
                     isLastInGroup: !continues(message, before: next, calendar: calendar),
                     isOwn: message.senderId == viewerID

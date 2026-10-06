@@ -14,6 +14,9 @@ enum AppServices {
     /// сервер берёт из токена.
     static let qrLogin = QRLoginAPI(client: api)
 
+    /// Ссылки на вложения: кэш по id файла, а не по адресу.
+    static let attachmentURLs = AttachmentURLProvider()
+
     /// Реальное время. Транспорт — единственное место, знающее про socket.io.
     static let realtime = RealtimeCoordinator(transport: SocketIORealtimeTransport())
 

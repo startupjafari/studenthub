@@ -123,6 +123,26 @@ extension AppDatabase {
             )
         }
 
+        migrator.registerMigration("v3.attachments") { db in
+            try db.create(table: AttachmentRecord.databaseTableName) { table in
+                table.primaryKey("id", .text)
+                table.column("messageId", .text)
+                    .notNull()
+                    .references(MessageRecord.databaseTableName, onDelete: .cascade)
+                table.column("mime", .text).notNull()
+                table.column("name", .text)
+                table.column("size", .integer)
+                table.column("width", .integer)
+                table.column("height", .integer)
+                table.column("localPath", .text)
+            }
+            try db.create(
+                index: "attachment_on_message",
+                on: AttachmentRecord.databaseTableName,
+                columns: ["messageId"]
+            )
+        }
+
         return migrator
     }
 }

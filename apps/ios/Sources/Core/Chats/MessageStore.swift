@@ -91,6 +91,7 @@ struct MessageStore: Sendable {
             local.pinnedAt = message.pinnedAt
             local.sendState = .sent
             try local.update(db)
+            try saveAttachments(of: message, messageID: local.id, in: db)
             return
         }
 
@@ -110,6 +111,40 @@ struct MessageStore: Sendable {
             createdAt: message.createdAt,
             sendState: .sent
         ).upsert(db)
+        try saveAttachments(of: message, messageID: message.id, in: db)
+    }
+
+    /// Вложения переписываем целиком: сервер присылает их полным списком, а
+    /// дельта по ним не приходит вовсе.
+    private static func saveAttachments(
+        of message: ChatMessageDTO,
+        messageID: String,
+        in db: Database
+    ) throws {
+        guard let media = message.media else { return }
+        let known = try AttachmentRecord
+            .filter(AttachmentRecord.Columns.messageId == messageID)
+            .fetchAll(db)
+        let paths = Dictionary(known.map { ($0.id, $0.localPath) }, uniquingKeysWith: { first, _ in first })
+
+        try AttachmentRecord
+            .filter(AttachmentRecord.Columns.messageId == messageID)
+            .deleteAll(db)
+
+        for item in media {
+            try AttachmentRecord(
+                id: item.id,
+                messageId: messageID,
+                mime: item.mime,
+                name: item.name,
+                size: item.size,
+                width: item.width,
+                height: item.height,
+                // Уже скачанный файл не теряем: ключ кэша — id, и ссылка на диск
+                // переживает обновление самой записи.
+                localPath: paths[item.id] ?? nil
+            ).insert(db)
+        }
     }
 
     private static func liftLastSeq(chatID: String, to seq: Int?, in db: Database) throws {

@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Поле ввода.
 ///
@@ -8,6 +10,9 @@ struct MessageComposerView: View {
     @Bindable var model: ChatThreadModel
 
     @FocusState private var isFocused: Bool
+    @State private var recorder = VoiceRecorder()
+    @State private var photo: PhotosPickerItem?
+    @State private var showsFileImporter = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,7 +20,42 @@ struct MessageComposerView: View {
                 ReplyBar(text: replyTo.content) { model.cancelReply() }
             }
 
+            if recorder.isRecording {
+                RecordingBar(
+                    levels: recorder.levels,
+                    duration: recorder.duration,
+                    onCancel: { recorder.cancel() },
+                    onSend: {
+                        guard let voice = recorder.stop() else { return }
+                        Task { await model.attach(voice) }
+                    }
+                )
+            }
+
             HStack(alignment: .bottom, spacing: Spacing.md) {
+                Menu {
+                    PhotosPicker(selection: $photo, matching: .images) {
+                        Label(
+                            String(localized: "chats.attachPhoto", defaultValue: "Фото"),
+                            systemImage: "photo"
+                        )
+                    }
+                    Button {
+                        showsFileImporter = true
+                    } label: {
+                        Label(
+                            String(localized: "chats.attachFile", defaultValue: "Файл"),
+                            systemImage: "doc"
+                        )
+                    }
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.mutedForeground)
+                        .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                }
+                .accessibilityLabel(Text(String(localized: "chats.attach", defaultValue: "Вложение")))
+
                 TextField(
                     text: $model.draft,
                     prompt: Text(verbatim: String(localized: "chats.placeholder", defaultValue: "Сообщение")),
@@ -35,18 +75,11 @@ struct MessageComposerView: View {
                     model.draftChanged()
                 }
 
-                Button {
-                    Task { await model.send() }
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(Typography.body.weight(.semibold))
-                        .foregroundStyle(Palette.primaryForeground)
-                        .frame(width: ControlHeight.lg, height: ControlHeight.lg)
-                        .background(canSend ? Palette.primary : Palette.mutedForeground, in: Circle())
+                if canSend {
+                    sendButton
+                } else {
+                    micButton
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
             }
             .padding(.horizontal, Spacing.xl)
             .padding(.vertical, Spacing.md)
@@ -58,6 +91,80 @@ struct MessageComposerView: View {
                 .fill(Palette.border)
                 .frame(height: 1)
         }
+        .onChange(of: photo) {
+            Task { await sendPickedPhoto() }
+        }
+        .fileImporter(isPresented: $showsFileImporter, allowedContentTypes: [.item]) { result in
+            Task { await sendPickedFile(result) }
+        }
+    }
+
+    private var sendButton: some View {
+        Button {
+            Task { await model.send() }
+        } label: {
+            Image(systemName: "arrow.up")
+                        .font(Typography.body.weight(.semibold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .background(Palette.primary, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+    }
+
+    /// Пустое поле — вместо «отправить» микрофон: та же кнопка, что и во всех
+    /// мессенджерах, и место под неё одно.
+    private var micButton: some View {
+        Button {
+            Task {
+                if recorder.isRecording {
+                    guard let voice = recorder.stop() else { return }
+                    await model.attach(voice)
+                } else {
+                    _ = await recorder.start()
+                }
+            }
+        } label: {
+            Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
+                .font(Typography.body)
+                .foregroundStyle(Palette.primaryForeground)
+                .frame(width: ControlHeight.lg, height: ControlHeight.lg)
+                .background(recorder.isRecording ? Palette.destructive : Palette.primary, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(recorder.isRecording
+            ? String(localized: "chats.voice.stop", defaultValue: "Остановить запись")
+            : String(localized: "chats.voice.record", defaultValue: "Записать голосовое")))
+    }
+
+    private func sendPickedPhoto() async {
+        guard let photo else { return }
+        self.photo = nil
+        guard let data = try? await photo.loadTransferable(type: Data.self) else { return }
+        await model.attach(
+            OutgoingAttachment(data: data, mime: "image/jpeg", name: "photo.jpg", width: nil, height: nil)
+        )
+    }
+
+    private func sendPickedFile(_ result: Result<URL, Error>) async {
+        guard case .success(let url) = result else { return }
+        // Файл из чужого каталога открывается только так: без этого чтение
+        // запрещено песочницей.
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+        guard let data = try? Data(contentsOf: url) else { return }
+        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        await model.attach(
+            OutgoingAttachment(
+                data: data,
+                mime: mime,
+                name: url.lastPathComponent,
+                width: nil,
+                height: nil
+            )
+        )
     }
 
     private var canSend: Bool {
@@ -128,5 +235,71 @@ struct ChatActionCaption: View {
         default:
             return String(localized: "chats.action.typing", defaultValue: "печатает…")
         }
+    }
+}
+
+/// Полоса записи: настоящая волна по показаниям микрофона, время и две кнопки.
+///
+/// Волна здесь не украшение — по ней видно, что микрофон действительно слышит
+/// голос, а не записывает тишину из-за занятого другим приложением входа.
+struct RecordingBar: View {
+    let levels: [Float]
+    let duration: TimeInterval
+    let onCancel: () -> Void
+    let onSend: () -> Void
+
+    var body: some View {
+        HStack(spacing: Spacing.lg) {
+            Button(action: onCancel) {
+                Image(systemName: "trash")
+                    .foregroundStyle(Palette.destructive)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(String(localized: "common.cancel", defaultValue: "Отменить")))
+
+            WaveformView(levels: levels)
+                .frame(maxWidth: .infinity)
+                .frame(height: ControlHeight.sm)
+
+            Text(verbatim: time)
+                .font(Typography.tabular(Typography.meta))
+                .foregroundStyle(Palette.mutedForeground)
+
+            Button(action: onSend) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(Palette.primary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(String(localized: "chats.send", defaultValue: "Отправить")))
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .background(Palette.muted)
+    }
+
+    private var time: String {
+        let whole = Int(duration)
+        return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+}
+
+/// Столбики уровня сигнала.
+struct WaveformView: View {
+    let levels: [Float]
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
+                    Capsule()
+                        .fill(Palette.primary)
+                        // Минимум в пару точек: нулевая высота читается как обрыв
+                        // записи, хотя это просто тишина между словами.
+                        .frame(height: max(2, proxy.size.height * CGFloat(level)))
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .accessibilityHidden(true)
     }
 }

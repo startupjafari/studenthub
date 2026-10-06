@@ -30,6 +30,7 @@ final class ChatThreadModel {
     private let api: ChatMessagesFetching
     private let store: MessageStore
     private let outbox: MessageOutbox
+    private let uploader: AttachmentUploader
     private let realtime: RealtimeCoordinator
 
     private var messagesTask: Task<Void, Never>?
@@ -50,6 +51,7 @@ final class ChatThreadModel {
         api: ChatMessagesFetching = ChatsAPI(),
         store: MessageStore? = nil,
         outbox: MessageOutbox? = nil,
+        uploader: AttachmentUploader? = nil,
         realtime: RealtimeCoordinator = AppServices.realtime
     ) {
         self.chatID = chatID
@@ -58,6 +60,7 @@ final class ChatThreadModel {
         self.api = api
         self.store = store ?? MessageStore(database: database)
         self.outbox = outbox ?? MessageOutbox(database: database)
+        self.uploader = uploader ?? AttachmentUploader(database: database)
         self.realtime = realtime
     }
 
@@ -135,6 +138,44 @@ final class ChatThreadModel {
         // Сообщение ушло — подпись «печатает…» снимаем явно, не дожидаясь таймера.
         lastActionAt = nil
         await realtime.send(action: nil, chatID: chatID)
+    }
+
+    /// Отправить вложение. Подпись к нему — текущий текст поля ввода: так же, как
+    /// в вебе, отдельной формы для подписи нет.
+    @MainActor
+    func attach(_ attachment: OutgoingAttachment) async {
+        let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let answering = replyTo?.remoteId
+        draft = ""
+        replyTo = nil
+        await persistDraft("")
+
+        // Подпись о загрузке — не сразу: сжатый снимок улетает за доли секунды, и
+        // она успела бы только мигнуть (PROJECT.md §9.1a).
+        let action = Self.action(for: attachment.mime, name: attachment.name)
+        let notifier = Task { [realtime, chatID] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await realtime.send(action: action, chatID: chatID)
+        }
+
+        await uploader.send(
+            attachment,
+            chatID: chatID,
+            senderID: viewerID,
+            caption: caption.isEmpty ? nil : caption,
+            replyToID: answering
+        )
+
+        notifier.cancel()
+        await realtime.send(action: nil, chatID: chatID)
+    }
+
+    private static func action(for mime: String, name: String?) -> String {
+        if mime.hasPrefix("audio/") { return "RECORDING_VOICE" }
+        if mime.hasPrefix("image/") { return "UPLOADING_PHOTO" }
+        if mime.hasPrefix("video/") { return "UPLOADING_VIDEO" }
+        return "UPLOADING_FILE"
     }
 
     @MainActor
@@ -292,12 +333,34 @@ final class ChatThreadModel {
     private func observeMessages() {
         messagesTask?.cancel()
         let request = store.messages(chatID: chatID)
-        let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
+        let id = chatID
+        // Сообщения и вложения читаем одним наблюдением: раздельные дали бы кадр,
+        // где картинка уже пришла, а сообщения под неё ещё нет.
+        let observation = ValueObservation.tracking { db -> ThreadSnapshot in
+            let messages = try request.fetchAll(db)
+            let attachments = try AttachmentRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT a.* FROM attachment a
+                    JOIN message m ON m.id = a.messageId
+                    WHERE m.chatId = ?
+                    """,
+                arguments: [id]
+            )
+            return ThreadSnapshot(
+                messages: messages,
+                attachments: Dictionary(grouping: attachments, by: \.messageId)
+            )
+        }
         messagesTask = Task { @MainActor [weak self, database] in
             guard let self else { return }
-            for await rows in AsyncValues.stream(of: observation, in: database.reader) {
-                self.messages = rows
-                self.days = MessageTimeline.build(from: rows, viewerID: self.viewerID)
+            for await snapshot in AsyncValues.stream(of: observation, in: database.reader) {
+                self.messages = snapshot.messages
+                self.days = MessageTimeline.build(
+                    from: snapshot.messages,
+                    attachments: snapshot.attachments,
+                    viewerID: self.viewerID
+                )
                 self.pickAnchorIfNeeded()
             }
         }
@@ -358,4 +421,11 @@ enum AsyncValues {
             continuation.onTermination = { _ in cancellable.cancel() }
         }
     }
+}
+
+
+/// Срез переписки: сообщения и их вложения, прочитанные одним запросом.
+struct ThreadSnapshot: Equatable {
+    let messages: [MessageRecord]
+    let attachments: [String: [AttachmentRecord]]
 }

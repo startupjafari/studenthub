@@ -71,6 +71,8 @@ targets:
         # Текст видит человек в системном запросе, поэтому в нём сказано зачем,
         # а не «приложению нужен доступ к камере».
         NSCameraUsageDescription: Чтобы отсканировать QR-код входа на компьютере.
+        # Микрофон — только для голосовых сообщений в чате.
+        NSMicrophoneUsageDescription: Чтобы записать голосовое сообщение.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:

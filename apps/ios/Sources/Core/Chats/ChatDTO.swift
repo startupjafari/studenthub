@@ -27,6 +27,20 @@ struct ChatListItemDTO: Decodable, Equatable {
     let updatedAt: Date
 }
 
+/// Вложение сообщения. Вид (картинка, файл, голосовое) выводится при рендере из
+/// mime, имени и флага `asDocument` — отдельного типа сообщения в модели нет
+/// (PROJECT.md §9.1a).
+struct ChatAttachmentDTO: Decodable, Equatable {
+    let id: String
+    let mime: String
+    let size: Int?
+    let name: String?
+    let spoiler: Bool?
+    let asDocument: Bool?
+    let width: Int?
+    let height: Int?
+}
+
 struct ChatMessageDTO: Decodable, Equatable {
     let id: String
     let chatId: String
@@ -40,6 +54,7 @@ struct ChatMessageDTO: Decodable, Equatable {
     let deletedAt: Date?
     let pinnedAt: Date?
     let createdAt: Date
+    let media: [ChatAttachmentDTO]?
 }
 
 /// Папка чатов (§2 эпика «Чаты»): имя, позиция вкладки и состав.

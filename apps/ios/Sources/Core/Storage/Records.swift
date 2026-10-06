@@ -136,3 +136,33 @@ struct FolderChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable 
     var folderId: String
     var chatId: String
 }
+
+
+/// Вложение сообщения.
+///
+/// Лежит отдельной таблицей, а не JSON-полем в сообщении: по вложениям идут
+/// выборки (общие материалы чата), а разбирать ради них JSON в каждой строке — это
+/// полный перебор переписки.
+struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
+    static let databaseTableName = "attachment"
+
+    /// Серверный id файла либо локальный, пока вложение не ушло.
+    var id: String
+    var messageId: String
+    var mime: String
+    var name: String?
+    var size: Int?
+    var width: Int?
+    var height: Int?
+    /// Путь к файлу на устройстве: он есть у своих вложений до отправки и у
+    /// скачанных. Ключ кэша — id файла, а не ссылка: presigned-ссылка протухает.
+    var localPath: String?
+
+    enum Columns {
+        static let messageId = Column(CodingKeys.messageId)
+    }
+
+    var isImage: Bool { mime.hasPrefix("image/") }
+    /// Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет.
+    var isVoice: Bool { mime.hasPrefix("audio/") && (name?.hasPrefix("voice-") ?? false) }
+}

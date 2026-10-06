@@ -29,10 +29,19 @@ struct MessageBubbleView: View {
                 ReplyQuoteView(text: quote, isOwn: item.isOwn)
             }
 
-            Text(text)
-                .font(Typography.body)
-                .foregroundStyle(textColor)
-                .italic(message.deletedAt != nil)
+            if message.deletedAt == nil {
+                ForEach(item.attachments, id: \.id) { attachment in
+                    AttachmentView(attachment: attachment, isOwn: item.isOwn)
+                }
+            }
+
+            // Подпись к вложению может быть пустой — тогда и строки нет.
+            if !message.content.isEmpty || item.attachments.isEmpty {
+                Text(text)
+                    .font(Typography.body)
+                    .foregroundStyle(textColor)
+                    .italic(message.deletedAt != nil)
+            }
 
             HStack(spacing: Spacing.xs) {
                 if message.editedAt != nil, message.deletedAt == nil {
