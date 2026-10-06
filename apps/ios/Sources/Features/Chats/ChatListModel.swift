@@ -144,8 +144,7 @@ final class ChatListModel {
         let request = ChatListQuery.rows(for: tab)
         let observation = ValueObservation.tracking { db in try request.fetchAll(db) }
         rowsTask = Task { @MainActor [weak self, database] in
-            guard let values = self?.values(of: observation, in: database.reader) else { return }
-            for await rows in values {
+            for await rows in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.rows = rows
             }
         }
@@ -156,8 +155,7 @@ final class ChatListModel {
         tabsTask?.cancel()
         let observation = ValueObservation.tracking { db in try ChatListQuery.tabs(in: db) }
         tabsTask = Task { @MainActor [weak self, database] in
-            guard let values = self?.values(of: observation, in: database.reader) else { return }
-            for await tabs in values {
+            for await tabs in AsyncValues.stream(of: observation, in: database.reader) {
                 self?.tabs = tabs
                 // Папку удалили на другом устройстве — возвращаемся к «Все», иначе
                 // экран остался бы на вкладке, которой больше нет.
@@ -165,24 +163,6 @@ final class ChatListModel {
                     self?.select(.all)
                 }
             }
-        }
-    }
-
-    /// Поток значений наблюдения, в котором ошибка чтения не роняет экран: база
-    /// локальная, и единственная причина сбоя — повреждение файла, с которым список
-    /// всё равно ничего не сделает.
-    private func values<T>(
-        of observation: ValueObservation<ValueReducers.Fetch<T>>,
-        in reader: any DatabaseReader
-    ) -> AsyncStream<T> {
-        AsyncStream { continuation in
-            let cancellable = observation.start(
-                in: reader,
-                scheduling: .async(onQueue: .main),
-                onError: { _ in continuation.finish() },
-                onChange: { value in continuation.yield(value) }
-            )
-            continuation.onTermination = { _ in cancellable.cancel() }
         }
     }
 }

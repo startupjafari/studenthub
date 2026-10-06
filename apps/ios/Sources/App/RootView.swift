@@ -49,7 +49,7 @@ struct RootView: View {
             // Роли вне MVP приложение не ведёт: им честнее сказать про браузер,
             // чем показать оболочку с пятью пустыми вкладками.
             if token.role.isSupportedOnPhone {
-                AppShellView(session: session, role: token.role)
+                AppShellView(session: session, viewer: token)
             } else {
                 UnsupportedRoleView(session: session)
             }

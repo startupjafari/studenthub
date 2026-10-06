@@ -16,7 +16,9 @@ struct ChatsAPI: ChatsFetching {
     /// Сервер отдаёт до 200 чатов за страницу; сотня — его же значение по умолчанию.
     static let pageLimit = 100
 
-    private let client: APIClient
+    /// Доступен расширениям в соседних файлах: маршруты чатов разнесены по задачам
+    /// (список, переписка, вложения), а клиент у них один.
+    let client: APIClient
 
     init(client: APIClient = AppServices.api) {
         self.client = client

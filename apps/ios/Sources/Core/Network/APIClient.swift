@@ -127,7 +127,7 @@ actor APIClient {
         // человека обновиться (Задача Б3).
         request.setValue(AppConfiguration.clientVersion, forHTTPHeaderField: "X-Client-Version")
         if endpoint.body != nil {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(endpoint.contentType, forHTTPHeaderField: "Content-Type")
         }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

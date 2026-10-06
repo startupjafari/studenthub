@@ -18,6 +18,8 @@ struct Endpoint {
     /// Нужен ли заголовок `Authorization`. Публичных маршрутов немного: вход,
     /// обновление сессии, регистрация по инвайту, здоровье.
     var requiresAuthorization = true
+    /// Тип тела. По умолчанию JSON; multipart подставляет свой вместе с границей.
+    var contentType = "application/json"
     /// Можно ли повторить запрос при обрыве связи или 5xx. Повторяем только чтение:
     /// повтор POST создаст вторую заявку или второе сообщение.
     var isIdempotent: Bool { method == .get }

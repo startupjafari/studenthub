@@ -61,7 +61,7 @@ enum MessageSendState: String, Codable, Equatable, DatabaseValueConvertible {
     case failed
 }
 
-struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
+struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     static let databaseTableName = "message"
 
     /// Идентификатор строки: серверный id у пришедших сообщений, локальный UUID — у

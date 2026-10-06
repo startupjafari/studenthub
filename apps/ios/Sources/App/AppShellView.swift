@@ -7,9 +7,13 @@ import SwiftUI
 /// вкладками стоят заглушки, и это видно по названию.
 struct AppShellView: View {
     let session: AppSessionModel
-    let role: Role
+    /// Разобранный токен: из него берутся роль для состава разделов и свой
+    /// идентификатор — по нему лента отличает свои сообщения от чужих.
+    let viewer: AccessToken
 
     @State private var router = AppRouter()
+
+    private var role: Role { viewer.role }
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
@@ -52,7 +56,7 @@ struct AppShellView: View {
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):
-            PlaceholderScreen(title: String(localized: "shell.chat", defaultValue: "Чат"), reference: id)
+            ChatThreadView(chatID: id, viewerID: viewer.subject)
         case .post(let id):
             PlaceholderScreen(title: String(localized: "shell.post", defaultValue: "Публикация"), reference: id)
         case .application(let id):
