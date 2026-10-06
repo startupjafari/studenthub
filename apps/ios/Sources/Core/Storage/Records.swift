@@ -166,3 +166,49 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет.
     var isVoice: Bool { mime.hasPrefix("audio/") && (name?.hasPrefix("voice-") ?? false) }
 }
+
+
+/// Пара расписания.
+///
+/// Расписание обязано работать в самолёте и в подвале: студент смотрит его чаще
+/// всего и ровно там, где связи нет. Поэтому оно лежит в базе целиком, а не
+/// кэшируется «по возможности».
+struct PairRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
+    static let databaseTableName = "pair"
+
+    var id: String
+    var subject: String
+    /// 1 — понедельник, 7 — воскресенье.
+    var dayOfWeek: Int
+    /// «HH:mm»: сравнимо лексикографически и не зависит от часового пояса телефона.
+    var startTime: String
+    var endTime: String
+    var weekType: String
+    var teacherName: String?
+    var roomName: String?
+    var groupId: String?
+
+    enum Columns {
+        static let dayOfWeek = Column(CodingKeys.dayOfWeek)
+        static let startTime = Column(CodingKeys.startTime)
+    }
+}
+
+/// Разовое изменение пары: перенос, смена аудитории, отмена, замена.
+struct PairChangeRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
+    static let databaseTableName = "pairChange"
+
+    var id: String
+    var pairId: String
+    var type: String
+    /// День, на который изменение действует.
+    var date: Date
+    var newStartTime: String?
+    var newEndTime: String?
+    var note: String?
+
+    enum Columns {
+        static let date = Column(CodingKeys.date)
+        static let pairId = Column(CodingKeys.pairId)
+    }
+}

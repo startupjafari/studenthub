@@ -143,6 +143,43 @@ extension AppDatabase {
             )
         }
 
+        migrator.registerMigration("v4.schedule") { db in
+            try db.create(table: PairRecord.databaseTableName) { table in
+                table.primaryKey("id", .text)
+                table.column("subject", .text).notNull()
+                table.column("dayOfWeek", .integer).notNull()
+                table.column("startTime", .text).notNull()
+                table.column("endTime", .text).notNull()
+                table.column("weekType", .text).notNull()
+                table.column("teacherName", .text)
+                table.column("roomName", .text)
+                table.column("groupId", .text)
+            }
+            // Неделя рисуется по дню и времени — по ним и читаем.
+            try db.create(
+                index: "pair_on_day_time",
+                on: PairRecord.databaseTableName,
+                columns: ["dayOfWeek", "startTime"]
+            )
+
+            try db.create(table: PairChangeRecord.databaseTableName) { table in
+                table.primaryKey("id", .text)
+                // Без внешнего ключа на пару: изменение может прийти раньше самой
+                // пары, а потерять его из-за порядка загрузки нельзя.
+                table.column("pairId", .text).notNull()
+                table.column("type", .text).notNull()
+                table.column("date", .datetime).notNull()
+                table.column("newStartTime", .text)
+                table.column("newEndTime", .text)
+                table.column("note", .text)
+            }
+            try db.create(
+                index: "pairChange_on_date",
+                on: PairChangeRecord.databaseTableName,
+                columns: ["date"]
+            )
+        }
+
         return migrator
     }
 }

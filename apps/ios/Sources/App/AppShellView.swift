@@ -53,6 +53,8 @@ struct AppShellView: View {
         switch tab {
         case .chats:
             ChatListView()
+        case .schedule:
+            ScheduleView()
         case .more:
             MoreView(session: session, role: role)
         default:
