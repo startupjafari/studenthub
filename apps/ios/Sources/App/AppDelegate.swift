@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Observability.start()
         UNUserNotificationCenter.current().delegate = self
         return true
     }
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didReceiveRemoteNotification payload: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {
+        Observability.pushDelivered(silent: true)
         guard PushRouting.isSilent(payload) else { return .noData }
         return await AppServices.pushSync.catchUp() ? .newData : .failed
     }
@@ -50,7 +52,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list]
+        Observability.pushDelivered(silent: false)
+        return [.banner, .list]
     }
 
     /// Нажатие на уведомление: ведём туда, о чём оно.
@@ -58,6 +61,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        Observability.pushOpened()
         let payload = response.notification.request.content.userInfo
         guard let link = PushRouting.link(from: payload) else { return }
         // Роль нужна, чтобы не открыть раздел, которого у этого человека нет:

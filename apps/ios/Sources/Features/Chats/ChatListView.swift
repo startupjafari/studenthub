@@ -105,7 +105,7 @@ private struct ChatTabsView: View {
                         Text(title(of: tab))
                             .font(Typography.meta)
                             .padding(.horizontal, Spacing.lg)
-                            .frame(height: ControlHeight.sm)
+                            .padding(.vertical, Spacing.sm)
                             .background(
                                 tab == selected ? Palette.primary.opacity(0.1) : Palette.muted,
                                 in: Capsule()

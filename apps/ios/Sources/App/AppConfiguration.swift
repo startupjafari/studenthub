@@ -24,6 +24,16 @@ enum AppConfiguration {
     /// логах и решает, не пора ли просить человека обновиться (Задача Б3).
     static var clientVersion: String { "ios/\(marketingVersion)+\(buildNumber)" }
 
+    /// Релизная сборка. По ней выбирается окружение трекера: смешивать отладку с
+    /// продом в одной ленте issue — значит не читать её вовсе.
+    static var isRelease: Bool {
+        #if DEBUG
+            return false
+        #else
+            return true
+        #endif
+    }
+
     private static func string(for key: String) -> String? {
         Bundle.main.object(forInfoDictionaryKey: key) as? String
     }

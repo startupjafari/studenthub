@@ -139,7 +139,7 @@ struct PostCard: View {
                             }
                         }
                         .padding(.horizontal, Spacing.md)
-                        .frame(height: ControlHeight.sm)
+                        .padding(.vertical, Spacing.sm)
                         .background(
                             model.isMine(emoji, in: post.id) ? Palette.primary.opacity(0.1) : Palette.muted,
                             in: Capsule()

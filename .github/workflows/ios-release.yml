@@ -1,0 +1,81 @@
+name: iOS release
+
+# Сборка для TestFlight. Только вручную: выпуск — решение человека, а не следствие
+# пуша в ветку. Минута macOS-раннера стоит в десять раз дороже обычной, и держать
+# её на каждом коммите незачем — проверку кода делает workflow `ios.yml`.
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Номер сборки (CURRENT_PROJECT_VERSION)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/ios
+
+jobs:
+  testflight:
+    name: Архив и загрузка
+    runs-on: macos-15
+    # Без ключа App Store Connect прогон не имеет смысла: архив соберётся, а уйти
+    # ему некуда. Проверяем заранее, чтобы не тратить десять минут впустую.
+    if: ${{ github.repository_owner != '' }}
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+
+      - name: Поставить XcodeGen
+        run: brew install xcodegen
+
+      - name: Сгенерировать проект
+        run: xcodegen generate
+
+      - name: Ключ App Store Connect
+        env:
+          PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+        run: |
+          if [ -z "$PRIVATE_KEY" ]; then
+            echo "::error::Нет секрета APPSTORE_PRIVATE_KEY — см. docs/RELEASE_IOS.md" >&2
+            exit 1
+          fi
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+
+      - name: Архив
+        env:
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -scheme StudentHub \
+            -configuration Release \
+            -archivePath build/StudentHub.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyID "${{ secrets.APPSTORE_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_ISSUER_ID }}" \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8 \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CURRENT_PROJECT_VERSION="$BUILD"
+
+      - name: Экспорт и загрузка в TestFlight
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath build/StudentHub.xcarchive \
+            -exportOptionsPlist Config/ExportOptions.plist \
+            -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyID "${{ secrets.APPSTORE_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPSTORE_ISSUER_ID }}" \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8
+
+      - name: Убрать ключ
+        if: always()
+        run: rm -rf ~/.appstoreconnect/private_keys

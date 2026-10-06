@@ -7,20 +7,26 @@ import SwiftUI
 /// ответа сервера: решение о доступе всё равно принимает API, а приложению роль
 /// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var session = AppSessionModel()
     @State private var update = UpdateGateModel()
 
     var body: some View {
         content
             .background(Palette.background)
-            .animation(Motion.calm, value: session.state)
-            .animation(Motion.calm, value: update.state)
+            // Смена экрана — движение, а не украшение, но человеку с включённым
+            // «уменьшением движения» оно показывается сразу конечным состоянием.
+            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: session.state)
+            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: update.state)
             .task {
                 // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
                 // по очереди это лишняя секунда к запуску.
                 async let version: Void = update.check()
                 async let restored: Void = session.restore()
                 _ = await (version, restored)
+                Observability.identify(userID: session.token?.subject)
+                Observability.launchFinished()
             }
     }
 

@@ -45,7 +45,7 @@ struct AttendanceMarkingView: View {
                                 Text(AttendanceStatus.title(status))
                                     .font(Typography.meta)
                                     .padding(.horizontal, Spacing.md)
-                                    .frame(height: ControlHeight.sm)
+                                    .padding(.vertical, Spacing.sm)
                                     .background(
                                         model?.statuses[student.id] == status
                                             ? AttendanceStatus.color(status).opacity(0.15)

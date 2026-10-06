@@ -89,7 +89,9 @@ private struct DayStrip: View {
                     Text(verbatim: Self.titles[day - 1])
                         .font(Typography.meta)
                         .frame(maxWidth: .infinity)
-                        .frame(height: ControlHeight.md)
+                        // Высота от содержимого, а не фиксированная: на крупных
+                        // кеглях фиксированная обрезала бы подпись.
+                        .padding(.vertical, Spacing.md)
                         .background(
                             day == selected ? Palette.primary.opacity(0.1) : Palette.muted,
                             in: RoundedRectangle(cornerRadius: Radius.md)
