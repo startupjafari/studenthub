@@ -24,15 +24,25 @@ enum DeepLink: Equatable {
     init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
 
-        var segments: [String]
-        if components.scheme?.lowercased() == Self.scheme {
+        // Схему разворачиваем до switch: сопоставлять `String?` с константой нельзя.
+        guard let scheme = components.scheme?.lowercased() else { return nil }
+
+        var segments: [String] = []
+        switch scheme {
+        case Self.scheme:
             // В `studenthub://chats?c=1` первый сегмент пути — это host.
-            segments = [components.host].compactMap { $0 } + components.path.split(separator: "/").map(String.init)
-        } else if components.scheme?.lowercased() == "https" || components.scheme?.lowercased() == "http" {
+            if let host = components.host {
+                segments.append(host)
+            }
+            segments += components.path.split(separator: "/").map(String.init)
+        case "https", "http":
             segments = components.path.split(separator: "/").map(String.init)
-        } else {
+        default:
             return nil
         }
+        // Пустые куски убираем: у `studenthub://` host разбирается в пустую строку, а
+        // «раздел с пустым именем» — это корень, то есть главная.
+        segments = segments.filter { !$0.isEmpty }
 
         // Ролевой префикс веба (`/teacher/schedule`) на телефоне не значит ничего:
         // вкладки у всех ролей одни и те же, различается наполнение.
