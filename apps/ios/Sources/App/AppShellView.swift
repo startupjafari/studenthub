@@ -57,6 +57,8 @@ struct AppShellView: View {
             ScheduleView()
         case .study:
             StudyView(role: role)
+        case .home:
+            HomeView(role: role)
         case .more:
             MoreView(session: session, role: role)
         default:
@@ -75,16 +77,22 @@ struct AppShellView: View {
             AssignmentsView()
         case .section(.materials):
             MaterialsView()
+        case .section(.notifications):
+            NotificationsView()
+        case .section(.events):
+            EventsView()
+        case .section(.profile):
+            ProfileView(userID: nil)
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):
             ChatThreadView(chatID: id, viewerID: viewer.subject)
         case .post(let id):
-            PlaceholderScreen(title: String(localized: "shell.post", defaultValue: "Публикация"), reference: id)
+            PostDetailView(postID: id)
         case .application(let id):
             PlaceholderScreen(title: String(localized: "shell.application", defaultValue: "Заявка"), reference: id)
-        case .event(let id):
-            PlaceholderScreen(title: String(localized: "shell.event", defaultValue: "Событие"), reference: id)
+        case .event:
+            EventsView()
         case .lesson(let id):
             // Преподаватель с занятия идёт отмечать посещаемость — это главное,
             // зачем он вообще открывает пару на телефоне.

@@ -24,6 +24,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case attendance
     case assignments
     case materials
+    case notifications
 
     var id: String { rawValue }
 
@@ -72,6 +73,8 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "study.assignments", defaultValue: "Задания")
         case .materials:
             return String(localized: "study.materials", defaultValue: "Материалы")
+        case .notifications:
+            return String(localized: "home.notifications", defaultValue: "Уведомления")
         }
     }
 
@@ -90,6 +93,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .attendance: return "checkmark.circle"
         case .assignments: return "list.clipboard"
         case .materials: return "folder"
+        case .notifications: return "bell"
         }
     }
 }
