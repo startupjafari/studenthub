@@ -13180,6 +13180,66 @@
         ]
       }
     },
+    "/push/devices": {
+      "post": {
+        "operationId": "PushController_registerDevice",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDeviceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Зарегистрировать устройство для пушей (нативный клиент)",
+        "tags": [
+          "Push"
+        ]
+      }
+    },
+    "/push/devices/remove": {
+      "post": {
+        "operationId": "PushController_unregisterDevice",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnregisterDeviceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отвязать устройство (выход из аккаунта на телефоне)",
+        "tags": [
+          "Push"
+        ]
+      }
+    },
     "/push/subscribe": {
       "post": {
         "operationId": "PushController_subscribe",
@@ -14608,6 +14668,14 @@
         "properties": {}
       },
       "UpdateNotificationSettingsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "RegisterDeviceDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UnregisterDeviceDto": {
         "type": "object",
         "properties": {}
       },

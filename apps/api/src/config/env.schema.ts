@@ -181,6 +181,19 @@ export const envSchema = z.object({
    */
   MINI_APP_URL: optionalEnv(z.string().url()),
 
+  // Пуши на устройства Apple (план iOS, Задача Б1). Без ключей отправка молчит —
+  // как и Web Push без VAPID: dev-окружение не обязано иметь боевые сертификаты.
+  /** Идентификатор ключа p8 из Apple Developer. */
+  APNS_KEY_ID: optionalEnv(z.string().min(1)),
+  /** Идентификатор команды разработчика. */
+  APNS_TEAM_ID: optionalEnv(z.string().min(1)),
+  /** Bundle id приложения — он же `apns-topic`. */
+  APNS_BUNDLE_ID: optionalEnv(z.string().min(1)),
+  /** Содержимое файла p8. Переводы строк экранированы: PEM многострочный. */
+  APNS_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+  /** Боевой шлюз вместо песочницы. TestFlight и App Store — боевой. */
+  APNS_PRODUCTION: booleanFromString,
+
   /**
    * Минимальная поддерживаемая версия приложения для iPhone (план iOS, Задача Б3).
    *

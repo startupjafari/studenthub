@@ -5,6 +5,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { PushService } from './push.service'
 import { PushSubscribeDto, PushUnsubscribeDto } from './dto/push-subscribe.dto'
+import { RegisterDeviceDto, UnregisterDeviceDto } from './dto/register-device.dto'
 
 // Подписки на Web Push (Ф13.3). Все ручки — под JwtAuthGuard (глобальный).
 @ApiTags('Push')
@@ -17,6 +18,26 @@ export class PushController {
   @ApiOperation({ summary: 'Публичный VAPID-ключ для подписки (null — push отключён)' })
   publicKey(): { key: string | null } {
     return { key: this.push.publicKey }
+  }
+
+  @Post('devices')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Зарегистрировать устройство для пушей (нативный клиент)' })
+  async registerDevice(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: RegisterDeviceDto,
+  ): Promise<void> {
+    await this.push.registerDevice(user.sub, dto)
+  }
+
+  @Post('devices/remove')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отвязать устройство (выход из аккаунта на телефоне)' })
+  async unregisterDevice(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: UnregisterDeviceDto,
+  ): Promise<void> {
+    await this.push.unregisterDevice(user.sub, dto.token)
   }
 
   @Post('subscribe')
