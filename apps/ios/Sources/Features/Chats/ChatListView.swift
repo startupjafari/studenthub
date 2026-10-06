@@ -6,6 +6,7 @@ import SwiftUI
 /// догоняет: ошибка запроса показывается строкой сверху, а список продолжает жить.
 struct ChatListView: View {
     @State private var model = ChatListModel()
+    private var realtime: RealtimeCoordinator { AppServices.realtime }
 
     var body: some View {
         List {
@@ -18,7 +19,9 @@ struct ChatListView: View {
 
             ForEach(model.rows) { row in
                 NavigationLink(value: AppRoute.chat(id: row.id)) {
-                    ChatRowView(row: row)
+                    // Подпись видна и в списке: событие уходит в личные комнаты
+                    // участников, а не только в комнату чата (PROJECT.md §9.2).
+                    ChatRowView(row: row, action: realtime.actions[row.id]?.values.first)
                 }
                 .listRowBackground(Palette.card)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -136,6 +139,7 @@ private struct ChatTabsView: View {
 /// превью, справа время и счётчик.
 struct ChatRowView: View {
     let row: ChatListRow
+    var action: String?
 
     var body: some View {
         HStack(spacing: Spacing.lg) {
@@ -167,7 +171,10 @@ struct ChatRowView: View {
                     }
                 }
 
-                if let preview = row.preview {
+                if let action {
+                    ChatActionCaption(action: action)
+                        .padding(.horizontal, -Spacing.xl)
+                } else if let preview = row.preview {
                     Text(preview)
                         .font(Typography.meta)
                         .foregroundStyle(row.draftText == nil ? Palette.mutedForeground : Palette.destructive)

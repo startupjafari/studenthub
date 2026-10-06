@@ -6,6 +6,7 @@ struct ChatThreadView: View {
     let viewerID: String
 
     @State private var model: ChatThreadModel?
+    private var realtime: RealtimeCoordinator { AppServices.realtime }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,6 +25,10 @@ struct ChatThreadView: View {
                     onReply: { message in model.reply(to: message) }
                 )
 
+                if let action = model.othersAction {
+                    ChatActionCaption(action: action)
+                }
+
                 MessageComposerView(model: model)
             } else {
                 ProgressView()
@@ -38,7 +43,18 @@ struct ChatThreadView: View {
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID)
             model = created
             created.start()
-            await created.open()
+            await created.enter()
+            await created.markRead()
+        }
+        .onChange(of: realtime.connectionEpoch) {
+            Task { await model?.catchUpAfterReconnect() }
+        }
+        .onChange(of: model?.days.count ?? 0) {
+            // Пришло новое — пока чат открыт, оно прочитано.
+            Task { await model?.markRead() }
+        }
+        .onDisappear {
+            Task { [model] in await model?.leave() }
         }
     }
 }

@@ -14,6 +14,9 @@ enum AppServices {
     /// сервер берёт из токена.
     static let qrLogin = QRLoginAPI(client: api)
 
+    /// Реальное время. Транспорт — единственное место, знающее про socket.io.
+    static let realtime = RealtimeCoordinator(transport: SocketIORealtimeTransport())
+
     /// Локальная база чатов. Создаётся лениво, но до первого экрана, которому она
     /// нужна: миграции обязаны пройти раньше первого чтения.
     ///

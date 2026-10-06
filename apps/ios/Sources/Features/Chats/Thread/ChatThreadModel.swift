@@ -30,6 +30,7 @@ final class ChatThreadModel {
     private let api: ChatMessagesFetching
     private let store: MessageStore
     private let outbox: MessageOutbox
+    private let realtime: RealtimeCoordinator
 
     private var messagesTask: Task<Void, Never>?
     private var chatTask: Task<Void, Never>?
@@ -37,6 +38,9 @@ final class ChatThreadModel {
     private var reachedBeginning = false
     private var didPickAnchor = false
     private var draftTask: Task<Void, Never>?
+    private var lastReadSent: String?
+    private var lastReadAt: Date?
+    private var lastActionAt: Date?
     private var messages: [MessageRecord] = []
 
     init(
@@ -45,7 +49,8 @@ final class ChatThreadModel {
         database: AppDatabase = AppServices.database,
         api: ChatMessagesFetching = ChatsAPI(),
         store: MessageStore? = nil,
-        outbox: MessageOutbox? = nil
+        outbox: MessageOutbox? = nil,
+        realtime: RealtimeCoordinator = AppServices.realtime
     ) {
         self.chatID = chatID
         self.viewerID = viewerID
@@ -53,6 +58,7 @@ final class ChatThreadModel {
         self.api = api
         self.store = store ?? MessageStore(database: database)
         self.outbox = outbox ?? MessageOutbox(database: database)
+        self.realtime = realtime
     }
 
     deinit {
@@ -66,6 +72,35 @@ final class ChatThreadModel {
         observeMessages()
         observeChat()
         loadDraft()
+    }
+
+    /// Вход в чат: комната сокета плюс обычное открытие.
+    @MainActor
+    func enter() async {
+        await realtime.open(chatID: chatID)
+        await open()
+    }
+
+    /// Уход с экрана: комнату отпускаем и гасим свою подпись — иначе собеседник
+    /// будет видеть «печатает…» у закрытого чата.
+    @MainActor
+    func leave() async {
+        await realtime.send(action: nil, chatID: chatID)
+        await realtime.close(chatID: chatID)
+    }
+
+    /// Связь вернулась — догоняем пропущенное. События за время обрыва никто не
+    /// переприсылает (PROJECT.md §9.2c).
+    @MainActor
+    func catchUpAfterReconnect() async {
+        let known = (try? await store.lastSeq(chatID: chatID)) ?? 0
+        guard known > 0 else { return await loadLatest() }
+        await catchUp(since: known)
+    }
+
+    /// Кто сейчас печатает или записывает голосовое в этом чате.
+    var othersAction: String? {
+        realtime.actions[chatID]?.values.first
     }
 
     /// Открытие чата: догнать разницу, а если истории нет вовсе — скачать последнюю
@@ -97,6 +132,9 @@ final class ChatThreadModel {
         await persistDraft("")
 
         await outbox.send(text: text, chatID: chatID, senderID: viewerID, replyToID: answering)
+        // Сообщение ушло — подпись «печатает…» снимаем явно, не дожидаясь таймера.
+        lastActionAt = nil
+        await realtime.send(action: nil, chatID: chatID)
     }
 
     @MainActor
@@ -119,8 +157,26 @@ final class ChatThreadModel {
 
     // MARK: - Черновик
 
+    /// Отметить прочитанным до последнего чужого сообщения.
+    ///
+    /// Шлём не чаще раза в 800 мс и только то, что действительно новее прошлой
+    /// отметки: сервер двигает её только вперёд, а лишние события — это трафик на
+    /// каждом прокруте.
+    @MainActor
+    func markRead() async {
+        guard let last = messages.last(where: { $0.senderId != viewerID && $0.remoteId != nil }),
+            let id = last.remoteId,
+            id != lastReadSent
+        else { return }
+        if let sentAt = lastReadAt, Date().timeIntervalSince(sentAt) < 0.8 { return }
+        lastReadSent = id
+        lastReadAt = Date()
+        await realtime.markRead(chatID: chatID, messageID: id)
+    }
+
     @MainActor
     func draftChanged() {
+        noteTyping()
         draftTask?.cancel()
         let text = draft
         draftTask = Task { @MainActor [weak self] in
@@ -128,6 +184,15 @@ final class ChatThreadModel {
             guard !Task.isCancelled else { return }
             await self?.persistDraft(text)
         }
+    }
+
+    /// Подтверждение набора отправляется не чаще раза в три секунды (§9.1a):
+    /// получатель гасит подпись через четыре, и чаще подтверждать незачем.
+    @MainActor
+    private func noteTyping() {
+        if let sentAt = lastActionAt, Date().timeIntervalSince(sentAt) < 3 { return }
+        lastActionAt = Date()
+        Task { [realtime, chatID] in await realtime.send(action: "TYPING", chatID: chatID) }
     }
 
     @MainActor

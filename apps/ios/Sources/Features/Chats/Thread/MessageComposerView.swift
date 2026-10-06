@@ -98,3 +98,35 @@ private struct ReplyBar: View {
         .background(Palette.muted)
     }
 }
+
+
+/// Подпись о том, что делает собеседник. Текст собирает интерфейс: сервер шлёт
+/// только значение действия (PROJECT.md §9.1a).
+struct ChatActionCaption: View {
+    let action: String
+
+    var body: some View {
+        Text(title)
+            .font(Typography.meta)
+            .foregroundStyle(Palette.mutedForeground)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.bottom, Spacing.xs)
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    private var title: String {
+        switch action {
+        case "RECORDING_VOICE":
+            return String(localized: "chats.action.voice", defaultValue: "записывает голосовое…")
+        case "UPLOADING_PHOTO":
+            return String(localized: "chats.action.photo", defaultValue: "отправляет фото…")
+        case "UPLOADING_VIDEO":
+            return String(localized: "chats.action.video", defaultValue: "отправляет видео…")
+        case "UPLOADING_FILE":
+            return String(localized: "chats.action.file", defaultValue: "отправляет файл…")
+        default:
+            return String(localized: "chats.action.typing", defaultValue: "печатает…")
+        }
+    }
+}
