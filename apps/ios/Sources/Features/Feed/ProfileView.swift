@@ -110,7 +110,12 @@ struct ProfileView: View {
 
     private func load() async {
         do {
-            profile = try await (userID.map { try await api.user(id: $0) } ?? api.me())
+            // `Optional.map` не умеет асинхронные замыкания — развилка явная.
+            if let userID {
+                profile = try await api.user(id: userID)
+            } else {
+                profile = try await api.me()
+            }
             firstName = profile?.firstName ?? ""
             lastName = profile?.lastName ?? ""
             bio = profile?.bio ?? ""

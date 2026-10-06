@@ -192,7 +192,7 @@ final class VoicePlayer {
                 if total.isFinite, total > 0, current >= total - 0.05 {
                     self?.isPlaying = false
                     self?.progress = 0
-                    player.seek(to: .zero)
+                    await player.seek(to: .zero)
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(200))
