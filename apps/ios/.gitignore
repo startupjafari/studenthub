@@ -1,0 +1,27 @@
+# Проект генерируется XcodeGen из project.yml
+*.xcodeproj/
+*.xcworkspace/
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# SwiftPM
+.build/
+.swiftpm/
+Packages/
+
+# Прочее
+.DS_Store
+*.ipa
+*.dSYM.zip
+*.dSYM
+fastlane/report.xml
+fastlane/screenshots/
+
+# Отчёт xcodebuild (пишет CI)
+TestResults.xcresult/

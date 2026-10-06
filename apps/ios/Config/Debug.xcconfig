@@ -1,0 +1,4 @@
+#include "Base.xcconfig"
+
+// Локальный `pnpm dev` из монорепо (docs/PROJECT.md §13).
+API_BASE_URL = http:/$()/localhost:3001/api/v1
