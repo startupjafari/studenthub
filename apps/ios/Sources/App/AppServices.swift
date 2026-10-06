@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Сборка зависимостей приложения в одном месте.
 ///
@@ -12,4 +13,32 @@ enum AppServices {
     /// Подтверждение входа по QR — наоборот, только с авторизацией: пользователя
     /// сервер берёт из токена.
     static let qrLogin = QRLoginAPI(client: api)
+
+    /// Локальная база чатов. Создаётся лениво, но до первого экрана, которому она
+    /// нужна: миграции обязаны пройти раньше первого чтения.
+    ///
+    /// Файл не открылся (повреждение, нет места) — удаляем и заводим заново, а если
+    /// и это не вышло, работаем в памяти. Приложение без базы бесполезно, но падение
+    /// на старте бесполезно вдвойне: человек не увидит даже причины.
+    static let database: AppDatabase = {
+        let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "kz.studenthub.app", category: "storage")
+        do {
+            return try AppDatabase.onDisk()
+        } catch {
+            log.error("Не открылась база чатов, пробуем завести заново: \(error.localizedDescription, privacy: .public)")
+        }
+        do {
+            try AppDatabase.removeStore()
+            return try AppDatabase.onDisk()
+        } catch {
+            log.error("База чатов недоступна, работаем в памяти: \(error.localizedDescription, privacy: .public)")
+        }
+        do {
+            return try AppDatabase.inMemory()
+        } catch {
+            // Память не открылась — это уже не про хранилище, а про нехватку ресурсов
+            // процесса, и работать дальше всё равно нечем.
+            preconditionFailure("Не удалось создать базу даже в памяти: \(error)")
+        }
+    }()
 }
