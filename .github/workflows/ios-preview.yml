@@ -16,8 +16,9 @@ on:
       api:
         description: >-
           Адрес API для этой сборки, например https://xxx.up.railway.app/api/v1.
-          Пусто — возьмётся localhost из Debug.xcconfig, и войти в приложение не
-          получится: у браузерного эмулятора своего localhost нет.
+          Пусто — возьмётся переменная репозитория IOS_PREVIEW_API, а если нет и
+          её, то localhost из Debug.xcconfig: войти в таком случае не выйдет, у
+          браузерного эмулятора своего localhost нет.
         required: false
         type: string
 
@@ -56,7 +57,10 @@ jobs:
       # а универсальная сборка для симулятора запустится в любом.
       - name: Собрать .app
         env:
-          API: ${{ inputs.api }}
+          # Поле запуска важнее: им можно собрать на стенд, не трогая настройки.
+          # Пусто — берётся переменная репозитория, чтобы обычная сборка сразу
+          # приходила на живой API, а не на localhost.
+          API: ${{ inputs.api || vars.IOS_PREVIEW_API }}
         run: |
           set -o pipefail
           xcodebuild build \

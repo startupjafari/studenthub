@@ -1,9 +1,9 @@
 #include "Base.xcconfig"
 
-// TODO(человек): подставить домен API из Railway (docs/RAILWAY.md) до первой сборки
-// для TestFlight. Пока стоит заглушка — сборка Release с ней ходит в никуда намеренно,
-// чтобы адрес нельзя было забыть.
-API_BASE_URL = https:/$()/api.example.invalid/api/v1
+// Домен, выданный Railway сервису api (docs/RAILWAY.md, шаг «Generate Domain»).
+// Появится свой домен — меняется здесь, в коде адреса нет нигде.
+// Косая черта экранируется через $(): иначе xcconfig примет // за комментарий.
+API_BASE_URL = https:/$()/studenthub-back-production.up.railway.app/api/v1
 
 // Трекер ошибок. Пусто — Sentry не инициализируется (отладочные сборки шумят
 // исключениями, которые никому не нужны в ленте issue).
