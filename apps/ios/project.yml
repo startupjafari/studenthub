@@ -116,6 +116,16 @@ targets:
     dependencies:
       - target: StudentHub
 
+  # Обход экранов с записью видео. В схему StudentHub намеренно не входит: он идёт
+  # минутами и нужен по требованию, а не на каждый коммит.
+  StudentHubUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: StudentHub
+
 schemes:
   StudentHub:
     build:
@@ -130,3 +140,15 @@ schemes:
         - StudentHubTests
     archive:
       config: Release
+
+  StudentHubUITour:
+    build:
+      targets:
+        StudentHub: all
+        StudentHubUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - StudentHubUITests

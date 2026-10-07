@@ -81,3 +81,68 @@ jobs:
           name: studenthub-simulator
           path: StudentHub-simulator.zip
           retention-days: 7
+
+  screen-tour:
+    name: Обход экранов с видео
+    runs-on: macos-15
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить XcodeGen
+        run: brew install xcodegen
+
+      - name: Сгенерировать проект
+        run: xcodegen generate
+
+      # Симулятор поднимаем заранее и сами: запись нужно начать до того, как
+      # xcodebuild запустит приложение, иначе первые экраны в видео не попадут.
+      - name: Обход с записью экрана
+        run: |
+          set -o pipefail
+          DEVICE="iPhone 16"
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+
+          xcrun simctl io booted recordVideo --codec h264 --force \
+            "$GITHUB_WORKSPACE/screen-tour.mp4" &
+          RECORDER=$!
+
+          set +e
+          xcodebuild test \
+            -scheme StudentHubUITour \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -resultBundlePath "$GITHUB_WORKSPACE/ScreenTour.xcresult" \
+            CODE_SIGNING_ALLOWED=NO
+          STATUS=$?
+          set -e
+
+          # Именно SIGINT: по нему запись дописывает и закрывает файл. Обычное
+          # убийство процесса оставляет битый mp4, то есть ровно то, ради чего
+          # job и затевался.
+          kill -INT "$RECORDER" 2>/dev/null || true
+          wait "$RECORDER" 2>/dev/null || true
+          exit "$STATUS"
+
+      - name: Упаковать отчёт прогона
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -d ScreenTour.xcresult ]; then
+            zip -qry ScreenTour.xcresult.zip ScreenTour.xcresult
+          fi
+
+      # Выкладываем и при падении: видео упавшего обхода объясняет причину лучше
+      # любого лога.
+      - name: Выложить видео и отчёт
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: studenthub-screen-tour
+          path: |
+            screen-tour.mp4
+            ScreenTour.xcresult.zip
+          if-no-files-found: warn
+          retention-days: 7
