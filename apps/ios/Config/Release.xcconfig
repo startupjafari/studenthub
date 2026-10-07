@@ -8,3 +8,7 @@ API_BASE_URL = https:/$()/api.example.invalid/api/v1
 // Трекер ошибок. Пусто — Sentry не инициализируется (отладочные сборки шумят
 // исключениями, которые никому не нужны в ленте issue).
 SENTRY_DSN = 
+
+// TestFlight и App Store — боевой APNs. С development-токеном
+// сборка зарегистрируется, но пуши до неё не дойдут.
+APS_ENVIRONMENT = production

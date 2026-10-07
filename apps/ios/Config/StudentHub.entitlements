@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Без этого права система не выдаёт токен устройства: registerForRemoteNotifications
+      заканчивается ошибкой «no valid aps-environment entitlement string found», и пуши
+      молчат. Режим APNs разный у отладочной сборки и у той, что уходит в TestFlight,
+      поэтому значение приходит из xcconfig, а не прибито здесь: development в Debug,
+      production в Release. Сборка для TestFlight с development-токеном регистрируется,
+      но пуши до неё не доходят — а выглядит это как «пуши не работают».
+    -->
+    <key>aps-environment</key>
+    <string>$(APS_ENVIRONMENT)</string>
+</dict>
+</plist>
