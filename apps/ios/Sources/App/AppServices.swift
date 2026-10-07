@@ -7,9 +7,23 @@ import os
 /// хранилище обновляет сессию через собственный клиент без авторизации. Если
 /// перепутать и дать ему общий клиент, обновление токена уйдёт в рекурсию.
 enum AppServices {
-    static let auth = AuthAPI()
+    /// Транспорт у всех клиентов один. В обычной сборке это общий `URLSession`,
+    /// в прогоне интерфейсных тестов — он же, но с подменой ответов: обход экранов
+    /// не должен зависеть ни от сети, ни от состояния стенда.
+    private static let urlSession: URLSession = {
+        #if DEBUG
+            if UITestMode.isActive {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [UITestStubProtocol.self]
+                return URLSession(configuration: configuration)
+            }
+        #endif
+        return .shared
+    }()
+
+    static let auth = AuthAPI(client: APIClient(session: urlSession, authorization: nil))
     static let session = SessionStore(auth: auth)
-    static let api = APIClient(authorization: session)
+    static let api = APIClient(session: urlSession, authorization: session)
     /// Подтверждение входа по QR — наоборот, только с авторизацией: пользователя
     /// сервер берёт из токена.
     static let qrLogin = QRLoginAPI(client: api)

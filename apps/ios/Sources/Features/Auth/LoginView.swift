@@ -99,6 +99,7 @@ private struct CredentialsStepView: View {
                 .autocorrectionDisabled()
                 .keyboardType(.emailAddress)
                 .submitLabel(.next)
+                .accessibilityIdentifier("login.identifier")
                 .focused($focus, equals: .identifier)
                 .formField(isFocused: focus == .identifier, isInvalid: model.identifierError != nil)
                 FieldError(message: model.identifierError)
@@ -131,6 +132,7 @@ private struct CredentialsStepView: View {
                     : String(localized: "auth.signIn", defaultValue: "Войти"))
             }
             .buttonStyle(PrimaryButtonStyle(isLoading: model.isBusy))
+            .accessibilityIdentifier("login.submit")
         }
         .onSubmit {
             if focus == .identifier {
@@ -152,12 +154,14 @@ private struct CredentialsStepView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.go)
+                .accessibilityIdentifier("login.password")
                 .focused($focus, equals: .password)
         } else {
             SecureField(text: $model.password) { Text(verbatim: passwordLabel) }
                 .labelsHidden()
                 .textContentType(.password)
                 .submitLabel(.go)
+                .accessibilityIdentifier("login.password")
                 .focused($focus, equals: .password)
         }
     }

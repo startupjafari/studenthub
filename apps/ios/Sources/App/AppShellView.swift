@@ -33,6 +33,9 @@ struct AppShellView: View {
         }
         .tint(Palette.primary)
         .task {
+            // В обходе экранов ни сокета, ни пушей: подключаться некуда, а системный
+            // диалог разрешения закрыл бы собой экран и сорвал бы обход.
+            guard !UITestMode.isActive else { return }
             // Соединение живёт, пока человек внутри приложения: вход в него делает
             // сессия, выход — её конец.
             AppServices.realtime.start()
