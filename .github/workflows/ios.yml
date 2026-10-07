@@ -38,6 +38,8 @@ jobs:
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Поставить XcodeGen
         run: brew install xcodegen
