@@ -1,0 +1,83 @@
+name: iOS preview
+
+# Сборка приложения для СИМУЛЯТОРА и выкладывание её артефактом.
+#
+# Зачем, если есть ios.yml: тот проверяет, что код собирается и тесты зелёные, но
+# посмотреть на приложение не даёт. Эта сборка не подписывается (симулятору подпись
+# не нужна, учётная запись Apple тоже), и её можно загрузить в браузерный эмулятор
+# вроде Appetize и потыкать руками с Windows — без Mac и без Developer Program.
+#
+# Только вручную. Репозиторий публичный, то есть раннеры GitHub для него бесплатны,
+# но macOS-очередь длиннее обычной и сборка идёт минут шесть — держать её на каждом
+# коммите незачем: проверку кода делает ios.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: >-
+          Адрес API для этой сборки, например https://xxx.up.railway.app/api/v1.
+          Пусто — возьмётся localhost из Debug.xcconfig, и войти в приложение не
+          получится: у браузерного эмулятора своего localhost нет.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/ios
+
+jobs:
+  simulator-build:
+    name: Сборка для симулятора
+    runs-on: macos-15
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить XcodeGen
+        run: brew install xcodegen
+
+      - name: Сгенерировать проект
+        run: xcodegen generate
+
+      # Адрес API задаётся с командной строки и перекрывает значение из xcconfig:
+      # так одну и ту же ветку можно собрать хоть на прод, хоть на стенд, ничего
+      # не коммитя.
+      #
+      # Архитектуры обе: браузерные эмуляторы бывают и на Apple Silicon, и на Intel,
+      # а универсальная сборка для симулятора запустится в любом.
+      - name: Собрать .app
+        env:
+          API: ${{ inputs.api }}
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme StudentHub \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS="arm64 x86_64" \
+            ${API:+API_BASE_URL="$API"}
+
+      - name: Упаковать
+        run: |
+          cd build/dd/Build/Products/Debug-iphonesimulator
+          zip -qry "$GITHUB_WORKSPACE/StudentHub-simulator.zip" StudentHub.app
+
+      - name: Выложить артефактом
+        uses: actions/upload-artifact@v7
+        with:
+          name: studenthub-simulator
+          path: StudentHub-simulator.zip
+          retention-days: 7
