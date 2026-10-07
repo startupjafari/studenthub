@@ -41,9 +41,16 @@ jobs:
         env:
           PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
           KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
         run: |
           if [ -z "$PRIVATE_KEY" ]; then
             echo "::error::Нет секрета APPSTORE_PRIVATE_KEY — см. docs/RELEASE_IOS.md" >&2
+            exit 1
+          fi
+          # Проверяем здесь же, а не на экспорте: без идентификатора команды подпись
+          # падает в самом конце, после пятнадцати минут сборки.
+          if [ -z "$TEAM_ID" ]; then
+            echo "::error::Нет секрета IOS_TEAM_ID — см. docs/RELEASE_IOS.md" >&2
             exit 1
           fi
           mkdir -p "$HOME/.appstoreconnect/private_keys"
@@ -66,12 +73,21 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CURRENT_PROJECT_VERSION="$BUILD"
 
+      # teamID в репозитории не хранится, поэтому экспорт идёт по копии с дописанным
+      # идентификатором команды.
+      - name: Параметры экспорта с идентификатором команды
+        env:
+          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          cp Config/ExportOptions.plist build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" build/ExportOptions.plist
+
       - name: Экспорт и загрузка в TestFlight
         run: |
           set -o pipefail
           xcodebuild -exportArchive \
             -archivePath build/StudentHub.xcarchive \
-            -exportOptionsPlist Config/ExportOptions.plist \
+            -exportOptionsPlist build/ExportOptions.plist \
             -exportPath build/export \
             -allowProvisioningUpdates \
             -authenticationKeyID "${{ secrets.APPSTORE_KEY_ID }}" \
