@@ -44,8 +44,8 @@ jobs:
             echo "::error::Нет секрета APPSTORE_PRIVATE_KEY — см. docs/RELEASE_IOS.md" >&2
             exit 1
           fi
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
 
       - name: Архив
         env:
