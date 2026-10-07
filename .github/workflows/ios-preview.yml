@@ -11,10 +11,6 @@ name: iOS preview
 # но macOS-очередь длиннее обычной и сборка идёт минут шесть — держать её на каждом
 # коммите незачем: проверку кода делает ios.yml.
 on:
-  # ВРЕМЕННО, снять после прогона.
-  push:
-    branches: [fix/ios-testflight-readiness]
-
   workflow_dispatch:
     inputs:
       api:
