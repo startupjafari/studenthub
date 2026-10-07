@@ -181,6 +181,34 @@ export const envSchema = z.object({
    */
   MINI_APP_URL: optionalEnv(z.string().url()),
 
+  // Пуши на устройства Apple (план iOS, Задача Б1). Без ключей отправка молчит —
+  // как и Web Push без VAPID: dev-окружение не обязано иметь боевые сертификаты.
+  /** Идентификатор ключа p8 из Apple Developer. */
+  APNS_KEY_ID: optionalEnv(z.string().min(1)),
+  /** Идентификатор команды разработчика. */
+  APNS_TEAM_ID: optionalEnv(z.string().min(1)),
+  /** Bundle id приложения — он же `apns-topic`. */
+  APNS_BUNDLE_ID: optionalEnv(z.string().min(1)),
+  /** Содержимое файла p8. Переводы строк экранированы: PEM многострочный. */
+  APNS_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+  /** Боевой шлюз вместо песочницы. TestFlight и App Store — боевой. */
+  APNS_PRODUCTION: booleanFromString,
+
+  /**
+   * Минимальная поддерживаемая версия приложения для iPhone (план iOS, Задача Б3).
+   *
+   * Ниже неё приложение показывает экран обновления и дальше не пускает. По умолчанию
+   * `0.0.0` — не блокируем никого: до первого релиза в App Store любое другое
+   * значение заблокировало бы собственные отладочные сборки, а на проде блокировку
+   * включают осознанно, когда контракт действительно разошёлся.
+   */
+  IOS_MIN_SUPPORTED_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, 'IOS_MIN_SUPPORTED_VERSION: формат SemVer, например 1.2.0')
+    .default('0.0.0'),
+  /** Адрес приложения в App Store — для кнопки «Обновить». Не задан — кнопки не будет. */
+  IOS_STORE_URL: optionalEnv(z.string().url()),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),

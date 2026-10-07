@@ -124,6 +124,7 @@ model User {
   notifications        Notification[]
   notificationSettings NotificationSettings?
   pushSubscriptions    PushSubscription[]
+  deviceTokens         DeviceToken[]
 
   // Релизы: до какой версии «Что нового» человек дочитал (28-releases.prisma).
   releaseView ReleaseView?

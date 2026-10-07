@@ -1,0 +1,63 @@
+name: iOS
+
+# Минута macOS-раннера стоит в десять раз дороже обычной, поэтому прогон привязан к
+# путям: правки бэкенда и веба его не запускают вовсе. Условия те же, что у
+# codeChecks, — интеграционные ветки, а не каждая фича-ветка.
+#
+# PR в develop тоже проверяется: без этого Swift впервые собирался бы уже после
+# вливания, то есть ревью шло бы без компилятора. Репозиторий публичный, и минуты
+# macOS-раннеров для него бесплатны.
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/ios
+
+jobs:
+  build-and-test:
+    name: Сборка и тесты
+    runs-on: macos-15
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+
+      - name: Поставить XcodeGen
+        run: brew install xcodegen
+
+      # .xcodeproj в репозитории нет — он собирается из project.yml.
+      - name: Сгенерировать проект
+        run: xcodegen generate
+
+      - name: Тесты на симуляторе
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme StudentHub \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Сохранить отчёт прогона
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-test-results
+          path: apps/ios/TestResults.xcresult
