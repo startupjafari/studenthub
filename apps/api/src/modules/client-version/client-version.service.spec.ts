@@ -1,10 +1,11 @@
 import { ConfigService } from '@nestjs/config'
 import { ClientVersionService } from './client-version.service'
+import type { EnvVars } from '../../config/env.schema'
 
 const serviceWith = (env: Record<string, string | undefined>): ClientVersionService =>
   new ClientVersionService({
     get: (key: string) => env[key],
-  } as unknown as ConfigService)
+  } as unknown as ConfigService<EnvVars, true>)
 
 describe('ClientVersionService', () => {
   it('отдаёт минимальную версию и ссылку на магазин', () => {

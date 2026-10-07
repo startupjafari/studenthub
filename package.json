@@ -62,11 +62,16 @@
   },
   "pnpm": {
     "auditConfig": {
-      "_comment": "Обе находки — DoS в транзитивных зависимостях клиента minio (query-string -> decode-uri-component и stream-json). Совместимого обновления нет: decode-uri-component 0.5 стал чистым ESM и ломает require из query-string, а stream-json 3.5 убрал src/jsonl/Parser.js, который импортирует сам minio, — с любым из них API не стартует (проверено). Снять, когда minio уедет с этих пакетов.",
+      "_comment": "Находки, для которых совместимого обновления нет. (1) Транзитивные зависимости клиента minio — decode-uri-component через query-string и stream-json: minio 8.0.7 (последняя) по-прежнему делает require(\"stream-json/jsonl/Parser.js\"), а в stream-json 3.5+ этого файла нет — с обновлением API не стартует (проверено распаковкой пакета). Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит из сборочного инструментария @ducanh2912/next-pwa. Снять, когда выйдет патч.",
       "ignoreGhsas": [
         "GHSA-vcc3-ghjq-m6fr",
-        "GHSA-528h-pc64-c93x"
-      ]
+        "GHSA-528h-pc64-c93x",
+        "GHSA-hqr4-qq8f-hg3x",
+        "GHSA-mjw6-4jj6-33hc",
+        "GHSA-vfj7-8cjw-p6xm",
+        "GHSA-68fv-2mgg-jv7q"
+      ],
+      "_comment_temporary": "ВРЕМЕННО, снять сегодня же. GHSA-68fv-2mgg-jv7q (source-map-js <1.2.2) — исправление есть, но версия 1.2.2 опубликована 2026-09-30 14:08 UTC и до 2026-10-07 14:08 UTC не проходит выдержку minimumReleaseAge (7 суток, pnpm-workspace.yaml). Ослаблять выдержку через minimumReleaseAgeExclude ради этого не стали: она защищает от подменённого пакета, а здесь DoS в разборе source map у сборочного инструментария (postcss, prisma CLI), не в обработке запросов. После 14:08 UTC: убрать этот ключ и GHSA из ignoreGhsas, добавить \"source-map-js\": \"^1.2.2\" в overrides и обновить лок."
     },
     "onlyBuiltDependencies": [
       "@prisma/client",
@@ -96,7 +101,8 @@
       "engine.io": "^6.6.10",
       "hono": "^4.12.34",
       "ip-address": "^10.5.1",
-      "qs": "^6.16.0"
+      "qs": "^6.16.0",
+      "@fastify/busboy": "^3.2.2"
     }
   }
 }

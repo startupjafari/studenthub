@@ -11,6 +11,10 @@ import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 interface PrismaMock {
+  // Язык письма-приглашения сервис берёт из профиля приглашающего (issuerLocale).
+  user: {
+    findUnique: jest.Mock
+  }
   invite: {
     create: jest.Mock
     // findFirst, а не findUnique: поиск идёт по двум значениям сразу — хэшу и (переходно)
