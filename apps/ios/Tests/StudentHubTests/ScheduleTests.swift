@@ -4,16 +4,36 @@ import XCTest
 @testable import StudentHub
 
 final class WeekParityTests: XCTestCase {
-    /// Правило чётности должно совпадать с вебом до дня: разойдись оно — и у
-    /// человека в приложении и в браузере разные пары.
-    func testParityFollowsIsoWeekNumber() {
+    /// Чётность обязана совпадать с вебом день в день: разойдись она — и у человека
+    /// в приложении и в браузере разные пары.
+    ///
+    /// Значения закреплены по формуле веба (`isoWeekParity`), а не по ISO 8601: в
+    /// ней опущена поправка на день недели 4 января, и в 2026 году номер недели на
+    /// единицу меньше стандартного. Это расхождение воспроизведено намеренно —
+    /// подробности в комментарии к `WeekParity`.
+    func testParityMatchesWebFormula() {
         let calendar = Calendar.iso8601UTC
-        // 5 января 2026 — понедельник первой ISO-недели года.
-        let firstWeek = calendar.date(from: DateComponents(year: 2026, month: 1, day: 5))!
-        let secondWeek = calendar.date(byAdding: .day, value: 7, to: firstWeek)!
+        let cases: [(DateComponents, WeekParity, Int)] = [
+            (DateComponents(year: 2026, month: 1, day: 5), .odd, 1),
+            (DateComponents(year: 2026, month: 1, day: 12), .even, 2),
+            (DateComponents(year: 2026, month: 10, day: 7), .even, 40),
+            (DateComponents(year: 2024, month: 1, day: 4), .odd, 1),
+        ]
 
-        XCTAssertEqual(WeekParity.current(firstWeek), .odd)
-        XCTAssertEqual(WeekParity.current(secondWeek), .even)
+        for (components, parity, week) in cases {
+            let date = calendar.date(from: components)!
+            XCTAssertEqual(WeekParity.weekNumber(of: date), week, "неделя для \(components)")
+            XCTAssertEqual(WeekParity.current(date), parity, "чётность для \(components)")
+        }
+    }
+
+    /// Расхождение с ISO 8601 — не случайность, а зафиксированное решение: тест
+    /// упадёт, если кто-то «починит» формулу в одном месте и забудет про второе.
+    func testDivergenceFromIsoIsDeliberate() {
+        let date = Calendar.iso8601UTC.date(from: DateComponents(year: 2026, month: 1, day: 5))!
+
+        XCTAssertEqual(WeekParity.weekNumber(of: date), 1)
+        XCTAssertEqual(Calendar.iso8601UTC.component(.weekOfYear, from: date), 2)
     }
 
     /// `BOTH` идёт каждую неделю — это самый частый случай в расписании.

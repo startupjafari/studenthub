@@ -75,10 +75,6 @@ struct ChatStore: Sendable {
     private func upsert(_ item: ChatListItemDTO, in db: Database) throws {
         let known = try ChatRecord.fetchOne(db, key: item.id)
 
-        if let preview = item.lastMessage {
-            try save(preview, in: db)
-        }
-
         let chat = ChatRecord(
             id: item.id,
             type: item.type,
@@ -102,6 +98,12 @@ struct ChatStore: Sendable {
             updatedAt: item.updatedAt
         )
         try chat.upsert(db)
+
+        // Превью пишем ПОСЛЕ чата: у сообщения внешний ключ на него, и при первой
+        // синхронизации нового чата запись сорвалась бы на ограничении целиком.
+        if let preview = item.lastMessage {
+            try save(preview, in: db)
+        }
 
         try mirrorServerDraft(item.draft, chatID: item.id, in: db)
     }

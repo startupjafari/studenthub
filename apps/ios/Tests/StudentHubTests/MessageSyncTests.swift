@@ -214,7 +214,9 @@ final class MessageOutboxTests: XCTestCase {
         )
         await outbox.flush(chatID: "c-1")
 
-        XCTAssertEqual(api.sent, ["первое", "второе"])
+        // Дублёр считает и первые — неудачные — попытки, поэтому смотрим хвост:
+        // важен порядок досылки, а не общее число обращений.
+        XCTAssertEqual(Array(api.sent.suffix(2)), ["первое", "второе"])
     }
 
     private func seedChat(in database: AppDatabase) async throws {
