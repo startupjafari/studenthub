@@ -40,6 +40,52 @@ PID=$(ss -ltnp | grep ':3000' | grep -oP 'pid=\K[0-9]+'); kill "$PID"
 pnpm --filter web build && apps/web/node_modules/.bin/next start apps/web -p 3000
 ```
 
+## Прод-стек: первый запуск и сертификаты
+
+Самостоятельный хостинг — `docker/docker-compose.prod.yml`. Домены, секреты и адреса сервисов
+лежат в `docker/.env`, образец со списком обязательных — `docker/.env.example`. Четыре имени
+ведут A-записями на машину со стеком: корневой домен — лендинг, `app.*` — платформа, `files.*` —
+MinIO (по нему браузер кладёт и забирает файлы), `mini.*` — мини-апп Telegram.
+
+**1. Сертификат выпускается до первого старта nginx.** Без файлов сертификата nginx не
+поднимается, а пока он не поднялся, webroot-проверку отдавать некому — поэтому первый выпуск
+идёт в режиме standalone, на свободном 80-м порту:
+
+```bash
+cd docker && set -a && . ./.env && set +a
+docker compose -f docker-compose.prod.yml run --rm -p 80:80 --entrypoint certbot certbot \
+  certonly --standalone --agree-tos --non-interactive -m "$CERTBOT_EMAIL" \
+  -d "$SH_DOMAIN" -d "www.$SH_DOMAIN" -d "$SH_APP_DOMAIN" -d "$SH_FILES_DOMAIN" -d "$SH_MINI_DOMAIN"
+```
+
+Порядок имён важен: certbot называет каталог по первому `-d`, а nginx ищет сертификат
+в `/etc/letsencrypt/live/$SH_DOMAIN/`. Тем же вызовом сертификат перевыпускается, когда
+добавился домен.
+
+**2. Миграции — до старта api**, стек их не применяет. CLI Prisma живёт в корне репозитория
+и в образ api не попадает, поэтому накатывают их с машины с исходниками через порт postgres
+на петлевом интерфейсе:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d postgres
+DATABASE_URL="postgresql://postgres:<пароль>@127.0.0.1:5432/studenthub" pnpm db:deploy
+```
+
+**3. Запуск стека:**
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+```
+
+nginx стартует последним — ждёт, пока api, web, лендинг и мини-апп начнут слушать свои порты.
+
+**Продление сертификата идёт само:** сервис `certbot` раз в 12 часов делает `renew` через общий
+с nginx каталог проверки, а nginx раз в 6 часов перечитывает конфигурацию и подхватывает новый
+файл. Посмотреть сроки: `docker compose -f docker-compose.prod.yml exec certbot certbot certificates`.
+
+**Правка `NEXT_PUBLIC_*` требует пересборки** (`up -d --build`), а не рестарта: они инлайнятся
+в образы web и лендинга во время сборки.
+
 ## Миграции БД
 
 - Схема — multi-file `prisma/schema/`, `prisma.config.ts` НЕ грузит `.env` (передавайте `DATABASE_URL` окружением).
@@ -109,8 +155,8 @@ MinIO до ~13 ГБ):
 
 ## Ротация логов
 
-- API пишет `pino` (JSON) в stdout; в проде агрегировать через docker log-driver + ротация
-  (`max-size`/`max-file`) или внешний коллектор. Секреты (`authorization`, `password`, `token`)
+- API пишет `pino` (JSON) в stdout; ротация задана в `docker/docker-compose.prod.yml` —
+  json-file по 10 МБ, 5 файлов на сервис (или внешний коллектор вместо неё). Секреты (`authorization`, `password`, `token`)
   редактируются на уровне pino — в логах их нет.
 
 ## Мониторинг ошибок (Sentry)
