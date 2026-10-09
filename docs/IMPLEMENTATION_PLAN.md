@@ -355,7 +355,7 @@
 | 13.6 | Производительность: `EXPLAIN ANALYZE` на запросах ленты, сообщений, расписания; добавить недостающие индексы; bundle-analyzer | 🚧 `findMany` без `take` больше нет ни одного; `EXPLAIN ANALYZE` на реальном объёме и bundle-analyzer (новая зависимость — стоп-точка) открыты |
 | 13.7 | Доступность и адаптивность: 375/768/1280, клавиатурная навигация, контраст | ✅ пороги контраста зафиксированы `shared/ui/theme-contrast.test.ts`; в тёмной теме `text-destructive` на `bg-destructive/10` = 3.65 — вопрос к дизайну |
 | 13.8 | Мониторинг: Sentry (`@sentry/nestjs`, `@sentry/nextjs`) — HTTP-5xx, очереди, WS, cron, SSR, браузер; чистка персональных данных перед отправкой; `/health` (terminus) и request-логи были раньше | 🚧 код на месте; организационное — создать проект, положить DSN, настроить алерты по error-rate |
-| 13.9 | Production-инфраструктура: nginx + TLS, `docker-compose.prod.yml`, `restart: always`, бэкапы PostgreSQL и MinIO, ротация логов | 🚧 `docker-compose.prod.yml` + nginx есть, cron под Redis-локом (`CronLockService`); бэкапы и проверка восстановлением — за человеком |
+| 13.9 | Production-инфраструктура: nginx + TLS, `docker-compose.prod.yml`, `restart: always`, бэкапы PostgreSQL и MinIO, ротация логов | 🚧 `docker-compose.prod.yml` + nginx есть: домены из `.env`, автопродление сертификата (certbot), ротация логов docker, cron под Redis-локом (`CronLockService`); бэкапы и проверка восстановлением — за человеком |
 | 13.10 | Финальная документация: обновить `docs/PROJECT.md` под реальность, README со сценарием первого запуска, runbook (что делать при падении Redis/MinIO) | ✅ `docs/RUNBOOK.md`, `docs/RAILWAY.md` |
 
 **Критерии готовности v1.0**
