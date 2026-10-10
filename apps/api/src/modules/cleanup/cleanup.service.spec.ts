@@ -68,6 +68,8 @@ function makeService() {
   }
   // Уборка неподтверждённых заявок вузов: крон только делегирует владельцу таблицы.
   const demoRequests = { purgeUnconfirmed: jest.fn(async () => 0) as Mock }
+  // Истёкшие сторисы чистит владелец домена; планировщик только делегирует.
+  const stories = { deleteExpired: jest.fn(async () => 0) as Mock }
   const telegram = { notifyStaff: jest.fn(async () => undefined) as Mock }
   const platform = {
     maintenanceActive: jest.fn(async () => false) as Mock,
@@ -87,6 +89,7 @@ function makeService() {
     config as never,
     events as never,
     posts as never,
+    stories as never,
     documents as never,
     chats as never,
     locks as never,
@@ -106,6 +109,7 @@ function makeService() {
     config,
     events,
     posts,
+    stories,
     documents,
     chats,
     locks,

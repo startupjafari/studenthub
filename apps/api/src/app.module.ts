@@ -47,6 +47,7 @@ import { StudentIdModule } from './modules/student-id/student-id.module'
 // Заявки-услуги (переработка «Заявок в деканат», §3.2).
 import { ApplicationServicesModule } from './modules/application-services/application-services.module'
 import { PostsModule } from './modules/posts/posts.module'
+import { StoriesModule } from './modules/stories/stories.module'
 import { ChatsModule } from './modules/chats/chats.module'
 import { EventsModule } from './modules/events/events.module'
 import { ComplaintsModule } from './modules/complaints/complaints.module'
@@ -146,6 +147,7 @@ import { AppController } from './app.controller'
     StudentIdModule,
     ApplicationServicesModule,
     PostsModule,
+    StoriesModule,
     ChatsModule,
     EventsModule,
     ComplaintsModule,

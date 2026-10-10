@@ -12,6 +12,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
+import { StoriesService } from '../stories/stories.service'
 import { DocumentsService } from '../documents/documents.service'
 import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
@@ -35,6 +36,9 @@ const BATCH_SIZE = 500
 const LOCK_TTL_MS = {
   scheduleEventReminders: 10 * 60 * 1000,
   publishScheduledPosts: 55 * 1000,
+  // Меньше получасового интервала задачи: следующий тик не должен упереться в
+  // собственный неснятый лок.
+  deleteExpiredStories: 25 * 60 * 1000,
   deliverScheduledMessages: 55 * 1000,
   sweepDocumentExpiry: 15 * 60 * 1000,
   expireInvites: 10 * 60 * 1000,
@@ -121,6 +125,7 @@ export class CleanupService {
     private readonly config: ConfigService<EnvVars, true>,
     private readonly events: EventsService,
     private readonly posts: PostsService,
+    private readonly stories: StoriesService,
     private readonly documents: DocumentsService,
     private readonly chats: ChatsService,
     private readonly locks: CronLockService,
@@ -147,6 +152,16 @@ export class CleanupService {
   async publishScheduledPosts(): Promise<number | null> {
     return this.locks.run('publishScheduledPosts', LOCK_TTL_MS.publishScheduledPosts, () =>
       this.posts.publishDueScheduled(),
+    )
+  }
+
+  // Истёкшие сторисы (Ф14.1): каждые 30 минут (docs/BACKEND_RULES.md §9.3). Логика — в
+  // StoriesService.deleteExpired (владелец домена), здесь только расписание и лок.
+  // TTL бакета stories-media снимает сами объекты, но записи Story и File — за этой задачей.
+  @Cron('*/30 * * * *', { name: 'deleteExpiredStories' })
+  async deleteExpiredStories(): Promise<number | null> {
+    return this.locks.run('deleteExpiredStories', LOCK_TTL_MS.deleteExpiredStories, () =>
+      this.stories.deleteExpired(),
     )
   }
 
@@ -641,9 +656,6 @@ export class CleanupService {
     )
     return bytes
   }
-
-  // --- Отложенные задачи: модели появятся в следующих фазах, тогда навесим @Cron ---
-  // deleteExpiredStories ('*/30 * * * *') — удаление истёкших Story из БД и MinIO. Модель Story — Ф14.
 
   /** Удаление батчами по BATCH_SIZE: находим id → deleteMany → повторяем, пока есть записи. */
   private async deleteInBatches(
