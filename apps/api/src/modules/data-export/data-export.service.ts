@@ -73,9 +73,7 @@ export class DataExportService {
       kind: 'my-data',
       actor: { id: userId, fullName: `${account.lastName} ${account.firstName}`.trim() },
       locale,
-      // Дата в имени файла — в таймзоне вуза (ExportContext): вечерняя выгрузка в Алматы
-      // не должна получать вчерашнее число. Нет вуза — своя, нет и её — серверная.
-      timezone: account.university?.timezone ?? account.timezone ?? 'UTC',
+      timezone: resolveTimezone(account),
       generatedAt,
       // В журнал уходят только условия выгрузки, не её содержимое (§13).
       params: { sections: Object.keys(sections).length },
@@ -404,7 +402,7 @@ export class DataExportService {
       messages: section(messages, SECTION_LIMIT),
       documents: section(documents.map(maskDocument), SECTION_LIMIT),
       documentSubmissions: section(documentSubmissions, SECTION_LIMIT),
-      grades: section(grades, SECTION_LIMIT),
+      grades: section(grades.map(gradeView), SECTION_LIMIT),
       attendance: section(attendance, SECTION_LIMIT),
       assignmentSubmissions: section(submissions, SECTION_LIMIT),
       examResults: section(examResults, SECTION_LIMIT),
@@ -431,6 +429,18 @@ export class DataExportService {
       group: group?.name ?? null,
     }
   }
+}
+
+/**
+ * Таймзона для даты в имени файла: вуза → своя из профиля → серверная.
+ *
+ * Пустая строка здесь — не теоретический случай: у платформенных ролей вуза нет, а
+ * `User.timezone` в таких строках хранит `''`. Проверка через `??` его пропускала, и
+ * `Intl.DateTimeFormat` падал с «Invalid time zone specified» — выгрузка отвечала 500
+ * тем, у кого вуза нет. Отсюда `||` и `trim()`: пустое значение — это отсутствующее.
+ */
+function resolveTimezone(account: AccountRow): string {
+  return account.university?.timezone?.trim() || account.timezone?.trim() || 'UTC'
 }
 
 /** Что архив сообщает о себе человеку, который его откроет. */
@@ -463,6 +473,35 @@ function maskDocument<T extends { number: string | null }>(
 } {
   const { number, ...rest } = doc
   return { ...rest, numberLast4: number ? number.slice(-4) : null }
+}
+
+/**
+ * Оценка одной строкой: дисциплина, контрольная точка, балл.
+ *
+ * Разворачивается здесь, а не отдаётся деревом `column → course → subject`: в ответе
+ * API больше двух уровней вложенности не бывает (§5.3), да и читать архив человеку
+ * удобнее плоской строкой.
+ */
+function gradeView(row: {
+  score: number | null
+  createdAt: Date
+  column: {
+    title: string
+    kind: string
+    maxScore: number | null
+    published: boolean
+    course: { subject: { name: string } | null } | null
+  } | null
+}): Record<string, unknown> {
+  return {
+    subject: row.column?.course?.subject?.name ?? null,
+    column: row.column?.title ?? null,
+    kind: row.column?.kind ?? null,
+    maxScore: row.column?.maxScore ?? null,
+    published: row.column?.published ?? null,
+    score: row.score,
+    createdAt: row.createdAt,
+  }
 }
 
 /** Друг — это другая сторона связи; кто из двоих, зависит от того, кто звал. */

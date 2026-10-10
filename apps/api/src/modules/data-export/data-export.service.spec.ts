@@ -50,13 +50,14 @@ function account(over: Record<string, unknown> = {}) {
   }
 }
 
+type ModelMock = { findMany: jest.Mock }
+
 function setup() {
-  const prisma: Record<string, { findMany: jest.Mock } | unknown> = {
-    user: { findFirst: jest.fn().mockResolvedValue(account()) },
-  }
-  for (const model of MODELS) {
-    prisma[model] = { findMany: jest.fn().mockResolvedValue([]) }
-  }
+  const models = Object.fromEntries(
+    MODELS.map((model) => [model, { findMany: jest.fn().mockResolvedValue([]) }]),
+  ) as Record<(typeof MODELS)[number], ModelMock>
+  const user = { findFirst: jest.fn().mockResolvedValue(account()) }
+  const prisma = { ...models, user }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const exports = { register: jest.fn().mockResolvedValue({ id: 'e1', shortId: 'ABCD1234' }) }
   const branding = {
@@ -71,7 +72,7 @@ function setup() {
     branding as unknown as ExportBrandingService,
     exports as unknown as ExportRegistryService,
   )
-  return { service, prisma: prisma as Record<string, { findMany: jest.Mock }>, audit, exports }
+  return { service, models, user, audit, exports }
 }
 
 const viewer: JwtPayload = {
@@ -84,46 +85,46 @@ const viewer: JwtPayload = {
 
 describe('DataExportService — состав архива', () => {
   it('каждый раздел читается только по своему пользователю', async () => {
-    const { service, prisma } = setup()
+    const { service, models, user } = setup()
     await service.exportPersonalData(viewer, 'ru', ctx)
 
     for (const model of MODELS) {
-      const where = prisma[model].findMany.mock.calls[0][0].where as Record<string, unknown>
-      const mine = JSON.stringify(where).includes('"u-1"')
-      expect(mine).toBe(true)
+      const where = models[model].findMany.mock.calls[0][0].where as Record<string, unknown>
+      expect(JSON.stringify(where)).toContain('"u-1"')
     }
-    expect(prisma.user.findFirst).toHaveBeenCalled()
+    expect(user.findFirst).toHaveBeenCalled()
   })
 
   it('у каждой выборки есть потолок строк', async () => {
-    const { service, prisma } = setup()
+    const { service, models } = setup()
     await service.exportPersonalData(viewer, 'ru', ctx)
     for (const model of MODELS) {
-      expect(prisma[model].findMany.mock.calls[0][0].take).toBeGreaterThan(0)
+      expect(models[model].findMany.mock.calls[0][0].take).toBeGreaterThan(0)
     }
   })
 
   it('усечённый раздел помечен и обрезан до потолка', async () => {
-    const { service, prisma } = setup()
+    const { service, models } = setup()
     // Потолок раздела — 5000; отдаём на одну строку больше, чем влезает.
-    prisma.message.findMany.mockResolvedValue(
+    models.message.findMany.mockResolvedValue(
       Array.from({ length: 5001 }, (_, i) => ({ id: `m${i}`, content: 'текст' })),
     )
     const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
     const archive = JSON.parse(body) as {
-      sections: Record<string, { count: number; truncated: boolean }>
+      sections: { messages: { count: number; truncated: boolean }; posts: { truncated: boolean } }
     }
-    expect(archive.sections.messages.truncated).toBe(true)
-    expect(archive.sections.messages.count).toBe(5000)
+    expect(archive.sections.messages).toEqual(
+      expect.objectContaining({ truncated: true, count: 5000 }),
+    )
     expect(archive.sections.posts.truncated).toBe(false)
   })
 })
 
 describe('DataExportService — что наружу не уходит', () => {
   it('ключи доступа в файл не попадают', async () => {
-    const { service, prisma } = setup()
+    const { service, models } = setup()
     // Даже если выборка вдруг принесёт лишнее, в файле этого быть не должно.
-    prisma.invite.findMany.mockResolvedValue([{ role: 'STUDENT', status: 'USED' }])
+    models.invite.findMany.mockResolvedValue([{ role: 'STUDENT', status: 'USED' }])
     const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
 
     for (const secret of [
@@ -141,8 +142,8 @@ describe('DataExportService — что наружу не уходит', () => {
   })
 
   it('номер документа маскируется до последних четырёх цифр', async () => {
-    const { service, prisma } = setup()
-    prisma.document.findMany.mockResolvedValue([
+    const { service, models } = setup()
+    models.document.findMany.mockResolvedValue([
       { id: 'd1', title: 'Удостоверение', number: 'AB1234567890', status: 'VERIFIED' },
     ])
     const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
@@ -152,8 +153,8 @@ describe('DataExportService — что наружу не уходит', () => {
   })
 
   it('из дружбы остаётся вторая сторона и дата, без контактов', async () => {
-    const { service, prisma } = setup()
-    prisma.friendship.findMany.mockResolvedValue([
+    const { service, models } = setup()
+    models.friendship.findMany.mockResolvedValue([
       {
         createdAt: new Date('2026-01-01'),
         requester: { id: 'u-1', firstName: 'Асем', lastName: 'Абишева' },
@@ -187,9 +188,20 @@ describe('DataExportService — след в журналах', () => {
     expect(registered.context.timezone).toBe('Asia/Almaty')
   })
 
+  it('пустая таймзона не роняет выгрузку: у платформенных ролей вуза нет', async () => {
+    const { service, user, exports } = setup()
+    // Ровно та строка, на которой ручка отвечала 500: вуза нет, а своя таймзона — ''.
+    user.findFirst.mockResolvedValue(account({ university: null, timezone: '' }))
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+
+    expect(JSON.parse(body)).toHaveProperty('sections')
+    const registered = exports.register.mock.calls[0][0] as { context: { timezone: string } }
+    expect(registered.context.timezone).toBe('UTC')
+  })
+
   it('удалённый аккаунт выгрузку не получает', async () => {
-    const { service, prisma } = setup()
-    ;(prisma.user as unknown as { findFirst: jest.Mock }).findFirst.mockResolvedValue(null)
+    const { service, user } = setup()
+    user.findFirst.mockResolvedValue(null)
     const err = await service.exportPersonalData(viewer, 'ru', ctx).catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
   })
