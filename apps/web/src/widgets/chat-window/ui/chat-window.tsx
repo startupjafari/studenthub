@@ -3181,7 +3181,11 @@ export function ChatWindow() {
                 const total = found.length
                 return (
                   <div className="relative z-30 shrink-0">
-                    <header className="flex items-center gap-1 border-b border-border px-2 py-2">
+                    {/* py-3, как у шапки переписки, которую поиск собой заменяет: та же
+                        высота вокруг тех же 44/40-px элементов. С py-2 шапка выходила на
+                        8 px ниже соседних колонок, и общая линия под шапками ломалась
+                        ступенькой ровно на ширину переписки. */}
+                    <header className="flex items-center gap-1 border-b border-border px-2 py-3">
                       <button
                         type="button"
                         aria-label={t('cancel')}
