@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ArrowDown, Check, FileText, Loader2, Play, RotateCw, X } from 'lucide-react'
@@ -42,22 +42,31 @@ function DurationBadge({ seconds }: { seconds: number | null }) {
 }
 
 /**
- * Скачать снимок или ролик в приложение — плашкой в углу кадра, как в Telegram Web:
- * «↓ 12 МБ» → кольцо с «×» и мегабайтами → «✓ Сохранить». Нажатие на сам кадр по-прежнему
- * открывает просмотрщик; плашка — отдельная кнопка и клик до кадра не пропускает.
+ * Скачать снимок в приложение — кругом посреди кадра, как в Telegram: «↓» с весом под ним →
+ * кольцо с «×» и мегабайтами → «✓ Сохранить». Нажатие на сам кадр по-прежнему открывает
+ * просмотрщик; круг — отдельная кнопка и клик до кадра не пропускает.
+ *
+ * Посреди кадра, а не в углу: там же показываются отправка и повтор упавшей, и все состояния
+ * вложения читаются в одной точке, а не по очереди в разных углах.
+ *
+ * У ролика середину занимает кнопка воспроизведения — там кнопка уходит в угол плашкой
+ * (`corner`): два круга в одной точке наложились бы друг на друга.
  *
  * Ключ тот же, что у строки файла и у «Скачать» в просмотрщике (`file:<id>`): начатое в
- * одном месте видно в остальных. В маленькой ячейке альбома — только значок, подпись уходит
- * в aria-label.
+ * одном месте видно в остальных. В маленькой ячейке альбома — только круг, подпись уходит
+ * в подсказку и в aria-label.
  */
 function MediaDownloadPill({
   att,
   url,
   compact = false,
+  corner = false,
 }: {
   att: MessageAttachment
   url: string
   compact?: boolean
+  /** Середина кадра занята (ролик) — кнопка встаёт плашкой в правый верхний угол. */
+  corner?: boolean
 }) {
   const t = useTranslations('Chats')
   const unit = useByteUnitLabel()
@@ -75,36 +84,76 @@ function MediaDownloadPill({
       : dl.status === 'error'
         ? t('downloadFailed')
         : formatBytes(att.size, unit)
+  const ariaLabel = loading
+    ? t('downloadCancel')
+    : dl.status === 'ready'
+      ? t('save')
+      : t('download')
+  // Значок один и тот же в обоих размещениях — меняется только его размер.
+  const icon = loading ? (
+    <>
+      <X className={corner ? 'size-3' : 'size-5'} strokeWidth={3} aria-hidden />
+      <ProgressRing progress={download.progress} />
+    </>
+  ) : dl.status === 'ready' ? (
+    <Check className={corner ? 'size-3.5' : 'size-5'} strokeWidth={3} aria-hidden />
+  ) : (
+    <ArrowDown className={corner ? 'size-3.5' : 'size-5'} strokeWidth={3} aria-hidden />
+  )
+  // Нажатие до кадра не пропускаем: под кнопкой лежит открывашка просмотрщика во весь кадр.
+  const start = (e: ReactMouseEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    download.toggle()
+  }
+
+  if (corner) {
+    return (
+      <button
+        type="button"
+        onClick={start}
+        aria-label={ariaLabel}
+        title={compact ? label : undefined}
+        className={cn(
+          'absolute top-1.5 right-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full bg-black/55 py-0.5 pl-0.5 text-[0.7rem] font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/70',
+          compact ? 'pr-0.5' : 'pr-2',
+          dl.status === 'error' && 'bg-destructive/80 hover:bg-destructive',
+        )}
+      >
+        <span className="relative flex size-5 shrink-0 items-center justify-center">{icon}</span>
+        {!compact && <span className="max-w-40 truncate tabular-nums">{label}</span>}
+      </button>
+    )
+  }
 
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation()
-        download.toggle()
-      }}
-      aria-label={loading ? t('downloadCancel') : dl.status === 'ready' ? t('save') : t('download')}
-      title={compact ? label : undefined}
-      className={cn(
-        'absolute top-1.5 right-1.5 z-10 flex cursor-pointer items-center gap-1 rounded-full bg-black/55 py-0.5 pl-0.5 text-[0.7rem] font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/70',
-        compact ? 'pr-0.5' : 'pr-2',
-        dl.status === 'error' && 'bg-destructive/80 hover:bg-destructive',
-      )}
-    >
-      <span className="relative flex size-5 shrink-0 items-center justify-center">
-        {loading ? (
-          <>
-            <X className="size-3" strokeWidth={3} aria-hidden />
-            <ProgressRing progress={download.progress} />
-          </>
-        ) : dl.status === 'ready' ? (
-          <Check className="size-3.5" strokeWidth={3} aria-hidden />
-        ) : (
-          <ArrowDown className="size-3.5" strokeWidth={3} aria-hidden />
+    // Слой нажатий не ловит — их ловит только сама кнопка: остальной кадр по-прежнему
+    // открывает просмотрщик, хотя слой и растянут на него целиком.
+    <span className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5">
+      <button
+        type="button"
+        onClick={start}
+        aria-label={ariaLabel}
+        title={label}
+        className={cn(
+          MEDIA_CIRCLE,
+          'pointer-events-auto relative cursor-pointer transition-[background-color,transform] hover:bg-black/75 active:scale-90',
+          // В ячейке альбома круг мельче: кадр там со спичечный коробок, и полный размер
+          // закрывал бы его почти целиком.
+          compact && 'size-10',
+          dl.status === 'error' && 'bg-destructive/80 hover:bg-destructive',
         )}
-      </span>
-      {!compact && <span className="max-w-40 truncate tabular-nums">{label}</span>}
-    </button>
+      >
+        {icon}
+      </button>
+      {/* Вес файла — подписью под кругом, как в Telegram. В ячейке альбома места под неё
+          нет, там он остаётся в подсказке и у экранного диктора. */}
+      {!compact && (
+        <span className="max-w-[85%] truncate rounded-full bg-black/55 px-2 py-0.5 text-[0.7rem] font-medium tabular-nums text-white backdrop-blur-sm">
+          {label}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -116,8 +165,8 @@ const MEDIA_BOX = 'h-40 w-56 max-w-full'
 const MEDIA_MAX_H = 256
 // Заглушка/подложка читается и на синем «своём» пузыре, и на сером чужом.
 const MEDIA_TINT = 'bg-foreground/10'
-// Круг поверх кадра — один и тот же у оверлея загрузки и у ошибки, как в Telegram:
-// и «едет», и «не доехало» читаются одним элементом в одном месте кадра.
+// Круг посреди кадра — один и тот же у отправки, у ошибки и у скачивания, как в Telegram:
+// «едет», «не доехало» и «сохранить» читаются одним элементом в одной точке кадра.
 const MEDIA_CIRCLE = 'flex size-12 items-center justify-center rounded-full bg-black/55 text-white'
 
 // Коробка будущего снимка. Есть размеры с сервера — повторяем ровно ту, которую займёт
@@ -415,7 +464,8 @@ function Single({
   if (isViewable(att) && att.mime.startsWith('video/')) {
     // Превью-кадр с кнопкой play; клик открывает полноэкранный просмотрщик (как в Telegram).
     // Контейнер, а не кнопка: поверх кадра лежат две кнопки — открыть ролик (весь кадр) и
-    // скачать (плашка в углу), а кнопку в кнопку вложить нельзя.
+    // скачать (плашка в углу: середину занимает воспроизведение), а кнопку в кнопку вложить
+    // нельзя.
     return (
       <div
         className={cn(
@@ -465,7 +515,7 @@ function Single({
             </span>
           </button>
         )}
-        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} />}
+        {painted && !uploading && !blurred && <MediaDownloadPill att={att} url={url} corner />}
       </div>
     )
   }
@@ -612,8 +662,8 @@ function GridTile({
     setPainted(false)
     refetch()
   }
-  // Контейнер, а не кнопка: нажатие по ячейке ловит слой-кнопка во весь кадр, а плашка
-  // скачивания в углу — отдельная кнопка рядом с ним (вложить кнопку в кнопку нельзя).
+  // Контейнер, а не кнопка: нажатие по ячейке ловит слой-кнопка во весь кадр, а кнопка
+  // скачивания — отдельная поверх него (вложить кнопку в кнопку нельзя).
   return (
     <div className={cn('relative block overflow-hidden', MEDIA_TINT, className)}>
       {failed ? (
@@ -689,7 +739,7 @@ function GridTile({
         />
       )}
       {url && painted && !uploading && !blurred && !failed && (
-        <MediaDownloadPill att={att} url={url} compact />
+        <MediaDownloadPill att={att} url={url} compact corner={isVid} />
       )}
       {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
     </div>
