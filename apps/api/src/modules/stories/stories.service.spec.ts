@@ -171,9 +171,8 @@ describe('StoriesService.feed — кольца авторов', () => {
     const rings = await service.feed(viewer(Role.STUDENT, { sub: 'me' }), {})
 
     expect(rings.map((r) => r.author.id)).toEqual(['me', 'o1', 'o2'])
-    expect(rings[0].stories.map((s) => s.id)).toEqual(['s1a', 's1b'])
-    expect(rings[1].hasUnseen).toBe(true)
-    expect(rings[2].hasUnseen).toBe(false)
+    expect(rings.map((r) => r.stories.map((s) => s.id))).toEqual([['s1a', 's1b'], ['s2'], ['s3']])
+    expect(rings.map((r) => r.hasUnseen)).toEqual([true, true, false])
   })
 
   it('число просмотров видно автору и скрыто от остальных', async () => {
