@@ -1802,25 +1802,57 @@ export function ChatWindow() {
     if (el) el.scrollTop = el.scrollHeight
   }, [composerH])
 
-  // Начальная пометка дня: лента открывается внизу, и до первого скролла обработчик
-  // не сработает — без этого заголовок дня появлялся бы только после касания колеса.
-  useEffect(() => {
+  // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
+  // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
+  // пока сама пометка уехала под верх: тогда дата всё равно видна, а когда пометка
+  // возвращается в кадр, заголовок гаснет, чтобы не было двух одинаковых дат.
+  // (Настоящий `position: sticky` не годится: virtua оборачивает каждое сообщение,
+  // и прилипало бы в пределах одного сообщения, а не до следующей даты.)
+  //
+  // Решает это одно измерение: какое сообщение сейчас вверху кадра, начинается ли с него
+  // день и насколько оно уже ушло под верх. Зовётся и на прокрутке, и после открытия чата.
+  function syncFloatingDay(): void {
     const data = messages.data
     if (!data || data.length === 0) {
       setFloatingDay(null)
+      setFloatingDayShown(false)
       return
     }
-    const last = data[data.length - 1]
-    if (last) {
-      setFloatingDay(dayLabel(last.createdAt))
-      // Чат открывается у последнего сообщения: пометка его дня осталась выше кадра
-      // (если сообщений за день больше одного) — показываем заголовок сразу.
-      const first = data[0]
-      setFloatingDayShown(
-        !!first &&
-          new Date(first.createdAt).toDateString() !== new Date(last.createdAt).toDateString(),
-      )
+    const vh = virtualizerRef.current
+    if (!vh) {
+      // Виртуализатор ещё не смонтирован — мерить нечем. Текст заголовку готовим, но
+      // показывать не начинаем: встроенная пометка сейчас на экране, и заголовок дал бы
+      // вторую такую же дату. Ошибиться в эту сторону дешевле: промах здесь стоит
+      // одного кадра до первой прокрутки, промах в другую — видимого дубля.
+      const last = data[data.length - 1]
+      if (last) setFloatingDay(dayLabel(last.createdAt))
+      setFloatingDayShown(false)
+      return
     }
+    const topIdx = Math.min(Math.max(vh.findItemIndex(vh.scrollOffset), 0), data.length - 1)
+    const top = data[topIdx]
+    if (!top) return
+    setFloatingDay(dayLabel(top.createdAt))
+    const prev = data[topIdx - 1]
+    const startsDay =
+      !prev || new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
+    // Насколько верхнее сообщение уже ушло под верх: пока меньше высоты пометки,
+    // она видна целиком и подменять её нечем.
+    const scrolledInto = vh.scrollOffset - vh.getItemOffset(topIdx)
+    setFloatingDayShown(!startsDay || scrolledInto > DAY_LABEL_H)
+  }
+
+  // Начальная пометка дня: лента открывается внизу, и до первого скролла обработчик
+  // не сработает — без этого заголовок дня появлялся бы только после касания колеса.
+  //
+  // Через кадр, а не сразу: virtua на момент эффекта ещё не разложила ленту, и мерить
+  // нечего. Раньше здесь мерить и не пытались — заголовок поднимали по догадке «первый и
+  // последний день разные, значит пометка уехала под верх». Догадка врала каждый раз,
+  // когда переписка целиком помещается на экране: встроенная пометка видна, а заголовок
+  // всё равно показывался, и «Сегодня» оказывалось на экране дважды.
+  useEffect(() => {
+    const id = requestAnimationFrame(syncFloatingDay)
+    return () => cancelAnimationFrame(id)
     // Пересчёт при смене чата и подгрузке истории; дальше день ведёт onMessagesScroll.
   }, [activeId, messages.data])
 
@@ -1828,29 +1860,7 @@ export function ChatWindow() {
   function onMessagesScroll(): void {
     const el = messagesScrollRef.current
     if (!el) return
-    // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
-    // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
-    // пока сама пометка уехала под верх: тогда дата всё равно видна, а когда пометка
-    // возвращается в кадр, заголовок гаснет, чтобы не было двух одинаковых дат.
-    // (Настоящий `position: sticky` не годится: virtua оборачивает каждое сообщение,
-    // и прилипало бы в пределах одного сообщения, а не до следующей даты.)
-    const vh = virtualizerRef.current
-    const data = messages.data
-    if (vh && data && data.length > 0) {
-      const topIdx = Math.min(Math.max(vh.findItemIndex(vh.scrollOffset), 0), data.length - 1)
-      const top = data[topIdx]
-      if (top) {
-        setFloatingDay(dayLabel(top.createdAt))
-        const prev = data[topIdx - 1]
-        const startsDay =
-          !prev ||
-          new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
-        // Насколько верхнее сообщение уже ушло под верх: пока меньше высоты пометки,
-        // она видна целиком и подменять её нечем.
-        const scrolledInto = vh.scrollOffset - vh.getItemOffset(topIdx)
-        setFloatingDayShown(!startsDay || scrolledInto > DAY_LABEL_H)
-      }
-    }
+    syncFloatingDay()
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
     setShowScrollDown(!atBottom)
     // Прочитано то, что проехало через экран, — на каждом шаге прокрутки, а не только
