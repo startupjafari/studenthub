@@ -913,12 +913,27 @@ export class ChatsService {
       ...clearedWhere(mem),
     }
     const limit = query.limit
+    // Курсор снаружи — по-прежнему id сообщения, но внутри ходим по `seq`: монотонному
+    // номеру сообщения в чате, у которого есть уникальный индекс [chatId, seq].
+    //
+    // Почему не курсор Prisma. При `cursor: { id }` и сортировке по времени он
+    // раскладывается в `(createdAt = X AND id <= Y) OR (createdAt < X)`, а такой OR
+    // планировщик границей индекса взять не умеет и применяет фильтром: проход идёт от
+    // новейшего сообщения и выбрасывает всё, что новее курсора. Страница тем самым стоит
+    // столько, сколько в чате сообщений перед ней. Замер на чате из 150 тыс. сообщений:
+    // двадцатая страница — 0,19 мс и 71 буфер, двухтысячедевятисотая — 16,8 мс и 7655.
+    //
+    // `seq < X` — обычная граница диапазона по тому же индексу: 0,024 мс и 5 буферов на
+    // любой глубине. Порядок выдачи не меняется: seq бекфилился как `row_number() OVER
+    // (PARTITION BY chat_id ORDER BY created_at, id)` (20260819120000_add_message_seq), а
+    // новым сообщениям выдаётся атомарным инкрементом Chat.lastSeq.
+    const cursorSeq = query.cursor ? await this.seqOfMessage(chatId, query.cursor) : null
 
     // Окно вокруг сообщения (Этап 1): jump-to-message / ссылка на сообщение.
     if (query.around) {
       const target = await this.prisma.message.findFirst({
         where: { ...baseWhere, id: query.around },
-        select: { id: true, createdAt: true },
+        select: { id: true, seq: true },
       })
       if (!target) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
       return this.buildMessageWindow(baseWhere, target, limit)
@@ -933,21 +948,25 @@ export class ChatsService {
         // очищенной истории, и оно всплывало в чате после «Очистить историю».
         where: { AND: [baseWhere, { createdAt: { gte: new Date(query.aroundDate) } }] },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: { id: true, createdAt: true },
+        select: { id: true, seq: true },
       })
       if (anchor) return this.buildMessageWindow(baseWhere, anchor, limit)
     }
 
     // Подгрузка более НОВЫХ после jump (direction=newer): курсор — id самого нового загруженного.
     if (query.direction === 'newer' && query.cursor) {
-      const rows = await this.prisma.message.findMany({
-        where: baseWhere,
-        select: MESSAGE_SELECT,
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: limit + 1,
-        cursor: { id: query.cursor },
-        skip: 1,
-      })
+      // Курсор не из этого чата или уже удалён — отдаём пустую страницу. Курсор Prisma в
+      // этом случае вёл себя хуже: id ищется по всей таблице, и сообщение из чужого чата
+      // давало осмысленную на вид, но чужую границу по времени.
+      const rows =
+        cursorSeq === null
+          ? []
+          : await this.prisma.message.findMany({
+              where: { ...baseWhere, seq: { gt: cursorSeq } },
+              select: MESSAGE_SELECT,
+              orderBy: { seq: 'asc' },
+              take: limit + 1,
+            })
       const hasPrev = rows.length > limit
       const asc = hasPrev ? rows.slice(0, limit) : rows
       const items = asc.reverse()
@@ -955,17 +974,36 @@ export class ChatsService {
     }
 
     // По умолчанию — более СТАРЫЕ (текущее поведение, вниз истории вверх по скроллу).
-    const rows = await this.prisma.message.findMany({
-      where: baseWhere,
-      select: MESSAGE_SELECT,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-    })
+    const rows =
+      query.cursor && cursorSeq === null
+        ? []
+        : await this.prisma.message.findMany({
+            where: {
+              ...baseWhere,
+              ...(cursorSeq === null ? {} : { seq: { lt: cursorSeq } }),
+            },
+            select: MESSAGE_SELECT,
+            orderBy: { seq: 'desc' },
+            take: limit + 1,
+          })
     const hasNext = rows.length > limit
     const items = hasNext ? rows.slice(0, limit) : rows
     const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
     return new Paginated(items, { cursor: nextCursor, hasNext })
+  }
+
+  /**
+   * Номер сообщения внутри чата по его id — через него ходят курсоры истории.
+   *
+   * Ищем со `chatId`, а не по одному id: курсор приходит от клиента, и сообщение из
+   * чужого чата не должно становиться границей выборки в этом.
+   */
+  private async seqOfMessage(chatId: string, id: string): Promise<number | null> {
+    const row = await this.prisma.message.findFirst({
+      where: { id, chatId },
+      select: { seq: true },
+    })
+    return row?.seq ?? null
   }
 
   /**
@@ -1046,34 +1084,25 @@ export class ChatsService {
 
   // Окно сообщений вокруг целевого (для around / aroundDate): до limit СТАРЕЕ + целевое + до limit НОВЕЕ,
   // всё по убыванию. meta: cursor/hasNext — старые (вверх), prevCursor/hasPrev — новые (вниз).
+  // Границы окна — по `seq`, как и у страниц истории: он уникален внутри чата, поэтому
+  // пара «время + id» здесь не нужна вовсе, а `seq < X` ложится границей индекса, тогда как
+  // прежний OR по времени планировщик применял фильтром (см. комментарий в getMessages).
   private async buildMessageWindow(
     baseWhere: Prisma.MessageWhereInput,
-    target: { id: string; createdAt: Date },
+    target: { id: string; seq: number },
     limit: number,
   ): Promise<Paginated<MessageRow>> {
     const [olderRows, newerRows] = await Promise.all([
       this.prisma.message.findMany({
-        where: {
-          ...baseWhere,
-          OR: [
-            { createdAt: { lt: target.createdAt } },
-            { createdAt: target.createdAt, id: { lt: target.id } },
-          ],
-        },
+        where: { ...baseWhere, seq: { lt: target.seq } },
         select: MESSAGE_SELECT,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy: { seq: 'desc' },
         take: limit + 1,
       }),
       this.prisma.message.findMany({
-        where: {
-          ...baseWhere,
-          OR: [
-            { createdAt: { gt: target.createdAt } },
-            { createdAt: target.createdAt, id: { gt: target.id } },
-          ],
-        },
+        where: { ...baseWhere, seq: { gt: target.seq } },
         select: MESSAGE_SELECT,
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: { seq: 'asc' },
         take: limit + 1,
       }),
     ])

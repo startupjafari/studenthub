@@ -243,7 +243,7 @@ describe('ChatsService.getMessages — cursor + членство', () => {
   it('around → окно: новее(desc) + целевое + старее(desc), meta старых и новых', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
-    prisma.message.findFirst.mockResolvedValue({ id: 'mT', createdAt: new Date() })
+    prisma.message.findFirst.mockResolvedValue({ id: 'mT', seq: 500 })
     prisma.message.findMany
       // 1-й вызов — старее (desc), 21 > limit → есть ещё старые
       .mockResolvedValueOnce(Array.from({ length: 21 }, (_, i) => ({ id: `o${i}` })))
@@ -321,6 +321,8 @@ describe('ChatsService.getMessages — cursor + членство', () => {
   it('direction=newer → отдаёт новые в desc, meta.hasPrev/prevCursor', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    // Курсор сперва превращается в seq, и только потом идёт выборка.
+    prisma.message.findFirst.mockResolvedValue({ seq: 100 })
     // asc-выборка (21 > limit → есть ещё новые); в ответе — desc.
     prisma.message.findMany.mockResolvedValue(
       Array.from({ length: 21 }, (_, i) => ({ id: `n${i}` })),
@@ -334,7 +336,57 @@ describe('ChatsService.getMessages — cursor + членство', () => {
     expect(res.items[0]?.id).toBe('n19') // развёрнуто в desc
     expect(res.meta.hasPrev).toBe(true)
     expect(res.meta.prevCursor).toBe('n19')
-    expect(prisma.message.findMany.mock.calls[0][0].orderBy[0].createdAt).toBe('asc')
+    const call = prisma.message.findMany.mock.calls[0][0]
+    expect(call.orderBy).toEqual({ seq: 'asc' })
+    expect(call.where.seq).toEqual({ gt: 100 })
+  })
+
+  // Курсор Prisma раскладывался в OR по времени, который планировщик брал фильтром:
+  // проход шёл от новейшего сообщения и выбрасывал всё, что новее курсора, поэтому
+  // страница стоила тем дороже, чем она глубже. Граница по seq ложится в индекс
+  // [chatId, seq], и стоимость перестаёт зависеть от глубины — но только пока запрос
+  // действительно ходит по seq, а не по cursor/skip. Это и стережёт тест.
+  it('страница истории по курсору — граница seq, а не cursor/skip Prisma', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue({ seq: 777 })
+    prisma.message.findMany.mockResolvedValue([])
+
+    await service.getMessages(user('u1'), 'c1', { limit: 20, cursor: 'mX' })
+
+    // Курсор ищется В ЭТОМ чате: сообщение из чужого не должно задавать границу.
+    expect(prisma.message.findFirst.mock.calls[0][0].where).toEqual({ id: 'mX', chatId: 'c1' })
+    const call = prisma.message.findMany.mock.calls[0][0]
+    expect(call.where.seq).toEqual({ lt: 777 })
+    expect(call.orderBy).toEqual({ seq: 'desc' })
+    expect(call.cursor).toBeUndefined()
+    expect(call.skip).toBeUndefined()
+  })
+
+  it('курсор не из этого чата → пустая страница, а не чужая граница', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue(null)
+
+    const res = await service.getMessages(user('u1'), 'c1', { limit: 20, cursor: 'чужой' })
+
+    expect(res.items).toEqual([])
+    expect(res.meta.hasNext).toBe(false)
+    expect(prisma.message.findMany).not.toHaveBeenCalled()
+  })
+
+  it('без курсора — новейшая страница по убыванию seq', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findMany.mockResolvedValue([])
+
+    await service.getMessages(user('u1'), 'c1', { limit: 20 })
+
+    const call = prisma.message.findMany.mock.calls[0][0]
+    expect(call.where.seq).toBeUndefined()
+    expect(call.orderBy).toEqual({ seq: 'desc' })
+    // Курсора нет — и разрешать нечего: лишнего запроса быть не должно.
+    expect(prisma.message.findFirst).not.toHaveBeenCalled()
   })
 })
 
