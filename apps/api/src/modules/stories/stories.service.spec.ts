@@ -1,4 +1,4 @@
-import { StoryAudience } from '@prisma/client'
+import { Prisma, StoryAudience } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { StoriesService } from './stories.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
@@ -332,6 +332,29 @@ describe('StoriesService — просмотр и голос', () => {
     const args = prisma.storyView.upsert.mock.calls[0][0]
     expect(args.update).toEqual({})
     expect(args.create).toEqual({ storyId: 's1', userId: 'viewer-1' })
+  })
+
+  it('гонка двух отметок просмотра не роняет запрос', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue({ id: 's1', authorId: 'author' })
+    // Проигравший в гонке upsert получает нарушение уникальности — состояние уже нужное.
+    prisma.storyView.upsert.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate', { code: 'P2002', clientVersion: 'x' }),
+    )
+    await expect(
+      service.markViewed(viewer(Role.STUDENT, { sub: 'viewer-1' }), 's1'),
+    ).resolves.toEqual({ seen: true })
+  })
+
+  it('прочие ошибки базы при отметке просмотра наружу не глотаются', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue({ id: 's1', authorId: 'author' })
+    prisma.storyView.upsert.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('gone', { code: 'P2025', clientVersion: 'x' }),
+    )
+    await expect(
+      service.markViewed(viewer(Role.STUDENT, { sub: 'viewer-1' }), 's1'),
+    ).rejects.toBeInstanceOf(Prisma.PrismaClientKnownRequestError)
   })
 
   it('голос в сторис без опроса — BAD_REQUEST', async () => {

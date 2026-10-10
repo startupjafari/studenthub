@@ -130,6 +130,14 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
+/**
+ * Нарушение уникальности (P2002). Для идемпотентных действий — просмотра, реакции,
+ * голоса — это не ошибка, а гонка двух одинаковых запросов: нужное состояние уже есть.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+}
+
 @Injectable()
 export class StoriesService {
   private readonly logger = new Logger(StoriesService.name)
@@ -411,21 +419,34 @@ export class StoriesService {
   async markViewed(viewer: JwtPayload, id: string): Promise<{ seen: true }> {
     const story = await this.findVisibleOrThrow(viewer, id, { id: true, authorId: true })
     if (story.authorId === viewer.sub) return { seen: true }
-    await this.prisma.storyView.upsert({
-      where: { storyId_userId: { storyId: id, userId: viewer.sub } },
-      update: {},
-      create: { storyId: id, userId: viewer.sub },
-    })
+    try {
+      await this.prisma.storyView.upsert({
+        where: { storyId_userId: { storyId: id, userId: viewer.sub } },
+        update: {},
+        create: { storyId: id, userId: viewer.sub },
+      })
+    } catch (error) {
+      // Клиент шлёт отметку на показ кадра, и два показа подряд (перемонтирование,
+      // двойной тап, StrictMode в деве) приходят параллельно: оба upsert'а не находят
+      // строки и оба вставляют. Проигравший получает P2002 — а это ровно то состояние,
+      // которого мы и добивались. Остальные ошибки Prisma идут дальше.
+      if (!isUniqueViolation(error)) throw error
+    }
     return { seen: true }
   }
 
   async addReaction(actor: JwtPayload, id: string, input: StoryReactionInput): Promise<void> {
     await this.findVisibleOrThrow(actor, id, { id: true })
-    await this.prisma.storyReaction.upsert({
-      where: { storyId_userId_emoji: { storyId: id, userId: actor.sub, emoji: input.emoji } },
-      update: {},
-      create: { storyId: id, userId: actor.sub, emoji: input.emoji },
-    })
+    try {
+      await this.prisma.storyReaction.upsert({
+        where: { storyId_userId_emoji: { storyId: id, userId: actor.sub, emoji: input.emoji } },
+        update: {},
+        create: { storyId: id, userId: actor.sub, emoji: input.emoji },
+      })
+    } catch (error) {
+      // Та же гонка, что и у просмотра: двойной тап по эмодзи — это одна реакция.
+      if (!isUniqueViolation(error)) throw error
+    }
   }
 
   async removeReaction(actor: JwtPayload, id: string, emoji: string): Promise<void> {
@@ -447,11 +468,18 @@ export class StoriesService {
     if (!story.poll.options.some((option) => option.id === input.optionId)) {
       throw new AppException('BAD_REQUEST', 'Вариант не принадлежит этому опросу')
     }
-    await this.prisma.storyPollVote.upsert({
-      where: { pollId_userId: { pollId: story.poll.id, userId: actor.sub } },
-      update: { optionId: input.optionId },
-      create: { pollId: story.poll.id, optionId: input.optionId, userId: actor.sub },
-    })
+    const where = { pollId_userId: { pollId: story.poll.id, userId: actor.sub } }
+    try {
+      await this.prisma.storyPollVote.upsert({
+        where,
+        update: { optionId: input.optionId },
+        create: { pollId: story.poll.id, optionId: input.optionId, userId: actor.sub },
+      })
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error
+      // Голос успел появиться между проверкой и вставкой — значит это перевыбор.
+      await this.prisma.storyPollVote.update({ where, data: { optionId: input.optionId } })
+    }
     return this.getById(actor, id)
   }
 
