@@ -13810,6 +13810,29 @@
         ]
       }
     },
+    "/me/export": {
+      "get": {
+        "operationId": "DataExportController_exportMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Файл выгрузки"
+          },
+          "429": {
+            "description": "RATE_LIMIT — не чаще трёх раз в час"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Скачать машинную выгрузку своих персональных данных (JSON)",
+        "tags": [
+          "Мои данные"
+        ]
+      }
+    },
     "/releases/me": {
       "get": {
         "operationId": "ReleasesController_state",
