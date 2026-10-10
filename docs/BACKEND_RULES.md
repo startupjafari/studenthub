@@ -552,7 +552,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 | # | Расхождение | Принятое решение | Статус |
 |---|---|---|---|
-| 1 | `Story.mediaUrl` (§5) vs `Story.fileId` + relation `file` (§17, §24) | `fileId` + relation `file`, `mediaUrl` не вводить | 📌 Модель `Story` — Ф14 (v2.0) |
+| 1 | `Story.mediaUrl` (§5) vs `Story.fileId` + relation `file` (§17, §24) | `fileId` + relation `file`, `mediaUrl` не вводить | ✅ `prisma/schema/32-stories.prisma` (Ф14.1) |
 | 2 | Срок инвайта: 48 ч (§13) vs 1 год в seed (§21) | Seed-инвайт dev-only, срок 30 дней | ✅ `prisma/seed.mjs` |
 | 3 | `createdBy` (§13.3) vs `createdById` (§21.2, §26.5) | `createdById` + relation `createdBy` | ✅ `prisma/schema/01-users.prisma` |
 | 4 | `Invite.status` строкой `'PENDING'` вместо enum | Использовать `InviteStatus.*` из `@prisma/client` в коде и тестах | ✅ `invites.service.ts` + spec |
