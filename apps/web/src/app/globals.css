@@ -436,6 +436,15 @@
 .cn-toast {
   position: relative;
   overflow: hidden;
+  /* Текст тоста не выделяется, и нажатие по нему ничем не отзывается.
+     Своё `user-select: none` sonner ставит только ПОСЛЕ свайпа, поэтому до первого
+     смахивания тост вёл себя как абзац текста: клик по нему выделял слово, протяжка —
+     весь тост синим. Выделять там нечего — уведомление живёт четыре секунды и исчезает
+     раньше, чем выделенное успеют скопировать.
+     `-webkit-tap-highlight-color` гасит синюю вспышку под пальцем на мобильных. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .cn-toast::before {
   content: '';
