@@ -1898,6 +1898,7 @@
     "download": "Жүктеп алу",
     "downloadCancel": "Жүктеуді болдырмау",
     "downloadFailed": "Жүктеу мүмкін болмады · Қайталау",
+    "uploadFailed": "Жіберілмеді · Қайталау",
     "openLink": "Сілтемені ашу",
     "createPoll": "Сауалнама",
     "createPollSubmit": "Құру",
