@@ -50,6 +50,9 @@ model File {
   // Альбомы, для которых этот файл — обложка (обычно один).
   albumsCovered Album[]   @relation("AlbumCover")
   document      Document? @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  // Сторисы, у которых этот файл — медиа (Ф14.1). Связь объявлена со стороны Story
+  // (Story.fileId), поэтому здесь только обратная сторона.
+  stories       Story[]   @relation("StoryMedia")
 
   // Пара (bucket, key) НЕ уникальна: несколько записей могут ссылаться на один объект
   // хранилища (общий пул медиа у сида, см. prisma/seed/steps/10-media.mjs). Следствие для
