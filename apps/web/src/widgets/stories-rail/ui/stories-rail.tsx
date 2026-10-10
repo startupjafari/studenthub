@@ -63,12 +63,14 @@ export function StoriesRail() {
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
+            aria-label={t('newStory')}
             className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center"
           >
             <span className="flex size-14 items-center justify-center rounded-full border border-dashed border-border bg-muted text-muted-foreground transition-colors hover:border-primary hover:text-primary">
               <Plus className="size-5" aria-hidden />
             </span>
-            <span className="w-full truncate text-xs text-muted-foreground">{t('yourStory')}</span>
+            {/* Подпись короткая: под кольцом 4rem, и «Ваша сторис» там обрезается многоточием. */}
+            <span className="w-full truncate text-xs text-muted-foreground">{t('addStory')}</span>
           </button>
         )}
 
@@ -110,7 +112,9 @@ function RingButton({
   onOpen: () => void
 }) {
   const t = useTranslations('Stories')
-  const name = isMe ? t('yourStory') : ring.author.firstName
+  // Своё кольцо подписано «Вы»: имя владельца экрана ему ничего не сообщает, а место
+  // под кольцом рассчитано на одно короткое слово.
+  const name = isMe ? t('you') : ring.author.firstName
   return (
     <button
       type="button"

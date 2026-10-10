@@ -1796,6 +1796,8 @@
   },
   "Stories": {
     "yourStory": "Your story",
+    "addStory": "Add",
+    "you": "You",
     "newStory": "New story",
     "openStoryOf": "Open story by {name}",
     "publish": "Publish",

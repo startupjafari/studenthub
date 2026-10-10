@@ -235,7 +235,9 @@ export function StoryViewer({
         <div
           className={cn(
             'relative flex flex-1 items-center justify-center overflow-hidden',
-            !story.media && storyBackgroundClass(story.background),
+            // Под медиа — чёрное полотно: кадр 9:16, а снимок почти никогда не 9:16, и
+            // без подложки в полях просвечивала страница под полупрозрачным оверлеем.
+            story.media ? 'bg-black' : storyBackgroundClass(story.background),
           )}
           onPointerDown={() => setPaused(true)}
           onPointerUp={() => setPaused(false)}

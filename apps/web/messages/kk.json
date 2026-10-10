@@ -1796,6 +1796,8 @@
   },
   "Stories": {
     "yourStory": "Сіздің сторисіңіз",
+    "addStory": "Қосу",
+    "you": "Сіз",
     "newStory": "Жаңа сторис",
     "openStoryOf": "Стористі ашу: {name}",
     "publish": "Жариялау",

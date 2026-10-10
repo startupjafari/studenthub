@@ -1796,6 +1796,8 @@
   },
   "Stories": {
     "yourStory": "Ваша сторис",
+    "addStory": "Добавить",
+    "you": "Вы",
     "newStory": "Новая сторис",
     "openStoryOf": "Открыть сторис: {name}",
     "publish": "Опубликовать",
