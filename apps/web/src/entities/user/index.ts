@@ -15,6 +15,7 @@ export {
   adminUserKeys,
   fetchUsers,
   exportUsers,
+  exportMyData,
   blockUserRequest,
   unblockUserRequest,
   type AdminUser,

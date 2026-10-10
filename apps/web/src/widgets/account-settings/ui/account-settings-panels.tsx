@@ -79,6 +79,7 @@ import { MARITAL_STATUS_DICT } from '../../../shared/config'
 import {
   changePasswordRequest,
   deleteAccountRequest,
+  exportMyData,
   fetchMe,
   updateProfileRequest,
   updateUsernameRequest,
@@ -90,7 +91,7 @@ import {
   updateNotificationSettings,
   type NotificationSettingsData,
 } from '../../../entities/notification'
-import { useAppUpdate } from '../../../shared/lib'
+import { saveFile, useAppUpdate } from '../../../shared/lib'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { syncSessionUser } from '../../../shared/session'
@@ -1028,6 +1029,7 @@ function AppSection() {
 // ── Конфиденциальность (showEmail / showPhone) ──────────────────────────────
 function PrivacySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
+  const locale = useLocale()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
@@ -1047,6 +1049,14 @@ function PrivacySection({ me }: { me: MeResponse }) {
     onSuccess: (data) => qc.setQueryData(userKeys.me(), data),
   })
 
+  // Выгрузка своих данных (Ф14.6): файл собирается на сервере, здесь только сохранение.
+  // Имя файла приходит из Content-Disposition — шаблон имён живёт на бэкенде.
+  const dataExport = useMutation({
+    mutationFn: () => exportMyData(locale),
+    onSuccess: saveFile,
+    onError: (e) => showApiError(e),
+  })
+
   const visibility = me.profileVisibility ?? 'UNIVERSITY'
 
   return (
@@ -1061,6 +1071,17 @@ function PrivacySection({ me }: { me: MeResponse }) {
             <FolderLock className="size-4" aria-hidden />
             {tS('documentsStorageOpen')}
           </Link>
+        </SettingRow>
+        <SettingRow title={tS('dataExport')} desc={tS('dataExportDesc')}>
+          <Button
+            type="button"
+            variant="outline"
+            loading={dataExport.isPending}
+            onClick={() => dataExport.mutate()}
+          >
+            <Download className="size-4" aria-hidden />
+            {tS('dataExportAction')}
+          </Button>
         </SettingRow>
         <SettingRow title={tS('visibilityTitle')} desc={tS('visibilityDesc')}>
           <Select
