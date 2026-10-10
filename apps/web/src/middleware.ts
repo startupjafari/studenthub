@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { Role } from '@studenthub/shared-types'
-import { ROLE_HOME } from './shared/config/routes'
+import { LEGAL_BASE, ROLE_HOME } from './shared/config/routes'
 import { safeNextPath } from './shared/lib/safe-next'
 
 // Ролевой редирект ДО рендера (docs/FRONTEND_RULES.md §3), по нечувствительной role-cookie
@@ -21,6 +21,9 @@ const PUBLIC_PATHS = [
   // Проверка выданного документа по коду из бланка: её открывает банк, работодатель,
   // посольство — у них аккаунта нет и не будет.
   '/verify',
+  // Политика конфиденциальности и пользовательское соглашение: их обязаны показать
+  // ДО регистрации, и ссылка на них стоит под формой входа.
+  LEGAL_BASE,
 ]
 
 /**
@@ -35,6 +38,10 @@ const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = [
   '/demo/verify',
   '/r/resume',
   '/verify',
+  // Юридические документы читают и вошедшие — из настроек, из письма, по присланной
+  // ссылке. Редирект на домашнюю означал бы, что ссылка на политику работает только у
+  // тех, кто не в системе.
+  LEGAL_BASE,
 ]
 
 interface RoleCookie {
