@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { ArrowDown, Check, FileText, ImageOff, Loader2, Play, X } from 'lucide-react'
+import { ArrowDown, Check, FileText, Loader2, Play, RotateCw, X } from 'lucide-react'
 import {
   formatBytes,
   formatBytesProgress,
@@ -131,6 +131,9 @@ const MEDIA_BOX = 'h-40 w-56 max-w-full'
 const MEDIA_MAX_H = 256
 // Заглушка/подложка читается и на синем «своём» пузыре, и на сером чужом.
 const MEDIA_TINT = 'bg-foreground/10'
+// Круг поверх кадра — один и тот же у оверлея загрузки и у ошибки, как в Telegram:
+// и «едет», и «не доехало» читаются одним элементом в одном месте кадра.
+const MEDIA_CIRCLE = 'flex size-12 items-center justify-center rounded-full bg-black/55 text-white'
 
 // Коробка будущего снимка. Есть размеры с сервера — повторяем ровно ту, которую займёт
 // картинка: ширина по пузырю (max-w-full), высота по пропорции и потолку max-h-64.
@@ -169,25 +172,34 @@ function useAttachmentUrl(att: MessageAttachment) {
 function MediaFailed({ className, onRetry }: { className?: string; onRetry: () => void }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
+  // Текст ушёл в подпись кнопки: на кадре Telegram показывает только круг, а экранному
+  // диктору по-прежнему нужно сказать, что случилось и что сделает нажатие.
+  const label = `${t('mediaFailed')} — ${tCommon('retry')}`
   return (
     <span
       className={cn(
-        'flex flex-col items-center justify-center gap-1 rounded-lg p-3 text-center',
+        'flex min-h-20 items-center justify-center overflow-hidden rounded-lg',
         MEDIA_TINT,
         className,
       )}
     >
-      <ImageOff className="size-5 opacity-60" aria-hidden />
-      <span className="text-xs opacity-70">{t('mediaFailed')}</span>
       <button
         type="button"
+        aria-label={label}
+        title={label}
         onClick={(e) => {
+          // Всплытие гасим: заглушка живёт внутри пузыря, у которого свои нажатия
+          // (выделение сообщения, открытие просмотрщика у соседних вложений).
+          e.preventDefault()
           e.stopPropagation()
           onRetry()
         }}
-        className="text-xs font-medium underline underline-offset-2"
+        className={cn(
+          MEDIA_CIRCLE,
+          'cursor-pointer transition-colors hover:bg-black/75 active:scale-90',
+        )}
       >
-        {tCommon('retry')}
+        <RotateCw className="size-6" aria-hidden />
       </button>
     </span>
   )
@@ -223,7 +235,10 @@ function MediaUploadOverlay({ progress, onCancel }: { progress?: number; onCance
             e.stopPropagation()
             onCancel()
           }}
-          className="relative flex size-12 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+          className={cn(
+            MEDIA_CIRCLE,
+            'relative cursor-pointer transition-colors hover:bg-black/75',
+          )}
         >
           {/* Кольцо прогресса вокруг крестика: сколько уже ушло, видно и при наведении. */}
           <span
@@ -237,9 +252,7 @@ function MediaUploadOverlay({ progress, onCancel }: { progress?: number; onCance
           {content}
         </button>
       ) : (
-        <span className="flex size-12 items-center justify-center rounded-full bg-black/55 text-white">
-          {content}
-        </span>
+        <span className={MEDIA_CIRCLE}>{content}</span>
       )}
     </span>
   )
@@ -563,7 +576,11 @@ function GridTile({
     <div className={cn('relative block overflow-hidden', MEDIA_TINT, className)}>
       {failed ? (
         <span className="absolute inset-0 flex items-center justify-center">
-          <ImageOff className="size-5 opacity-60" aria-hidden />
+          {/* Не кнопка: нажатие ловит слой-кнопка во весь кадр (вложить кнопку в кнопку
+              нельзя), она же при ошибке вызывает retry и носит подпись «Повторить». */}
+          <span className={MEDIA_CIRCLE}>
+            <RotateCw className="size-6" aria-hidden />
+          </span>
         </span>
       ) : isLoading || !url ? (
         <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />
