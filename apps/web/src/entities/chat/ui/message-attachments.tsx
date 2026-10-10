@@ -385,7 +385,7 @@ function Single({
   if (isVoice(att)) {
     return (
       <span className={cn('relative inline-flex', uploading && 'opacity-60')}>
-        <VoiceMessage url={url} seed={att.id} mine={mine} />
+        <VoiceMessage url={url} seed={att.id} mine={mine} size={att.size} />
         {uploading && (
           <span className="absolute right-1 top-1/2 -translate-y-1/2">
             <Loader2 className="size-4 animate-spin opacity-70" aria-hidden />
