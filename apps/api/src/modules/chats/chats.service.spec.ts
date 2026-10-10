@@ -818,6 +818,60 @@ describe('ChatsService — официальные чаты (9.6)', () => {
     // teacher без groupId → пары ищем только по teacherId (один запрос к pair).
     expect(prisma.pair.findMany).toHaveBeenCalledTimes(1)
   })
+
+  // Раньше «Сохранённые» заводились только в GET /chats/saved — то есть в момент, когда
+  // человек нажимал пункт меню. До этого в списке чатов их не было.
+  it('«Сохранённые» создаются вместе с остальными авточатами', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+    prisma.pair.findMany.mockResolvedValue([])
+
+    await service.ensureOfficialChatsForUser(fullScopeUser())
+
+    const saved = prisma.chat.create.mock.calls.find((c) => c[0].data.type === 'SAVED')
+    expect(saved?.[0].data).toMatchObject({ createdById: 'stu1' })
+  })
+
+  // Платформенным ролям не достаётся ни одного чата по scope — он у них пустой.
+  // «Сохранённые» единственные, и условий у них быть не должно.
+  it('роль без вуза, факультета и группы всё равно получает «Сохранённые»', async () => {
+    const { service, prisma } = setup()
+    const admin: JwtPayload = {
+      sub: 'adm1',
+      role: Role.PLATFORM_ADMIN,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+    prisma.pair.findMany.mockResolvedValue([])
+
+    await service.ensureOfficialChatsForUser(admin)
+
+    const createdTypes = prisma.chat.create.mock.calls.map((c) => c[0].data.type)
+    expect(createdTypes).toEqual(['SAVED'])
+  })
+
+  it('существующие «Сохранённые» второй раз не создаются', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'saved-1' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm' })
+    prisma.pair.findMany.mockResolvedValue([])
+
+    await service.ensureOfficialChatsForUser(fullScopeUser())
+
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
 })
 
 describe('ChatsService — общие материалы (§23)', () => {

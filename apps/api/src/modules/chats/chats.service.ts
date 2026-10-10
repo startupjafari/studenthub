@@ -3158,6 +3158,14 @@ export class ChatsService {
   }
 
   async ensureOfficialChatsForUser(user: JwtPayload): Promise<void> {
+    // «Сохранённые» — у всех и без условий: это личный self-chat, он не зависит ни от
+    // группы, ни от факультета, ни от вуза. Раньше его создавал только GET /chats/saved,
+    // то есть чат заводился в момент, когда человек нажимал пункт меню «Сохранённые», —
+    // до этого в списке его не было. Остальные авточаты появляются сами, и этот должен.
+    //
+    // Заодно это единственный авточат, который достаётся платформенным ролям: у них нет
+    // ни groupId, ни facultyId, ни universityId, и все условия ниже их пропускают.
+    await this.getSavedChat(user.sub)
     if (user.groupId) {
       await this.ensureOfficialChat(ChatType.GROUP_OFFICIAL, { groupId: user.groupId }, user.sub)
     }
