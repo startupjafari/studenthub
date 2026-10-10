@@ -19,7 +19,8 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 # Манифесты ВСЕХ проектов воркспейса, а не только нужных этому образу: pnpm 11 сверяет
 # лок с деревом целиком и считает лок устаревшим, если проект из importers отсутствует на
 # диске — `--frozen-lockfile` падает с ERR_PNPM_OUTDATED_LOCKFILE. pnpm 10 такой пропуск
-# терпел. Что из них реально ставится, решает команда установки ниже, а не набор файлов.
+# терпел. Проверка не срабатывает там, где стоит `--filter` (landing, mini-app): их
+# Dockerfile'ы копируют по-прежнему только свой манифест и собираются без правок.
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/landing/package.json apps/landing/
