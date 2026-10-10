@@ -148,6 +148,12 @@ model User {
   reactions     Reaction[]
   postBookmarks PostBookmark[] @relation("UserPostBookmarks")
 
+  // Сторисы (Ф14.1): авторство, просмотры, реакции и голоса в опросах сторис.
+  stories        Story[]         @relation("StoryAuthor")
+  storyViews     StoryView[]     @relation("UserStoryViews")
+  storyReactions StoryReaction[] @relation("UserStoryReactions")
+  storyPollVotes StoryPollVote[] @relation("UserStoryPollVotes")
+
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
   chatMemberships   ChatMember[]
   messages          Message[]

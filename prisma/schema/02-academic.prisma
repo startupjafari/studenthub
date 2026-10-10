@@ -20,6 +20,7 @@ model University {
   rooms            Room[]
   users            User[]
   posts            Post[]
+  stories          Story[]
   chats            Chat[]
   events           Event[]
   complaints       Complaint[]
@@ -65,6 +66,7 @@ model Faculty {
   users          User[]
   applicationsV2 Application[]        @relation("FacultyApplicationsV2")
   posts          Post[]
+  stories        Story[]
   chats          Chat[]
   events         Event[]
   appointments   DeaneryAppointment[]
@@ -90,6 +92,7 @@ model Group {
   schedules Schedule[]
   pairs     Pair[]
   posts     Post[]
+  stories   Story[]
   chats     Chat[]
   events    Event[]
   materials Material[]

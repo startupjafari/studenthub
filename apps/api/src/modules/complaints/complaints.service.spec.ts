@@ -4,6 +4,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { UserService } from '../users/users.service'
+import type { StoriesService } from '../stories/stories.service'
 import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -23,6 +24,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     post: { findFirst: jest.fn(), updateMany: jest.fn() },
+    story: { findFirst: jest.fn() },
     comment: { findFirst: jest.fn(), updateMany: jest.fn() },
     message: {
       findFirst: jest.fn(),
@@ -41,14 +43,17 @@ function setup() {
     warn: jest.fn().mockResolvedValue({ total: 1 }),
   }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
+  // Сторис сносит владелец домена: мягкого удаления у неё нет (Ф14.1).
+  const stories = { removeByModeration: jest.fn().mockResolvedValue(undefined) }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     users as unknown as UserService,
     telegram as unknown as TelegramNotifyService,
+    stories as unknown as StoriesService,
   )
-  return { service, prisma, audit, queue, users, telegram }
+  return { service, prisma, audit, queue, users, telegram, stories }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -77,13 +82,14 @@ function complaint(over: Record<string, unknown> = {}) {
 }
 
 describe('ComplaintsService.create (11.2)', () => {
-  it('STORY → BAD_REQUEST (пока не поддерживается)', async () => {
-    const { service } = setup()
+  it('истёкшая сторис → NOT_FOUND (разбирать нечего, контента уже нет)', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue(null)
     const err = await service
       .create(user(Role.STUDENT), { targetType: 'STORY', targetId: 's1', reason: 'x' }, ctx)
       .catch((e) => e)
     expect(err).toBeInstanceOf(AppException)
-    expect(err.code).toBe('BAD_REQUEST')
+    expect(err.code).toBe('NOT_FOUND')
   })
 
   it('несуществующий пост → NOT_FOUND', async () => {

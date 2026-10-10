@@ -1,4 +1,5 @@
 export { ROLE_HOME } from './routes'
+export { STORIES_ENABLED } from './features'
 export {
   LANGUAGES_DICT,
   LANGUAGE_VALUES,

@@ -8,6 +8,7 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { CreatePostForm } from '../../../features/create-post'
 import { FeedList } from '../../../widgets/feed-list'
+import { StoriesRail } from '../../../widgets/stories-rail'
 import { FriendsPanel, useFriendsSummary } from '../../../widgets/friends-panel'
 import { Button, Modal, PageHeader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -98,6 +99,9 @@ export function FeedView() {
       >
         {/* `flex-1` здесь про ШИРИНУ (ряд горизонтальный), высоту колонка берёт по ленте. */}
         <div className="flex w-full max-w-xl min-w-0 flex-1 flex-col">
+          {/* Кольца сторис — только в общей ленте: в срезах («Важное», «Сохранённое»)
+              они не про тот контент, который человек там ищет. */}
+          {filter === 'ALL' && <StoriesRail />}
           <FeedList filter={filter} />
         </div>
 

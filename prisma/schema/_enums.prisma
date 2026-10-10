@@ -67,6 +67,17 @@ enum PostAudience {
   PERSONAL
 }
 
+// Аудитория сторис (docs/PROJECT.md §3.4). Отдельный enum, а не PostAudience: у сторис
+// нет ни личной (PERSONAL), ни предметной (SUBJECT) аудитории — формат публичный и
+// короткоживущий, адресное сообщение одному человеку — это чат, а не сторис.
+enum StoryAudience {
+  ALL
+  UNIVERSITY
+  FACULTY
+  GROUP
+  TEACHERS
+}
+
 enum ChatType {
   PRIVATE
   GROUP

@@ -16,6 +16,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { UserService } from '../users/users.service'
+import { StoriesService } from '../stories/stories.service'
 
 const USER_MINI = { select: { id: true, firstName: true, lastName: true } }
 
@@ -88,6 +89,7 @@ export class ComplaintsService {
     private readonly queue: QueueService,
     private readonly users: UserService,
     private readonly telegram: TelegramNotifyService,
+    private readonly stories: StoriesService,
   ) {}
 
   // ── Создание (11.2) ──────────────────────────────────────────────────────
@@ -555,8 +557,19 @@ export class ComplaintsService {
 
   private async getTarget(type: ComplaintTargetType, targetId: string): Promise<TargetInfo> {
     switch (type) {
-      case ComplaintTargetType.STORY:
-        throw new AppException('BAD_REQUEST', 'Жалобы на истории пока не поддерживаются')
+      case ComplaintTargetType.STORY: {
+        // Истёкшая сторис для жалобы не существует: разбирать нечего, контента уже нет.
+        const s = await this.prisma.story.findFirst({
+          where: { id: targetId, expiresAt: { gt: new Date() } },
+          select: {
+            authorId: true,
+            universityId: true,
+            author: { select: { universityId: true } },
+          },
+        })
+        if (!s) throw new AppException('NOT_FOUND', 'Сторис не найдена')
+        return { universityId: s.universityId ?? s.author.universityId, ownerId: s.authorId }
+      }
       case ComplaintTargetType.POST: {
         const p = await this.prisma.post.findFirst({
           where: { id: targetId, deletedAt: null },
@@ -606,6 +619,10 @@ export class ComplaintsService {
       await this.prisma.comment.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
     } else if (type === ComplaintTargetType.MESSAGE) {
       await this.prisma.message.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+    } else if (type === ComplaintTargetType.STORY) {
+      // У сторис мягкого удаления нет: она живёт сутки и удаляется физически вместе с
+      // медиа. Делает это владелец домена — он же знает про объект в MinIO (§2.1).
+      await this.stories.removeByModeration(targetId)
     }
   }
 }

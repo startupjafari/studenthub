@@ -139,8 +139,26 @@ DRAFT → SUBMITTED → IN_REVIEW → NEEDS_CORRECTION → RESUBMITTED → IN_RE
 8. Посты преподавателей
 9. Посты студентов
 
-### 3.4 Сторисы (v2.0)
-Короткий формат на 24 часа: фото/видео, текст, ссылка, опрос, реакции. Видимость по аудитории. Автоудаление через cron + TTL-политика бакета MinIO.
+### 3.4 Сторисы (Ф14.1)
+Короткий формат на 24 часа: фото/видео, текст на цветном фоне, ссылка, опрос и реакции.
+Видимость — по аудитории (`StoryAudience`: ALL · UNIVERSITY · FACULTY · GROUP · TEACHERS);
+личной и предметной аудитории у сторис нет: формат публичный, адресное сообщение одному
+человеку — это чат. Кто какую аудиторию выбирает — по матрице §2.2 («Сторисы — создание»),
+scope подставляет сервер из профиля автора, а не из тела запроса.
+
+Срок жизни хранится полем `expiresAt` (24 ч, `STORY_TTL_HOURS` в shared-schemas).
+Истёкшая сторис не видна никому, включая автора; строки и медиа убирает cron
+`deleteExpiredStories` (каждые 30 минут), TTL-политика бакета `stories-media` страхует
+объекты. Мягкого удаления у модели нет намеренно.
+
+Просмотры хранятся по парам «сторис + зритель»: по ним рисуется кольцо «смотрел / не
+смотрел» и строится список зрителей — его видит ТОЛЬКО автор (§14.7 BACKEND_RULES).
+Опрос — один на сторис, 2–4 варианта, выбор одиночный, переголосовать можно пока сторис
+жива. Жалоба на сторис разбирается как на пост; решение «удалить контент» сносит её
+физически вместе с медиа.
+
+В вебе раздел закрыт флагом раскатки `NEXT_PUBLIC_FEATURE_STORIES` (см. §13, открытый
+вопрос 3): без него кольца над лентой и форма публикации не показываются.
 
 ### 3.5 События
 Типы: университетское, факультетское, групповое, учебное, социальное, онлайн. Регистрация участников, напоминание за час, комментарии.
@@ -330,7 +348,7 @@ QR получается менее плотным (сканируется с б�
 | События | 🟡 Средний | Активность |
 
 ### v2.0 — Расширение
-Сторисы · продвинутая аналитика · умная лента · AI-модерация · расширенные отчёты · интеграции Zoom/Meet.
+Сторисы (Ф14.1, сделаны — за флагом раскатки) · продвинутая аналитика · умная лента · AI-модерация · расширенные отчёты · интеграции Zoom/Meet.
 
 ---
 
@@ -408,7 +426,7 @@ Redis обязателен: без него не работают очереди
 **Академическая структура:** `University`, `Faculty`, `Group`, `Room`, `Subject`, `Term`, `Course`, `Assignment`, `Submission`, `Attendance`, `GradeColumn`, `Grade`, `Exam`, `ExamResult`, `ConsultationSlot`, `DeaneryAppointment`, `PortfolioItem`
 **Расписание:** `Schedule`, `Pair`, `ScheduleChange`
 **Заявки:** `ApplicationRequest`, `ApplicationStatusHistory`
-**Контент:** `Post`, `Reaction`, `Comment`, `Story`
+**Контент:** `Post`, `Reaction`, `Comment`, `Story`, `StoryPoll`, `StoryPollOption`, `StoryPollVote`, `StoryView`, `StoryReaction`
 **События:** `Event`, `EventParticipant`
 **Общение:** `Chat`, `ChatMember`, `Message`
 **Инфраструктура:** `File`, `Notification`, `NotificationSettings`, `Complaint`, `AuditLog`, `DocumentExport`
@@ -423,6 +441,7 @@ enum InviteStatus { PENDING USED EXPIRED REVOKED }
 enum ApplicationStatus { NEW PROCESSING CLARIFICATION APPROVED REJECTED READY CLOSED }
 enum AppType { CERTIFICATE MILITARY UNIVERSAL ACADEMIC FINANCIAL TECHNICAL OTHER }
 enum PostAudience { ALL UNIVERSITY FACULTY GROUP SUBJECT TEACHERS PERSONAL }
+enum StoryAudience { ALL UNIVERSITY FACULTY GROUP TEACHERS }
 enum ChatType { PRIVATE GROUP GROUP_OFFICIAL SUBJECT FACULTY DEAN SUPPORT EVENT }
 enum WeekType { ODD EVEN BOTH }
 enum NotificationType { SCHEDULE_CHANGE APP_UPDATE MESSAGE POST EVENT SYSTEM }
@@ -446,7 +465,7 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 ### 6.3 Открытые вопросы к схеме
 
 Требуют решения до Фазы 5 (см. `BACKEND_RULES §19`):
-`Story.mediaUrl` vs `Story.fileId` · `Invite.createdBy` vs `createdById` · разграничение `Schedule` и `Pair` · срок seed-инвайта · поле таймзоны у `University`.
+~~`Story.mediaUrl` vs `Story.fileId`~~ (закрыто в Ф14.1: `fileId` + relation `file`) · `Invite.createdBy` vs `createdById` · разграничение `Schedule` и `Pair` · срок seed-инвайта · поле таймзоны у `University`.
 
 ---
 
@@ -758,7 +777,7 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 
 **Дисциплины** (Academic Core, задача 2) — справочники вуза: `GET /subjects` (по scope; `?search=`) · `POST|PATCH|DELETE /subjects[...]` (админ вуза) · `GET /terms` (семестры вуза) · `POST|PATCH|DELETE /terms[...]` (админ вуза). Курсы: `GET /courses` (по роли; фильтры `groupId/termId/teacherId/mine`, offset-пагинация; студент/староста — своя группа, декан — факультет, преподаватель/админ — вуз) · `GET /courses/:id` (scope-гейт) · `POST|PATCH|DELETE /courses[...]` (декан/админ вуза). Модели: `Subject` (справочник дисциплин вуза, `@@unique([universityId,name])`), `Term` (семестр как сущность: `startsOn/endsOn/isActive`), `Course` (дисциплина группы в семестре: `subjectId/groupId/teacherId?/termId?/credits?`, `@@unique([subjectId,groupId,termId])`). Связь `Pair.subject`/`Material.subject` с `Course` — следующей миграцией.
 
-**Сторисы (v2.0)** — `GET|POST /stories` · `GET|DELETE /stories/:id` · `POST /stories/:id/reactions`
+**Сторисы (Ф14.1)** — `GET /stories` (живые сторисы по видимости, сгруппированные в кольца авторов: свои → с непросмотренными → просмотренные; пагинации нет, выдачу ограничивает срок жизни, потолок выборки 200) · `GET /stories?authorId=` (кольцо одного автора, всегда в пересечении с правами зрителя) · `POST /stories` (медиа ИЛИ текст обязательны; фон — только у текстовой; ссылка только http/https; опрос 2–4 различных варианта) · `GET /stories/:id` · `DELETE /stories/:id` (автор или модератор scope: платформа — любую, админ/модератор вуза — свой вуз, декан — свой факультет) · `POST /stories/:id/view` (отметка просмотра, идемпотентна; свой просмотр не пишется) · `GET /stories/:id/viewers` (только автору, cursor-пагинация) · `POST /stories/:id/reactions` + `DELETE /stories/:id/reactions/:emoji` · `POST /stories/:id/vote` (одиночный выбор, повторный голос заменяет прежний). Медиа отдаётся presigned-ссылкой прямо в ответе (TTL 15 мин) — отдельной ручки за URL нет. Модели: `Story` (`fileId` + relation `file`, `expiresAt`), `StoryPoll`/`StoryPollOption`/`StoryPollVote`, `StoryView`, `StoryReaction`.
 
 **События** — `GET|POST /events` · `GET|PATCH|DELETE /events/:id` · `POST|DELETE /events/:id/register` · `GET /events/:id/participants`
 
@@ -1488,7 +1507,7 @@ ESLint: `no-console: warn`, `@typescript-eslint/no-explicit-any: error`.
 |---|---|---|
 | 1 | Часовые пояса: университеты в разных городах и странах. Где хранится таймзона и в чём отдаётся время расписания? | Ф6 |
 | 2 | Как `middleware.ts` определяет роль, если access-токен не в cookie? (читать refresh-cookie или отдельную нечувствительную cookie с ролью) | Ф1 |
-| 3 | Сторисы отнесены к v2.0, но присутствуют в маршрутах всех ролей v1.0. Скрывать за фича-флагом или убрать из навигации? | Ф0 |
+| 3 | ~~Сторисы отнесены к v2.0, но присутствуют в маршрутах всех ролей v1.0. Скрывать за фича-флагом или убрать из навигации?~~ **Решено (Ф14.1):** за фича-флагом `NEXT_PUBLIC_FEATURE_STORIES` — значение читается на сборке, поэтому на стенде ставится до билда | Ф0 |
 | 4 | Может ли студент создавать события (в матрице ⚠️)? Какие именно и с чьей модерацией? | Ф10 |
 | 5 | Политика хранения: сколько живут сообщения, вложения заявок, удалённые аккаунты? | Ф13 |
 | 6 | Мультиязычность контента: посты и объявления пишутся на одном языке или требуют переводов? | Ф13 |
