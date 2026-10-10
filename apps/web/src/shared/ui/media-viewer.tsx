@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
-import { ChevronLeft, ChevronRight, Download, Loader2, RotateCw, Save, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Loader2, RotateCcw, Save, X } from 'lucide-react'
 import {
   downloadKeyOf,
   useBackClose,
@@ -60,7 +60,9 @@ export function MediaViewer({
   onContextMenuCapture?: (e: React.MouseEvent) => void
 }) {
   const t = useTranslations('Common')
-  useBodyScrollLock()
+  // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
+  // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
+  useBodyScrollLock(true, true)
   useBackClose(onClose)
   const [rotation, setRotation] = useState(0)
   // Масштаб «вписать повёрнутое»: поворот не меняет место, которое элемент занимает в
@@ -274,10 +276,13 @@ export function MediaViewer({
           <button
             type="button"
             aria-label={t('rotate')}
-            onClick={() => setRotation((r) => r + 90)}
+            // Против часовой — как кнопка в Telegram и как rotate90 в кадрировании
+            // (image-crop-modal). Здесь крутило в обратную сторону: два одинаковых с
+            // виду поворота в одном продукте вели себя по-разному.
+            onClick={() => setRotation((r) => r - 90)}
             className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
           >
-            <RotateCw className="size-5" aria-hidden />
+            <RotateCcw className="size-5" aria-hidden />
           </button>
 
           {trailing}

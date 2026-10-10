@@ -36,7 +36,9 @@ export function MediaEditorShell({
   children: ReactNode
 }) {
   const t = useTranslations('Common')
-  useBodyScrollLock()
+  // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
+  // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
+  useBodyScrollLock(true, true)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
