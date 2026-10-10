@@ -18,7 +18,18 @@ WORKDIR /repo
 
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+# Манифесты ВСЕХ проектов воркспейса, а не только нужных этому образу: pnpm 11 сверяет
+# лок с деревом целиком и считает лок устаревшим, если проект из importers отсутствует на
+# диске — `--frozen-lockfile` падает с ERR_PNPM_OUTDATED_LOCKFILE. pnpm 10 такой пропуск
+# терпел. Что из них реально ставится, решает команда установки ниже, а не набор файлов.
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
 COPY apps/landing/package.json apps/landing/
+COPY apps/mini-app/package.json apps/mini-app/
+COPY packages/shared-types/package.json packages/shared-types/
+COPY packages/shared-schemas/package.json packages/shared-schemas/
+COPY packages/shared-utils/package.json packages/shared-utils/
+COPY packages/shared-config/package.json packages/shared-config/
 # --ignore-scripts не ставим: next нужен его postinstall для бинарников SWC.
 RUN pnpm install --frozen-lockfile --filter landing...
 
