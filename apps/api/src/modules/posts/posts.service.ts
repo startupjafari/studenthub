@@ -69,7 +69,18 @@ const AUTHOR_SELECT = {
   select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
 }
 
-const POST_SELECT = {
+// Поля поста без счётчика комментариев — то, что читает лента.
+//
+// `_count` отношением Prisma превращает в LEFT JOIN с агрегатом по ВСЕЙ таблице
+// комментариев. Планировщик из-за него перестаёт брать индекс порядка ленты: агрегат
+// нужно посчитать до сортировки, поэтому вместо прохода по индексу с ранней остановкой
+// снова получается bitmap-скан постов, хеш-соединение и сортировка. Замер на 90 тыс.
+// постов и 500 тыс. комментариев: 115 мс со счётчиком против 0,04 мс без него.
+//
+// Поэтому в ленте счётчики берутся отдельным groupBy по двум десяткам id страницы —
+// ровно так же, как закладки (см. decorateFeed). Одиночному посту это не нужно: там
+// агрегат считается по одному id и стоит ничего, а select проще держать общим.
+const POST_SELECT_BASE = {
   id: true,
   audience: true,
   title: true,
@@ -94,10 +105,16 @@ const POST_SELECT = {
   original: {
     select: { id: true, title: true, content: true, author: AUTHOR_SELECT },
   },
+} satisfies Prisma.PostSelect
+
+const POST_SELECT = {
+  ...POST_SELECT_BASE,
   _count: { select: { comments: true } },
 } satisfies Prisma.PostSelect
 
 type PostRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT }>
+/** Строка ленты до того, как к ней приписали счётчик комментариев. */
+type FeedRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT_BASE }>
 
 /**
  * Пост с личным признаком зрителя. Сохранён ли пост — вопрос про ПАРУ «зритель + пост»,
@@ -236,6 +253,41 @@ export class PostsService {
     return rows.map((row) => ({ ...row, bookmarked: ids.has(row.id) }))
   }
 
+  /**
+   * Дописывает странице ленты счётчик комментариев и личную закладку зрителя — два
+   * индексных запроса по двум десяткам id, параллельно.
+   *
+   * Счётчик именно здесь, а не отношением в select: `_count` внутри выборки заставляет
+   * Postgres считать агрегат по всей таблице комментариев ДО сортировки, и ради этого
+   * планировщик бросает индекс порядка ленты (см. комментарий у POST_SELECT_BASE).
+   *
+   * Считаются все комментарии поста, включая мягко удалённые, — ровно как считал
+   * `_count` до этой правки. Число на экране не должно измениться от перестановки
+   * запроса; надо ли исключать удалённые — вопрос отдельный и не к оптимизации.
+   */
+  private async decorateFeed(viewerId: string, rows: FeedRow[]): Promise<ViewerPost[]> {
+    if (rows.length === 0) return []
+    const ids = rows.map((row) => row.id)
+    const [saved, counts] = await Promise.all([
+      this.prisma.postBookmark.findMany({
+        where: { userId: viewerId, postId: { in: ids } },
+        select: { postId: true },
+      }),
+      this.prisma.comment.groupBy({
+        by: ['postId'],
+        where: { postId: { in: ids } },
+        _count: { _all: true },
+      }),
+    ])
+    const savedIds = new Set(saved.map((row) => row.postId))
+    const countByPost = new Map(counts.map((row) => [row.postId, row._count._all]))
+    return rows.map((row) => ({
+      ...row,
+      _count: { comments: countByPost.get(row.id) ?? 0 },
+      bookmarked: savedIds.has(row.id),
+    }))
+  }
+
   async feed(viewer: JwtPayload, query: FeedQueryInput): Promise<Paginated<ViewerPost>> {
     // authorId (вкладка «Посты» в профиле) всегда пересекается с видимостью зрителя —
     // нельзя увидеть чужие посты в обход прав (IDOR-защита).
@@ -253,7 +305,7 @@ export class PostsService {
       : base
     const rows = await this.prisma.post.findMany({
       where,
-      select: POST_SELECT,
+      select: POST_SELECT_BASE,
       // Закреплённые сверху, затем по приоритету и времени; id — стабильный tiebreaker для cursor.
       orderBy: [
         { pinnedAt: { sort: 'desc', nulls: 'last' } },
@@ -267,7 +319,7 @@ export class PostsService {
     const hasNext = rows.length > query.limit
     const page = hasNext ? rows.slice(0, query.limit) : rows
     const nextCursor = hasNext ? page[page.length - 1]?.id : undefined
-    const items = await this.withBookmarks(viewer.sub, page)
+    const items = await this.decorateFeed(viewer.sub, page)
     // Для вкладки «Посты» в профиле (authorId) отдаём общий счётчик — для бейджа на табе.
     // В общей ленте счётчик не считаем (лишний COUNT на горячем пути).
     const total = query.authorId ? await this.prisma.post.count({ where }) : undefined
