@@ -8584,6 +8584,298 @@
         ]
       }
     },
+    "/stories": {
+      "get": {
+        "operationId": "StoriesController_feed",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Кольца авторов"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Живые сторисы по видимости, сгруппированные в кольца авторов",
+        "tags": [
+          "Сторисы"
+        ]
+      },
+      "post": {
+        "operationId": "StoriesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сторис создана"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опубликовать сторис на 24 часа (аудитория ограничена ролью)",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
+    "/stories/{id}": {
+      "get": {
+        "operationId": "StoriesController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — не видима, истекла или удалена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сторис по id (если видима и не истекла)",
+        "tags": [
+          "Сторисы"
+        ]
+      },
+      "delete": {
+        "operationId": "StoriesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалена"
+          },
+          "403": {
+            "description": "WRONG_SCOPE / FORBIDDEN"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить сторис (автор или модератор scope)",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
+    "/stories/{id}/view": {
+      "post": {
+        "operationId": "StoriesController_markViewed",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Отмечено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отметить сторис просмотренной (идемпотентно)",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
+    "/stories/{id}/viewers": {
+      "get": {
+        "operationId": "StoriesController_viewers",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница зрителей"
+          },
+          "403": {
+            "description": "FORBIDDEN — не автор"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Кто смотрел сторис (только автору, cursor-пагинация)",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
+    "/stories/{id}/reactions": {
+      "post": {
+        "operationId": "StoriesController_addReaction",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryReactionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Реакция поставлена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Поставить реакцию на сторис (идемпотентно)",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
+    "/stories/{id}/reactions/{emoji}": {
+      "delete": {
+        "operationId": "StoriesController_removeReaction",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Реакция снята"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять свою реакцию",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
+    "/stories/{id}/vote": {
+      "post": {
+        "operationId": "StoriesController_vote",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryVoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сторис с обновлённым опросом"
+          },
+          "400": {
+            "description": "BAD_REQUEST — опроса нет или чужой вариант"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Проголосовать в опросе сторис (повторный голос заменяет прежний)",
+        "tags": [
+          "Сторисы"
+        ]
+      }
+    },
     "/chats/folders": {
       "get": {
         "operationId": "ChatFoldersController_list",
@@ -14488,6 +14780,18 @@
         "properties": {}
       },
       "CreateCommentDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateStoryDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "StoryReactionDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "StoryVoteDto": {
         "type": "object",
         "properties": {}
       },
