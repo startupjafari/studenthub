@@ -503,6 +503,19 @@ export class StoriesService {
   }
 
   /**
+   * Снос сторис по решению модератора (ComplaintsService): права на решение проверены
+   * там, здесь только исполнение. Исчезнувшая к этому моменту сторис — не ошибка:
+   * жалобу разбирают и после того, как автор удалил контент сам.
+   */
+  async removeByModeration(id: string): Promise<void> {
+    const story = await this.prisma.story.findUnique({ where: { id }, select: { fileId: true } })
+    if (!story) return
+    await this.prisma.story.delete({ where: { id } })
+    if (story.fileId) await this.deleteMedia(story.fileId)
+    this.logger.log(`Сторис ${id} удалена по решению модерации`)
+  }
+
+  /**
    * Крон `deleteExpiredStories` (каждые 30 минут, BACKEND_RULES §9.3): удаляет
    * истёкшие сторисы батчами вместе с медиа. TTL бакета `stories-media` снимает сами
    * объекты и без нас, но записи File и Story убрать может только эта задача.
