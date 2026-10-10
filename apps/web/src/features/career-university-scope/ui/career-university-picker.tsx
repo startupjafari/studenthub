@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Building2 } from 'lucide-react'
-import { fetchUniversities, universityKeys } from '../../../entities/university'
+import { fetchUniversityOptions, universityKeys } from '../../../entities/university'
 import {
   buttonVariants,
   EmptyState,
@@ -27,8 +27,8 @@ export function CareerUniversityPicker() {
   const t = useTranslations('CareerAdmin')
   const { needsPick, universityId, select } = useCareerUniversity()
   const list = useQuery({
-    queryKey: universityKeys.list(),
-    queryFn: fetchUniversities,
+    queryKey: universityKeys.options(),
+    queryFn: fetchUniversityOptions,
     enabled: needsPick,
   })
 

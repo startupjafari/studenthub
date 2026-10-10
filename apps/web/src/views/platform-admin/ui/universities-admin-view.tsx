@@ -1,11 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { Building2, Plus } from 'lucide-react'
-import { type UniversityStatusValue } from '@studenthub/shared-schemas'
+import {
+  ADMIN_PAGE_SIZES,
+  type UniversitySortValue,
+  type UniversityStatusValue,
+} from '@studenthub/shared-schemas'
 import {
   fetchUniversities,
   setUniversityStatusRequest,
@@ -17,6 +21,7 @@ import {
   Button,
   Card,
   EmptyState,
+  Input,
   PageHeader,
   Select,
   SelectContent,
@@ -29,10 +34,11 @@ import {
   TableEmpty,
   TableHead,
   TableHeader,
+  TablePagination,
   TableRow,
   TableSkeletonRows,
   TableText,
-  useTableSort,
+  useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { CreateUniversityModal } from './create-university-modal'
@@ -43,10 +49,6 @@ const STATUS_STYLE: Record<UniversityStatusValue, string> = {
   ACTIVE: 'text-success',
   BLOCKED: 'text-destructive',
 }
-// Порядок статусов при сортировке — «жизненный», а не алфавитный: сначала то, что
-// требует решения (ожидает), потом рабочие, потом отключённые.
-const STATUS_RANK: Record<UniversityStatusValue, number> = { PENDING: 0, ACTIVE: 1, BLOCKED: 2 }
-
 // Ширины: название · аббревиатура · город · создан · статус (селект).
 const COLS = ['30%', '14%', '20%', '14%', '22%'] as const
 // Узкий экран: аббревиатура и дата скрыты, их доли уходят названию и статусу.
@@ -64,24 +66,8 @@ interface Row extends University {
   cityLabel: string | null
 }
 
-// Аксессор сортировки — вне компонента: он в зависимостях `useMemo` внутри `useTableSort`.
-// Город и дата сортируются по резолвнутым значениям, а не по коду КАТО и строке ISO.
-function sortValue(row: Row, key: string): unknown {
-  switch (key) {
-    case 'name':
-      return row.name
-    case 'shortName':
-      return row.shortName
-    case 'city':
-      return row.cityLabel
-    case 'createdAt':
-      return Date.parse(row.createdAt)
-    case 'status':
-      return STATUS_RANK[row.status]
-    default:
-      return null
-  }
-}
+// Размеры страницы — те же, что разрешает серверная схема (предел 200).
+const PAGE_SIZES = ADMIN_PAGE_SIZES
 
 export function UniversitiesAdminView() {
   const t = useTranslations('Universities')
@@ -90,26 +76,50 @@ export function UniversitiesAdminView() {
   const qc = useQueryClient()
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // Сортировка серверная (sort/order в запросе) — упорядочены все вузы выборки,
+  // а не только открытая страница.
+  const { sort, toggle } = useSortState()
 
-  const universities = useQuery({ queryKey: universityKeys.list(), queryFn: fetchUniversities })
-  const list = universities.data ?? []
+  const query = {
+    page,
+    limit,
+    ...(search ? { search } : {}),
+    ...(sort ? { sort: sort.key as UniversitySortValue, order: sort.dir } : {}),
+  }
 
-  // `city` хранит код КАТО. Резолвим весь список одним запросом — запрос на строку дал бы N+1.
+  const universities = useQuery({
+    queryKey: universityKeys.list(query),
+    queryFn: () => fetchUniversities(query),
+    // Прошлая страница остаётся на экране, пока грузится новая: иначе таблица
+    // мигает скелетоном на каждый клик по стрелке.
+    placeholderData: keepPreviousData,
+  })
+  const list = universities.data?.items ?? []
+  const total = universities.data?.total ?? 0
+
+  // `city` хранит код КАТО. Резолвим страницу одним запросом — запрос на строку дал бы N+1.
   const { nameOf: cityName } = useKatoNames(list.map((u) => u.city))
 
-  // Вузов на платформе десятки, не тысячи — сборку строк не мемоизируем (`nameOf` всё равно
-  // новая функция на каждый рендер, и мемо пересчитывался бы каждый раз).
+  // На странице два десятка строк — сборку не мемоизируем (`nameOf` всё равно новая
+  // функция на каждый рендер, и мемо пересчитывался бы каждый раз).
   const rows: Row[] = list.map((u) => ({ ...u, cityLabel: cityName(u.city) ?? null }))
 
-  // Сортировка клиентская: список приходит целиком (вузов на платформе десятки),
-  // пагинации нет — сортируются все строки, а не открытая страница.
-  const { rows: sorted, sort, toggle } = useTableSort(rows, sortValue)
+  // Новый поиск или порядок — снова с первой страницы: на «странице 7» отфильтрованной
+  // выборки может не быть строк вовсе, а после смены сортировки там уже другие строки.
+  function refilter(apply: () => void): void {
+    apply()
+    setPage(1)
+  }
+  const sortBy = (key: string): void => refilter(() => toggle(key))
 
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: UniversityStatusValue }) =>
       setUniversityStatusRequest(id, status),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: universityKeys.list() })
+      void qc.invalidateQueries({ queryKey: universityKeys.all })
       toast.success(t('statusChanged'))
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
@@ -123,10 +133,22 @@ export function UniversitiesAdminView() {
         title={t('title')}
         subtitle={t('subtitle')}
         actions={
-          <Button size="md" onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" aria-hidden />
-            {t('add')}
-          </Button>
+          <>
+            {/* Поиск — в шапке (DESIGN_SYSTEM §10.1): это управление списком, отдельной
+                строки над таблицей оно не заслуживает. Ищет сервер по названию и
+                аббревиатуре, по всей выборке, а не по открытой странице. */}
+            <Input
+              value={search}
+              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              placeholder={t('searchPlaceholder')}
+              size="md"
+              className="w-40 sm:w-56"
+            />
+            <Button size="md" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('add')}
+            </Button>
+          </>
         }
       />
 
@@ -134,43 +156,48 @@ export function UniversitiesAdminView() {
 
       {universities.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : !universities.isLoading && sorted.length === 0 ? (
-        <EmptyState icon={<Building2 className="size-6" aria-hidden />} title={t('empty')} />
+      ) : !universities.isLoading && rows.length === 0 ? (
+        <EmptyState
+          icon={<Building2 className="size-6" aria-hidden />}
+          title={search ? t('nothingFound') : t('empty')}
+        />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
           <Table fixed scrollBody fill cols={COLS} colsNarrow={COLS_NARROW}>
             <TableHeader>
               <TableRow>
-                <TableHead sortKey="name" sort={sort} onSort={toggle}>
+                <TableHead sortKey="name" sort={sort} onSort={sortBy}>
                   {t('name')}
                 </TableHead>
                 <TableHead
                   sortKey="shortName"
                   sort={sort}
-                  onSort={toggle}
+                  onSort={sortBy}
                   className={HIDE.shortName}
                 >
                   {t('shortName')}
                 </TableHead>
-                <TableHead sortKey="city" sort={sort} onSort={toggle} className={HIDE.city}>
-                  {t('city')}
-                </TableHead>
+                {/* Город без сортировки: в базе лежит код КАТО, а в ячейке — название.
+                    Сортировка по коду выстроила бы строки по регионам, а не по алфавиту
+                    названий; сортировать же одну открытую страницу на клиенте значит
+                    упорядочить 20 строк из двухсот. */}
+                <TableHead className={HIDE.city}>{t('city')}</TableHead>
                 <TableHead
                   sortKey="createdAt"
                   sort={sort}
-                  onSort={toggle}
+                  onSort={sortBy}
                   className={HIDE.createdAt}
                 >
                   {t('createdAt')}
                 </TableHead>
-                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                <TableHead sortKey="status" sort={sort} onSort={sortBy}>
                   {t('status')}
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {universities.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
-              {sorted.map((u) => (
+              {rows.map((u) => (
                 <TableRow key={u.id} className="hover:bg-muted/40">
                   <TableCell className="font-medium">
                     <TableText value={u.name} />
@@ -224,10 +251,16 @@ export function UniversitiesAdminView() {
               ))}
             </TableBody>
           </Table>
-          {/* Пагинации нет — вместо неё счётчик: видно, что список показан целиком. */}
-          <div className="border-t border-border px-4 py-2 text-sm text-muted-foreground">
-            {t('count', { n: sorted.length })}
-          </div>
+          <TablePagination
+            page={page}
+            total={total}
+            limit={limit}
+            onPageChange={setPage}
+            limitOptions={PAGE_SIZES}
+            // Новый размер страницы — снова с первой: «страницы 10» при 200 строках
+            // на странице может уже не быть.
+            onLimitChange={(n) => refilter(() => setLimit(n))}
+          />
         </Card>
       )}
     </div>

@@ -2372,11 +2372,12 @@
     "required": "Обязательное поле",
     "created": "Университет создан",
     "empty": "Университетов нет",
-    "count": "Вузов: {n}",
     "statusChanged": "Статус изменён",
     "statusPENDING": "Ожидает",
     "statusACTIVE": "Активен",
-    "statusBLOCKED": "Заблокирован"
+    "statusBLOCKED": "Заблокирован",
+    "searchPlaceholder": "Поиск по названию",
+    "nothingFound": "Ничего не нашлось"
   },
   "Materials": {
     "title": "Материалы",
@@ -3777,7 +3778,8 @@
     "subtitleRange": "Показатели платформы · {period}",
     "sizeSubtitleTop": "Крупнейшие {count} вузов по числу пользователей",
     "showAll": "Показать все ({count})",
-    "sizeModalSummary": "{count, plural, one {# вуз} few {# вуза} many {# вузов} other {# вуза}} · пользователей {users} · студентов {students}, преподавателей {teachers}"
+    "sizeModalSummary": "{count, plural, one {# вуз} few {# вуза} many {# вузов} other {# вуза}} · пользователей {users} · студентов {students} · преподавателей {teachers}",
+    "sizeSeries": "Пользователей"
   },
   "Table": {
     "rows": "{count, plural, one {# строка} few {# строки} many {# строк} other {# строки}}",

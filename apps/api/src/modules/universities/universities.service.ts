@@ -4,6 +4,7 @@ import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
 import type {
   CreateUniversityInput,
+  UniversityListQueryInput,
   UpdateUniversityInput,
   UpdateUniversityStatusInput,
 } from '@studenthub/shared-schemas'
@@ -61,15 +62,47 @@ export class UniversityService {
   }
 
   /** Список вузов (только платформа). Offset-пагинация. */
-  async list(page: number, limit: number) {
+  /**
+   * Список вузов для админки платформы: поиск, отбор по статусу, сортировка, страница.
+   *
+   * Всё считает база, а не клиент. Раньше таблица запрашивала `limit: 100` и сортировала
+   * пришедшее у себя — при 200 вузах вторая сотня не показывалась вовсе, причём молча:
+   * в подвале стояло «Вузов: 100», и выглядело это как полный список.
+   *
+   * Сортировка и поиск идут по всей выборке, а не по открытой странице: иначе порядок
+   * строк менялся бы при листании.
+   */
+  async list(query: UniversityListQueryInput) {
+    const { page, limit, search, status, sort, order } = query
+    // Поиск по названию и аббревиатуре. Города здесь нет: в `city` лежит код КАТО,
+    // а ищут по названию города — это отдельная задача со справочником.
+    const where: Prisma.UniversityWhereInput = {
+      ...(status ? { status } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { shortName: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    }
+    // Статус сортируется порядком объявления enum (PENDING → ACTIVE → BLOCKED) —
+    // он же «жизненный»: сначала то, что требует решения.
+    const orderBy: Prisma.UniversityOrderByWithRelationInput = sort
+      ? { [sort]: order ?? 'asc' }
+      : { createdAt: 'desc' }
     const [items, total] = await this.prisma.$transaction([
       this.prisma.university.findMany({
-        orderBy: { createdAt: 'desc' },
+        where,
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
         select: UNIVERSITY_SELECT,
       }),
-      this.prisma.university.count(),
+      // Счётчик — по тем же фильтрам, что и выборка: иначе пагинация обещает страницы,
+      // которых нет.
+      this.prisma.university.count({ where }),
     ])
     return new Paginated(items, { total })
   }

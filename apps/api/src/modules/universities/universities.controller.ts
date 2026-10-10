@@ -23,7 +23,7 @@ import { UniversityService } from './universities.service'
 import { CreateUniversityDto } from './dto/create-university.dto'
 import { UpdateUniversityDto } from './dto/update-university.dto'
 import { UpdateUniversityStatusDto } from './dto/update-status.dto'
-import { OffsetPaginationDto } from './dto/offset-pagination.dto'
+import { UniversityListQueryDto } from './dto/university-list-query.dto'
 
 @ApiTags('Университеты')
 @Controller('universities')
@@ -44,8 +44,8 @@ export class UniversitiesController {
   @Get()
   @Roles(Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR)
   @ApiOperation({ summary: 'Список университетов (платформа)' })
-  list(@Query() query: OffsetPaginationDto) {
-    return this.universities.list(query.page, query.limit)
+  list(@Query() query: UniversityListQueryDto) {
+    return this.universities.list(query)
   }
 
   @Get(':id')

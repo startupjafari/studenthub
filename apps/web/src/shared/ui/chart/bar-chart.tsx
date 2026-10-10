@@ -108,8 +108,13 @@ export default function BarChart({
             isAnimationActive={!reduced}
             animationDuration={ANIMATION_MS}
           >
-            {rows.map((row) => (
-              <Cell key={row.label} fill={sequentialStep(palette, row.value / max)} />
+            {/* Ключ по позиции, а не по подписи: подписи повторяются — на платформе
+                двести вузов, и одноимённые среди них есть («Агротехнический колледж»).
+                React ругался на дубль ключа и грозил склеить или потерять полосу.
+                Позиция здесь и есть личность ячейки: Cell — это слот дорожки, он
+                целиком задан местом в `rows`, а не содержимым строки. */}
+            {rows.map((row, i) => (
+              <Cell key={i} fill={sequentialStep(palette, row.value / max)} />
             ))}
             {valueLabel && (
               <LabelList

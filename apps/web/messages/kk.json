@@ -2372,11 +2372,12 @@
     "required": "Міндетті өріс",
     "created": "Университет құрылды",
     "empty": "Университеттер жоқ",
-    "count": "Университеттер: {n}",
     "statusChanged": "Мәртебе өзгертілді",
     "statusPENDING": "Күтуде",
     "statusACTIVE": "Белсенді",
-    "statusBLOCKED": "Бұғатталған"
+    "statusBLOCKED": "Бұғатталған",
+    "searchPlaceholder": "Атауы бойынша іздеу",
+    "nothingFound": "Ештеңе табылмады"
   },
   "Materials": {
     "title": "Материалдар",
@@ -3777,7 +3778,8 @@
     "subtitleRange": "Платформа көрсеткіштері · {period}",
     "sizeSubtitleTop": "Пайдаланушы саны бойынша ең үлкен {count} жоо",
     "showAll": "Барлығын көрсету ({count})",
-    "sizeModalSummary": "{count} жоо · {users} пайдаланушы · {students} студент, {teachers} оқытушы"
+    "sizeModalSummary": "{count} жоо · {users} пайдаланушы · {students} студент · {teachers} оқытушы",
+    "sizeSeries": "Пайдаланушы"
   },
   "Table": {
     "rows": "{count} жол",

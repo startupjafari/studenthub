@@ -2372,11 +2372,12 @@
     "required": "Required",
     "created": "University created",
     "empty": "No universities",
-    "count": "Universities: {n}",
     "statusChanged": "Status changed",
     "statusPENDING": "Pending",
     "statusACTIVE": "Active",
-    "statusBLOCKED": "Blocked"
+    "statusBLOCKED": "Blocked",
+    "searchPlaceholder": "Search by name",
+    "nothingFound": "Nothing found"
   },
   "Materials": {
     "title": "Materials",
@@ -3777,7 +3778,8 @@
     "subtitleRange": "Platform metrics · {period}",
     "sizeSubtitleTop": "Largest {count} universities by users",
     "showAll": "Show all ({count})",
-    "sizeModalSummary": "{count, plural, one {# university} other {# universities}} · {users} users · {students} students, {teachers} teachers"
+    "sizeModalSummary": "{count, plural, one {# university} other {# universities}} · {users} users · {students} students · {teachers} teachers",
+    "sizeSeries": "Users"
   },
   "Table": {
     "rows": "{count, plural, one {# row} other {# rows}}",

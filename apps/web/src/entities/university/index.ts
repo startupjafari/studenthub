@@ -1,6 +1,7 @@
 export {
   universityKeys,
   fetchUniversities,
+  fetchUniversityOptions,
   fetchUniversity,
   fetchUniversityStats,
   createUniversityRequest,
