@@ -10,7 +10,7 @@
 # убрали, и сборка падает с `corepack: not found`. Версия продублирована из `packageManager`
 # в корневом package.json — меняя её там, поправьте и здесь.
 FROM node:24-alpine AS base
-RUN npm install --global pnpm@11.28.3
+RUN npm install --global pnpm@10.33.2
 WORKDIR /repo
 
 FROM base AS deps
