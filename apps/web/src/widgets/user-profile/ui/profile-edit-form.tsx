@@ -169,6 +169,14 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
             .filter(Boolean)
         else if (NUMERIC_KEYS.has(f.key)) p[f.key] = v === '' ? null : Number(v)
         else if (f.type === 'date') p[f.key] = v === '' ? null : v
+        // Пол — закрытый список (MALE|FEMALE|OTHER) с «не указан» в виде null. Пустая
+        // строка в этот список не входит, и сервер отвечал VALIDATION_ERROR на ВЕСЬ
+        // профиль: пока пол не выбран, не сохранялось вообще ничего, а всплывало
+        // безадресное «Проверьте правильность полей» — про какое поле, не сказано.
+        //
+        // Правим здесь, а не ослабляем схему: «не указан» и «прислали мусор» — разные
+        // вещи, и различать их должен сервер.
+        else if (f.type === 'gender') p[f.key] = v === '' ? null : v
         else p[f.key] = v
       }
     }
