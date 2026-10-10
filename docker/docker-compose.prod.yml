@@ -2,17 +2,47 @@
 # Запуск: docker compose -f docker/docker-compose.prod.yml --env-file docker/.env up -d --build
 # Все сервисы restart: always; данные — в named volumes; TLS терминирует nginx.
 # Миграции применяются ОТДЕЛЬНО до старта api (см. docs/RUNBOOK.md), не автоматически.
+#
+# Переменные окружения (домены, секреты, адреса сервисов) — docker/.env.example.
+# Первый запуск и выпуск сертификата — docs/RUNBOOK.md, «Прод-стек: первый запуск».
 
 name: studenthub-prod
+
+# Ротация логов docker (план 13.9, docs/RUNBOOK.md «Ротация логов»). Без неё json-file растёт
+# до размера диска: api пишет строку pino на каждый запрос, и стек однажды встаёт не из-за
+# ошибки в коде, а из-за кончившегося места.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+# Проверка живости приложений — TCP-коннект, а не /health. Health-эндпоинт api проверяет
+# Prisma, Redis и MinIO разом и отдаёт 503, если моргнул любой из них
+# (.github/workflows/README.md, «Почему в Dockerfile'ах нет HEALTHCHECK»): как healthcheck это
+# значило бы, что при недоступном кеше стек не поднимается вовсе — nginx ждёт api по условию
+# service_healthy и не дождался бы. Здесь проверяется ровно то, что нужно для старта: процесс
+# слушает свой порт.
+x-tcp-healthcheck: &tcp-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 30s
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: always
+    logging: *logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Только на петлевом интерфейсе самой машины: снаружи базы не видно, но с хоста можно
+    # накатить миграции (`pnpm db:deploy`) и снять `pg_dump` — в образе api нет CLI Prisma,
+    # это dev-зависимость корня репозитория.
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,10 +50,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
     restart: always
+    logging: *logging
     command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}', '--appendonly', 'yes']
     volumes:
       - redis_data:/data
@@ -32,15 +64,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 15s
 
   minio:
     # Docker Hub `minio/minio` больше не публикуется — официальный источник quay.io.
     image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: always
+    logging: *logging
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Браузер грузит файлы прямо сюда по presigned-ссылке, значит нужен CORS. Разрешён
+      # только origin платформы: подпись и так обязательна, но незачем позволять любому сайту
+      # дёргать хранилище из вкладки пользователя.
+      MINIO_API_CORS_ALLOW_ORIGIN: https://${SH_APP_DOMAIN}
     volumes:
       - minio_data:/data
     healthcheck:
@@ -48,28 +86,53 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 15s
 
   api:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
     restart: always
+    logging: *logging
     env_file: [.env]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
     expose: ['3001']
+    healthcheck:
+      <<: *tcp-healthcheck
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('net').connect(3001,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
 
   web:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
       args:
+        # API_PROXY_TARGET намеренно не передаётся: запросы /api/* проксирует nginx, а не сам
+        # web (см. docker/nginx/templates/default.conf.template). NEXT_PUBLIC_API_URL поэтому
+        # должен быть путём на том же домене — `https://app.<домен>/api/v1`.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     restart: always
-    depends_on: [api]
+    logging: *logging
+    depends_on:
+      api: { condition: service_healthy }
     expose: ['3000']
+    healthcheck:
+      <<: *tcp-healthcheck
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
 
   # Публичный сайт. От платформы не зависит вовсе — ни общего кода, ни общих данных
   # (docs/LANDING.md): если web лежит, лендинг продолжает отдаваться, а его редиректы на
@@ -86,22 +149,92 @@ services:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
         NEXT_PUBLIC_SALES_EMAIL: ${NEXT_PUBLIC_SALES_EMAIL}
     restart: always
+    logging: *logging
     expose: ['3000']
+    healthcheck:
+      <<: *tcp-healthcheck
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
+
+  # Мини-апп администраторов (Telegram). Образ — nginx со статикой, который сам проксирует
+  # свой /api.
+  #
+  # API_TARGET — публичный адрес платформы, а не внутреннее имя `api`: конфиг мини-аппа
+  # резолвит цель через внешний DNS (apps/mini-app/nginx.conf.template), и имя из сети compose
+  # он не найдёт. Запрос идёт через тот же nginx, что и остальной трафик.
+  mini-app:
+    build:
+      context: ..
+      dockerfile: apps/mini-app/Dockerfile
+    restart: always
+    logging: *logging
+    environment:
+      API_TARGET: https://${SH_APP_DOMAIN}
+    expose: ['8080']
+    healthcheck:
+      <<: *tcp-healthcheck
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1']
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.31-alpine
     restart: always
-    depends_on: [web, api, landing]
+    logging: *logging
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_healthy }
+      landing: { condition: service_healthy }
+      mini-app: { condition: service_healthy }
+    environment:
+      # Домены подставляются в шаблон при старте. Фильтр перечисляет только наш префикс —
+      # иначе envsubst съел бы переменные самого nginx ($host, $uri) и конфиг развалился бы.
+      NGINX_ENVSUBST_FILTER: '^SH_'
+      SH_DOMAIN: ${SH_DOMAIN}
+      SH_APP_DOMAIN: ${SH_APP_DOMAIN}
+      SH_FILES_DOMAIN: ${SH_FILES_DOMAIN}
+      SH_MINI_DOMAIN: ${SH_MINI_DOMAIN}
     ports:
       - '80:80'
       - '443:443'
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - certbot_conf:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
+    # Раз в 6 часов перечитывать конфигурацию: сертификат, который обновил certbot, попадает
+    # в уже запущенный процесс только после reload. Без этого TLS протухает через 90 дней при
+    # исправно работающем продлении.
+    command:
+      [
+        'sh',
+        '-c',
+        "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g 'daemon off;'",
+      ]
+
+  # Продление сертификата. Первый выпуск — разовая команда до старта nginx
+  # (docs/RUNBOOK.md): пока сертификата нет, nginx не стартует вовсе.
+  # Проверку Let's Encrypt отдаёт nginx из общего тома certbot_www.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    restart: always
+    logging: *logging
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint:
+      [
+        'sh',
+        '-c',
+        'trap exit TERM; while :; do certbot renew --webroot --webroot-path /var/www/certbot --quiet; sleep 12h & wait $${!}; done',
+      ]
 
 volumes:
   pg_data:
   redis_data:
   minio_data:
+  certbot_conf:
   certbot_www:

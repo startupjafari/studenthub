@@ -288,8 +288,10 @@ Geist) кириллицы нет вовсе. Такой шрифт даёт мо
 308-редиректы, а на них завязаны напечатанные QR-наклейки над дверями аудиторий.
 
 Для самостоятельного хостинга сервис `landing` добавлен в
-`docker/docker-compose.prod.yml`. Маршрутизацию доменов в `docker/nginx/nginx.conf`
-настраивает человек: корневой домен на `landing`, `app.<домен>` на `web`.
+`docker/docker-compose.prod.yml`, маршрут к нему — в
+`docker/nginx/templates/default.conf.template`: корневой домен (и `www.`) ведёт на `landing`,
+`app.<домен>` — на платформу. Сами имена задаются переменными `SH_DOMAIN` и `SH_APP_DOMAIN`
+в `docker/.env`, править конфиг nginx для этого не нужно.
 
 ---
 

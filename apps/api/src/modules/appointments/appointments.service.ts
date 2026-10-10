@@ -12,6 +12,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { QueueService } from '../../common/queue/queue.service'
 import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { RequestContext } from '../auth/auth.service'
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
@@ -123,7 +124,7 @@ export class AppointmentsService {
     await this.record(actor, `appointment_${status.toLowerCase()}`, id, ctx)
     await this.notifyStudent(
       appt.studentId,
-      status === 'CONFIRMED' ? 'Запись в деканат подтверждена' : 'Запись в деканат перенесена',
+      status === 'CONFIRMED' ? 'appointments.confirmed.title' : 'appointments.rescheduled.title',
       this.label(new Date(input.scheduledAt)),
       id,
     )
@@ -145,7 +146,7 @@ export class AppointmentsService {
     await this.record(actor, `appointment_${status.toLowerCase()}_by_staff`, id, ctx)
     await this.notifyStudent(
       appt.studentId,
-      status === 'COMPLETED' ? 'Приём в деканате завершён' : 'Запись в деканат отменена',
+      status === 'COMPLETED' ? 'appointments.completed.title' : 'appointments.cancelled.title',
       '',
       id,
     )
@@ -193,7 +194,8 @@ export class AppointmentsService {
 
   private async notifyStudent(
     userId: string,
-    title: string,
+    titleKey: NotificationMessageKey,
+    // Тело — метка «2026-10-02 14:30» или пусто: дата и время, переводить нечего.
     body: string,
     id: string,
   ): Promise<void> {
@@ -203,10 +205,12 @@ export class AppointmentsService {
       {
         recipientIds: [userId],
         type: 'SYSTEM',
-        title,
+        titleKey,
         body,
         data: { url: '/appointments', appointmentId: id },
-        dedupeKey: `appointment-updated:${id}:${title}`,
+        // Ключ словарной статьи, а не переведённый заголовок: тот менялся бы вместе с
+        // языком получателя, и идемпотентность развалилась бы на ровном месте.
+        dedupeKey: `appointment-updated:${id}:${titleKey}`,
       },
       { jobId: `appointment-updated:${id}:${Date.now()}` },
     )

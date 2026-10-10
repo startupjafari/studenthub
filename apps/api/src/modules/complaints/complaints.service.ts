@@ -359,11 +359,8 @@ export class ComplaintsService {
       {
         recipientIds: [complaint.reporter.id],
         type: 'SYSTEM',
-        title: 'Жалоба рассмотрена',
-        body:
-          input.action === 'DISMISS'
-            ? 'Ваша жалоба отклонена модератором'
-            : 'По вашей жалобе приняты меры',
+        titleKey: 'complaints.resolved.title',
+        bodyKey: input.action === 'DISMISS' ? 'complaints.dismissed.body' : 'complaints.acted.body',
         data: { complaintId: id },
         dedupeKey: `complaint-resolved:${id}`,
       },

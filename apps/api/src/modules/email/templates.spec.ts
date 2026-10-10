@@ -1,7 +1,10 @@
 import {
   renderApplicationStatus,
+  renderDemoApproved,
+  renderDemoRejected,
   renderEventReminder,
   renderInvite,
+  renderNotification,
   renderScheduleChange,
   renderWelcome,
 } from './templates'
@@ -87,5 +90,87 @@ describe('email templates', () => {
     expect(r.subject).toContain('День открытых дверей')
     expect(r.html).toContain('сегодня в 15:00')
     expect(r.text).toContain('День открытых дверей')
+  })
+})
+
+// Язык письма (§ПДн, Закон РК «О языках»). Приглашение и уведомления — официальная
+// переписка со студентом, и русский как единственный язык для государственного вуза
+// не годится. Проверяем не перевод каждой фразы, а что язык доходит до всех трёх
+// слоёв письма: темы, html и текстовой версии, — и что каркас переключается вместе
+// с телом (атрибут lang, подвал, подпись).
+describe('язык письма', () => {
+  const invite = {
+    to: 'a@b.c',
+    inviteUrl: 'https://app/register?token=xyz',
+    roleLabel: 'Студент',
+    expiresAt: '28.07.2026 12:00',
+  }
+
+  it('по умолчанию русский', () => {
+    const r = renderInvite(invite)
+    expect(r.subject).toContain('Приглашение')
+    expect(r.html).toContain('<html lang="ru">')
+  })
+
+  it('казахский: тема, каркас и текстовая версия', () => {
+    const r = renderInvite({ ...invite, locale: 'kk' })
+    expect(r.subject).toBe('StudentHub платформасына шақыру')
+    expect(r.html).toContain('<html lang="kk">')
+    expect(r.html).toContain('Шақыруды қабылдау')
+    expect(r.html).toContain('автоматты хаты')
+    expect(r.text).toContain('Тіркелуді сілтеме арқылы аяқтаңыз')
+    expect(r.html).not.toContain('Принять приглашение')
+  })
+
+  it('английский: тема, каркас и текстовая версия', () => {
+    const r = renderInvite({ ...invite, locale: 'en' })
+    expect(r.subject).toBe('Invitation to StudentHub')
+    expect(r.html).toContain('<html lang="en">')
+    expect(r.html).toContain('Accept invitation')
+    expect(r.text).toContain('Finish signing up here')
+  })
+
+  // Язык приходит из колонки базы и из payload'а job'а — то есть из данных.
+  it('неизвестный язык откатывается на русский, а не роняет отправку', () => {
+    const r = renderInvite({ ...invite, locale: 'de' })
+    expect(r.html).toContain('<html lang="ru">')
+    expect(r.subject).toContain('Приглашение')
+  })
+
+  it('письмо-зеркало уведомления переключается вместе с языком', () => {
+    const r = renderNotification({
+      to: 'a@b.c',
+      firstName: 'Алия',
+      notificationTitle: 'Жаңа тапсырма',
+      notificationBody: 'Математика: Лаб. 3',
+      locale: 'kk',
+    })
+    // Заголовок и тело приходят уже отрисованными процессором уведомлений — их не трогаем.
+    expect(r.subject).toBe('Жаңа тапсырма')
+    expect(r.text).toContain('сізде жаңа хабарландыру бар')
+    expect(r.text).toContain('хабарландыру баптауларынан')
+  })
+
+  it('заявка вуза: отказ и одобрение на английском', () => {
+    const approved = renderDemoApproved({
+      to: 'a@b.c',
+      universityName: 'KazNU',
+      contactName: 'Aida',
+      inviteUrl: 'https://app/register?token=1',
+      expiresAt: '2026-10-10',
+      locale: 'en',
+    })
+    expect(approved.subject).toBe('StudentHub access for “KazNU” is open')
+    expect(approved.html).toContain('Start setup')
+
+    const rejected = renderDemoRejected({
+      to: 'a@b.c',
+      universityName: 'KazNU',
+      reasonText: 'Not now',
+      canReapply: true,
+      locale: 'en',
+    })
+    expect(rejected.subject).toBe('StudentHub trial request')
+    expect(rejected.html).toContain('submit a new request')
   })
 })

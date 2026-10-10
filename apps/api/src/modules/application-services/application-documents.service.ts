@@ -174,7 +174,8 @@ export class ApplicationDocumentsService {
       {
         recipientIds: [app.studentId],
         type: 'APP_UPDATE',
-        title: 'Требуется замена документа',
+        titleKey: 'applications.replacement.title',
+        // Тело — комментарий сотрудника: пользовательский ввод, переводить нечем.
         body: comment,
         data: { url: `/applications/${appId}` },
         dedupeKey: `NEEDS_CORRECTION:${eventId}`,

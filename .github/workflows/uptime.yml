@@ -1,0 +1,268 @@
+name: prodUptime
+
+# СХЕМА ПРОГОНА
+#
+#   каждые 10 минут ─► опрашиваем две точки, по 3 попытки на каждую:
+#       API  → GET /api/v1/health
+#       Веб  → GET /
+#
+#   обе отвечают ─► если висел инцидент, закрываем его и пишем «поднялось»
+#   точка молчит ─► если инцидента нет, заводим его и пишем в Telegram
+#
+# Зачем это отдельно от smoke.yml: тот отвечает на вопрос «уехавшее на прод поднялось?» и
+# идёт один раз после выкатки. Этот отвечает на вопрос «прод жив прямо сейчас?» и идёт
+# всегда. Сервис падает не только в момент деплоя: кончается место, отваливается база,
+# платформа перезапускает контейнер и не поднимает его обратно. До сих пор о таком узнавал
+# студент.
+#
+# ПОЧЕМУ ТРИ ПОПЫТКИ, А НЕ ОДНА. Одиночный таймаут ничего не говорит о проде: раннер
+# GitHub ходит через общий интернет, и разовый 000 случается на живом сервисе. Три попытки
+# с паузой 20 секунд отсекают мигание, но укладываются в минуту — инцидент виден почти
+# сразу.
+#
+# ПОЧЕМУ СОСТОЯНИЕ ЖИВЁТ В ISSUE. Прогон по расписанию не помнит предыдущий запуск. Без
+# памяти лежащий час прод дал бы шесть одинаковых сообщений в Telegram, а канал, в котором
+# шесть одинаковых сообщений, через неделю выключают. Открытый issue — это и есть память:
+# он отвечает на вопрос «мы уже знаем?». Заодно он даёт то, чего у чистого уведомления
+# нет: время начала, место для заметок по разбору и время закрытия.
+#
+# АДРЕСА — те же переменные репозитория, что у smoke (Settings → Secrets and variables →
+# Actions → Variables). Отдельных заводить не стали: точка входа у прода одна, и две пары
+# переменных рано или поздно разъехались бы.
+#
+#   SMOKE_API_URL — например https://api.example.kz  (корень домена, без пути)
+#   SMOKE_WEB_URL — например https://app.example.kz
+#
+# TELEGRAM — те же два секрета, что у ночной сводки в ci.yml (TELEGRAM_BOT_TOKEN и
+# TELEGRAM_CHAT_ID), и та же отправка через ./.github/actions/notify-telegram. Правило
+# «нет секретов — не падаем» записано там один раз, и повторять его здесь незачем.
+#
+# ВНИМАНИЕ, ДВА СВОЙСТВА РАСПИСАНИЯ GITHUB:
+#
+#   1. Расписание работает только в ветке по умолчанию. Пока файл не в `main`, прогон по
+#      cron не запустится — проверить его до слияния можно лишь руками (workflow_dispatch).
+#   2. GitHub отключает расписание в репозитории, где 60 дней не было активности, и делает
+#      это молча. Для живого репозитория неважно, для замороженного — да.
+
+on:
+  schedule:
+    # Каждые 10 минут. Чаще нет смысла: GitHub не обещает точность расписания и под
+    # нагрузкой пропускает запуски, так что «каждые 5» на деле всё равно не каждые 5.
+    # Десять минут — максимум, который мы готовы не знать о падении.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+# Код забираем только ради композитного экшена отправки — отсюда contents: read.
+# issues: write — инцидент, он же память прогона между запусками.
+permissions:
+  contents: read
+  issues: write
+
+# Прогоны не должны накладываться: два параллельных завели бы два инцидента на одно
+# падение. cancel-in-progress не ставим — начатую проверку доводим до конца.
+concurrency:
+  group: uptime-production
+
+jobs:
+  probe:
+    name: Прод жив?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    env:
+      API_URL: ${{ vars.SMOKE_API_URL }}
+      WEB_URL: ${{ vars.SMOKE_WEB_URL }}
+
+    steps:
+      # Нужен только из-за `uses: ./.github/actions/notify-telegram`: локальный экшен
+      # GitHub берёт из рабочего каталога, а не из репозитория по сети.
+      - name: Забрать код ради экшена отправки
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Проверить, что адреса прода заданы
+        id: guard
+        run: |
+          if [ -z "${API_URL}" ] && [ -z "${WEB_URL}" ]; then
+            echo "::warning::Переменные SMOKE_API_URL и SMOKE_WEB_URL не заданы — проверять нечего. Задайте их в Settings → Secrets and variables → Actions → Variables."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Обе точки опрашиваем в одном шаге, чтобы в инциденте было видно состояние целиком:
+      # «API лёг, веб отвечает» и «легло всё» — разные аварии, и разбираются по-разному.
+      #
+      # Шаг намеренно НЕ падает при недоступности: падение прогона — это ещё не
+      # уведомление, а решение о нём принимают следующие шаги, которые смотрят, знаем ли
+      # мы уже. Красным прогон станет в самом конце.
+      - name: Опросить API и веб
+        id: probe
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          # Три попытки с паузой 20 с. Успех с любой попытки — точка жива.
+          probe() {
+            name="$1"; url="$2"; ok_codes="$3"
+            if [ -z "$url" ]; then echo "skip"; return; fi
+            for i in 1 2 3; do
+              # Ошибку curl не прячем: «Failed to connect» и «SSL certificate problem» —
+              # разные аварии, и в логе прогона это первое, на что смотрят. Код при
+              # неудаче curl проставляет сам (000), свой запасной нужен только на случай,
+              # когда не напечаталось вообще ничего.
+              code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$url") || true
+              if [ -z "$code" ]; then code=000; fi
+              case " $ok_codes " in
+                *" $code "*)
+                  echo >&2 "$name: $code — отвечает (попытка $i)"
+                  echo "ok"
+                  return
+                  ;;
+              esac
+              echo >&2 "$name: попытка $i — $code"
+              if [ "$i" -lt 3 ]; then sleep 20; fi
+            done
+            echo >&2 "$name: не отвечает, последний код $code"
+            echo "fail:$code"
+          }
+
+          # Путь тот же, что у healthcheck Railway (apps/api/railway.json).
+          api=$(probe "API" "${API_URL:+${API_URL%/}/api/v1/health}" "200")
+          # Веб отдаёт 200 и на экране входа; редирект тоже считаем живым ответом —
+          # нас интересует «платформа отвечает», а не конкретная страница.
+          web=$(probe "Веб" "${WEB_URL:+${WEB_URL%/}/}" "200 301 302 303 307 308")
+
+          down=""
+          case "$api" in fail:*) down="API (${api#fail:})" ;; esac
+          case "$web" in fail:*) down="${down:+$down, }Веб (${web#fail:})" ;; esac
+
+          {
+            echo "down=${down}"
+            echo "api=${api}"
+            echo "web=${web}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ -n "$down" ]; then
+            echo "::warning::Не отвечает: $down"
+          else
+            echo "Обе точки отвечают."
+          fi
+
+      # Открытый инцидент — наша память между запусками. Ищем по точному заголовку, а не
+      # по метке: метку пришлось бы заводить руками, и прогон молча ломался бы в
+      # репозитории, где её забыли создать.
+      - name: Найти открытый инцидент
+        id: incident
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Прод не отвечает
+        run: |
+          number=$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"${TITLE}\")] | first | .number // empty")
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+          echo "Открытый инцидент: ${number:-нет}"
+
+      - name: Завести инцидент — прод не отвечает
+        id: open
+        if: steps.guard.outputs.skip != 'true' && steps.probe.outputs.down != '' && steps.incident.outputs.number == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          DOWN: ${{ steps.probe.outputs.down }}
+          API_STATE: ${{ steps.probe.outputs.api }}
+          WEB_STATE: ${{ steps.probe.outputs.web }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          started=$(date -u '+%Y-%m-%d %H:%M UTC')
+          body=$(cat <<MD
+          Проверка доступности не достучалась до прода.
+
+          | Что | Состояние |
+          |---|---|
+          | API \`${API_URL:-—}\` | ${API_STATE} |
+          | Веб \`${WEB_URL:-—}\` | ${WEB_STATE} |
+
+          Обнаружено: ${started}
+          Прогон: ${RUN_URL}
+
+          Что делать — \`docs/RUNBOOK.md\`, раздел «Аптайм-мониторинг».
+
+          Issue закроется сам, когда очередная проверка увидит, что прод отвечает.
+          Закрывать руками не нужно: пока он открыт, повторных сообщений в Telegram нет.
+          MD
+          )
+          url=$(gh issue create --title "Прод не отвечает" --body "$body")
+          echo "Инцидент заведён: $url"
+
+          # Текст уведомления собираем здесь, а не в экшене: экшен умеет только слать.
+          {
+            echo "text<<TEXT"
+            echo "StudentHub: прод не отвечает"
+            echo ""
+            echo "Не отвечает: ${DOWN}"
+            echo "Обнаружено: ${started}"
+            echo ""
+            echo "${url}"
+            echo "TEXT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Сообщить в Telegram — упало
+        if: steps.open.outputs.text != ''
+        uses: ./.github/actions/notify-telegram
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: ${{ steps.open.outputs.text }}
+
+      # Отдельный шаг только ради следа в логе: по нему видно, что прогон не промолчал
+      # по ошибке, а промолчал намеренно.
+      - name: Инцидент уже открыт — молчим
+        if: steps.guard.outputs.skip != 'true' && steps.probe.outputs.down != '' && steps.incident.outputs.number != ''
+        env:
+          NUMBER: ${{ steps.incident.outputs.number }}
+          DOWN: ${{ steps.probe.outputs.down }}
+        # Блочный скаляр, а не строка в одну линию: в плоском скаляре YAML увидел бы
+        # в «#${NUMBER}» начало комментария и обрезал бы команду по нему.
+        run: |
+          echo "::notice::Прод по-прежнему не отвечает (${DOWN}), инцидент #${NUMBER} открыт — повторное сообщение не шлём."
+
+      - name: Закрыть инцидент — прод поднялся
+        id: close
+        if: steps.guard.outputs.skip != 'true' && steps.probe.outputs.down == '' && steps.incident.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.incident.outputs.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          recovered=$(date -u '+%Y-%m-%d %H:%M UTC')
+          gh issue close "$NUMBER" --reason completed \
+            --comment "Прод отвечает: ${recovered}. Проверка: ${RUN_URL}"
+          echo "Инцидент #${NUMBER} закрыт."
+          {
+            echo "text<<TEXT"
+            echo "StudentHub: прод отвечает"
+            echo ""
+            echo "Восстановлено: ${recovered}"
+            echo "Инцидент #${NUMBER} закрыт."
+            echo "TEXT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Сообщить в Telegram — поднялось
+        if: steps.close.outputs.text != ''
+        uses: ./.github/actions/notify-telegram
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: ${{ steps.close.outputs.text }}
+
+      # Падение прогона нужно, чтобы недоступность была видна в списке Actions красным,
+      # а не только в issue. Шаг последний: к этому моменту инцидент заведён и сообщение
+      # ушло — иначе красный шаг оборвал бы прогон до уведомления.
+      - name: Отметить прогон красным, если прод не отвечает
+        if: steps.guard.outputs.skip != 'true' && steps.probe.outputs.down != ''
+        env:
+          DOWN: ${{ steps.probe.outputs.down }}
+        run: |
+          echo "::error::Прод не отвечает: ${DOWN}"
+          exit 1

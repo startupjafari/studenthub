@@ -5,6 +5,7 @@ import { Popover as PopoverPrimitive } from 'radix-ui'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, Loader2, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { useListboxKeys } from './use-listbox-keys'
 import { FIELD_SIZE, type ControlSize } from './control-size'
 
 export interface AsyncSelectItem {
@@ -74,6 +75,17 @@ export function AsyncSelect({
     setOpen(false)
   }
 
+  // Строка «добавить своё» — последняя в том же списке: стрелки ведут и по ней.
+  const rows = canAddCustom ? [...items.map((i) => i.value), q] : items.map((i) => i.value)
+  const keys = useListboxKeys({
+    count: rows.length,
+    resetKey: query,
+    onPick: (i) => {
+      const v = rows[i]
+      if (v !== undefined) pick(v)
+    },
+  })
+
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen} modal>
       <PopoverPrimitive.Trigger asChild>
@@ -131,13 +143,10 @@ export function AsyncSelect({
               ref={inputRef}
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  if (items[0]) pick(items[0].value)
-                  else if (canAddCustom) pick(q)
-                }
-              }}
+              onKeyDown={keys.onKeyDown}
+              role="combobox"
+              aria-expanded
+              aria-activedescendant={keys.activeId}
               placeholder={t('dictPlaceholder')}
               className="h-11 w-full rounded-lg border border-input bg-background px-3.5 pr-10 text-base outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 md:text-sm"
             />
@@ -148,17 +157,23 @@ export function AsyncSelect({
               />
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {items.map((item) => (
+          <div role="listbox" className="min-h-0 flex-1 overflow-y-auto">
+            {items.map((item, i) => (
               <button
                 key={item.value}
+                id={keys.optionId(i)}
                 type="button"
                 role="option"
-                aria-selected={item.value === value}
+                aria-selected={keys.active === i}
                 // Фокус не уводим с поля поиска: иначе после каждого клика курсор терялся бы.
                 onMouseDown={(e) => e.preventDefault()}
+                // Мышь двигает ту же подсветку, что и стрелки, — иначе их две.
+                onMouseMove={() => keys.setActive(i)}
                 onClick={() => pick(item.value)}
-                className="flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                className={cn(
+                  'flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                  keys.active === i && 'bg-muted',
+                )}
               >
                 {renderItem ? (
                   renderItem(item)
@@ -174,10 +189,17 @@ export function AsyncSelect({
             ))}
             {canAddCustom && (
               <button
+                id={keys.optionId(items.length)}
                 type="button"
+                role="option"
+                aria-selected={keys.active === items.length}
                 onMouseDown={(e) => e.preventDefault()}
+                onMouseMove={() => keys.setActive(items.length)}
                 onClick={() => pick(q)}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-primary transition-colors hover:bg-muted"
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-primary transition-colors',
+                  keys.active === items.length && 'bg-muted',
+                )}
               >
                 {t('dictAddCustom', { value: q })}
               </button>

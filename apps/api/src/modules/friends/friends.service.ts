@@ -5,6 +5,7 @@ import type {
   FriendRequestsQueryInput,
   FriendshipStatusValue,
 } from '@studenthub/shared-schemas'
+import type { NotificationMessageKey, NotificationParams } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -84,8 +85,9 @@ export class FriendsService {
       const name =
         `${requester?.firstName ?? ''} ${requester?.lastName ?? ''}`.trim() || 'Пользователь'
       await this.notify(targetId, NOTIFICATION_JOBS.FRIEND_REQUEST, {
-        title: 'Новая заявка в друзья',
-        body: `${name} хочет добавить вас в друзья`,
+        titleKey: 'friends.request.title',
+        bodyKey: 'friends.request.body',
+        params: { name },
         dedupeKey: `friend-request:${created.id}`,
         // kind/friendshipId — чтобы колокольчик показал кнопки принять/отклонить прямо в уведомлении.
         data: {
@@ -254,8 +256,8 @@ export class FriendsService {
     // Гасим уведомление-заявку у принявшего и уведомляем инициатора о принятии.
     await this.clearRequestNotification(friendshipId)
     await this.notify(requesterId, NOTIFICATION_JOBS.FRIEND_ACCEPTED, {
-      title: 'Заявка в друзья принята',
-      body: 'Ваша заявка в друзья принята',
+      titleKey: 'friends.accepted.title',
+      bodyKey: 'friends.accepted.body',
       dedupeKey: `friend-accepted:${friendshipId}`,
       data: { url: `/profile/${accepterId}` },
     })
@@ -274,7 +276,13 @@ export class FriendsService {
   private async notify(
     recipientId: string,
     job: string,
-    n: { title: string; body: string; dedupeKey: string; data?: Record<string, unknown> },
+    n: {
+      titleKey: NotificationMessageKey
+      bodyKey: NotificationMessageKey
+      params?: NotificationParams
+      dedupeKey: string
+      data?: Record<string, unknown>
+    },
   ): Promise<void> {
     // Тип SYSTEM доставляется всегда (не зависит от пер-тип настроек).
     await this.queue.enqueue(
@@ -283,8 +291,9 @@ export class FriendsService {
       {
         recipientIds: [recipientId],
         type: 'SYSTEM',
-        title: n.title,
-        body: n.body,
+        titleKey: n.titleKey,
+        bodyKey: n.bodyKey,
+        params: n.params,
         data: n.data ?? {},
         dedupeKey: n.dedupeKey,
       },

@@ -176,7 +176,9 @@ export function MessageContextMenu({
     return () => document.removeEventListener('keydown', onKey)
   }, [dismiss])
 
-  useBodyScrollLock()
+  // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
+  // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
+  useBodyScrollLock(true, true)
 
   const run = (fn: () => void) => () => {
     fn()

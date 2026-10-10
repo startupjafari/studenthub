@@ -76,7 +76,9 @@ export function MediaViewer({
 }) {
   const t = useTranslations('Chats')
   const locale = useLocale()
-  useBodyScrollLock()
+  // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
+  // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
+  useBodyScrollLock(true, true)
   const [menuOpen, setMenuOpen] = useState(false)
   const cur = items[index]
 

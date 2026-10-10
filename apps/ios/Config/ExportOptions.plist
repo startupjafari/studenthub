@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Параметры экспорта архива в TestFlight (задача 5.4 плана iOS).
+
+  teamID подставляется при экспорте (`-exportOptionsPlist` + переменная окружения в
+  CI): идентификатор команды — не секрет, но и не то, что стоит хранить в репозитории
+  до того, как учётная запись разработчика заведена.
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>destination</key>
+    <string>upload</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <!-- Битовый код Apple больше не принимает; явное «нет» убирает предупреждение. -->
+    <key>compileBitcode</key>
+    <false/>
+    <key>manageAppVersionAndBuildNumber</key>
+    <false/>
+</dict>
+</plist>

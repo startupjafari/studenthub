@@ -298,11 +298,18 @@ function MessageItemInner({
                 media={m.media}
                 mine={mine}
                 // Отменять есть что только у своего, ещё не доехавшего сообщения.
+                // Упавшее отменять нечего — там повтор.
                 onCancel={
-                  m.id.startsWith('tmp:') && m.media.some((a) => a.uploading)
+                  readState !== 'failed' &&
+                  m.id.startsWith('tmp:') &&
+                  m.media.some((a) => a.uploading)
                     ? () => actions.cancelUpload(m)
                     : undefined
                 }
+                // Пузырь знает, что отправка упала, — вложения обязаны узнать тоже.
+                // Без этого они навсегда оставались со спиннером на «0 / 312.8 МБ».
+                sendFailed={mine && readState === 'failed'}
+                onRetry={() => actions.retry(m)}
                 viewerMeta={{
                   senderName: senderNameText,
                   createdAt: m.createdAt,

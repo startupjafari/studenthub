@@ -11,6 +11,10 @@ import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 interface PrismaMock {
+  // Язык письма-приглашения сервис берёт из профиля приглашающего (issuerLocale).
+  user: {
+    findUnique: jest.Mock
+  }
   invite: {
     create: jest.Mock
     // findFirst, а не findUnique: поиск идёт по двум значениям сразу — хэшу и (переходно)
@@ -32,6 +36,9 @@ const deanA: JwtPayload = {
 
 function setup() {
   const prisma: PrismaMock = {
+    // Язык письма-приглашения берётся из профиля приглашающего (invites.service:
+    // issuerLocale) — без этого мока сервис падает ещё до постановки письма в очередь.
+    user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }) },
     invite: {
       create: jest.fn(),
       findFirst: jest.fn(),

@@ -28,7 +28,7 @@ export function CreateUniversityModal({ onClose }: Props) {
   const createMut = useMutation({
     mutationFn: (input: CreateUniversityInput) => createUniversityRequest(input),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: universityKeys.list() })
+      void qc.invalidateQueries({ queryKey: universityKeys.all })
       toast.success(t('created'))
       onClose()
     },

@@ -127,6 +127,7 @@ const PROFILE_SELECT = {
   website: true,
   headline: true,
   timezone: true,
+  locale: true,
   country: true,
   // студент / староста
   course: true,
@@ -178,6 +179,10 @@ export type PublicProfile = Omit<
   | 'address'
   | 'twoFactorEnabled'
   | 'username'
+  // Язык интерфейса — настройка владельца, а не признак профиля: другим пользователям
+  // она ничего не говорит, а в карточке была бы лишним персональным полем. Наружу
+  // уходит только в собственном профиле (/users/me, /auth/me).
+  | 'locale'
 > & { email: string | null; phone: string | null; access: ProfileAccessLevel }
 
 // Сортировка списка пользователей: имя колонки таблицы → orderBy Prisma. Отображение
@@ -1501,8 +1506,8 @@ export class UserService {
       {
         recipientIds: [userId],
         type: 'SYSTEM',
-        title: 'Предупреждение модератора',
-        body: 'Ваши материалы нарушают правила платформы. При повторном нарушении доступ будет ограничен.',
+        titleKey: 'moderation.warning.title',
+        bodyKey: 'moderation.warning.body',
         data: { warningId: warning.id },
         dedupeKey: `moderation-warning:${warning.id}`,
       },

@@ -1898,6 +1898,7 @@
     "download": "Жүктеп алу",
     "downloadCancel": "Жүктеуді болдырмау",
     "downloadFailed": "Жүктеу мүмкін болмады · Қайталау",
+    "uploadFailed": "Жіберілмеді · Қайталау",
     "openLink": "Сілтемені ашу",
     "createPoll": "Сауалнама",
     "createPollSubmit": "Құру",
@@ -2372,11 +2373,12 @@
     "required": "Міндетті өріс",
     "created": "Университет құрылды",
     "empty": "Университеттер жоқ",
-    "count": "Университеттер: {n}",
     "statusChanged": "Мәртебе өзгертілді",
     "statusPENDING": "Күтуде",
     "statusACTIVE": "Белсенді",
-    "statusBLOCKED": "Бұғатталған"
+    "statusBLOCKED": "Бұғатталған",
+    "searchPlaceholder": "Атауы бойынша іздеу",
+    "nothingFound": "Ештеңе табылмады"
   },
   "Materials": {
     "title": "Материалдар",
@@ -2492,6 +2494,7 @@
     "appearanceTitle": "Сыртқы түрі",
     "appearanceDesc": "Интерфейс тілі",
     "language": "Интерфейс тілі",
+    "languageSaveFailed": "Интерфейс тілі ауыстырылды, бірақ оны профильге сақтау мүмкін болмады — хаттар әзірге бұрынғы тілде келеді",
     "deleteConfirmTitle": "Аккаунтты жою?",
     "visibilityTitle": "Профиль көрінімі",
     "visibilityDesc": "Толық профиліңізді кім көреді. Жабық профиль басқаларға тек аты, фотосы мен рөлін көрсетеді.",
@@ -3776,7 +3779,8 @@
     "subtitleRange": "Платформа көрсеткіштері · {period}",
     "sizeSubtitleTop": "Пайдаланушы саны бойынша ең үлкен {count} жоо",
     "showAll": "Барлығын көрсету ({count})",
-    "sizeModalSummary": "{count} жоо · {users} пайдаланушы · {students} студент, {teachers} оқытушы"
+    "sizeModalSummary": "{count} жоо · {users} пайдаланушы · {students} студент · {teachers} оқытушы",
+    "sizeSeries": "Пайдаланушы"
   },
   "Table": {
     "rows": "{count} жол",

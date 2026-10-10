@@ -138,7 +138,9 @@ export function PostLightbox({
   focusComment = false,
 }: LightboxProps) {
   const t = useTranslations('Feed')
-  useBodyScrollLock()
+  // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
+  // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
+  useBodyScrollLock(true, true)
   useBackClose(onClose)
   // Репост открывается исходным постом, как в Instagram (useRepostSource). Хук — до ранних
   // выходов: порядок хуков один на каждую отрисовку.

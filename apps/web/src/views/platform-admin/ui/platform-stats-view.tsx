@@ -13,7 +13,7 @@ import {
   Users,
 } from 'lucide-react'
 import {
-  fetchUniversities,
+  fetchUniversityOptions,
   fetchUniversityStats,
   universityKeys,
   type University,
@@ -86,7 +86,7 @@ export function PlatformStatsView() {
   const tErr = useTranslations('Errors')
   const [search, setSearch] = useState('')
 
-  const unis = useQuery({ queryKey: universityKeys.list(), queryFn: fetchUniversities })
+  const unis = useQuery({ queryKey: universityKeys.options(), queryFn: fetchUniversityOptions })
   const list = useMemo(() => unis.data ?? [], [unis.data])
 
   // Счётчики по вузу отдаёт отдельный эндпоинт (кэш 5 мин на сервере) — тянем их

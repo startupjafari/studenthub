@@ -1898,6 +1898,7 @@
     "download": "Скачать",
     "downloadCancel": "Отменить скачивание",
     "downloadFailed": "Не удалось скачать · Повторить",
+    "uploadFailed": "Не отправлено · Повторить",
     "openLink": "Открыть ссылку",
     "createPoll": "Опрос",
     "createPollSubmit": "Создать",
@@ -2372,11 +2373,12 @@
     "required": "Обязательное поле",
     "created": "Университет создан",
     "empty": "Университетов нет",
-    "count": "Вузов: {n}",
     "statusChanged": "Статус изменён",
     "statusPENDING": "Ожидает",
     "statusACTIVE": "Активен",
-    "statusBLOCKED": "Заблокирован"
+    "statusBLOCKED": "Заблокирован",
+    "searchPlaceholder": "Поиск по названию",
+    "nothingFound": "Ничего не нашлось"
   },
   "Materials": {
     "title": "Материалы",
@@ -2492,6 +2494,7 @@
     "appearanceTitle": "Внешний вид",
     "appearanceDesc": "Язык интерфейса",
     "language": "Язык интерфейса",
+    "languageSaveFailed": "Язык интерфейса переключён, но сохранить его в профиле не удалось — письма пока придут на прежнем",
     "deleteConfirmTitle": "Удалить аккаунт?",
     "visibilityTitle": "Видимость профиля",
     "visibilityDesc": "Кто видит вашу полную анкету. Закрытый профиль показывает другим только имя, фото и роль.",
@@ -3776,7 +3779,8 @@
     "subtitleRange": "Показатели платформы · {period}",
     "sizeSubtitleTop": "Крупнейшие {count} вузов по числу пользователей",
     "showAll": "Показать все ({count})",
-    "sizeModalSummary": "{count, plural, one {# вуз} few {# вуза} many {# вузов} other {# вуза}} · пользователей {users} · студентов {students}, преподавателей {teachers}"
+    "sizeModalSummary": "{count, plural, one {# вуз} few {# вуза} many {# вузов} other {# вуза}} · пользователей {users} · студентов {students} · преподавателей {teachers}",
+    "sizeSeries": "Пользователей"
   },
   "Table": {
     "rows": "{count, plural, one {# строка} few {# строки} many {# строк} other {# строки}}",

@@ -135,3 +135,71 @@ describe('UniversityService — stats cache', () => {
     expect(redis.set).toHaveBeenCalledWith('stats:university:uni-1', expect.any(String), 'EX', 300)
   })
 })
+
+describe('UniversityService — list', () => {
+  // Выборку и счётчик сервис отправляет одной транзакцией; мок возвращает их пару,
+  // а проверяем аргументы, с которыми обратились к prisma.
+  function listSetup() {
+    const s = setup()
+    s.prisma.$transaction.mockResolvedValue([[], 0])
+    return s
+  }
+  const base = { page: 1, limit: 20 } as const
+
+  it('без параметров: свежие сверху, без фильтра', async () => {
+    const { service, prisma } = listSetup()
+    await service.list({ ...base })
+    expect(prisma.university.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: 'desc' }, where: {}, skip: 0, take: 20 }),
+    )
+  })
+
+  it('поиск идёт по названию и аббревиатуре без учёта регистра', async () => {
+    const { service, prisma } = listSetup()
+    await service.list({ ...base, search: 'Агро' })
+    expect(prisma.university.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { name: { contains: 'Агро', mode: 'insensitive' } },
+            { shortName: { contains: 'Агро', mode: 'insensitive' } },
+          ],
+        },
+      }),
+    )
+  })
+
+  it('сортировка берётся из запроса', async () => {
+    const { service, prisma } = listSetup()
+    await service.list({ ...base, sort: 'name', order: 'asc' })
+    expect(prisma.university.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { name: 'asc' } }),
+    )
+  })
+
+  it('сортировка без направления — по возрастанию', async () => {
+    const { service, prisma } = listSetup()
+    await service.list({ ...base, sort: 'status' })
+    expect(prisma.university.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { status: 'asc' } }),
+    )
+  })
+
+  it('страница считается от limit', async () => {
+    const { service, prisma } = listSetup()
+    await service.list({ page: 3, limit: 50 })
+    expect(prisma.university.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 100, take: 50 }),
+    )
+  })
+
+  // Главное в пагинации: счётчик обязан считать ту же выборку. Иначе таблица обещает
+  // страницы, которых нет, — и наоборот, прячет существующие.
+  it('счётчик считает по тем же фильтрам, что и выборка', async () => {
+    const { service, prisma } = listSetup()
+    await service.list({ ...base, search: 'Агро', status: 'ACTIVE' })
+    const where = prisma.university.findMany.mock.calls[0][0].where
+    expect(prisma.university.count).toHaveBeenCalledWith({ where })
+    expect(where.status).toBe('ACTIVE')
+  })
+})

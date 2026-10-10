@@ -22,3 +22,4 @@ export {
   type NotificationCategory,
 } from './lib/categorize'
 export { useNotificationMutations } from './lib/use-notification-mutations'
+export { localizeNotification } from './lib/localize'

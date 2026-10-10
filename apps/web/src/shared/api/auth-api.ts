@@ -39,6 +39,9 @@ export interface MeResponse {
   website?: string | null
   headline?: string | null
   timezone?: string | null
+  // Язык интерфейса и исходящих писем (ru | kk | en). Источник истины — профиль, а не
+  // cookie NEXT_LOCALE: письма уходят с сервера, когда открытой вкладки нет.
+  locale?: string | null
   country?: string | null
   // студент / староста
   course?: number | null

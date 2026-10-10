@@ -8,6 +8,8 @@ import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import type { Locale } from '@studenthub/shared-config'
+import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
 import { useLocale, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
 import Link from 'next/link'
@@ -774,10 +776,26 @@ function AppearanceSection() {
   const tS = useTranslations('Settings')
   const locale = useLocale()
   const router = useRouter()
+  const qc = useQueryClient()
+
+  // Язык сохраняется в двух местах, и это не дублирование.
+  //
+  // Cookie нужна интерфейсу: next-intl читает её на сервере при рендере страницы.
+  // Профиль нужен письмам и push: они уходят с сервера, когда открытой вкладки нет, и
+  // cookie браузера им недоступна. Без второй половины человек переключил бы язык и
+  // продолжил получать письма на прежнем.
+  const mut = useMutation({
+    mutationFn: (value: Locale) => updateProfileRequest({ locale: value }),
+    onSuccess: (data) => qc.setQueryData(userKeys.me(), data),
+    // Интерфейс уже переключился (cookie), а письма остались на старом языке — молчать
+    // об этом нельзя: расхождение человеку не видно, пока не придёт письмо.
+    onError: () => toast.error(tS('languageSaveFailed')),
+  })
 
   function changeLocale(value: string) {
-    document.cookie = `NEXT_LOCALE=${value}; path=/; max-age=31536000; samesite=lax`
+    writeLocaleCookie(value)
     router.refresh()
+    mut.mutate(value as Locale)
   }
 
   return (

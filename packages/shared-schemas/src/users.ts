@@ -72,6 +72,15 @@ export const UpdateProfileSchema = z
     website: shortText.optional(),
     headline: shortText.optional(),
     timezone: shortText.optional(),
+    // Язык интерфейса и исходящих писем. Закрытым списком, а не свободной строкой:
+    // значение уходит в выбор шаблона письма, и «ру» или «RU-ru» там обернулись бы
+    // молчаливым откатом на русский вместо внятной ошибки валидации.
+    //
+    // Список продублирован из SUPPORTED_LOCALES (shared-config), а не импортирован:
+    // shared-schemas от shared-config не зависит, и заводить эту связь ради трёх строк
+    // не стали. Расхождение ловит тест apps/api/src/modules/users/locale-contract.spec.ts —
+    // он видит оба пакета и падает, если списки разъехались.
+    locale: z.enum(['ru', 'kk', 'en']).optional(),
     country: shortText.optional(),
     // студент / староста
     course: z.coerce.number().int().min(1).max(8).optional().nullable(),
@@ -180,6 +189,8 @@ export const PROFILE_FIELD_ROLES: Readonly<Record<ProfileFieldKey, readonly Role
   languages: EVERY_ROLE,
   // Часовой пояс нужен и служебным ролям: дежурства, окна обслуживания, чтение аудита.
   timezone: EVERY_ROLE,
+  // Язык — тем более у всех: на нём приходят письма, а письма приходят каждой роли.
+  locale: EVERY_ROLE,
 
   // Личное и соцсети: у всех, кроме служебных ролей ВУЗА (админ/модератор вуза) — им
   // персональные поля не нужны, а лишние данные в базе это лишний риск утечки.

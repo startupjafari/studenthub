@@ -24,6 +24,14 @@ export interface CaptureContext {
   method?: string
   /** Бизнес-код ошибки из контракта API (§4.2) — удобен для группировки. */
   code?: string
+  /**
+   * Версия мобильного клиента из `X-Client-Version` (план iOS, Задача Б3).
+   *
+   * Тег, а не extra: по нему отбирают «всё, что падает у сборки 1.2.0». У нативного
+   * приложения в поле одновременно живут все сборки, которые люди не обновили, и без
+   * этого тега ошибка старой сборки выглядит как общая авария.
+   */
+  clientVersion?: string
   /** Дополнительные НЕ персональные поля (id сущности, имя очереди, попытка). */
   extra?: Record<string, string | number | boolean | undefined>
 }
@@ -48,6 +56,9 @@ export function captureException(exception: unknown, context: CaptureContext): s
     }
     if (context.path) {
       scope.setTag('path', scrubUrl(context.path))
+    }
+    if (context.clientVersion) {
+      scope.setTag('client_version', context.clientVersion)
     }
     if (context.userId) {
       // Псевдоним: только id. Без email/username — иначе персональные данные уедут
