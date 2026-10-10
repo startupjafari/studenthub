@@ -1898,6 +1898,7 @@
     "download": "Download",
     "downloadCancel": "Cancel download",
     "downloadFailed": "Couldn't download · Retry",
+    "uploadFailed": "Not sent · Retry",
     "openLink": "Open link",
     "createPoll": "Poll",
     "createPollSubmit": "Create",

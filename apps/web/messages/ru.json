@@ -1898,6 +1898,7 @@
     "download": "Скачать",
     "downloadCancel": "Отменить скачивание",
     "downloadFailed": "Не удалось скачать · Повторить",
+    "uploadFailed": "Не отправлено · Повторить",
     "openLink": "Открыть ссылку",
     "createPoll": "Опрос",
     "createPollSubmit": "Создать",

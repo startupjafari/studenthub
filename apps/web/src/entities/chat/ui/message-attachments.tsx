@@ -169,12 +169,21 @@ function useAttachmentUrl(att: MessageAttachment) {
 
 // Ошибка вместо медиа (FRONTEND_RULES §13: у асинхронного состояния есть error с «Повторить»).
 // Раньше и не пришедшая ссылка, и битый файл крутили спиннер бесконечно.
-function MediaFailed({ className, onRetry }: { className?: string; onRetry: () => void }) {
+function MediaFailed({
+  className,
+  onRetry,
+  reason = 'load',
+}: {
+  className?: string
+  onRetry: () => void
+  /** Что именно не получилось: скачать кадр или отправить его. Круг один, подпись разная. */
+  reason?: 'load' | 'send'
+}) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
   // Текст ушёл в подпись кнопки: на кадре Telegram показывает только круг, а экранному
   // диктору по-прежнему нужно сказать, что случилось и что сделает нажатие.
-  const label = `${t('mediaFailed')} — ${tCommon('retry')}`
+  const label = `${reason === 'send' ? t('uploadFailed') : t('mediaFailed')} — ${tCommon('retry')}`
   return (
     <span
       className={cn(
@@ -263,19 +272,31 @@ function Single({
   mine,
   onOpen,
   onCancel,
+  sendFailed: messageFailed,
+  onRetry,
 }: {
   att: MessageAttachment
   mine: boolean
   onOpen?: () => void
   /** Прервать загрузку этого сообщения (крестик в оверлее). Нет — отменять нечего. */
   onCancel?: () => void
+  /** Сообщение не ушло: отправка упала и сама уже не возобновится. */
+  sendFailed?: boolean
+  /** Повторить отправку всего сообщения — вложения уходят вместе с ним. */
+  onRetry?: () => void
 }) {
   const t = useTranslations('Chats')
   const unit = useByteUnitLabel()
   // Длительность ролика: читаем у того же элемента, что уже тянет первый кадр.
   const [duration, setDuration] = useState<number | null>(null)
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
-  const uploading = !!att.uploading
+  // Упавшая отправка — это НЕ «грузится». Раньше здесь стоял просто `att.uploading`, и у
+  // не ушедшего сообщения вложения навсегда замирали со спиннером на «0 / 312.8 МБ»:
+  // сам он сдвинуться не мог, отменить из строки файла было нечем, повторить — тоже.
+  // У сообщения при этом уже стояла красная метка «не отправлено», то есть пузырь про
+  // беду знал, а вложения внутри него — нет.
+  const sendFailed = !!messageFailed && !!att.uploading
+  const uploading = !!att.uploading && !messageFailed
   // Скачивание файла внутри приложения (shared/lib/file-download): ключ — id файла, тот же,
   // что у вкладки «Файлы», — начатое там видно здесь, и наоборот.
   const download = useFileDownload(`file:${att.id ?? 'pending'}`, {
@@ -293,6 +314,12 @@ function Single({
   const kind = fileKind(att.name, att.mime)
   // Картинка и видео занимают место кадром, голосовые и файлы — узкой строкой.
   const framed = isViewable(att)
+
+  // Не ушёл снимок или ролик — на его месте тот же круг повтора, что и у не скачавшегося:
+  // для глаза это одно и то же «нажми, чтобы ещё раз», и разводить два вида незачем.
+  if (sendFailed && framed) {
+    return <MediaFailed className={MEDIA_BOX} reason="send" onRetry={() => onRetry?.()} />
+  }
 
   if (isError || broken) {
     return (
@@ -466,9 +493,18 @@ function Single({
   return (
     <button
       type="button"
-      onClick={download.toggle}
+      // Упавшая отправка перехватывает нажатие: качать нечего — файл до сервера не доехал.
+      onClick={sendFailed ? () => onRetry?.() : download.toggle}
       disabled={uploading}
-      aria-label={loading ? t('downloadCancel') : dl.status === 'ready' ? t('save') : t('download')}
+      aria-label={
+        sendFailed
+          ? t('sendFailedRetry')
+          : loading
+            ? t('downloadCancel')
+            : dl.status === 'ready'
+              ? t('save')
+              : t('download')
+      }
       className="flex min-w-[220px] cursor-pointer items-center gap-2 py-0.5 text-left disabled:cursor-default"
     >
       {/* Значок расширения (§7 карты): цвет задаёт тип документа — в переписке с десятком
@@ -479,7 +515,9 @@ function Single({
           uploading ? 'bg-muted-foreground' : kind.className,
         )}
       >
-        {uploading ? (
+        {sendFailed ? (
+          <RotateCw className="size-5" aria-hidden />
+        ) : uploading ? (
           <Loader2 className="size-5 animate-spin" aria-hidden />
         ) : loading ? (
           <X className="size-4" strokeWidth={2.5} aria-hidden />
@@ -493,7 +531,7 @@ function Single({
         {loading && <ProgressRing progress={download.progress} />}
         {/* Угловой значок — что сделает нажатие: «↓» скачать, галочка — уже скачано.
             Обводка цветом пузыря отделяет его от значка расширения. */}
-        {!uploading && !loading && (
+        {!uploading && !loading && !sendFailed && (
           <span
             aria-hidden
             className={cn(
@@ -505,6 +543,10 @@ function Single({
           >
             {dl.status === 'ready' ? (
               <Check className="size-2.5" strokeWidth={3.5} />
+            ) : dl.status === 'error' ? (
+              // Не скачалось — в углу знак повтора, а не «вниз»: нажатие пробует ещё раз,
+              // и значок обязан обещать то же, что обещает подпись.
+              <RotateCw className="size-2.5" strokeWidth={3.5} />
             ) : (
               <ArrowDown className="size-2.5" strokeWidth={3.5} />
             )}
@@ -516,7 +558,9 @@ function Single({
         <span className={cn('block text-xs', mine ? 'opacity-70' : 'text-muted-foreground')}>
           {/* Прогресс мегабайтами, а не процентами: «11.5 / 40.1 МБ» сразу говорит и сколько
               осталось, и сколько весит файл, — процент отвечает только на первое. */}
-          {uploading && att.progress != null ? (
+          {sendFailed ? (
+            <span className={mine ? 'underline' : 'text-destructive'}>{t('uploadFailed')}</span>
+          ) : uploading && att.progress != null ? (
             formatBytesProgress(att.progress * att.size, att.size, unit)
           ) : loading ? (
             formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
@@ -545,16 +589,23 @@ function GridTile({
   onOpen,
   onCancel,
   className,
+  sendFailed,
+  onRetry,
 }: {
   att: MessageAttachment
   onOpen?: () => void
   onCancel?: () => void
   className?: string
+  /** Сообщение не ушло — ячейка показывает повтор, а не вечный оверлей загрузки. */
+  sendFailed?: boolean
+  /** Повторить отправку всего сообщения. */
+  onRetry?: () => void
 }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
   const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
-  const uploading = !!att.uploading
+  // См. пояснение в Single: упавшая отправка не «грузится».
+  const uploading = !!att.uploading && !sendFailed
   const isVid = att.mime.startsWith('video/')
   const [painted, setPainted] = useState(false)
   const [broken, setBroken] = useState(false)
@@ -564,8 +615,14 @@ function GridTile({
   // спойлер когда-то только одиночная картинка: три снимка под спойлером уходили открытыми.
   const [revealed, setRevealed] = useState(false)
   const blurred = !!att.spoiler && !revealed
-  const failed = isError || broken
+  const failed = isError || broken || (!!sendFailed && !!att.uploading)
+  // Повтор у ячейки двух сортов: не ушло — отправляем сообщение заново, не скачалось —
+  // перезапрашиваем ссылку. Нажатие одно и то же, а делать надо разное.
   const retry = (): void => {
+    if (sendFailed && att.uploading) {
+      onRetry?.()
+      return
+    }
     setBroken(false)
     setPainted(false)
     refetch()
@@ -666,10 +723,14 @@ function MediaGrid({
   items,
   onOpen,
   onCancel,
+  sendFailed,
+  onRetry,
 }: {
   items: MessageAttachment[]
   onOpen: (att: MessageAttachment) => void
   onCancel?: () => void
+  sendFailed?: boolean
+  onRetry?: () => void
 }) {
   const n = items.length
   const cols = n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3'
@@ -685,6 +746,8 @@ function MediaGrid({
           att={att}
           onOpen={() => onOpen(att)}
           onCancel={onCancel}
+          sendFailed={sendFailed}
+          onRetry={onRetry}
           className="aspect-square"
         />
       ))}
@@ -696,6 +759,8 @@ export function MessageAttachments({
   media,
   mine,
   onCancel,
+  sendFailed,
+  onRetry,
   viewerMeta,
   viewerActions,
 }: {
@@ -703,6 +768,10 @@ export function MessageAttachments({
   mine: boolean
   /** Прервать загрузку сообщения целиком: вложения уходят одним запросом, отменяется он же. */
   onCancel?: () => void
+  /** Отправка сообщения упала. Вложения обязаны это показать: сами они не доедут. */
+  sendFailed?: boolean
+  /** Повторить отправку всего сообщения — вложения уходят вместе с ним. */
+  onRetry?: () => void
   viewerMeta?: MediaViewerMeta
   viewerActions?: MediaViewerActions
 }) {
@@ -716,7 +785,13 @@ export function MessageAttachments({
   return (
     <div className="mt-1 flex flex-col gap-1.5">
       {viewable.length >= 2 ? (
-        <MediaGrid items={viewable} onOpen={openViewer} onCancel={onCancel} />
+        <MediaGrid
+          items={viewable}
+          onOpen={openViewer}
+          onCancel={onCancel}
+          sendFailed={sendFailed}
+          onRetry={onRetry}
+        />
       ) : (
         viewable.map((att) => (
           <Single
@@ -725,11 +800,20 @@ export function MessageAttachments({
             mine={mine}
             onOpen={() => openViewer(att)}
             onCancel={onCancel}
+            sendFailed={sendFailed}
+            onRetry={onRetry}
           />
         ))
       )}
       {others.map((att) => (
-        <Single key={att.id} att={att} mine={mine} onCancel={onCancel} />
+        <Single
+          key={att.id}
+          att={att}
+          mine={mine}
+          onCancel={onCancel}
+          sendFailed={sendFailed}
+          onRetry={onRetry}
+        />
       ))}
       {viewerIndex !== null && (
         <MediaViewer
