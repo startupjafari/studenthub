@@ -8,8 +8,15 @@ export {
   removeStoryReactionRequest,
   voteStoryRequest,
   fetchStoryViewers,
+  uploadStoryMedia,
   type StoryViewersPage,
 } from './api/story-api'
+export {
+  STORY_AUDIENCES_BY_ROLE,
+  STORY_GROUP_PICKER_ROLES,
+  STORY_FACULTY_PICKER_ROLES,
+  canCreateStory,
+} from './model/audiences'
 export {
   STORY_BACKGROUND_CLASS,
   STORY_BACKGROUND_VALUES,
