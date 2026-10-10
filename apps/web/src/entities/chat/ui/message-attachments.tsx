@@ -14,28 +14,13 @@ import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { fetchAttachmentUrl } from '../api/chat-api'
 import { fileKind } from '../lib/file-kind'
+// Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
+import { isViewable, isVoice } from '../lib/attachment-kind'
 import type { MessageAttachment } from '../model/types'
 import { VoiceMessage } from './voice-message'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 
 // Голосовое сообщение (плеер-волна), а не обычное аудио/видео вложение.
-// Основной признак — имя из встроенного рекордера (`voice-…`), т.к. mime по содержимому непредсказуем:
-// webm → video/webm, iOS-запись → video/mp4. Для старых сообщений — запасная эвристика по mime.
-function isVoice(att: MessageAttachment): boolean {
-  if (att.name && /^voice-/i.test(att.name)) return true
-  return att.mime.startsWith('audio/') || att.mime === 'video/webm'
-}
-
-// Открывается ли вложение в полноэкранном просмотрщике (картинка или реальное видео, не голосовое).
-//
-// `asDocument` перевешивает mime: снимок, отправленный «без сжатия», получатель видит строкой
-// файла — ровно так, как выбрал отправитель. Иначе выбор способа отправки не доезжал бы дальше
-// окна отправки, а картинка всё равно приходила бы превью.
-function isViewable(att: MessageAttachment): boolean {
-  if (isVoice(att) || att.asDocument) return false
-  return att.mime.startsWith('image/') || att.mime.startsWith('video/')
-}
-
 /** `0:55`, `1:02:30` — длительность ролика бейджем в углу кадра, как в Telegram. */
 function formatDuration(seconds: number): string {
   const total = Math.round(seconds)

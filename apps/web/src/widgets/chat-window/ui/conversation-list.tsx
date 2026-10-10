@@ -17,8 +17,11 @@ import {
   EyeOff,
   Folder,
   FolderCog,
+  FileText,
   FolderPlus,
+  ImageIcon,
   Loader2,
+  Mic,
   MessagesSquare,
   Pin,
   PinOff,
@@ -28,9 +31,12 @@ import {
   Trash2,
   UserRoundSearch,
   Users,
+  Video,
   X,
+  type LucideIcon,
 } from 'lucide-react'
-import type { ChatFolder, ChatListItem } from '../../../entities/chat'
+import { mediaPreview, type AttachmentKind } from '../../../entities/chat'
+import type { ChatFolder, ChatListItem, MessageAttachment } from '../../../entities/chat'
 import type { DirectoryUser } from '../../../entities/user'
 import {
   Avatar,
@@ -143,6 +149,58 @@ export type ConversationListProps = {
   onOpenUnread: (c: ChatListItem) => void
   onClearHistory: (c: ChatListItem) => void
   onDeleteChat: (c: ChatListItem) => void
+}
+
+// Вид вложения в превью — значком и подписью, как в Telegram: по строке списка видно,
+// снимок там, голосовое или архив, ещё до того как чат открыт. Раньше любое вложение
+// было одним словом «Вложение» — одинаковым и для фото, и для 300-мегабайтного архива.
+const PREVIEW_ICON: Record<AttachmentKind, LucideIcon> = {
+  voice: Mic,
+  photo: ImageIcon,
+  video: Video,
+  file: FileText,
+}
+const PREVIEW_KEY: Record<AttachmentKind, string> = {
+  voice: 'previewVoice',
+  photo: 'previewPhoto',
+  video: 'previewVideo',
+  file: 'previewFile',
+}
+
+/**
+ * Превью последнего сообщения: подпись, а у вложения без текста — ещё и значок вида.
+ *
+ * Подпись к вложению вытесняет название вида: у снимка с текстом в списке стоит сам
+ * текст, а не слово «Фото», — он содержательнее. Значок тогда тоже не нужен, иначе
+ * строка начинается с картинки и обрывается на середине слова.
+ */
+function MessagePreview({
+  message,
+  t,
+}: {
+  // Структурный тип, а не ChatMessage: тем же превью подписываются найденные сообщения,
+  // а они приходят урезанными. Нужны ровно три поля — остальное к превью отношения не
+  // имеет, и требовать их значило бы запретить переиспользование на ровном месте.
+  message: {
+    systemType?: string | null
+    content?: string | null
+    media?: readonly MessageAttachment[]
+  } | null
+  t: ReturnType<typeof useTranslations<'Chats'>>
+}) {
+  if (!message) return null
+  if (message.systemType) return <>{t('systemEvent')}</>
+  if (message.content) return <>{message.content}</>
+  const media = mediaPreview(message.media ?? [])
+  if (!media) return null
+  const Icon = PREVIEW_ICON[media.kind]
+  return (
+    <>
+      {/* `-mt-px`: оптический центр значка на пол-пикселя выше базовой линии строки. */}
+      <Icon className="-mt-px mr-1 inline size-3.5 shrink-0 align-text-bottom" aria-hidden />
+      {t(PREVIEW_KEY[media.kind], { n: media.count })}
+    </>
+  )
 }
 
 export function ConversationList({
@@ -495,11 +553,6 @@ export function ConversationList({
                     {chatMatches.map((c) => {
                       const title = chatTitle(c, t)
                       const lm = c.lastMessage
-                      const preview = lm
-                        ? lm.systemType
-                          ? t('systemEvent')
-                          : lm.content || (lm.media.length ? t('attachment') : '')
-                        : ''
                       return (
                         <button
                           key={c.id}
@@ -523,8 +576,10 @@ export function ConversationList({
                           </Avatar>
                           <div className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-semibold">{title}</span>
-                            {preview && (
-                              <p className="truncate text-xs text-muted-foreground">{preview}</p>
+                            {lm && (
+                              <p className="truncate text-xs text-muted-foreground">
+                                <MessagePreview message={lm} t={t} />
+                              </p>
                             )}
                           </div>
                         </button>
@@ -638,7 +693,7 @@ export function ConversationList({
                               </div>
                               <p className="truncate text-xs text-muted-foreground">
                                 <span className="text-foreground/70">{senderName(m)}: </span>
-                                {m.content || t('attachment')}
+                                <MessagePreview message={m} t={t} />
                               </p>
                             </div>
                           </button>
@@ -674,11 +729,6 @@ export function ConversationList({
           visibleChats.map((c) => {
             const title = chatTitle(c, t)
             const lm = c.lastMessage
-            const preview = lm
-              ? lm.systemType
-                ? t('systemEvent')
-                : lm.content || (lm.media.length ? t('attachment') : '')
-              : ''
             const previewWho =
               lm && c.type !== 'PRIVATE'
                 ? lm.senderId === myId
@@ -867,7 +917,7 @@ export function ConversationList({
                       ) : (
                         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                           {previewWho && <span className="text-foreground/70">{previewWho}</span>}
-                          {preview}
+                          <MessagePreview message={lm} t={t} />
                         </p>
                       )}
                       {c.unreadCount > 0 ? (
