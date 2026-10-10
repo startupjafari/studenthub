@@ -62,7 +62,7 @@
   },
   "pnpm": {
     "auditConfig": {
-      "_comment": "Находки, для которых совместимого обновления нет. (1) Транзитивные зависимости клиента minio — decode-uri-component через query-string и stream-json: minio 8.0.7 (последняя) по-прежнему делает require(\"stream-json/jsonl/Parser.js\"), а в stream-json 3.5+ этого файла нет — с обновлением API не стартует (проверено распаковкой пакета). Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит из сборочного инструментария @ducanh2912/next-pwa. Снять, когда выйдет патч.",
+      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч.",
       "ignoreGhsas": [
         "GHSA-vcc3-ghjq-m6fr",
         "GHSA-528h-pc64-c93x",
@@ -105,7 +105,9 @@
       "@modelcontextprotocol/sdk": "^1.31.0",
       "postcss-selector-parser": "^7.1.6",
       "fast-copy": "^4.1.1",
-      "source-map-js": "^1.2.2"
+      "source-map-js": "^1.2.2",
+      "handlebars": "^4.7.10",
+      "katex": "0.18.10"
     }
   }
 }

@@ -1,5 +1,222 @@
 [
   {
+    "version": "1.4.0",
+    "date": "2026-10-10",
+    "showModal": true,
+    "content": {
+      "ru": {
+        "title": "Голосовые сообщения, переписка и скорость",
+        "intro": "Больше всего изменилось в чатах: голосовые теперь видно, а не только слышно, а список диалогов перестал называть всё подряд «Вложением». Лента и история переписки открываются заметно быстрее.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "🎤",
+                "title": "Волна голосового — настоящая",
+                "text": "полоски показывают громкость записи, а длина волны — её продолжительность: секундное сообщение теперь короткое, минутное длинное. Раньше все голосовые выглядели одинаково"
+              },
+              {
+                "icon": "🖼",
+                "title": "Понятно, что прислали",
+                "text": "в списке диалогов вместо слова «Вложение» написано «Голосовое сообщение», «Фото», «Видео» или «Файл» — со значком"
+              },
+              {
+                "icon": "💾",
+                "title": "Сохранить снимок — посередине кадра",
+                "text": "кнопка переехала из угла в центр, туда же, где показываются отправка и повтор: все состояния вложения теперь в одном месте"
+              },
+              {
+                "icon": "🗂",
+                "title": "«Сохранённые» есть сразу",
+                "text": "личный чат для заметок и остальные служебные чаты заводятся вместе с аккаунтом, а не после первого захода"
+              }
+            ]
+          },
+          {
+            "heading": "Стало быстрее",
+            "items": [
+              {
+                "icon": "⚡️",
+                "title": "Лента открывается мгновенно",
+                "text": "страница ленты больше не перечитывает все записи целиком — время перестало расти вместе с их числом"
+              },
+              {
+                "icon": "📜",
+                "title": "Прокрутка переписки вглубь",
+                "text": "раньше каждая следующая страница истории давалась тяжелее предыдущей; теперь глубина не имеет значения"
+              }
+            ]
+          },
+          {
+            "heading": "По мелочи",
+            "items": [
+              {
+                "icon": "📄",
+                "title": "Политика и соглашение — отдельными страницами",
+                "text": "у обоих документов появился собственный адрес: их можно открыть по ссылке, сохранить в закладки и переслать"
+              },
+              {
+                "icon": "✅",
+                "title": "Профиль сохраняется без указания пола",
+                "text": "поле осталось необязательным — и теперь действительно не мешает сохранить остальное"
+              },
+              {
+                "icon": "⌨️",
+                "title": "Стрелки в списках с поиском",
+                "text": "по подсказкам можно ходить клавишами вверх и вниз и выбирать Enter, не берясь за мышь"
+              },
+              {
+                "icon": "🌗",
+                "title": "Заставка запуска идёт за темой",
+                "text": "в светлой теме она больше не вспыхивает тёмным полотном"
+              }
+            ]
+          }
+        ]
+      },
+      "kk": {
+        "title": "Дауыстық хабарламалар, хат алмасу және жылдамдық",
+        "intro": "Ең көп өзгеріс чаттарда: дауыстық хабарламаны енді естіп қана қоймай, көруге де болады, ал диалогтар тізімі бәрін «Тіркеме» деп атауды қойды. Лента мен хат алмасу тарихы әлдеқайда жылдам ашылады.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "🎤",
+                "title": "Дауыстық толқыны — нағыз",
+                "text": "жолақтар жазбаның қаттылығын, ал толқынның ұзындығы оның ұзақтығын көрсетеді: бір секундтық хабарлама қысқа, бір минуттық ұзын. Бұрын барлық дауыстық хабарламалар бірдей көрінетін"
+              },
+              {
+                "icon": "🖼",
+                "title": "Не жібергені түсінікті",
+                "text": "диалогтар тізімінде «Тіркеме» дегеннің орнына «Дауыстық хабарлама», «Фото», «Бейне» немесе «Файл» деп белгішесімен жазылады"
+              },
+              {
+                "icon": "💾",
+                "title": "Суретті сақтау — кадр ортасында",
+                "text": "түйме бұрыштан ортаға көшті, жіберу мен қайталау көрсетілетін жерге: тіркеменің барлық күйі енді бір жерде"
+              },
+              {
+                "icon": "🗂",
+                "title": "«Сақталғандар» бірден бар",
+                "text": "жазбаларға арналған жеке чат және басқа қызметтік чаттар алғаш кіргеннен кейін емес, аккаунтпен бірге құрылады"
+              }
+            ]
+          },
+          {
+            "heading": "Жылдамдады",
+            "items": [
+              {
+                "icon": "⚡️",
+                "title": "Лента лезде ашылады",
+                "text": "лента беті бүкіл жазбаны қайта оқымайды — уақыт олардың санымен бірге өспейтін болды"
+              },
+              {
+                "icon": "📜",
+                "title": "Хат алмасуды тереңге айналдыру",
+                "text": "бұрын тарихтың әр келесі беті алдыңғысынан ауыр түсетін; енді тереңдіктің маңызы жоқ"
+              }
+            ]
+          },
+          {
+            "heading": "Ұсақ-түйек",
+            "items": [
+              {
+                "icon": "📄",
+                "title": "Саясат пен келісім — бөлек беттер",
+                "text": "екі құжаттың да өз мекенжайы пайда болды: оларды сілтеме арқылы ашуға, бетбелгіге сақтауға және жіберуге болады"
+              },
+              {
+                "icon": "✅",
+                "title": "Профиль жынысты көрсетпей сақталады",
+                "text": "өріс міндетті емес күйінде қалды — енді шынымен де қалғанын сақтауға кедергі келтірмейді"
+              },
+              {
+                "icon": "⌨️",
+                "title": "Іздеуі бар тізімдердегі көрсеткілер",
+                "text": "ұсыныстар бойынша жоғары-төмен пернелерімен жүріп, Enter арқылы таңдауға болады"
+              },
+              {
+                "icon": "🌗",
+                "title": "Бастапқы экран тақырыпқа ереді",
+                "text": "жарық тақырыпта ол енді қара болып жарқ етпейді"
+              }
+            ]
+          }
+        ]
+      },
+      "en": {
+        "title": "Voice messages, chats and speed",
+        "intro": "Most of the change is in chats: a voice message is now something you can see, not just hear, and the conversation list no longer calls everything an “Attachment”. The feed and chat history open noticeably faster.",
+        "sections": [
+          {
+            "items": [
+              {
+                "icon": "🎤",
+                "title": "The voice waveform is real",
+                "text": "the bars show how loud the recording is, and the width shows how long it is: a one-second message is now short, a one-minute one long. Every voice message used to look the same"
+              },
+              {
+                "icon": "🖼",
+                "title": "You can tell what arrived",
+                "text": "the conversation list says “Voice message”, “Photo”, “Video” or “File” with an icon, instead of “Attachment”"
+              },
+              {
+                "icon": "💾",
+                "title": "Save a photo — from the middle",
+                "text": "the button moved from the corner to the centre, where sending and retrying already appear: every state of an attachment now lives in one place"
+              },
+              {
+                "icon": "🗂",
+                "title": "“Saved” is there from the start",
+                "text": "your personal notes chat and the other service chats are created together with the account, not after you first open them"
+              }
+            ]
+          },
+          {
+            "heading": "Faster now",
+            "items": [
+              {
+                "icon": "⚡️",
+                "title": "The feed opens instantly",
+                "text": "a page of the feed no longer reads through every post — the time stopped growing with their number"
+              },
+              {
+                "icon": "📜",
+                "title": "Scrolling deep into a conversation",
+                "text": "each next page of history used to cost more than the last; depth no longer matters"
+              }
+            ]
+          },
+          {
+            "heading": "Smaller things",
+            "items": [
+              {
+                "icon": "📄",
+                "title": "Policy and terms are their own pages",
+                "text": "both documents now have an address of their own: you can open them by link, bookmark them and pass them on"
+              },
+              {
+                "icon": "✅",
+                "title": "A profile saves without a gender",
+                "text": "the field stayed optional — and now it really does not stop you saving the rest"
+              },
+              {
+                "icon": "⌨️",
+                "title": "Arrow keys in searchable lists",
+                "text": "walk the suggestions with Up and Down and pick with Enter, without reaching for the mouse"
+              },
+              {
+                "icon": "🌗",
+                "title": "The splash screen follows your theme",
+                "text": "in the light theme it no longer flashes a dark canvas"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
     "version": "1.3.3",
     "date": "2026-10-01",
     "showModal": false,

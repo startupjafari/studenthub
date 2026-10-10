@@ -17,6 +17,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps['theme']}
       className="toaster group"
+      // Нажатие на тост не должно его шевелить. Смахивание sonner начинает прямо на
+      // pointerdown и дальше сажает плашку на transform от указателя — мышью тост
+      // таскался за курсором. Пустой список направлений оставляет смещение нулевым:
+      // плашка стоит на месте, порог закрытия не набирается.
+      //
+      // Побочное следствие: смахиванием тост больше не закрыть. Он и так уходит сам
+      // через четыре секунды, а крестика у него никогда и не было.
+      swipeDirections={[]}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,

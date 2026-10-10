@@ -1802,25 +1802,57 @@ export function ChatWindow() {
     if (el) el.scrollTop = el.scrollHeight
   }, [composerH])
 
-  // Начальная пометка дня: лента открывается внизу, и до первого скролла обработчик
-  // не сработает — без этого заголовок дня появлялся бы только после касания колеса.
-  useEffect(() => {
+  // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
+  // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
+  // пока сама пометка уехала под верх: тогда дата всё равно видна, а когда пометка
+  // возвращается в кадр, заголовок гаснет, чтобы не было двух одинаковых дат.
+  // (Настоящий `position: sticky` не годится: virtua оборачивает каждое сообщение,
+  // и прилипало бы в пределах одного сообщения, а не до следующей даты.)
+  //
+  // Решает это одно измерение: какое сообщение сейчас вверху кадра, начинается ли с него
+  // день и насколько оно уже ушло под верх. Зовётся и на прокрутке, и после открытия чата.
+  function syncFloatingDay(): void {
     const data = messages.data
     if (!data || data.length === 0) {
       setFloatingDay(null)
+      setFloatingDayShown(false)
       return
     }
-    const last = data[data.length - 1]
-    if (last) {
-      setFloatingDay(dayLabel(last.createdAt))
-      // Чат открывается у последнего сообщения: пометка его дня осталась выше кадра
-      // (если сообщений за день больше одного) — показываем заголовок сразу.
-      const first = data[0]
-      setFloatingDayShown(
-        !!first &&
-          new Date(first.createdAt).toDateString() !== new Date(last.createdAt).toDateString(),
-      )
+    const vh = virtualizerRef.current
+    if (!vh) {
+      // Виртуализатор ещё не смонтирован — мерить нечем. Текст заголовку готовим, но
+      // показывать не начинаем: встроенная пометка сейчас на экране, и заголовок дал бы
+      // вторую такую же дату. Ошибиться в эту сторону дешевле: промах здесь стоит
+      // одного кадра до первой прокрутки, промах в другую — видимого дубля.
+      const last = data[data.length - 1]
+      if (last) setFloatingDay(dayLabel(last.createdAt))
+      setFloatingDayShown(false)
+      return
     }
+    const topIdx = Math.min(Math.max(vh.findItemIndex(vh.scrollOffset), 0), data.length - 1)
+    const top = data[topIdx]
+    if (!top) return
+    setFloatingDay(dayLabel(top.createdAt))
+    const prev = data[topIdx - 1]
+    const startsDay =
+      !prev || new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
+    // Насколько верхнее сообщение уже ушло под верх: пока меньше высоты пометки,
+    // она видна целиком и подменять её нечем.
+    const scrolledInto = vh.scrollOffset - vh.getItemOffset(topIdx)
+    setFloatingDayShown(!startsDay || scrolledInto > DAY_LABEL_H)
+  }
+
+  // Начальная пометка дня: лента открывается внизу, и до первого скролла обработчик
+  // не сработает — без этого заголовок дня появлялся бы только после касания колеса.
+  //
+  // Через кадр, а не сразу: virtua на момент эффекта ещё не разложила ленту, и мерить
+  // нечего. Раньше здесь мерить и не пытались — заголовок поднимали по догадке «первый и
+  // последний день разные, значит пометка уехала под верх». Догадка врала каждый раз,
+  // когда переписка целиком помещается на экране: встроенная пометка видна, а заголовок
+  // всё равно показывался, и «Сегодня» оказывалось на экране дважды.
+  useEffect(() => {
+    const id = requestAnimationFrame(syncFloatingDay)
+    return () => cancelAnimationFrame(id)
     // Пересчёт при смене чата и подгрузке истории; дальше день ведёт onMessagesScroll.
   }, [activeId, messages.data])
 
@@ -1828,29 +1860,7 @@ export function ChatWindow() {
   function onMessagesScroll(): void {
     const el = messagesScrollRef.current
     if (!el) return
-    // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
-    // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
-    // пока сама пометка уехала под верх: тогда дата всё равно видна, а когда пометка
-    // возвращается в кадр, заголовок гаснет, чтобы не было двух одинаковых дат.
-    // (Настоящий `position: sticky` не годится: virtua оборачивает каждое сообщение,
-    // и прилипало бы в пределах одного сообщения, а не до следующей даты.)
-    const vh = virtualizerRef.current
-    const data = messages.data
-    if (vh && data && data.length > 0) {
-      const topIdx = Math.min(Math.max(vh.findItemIndex(vh.scrollOffset), 0), data.length - 1)
-      const top = data[topIdx]
-      if (top) {
-        setFloatingDay(dayLabel(top.createdAt))
-        const prev = data[topIdx - 1]
-        const startsDay =
-          !prev ||
-          new Date(prev.createdAt).toDateString() !== new Date(top.createdAt).toDateString()
-        // Насколько верхнее сообщение уже ушло под верх: пока меньше высоты пометки,
-        // она видна целиком и подменять её нечем.
-        const scrolledInto = vh.scrollOffset - vh.getItemOffset(topIdx)
-        setFloatingDayShown(!startsDay || scrolledInto > DAY_LABEL_H)
-      }
-    }
+    syncFloatingDay()
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
     setShowScrollDown(!atBottom)
     // Прочитано то, что проехало через экран, — на каждом шаге прокрутки, а не только
@@ -3790,68 +3800,76 @@ export function ChatWindow() {
                   в обычном чате не занимает место постоянно. Поле ввода в этом режиме
                   скрыто: писать во время поиска всё равно некуда. */}
               {chatSearchOpen && (
-                <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 flex items-center gap-1 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
-                  {/* Переход по дате (#5): клик по числу сразу прокручивает историю к этому
-                      дню и закрывает календарь — как в мессенджерах. Дата — действие, а не
-                      значение формы, поэтому ни поля с текстом даты, ни «Готово» тут нет.
-                      Будущее закрыто: сообщений там заведомо нет. */}
-                  <DateJumpPicker
-                    className={HEADER_ICON_BTN}
-                    value={jumpDate}
-                    onChange={(ymd) => {
-                      setJumpDate(ymd)
-                      if (ymd) void jumpToDate(ymd)
-                    }}
-                    max={formatYmd(new Date())}
-                    aria-label={t('jumpToDate')}
-                    dayThumbs={dayThumbs}
-                    onViewChange={(y, m) =>
-                      setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
-                    }
-                    rangeAction={{
-                      label: t('clearHistory'),
-                      destructive: true,
-                      onSubmit: (from, to) => {
-                        void confirm({
-                          title: t('clearPeriodConfirm', { from, to }),
-                          destructive: true,
-                        }).then((ok) => {
-                          if (ok) clearPeriod.mutate({ from, to })
-                        })
-                      },
-                    }}
-                  />
-                  <span className="flex-1" aria-hidden />
-                  {chatSearchResults.isFetching ? (
-                    <Loader2
-                      className="size-4 shrink-0 animate-spin text-muted-foreground"
-                      aria-hidden
+                <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
+                  {/* Ряд 44 px — тот же, что у панели ввода, которую поиск собой заменяет.
+                      py-2 вокруг него даёт ту же высоту, что и плашка профиля внизу
+                      сайдбара (py-3 вокруг 36-px строки): верхние границы обеих панелей
+                      идут одной линией. Кнопки здесь на ПК 40-px, и без заданной высоты
+                      ряда панель выходила на 4 px ниже соседней колонки — линия внизу
+                      ломалась ступенькой ровно так же, как раньше ломалась верхняя. */}
+                  <div className="flex h-11 items-center gap-1">
+                    {/* Переход по дате (#5): клик по числу сразу прокручивает историю к
+                        этому дню и закрывает календарь — как в мессенджерах. Дата —
+                        действие, а не значение формы, поэтому ни поля с текстом даты, ни
+                        «Готово» тут нет. Будущее закрыто: сообщений там заведомо нет. */}
+                    <DateJumpPicker
+                      className={HEADER_ICON_BTN}
+                      value={jumpDate}
+                      onChange={(ymd) => {
+                        setJumpDate(ymd)
+                        if (ymd) void jumpToDate(ymd)
+                      }}
+                      max={formatYmd(new Date())}
+                      aria-label={t('jumpToDate')}
+                      dayThumbs={dayThumbs}
+                      onViewChange={(y, m) =>
+                        setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
+                      }
+                      rangeAction={{
+                        label: t('clearHistory'),
+                        destructive: true,
+                        onSubmit: (from, to) => {
+                          void confirm({
+                            title: t('clearPeriodConfirm', { from, to }),
+                            destructive: true,
+                          }).then((ok) => {
+                            if (ok) clearPeriod.mutate({ from, to })
+                          })
+                        },
+                      }}
                     />
-                  ) : (
-                    chatSearchTerm.length >= 2 && (
-                      <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
-                        {searchTotal > 0 ? `${searchIdx + 1}/${searchTotal}` : t('noResults')}
-                      </span>
-                    )
-                  )}
-                  <button
-                    type="button"
-                    aria-label={t('searchPrev')}
-                    onClick={() => stepSearch(-1)}
-                    disabled={searchTotal === 0 || searchIdx <= 0}
-                    className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                  >
-                    <ChevronUp className="size-5" aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t('searchNext')}
-                    onClick={() => stepSearch(1)}
-                    disabled={searchTotal === 0 || searchIdx >= searchTotal - 1}
-                    className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                  >
-                    <ChevronDown className="size-5" aria-hidden />
-                  </button>
+                    <span className="flex-1" aria-hidden />
+                    {chatSearchResults.isFetching ? (
+                      <Loader2
+                        className="size-4 shrink-0 animate-spin text-muted-foreground"
+                        aria-hidden
+                      />
+                    ) : (
+                      chatSearchTerm.length >= 2 && (
+                        <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
+                          {searchTotal > 0 ? `${searchIdx + 1}/${searchTotal}` : t('noResults')}
+                        </span>
+                      )
+                    )}
+                    <button
+                      type="button"
+                      aria-label={t('searchPrev')}
+                      onClick={() => stepSearch(-1)}
+                      disabled={searchTotal === 0 || searchIdx <= 0}
+                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                    >
+                      <ChevronUp className="size-5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('searchNext')}
+                      onClick={() => stepSearch(1)}
+                      disabled={searchTotal === 0 || searchIdx >= searchTotal - 1}
+                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
+                    >
+                      <ChevronDown className="size-5" aria-hidden />
+                    </button>
+                  </div>
                 </div>
               )}
               {!activeChat?.requestIncoming && !chatSearchOpen && (
