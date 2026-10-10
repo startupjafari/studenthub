@@ -35,6 +35,8 @@ function setup() {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      // Счётчик комментариев ленты: отдельный groupBy по id страницы (decorateFeed).
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
@@ -684,6 +686,45 @@ describe('PostsService — избранное', () => {
     await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
 
     expect(prisma.postBookmark.findMany).not.toHaveBeenCalled()
+    expect(prisma.comment.groupBy).not.toHaveBeenCalled()
+  })
+})
+
+// ── Счётчик комментариев ленты ──────────────────────────────────────────────
+//
+// `_count` отношением заставляет Postgres считать агрегат по всей таблице комментариев
+// до сортировки, и планировщик из-за этого бросает индекс порядка ленты: 115 мс против
+// 0,04 мс на 90 тыс. постов и 500 тыс. комментариев. Тесты стерегут форму запроса —
+// вернуть `_count` в select можно одной строкой, и по коду это будет незаметно.
+describe('PostsService — счётчик комментариев ленты', () => {
+  it('выборка ленты идёт без _count, счётчик берётся отдельным groupBy', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([postRow({ id: 'p1' }), postRow({ id: 'p2' })])
+    prisma.comment.groupBy.mockResolvedValue([{ postId: 'p1', _count: { _all: 7 } }])
+
+    const res = await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+
+    expect(prisma.post.findMany.mock.calls[0][0].select._count).toBeUndefined()
+    expect(prisma.comment.groupBy.mock.calls[0][0]).toMatchObject({
+      by: ['postId'],
+      where: { postId: { in: ['p1', 'p2'] } },
+    })
+    // Форма ответа прежняя: клиент читает post._count.comments.
+    expect(res.items.map((p) => [p.id, p._count.comments])).toEqual([
+      ['p1', 7],
+      ['p2', 0],
+    ])
+  })
+
+  it('одиночный пост по-прежнему со счётчиком в select — агрегат там по одному id', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1' }))
+
+    await service.getById(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p1')
+
+    expect(prisma.post.findFirst.mock.calls[0][0].select._count).toEqual({
+      select: { comments: true },
+    })
   })
 
   it('таб SAVED сужает выдачу закладкой зрителя, не отменяя видимость', async () => {
