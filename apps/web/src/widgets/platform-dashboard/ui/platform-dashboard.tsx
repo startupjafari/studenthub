@@ -38,6 +38,7 @@ import {
   HOUR_LABELS,
   WEEKDAYS,
   averageDay,
+  categoryRowHeight,
   useChartTheme,
   useSeriesToggle,
   weekdayAverages,
@@ -502,9 +503,16 @@ function UniversitiesModal({ items, onClose }: { items: UniversitySize[]; onClos
     [items],
   )
 
+  const names = useMemo(() => items.map((u) => u.name), [items])
+
   return (
     <Modal onClose={onClose} title={t('sizeTitle')} size="3xl">
-      <p className="mb-3 text-xs text-muted-foreground">
+      {/* Что именно меряют полосы — первой строкой. Заголовок «Размер вузов» на этот
+          вопрос не отвечает: размер в чём, в студентах или в людях вообще. Подпись у
+          карточки на дашборде уже есть, а в окне её не показывали — и число у полосы
+          оставалось без единицы измерения. */}
+      <p className="text-sm text-foreground">{t('sizeSubtitle')}</p>
+      <p className="mt-0.5 mb-3 text-xs text-muted-foreground">
         {t('sizeModalSummary', {
           count: items.length,
           users: nf.format(totals.users),
@@ -518,9 +526,15 @@ function UniversitiesModal({ items, onClose }: { items: UniversitySize[]; onClos
         <BarChart
           ariaLabel={t('sizeTitle')}
           palette={palette}
-          height={Math.max(180, items.length * 34 + 40)}
-          labels={items.map((u) => u.name)}
+          // Высота дорожки — по самой длинной подписи, а не жёсткие 34px: названия
+          // вузов переносятся на три строки, и подписи соседних полос наезжали друг
+          // на друга (видно было на «Актюбинском юридическом институте»).
+          height={Math.max(180, items.length * categoryRowHeight(names) + 40)}
+          labels={names}
           values={items.map((u) => u.total)}
+          // Подпись ряда в подсказке: без неё при наведении стояло одно число без
+          // единицы измерения.
+          seriesName={t('sizeSeries')}
           valueLabel={(v) => nf.format(v)}
         />
       </div>

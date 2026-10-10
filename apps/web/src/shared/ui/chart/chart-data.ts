@@ -56,3 +56,24 @@ export function categoryAxisWidth(labels: readonly string[]): number {
   // ~6.2px на символ при 11px шрифте оси; края держим, чтобы полосы не съедало.
   return Math.min(220, Math.max(64, Math.round(longest * 6.2) + 8))
 }
+
+/**
+ * Высота дорожки горизонтального бара с учётом переноса подписи.
+ *
+ * Ось категорий шире 220px не становится (`categoryAxisWidth`), а подписи бывают
+ * длиннее: названия вузов доходят до девяноста символов. Recharts переносит такие
+ * на несколько строк, и при жёсткой высоте дорожки подписи соседних полос наезжают
+ * друг на друга — список перестаёт читаться именно там, где он длиннее всего.
+ *
+ * Потолок в три строки держит полотно в разумных пределах: при двухстах дорожках
+ * каждая лишняя строка — это шестьсот лишних пикселей прокрутки. Трёх строк хватает
+ * на самое длинное название из нынешних; что не поместится — видно в подсказке.
+ */
+export function categoryRowHeight(labels: readonly string[], min = 34): number {
+  // ~6.2px на символ — та же оценка, что в categoryAxisWidth.
+  const perLine = Math.max(8, Math.floor(categoryAxisWidth(labels) / 6.2))
+  const longest = labels.reduce((max, l) => Math.max(max, l.length), 0)
+  const lines = Math.min(3, Math.max(1, Math.ceil(longest / perLine)))
+  // 14px — межстрочное расстояние подписи оси при кегле 11px, плюс воздух между дорожками.
+  return Math.max(min, lines * 14 + 12)
+}

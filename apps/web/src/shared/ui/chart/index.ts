@@ -20,6 +20,7 @@ export { useSeriesToggle } from './use-series-toggle'
 export { useReducedMotion } from './use-reduced-motion'
 export {
   categoryAxisWidth,
+  categoryRowHeight,
   seriesOpacity,
   toRows,
   topVisibleKey,

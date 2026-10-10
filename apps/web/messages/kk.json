@@ -3778,7 +3778,8 @@
     "subtitleRange": "Платформа көрсеткіштері · {period}",
     "sizeSubtitleTop": "Пайдаланушы саны бойынша ең үлкен {count} жоо",
     "showAll": "Барлығын көрсету ({count})",
-    "sizeModalSummary": "{count} жоо · {users} пайдаланушы · {students} студент, {teachers} оқытушы"
+    "sizeModalSummary": "{count} жоо · {users} пайдаланушы · {students} студент · {teachers} оқытушы",
+    "sizeSeries": "Пайдаланушы"
   },
   "Table": {
     "rows": "{count} жол",
