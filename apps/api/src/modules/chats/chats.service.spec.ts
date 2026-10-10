@@ -862,6 +862,72 @@ describe('ChatsService — официальные чаты (9.6)', () => {
     expect(createdTypes).toEqual(['SAVED'])
   })
 
+  // Набор задан таблицей AUTO_CHATS_BY_ROLE, а не выводится из scope: у декана тот же
+  // facultyId, что у преподавателя, но предметы он не ведёт и в их чаты не входит.
+  it('декану не заводятся чаты предметов, хотя scope тот же', async () => {
+    const { service, prisma } = setup()
+    const dean: JwtPayload = {
+      sub: 'dean1',
+      role: Role.DEAN,
+      universityId: 'uni1',
+      facultyId: 'fac1',
+      groupId: null,
+    }
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+
+    await service.ensureOfficialChatsForUser(dean)
+
+    const createdTypes = prisma.chat.create.mock.calls.map((c) => c[0].data.type)
+    expect(createdTypes).toEqual(['SAVED', 'FACULTY', 'DEAN', 'SUPPORT'])
+    // За парами не ходим вовсе — таблица предметов декану не даёт.
+    expect(prisma.pair.findMany).not.toHaveBeenCalled()
+  })
+
+  it('администрации вуза — только «Сохранённые» и комната поддержки', async () => {
+    const { service, prisma } = setup()
+    const admin: JwtPayload = {
+      sub: 'ua1',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni1',
+      facultyId: 'fac1',
+      groupId: null,
+    }
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+
+    await service.ensureOfficialChatsForUser(admin)
+
+    // facultyId есть, но факультетские чаты администрации вуза не положены.
+    expect(prisma.chat.create.mock.calls.map((c) => c[0].data.type)).toEqual(['SAVED', 'SUPPORT'])
+  })
+
+  // Студент предметы ведёт не он — второй запрос по teacherId раньше уходил всегда и
+  // заведомо возвращал пусто.
+  it('студенту за парами ходим один раз — по своей группе', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockImplementation(({ data }: { data: { type: string } }) =>
+      Promise.resolve({ id: `chat-${data.type}` }),
+    )
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+    prisma.pair.findMany.mockResolvedValue([{ groupId: 'grp1', subject: 'Математика' }])
+
+    await service.ensureOfficialChatsForUser(fullScopeUser())
+
+    expect(prisma.pair.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.pair.findMany.mock.calls[0][0].where).toMatchObject({ groupId: 'grp1' })
+  })
+
   it('существующие «Сохранённые» второй раз не создаются', async () => {
     const { service, prisma } = setup()
     prisma.chat.findFirst.mockResolvedValue({ id: 'saved-1' })

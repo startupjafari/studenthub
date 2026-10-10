@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type Redis from 'ioredis'
 import { ChatType, Prisma } from '@prisma/client'
+import { Role } from '@studenthub/shared-types'
 import type {
   CreateChatInput,
   ChatListQueryInput,
@@ -275,6 +276,52 @@ type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
 
 // Окно троттлинга провижининга официальных чатов на пользователя (см. ensureOfficialChatsThrottled).
 const CHAT_ENSURE_TTL_SECONDS = 600
+
+/**
+ * Какие чаты заводятся сами — по ролям (docs/PROJECT.md §9.6, §15).
+ *
+ * Раньше набор нигде не был записан: он выводился из scope пользователя — есть groupId,
+ * значит чат группы; есть facultyId, значит факультет и деканат. Пока у ролей scope
+ * совпадал с замыслом, это работало, но прочитать «что положено декану» было негде, а
+ * роли без scope — платформенные и работодатель — молча не получали ничего.
+ *
+ * Теперь набор задан здесь, по одной строке на роль. Scope при этом никуда не делся: он
+ * по-прежнему решает, МОЖНО ли завести чат (без facultyId факультетского чата не бывает),
+ * а таблица — НУЖНО ли. Два разных вопроса, и смешаны они были зря.
+ */
+type AutoChat =
+  | 'SAVED'
+  /** Официальный чат своей группы. */
+  | 'GROUP_OFFICIAL'
+  /** Общий чат факультета. */
+  | 'FACULTY'
+  /** Переписка с деканатом факультета. */
+  | 'DEAN'
+  /** Общая комната поддержки вуза. */
+  | 'SUPPORT'
+  /** Чаты предметов СВОЕЙ группы — по расписанию группы. */
+  | 'SUBJECT_OF_GROUP'
+  /** Чаты предметов, которые ВЕДЁТ сам, — по своим парам в любой группе. */
+  | 'SUBJECT_TAUGHT'
+
+const AUTO_CHATS_BY_ROLE: Record<Role, readonly AutoChat[]> = {
+  [Role.STUDENT]: ['SAVED', 'GROUP_OFFICIAL', 'FACULTY', 'DEAN', 'SUPPORT', 'SUBJECT_OF_GROUP'],
+  // Староста — тот же студент по набору чатов; отличия у него в правах внутри них.
+  [Role.STAROSTA]: ['SAVED', 'GROUP_OFFICIAL', 'FACULTY', 'DEAN', 'SUPPORT', 'SUBJECT_OF_GROUP'],
+  // Преподаватель не состоит в группе, зато ведёт предметы — возможно, в чужих группах.
+  [Role.TEACHER]: ['SAVED', 'FACULTY', 'DEAN', 'SUPPORT', 'SUBJECT_TAUGHT'],
+  // Декан — в факультетских чатах; предметы его не касаются, пар он не ведёт.
+  [Role.DEAN]: ['SAVED', 'FACULTY', 'DEAN', 'SUPPORT'],
+  // Администрация вуза живёт на уровне вуза, не факультета.
+  [Role.UNIVERSITY_ADMIN]: ['SAVED', 'SUPPORT'],
+  [Role.UNIVERSITY_MODERATOR]: ['SAVED', 'SUPPORT'],
+  // Платформенные роли вне вуза: им положены только «Сохранённые». Комната поддержки
+  // вуза им не нужна — обращения платформы живут в SUPPORT_PLATFORM и заводятся не здесь.
+  [Role.PLATFORM_ADMIN]: ['SAVED'],
+  [Role.PLATFORM_MODERATOR]: ['SAVED'],
+  // Работодатель — единственная роль вне вуза совсем (Ф18).
+  [Role.EMPLOYER]: ['SAVED'],
+}
 
 // Антифлуд отправки: не больше FLOOD_MAX сообщений за окно (см. assertNotFlooding).
 const FLOOD_MAX = 20
@@ -3158,59 +3205,82 @@ export class ChatsService {
   }
 
   async ensureOfficialChatsForUser(user: JwtPayload): Promise<void> {
-    // «Сохранённые» — у всех и без условий: это личный self-chat, он не зависит ни от
-    // группы, ни от факультета, ни от вуза. Раньше его создавал только GET /chats/saved,
-    // то есть чат заводился в момент, когда человек нажимал пункт меню «Сохранённые», —
-    // до этого в списке его не было. Остальные авточаты появляются сами, и этот должен.
-    //
-    // Заодно это единственный авточат, который достаётся платформенным ролям: у них нет
-    // ни groupId, ни facultyId, ни universityId, и все условия ниже их пропускают.
-    await this.getSavedChat(user.sub)
-    if (user.groupId) {
-      await this.ensureOfficialChat(ChatType.GROUP_OFFICIAL, { groupId: user.groupId }, user.sub)
+    // Что положено роли — в AUTO_CHATS_BY_ROLE; есть ли для этого scope — проверяется здесь.
+    // Неизвестная роль получает хотя бы «Сохранённые»: остаться совсем без списка хуже,
+    // чем получить лишний self-chat.
+    const kinds = AUTO_CHATS_BY_ROLE[user.role] ?? (['SAVED'] as const)
+    for (const kind of kinds) {
+      switch (kind) {
+        case 'SAVED':
+          // Личный self-chat: не зависит ни от группы, ни от факультета, ни от вуза.
+          await this.getSavedChat(user.sub)
+          break
+        case 'GROUP_OFFICIAL':
+          if (user.groupId) {
+            await this.ensureOfficialChat(
+              ChatType.GROUP_OFFICIAL,
+              { groupId: user.groupId },
+              user.sub,
+            )
+          }
+          break
+        case 'FACULTY':
+          if (user.facultyId) {
+            await this.ensureOfficialChat(ChatType.FACULTY, { facultyId: user.facultyId }, user.sub)
+          }
+          break
+        case 'DEAN':
+          // Чат с деканатом факультета (9.6): студенты/старосты/преподаватели ↔ деканат.
+          if (user.facultyId) {
+            await this.ensureOfficialChat(ChatType.DEAN, { facultyId: user.facultyId }, user.sub)
+          }
+          break
+        case 'SUPPORT':
+          if (user.universityId) {
+            await this.ensureOfficialChat(
+              ChatType.SUPPORT,
+              { universityId: user.universityId },
+              user.sub,
+            )
+          }
+          break
+        case 'SUBJECT_OF_GROUP':
+          if (user.groupId) {
+            await this.ensureSubjectChats(
+              { groupId: user.groupId, schedule: { isActive: true } },
+              user.sub,
+            )
+          }
+          break
+        case 'SUBJECT_TAUGHT':
+          await this.ensureSubjectChats(
+            { teacherId: user.sub, schedule: { isActive: true } },
+            user.sub,
+          )
+          break
+      }
     }
-    if (user.facultyId) {
-      await this.ensureOfficialChat(ChatType.FACULTY, { facultyId: user.facultyId }, user.sub)
-      // Чат с деканатом факультета (9.6): студенты/старосты/преподаватели факультета ↔ деканат.
-      await this.ensureOfficialChat(ChatType.DEAN, { facultyId: user.facultyId }, user.sub)
-    }
-    if (user.universityId) {
-      await this.ensureOfficialChat(ChatType.SUPPORT, { universityId: user.universityId }, user.sub)
-    }
-    await this.ensureSubjectChatsForUser(user)
   }
 
   /**
    * Чаты предметов (9.6): по одному на пару (группа × предмет) из активного расписания.
-   * Студент/староста входит в чаты предметов своей группы; преподаватель — в чаты предметов,
-   * которые он ведёт (по своим парам). Создаётся лениво по мере появления пар в расписании.
+   * Создаются лениво, по мере появления пар.
+   *
+   * Чьи это пары — решает вызывающий через `where`: у студента и старосты предметы своей
+   * группы (`SUBJECT_OF_GROUP`), у преподавателя — те, что он ведёт, в любой группе
+   * (`SUBJECT_TAUGHT`). Раньше оба запроса уходили всегда, и для студента второй из них
+   * (по teacherId) заведомо возвращал пусто — лишний поход в базу на каждой первой
+   * загрузке списка.
    */
-  private async ensureSubjectChatsForUser(user: JwtPayload): Promise<void> {
-    const seen = new Map<string, { groupId: string; subject: string }>()
-    const collect = (rows: { groupId: string; subject: string }[]): void => {
-      for (const r of rows) seen.set(r.groupId + '::' + r.subject, r)
-    }
-    if (user.groupId) {
-      collect(
-        await this.prisma.pair.findMany({
-          where: { groupId: user.groupId, schedule: { isActive: true } },
-          select: { groupId: true, subject: true },
-          distinct: ['groupId', 'subject'],
-          take: 100,
-        }),
-      )
-    }
-    // Преподаватель: предметы его пар (в любой группе). Для студента вернёт пусто — безвредно.
-    collect(
-      await this.prisma.pair.findMany({
-        where: { teacherId: user.sub, schedule: { isActive: true } },
-        select: { groupId: true, subject: true },
-        distinct: ['groupId', 'subject'],
-        take: 100,
-      }),
-    )
-    for (const { groupId, subject } of seen.values()) {
-      await this.ensureOfficialChat(ChatType.SUBJECT, { groupId, subject }, user.sub)
+  private async ensureSubjectChats(where: Prisma.PairWhereInput, userId: string): Promise<void> {
+    const pairs = await this.prisma.pair.findMany({
+      where,
+      select: { groupId: true, subject: true },
+      distinct: ['groupId', 'subject'],
+      take: 100,
+    })
+    for (const { groupId, subject } of pairs) {
+      await this.ensureOfficialChat(ChatType.SUBJECT, { groupId, subject }, userId)
     }
   }
 
