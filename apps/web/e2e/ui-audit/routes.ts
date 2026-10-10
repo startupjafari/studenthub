@@ -46,6 +46,8 @@ const PUBLIC_PREFIXES = [
   '/employer/signup',
   '/employer/verify',
   '/demo',
+  // Политика конфиденциальности и пользовательское соглашение.
+  '/legal',
 ]
 
 /**
