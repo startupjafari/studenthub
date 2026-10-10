@@ -60,7 +60,9 @@ export function MediaViewer({
   onContextMenuCapture?: (e: React.MouseEvent) => void
 }) {
   const t = useTranslations('Common')
-  useBodyScrollLock()
+  // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
+  // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
+  useBodyScrollLock(true, true)
   useBackClose(onClose)
   const [rotation, setRotation] = useState(0)
   // Масштаб «вписать повёрнутое»: поворот не меняет место, которое элемент занимает в
