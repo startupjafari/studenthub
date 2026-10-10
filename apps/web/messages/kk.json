@@ -2372,11 +2372,12 @@
     "required": "Міндетті өріс",
     "created": "Университет құрылды",
     "empty": "Университеттер жоқ",
-    "count": "Университеттер: {n}",
     "statusChanged": "Мәртебе өзгертілді",
     "statusPENDING": "Күтуде",
     "statusACTIVE": "Белсенді",
-    "statusBLOCKED": "Бұғатталған"
+    "statusBLOCKED": "Бұғатталған",
+    "searchPlaceholder": "Атауы бойынша іздеу",
+    "nothingFound": "Ештеңе табылмады"
   },
   "Materials": {
     "title": "Материалдар",

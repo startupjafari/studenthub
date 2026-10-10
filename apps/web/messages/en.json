@@ -2372,11 +2372,12 @@
     "required": "Required",
     "created": "University created",
     "empty": "No universities",
-    "count": "Universities: {n}",
     "statusChanged": "Status changed",
     "statusPENDING": "Pending",
     "statusACTIVE": "Active",
-    "statusBLOCKED": "Blocked"
+    "statusBLOCKED": "Blocked",
+    "searchPlaceholder": "Search by name",
+    "nothingFound": "Nothing found"
   },
   "Materials": {
     "title": "Materials",

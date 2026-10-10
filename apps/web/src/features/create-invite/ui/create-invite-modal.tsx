@@ -25,7 +25,7 @@ import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { fetchGroups, groupKeys } from '../../../entities/group'
-import { fetchUniversities, universityKeys } from '../../../entities/university'
+import { fetchUniversityOptions, universityKeys } from '../../../entities/university'
 import { createInviteRequest, inviteKeys, type CreatedInvite } from '../../../entities/invite'
 import {
   FACULTY_ROLES,
@@ -68,8 +68,8 @@ export function CreateInviteModal({ onClose }: Props) {
   // (invite-hierarchy.ts: scope не выводится из выдающего).
   const needsUniversity = role !== undefined && UNIVERSITY_ROLES.includes(role)
   const universities = useQuery({
-    queryKey: universityKeys.list(),
-    queryFn: fetchUniversities,
+    queryKey: universityKeys.options(),
+    queryFn: fetchUniversityOptions,
     enabled: needsUniversity,
   })
 
