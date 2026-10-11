@@ -22,9 +22,24 @@ model Event {
   facultyId    String? @map("faculty_id")
   groupId      String? @map("group_id")
 
-  // Место (или ссылка на онлайн-встречу).
+  // Место проведения. У онлайн-события остаётся пустым: ссылка живёт в meetingUrl.
   location String?
   isOnline Boolean @default(false) @map("is_online")
+
+  // ── Онлайн-встреча (Ф14.5) ───────────────────────────────────────────────────
+  // Раньше ссылку клали в `location` — туда же, куда адрес аудитории. Это плохо ровно
+  // двумя вещами: ссылку видел каждый, кому видно само событие (а не только участники),
+  // и отличить «Zoom» от «корпус Б, ауд. 305» можно было только взглядом человека.
+  //
+  // Провайдер хранится строкой, как status и visibility в остальных доменах, и ставится
+  // СЕРВЕРОМ по хосту ссылки: клиент о нём не сообщает, иначе «Zoom» в карточке означал
+  // бы лишь то, что так написал организатор.
+  /// ZOOM | GOOGLE_MEET | TEAMS | OTHER. NULL — встречи нет.
+  meetingProvider String? @map("meeting_provider")
+  /// Ссылка на встречу. Наружу уходит ТОЛЬКО участникам и организатору (events.service).
+  meetingUrl      String? @map("meeting_url")
+  /// Код доступа: Zoom выдаёт его отдельно от ссылки, и без него на встречу не попасть.
+  meetingPasscode String? @map("meeting_passcode")
 
   startsAt DateTime  @map("starts_at")
   endsAt   DateTime? @map("ends_at")

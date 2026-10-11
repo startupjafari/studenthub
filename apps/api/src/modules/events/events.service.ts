@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PostAudience, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type {
-  CreateEventInput,
-  EventListQueryInput,
-  UpdateEventInput,
+import {
+  meetingProviderOf,
+  type CreateEventInput,
+  type EventListQueryInput,
+  type EventMeeting,
+  type UpdateEventInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -42,6 +44,14 @@ const BATCH = 500
 // обрезать список потолком нельзя, тянуть целиком одним findMany — нельзя (BACKEND_RULES §7.2).
 const PARTICIPANTS_BATCH = 500
 
+// Окно подключения к встрече (Ф14.5). За пятнадцать минут — чтобы успеть проверить звук
+// и зайти до начала; после конца ещё полчаса — встречи регулярно задерживаются, и кнопка,
+// погасшая ровно в endsAt, выгоняет тех, кто ещё обсуждает.
+const JOIN_BEFORE_MIN = 15
+const JOIN_AFTER_MIN = 30
+// Сколько длится событие без указанного конца: иначе окно подключения не закрылось бы никогда.
+const DEFAULT_DURATION_MIN = 120
+
 const ORGANIZER_SELECT = { select: { id: true, firstName: true, lastName: true } }
 
 const EVENT_SELECT = {
@@ -51,6 +61,10 @@ const EVENT_SELECT = {
   description: true,
   location: true,
   isOnline: true,
+  // Провайдер в списках есть, ССЫЛКИ НЕТ: она уходит только участникам и только
+  // отдельным запросом (`GET /events/:id/meeting`). Иначе ссылка на встречу
+  // разлеталась бы вместе с карточкой события по всей его аудитории.
+  meetingProvider: true,
   startsAt: true,
   endsAt: true,
   organizerId: true,
@@ -147,6 +161,51 @@ export class EventsService {
     return { ...rest, isRegistered: participants.length > 0 }
   }
 
+  /**
+   * Ссылка на онлайн-встречу (Ф14.5).
+   *
+   * Отдельная ручка, а не поле карточки, по двум причинам. Первая — право: ссылку
+   * получают зарегистрированные участники и организатор, а карточку события видит вся
+   * его аудитория, и ссылка уезжала бы вместе с ней (включая кэш списка на клиенте).
+   * Вторая — окно: «можно ли уже подключаться» зависит от текущего времени, то есть от
+   * момента запроса, а не от момента, когда список был загружен.
+   */
+  async meeting(viewer: JwtPayload, id: string): Promise<EventMeeting> {
+    const event = await this.prisma.event.findFirst({
+      where: { id, ...this.visibilityWhere(viewer) },
+      select: {
+        organizerId: true,
+        startsAt: true,
+        endsAt: true,
+        meetingProvider: true,
+        meetingUrl: true,
+        meetingPasscode: true,
+        participants: { where: { userId: viewer.sub }, select: { id: true } },
+      },
+    })
+    if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
+    if (!event.meetingUrl || !event.meetingProvider) {
+      throw new AppException('NOT_FOUND', 'У события нет онлайн-встречи')
+    }
+    // Организатор — всегда; остальным нужна регистрация. Это не формальность: по ссылке
+    // на встречу заходят без второй проверки, и раздать её шире аудитории события нельзя.
+    const registered = event.participants.length > 0 || event.organizerId === viewer.sub
+    if (!registered) {
+      throw new AppException('FORBIDDEN', 'Ссылка доступна зарегистрированным участникам')
+    }
+
+    const window = joinWindow(event.startsAt, event.endsAt)
+    const now = Date.now()
+    return {
+      provider: event.meetingProvider as EventMeeting['provider'],
+      url: event.meetingUrl,
+      passcode: event.meetingPasscode,
+      joinableFrom: window.from.toISOString(),
+      joinableUntil: window.until.toISOString(),
+      joinable: now >= window.from.getTime() && now <= window.until.getTime(),
+    }
+  }
+
   // ── Создание/изменение (задача 10.2) ────────────────────────────────────────
 
   async create(actor: JwtPayload, input: CreateEventInput, ctx: RequestContext): Promise<EventRow> {
@@ -158,7 +217,11 @@ export class EventsService {
         title: input.title,
         description: input.description,
         location: input.location,
-        isOnline: input.isOnline ?? false,
+        // Ссылка на встречу сама по себе делает событие онлайновым: держать два
+        // несогласованных признака одного и того же — источник «онлайн-события без
+        // ссылки» и «ссылки у очного события».
+        isOnline: input.meetingUrl ? true : (input.isOnline ?? false),
+        ...meetingFields(input.meetingUrl, input.meetingPasscode),
         startsAt: new Date(input.startsAt),
         endsAt: input.endsAt ? new Date(input.endsAt) : null,
         ...target,
@@ -195,7 +258,10 @@ export class EventsService {
         title: input.title,
         description: input.description,
         location: input.location,
-        isOnline: input.isOnline,
+        isOnline: input.meetingUrl ? true : input.isOnline,
+        ...(input.meetingUrl !== undefined || input.meetingPasscode !== undefined
+          ? meetingFields(input.meetingUrl, input.meetingPasscode)
+          : {}),
         startsAt: input.startsAt ? startsAt : undefined,
         endsAt: input.endsAt !== undefined ? endsAt : undefined,
       },
@@ -403,5 +469,30 @@ export class EventsService {
       throw new AppException('WRONG_SCOPE', 'Группа другого университета')
     }
     return { facultyId: group.facultyId, universityId }
+  }
+}
+
+/**
+ * Поля встречи для записи: провайдер считается из ссылки, `null` стирает встречу целиком.
+ * Код доступа без ссылки не живёт — он к ней и относится.
+ */
+function meetingFields(
+  url: string | null | undefined,
+  passcode: string | null | undefined,
+): { meetingUrl: string | null; meetingProvider: string | null; meetingPasscode: string | null } {
+  if (!url) return { meetingUrl: null, meetingProvider: null, meetingPasscode: null }
+  return {
+    meetingUrl: url,
+    meetingProvider: meetingProviderOf(url),
+    meetingPasscode: passcode?.trim() ? passcode.trim() : null,
+  }
+}
+
+/** Когда кнопка «Присоединиться» работает: [начало − 15 мин, конец + 30 мин]. */
+function joinWindow(startsAt: Date, endsAt: Date | null): { from: Date; until: Date } {
+  const end = endsAt ?? new Date(startsAt.getTime() + DEFAULT_DURATION_MIN * 60_000)
+  return {
+    from: new Date(startsAt.getTime() - JOIN_BEFORE_MIN * 60_000),
+    until: new Date(end.getTime() + JOIN_AFTER_MIN * 60_000),
   }
 }
