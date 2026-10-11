@@ -144,6 +144,10 @@ export class DataExportService {
       friends,
       notifications,
       invitesIssued,
+      stories,
+      storyViews,
+      storyReactions,
+      storyPollVotes,
       auditLog,
     ] = await Promise.all([
       this.prisma.file.findMany({
@@ -377,6 +381,43 @@ export class DataExportService {
         orderBy: { createdAt: 'desc' },
         take,
       }),
+      this.prisma.story.findMany({
+        where: { authorId: userId },
+        // Сторис живёт сутки, поэтому в архиве её обычно уже нет — но пока она жива,
+        // это такая же публикация человека, как пост.
+        select: {
+          id: true,
+          audience: true,
+          text: true,
+          background: true,
+          linkUrl: true,
+          linkLabel: true,
+          createdAt: true,
+          expiresAt: true,
+          fileId: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.storyView.findMany({
+        // Что человек смотрел — данные о нём, а не о владельце сторис.
+        where: { userId },
+        select: { storyId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.storyReaction.findMany({
+        where: { userId },
+        select: { storyId: true, emoji: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.storyPollVote.findMany({
+        where: { userId },
+        select: { pollId: true, optionId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
       this.prisma.auditLog.findMany({
         where: { userId },
         select: {
@@ -415,6 +456,10 @@ export class DataExportService {
       ),
       notifications: section(notifications, SECTION_LIMIT),
       invitesIssued: section(invitesIssued, SECTION_LIMIT),
+      stories: section(stories.map(storyView), SECTION_LIMIT),
+      storyViews: section(storyViews, SECTION_LIMIT),
+      storyReactions: section(storyReactions, SECTION_LIMIT),
+      storyPollVotes: section(storyPollVotes, SECTION_LIMIT),
       auditLog: section(auditLog, AUDIT_LIMIT),
     }
   }
@@ -502,6 +547,20 @@ function gradeView(row: {
     score: row.score,
     createdAt: row.createdAt,
   }
+}
+
+/**
+ * Сторис в архиве. `fileId` наружу не уходит: сам файл человек найдёт в разделе `files`
+ * (он его владелец), а внутренний идентификатор вложения ему ничего не объясняет —
+ * важно лишь то, была ли сторис с медиа или текстовой.
+ */
+function storyView<T extends { fileId: string | null }>(
+  story: T,
+): Omit<T, 'fileId'> & {
+  hasMedia: boolean
+} {
+  const { fileId, ...rest } = story
+  return { ...rest, hasMedia: fileId !== null }
 }
 
 /** Друг — это другая сторона связи; кто из двоих, зависит от того, кто звал. */
