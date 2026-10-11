@@ -11422,6 +11422,41 @@
         ]
       }
     },
+    "/events/{id}/meeting": {
+      "get": {
+        "operationId": "EventsController_meeting",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ссылка, код доступа и окно подключения"
+          },
+          "403": {
+            "description": "FORBIDDEN — нужна регистрация на событие"
+          },
+          "404": {
+            "description": "NOT_FOUND — событие не видно или встречи нет"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ссылка на онлайн-встречу (только участникам и организатору)",
+        "tags": [
+          "События"
+        ]
+      }
+    },
     "/events/{id}/register": {
       "post": {
         "operationId": "EventsController_register",

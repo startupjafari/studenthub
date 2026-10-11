@@ -14,9 +14,11 @@ import {
   fetchEvents,
   registerEventRequest,
   type EventItem,
+  MEETING_PROVIDER_NAME,
 } from '../../../entities/event'
 import { ProfileLink } from '../../../entities/user'
 import { CreateEventModal } from '../../../features/create-event'
+import { JoinMeetingButton } from '../../../features/join-meeting'
 import {
   Badge,
   Button,
@@ -243,7 +245,10 @@ function EventCard({
         {event.isOnline ? (
           <span className="flex items-center gap-1.5 text-info">
             <Video className="size-3.5 shrink-0" aria-hidden />
-            {t('online')}
+            {/* Назван сервис, если он известен: «Zoom» говорит больше, чем «онлайн». */}
+            {event.meetingProvider
+              ? (MEETING_PROVIDER_NAME[event.meetingProvider] ?? t('meetingOther'))
+              : t('online')}
           </span>
         ) : (
           event.location && (
@@ -268,16 +273,27 @@ function EventCard({
           // Подпись кнопки — действие, а не состояние: «Вы участвуете» на кнопке
           // читается как результат нажатия. Состояние показывает бейдж выше и
           // зелёная полоса сверху карточки.
-          <Button
-            type="button"
-            variant={event.isRegistered ? 'outline' : 'default'}
-            size="sm"
-            className="w-full"
-            loading={registerMut.isPending}
-            onClick={() => registerMut.mutate()}
-          >
-            {event.isRegistered ? t('cancelRegistration') : t('register')}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={event.isRegistered ? 'outline' : 'default'}
+              size="sm"
+              className="flex-1"
+              loading={registerMut.isPending}
+              onClick={() => registerMut.mutate()}
+            >
+              {event.isRegistered ? t('cancelRegistration') : t('register')}
+            </Button>
+            {/* Кнопка встречи — только зарегистрированным: сервер чужому ссылку не отдаст,
+                и показывать кнопку, которая ответит 403, незачем. */}
+            {event.isRegistered && event.meetingProvider && (
+              <JoinMeetingButton
+                eventId={event.id}
+                provider={event.meetingProvider}
+                className="flex-1"
+              />
+            )}
+          </div>
         )}
       </div>
     </Card>

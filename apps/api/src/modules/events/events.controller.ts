@@ -90,6 +90,15 @@ export class EventsController {
     await this.events.remove(user, id, this.ctx(req))
   }
 
+  @Get(':id/meeting')
+  @ApiOperation({ summary: 'Ссылка на онлайн-встречу (только участникам и организатору)' })
+  @ApiResponse({ status: 200, description: 'Ссылка, код доступа и окно подключения' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — нужна регистрация на событие' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие не видно или встречи нет' })
+  meeting(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.events.meeting(user, id)
+  }
+
   @Post(':id/register')
   @ApiOperation({ summary: 'Зарегистрироваться на событие' })
   @ApiResponse({ status: 201, description: 'Зарегистрирован' })
