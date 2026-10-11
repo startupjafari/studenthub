@@ -31,6 +31,10 @@ const MODELS = [
   'friendship',
   'notification',
   'invite',
+  'story',
+  'storyView',
+  'storyReaction',
+  'storyPollVote',
   'auditLog',
 ] as const
 
@@ -150,6 +154,24 @@ describe('DataExportService — что наружу не уходит', () => {
 
     expect(body).not.toContain('AB1234567890')
     expect(body).toContain('"numberLast4": "7890"')
+  })
+
+  it('у сторис остаётся признак медиа, а не идентификатор файла', async () => {
+    const { service, models } = setup()
+    models.story.findMany.mockResolvedValue([
+      { id: 's1', text: 'привет', fileId: 'f-777', audience: 'GROUP' },
+      { id: 's2', text: 'текстовая', fileId: null, audience: 'GROUP' },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { stories: { items: { id: string; hasMedia: boolean }[] } }
+    }
+
+    expect(body).not.toContain('f-777')
+    expect(archive.sections.stories.items).toEqual([
+      expect.objectContaining({ id: 's1', hasMedia: true }),
+      expect.objectContaining({ id: 's2', hasMedia: false }),
+    ])
   })
 
   it('из дружбы остаётся вторая сторона и дата, без контактов', async () => {
