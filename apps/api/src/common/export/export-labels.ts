@@ -56,6 +56,7 @@ const RU: ExportLabels = {
     users: 'Список пользователей',
     chat: 'Экспорт переписки',
     'career-report': 'Отчёт карьерного центра',
+    'my-data': 'Выгрузка моих данных',
   },
 }
 
@@ -79,6 +80,7 @@ const KK: ExportLabels = {
     users: 'Пайдаланушылар тізімі',
     chat: 'Хат алмасу экспорты',
     'career-report': 'Карьера орталығының есебі',
+    'my-data': 'Жеке деректерімді жүктеу',
   },
 }
 
@@ -100,6 +102,7 @@ const EN: ExportLabels = {
     users: 'User list',
     chat: 'Chat export',
     'career-report': 'Career centre report',
+    'my-data': 'My data export',
   },
 }
 

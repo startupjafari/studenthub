@@ -196,6 +196,14 @@ export async function exportUsers(
   return requestFile('/users/export', { ...query, format, locale })
 }
 
+/**
+ * Машинная выгрузка СВОИХ персональных данных (Ф14.6). Формат один — JSON: файл читают
+ * и человек, и программа, а таблицей разнородные разделы архива не ложатся.
+ */
+export async function exportMyData(locale: string): Promise<DownloadedFile> {
+  return requestFile('/me/export', { locale })
+}
+
 export async function blockUserRequest(id: string): Promise<void> {
   await api.patch(`/users/${id}/block`)
 }

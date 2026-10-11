@@ -63,6 +63,7 @@ import { PushModule } from './modules/push/push.module'
 import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
 import { MeModule } from './modules/me/me.module'
+import { DataExportModule } from './modules/data-export/data-export.module'
 import { ReleasesModule } from './modules/releases/releases.module'
 import { ClientVersionModule } from './modules/client-version/client-version.module'
 import { PlatformModule } from './modules/platform/platform.module'
@@ -163,6 +164,7 @@ import { AppController } from './app.controller'
     CleanupModule,
     HealthModule,
     MeModule,
+    DataExportModule,
     ReleasesModule,
     ClientVersionModule,
     PlatformModule,
