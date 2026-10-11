@@ -91,6 +91,7 @@ function ev(o: Partial<EventItem> = {}): EventItem {
     description: '',
     location: null,
     isOnline: false,
+    meetingProvider: null,
     startsAt: `${TODAY}T10:00:00.000Z`,
     endsAt: null,
     organizerId: 'o1',

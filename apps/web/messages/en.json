@@ -2203,7 +2203,19 @@
     "deleted": "Event deleted",
     "finished": "This event has ended",
     "meetingLink": "Meeting link",
-    "meetingLinkPlaceholder": "Zoom, Meet or stream link"
+    "meetingLinkPlaceholder": "Zoom, Meet or stream link",
+    "meetingLinkInvalid": "Enter an http or https link",
+    "meetingPasscode": "Passcode",
+    "meetingPasscodePlaceholder": "If required",
+    "meetingOther": "Online meeting",
+    "join": "Join",
+    "joinTitle": "Join the meeting",
+    "joinProvider": "The meeting is hosted on {provider}.",
+    "joinNotYet": "You can join from {time} — the link opens in advance.",
+    "joinOpen": "Open meeting",
+    "copyPasscode": "Copy passcode",
+    "passcodeCopied": "Passcode copied",
+    "meetingUnavailable": "Link unavailable: register for the event first"
   },
   "Moderation": {
     "complaintsTitle": "Complaints",

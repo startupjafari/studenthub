@@ -2203,7 +2203,19 @@
     "deleted": "Іс-шара жойылды",
     "finished": "Іс-шара аяқталды",
     "meetingLink": "Кездесу сілтемесі",
-    "meetingLinkPlaceholder": "Zoom, Meet немесе трансляция сілтемесі"
+    "meetingLinkPlaceholder": "Zoom, Meet немесе трансляция сілтемесі",
+    "meetingLinkInvalid": "http немесе https сілтемесін көрсетіңіз",
+    "meetingPasscode": "Кіру коды",
+    "meetingPasscodePlaceholder": "Қажет болса",
+    "meetingOther": "Онлайн кездесу",
+    "join": "Қосылу",
+    "joinTitle": "Кездесуге қосылу",
+    "joinProvider": "Кездесу {provider} қызметінде өтеді.",
+    "joinNotYet": "{time} уақытынан бастап қосылуға болады — сілтеме алдын ала ашылады.",
+    "joinOpen": "Кездесуді ашу",
+    "copyPasscode": "Кіру кодын көшіру",
+    "passcodeCopied": "Код көшірілді",
+    "meetingUnavailable": "Сілтеме қолжетімді емес: іс-шараға тіркелу қажет"
   },
   "Moderation": {
     "complaintsTitle": "Шағымдар",

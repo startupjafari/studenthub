@@ -230,16 +230,41 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
           {t('isOnline')}
         </label>
 
-        {/* У онлайн-события «место» — это ссылка на встречу, поэтому подпись меняется:
-            поле «Аудитория / адрес» рядом с галочкой «онлайн» сбивало с толку. */}
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-loc">{isOnline ? t('meetingLink') : t('location')}</Label>
-          <Input
-            id="ev-loc"
-            {...form.register('location')}
-            placeholder={isOnline ? t('meetingLinkPlaceholder') : t('locationPlaceholder')}
-          />
-        </div>
+        {/* У онлайн-события место и способ подключения — разные вещи, и поля разные:
+            ссылка уходит в meetingUrl, который видят только участники, а `location`
+            остаётся адресом аудитории. Раньше ссылку клали туда же, куда адрес. */}
+        {isOnline ? (
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-1 flex-col gap-1.5">
+              <Label htmlFor="ev-meeting">{t('meetingLink')}</Label>
+              <Input
+                id="ev-meeting"
+                type="url"
+                inputMode="url"
+                {...form.register('meetingUrl')}
+                placeholder={t('meetingLinkPlaceholder')}
+              />
+              <FieldError>{form.formState.errors.meetingUrl && t('meetingLinkInvalid')}</FieldError>
+            </div>
+            <div className="flex flex-col gap-1.5 sm:w-48">
+              <Label htmlFor="ev-passcode">{t('meetingPasscode')}</Label>
+              <Input
+                id="ev-passcode"
+                {...form.register('meetingPasscode')}
+                placeholder={t('meetingPasscodePlaceholder')}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ev-loc">{t('location')}</Label>
+            <Input
+              id="ev-loc"
+              {...form.register('location')}
+              placeholder={t('locationPlaceholder')}
+            />
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

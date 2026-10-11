@@ -1,6 +1,7 @@
 import type {
   CreateEventInput,
   EventListQueryInput,
+  EventMeeting,
   UpdateEventInput,
 } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
@@ -11,6 +12,7 @@ export const eventKeys = {
   list: (filter: string, mine?: boolean) => ['events', 'list', filter, mine ?? false] as const,
   detail: (id: string) => ['events', 'detail', id] as const,
   participants: (id: string) => ['events', id, 'participants'] as const,
+  meeting: (id: string) => ['events', id, 'meeting'] as const,
 }
 
 export async function fetchEvents(query: Partial<EventListQueryInput> = {}): Promise<EventItem[]> {
@@ -22,6 +24,16 @@ export async function fetchEvents(query: Partial<EventListQueryInput> = {}): Pro
 
 export async function fetchEvent(id: string): Promise<EventItem> {
   const { data } = await api.get<EventItem>(`/events/${id}`)
+  return data
+}
+
+/**
+ * Ссылка на онлайн-встречу. Отдельным запросом и только по нажатию: ссылку сервер
+ * отдаёт лишь участникам, а окно подключения считается на момент запроса — в кэше
+ * списка оно бы протухло.
+ */
+export async function fetchEventMeeting(id: string): Promise<EventMeeting> {
+  const { data } = await api.get<EventMeeting>(`/events/${id}/meeting`)
   return data
 }
 

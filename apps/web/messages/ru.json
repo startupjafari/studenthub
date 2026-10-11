@@ -2203,7 +2203,19 @@
     "deleted": "Событие удалено",
     "finished": "Событие завершилось",
     "meetingLink": "Ссылка на встречу",
-    "meetingLinkPlaceholder": "Ссылка на Zoom, Meet или трансляцию"
+    "meetingLinkPlaceholder": "Ссылка на Zoom, Meet или трансляцию",
+    "meetingLinkInvalid": "Укажите ссылку http или https",
+    "meetingPasscode": "Код доступа",
+    "meetingPasscodePlaceholder": "Если нужен",
+    "meetingOther": "Онлайн-встреча",
+    "join": "Присоединиться",
+    "joinTitle": "Подключение к встрече",
+    "joinProvider": "Встреча проходит в {provider}.",
+    "joinNotYet": "Подключиться можно с {time} — ссылка откроется заранее.",
+    "joinOpen": "Открыть встречу",
+    "copyPasscode": "Скопировать код доступа",
+    "passcodeCopied": "Код скопирован",
+    "meetingUnavailable": "Ссылка недоступна: нужна регистрация на событие"
   },
   "Moderation": {
     "complaintsTitle": "Жалобы",

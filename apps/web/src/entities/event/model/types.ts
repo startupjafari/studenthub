@@ -1,5 +1,20 @@
-import type { PostAudienceValue } from '@studenthub/shared-schemas'
-export type { PostAudienceValue }
+import type {
+  EventMeeting,
+  MeetingProviderValue,
+  PostAudienceValue,
+} from '@studenthub/shared-schemas'
+export type { EventMeeting, MeetingProviderValue, PostAudienceValue }
+
+/**
+ * Как подписан провайдер встречи. Названия сервисов — имена собственные и не
+ * переводятся; у OTHER подписи нет — её берут из i18n («другой сервис»).
+ */
+export const MEETING_PROVIDER_NAME: Record<MeetingProviderValue, string | null> = {
+  ZOOM: 'Zoom',
+  GOOGLE_MEET: 'Google Meet',
+  TEAMS: 'Microsoft Teams',
+  OTHER: null,
+}
 
 export interface EventOrganizer {
   id: string
@@ -14,6 +29,8 @@ export interface EventItem {
   description: string
   location: string | null
   isOnline: boolean
+  /** Провайдер встречи; сама ссылка в карточке не приходит — только по /meeting. */
+  meetingProvider: MeetingProviderValue | null
   startsAt: string
   endsAt: string | null
   organizerId: string
