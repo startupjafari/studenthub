@@ -1,4 +1,5 @@
 import createNextIntlPlugin from 'next-intl/plugin'
+import withBundleAnalyzer from '@next/bundle-analyzer'
 import withPWAInit from '@ducanh2912/next-pwa'
 import { withSentryConfig } from '@sentry/nextjs'
 
@@ -256,10 +257,16 @@ const nextConfig = {
   },
 }
 
+// Анализ состава бандла (Ф13.6): `ANALYZE=1 pnpm --filter web build` открывает отчёт
+// в браузере и кладёт html рядом со сборкой. Без переменной обёртка — пустышка, поэтому
+// на обычную сборку (и на прод) она не влияет вовсе. Размеры маршрутов next build печатает
+// и так; анализатор отвечает на другой вопрос — ЧТО внутри общего чанка.
+const withAnalyzer = withBundleAnalyzer({ enabled: process.env.ANALYZE === '1' })
+
 // Sentry (Ф13.8) — самый внешний слой: ему нужен уже собранный webpack-конфиг, чтобы
 // подложить плагин загрузки source maps. Без SENTRY_AUTH_TOKEN загрузка карт молча
 // пропускается, сборка не падает — так собирается dev и CI без секретов.
-export default withSentryConfig(withPWA(withNextIntl(nextConfig)), {
+export default withSentryConfig(withAnalyzer(withPWA(withNextIntl(nextConfig))), {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
