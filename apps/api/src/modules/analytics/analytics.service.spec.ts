@@ -71,7 +71,7 @@ describe('AnalyticsService.facultyOverview — посещаемость из а�
     const res = await service.facultyOverview(dean)
 
     expect(res.totals.attendanceRate).toBe(0)
-    expect(res.groups[0].attendanceTracked).toBe(0)
+    expect(res.groups).toEqual([expect.objectContaining({ attendanceTracked: 0 })])
     expect(res.atRisk).toHaveLength(0)
   })
 })
