@@ -64,3 +64,6 @@ ui-audit/reports/
 
 # Кэш медиа для сида (prisma/seed/steps/10-media.mjs): скачанные фото и видео.
 .seed-media/
+
+# Локальные снимки базы (scripts/backup-db.sh кладёт их сюда по умолчанию).
+backups/
