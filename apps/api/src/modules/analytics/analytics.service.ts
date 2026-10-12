@@ -44,6 +44,113 @@ interface RiskReason {
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // ── Агрегаты считает база (Ф13.6) ──────────────────────────────────────────
+  //
+  // Эти четыре запроса были обычными findMany с потолком в 50–200 тысяч строк: вся
+  // посещаемость факультета, все сдачи и все оценки приезжали в Node и сворачивались
+  // там в Map'ы. На стенде одного вуза (52 200 отметок, 1450 студентов) обзор факультета
+  // отвечал 266 мс против 18 мс у самого тяжёлого из остальных экранов, и рос линейно
+  // с числом занятий: у вуза за учебный год это миллионы строк, то есть секунды и
+  // мегабайты в памяти процесса на каждый заход декана.
+  //
+  // Теперь сворачивает Postgres — наружу приходит по строке на группу или на студента.
+  //
+  // Raw SQL, а не `groupBy` Prisma: группировать нужно по полю СВЯЗАННОЙ таблицы
+  // (`pairs.group_id`, `assignments.course_id`), а Prisma группирует только по колонкам
+  // самой модели. Значения подставляются плейсхолдерами, конкатенации в SQL нет (§14.4).
+  //
+  // `count()` в Postgres возвращает bigint, и драйвер отдаёт его как BigInt — наружу
+  // уходит обычное число, иначе JSON.stringify падает на сериализации.
+
+  /** Посещаемость факультета, свёрнутая по группам. */
+  private async attendanceByGroup(
+    facultyId: string,
+  ): Promise<{ groupId: string; total: number; absent: number }[]> {
+    const rows = await this.prisma.$queryRaw<{ groupId: string; total: bigint; absent: bigint }[]>`
+      SELECT p.group_id AS "groupId",
+             count(*) AS total,
+             count(*) FILTER (WHERE a.status = 'ABSENT') AS absent
+      FROM attendance a
+      JOIN pairs p ON p.id = a.pair_id
+      JOIN groups g ON g.id = p.group_id
+      WHERE g.faculty_id = ${facultyId}
+      GROUP BY p.group_id`
+    return rows.map((r) => ({
+      groupId: r.groupId,
+      total: Number(r.total),
+      absent: Number(r.absent),
+    }))
+  }
+
+  /** Посещаемость факультета, свёрнутая по студентам. */
+  private async attendanceByStudent(
+    facultyId: string,
+  ): Promise<{ studentId: string; total: number; absent: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      { studentId: string; total: bigint; absent: bigint }[]
+    >`
+      SELECT a.student_id AS "studentId",
+             count(*) AS total,
+             count(*) FILTER (WHERE a.status = 'ABSENT') AS absent
+      FROM attendance a
+      JOIN pairs p ON p.id = a.pair_id
+      JOIN groups g ON g.id = p.group_id
+      WHERE g.faculty_id = ${facultyId}
+      GROUP BY a.student_id`
+    return rows.map((r) => ({
+      studentId: r.studentId,
+      total: Number(r.total),
+      absent: Number(r.absent),
+    }))
+  }
+
+  /**
+   * Сколько заданий с истёкшим сроком студент сдал. Просрочку вызывающий считает
+   * вычитанием из числа заданий его группы — множество идентификаторов для этого не нужно.
+   */
+  private async doneAssignmentsByStudent(
+    facultyId: string,
+  ): Promise<{ studentId: string; done: number }[]> {
+    const rows = await this.prisma.$queryRaw<{ studentId: string; done: bigint }[]>`
+      SELECT s.student_id AS "studentId", count(DISTINCT s.assignment_id) AS done
+      FROM submissions s
+      JOIN assignments asg ON asg.id = s.assignment_id
+      JOIN courses c ON c.id = asg.course_id
+      JOIN groups g ON g.id = c.group_id
+      WHERE g.faculty_id = ${facultyId}
+        AND asg.status = 'PUBLISHED'
+        AND asg.due_at < now()
+        AND s.status IN ('SUBMITTED', 'GRADED')
+      GROUP BY s.student_id`
+    return rows.map((r) => ({ studentId: r.studentId, done: Number(r.done) }))
+  }
+
+  /**
+   * Сумма долей «балл / максимум» и число оценок по студенту. Среднее считает
+   * вызывающий: ему же решать, что делать со студентом без единой оценки.
+   */
+  private async gradeRateByStudent(
+    facultyId: string,
+  ): Promise<{ studentId: string; sumPct: number; n: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      { studentId: string; sumPct: number | null; n: bigint }[]
+    >`
+      SELECT g.student_id AS "studentId",
+             sum(g.score::float / c.max_score) AS "sumPct",
+             count(*) AS n
+      FROM grades g
+      JOIN grade_columns c ON c.id = g.column_id
+      JOIN courses co ON co.id = c.course_id
+      JOIN groups gr ON gr.id = co.group_id
+      WHERE gr.faculty_id = ${facultyId}
+        AND c.published = true
+        AND g.score IS NOT NULL
+        AND c.max_score IS NOT NULL
+        AND c.max_score > 0
+      GROUP BY g.student_id`
+    return rows.map((r) => ({ studentId: r.studentId, sumPct: r.sumPct ?? 0, n: Number(r.n) }))
+  }
+
   /** Обзор факультета: показатели + посещаемость по группам + «требует внимания». */
   async facultyOverview(viewer: JwtPayload, requestedFacultyId?: string) {
     const facultyId = await this.resolveFaculty(viewer, requestedFacultyId)
@@ -65,11 +172,7 @@ export class AnalyticsService {
         select: { groupId: true },
         take: 20000,
       }),
-      this.prisma.attendance.findMany({
-        where: { pair: { group: { facultyId } } },
-        select: { status: true, pair: { select: { groupId: true } } },
-        take: 50000,
-      }),
+      this.attendanceByGroup(facultyId),
       this.prisma.submission.count({
         where: { status: 'SUBMITTED', assignment: { course: { group: { facultyId } } } },
       }),
@@ -83,19 +186,13 @@ export class AnalyticsService {
       studentByGroup.set(s.groupId, (studentByGroup.get(s.groupId) ?? 0) + 1)
     }
 
-    // Посещаемость по группам + факультету.
-    const attByGroup = new Map<string, { total: number; absent: number }>()
+    // Посещаемость по группам + факультету: строки уже свёрнуты базой (attendanceByGroup),
+    // здесь остаётся сложить группы в факультет.
+    const attByGroup = new Map(attendance.map((row) => [row.groupId, row]))
     const facultyAtt = { total: 0, absent: 0 }
-    for (const a of attendance) {
-      const gid = a.pair.groupId
-      const cur = attByGroup.get(gid) ?? { total: 0, absent: 0 }
-      cur.total += 1
-      facultyAtt.total += 1
-      if (a.status === 'ABSENT') {
-        cur.absent += 1
-        facultyAtt.absent += 1
-      }
-      attByGroup.set(gid, cur)
+    for (const row of attendance) {
+      facultyAtt.total += row.total
+      facultyAtt.absent += row.absent
     }
 
     const groupStats = groups
@@ -186,7 +283,7 @@ export class AnalyticsService {
     const facultyId = await this.resolveFaculty(viewer, requestedFacultyId)
     const now = new Date()
 
-    const [students, groups, attendance, dueAssignments, submissions, columns, grades] =
+    const [students, groups, attendance, dueAssignments, doneAssignments, gradeRates] =
       await Promise.all([
         this.prisma.user.findMany({
           where: {
@@ -203,63 +300,22 @@ export class AnalyticsService {
           select: { id: true, name: true },
           take: FACULTY_GROUPS_LIMIT,
         }),
-        this.prisma.attendance.findMany({
-          where: { pair: { group: { facultyId } } },
-          select: { studentId: true, status: true },
-          take: 100000,
-        }),
+        this.attendanceByStudent(facultyId),
         // Опубликованные задания с истёкшим сроком в группах факультета.
         this.prisma.assignment.findMany({
           where: { status: 'PUBLISHED', dueAt: { lt: now }, course: { group: { facultyId } } },
           select: { id: true, course: { select: { groupId: true } } },
           take: 20000,
         }),
-        this.prisma.submission.findMany({
-          where: {
-            assignment: {
-              status: 'PUBLISHED',
-              dueAt: { lt: now },
-              course: { group: { facultyId } },
-            },
-          },
-          select: { assignmentId: true, studentId: true, status: true },
-          take: 100000,
-        }),
-        this.prisma.gradeColumn.findMany({
-          where: { published: true, course: { group: { facultyId } } },
-          select: { id: true, maxScore: true },
-          take: 20000,
-        }),
-        this.prisma.grade.findMany({
-          where: {
-            column: { published: true, course: { group: { facultyId } } },
-            score: { not: null },
-          },
-          select: { columnId: true, studentId: true, score: true },
-          take: 200000,
-        }),
+        this.doneAssignmentsByStudent(facultyId),
+        this.gradeRateByStudent(facultyId),
       ])
 
     const groupName = new Map(groups.map((g) => [g.id, g.name]))
 
-    // Посещаемость по студенту.
-    const att = new Map<string, { total: number; absent: number }>()
-    for (const a of attendance) {
-      const cur = att.get(a.studentId) ?? { total: 0, absent: 0 }
-      cur.total += 1
-      if (a.status === 'ABSENT') cur.absent += 1
-      att.set(a.studentId, cur)
-    }
-
-    // Сдал = есть submission со статусом SUBMITTED или GRADED.
-    const doneByStudent = new Map<string, Set<string>>()
-    for (const s of submissions) {
-      if (s.status === 'SUBMITTED' || s.status === 'GRADED') {
-        const set = doneByStudent.get(s.studentId) ?? new Set<string>()
-        set.add(s.assignmentId)
-        doneByStudent.set(s.studentId, set)
-      }
-    }
+    // Посещаемость и сдачи приходят уже свёрнутыми базой — остаётся разложить по ключу.
+    const att = new Map(attendance.map((row) => [row.studentId, row]))
+    const doneByStudent = new Map(doneAssignments.map((row) => [row.studentId, row.done]))
     const dueByGroup = new Map<string, string[]>()
     for (const a of dueAssignments) {
       const gid = a.course.groupId
@@ -268,17 +324,8 @@ export class AnalyticsService {
       dueByGroup.set(gid, arr)
     }
 
-    // Средний процент по опубликованным колонкам оценок.
-    const maxByColumn = new Map(columns.map((c) => [c.id, c.maxScore]))
-    const gradeAgg = new Map<string, { sumPct: number; n: number }>()
-    for (const g of grades) {
-      const max = maxByColumn.get(g.columnId)
-      if (!max || g.score == null) continue
-      const cur = gradeAgg.get(g.studentId) ?? { sumPct: 0, n: 0 }
-      cur.sumPct += g.score / max
-      cur.n += 1
-      gradeAgg.set(g.studentId, cur)
-    }
+    // Средний процент по опубликованным колонкам — тоже агрегат базы (gradeRateByStudent).
+    const gradeAgg = new Map(gradeRates.map((row) => [row.studentId, row]))
 
     const atRisk = []
     for (const s of students) {
@@ -291,9 +338,11 @@ export class AnalyticsService {
       }
 
       if (s.groupId) {
-        const dueIds = dueByGroup.get(s.groupId) ?? []
-        const done = doneByStudent.get(s.id) ?? new Set<string>()
-        const overdue = dueIds.filter((id) => !done.has(id)).length
+        // Просрочено = сколько заданий группы с истёкшим сроком студент не сдал. Считается
+        // вычитанием, а не разностью множеств: база возвращает ЧИСЛО сдач студента по тем
+        // же заданиям, и тянуть сто тысяч идентификаторов ради той же цифры незачем.
+        const dueCount = dueByGroup.get(s.groupId)?.length ?? 0
+        const overdue = Math.max(0, dueCount - (doneByStudent.get(s.id) ?? 0))
         if (overdue > 0) reasons.push({ kind: 'OVERDUE_ASSIGNMENTS', value: overdue })
       }
 
