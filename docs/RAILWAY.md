@@ -82,16 +82,28 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    | `NEXT_PUBLIC_APP_URL` | `https://<web-домен>` |
    | `NEXT_PUBLIC_APP_NAME` | `StudentHub` |
    | `NEXT_PUBLIC_SENTRY_DSN` | DSN проекта Sentry (пусто = трекер выключен) |
+   | `NEXT_PUBLIC_MINIO_URL` | `https://<minio-домен>` — попадает в CSP |
+   | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | тот же ключ, что `VAPID_PUBLIC_KEY` у api; без него нет push |
+   | `NEXT_PUBLIC_FEATURE_STORIES` | `1` включает сторисы (Ф14.1); пусто = раздела нет |
 
    Опционально там же: `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_RELEASE`
    (тот же `${{RAILWAY_GIT_COMMIT_SHA}}`, что и у api — версия сборки уже показывается
-   пользователю в настройках, `NEXT_PUBLIC_BUILD_ID`)
+   пользователю в настройках, `NEXT_PUBLIC_BUILD_ID`),
+   `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE`
    и — для читаемых стектрейсов вместо минифицированных — `SENTRY_ORG`, `SENTRY_PROJECT`,
    `SENTRY_AUTH_TOKEN` (загрузка source maps на сборке; без токена шаг молча пропускается).
+   Последние три до сборки сейчас не доезжают: секрет в build-arg остаётся в истории
+   образа, поэтому в `apps/web/Dockerfile` они не объявлены. Чтобы включить выгрузку
+   source maps, нужен `--mount=type=secret` — отдельная задача, а не переменная в панели.
 
    > `NEXT_PUBLIC_*` инлайнятся во время **сборки** — Railway передаёт переменные
    > сервиса как build-args, поэтому менять их = пересобрать web. Это относится и к
    > `NEXT_PUBLIC_SENTRY_DSN`: добавили DSN → нужен ре-деплой, рестарта недостаточно.
+   >
+   > Build-arg доезжает до сборки, только если он объявлен в `apps/web/Dockerfile`
+   > (`ARG` + `ENV`). Незадекларированную переменную docker игнорирует молча: в панели
+   > она есть, в бандле — `undefined`. Заводите новую `NEXT_PUBLIC_*` — правьте и
+   > Dockerfile, иначе отладка уходит в «почему флаг не работает».
 
 4. **Generate Domain** — публичный URL web. Затем вернуться в `api` и выставить
    `CORS_ORIGIN` = этот URL.
