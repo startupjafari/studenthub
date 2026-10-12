@@ -26,17 +26,48 @@ FROM deps AS build
 COPY . .
 # NEXT_PUBLIC_* инлайнятся во время сборки — Railway передаёт переменные сервиса
 # как build-args, поэтому каждую нужно объявить ARG и пробросить в ENV.
+#
+# Переменная, которой здесь нет, в сборку НЕ попадёт, сколько её ни задавай в панели
+# Railway: незадекларированный build-arg docker молча игнорирует, а Next подставит в
+# бандл `undefined`. Добавляя `NEXT_PUBLIC_*` в код веба, добавляйте строку и сюда.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_APP_NAME
+# Хранилище медиа: из него строятся img-src/media-src/connect-src в CSP (next.config).
+ARG NEXT_PUBLIC_MINIO_URL
+# Флаг раскатки сторис (Ф14.1): '1' включает полосу колец над лентой.
+ARG NEXT_PUBLIC_FEATURE_STORIES
+# Публичный ключ VAPID — без него веб не умеет подписаться на push-уведомления.
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
+# Sentry: DSN и параметры релиза читаются клиентским бандлом на этапе build.
+ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT
+ARG NEXT_PUBLIC_SENTRY_RELEASE
+ARG NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE
 # Цель прокси /api/* (единый origin). Читается в next.config rewrites на этапе build.
 ARG API_PROXY_TARGET
+# Идентификатор сборки: из него next.config делает buildId и версию в настройках,
+# по которой PWA понимает, что пора обновиться. Без него — метка `dev-<время>`.
+ARG RAILWAY_GIT_COMMIT_SHA
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME}
+ENV NEXT_PUBLIC_MINIO_URL=${NEXT_PUBLIC_MINIO_URL}
+ENV NEXT_PUBLIC_FEATURE_STORIES=${NEXT_PUBLIC_FEATURE_STORIES}
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=${NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
+ENV NEXT_PUBLIC_SENTRY_ENVIRONMENT=${NEXT_PUBLIC_SENTRY_ENVIRONMENT}
+ENV NEXT_PUBLIC_SENTRY_RELEASE=${NEXT_PUBLIC_SENTRY_RELEASE}
+ENV NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE}
 ENV API_PROXY_TARGET=${API_PROXY_TARGET}
+ENV RAILWAY_GIT_COMMIT_SHA=${RAILWAY_GIT_COMMIT_SHA}
+# SENTRY_AUTH_TOKEN (загрузка source maps) здесь намеренно НЕ объявлен: секрет в
+# build-arg оседает в истории сборки, и hadolint справедливо это запрещает (DL3064).
+# Через переменные Railway его не передать — нужен `--mount=type=secret`, а это
+# отдельная задача. Без токена плагин Sentry молча пропускает выгрузку, остальное
+# работает: ORG и PROJECT без него бесполезны и тоже не пробрасываются.
 # turbo собирает workspace-зависимости web (shared-*) по графу ^build, затем сам web.
 # Прямой `pnpm --filter web build` их пропускает → web не находит dist shared-пакетов.
 RUN pnpm exec turbo run build --filter=web
