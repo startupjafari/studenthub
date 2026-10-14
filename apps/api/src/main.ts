@@ -19,6 +19,8 @@ import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { AppModule } from './app.module'
 import type { EnvVars } from './config/env.schema'
 
+const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 // Node пробует адреса хоста по очереди и бросает соединение через 250 мс (значение по
 // умолчанию у autoSelectFamily). Для исходящих запросов этого мало: если TCP-рукопожатие с
 // внешним хостом занимает больше — а из dev-окружений это обычное дело, — `fetch` падает с
@@ -48,9 +50,12 @@ function trustProxySetting(): string | boolean {
 async function bootstrap(): Promise<void> {
   // requestId: берём входящий x-request-id или генерируем uuid (docs/BACKEND_RULES.md §13).
   const adapter = new FastifyAdapter({
+    // Чужой x-request-id принимаем только в формате UUID: произвольная строка из заголовка
+    // попадала в логи как есть — переносы строк и подделка чужих записей журнала.
     genReqId: (req: IncomingMessage): string => {
       const header = req.headers['x-request-id']
-      return (Array.isArray(header) ? header[0] : header) ?? randomUUID()
+      const value = Array.isArray(header) ? header[0] : header
+      return value && REQUEST_ID_RE.test(value) ? value : randomUUID()
     },
     // §14.5 — в проде API стоит за прокси (nginx из docker/nginx/nginx.conf либо edge
     // Railway), который проставляет X-Forwarded-For/X-Real-IP. Без trustProxy req.ip у

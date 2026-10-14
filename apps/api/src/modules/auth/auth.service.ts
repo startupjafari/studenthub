@@ -334,6 +334,13 @@ export class AuthService {
       throw new AppException('UNAUTHORIZED', 'Сессия не найдена')
     }
 
+    // Секрет — до детектора повтора: иначе одного id (без секрета) хватало, чтобы объявить
+    // «повтор» и погасить чужую цепочку сессий.
+    const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
+    if (!secretOk) {
+      throw new AppException('UNAUTHORIZED', 'Некорректный refresh-токен')
+    }
+
     // Повторное использование инвалидированного токена → рвём всю цепочку (§6.2).
     //
     // Кроме окна грации: повтор ТОЛЬКО ЧТО ротированного токена, когда цепочка ещё жива, — это,
@@ -371,11 +378,6 @@ export class AuthService {
       throw new AppException('UNAUTHORIZED', 'Сессия истекла')
     }
 
-    const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
-    if (!secretOk) {
-      throw new AppException('UNAUTHORIZED', 'Некорректный refresh-токен')
-    }
-
     const user = await this.users.findByIdForAuth(record.userId)
     if (!user || user.isBlocked) {
       await this.revokeFamily(record.familyId)
@@ -405,7 +407,9 @@ export class AuthService {
       return
     }
     const record = await this.prisma.refreshToken.findUnique({ where: { id: parsed.id } })
-    if (!record) {
+    // Без верного секрета выход ничего не гасит: id токена сам по себе не доказывает, что
+    // это та же сессия.
+    if (!record || !(await this.passwords.compare(parsed.secret, record.tokenHash))) {
       return
     }
     await this.revokeFamily(record.familyId)
