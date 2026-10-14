@@ -19,6 +19,7 @@ import {
   type StaffRequestSummary,
   type StaffSubmissionItem,
 } from '../../../entities/document-request'
+import { courseKeys, fetchCourses } from '../../../entities/course'
 import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
 import { localId } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
@@ -263,16 +264,31 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<DraftItem[]>(() => [
     { id: localId('req-item'), documentType: firstType, title: '', required: true },
   ])
-  const [toUniversity, setToUniversity] = useState(true)
-  const [toFaculty, setToFaculty] = useState(false)
+  // Адресаты — в области автора (сервер проверяет то же самое): весь вуз — модератор вуза,
+  // свой факультет — декан, группы своих дисциплин — преподаватель.
+  const canUniversity = role === Role.UNIVERSITY_MODERATOR
+  const canFaculty = role === Role.DEAN && !!myFacultyId
+  const isTeacher = role === Role.TEACHER
+  const [toUniversity, setToUniversity] = useState(canUniversity)
+  const [toFaculty, setToFaculty] = useState(canFaculty)
+  const [groupIds, setGroupIds] = useState<string[]>([])
+  // Преподавателю сервер отдаёт только его дисциплины.
+  const myCourses = useQuery({
+    queryKey: courseKeys.list(),
+    queryFn: () => fetchCourses(),
+    enabled: isTeacher,
+  })
+  // Одна группа может встречаться в нескольких дисциплинах — в списке она одна.
+  const myGroups = [...new Map((myCourses.data ?? []).map((c) => [c.group.id, c.group])).values()]
 
   const mut = useMutation({
     mutationFn: () => {
       const targets = [
-        ...(toUniversity ? [{ targetType: 'UNIVERSITY' as const }] : []),
-        ...(toFaculty && myFacultyId
+        ...(canUniversity && toUniversity ? [{ targetType: 'UNIVERSITY' as const }] : []),
+        ...(canFaculty && toFaculty && myFacultyId
           ? [{ targetType: 'FACULTY' as const, targetId: myFacultyId }]
           : []),
+        ...groupIds.map((id) => ({ targetType: 'GROUP' as const, targetId: id })),
       ]
       return createDocumentRequest({
         title: title.trim(),
@@ -294,7 +310,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const targetsChosen = toUniversity || (toFaculty && !!myFacultyId)
+  const targetsChosen =
+    (canUniversity && toUniversity) || (canFaculty && toFaculty) || groupIds.length > 0
   // Ошибки показываем после первой попытки создать запрос.
   const [submitted, setSubmitted] = useState(false)
   const errors = {
@@ -431,16 +448,41 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
         {/* Адресаты */}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('req_fieldTargets')}</span>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={toUniversity} onCheckedChange={(v) => setToUniversity(v === true)} />
-            {t('req_targetUniversity')}
-          </label>
-          {myFacultyId && (
+          {canUniversity && (
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={toUniversity}
+                onCheckedChange={(v) => setToUniversity(v === true)}
+              />
+              {t('req_targetUniversity')}
+            </label>
+          )}
+          {canFaculty && (
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={toFaculty} onCheckedChange={(v) => setToFaculty(v === true)} />
               {t('req_targetFaculty')}
             </label>
           )}
+          {isTeacher &&
+            (myCourses.isLoading ? (
+              <Skeleton className="h-5 w-40" />
+            ) : myGroups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('req_targetNoGroups')}</p>
+            ) : (
+              myGroups.map((g) => (
+                <label key={g.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={groupIds.includes(g.id)}
+                    onCheckedChange={(v) =>
+                      setGroupIds((prev) =>
+                        v === true ? [...prev, g.id] : prev.filter((x) => x !== g.id),
+                      )
+                    }
+                  />
+                  {t('req_targetGroup', { name: g.name })}
+                </label>
+              ))
+            ))}
           <FieldError>{show('targets')}</FieldError>
         </div>
       </div>

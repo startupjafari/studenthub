@@ -2941,7 +2941,9 @@
     "pa_actionFile": "Файл",
     "pa_repeat": "Қайталау",
     "req_targetsRequired": "Кемінде бір алушыны таңдаңыз",
-    "fieldFilesCount": "Файлдар: {n}"
+    "fieldFilesCount": "Файлдар: {n}",
+    "req_targetGroup": "{name} тобына",
+    "req_targetNoGroups": "Сізде пәндер жоқ — сұранысты жіберетін ешкім жоқ"
   },
   "DatePicker": {
     "prevPage": "Артқа",

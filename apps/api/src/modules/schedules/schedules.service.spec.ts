@@ -29,6 +29,7 @@ function setup() {
     },
     scheduleChange: { create: jest.fn(), findMany: jest.fn() },
     group: { findUnique: jest.fn() },
+    course: { findFirst: jest.fn().mockResolvedValue({ id: 'c-1' }) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     $transaction: jest.fn(),
@@ -370,6 +371,18 @@ describe('SchedulesService — scope преподавателя (свои пар
     primeCreate(prisma)
     await service.createPair(teacher, ownInput, ctx)
     expect(prisma.pair.create).toHaveBeenCalled()
+  })
+
+  it('группа, где он не ведёт дисциплин → WRONG_SCOPE, пара не создаётся', async () => {
+    const { service, prisma } = setup()
+    primeCreate(prisma)
+    prisma.course.findFirst.mockResolvedValue(null)
+    const err = await service.createPair(teacher, ownInput, ctx).catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.course.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { teacherId: T, groupId: 'grp-1' } }),
+    )
+    expect(prisma.pair.create).not.toHaveBeenCalled()
   })
 
   it('пытается создать пару для другого преподавателя → WRONG_SCOPE', async () => {

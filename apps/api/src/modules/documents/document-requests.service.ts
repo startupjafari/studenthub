@@ -81,6 +81,76 @@ export class DocumentRequestsService {
     }
   }
 
+  /**
+   * Адресаты — только в области автора. Запрос на документы собирает паспорта и дипломы,
+   * поэтому сужения «до своего вуза» мало: декан факультета A иначе адресовал запрос
+   * факультету B (или всему вузу, или любому студенту по id) и получал их документы.
+   * Весь вуз — модератор вуза; декан — свой факультет, его группы и студентов; преподаватель —
+   * группы, где ведёт дисциплины, и их студентов.
+   */
+  private async assertTargetsInScope(
+    actor: JwtPayload,
+    targets: CreateDocumentRequestInput['targets'],
+  ): Promise<void> {
+    const universityId = actor.universityId!
+    const isModerator = actor.role === Role.UNIVERSITY_MODERATOR
+    let taughtGroups: Set<string> | null = null
+    const teacherGroups = async (): Promise<Set<string>> => {
+      if (taughtGroups) return taughtGroups
+      const courses = await this.prisma.course.findMany({
+        where: { teacherId: actor.sub },
+        select: { groupId: true },
+        take: 500,
+      })
+      taughtGroups = new Set(courses.map((c) => c.groupId))
+      return taughtGroups
+    }
+    const deny = (): never => {
+      throw new AppException('WRONG_SCOPE', 'Адресат вне вашей области')
+    }
+
+    for (const tgt of targets) {
+      const id = tgt.targetId ?? ''
+      if (tgt.targetType === 'UNIVERSITY') {
+        if (!isModerator) deny()
+      } else if (tgt.targetType === 'FACULTY') {
+        if (actor.role === Role.TEACHER) deny()
+        if (actor.role === Role.DEAN && id !== actor.facultyId) deny()
+        const faculty = await this.prisma.faculty.findFirst({
+          where: { id, universityId },
+          select: { id: true },
+        })
+        if (!faculty) deny()
+      } else if (tgt.targetType === 'GROUP') {
+        const group = await this.prisma.group.findFirst({
+          where: { id, faculty: { universityId } },
+          select: { facultyId: true },
+        })
+        if (!group) return deny()
+        if (actor.role === Role.DEAN && group.facultyId !== actor.facultyId) deny()
+        if (actor.role === Role.TEACHER && !(await teacherGroups()).has(id)) deny()
+      } else {
+        const student = await this.prisma.user.findFirst({
+          where: {
+            id,
+            universityId,
+            deletedAt: null,
+            role: { in: [Role.STUDENT, Role.STAROSTA] },
+          },
+          select: { facultyId: true, groupId: true },
+        })
+        if (!student) return deny()
+        if (actor.role === Role.DEAN && student.facultyId !== actor.facultyId) deny()
+        if (
+          actor.role === Role.TEACHER &&
+          !(student.groupId && (await teacherGroups()).has(student.groupId))
+        ) {
+          deny()
+        }
+      }
+    }
+  }
+
   private async logEvent(
     actorId: string,
     requestId: string,
@@ -125,6 +195,7 @@ export class DocumentRequestsService {
         throw new AppException('BAD_REQUEST', 'Для адресата не указан получатель')
       }
     }
+    await this.assertTargetsInScope(actor, input.targets)
     const created = await this.prisma.documentRequest.create({
       data: {
         universityId: actor.universityId!,

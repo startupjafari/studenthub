@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import { eventVisibilityWhere } from '../events/event-visibility'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
@@ -67,7 +68,7 @@ export class SearchService {
         select: { id: true, title: true, subject: true },
         take: LIMIT,
       }),
-      // События — по названию в пределах вуза (платформа — без ограничения).
+      // События — по названию, в своём вузе и по аудитории (платформа — без ограничения).
       this.prisma.event.findMany({
         where: { ...this.eventScope(viewer, uni), title: contains },
         select: { id: true, title: true, startsAt: true },
@@ -76,7 +77,7 @@ export class SearchService {
       }),
       // Чаты — только те, где смотрящий состоит (scope = членство), по названию группы.
       this.prisma.chat.findMany({
-        where: { title: contains, members: { some: { userId: viewer.sub } } },
+        where: { title: contains, members: { some: { userId: viewer.sub, bannedAt: null } } },
         select: { id: true, title: true, type: true },
         take: LIMIT,
       }),
@@ -122,8 +123,9 @@ export class SearchService {
     return { group: { is: { faculty: { is: { universityId: uni } } } } }
   }
 
+  // Свой вуз и та же видимость по аудитории, что у списка событий.
   private eventScope(viewer: JwtPayload, uni: string): Prisma.EventWhereInput {
     if (isPlatform(viewer.role)) return {}
-    return { universityId: uni }
+    return { AND: [{ universityId: uni }, eventVisibilityWhere(viewer)] }
   }
 }

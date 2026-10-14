@@ -339,6 +339,7 @@ export class SchedulesService {
     if (actor.role === Role.TEACHER) {
       // Преподаватель создаёт только СВОИ пары (назначает себя), в своём вузе.
       this.assertTeacherPairScope(actor, gctx, teacherId)
+      await this.assertTeachesGroup(actor.sub, schedule.groupId)
     } else {
       this.assertManageScopeForGroup(actor, gctx)
     }
@@ -721,6 +722,22 @@ export class SchedulesService {
     }
     if (pairTeacherId !== actor.sub) {
       throw new AppException('WRONG_SCOPE', 'Можно управлять только своими парами')
+    }
+  }
+
+  /**
+   * Пара даёт преподавателю права «своего занятия»: ростер группы, посещаемость, QR-отметку и
+   * предметный чат. Поэтому ставить себе пары он может только в группах, где ведёт дисциплину;
+   * иначе любой преподаватель вуза назначал себя в чужую группу и проставлял ей прогулы.
+   * Остальные пары расставляет деканат.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
+    })
+    if (!course) {
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте дисциплин в этой группе')
     }
   }
 
