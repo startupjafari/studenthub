@@ -347,6 +347,10 @@ export type SharePostInput = z.infer<typeof SharePostSchema>
 export const ChatJoinSchema = z.object({ chatId: z.string().min(1) }).strict()
 export type ChatJoinInput = z.infer<typeof ChatJoinSchema>
 
+// Вступление в группу по ссылке-приглашению: код из ссылки, а не только id чата.
+export const JoinChatByInviteSchema = z.object({ code: z.string().min(8).max(64) }).strict()
+export type JoinChatByInviteInput = z.infer<typeof JoinChatByInviteSchema>
+
 export const MessageSendSchema = z
   .object({
     chatId: z.string().min(1),

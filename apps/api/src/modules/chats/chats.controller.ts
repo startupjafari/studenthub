@@ -57,6 +57,7 @@ import { SharePostDto } from './dto/share-post.dto'
 import { SaveDraftDto } from './dto/save-draft.dto'
 import { ScheduleMessageDto } from './dto/schedule-message.dto'
 import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
+import { JoinChatByInviteDto } from './dto/join-chat-by-invite.dto'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -558,14 +559,30 @@ export class ChatsController {
   }
 
   @Post(':id/join')
-  @ApiOperation({ summary: 'Присоединиться к группе по ссылке-приглашению' })
+  @ApiOperation({ summary: 'Присоединиться к группе по ссылке-приглашению (с кодом из ссылки)' })
   @ApiResponse({ status: 201, description: 'Присоединён (идемпотентно)' })
-  @ApiResponse({
-    status: 403,
-    description: 'WRONG_SCOPE — чат не является пользовательской группой',
-  })
-  join(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.joinByInvite(user.sub, id)
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — заблокирован в чате или работодатель' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — приглашение недействительно' })
+  join(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: JoinChatByInviteDto,
+  ) {
+    return this.chats.joinByInvite(user, id, dto.code)
+  }
+
+  @Get(':id/invite')
+  @ApiOperation({ summary: 'Код ссылки-приглашения группы (только админ группы)' })
+  @ApiResponse({ status: 200, description: '{ code }' })
+  inviteCode(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.getInviteCode(user, id)
+  }
+
+  @Post(':id/invite/reset')
+  @ApiOperation({ summary: 'Сменить код ссылки-приглашения (прежняя ссылка перестаёт работать)' })
+  @ApiResponse({ status: 201, description: '{ code }' })
+  resetInvite(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.resetInviteCode(user, id)
   }
 
   @Post(':id/members')
