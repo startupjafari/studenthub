@@ -87,7 +87,7 @@ export class ExamsService {
 
   /** Ведомость экзамена: студенты группы + их результаты (декан/экзаменатор). */
   async results(viewer: JwtPayload, examId: string) {
-    const exam = await this.findManageable(viewer, examId)
+    const exam = await this.findManageable(viewer, examId, { examiner: true })
     const [students, results] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where: {
@@ -175,7 +175,7 @@ export class ExamsService {
   }
 
   async setResults(actor: JwtPayload, input: SetExamResultsInput, ctx: RequestContext) {
-    const exam = await this.findManageable(actor, input.examId)
+    const exam = await this.findManageable(actor, input.examId, { examiner: true })
     const groupStudents = await this.prisma.user.findMany({
       where: { groupId: exam.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
       select: { id: true },
@@ -295,15 +295,23 @@ export class ExamsService {
     throw new AppException('FORBIDDEN', 'Недостаточно прав')
   }
 
+  /**
+   * Экзамен, которым актор вправе управлять. `examiner: true` — для ведомости: её ведёт
+   * назначенный экзаменатор, даже если дисциплину читает другой преподаватель (приглашённый
+   * председатель комиссии, замена заболевшего). Править и удалять сам экзамен экзаменатор не
+   * может — это остаётся за ведущим дисциплину и деканатом.
+   */
   private async findManageable(
     actor: JwtPayload,
     id: string,
+    opts: { examiner?: boolean } = {},
   ): Promise<{ id: string; groupId: string }> {
     const exam = await this.prisma.exam.findUnique({
       where: { id },
       select: {
         id: true,
         groupId: true,
+        examinerId: true,
         course: {
           select: {
             teacherId: true,
@@ -313,6 +321,9 @@ export class ExamsService {
       },
     })
     if (!exam) throw new AppException('NOT_FOUND', 'Экзамен не найден')
+    if (opts.examiner && actor.role === Role.TEACHER && exam.examinerId === actor.sub) {
+      return { id: exam.id, groupId: exam.groupId }
+    }
     this.assertManageCourse(actor, {
       teacherId: exam.course.teacherId,
       facultyId: exam.course.group.facultyId,
