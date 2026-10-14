@@ -26,6 +26,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    group: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     complaint: { count: jest.fn().mockResolvedValue(0) },
     moderationWarning: {
       create: jest.fn().mockResolvedValue({ id: 'w1' }),
@@ -430,6 +431,23 @@ describe('UserService — softDeleteSelf', () => {
     expect(data.twoFactorBackupCodes).toEqual([])
     expect(data.interests).toEqual([])
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
+  })
+
+  it('староста: освобождает имя входа, выходит из группы и снимает отметку старосты', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.findUnique.mockResolvedValue({ role: Role.STAROSTA })
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    const { data } = prisma.user.update.mock.calls[0][0]
+    expect(data.username).toBeNull()
+    expect(data.groupId).toBeNull()
+    expect(data.role).toBe(Role.STUDENT)
+    expect(prisma.group.updateMany).toHaveBeenCalledWith({
+      where: { starostaId: 'u' },
+      data: { starostaId: null },
+    })
   })
 
   it('сносит объекты аватара и обложки в MinIO', async () => {

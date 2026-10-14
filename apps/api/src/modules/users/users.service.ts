@@ -1275,11 +1275,23 @@ export class UserService {
     const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
     // Пароль забиваем невосстановимым хешем случайной строки.
     const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
-    await this.prisma.user.update({
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    })
+    // Староста — роль и отметка в группе; удалённому не остаётся ни того, ни другого.
+    const demoted = current?.role === Role.STAROSTA ? { role: Role.STUDENT } : {}
+    const anonymize = this.prisma.user.update({
       where: { id: userId },
       data: {
         deletedAt: new Date(),
         email: anonymizedEmail,
+        // Имя входа — тоже ПДн, и без обнуления оно оставалось занятым навсегда.
+        username: null,
+        // Из группы удалённый выходит: иначе группу нельзя было удалить (FK Restrict), а
+        // он сам числился в её составе. Оценки и посещаемость привязаны к студенту, не к группе.
+        groupId: null,
+        ...demoted,
         passwordHash: anonymizedHash,
         firstName: 'Удалённый',
         lastName: 'пользователь',
@@ -1341,6 +1353,10 @@ export class UserService {
         moderationAreas: null,
       },
     })
+    await this.prisma.$transaction([
+      anonymize,
+      this.prisma.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } }),
+    ])
     await this.authService.revokeAllUserSessions(userId)
   }
 
