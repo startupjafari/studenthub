@@ -42,7 +42,12 @@ function setup() {
     group: { findUnique: jest.fn() },
     user: { findFirst: jest.fn() },
     file: { findMany: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
+    // Создание поста с медиа — интерактивная транзакция; в тесте она идёт на тех же моках.
+    $transaction: jest.fn(),
   }
+  prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => Promise<unknown>) =>
+    fn(prisma),
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('posts-media') }
   const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed') }
@@ -707,7 +712,7 @@ describe('PostsService — счётчик комментариев ленты', 
     expect(prisma.post.findMany.mock.calls[0][0].select._count).toBeUndefined()
     expect(prisma.comment.groupBy.mock.calls[0][0]).toMatchObject({
       by: ['postId'],
-      where: { postId: { in: ['p1', 'p2'] } },
+      where: { postId: { in: ['p1', 'p2'] }, deletedAt: null },
     })
     // Форма ответа прежняя: клиент читает post._count.comments.
     expect(res.items.map((p) => [p.id, p._count.comments])).toEqual([
@@ -722,8 +727,9 @@ describe('PostsService — счётчик комментариев ленты', 
 
     await service.getById(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p1')
 
+    // Удалённые комментарии не считаются — так же, как в ленте.
     expect(prisma.post.findFirst.mock.calls[0][0].select._count).toEqual({
-      select: { comments: true },
+      select: { comments: { where: { deletedAt: null } } },
     })
   })
 
@@ -771,5 +777,25 @@ describe('PostsService — счётчик комментариев ленты', 
       AppException,
     )
     expect(prisma.postBookmark.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('PostsService.create — медиа', () => {
+  it('файл уже в другом посте или чужой → BAD_REQUEST, пост откатывается вместе с транзакцией', async () => {
+    const { service, prisma } = setup()
+    prisma.post.create.mockResolvedValue({ id: 'p-new' })
+    prisma.file.updateMany.mockResolvedValue({ count: 1 })
+    const err = await service
+      .create(
+        viewer(Role.PLATFORM_ADMIN),
+        { audience: 'ALL', content: 'текст', mediaIds: ['f1', 'f2'] } as never,
+        { ip: '127.0.0.1', userAgent: 'jest' },
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f1', 'f2'] }, ownerId: 'u-1', bucket: 'posts-media', postId: null },
+      data: { postId: 'p-new' },
+    })
   })
 })
