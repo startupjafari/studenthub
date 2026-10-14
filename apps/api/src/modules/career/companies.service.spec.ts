@@ -174,6 +174,60 @@ describe('CompaniesService — подтверждение email', () => {
   })
 })
 
+describe('CompaniesService — повторное письмо подтверждения', () => {
+  it('выдаёт новую ссылку и гасит прежнюю', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.company.findFirst.mockResolvedValue({ id: 'co-1', name: 'Acme' })
+
+    const result = await service.resendVerification({ email: 'hr@acme.kz' }, ctx)
+
+    expect(result).toEqual({ email: 'hr@acme.kz' })
+    const data = prisma.company.update.mock.calls[0]?.[0]?.data as {
+      emailVerificationHash: string
+      emailVerificationExpiresAt: Date
+    }
+    // Хэш в записи один: перезапись делает прежнюю ссылку недействительной.
+    expect(data.emailVerificationHash).toBeTruthy()
+    expect(data.emailVerificationExpiresAt.getTime()).toBeGreaterThan(Date.now())
+    const payload = queue.enqueue.mock.calls[0]?.[2] as { to: string; verifyUrl: string }
+    expect(payload.to).toBe('hr@acme.kz')
+    expect(payload.verifyUrl).not.toContain(data.emailVerificationHash)
+  })
+
+  it('ищет только компанию, ждущую подтверждения, по почте её владельца', async () => {
+    const { service, prisma } = setup()
+    prisma.company.findFirst.mockResolvedValue(null)
+
+    await service.resendVerification({ email: 'hr@acme.kz' }, ctx)
+
+    expect(prisma.company.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'PENDING_EMAIL',
+          members: {
+            some: expect.objectContaining({
+              role: 'OWNER',
+              user: expect.objectContaining({ email: 'hr@acme.kz', role: Role.EMPLOYER }),
+            }),
+          },
+        }),
+      }),
+    )
+  })
+
+  it('неизвестный или подтверждённый адрес — тот же ответ и без письма', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.company.findFirst.mockResolvedValue(null)
+
+    const result = await service.resendVerification({ email: 'nobody@acme.kz' }, ctx)
+
+    // Эндпоинт публичный: разный ответ превратил бы его в проверку адресов.
+    expect(result).toEqual({ email: 'nobody@acme.kz' })
+    expect(prisma.company.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
 describe('CompaniesService — заявка на допуск', () => {
   function ownerSetup() {
     const s = setup()
