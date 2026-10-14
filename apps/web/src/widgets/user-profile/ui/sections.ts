@@ -1,5 +1,9 @@
 import { Role } from '@studenthub/shared-types'
-import { profileFieldAllowed, type ProfileFieldKey } from '@studenthub/shared-schemas'
+import {
+  profileFieldAllowed,
+  profileFieldSelfEditable,
+  type ProfileFieldKey,
+} from '@studenthub/shared-schemas'
 
 // Конфиг секций/полей профиля (data-driven). Порядок = порядок отображения.
 // Используется и в режиме просмотра, и в форме редактирования — единый источник истины.
@@ -142,6 +146,18 @@ export function visibleSections(role: Role): Section[] {
   return SECTIONS.map((s) => ({
     ...s,
     fields: s.fields.filter((f) => profileFieldAllowed(f.key, role)),
+  })).filter((s) => s.fields.length > 0)
+}
+
+/**
+ * Секции для формы редактирования СВОЕГО профиля. Учебные данные студента (курс, форма
+ * оплаты, статус…) видны, но правит их вуз: сервер отвечает 400 на попытку прислать их
+ * в PATCH /users/me, поэтому в форме их нет совсем.
+ */
+export function editableSections(role: Role): Section[] {
+  return SECTIONS.map((s) => ({
+    ...s,
+    fields: s.fields.filter((f) => profileFieldSelfEditable(f.key, role)),
   })).filter((s) => s.fields.length > 0)
 }
 

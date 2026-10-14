@@ -2307,7 +2307,13 @@
     "blocked": "Заблокирован",
     "active": "Активен",
     "block": "Заблокировать",
-    "unblock": "Разблокировать"
+    "unblock": "Разблокировать",
+    "academicAction": "Учебные данные",
+    "academicTitle": "Учебные данные студента",
+    "academicSave": "Сохранить",
+    "academicSaved": "Учебные данные обновлены",
+    "academicLoadError": "Не удалось загрузить профиль студента",
+    "academicCardHint": "Пустое поле — номер не меняется"
   },
   "Stats": {
     "attendanceRate": "Посещаемость",

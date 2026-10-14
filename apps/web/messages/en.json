@@ -2307,7 +2307,13 @@
     "blocked": "Blocked",
     "active": "Active",
     "block": "Block",
-    "unblock": "Unblock"
+    "unblock": "Unblock",
+    "academicAction": "Academic record",
+    "academicTitle": "Student academic record",
+    "academicSave": "Save",
+    "academicSaved": "Academic record updated",
+    "academicLoadError": "Couldn't load the student's profile",
+    "academicCardHint": "Leave empty to keep the current number"
   },
   "Stats": {
     "attendanceRate": "Attendance",

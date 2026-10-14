@@ -48,7 +48,7 @@ import {
   uploadCoverRequest,
   userKeys,
 } from '../../../entities/user'
-import { visibleSections } from './sections'
+import { editableSections } from './sections'
 import { ProfileEditForm, PROFILE_EDIT_FORM_ID } from './profile-edit-form'
 import {
   ENTER,
@@ -145,7 +145,7 @@ export function UserProfile() {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const editSections = useMemo(() => (me.data ? visibleSections(me.data.role) : []), [me.data])
+  const editSections = useMemo(() => (me.data ? editableSections(me.data.role) : []), [me.data])
 
   if (me.isLoading) return <ProfileSkeleton />
   if (me.isError || !me.data)

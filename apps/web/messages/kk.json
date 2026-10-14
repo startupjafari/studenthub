@@ -2307,7 +2307,13 @@
     "blocked": "Бұғатталған",
     "active": "Белсенді",
     "block": "Бұғаттау",
-    "unblock": "Бұғаттан шығару"
+    "unblock": "Бұғаттан шығару",
+    "academicAction": "Оқу деректері",
+    "academicTitle": "Студенттің оқу деректері",
+    "academicSave": "Сақтау",
+    "academicSaved": "Оқу деректері жаңартылды",
+    "academicLoadError": "Студент профилін жүктеу мүмкін болмады",
+    "academicCardHint": "Бос өріс — нөмір өзгермейді"
   },
   "Stats": {
     "attendanceRate": "Сабаққа қатысу",

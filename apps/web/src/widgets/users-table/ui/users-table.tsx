@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
+import { Ban, Download, GraduationCap, ShieldCheck, Users as UsersIcon } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
@@ -17,6 +17,7 @@ import {
   ProfileLink,
   unblockUserRequest,
 } from '../../../entities/user'
+import { AcademicRecordModal } from '../../../features/edit-academic-record'
 import {
   Badge,
   Button,
@@ -73,6 +74,10 @@ const CAN_BLOCK: Role[] = [
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
 ]
+// Учебные данные студента (курс, форма оплаты, статус) ведёт вуз: декан — своего
+// факультета, админ — своего вуза. Сервер проверяет область сам.
+const CAN_EDIT_ACADEMIC: Role[] = [Role.DEAN, Role.UNIVERSITY_ADMIN]
+const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 export function UsersTable({ title, subtitle, role, showRoleFilter = false }: UsersTableProps) {
   const t = useTranslations('Users')
@@ -83,6 +88,9 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const qc = useQueryClient()
   const viewerRole = useAppSelector((s) => s.auth.role)
   const canBlock = viewerRole !== null && CAN_BLOCK.includes(viewerRole)
+  const canEditAcademic = viewerRole !== null && CAN_EDIT_ACADEMIC.includes(viewerRole)
+  const hasActions = canBlock || canEditAcademic
+  const [academicFor, setAcademicFor] = useState<string | null>(null)
   // `md` — та же граница, на которой в проекте прячут второстепенные колонки таблиц
   // (`hidden md:table-cell` в комнатах, документах, курсах).
   const isWide = useMediaQuery('(min-width: 768px)')
@@ -203,10 +211,10 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
             fill
             cols={
               isWide
-                ? canBlock
+                ? hasActions
                   ? COLS
                   : COLS.slice(0, 4)
-                : canBlock
+                : hasActions
                   ? COLS_NARROW
                   : COLS_NARROW_READONLY
             }
@@ -229,12 +237,12 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 <TableHead sortKey="blocked" sort={sort} onSort={sortBy}>
                   {t('colStatus')}
                 </TableHead>
-                {canBlock && <TableHead />}
+                {hasActions && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.isLoading && (
-                <TableSkeletonRows columns={(isWide ? 4 : 2) + (canBlock ? 1 : 0)} />
+                <TableSkeletonRows columns={(isWide ? 4 : 2) + (hasActions ? 1 : 0)} />
               )}
               {rows.map((u) => (
                 <TableRow key={u.id}>
@@ -267,31 +275,45 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                       <span className="text-xs text-muted-foreground">{t('active')}</span>
                     )}
                   </TableCell>
-                  {canBlock && (
+                  {hasActions && (
                     <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        loading={blockMut.isPending && blockMut.variables?.id === u.id}
-                        onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
-                        className={u.isBlocked ? 'text-success' : 'text-destructive'}
-                        // До `md` подпись не влезает в колонку и обрезается на полуслове —
-                        // остаётся иконка, а название действия уходит в доступное имя.
-                        aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
-                      >
-                        {u.isBlocked ? (
-                          <>
-                            <ShieldCheck className="size-4" aria-hidden />
-                            {isWide && t('unblock')}
-                          </>
-                        ) : (
-                          <>
-                            <Ban className="size-4" aria-hidden />
-                            {isWide && t('block')}
-                          </>
-                        )}
-                      </Button>
+                      {canEditAcademic && STUDENT_ROLES.includes(u.role) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setAcademicFor(u.id)}
+                          aria-label={t('academicAction')}
+                          title={t('academicAction')}
+                        >
+                          <GraduationCap className="size-4" aria-hidden />
+                        </Button>
+                      )}
+                      {canBlock && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={blockMut.isPending && blockMut.variables?.id === u.id}
+                          onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
+                          className={u.isBlocked ? 'text-success' : 'text-destructive'}
+                          // До `md` подпись не влезает в колонку и обрезается на полуслове —
+                          // остаётся иконка, а название действия уходит в доступное имя.
+                          aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
+                        >
+                          {u.isBlocked ? (
+                            <>
+                              <ShieldCheck className="size-4" aria-hidden />
+                              {isWide && t('unblock')}
+                            </>
+                          ) : (
+                            <>
+                              <Ban className="size-4" aria-hidden />
+                              {isWide && t('block')}
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </TableCell>
                   )}
                 </TableRow>
@@ -309,6 +331,9 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
             onLimitChange={(n) => refilter(() => setLimit(n))}
           />
         </Card>
+      )}
+      {academicFor && (
+        <AcademicRecordModal userId={academicFor} onClose={() => setAcademicFor(null)} />
       )}
     </div>
   )
