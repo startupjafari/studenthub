@@ -459,13 +459,18 @@ export class CoursesService {
     teacherId: string,
     universityId: string,
   ): Promise<void> {
-    const teacher = await this.prisma.user.findUnique({
-      where: { id: teacherId },
+    // Вести дисциплину может только действующий преподаватель или декан: раньше сюда
+    // проходил кто угодно из вуза, включая удалённых, заблокированных и студентов.
+    const teacher = await this.prisma.user.findFirst({
+      where: { id: teacherId, deletedAt: null, isBlocked: false },
       select: { universityId: true, role: true },
     })
     if (!teacher) throw new AppException('NOT_FOUND', 'Преподаватель не найден')
     if (teacher.universityId !== universityId)
       throw new AppException('WRONG_SCOPE', 'Преподаватель другого университета')
+    if (teacher.role !== Role.TEACHER && teacher.role !== Role.DEAN) {
+      throw new AppException('BAD_REQUEST', 'Назначить можно только преподавателя или декана')
+    }
   }
 
   private async resolveGroup(

@@ -168,7 +168,11 @@ export class GradebookService {
   async saveGrades(actor: JwtPayload, input: SaveGradesInput, ctx: RequestContext) {
     const col = await this.findManageableColumn(actor, input.columnId)
     const groupStudents = await this.prisma.user.findMany({
-      where: { groupId: col.course.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
+      where: {
+        groupId: col.course.groupId,
+        role: { in: ['STUDENT', 'STAROSTA'] },
+        deletedAt: null,
+      },
       select: { id: true },
       take: GROUP_STUDENTS_LIMIT,
     })
