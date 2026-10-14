@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Inbox } from 'lucide-react'
@@ -73,11 +74,20 @@ type Screen = { name: 'list' } | { name: 'detail'; id: string }
 // `draftId` задан — правка существующего черновика, пусто — создание с нуля.
 type Wizard = { draftId?: string }
 
+interface StudentApplicationsViewProps {
+  // Диплинк из уведомления: /applications/<id> открывает заявку окном поверх списка.
+  initialId?: string
+}
+
 // Экран заявок студента (§29): вкладки + карточки + мастер создания + деталь.
-export function StudentApplicationsView() {
+export function StudentApplicationsView({ initialId }: StudentApplicationsViewProps) {
   const t = useTranslations('Applications')
   const locale = useLocale()
-  const [screen, setScreen] = useState<Screen>({ name: 'list' })
+  const router = useRouter()
+  const pathname = usePathname()
+  const [screen, setScreen] = useState<Screen>(() =>
+    initialId ? { name: 'detail', id: initialId } : { name: 'list' },
+  )
   const [wizard, setWizard] = useState<Wizard | null>(null)
   const [tab, setTab] = useState<TabId>('active')
 
@@ -159,13 +169,20 @@ export function StudentApplicationsView() {
   // Заявка открывается окном поверх списка — как и мастер. Продолжение черновика
   // закрывает окно заявки и открывает мастер: две модалки друг над другом не нужны,
   // а по завершении мастер сам вернёт на обновлённую заявку.
+  // Закрыли заявку, открытую по диплинку, — адрес возвращается к списку, иначе
+  // обновление страницы снова открыло бы ту же заявку.
+  const closeDetail = (): void => {
+    setScreen({ name: 'list' })
+    if (pathname !== '/applications') router.replace('/applications')
+  }
+
   const detailNode = screen.name === 'detail' && (
     <ApplicationDetail
       asModal
       id={screen.id}
-      onBack={() => setScreen({ name: 'list' })}
+      onBack={closeDetail}
       onContinueDraft={(id) => {
-        setScreen({ name: 'list' })
+        closeDetail()
         setWizard({ draftId: id })
       }}
     />
