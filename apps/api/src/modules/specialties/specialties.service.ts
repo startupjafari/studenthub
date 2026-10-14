@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import type { CreateSpecialtyInput } from '@studenthub/shared-schemas'
+import type { CreateSpecialtyInput, UpdateSpecialtyInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -61,7 +61,48 @@ export class SpecialtiesService {
     }
   }
 
+  /**
+   * Переименование (опечатка, смена названия по приказу). Профили студентов ссылаются на
+   * специальность по id, поэтому новое название сразу видно везде.
+   */
+  async update(actor: JwtPayload, id: string, input: UpdateSpecialtyInput, ctx: RequestContext) {
+    await this.findOwned(actor, id)
+    try {
+      const specialty = await this.prisma.specialty.update({
+        where: { id },
+        data: { name: input.name.trim() },
+        select: SPECIALTY_SELECT,
+      })
+      await this.audit.record({
+        userId: actor.sub,
+        action: 'specialty_updated',
+        entity: 'Specialty',
+        entityId: id,
+        ...ctx,
+      })
+      return specialty
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppException('CONFLICT', 'Такая специальность уже есть')
+      }
+      throw error
+    }
+  }
+
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
+    await this.findOwned(actor, id)
+    await this.prisma.specialty.delete({ where: { id } })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'specialty_deleted',
+      entity: 'Specialty',
+      entityId: id,
+      ...ctx,
+    })
+  }
+
+  /** Специальность своего вуза — иначе NOT_FOUND / WRONG_SCOPE (IDOR, BACKEND_RULES §14.10). */
+  private async findOwned(actor: JwtPayload, id: string): Promise<void> {
     const specialty = await this.prisma.specialty.findUnique({
       where: { id },
       select: { id: true, universityId: true },
@@ -72,13 +113,5 @@ export class SpecialtiesService {
     if (specialty.universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Ресурс другого университета')
     }
-    await this.prisma.specialty.delete({ where: { id } })
-    await this.audit.record({
-      userId: actor.sub,
-      action: 'specialty_deleted',
-      entity: 'Specialty',
-      entityId: id,
-      ...ctx,
-    })
   }
 }
