@@ -4,6 +4,7 @@ import { GroupService } from './groups.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { UniversityService } from '../universities/universities.service'
+import type { UserService } from '../users/users.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -22,14 +23,23 @@ function setup() {
     user: { findFirst: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
   }
+  // Колбэк-транзакция: в tx — тот же мок, чтобы проверять вызовы как обычно.
+  prisma.$transaction.mockImplementation(async (arg: unknown) =>
+    typeof arg === 'function' ? (arg as (tx: typeof prisma) => unknown)(prisma) : arg,
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const universities = { invalidateStats: jest.fn().mockResolvedValue(undefined) }
+  const users = {
+    syncGroupStarosta: jest.fn().mockResolvedValue([]),
+    afterStarostaChange: jest.fn().mockResolvedValue(undefined),
+  }
   const service = new GroupService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     universities as unknown as UniversityService,
+    users as unknown as UserService,
   )
-  return { service, prisma, audit, universities }
+  return { service, prisma, audit, universities, users }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -145,7 +155,12 @@ describe('GroupService — assignStarosta', () => {
   it('участник группы → назначается', async () => {
     const { service, prisma } = setup()
     prisma.group.findUnique.mockResolvedValue(GROUP)
-    prisma.user.findFirst.mockResolvedValue({ id: 'stud-1', groupId: 'grp-1' })
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'stud-1',
+      groupId: 'grp-1',
+      role: Role.STUDENT,
+      isBlocked: false,
+    })
     prisma.group.update.mockResolvedValue({ ...GROUP, starostaId: 'stud-1' })
     const res = await service.assignStarosta(
       viewer(Role.DEAN, { facultyId: 'fac-1' }),
@@ -159,7 +174,12 @@ describe('GroupService — assignStarosta', () => {
   it('не участник группы → BAD_REQUEST', async () => {
     const { service, prisma } = setup()
     prisma.group.findUnique.mockResolvedValue(GROUP)
-    prisma.user.findFirst.mockResolvedValue({ id: 'x', groupId: 'grp-9' })
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'x',
+      groupId: 'grp-9',
+      role: Role.STUDENT,
+      isBlocked: false,
+    })
     await expect(
       service.assignStarosta(viewer(Role.PLATFORM_ADMIN), 'grp-1', { starostaId: 'x' }, ctx),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
@@ -168,7 +188,12 @@ describe('GroupService — assignStarosta', () => {
   it('пользователь уже староста другой группы (P2002) → CONFLICT', async () => {
     const { service, prisma } = setup()
     prisma.group.findUnique.mockResolvedValue(GROUP)
-    prisma.user.findFirst.mockResolvedValue({ id: 'stud-1', groupId: 'grp-1' })
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'stud-1',
+      groupId: 'grp-1',
+      role: Role.STUDENT,
+      isBlocked: false,
+    })
     prisma.group.update.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError('u', { code: 'P2002', clientVersion: '6' }),
     )
@@ -189,6 +214,59 @@ describe('GroupService — assignStarosta', () => {
     )
     expect(res.starostaId).toBeNull()
     expect(prisma.user.findFirst).not.toHaveBeenCalled()
+  })
+})
+
+describe('GroupService — assignStarosta: роль, а не только отметка', () => {
+  const student = { id: 'stud-1', groupId: 'grp-1', role: Role.STUDENT, isBlocked: false }
+
+  it('назначение меняет роли в той же транзакции и гасит сессии разжалованному', async () => {
+    const { service, prisma, users } = setup()
+    prisma.group.findUnique.mockResolvedValue({ ...GROUP, starostaId: 'old-1' })
+    prisma.user.findFirst.mockResolvedValue(student)
+    prisma.group.update.mockResolvedValue({ ...GROUP, starostaId: 'stud-1' })
+    users.syncGroupStarosta.mockResolvedValue(['old-1'])
+
+    await service.assignStarosta(
+      viewer(Role.DEAN, { facultyId: 'fac-1' }),
+      'grp-1',
+      { starostaId: 'stud-1' },
+      ctx,
+    )
+
+    expect(users.syncGroupStarosta).toHaveBeenCalledWith(prisma, 'grp-1', 'stud-1')
+    expect(users.afterStarostaChange).toHaveBeenCalledWith('u', 'grp-1', 'stud-1', ['old-1'])
+  })
+
+  it('снятие старосты возвращает роль студента всем старостам группы', async () => {
+    const { service, prisma, users } = setup()
+    prisma.group.findUnique.mockResolvedValue({ ...GROUP, starostaId: 'stud-1' })
+    prisma.group.update.mockResolvedValue({ ...GROUP, starostaId: null })
+
+    await service.assignStarosta(viewer(Role.PLATFORM_ADMIN), 'grp-1', { starostaId: null }, ctx)
+
+    expect(users.syncGroupStarosta).toHaveBeenCalledWith(prisma, 'grp-1', null)
+  })
+
+  it('преподаватель с тем же groupId старостой не становится', async () => {
+    const { service, prisma, users } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.user.findFirst.mockResolvedValue({ ...student, role: Role.TEACHER })
+
+    await expect(
+      service.assignStarosta(viewer(Role.PLATFORM_ADMIN), 'grp-1', { starostaId: 'stud-1' }, ctx),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(users.syncGroupStarosta).not.toHaveBeenCalled()
+  })
+
+  it('заблокированного старостой не назначить', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.user.findFirst.mockResolvedValue({ ...student, isBlocked: true })
+
+    await expect(
+      service.assignStarosta(viewer(Role.PLATFORM_ADMIN), 'grp-1', { starostaId: 'stud-1' }, ctx),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })
 

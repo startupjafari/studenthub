@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { DoorClosed, Plus, Printer, RefreshCw, Trash2 } from 'lucide-react'
+import { DoorClosed, Pencil, Plus, Printer, RefreshCw, Trash2 } from 'lucide-react'
 import type { RoomSortValue } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -100,6 +100,7 @@ export function RoomsAdminView() {
   })
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [editing, setEditing] = useState<Room | null>(null)
 
   const deleteMut = useMutation({
     mutationFn: deleteRoomRequest,
@@ -295,6 +296,16 @@ export function RoomsAdminView() {
                           variant="ghost"
                           size="sm"
                           icon
+                          aria-label={t('editRoom')}
+                          title={t('editRoom')}
+                          onClick={() => setEditing(room)}
+                        >
+                          <Pencil className="size-4" aria-hidden />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon
                           aria-label={t('delete')}
                           onClick={async () => {
                             const ok = await confirm({
@@ -329,6 +340,7 @@ export function RoomsAdminView() {
       </div>
 
       {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} />}
+      {editing && <CreateRoomModal room={editing} onClose={() => setEditing(null)} />}
 
       {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу. */}
       {/* Раскладка всегда «по одной на лист»: печать теперь только для одного помещения,

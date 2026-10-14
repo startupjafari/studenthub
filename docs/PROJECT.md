@@ -555,7 +555,7 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 Защита: срок 48 ч (cron помечает `EXPIRED` раз в час), одноразовость (проверка внутри транзакции), отзыв через `PATCH /invites/:id/revoke`, throttling 3 попытки/час с IP, полный аудит.
 
 **Массовый импорт (CSV/XLSX).** Для онбординга многих студентов сразу — двухшаговый поток:
-`POST /invites/bulk/preview` (multipart-файл) парсит CSV/XLSX (колонки `email`, `group` — имя группы, необязательная `role`, по умолчанию STUDENT), разрешает имя группы в id в scope создателя и валидирует каждую строку БЕЗ записи → `{ rows: [{ line, email, groupName, role, groupId, status: READY|DUPLICATE|ERROR, error }], summary }`. Затем `POST /invites/bulk` создаёт инвайты по подтверждённым строкам (сервер повторно валидирует scope/иерархию через тот же `resolveInviteTarget`, пропускает дубли) → `{ created, skipped, failed }`. Обе ручки — те же роли, что и одиночный инвайт (PLATFORM_ADMIN/UNIVERSITY_ADMIN/DEAN/STAROSTA); лимит 500 строк за импорт.
+`POST /invites/bulk/preview` (multipart-файл) парсит CSV/XLSX (обязательна только колонка `email`; `role` — по умолчанию STUDENT; `group` — имя группы, обязательна для STUDENT/STAROSTA; `faculty` — имя факультета, обязательна для DEAN и необязательна для TEACHER — так админ вуза заводит преподавателей и деканов одним файлом), разрешает имена группы и факультета в id в scope создателя и валидирует каждую строку БЕЗ записи → `{ rows: [{ line, email, groupName, facultyName, role, groupId, facultyId, status: READY|DUPLICATE|ERROR, error }], summary }`. Затем `POST /invites/bulk` (`rows: [{ email, groupId?, facultyId?, role? }]`) создаёт инвайты по подтверждённым строкам (сервер повторно проверяет, что группа и факультет в scope создателя, валидирует иерархию через тот же `resolveInviteTarget`, пропускает дубли) → `{ created, skipped, failed }`. Обе ручки — те же роли, что и одиночный инвайт (PLATFORM_ADMIN/UNIVERSITY_ADMIN/DEAN/STAROSTA); лимит 500 строк за импорт.
 
 ### 7.4 Rate limiting
 
@@ -725,7 +725,9 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 
 **Факультеты** — `GET|POST /faculties` · `GET|PATCH|DELETE /faculties/:id` (удаление только без групп)
 
-**Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members`
+**Специальности** (справочник вуза, `UNIVERSITY_ADMIN`; вуз — из JWT) — `GET|POST /specialties` · `PATCH|DELETE /specialties/:id` (`PATCH { name }` — переименование; чужой вуз → `WRONG_SCOPE`, занятое название → `CONFLICT`)
+
+**Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members` · `PATCH /groups/:id/starosta` (`{ starostaId | null }`, админ вуза или декан факультета группы; старостой становится только студент этой группы. Староста — роль, а не отметка: в одной транзакции выбранный получает `STAROSTA`, остальные старосты группы — `STUDENT`; разжалованным гасятся сессии, обе смены роли пишутся в аудит `user_role_changed`)
 
 **Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id`
 

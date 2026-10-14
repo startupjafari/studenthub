@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, Users } from 'lucide-react'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { fetchGroupMembers, fetchGroups, groupKeys, type Group } from '../../../entities/group'
+import { AssignStarosta } from '../../../features/assign-starosta'
 import { Badge, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { GroupMembers } from '../../group-members'
@@ -18,11 +19,17 @@ import { GroupMembers } from '../../group-members'
  * строка (шеврон слева, название и год второй строкой, признак старосты справа), тот
  * же скелетон и то же пустое состояние.
  *
- * Чего здесь нет и быть не должно — действий администратора: создания группы, удаления
- * и назначения старосты. Это различие в ПРАВАХ, а не в структуре: API их этим ролям и
- * не даст (PROJECT.md, матрица доступа).
+ * Создания и удаления групп здесь нет — это права админа вуза. Назначение старосты
+ * включается флагом `manageStarosta`: его даёт декан (PATCH /groups/:id/starosta разрешён
+ * декану своего факультета), преподавателю список только для чтения.
  */
-export function GroupsList({ title }: { title: string }) {
+export function GroupsList({
+  title,
+  manageStarosta = false,
+}: {
+  title: string
+  manageStarosta?: boolean
+}) {
   const tErr = useTranslations('Errors')
   const t = useTranslations('People')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -75,8 +82,9 @@ export function GroupsList({ title }: { title: string }) {
                 </div>
 
                 {open && (
-                  <div className="border-t border-border p-4">
+                  <div className="flex flex-col gap-3 border-t border-border p-4">
                     <GroupMembers groupId={g.id} />
+                    {manageStarosta && <StarostaControl group={g} />}
                   </div>
                 )}
               </Card>
@@ -86,4 +94,14 @@ export function GroupsList({ title }: { title: string }) {
       )}
     </div>
   )
+}
+
+// Участники берутся из того же кэша, что и у списка GroupMembers выше: второго запроса нет.
+function StarostaControl({ group }: { group: Group }) {
+  const members = useQuery({
+    queryKey: groupKeys.members(group.id),
+    queryFn: () => fetchGroupMembers(group.id),
+  })
+  if (!members.data) return null
+  return <AssignStarosta group={group} members={members.data} />
 }

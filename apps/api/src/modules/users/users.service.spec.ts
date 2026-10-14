@@ -1047,3 +1047,53 @@ describe('UserService — выгрузка списка', () => {
     expect((body as string).charCodeAt(0)).toBe(0xfeff)
   })
 })
+
+describe('UserService — роль старосты группы', () => {
+  function tx() {
+    return {
+      user: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'old-1' }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    }
+  }
+
+  it('прежние старосты группы — в студенты, новый — в старосты', async () => {
+    const { service } = setup()
+    const t = tx()
+
+    const demoted = await service.syncGroupStarosta(t as never, 'grp-1', 'stud-1')
+
+    expect(demoted).toEqual(['old-1'])
+    expect(t.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          groupId: 'grp-1',
+          role: Role.STAROSTA,
+          id: { not: 'stud-1' },
+        }),
+      }),
+    )
+    expect(t.user.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['old-1'] } },
+      data: { role: Role.STUDENT, starostaSince: null },
+    })
+    // Повышается только студент: действующий староста сохраняет дату начала полномочий.
+    expect(t.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'stud-1', role: Role.STUDENT } }),
+    )
+  })
+
+  it('разжалованному гасятся сессии, обе смены роли — в журнал', async () => {
+    const { service, authService, audit } = setup()
+
+    await service.afterStarostaChange('dean-1', 'grp-1', 'stud-1', ['old-1'])
+
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('old-1')
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalledWith('stud-1')
+    expect(audit.record).toHaveBeenCalledTimes(2)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'user_role_changed', entityId: 'old-1' }),
+    )
+  })
+})

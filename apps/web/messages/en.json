@@ -710,12 +710,12 @@
     "bulk": {
       "open": "Import from file",
       "title": "Bulk invite import",
-      "hint": "Upload a CSV or XLSX. Required columns: \"email\" and \"group\" (group name); optional \"role\" (defaults to Student). The first row is the header.",
+      "hint": "Upload a CSV or XLSX; the first row is the header. The \"email\" column is required. \"role\" is the role (defaults to Student); \"group\" is required for students and class reps; \"faculty\" is required for deans and optional for teachers.",
       "choose": "Choose file",
       "checking": "Checking file…",
       "colLine": "Row",
       "colEmail": "Email",
-      "colGroup": "Group",
+      "colGroup": "Group / faculty",
       "colRole": "Role",
       "colStatus": "Status",
       "colError": "Note",
@@ -789,7 +789,16 @@
     "specialtyExists": "This specialty already exists",
     "noSpecialties": "No specialties yet",
     "noSpecialtiesHint": "Add the first specialty above.",
-    "deleteSpecialtyConfirm": "Delete specialty \"{name}\"?"
+    "deleteSpecialtyConfirm": "Delete specialty \"{name}\"?",
+    "rename": "Rename",
+    "renamed": "Name saved",
+    "nameTaken": "This name is already taken",
+    "renameFaculty": "New faculty name",
+    "renameSpecialty": "New specialty name",
+    "editGroup": "Edit group",
+    "groupUpdated": "Group saved",
+    "save": "Save",
+    "cancel": "Cancel"
   },
   "Dashboard": {
     "searchPlaceholder": "Search the platform",
@@ -3804,7 +3813,10 @@
     "manualPlaceholder": "ABCD-2345",
     "manualHint": "Eight characters below the QR code. The dash is optional.",
     "manualSubmit": "Open room",
-    "manualCta": "Enter code manually"
+    "manualCta": "Enter code manually",
+    "editRoom": "Edit room",
+    "updated": "Room saved",
+    "save": "Save"
   },
   "PlatformDashboard": {
     "hours": "{h} h",

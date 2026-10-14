@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, Plus, Trash2, Users } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
@@ -13,20 +13,15 @@ import {
   Button,
   Card,
   EmptyState,
-  Label,
   PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
 import { CreateGroupModal } from './create-group-modal'
+import { AssignStarosta } from '../../../features/assign-starosta'
+import { EditGroupModal } from './edit-group-modal'
 import {
-  assignStarostaRequest,
   deleteGroupRequest,
   fetchGroupMembers,
   fetchGroups,
@@ -52,20 +47,12 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
   const tRoles = useTranslations('Roles')
   const confirm = useConfirm()
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const members = useQuery({
     queryKey: groupKeys.members(group.id),
     queryFn: () => fetchGroupMembers(group.id),
     enabled: open,
-  })
-
-  const starostaMut = useMutation({
-    mutationFn: (starostaId: string | null) => assignStarostaRequest(group.id, { starostaId }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: groupKeys.list() })
-      toast.success(t('starostaUpdated'))
-    },
-    onError: (e) => toast.error(tErr(errCode(e))),
   })
 
   const deleteMut = useMutation({
@@ -105,6 +92,17 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
           </div>
         </button>
         {group.starostaId && <Badge variant="info">{t('hasStarosta')}</Badge>}
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
+          aria-label={t('editGroup')}
+          title={t('editGroup')}
+          onClick={() => setEditing(true)}
+          className="text-muted-foreground"
+        >
+          <Pencil className="size-4" aria-hidden />
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -154,41 +152,14 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
                   </div>
                 ))}
               </div>
-              <div className="flex items-end gap-2">
-                <div className="flex flex-1 flex-col gap-1">
-                  <Label>{t('assignStarosta')}</Label>
-                  <Select
-                    value={group.starostaId ?? ''}
-                    onValueChange={(v) => starostaMut.mutate(v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('selectStarosta')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {members.data.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.firstName} {m.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {group.starostaId && (
-                  <Button
-                    variant="outline"
-                    onClick={() => starostaMut.mutate(null)}
-                    loading={starostaMut.isPending}
-                  >
-                    {t('clearStarosta')}
-                  </Button>
-                )}
-              </div>
+              <AssignStarosta group={group} members={members.data} />
             </>
           ) : (
             <EmptyState title={t('noMembers')} className="border-0 p-6" />
           )}
         </div>
       )}
+      {editing && <EditGroupModal group={group} onClose={() => setEditing(false)} />}
     </Card>
   )
 }

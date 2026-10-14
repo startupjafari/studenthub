@@ -14,6 +14,7 @@ export function PromptDialog({
   placeholder,
   multiline,
   required,
+  defaultValue,
   submitLabel,
   cancelLabel,
   onSubmit,
@@ -24,6 +25,8 @@ export function PromptDialog({
   placeholder?: string
   multiline?: boolean
   required?: boolean
+  /** Исходное значение поля — для переименования: правят текущее название, а не вводят заново. */
+  defaultValue?: string
   submitLabel: string
   cancelLabel: string
   onSubmit: (value: string) => void
@@ -31,8 +34,8 @@ export function PromptDialog({
 }) {
   const [value, setValue] = useState('')
   useEffect(() => {
-    if (open) setValue('')
-  }, [open])
+    if (open) setValue(defaultValue ?? '')
+  }, [open, defaultValue])
 
   const disabled = required && value.trim().length === 0
 
