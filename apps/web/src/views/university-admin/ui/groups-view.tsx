@@ -13,20 +13,14 @@ import {
   Button,
   Card,
   EmptyState,
-  Label,
   PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
 import { CreateGroupModal } from './create-group-modal'
+import { AssignStarosta } from '../../../features/assign-starosta'
 import {
-  assignStarostaRequest,
   deleteGroupRequest,
   fetchGroupMembers,
   fetchGroups,
@@ -57,15 +51,6 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
     queryKey: groupKeys.members(group.id),
     queryFn: () => fetchGroupMembers(group.id),
     enabled: open,
-  })
-
-  const starostaMut = useMutation({
-    mutationFn: (starostaId: string | null) => assignStarostaRequest(group.id, { starostaId }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: groupKeys.list() })
-      toast.success(t('starostaUpdated'))
-    },
-    onError: (e) => toast.error(tErr(errCode(e))),
   })
 
   const deleteMut = useMutation({
@@ -154,35 +139,7 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
                   </div>
                 ))}
               </div>
-              <div className="flex items-end gap-2">
-                <div className="flex flex-1 flex-col gap-1">
-                  <Label>{t('assignStarosta')}</Label>
-                  <Select
-                    value={group.starostaId ?? ''}
-                    onValueChange={(v) => starostaMut.mutate(v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('selectStarosta')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {members.data.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.firstName} {m.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {group.starostaId && (
-                  <Button
-                    variant="outline"
-                    onClick={() => starostaMut.mutate(null)}
-                    loading={starostaMut.isPending}
-                  >
-                    {t('clearStarosta')}
-                  </Button>
-                )}
-              </div>
+              <AssignStarosta group={group} members={members.data} />
             </>
           ) : (
             <EmptyState title={t('noMembers')} className="border-0 p-6" />
