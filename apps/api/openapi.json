@@ -118,6 +118,36 @@
         ]
       }
     },
+    "/auth/qr/preview": {
+      "post": {
+        "operationId": "AuthController_qrPreview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QrApproveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "QR-сессия не найдена, истекла или уже подтверждена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Кто просит вход по QR: браузер, ОС и сеть устройства (до подтверждения)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/qr/approve": {
       "post": {
         "operationId": "AuthController_qrApprove",
