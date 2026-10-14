@@ -11882,6 +11882,118 @@
         ]
       }
     },
+    "/events/{id}/comments": {
+      "get": {
+        "operationId": "EventsController_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Последние комментарии, по порядку написания"
+          },
+          "404": {
+            "description": "NOT_FOUND — событие не видно"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Комментарии к событию (видны всей аудитории события)",
+        "tags": [
+          "События"
+        ]
+      },
+      "post": {
+        "operationId": "EventsController_addComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEventCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Комментарий создан"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прокомментировать событие",
+        "tags": [
+          "События"
+        ]
+      }
+    },
+    "/events/{id}/comments/{commentId}": {
+      "delete": {
+        "operationId": "EventsController_removeComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалён"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить комментарий (автор, организатор, админ или модератор)",
+        "tags": [
+          "События"
+        ]
+      }
+    },
     "/complaints": {
       "post": {
         "operationId": "ComplaintsController_create",
@@ -15307,6 +15419,10 @@
         "properties": {}
       },
       "UpdateEventDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateEventCommentDto": {
         "type": "object",
         "properties": {}
       },
