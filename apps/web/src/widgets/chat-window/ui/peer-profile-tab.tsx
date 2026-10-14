@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { userKeys, fetchUserById } from '../../../entities/user'
+import { websiteHref } from '@studenthub/shared-schemas'
 
 // Строка информации: иконка + значение (значение может быть ссылкой) + кнопка копирования справа.
 function InfoRow({
@@ -217,14 +218,18 @@ export function PeerProfileTab({ userId }: { userId: string }) {
               copyTitle={copyTitle}
               copiedText={copiedText}
             >
-              <a
-                href={u.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                {u.website}
-              </a>
+              {websiteHref(u.website) ? (
+                <a
+                  href={websiteHref(u.website)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {u.website}
+                </a>
+              ) : (
+                u.website
+              )}
             </InfoRow>
           )}
           {u.bio && (

@@ -38,15 +38,24 @@ server {
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 
     # index.html не кэшируем: иначе после деплоя Telegram открывал бы старую страницу,
     # ссылающуюся на удалённые ассеты, — белый экран без единой ошибки в логе.
     location = /index.html {
         add_header Cache-Control "no-store";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 
+    # Базовые заголовки безопасности. Повторены в каждом location с add_header: nginx не
+    # наследует add_header уровня выше, если в блоке есть свой. CSP и X-Frame-Options не
+    # ставим: мини-апп открывается во фрейме web.telegram.org, и запрет фрейма его сломал бы.
     location / {
         try_files $uri $uri/ /index.html;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 }
