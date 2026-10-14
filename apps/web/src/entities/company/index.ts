@@ -2,6 +2,7 @@ export {
   companyKeys,
   employerSignup,
   verifyCompanyEmail,
+  resendCompanyVerification,
   fetchMyCompany,
   updateMyCompany,
   fetchMyCompanyAccess,

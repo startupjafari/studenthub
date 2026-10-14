@@ -7,6 +7,8 @@ import { useTranslations } from 'next-intl'
 import { Building2, CheckCircle2, Clock, GraduationCap, ShieldAlert } from 'lucide-react'
 import { isAccessActive } from '@studenthub/shared-schemas'
 import { companyKeys, fetchMyCompany, fetchMyCompanyAccess } from '../../../entities/company'
+import { fetchMe, userKeys } from '../../../entities/user'
+import { ResendVerificationButton } from '../../../features/resend-company-verification'
 import { Button, MetricTile, PageHeader, PageLoader, SeasonGreeting } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -21,6 +23,9 @@ export function EmployerHomeView() {
 
   const company = useQuery({ queryKey: companyKeys.mine(), queryFn: fetchMyCompany })
   const access = useQuery({ queryKey: companyKeys.myAccess(), queryFn: fetchMyCompanyAccess })
+  // Почта нужна только для «отправить письмо ещё раз», пока адрес не подтверждён.
+  const unverified = company.data?.status === 'PENDING_EMAIL'
+  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe, enabled: unverified })
 
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
 
@@ -28,7 +33,6 @@ export function EmployerHomeView() {
   const approved = rows.filter((a) => isAccessActive(a))
   const pending = rows.filter((a) => a.status === 'REQUESTED')
   const blocked = company.data?.status === 'BLOCKED'
-  const unverified = company.data?.status === 'PENDING_EMAIL'
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -50,6 +54,7 @@ export function EmployerHomeView() {
           icon={<Clock className="size-5" aria-hidden />}
           title={t('unverifiedTitle')}
           text={t('unverifiedText')}
+          action={me.data?.email ? <ResendVerificationButton email={me.data.email} /> : undefined}
         />
       )}
 

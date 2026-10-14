@@ -8,6 +8,7 @@ import { CircleCheck, CircleX } from 'lucide-react'
 import { verifyCompanyEmail } from '../../../entities/company'
 import { Button, PageLoader } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { ResendVerificationForm } from '../../../features/resend-company-verification'
 
 // Посадочная страница из письма: подтверждает адрес компании по одноразовому токену.
 export function EmployerVerifyView() {
@@ -59,7 +60,10 @@ export function EmployerVerifyView() {
         <h2 className="text-xl font-semibold">{ok ? t('verifyOkTitle') : t('verifyFailTitle')}</h2>
         <p className="text-sm text-muted-foreground">{ok ? t('verifyOkText') : message}</p>
       </div>
-      <Button asChild>
+      {/* Ссылка истекла или уже потеряла силу — новую можно получить прямо здесь, иначе
+          компания застревала в ожидании подтверждения навсегда. */}
+      {!ok && <ResendVerificationForm />}
+      <Button asChild variant={ok ? 'default' : 'ghost'}>
         <Link href="/login">{t('toLogin')}</Link>
       </Button>
     </div>

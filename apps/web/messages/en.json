@@ -148,7 +148,13 @@
     "verifyOkTitle": "Email confirmed",
     "verifyOkText": "Sign in and request access from a university.",
     "verifyFailTitle": "Could not confirm",
-    "verifyNoToken": "The link has no confirmation token."
+    "verifyNoToken": "The link has no confirmation token.",
+    "resend": "Send the email again",
+    "resendDone": "Email sent",
+    "resendSent": "We sent a new link — the previous one no longer works",
+    "resendMaybeSent": "If a company with this address is awaiting confirmation, we've sent it a new link. It's valid for 24 hours.",
+    "resendEmailLabel": "Email you signed up with",
+    "resendEmailInvalid": "Enter a valid email"
   },
   "Demo": {
     "title": "Request a trial",
