@@ -6127,7 +6127,155 @@
         ]
       }
     },
+    "/application-categories/manage": {
+      "get": {
+        "operationId": "ApplicationServicesController_manageCategories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Все активные категории — для формы услуги",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services/manage": {
+      "get": {
+        "operationId": "ApplicationServicesController_manageList",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Услуги для управления: свои услуги вуза и шаблоны платформы (у админа платформы — шаблоны)",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services/manage/{id}": {
+      "get": {
+        "operationId": "ApplicationServicesController_manageGet",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — услуга другого вуза или не существует"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Услуга для редактора: требования и поля формы, признак editable",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services": {
+      "post": {
+        "operationId": "ApplicationServicesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertApplicationServiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Создано: { id }"
+          },
+          "409": {
+            "description": "CONFLICT — код уже занят"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать услугу: у админа вуза — в своём вузе, у админа платформы — шаблон",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
     "/application-services/{id}": {
+      "put": {
+        "operationId": "ApplicationServicesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertApplicationServiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Сохранено: { id }"
+          },
+          "403": {
+            "description": "FORBIDDEN — шаблон платформы правит только её админ"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сохранить услугу целиком; убранные требования и поля выключаются, а не удаляются",
+        "tags": [
+          "Услуги университета"
+        ]
+      },
       "get": {
         "operationId": "ApplicationServicesController_service",
         "parameters": [
@@ -6151,6 +6299,38 @@
           }
         ],
         "summary": "Детали услуги: описание, требования-документы, поля формы",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services/{id}/customize": {
+      "post": {
+        "operationId": "ApplicationServicesController_customize",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Копия создана: { id }"
+          },
+          "409": {
+            "description": "CONFLICT — копия уже есть"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Настроить шаблон для своего вуза: копия с тем же кодом заменяет шаблон",
         "tags": [
           "Услуги университета"
         ]
@@ -6628,6 +6808,35 @@
           }
         ],
         "summary": "Взять в работу (SUBMITTED/RESUBMITTED → IN_REVIEW, назначить на себя)",
+        "tags": [
+          "Заявки"
+        ]
+      }
+    },
+    "/applications/{id}/assignees": {
+      "get": {
+        "operationId": "ApplicationsController_assignees",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Кому можно поручить заявку: сотрудники, вправе её обработать",
         "tags": [
           "Заявки"
         ]
@@ -14834,6 +15043,10 @@
         "properties": {}
       },
       "UpdateResumeDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpsertApplicationServiceDto": {
         "type": "object",
         "properties": {}
       },
