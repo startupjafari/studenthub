@@ -160,7 +160,7 @@ function FieldOptions({ index, lang, readOnly }: { index: number; lang: Lang; re
     control,
     name: `formFields.${index}.options`,
   })
-  if (!CHOICE_TYPES.includes(type)) return null
+  if (!type || !CHOICE_TYPES.includes(type)) return null
 
   const fieldErrors = formState.errors.formFields?.[index]
   const errors = fieldErrors?.options
