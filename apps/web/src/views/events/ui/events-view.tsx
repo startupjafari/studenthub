@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
@@ -194,7 +195,16 @@ function EventCard({
 
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-start gap-2">
-            <h3 className="min-w-0 flex-1 text-sm leading-snug font-semibold">{event.title}</h3>
+            {/* Название ведёт в карточку события: там описание целиком, участники и
+                обсуждение. */}
+            <h3 className="min-w-0 flex-1 text-sm leading-snug font-semibold">
+              <Link
+                href={`/events/${event.id}`}
+                className="hover:text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+              >
+                {event.title}
+              </Link>
+            </h3>
             {(isOrganizer || canManage) && (
               <Button
                 type="button"

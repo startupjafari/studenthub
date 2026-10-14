@@ -9,6 +9,9 @@ export {
   cancelEventRequest,
   fetchEventParticipants,
   fetchEventMeeting,
+  fetchEventComments,
+  addEventCommentRequest,
+  deleteEventCommentRequest,
 } from './api/event-api'
 export {
   MEETING_PROVIDER_NAME,
@@ -18,4 +21,5 @@ export {
   type EventItem,
   type EventOrganizer,
   type EventParticipant,
+  type EventComment,
 } from './model/types'

@@ -2215,7 +2215,19 @@
     "joinOpen": "Open meeting",
     "copyPasscode": "Copy passcode",
     "passcodeCopied": "Passcode copied",
-    "meetingUnavailable": "Link unavailable: register for the event first"
+    "meetingUnavailable": "Link unavailable: register for the event first",
+    "back": "Back",
+    "notFoundHint": "The event was deleted or isn't available to you.",
+    "participantsCount": "{count, plural, =0 {No one has signed up yet} one {# participant} other {# participants}}",
+    "organizer": "Organizer",
+    "participants": "Participants",
+    "noParticipants": "No one has signed up yet",
+    "comments": "Discussion",
+    "noComments": "No questions or comments yet",
+    "deleteComment": "Delete comment",
+    "commentPlaceholder": "A question for the organizer or a comment",
+    "commentInvalid": "1 to 2000 characters",
+    "sendComment": "Send"
   },
   "Moderation": {
     "complaintsTitle": "Complaints",
