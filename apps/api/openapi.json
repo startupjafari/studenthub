@@ -10433,12 +10433,25 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinChatByInviteDto"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Присоединён (идемпотентно)"
           },
           "403": {
-            "description": "WRONG_SCOPE — чат не является пользовательской группой"
+            "description": "FORBIDDEN — заблокирован в чате или работодатель"
+          },
+          "404": {
+            "description": "NOT_FOUND — приглашение недействительно"
           }
         },
         "security": [
@@ -10446,7 +10459,65 @@
             "bearer": []
           }
         ],
-        "summary": "Присоединиться к группе по ссылке-приглашению",
+        "summary": "Присоединиться к группе по ссылке-приглашению (с кодом из ссылки)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/invite": {
+      "get": {
+        "operationId": "ChatsController_inviteCode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ code }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Код ссылки-приглашения группы (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/invite/reset": {
+      "post": {
+        "operationId": "ChatsController_resetInvite",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ code }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сменить код ссылки-приглашения (прежняя ссылка перестаёт работать)",
         "tags": [
           "Чаты"
         ]
@@ -14914,6 +14985,10 @@
         "properties": {}
       },
       "SaveDraftDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "JoinChatByInviteDto": {
         "type": "object",
         "properties": {}
       },
