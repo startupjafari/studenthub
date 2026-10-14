@@ -127,7 +127,7 @@ describe('CompaniesService — регистрация работодателя',
   })
 
   it('занятый email не создаёт аккаунт и не отличается в ответе', async () => {
-    const { service, prisma, tx, queue } = setup()
+    const { service, prisma, tx, queue, passwords } = setup()
     prisma.user.findUnique.mockResolvedValue({ id: 'existing' })
 
     const result = await service.signup(signupInput, ctx)
@@ -136,6 +136,8 @@ describe('CompaniesService — регистрация работодателя',
     expect(result).toEqual({ email: signupInput.email })
     expect(tx.user.create).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
+    // И по времени тоже: дорогой хэш считается и для занятого адреса.
+    expect(passwords.hash).toHaveBeenCalled()
   })
 })
 
