@@ -38,3 +38,14 @@ export async function fetchComplaintMessages(id: string): Promise<ComplaintChatM
   const { data } = await api.get<ComplaintChatMessage[]>(`/complaints/${id}/messages`)
   return data
 }
+
+// Взять в разбор: жалоба закрепляется за модератором, чтобы двое не разбирали её одновременно.
+export async function takeComplaintRequest(id: string): Promise<void> {
+  await api.patch(`/complaints/${id}/take`)
+}
+
+// Вернуть разобранную жалобу в очередь. Побочные действия (удаление, блокировка) не отменяются.
+export async function reopenComplaintRequest(id: string): Promise<Complaint> {
+  const { data } = await api.patch<Complaint>(`/complaints/${id}/reopen`)
+  return data
+}
