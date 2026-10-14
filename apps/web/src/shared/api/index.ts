@@ -15,6 +15,8 @@ export {
   previewInviteRequest,
   meRequest,
   logoutRequest,
+  forgotPasswordRequest,
+  resetPasswordRequest,
   type MeResponse,
   type InvitePreview,
   type LoginResult,

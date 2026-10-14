@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -134,16 +135,15 @@ export function LoginForm() {
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="password">{t('password')}</Label>
-              <button
-                type="button"
-                onClick={() => toast.info(t('forgotSoon'))}
+              <Link
+                href="/forgot-password"
                 // Отступы растят область нажатия до 28px по высоте (16px текста — вдвое
                 // меньше минимума WCAG 2.5.8), отрицательные внешние их гасят: строка с
                 // подписью «Пароль» остаётся той же высоты, а правый край — на месте.
                 className="-mx-1 -my-1.5 cursor-pointer rounded px-1 py-1.5 text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 {t('forgotPassword')}
-              </button>
+              </Link>
             </div>
             <div className="relative">
               <Input

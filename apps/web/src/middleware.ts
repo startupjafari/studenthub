@@ -10,6 +10,9 @@ import { safeNextPath } from './shared/lib/safe-next'
 const PUBLIC_PATHS = [
   '/login',
   '/register',
+  // Сброс пароля (§7.2): его делает тот, кто войти как раз не может.
+  '/forgot-password',
+  '/reset-password',
   '/offline',
   '/employer/signup',
   '/employer/verify',
@@ -35,6 +38,9 @@ const PUBLIC_PATHS = [
  */
 const PUBLIC_PATHS_ALLOWED_WHEN_AUTHED = [
   '/employer/verify',
+  // Ссылка сброса из письма открывается и в браузере, где кто-то уже вошёл: редирект на
+  // home сжёг бы человеку ссылку, ничего не сменив.
+  '/reset-password',
   '/demo/verify',
   '/r/resume',
   '/verify',
