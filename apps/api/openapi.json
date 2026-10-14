@@ -198,6 +198,71 @@
         ]
       }
     },
+    "/auth/password/forgot": {
+      "post": {
+        "operationId": "AuthController_forgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Если адрес зарегистрирован — письмо ушло"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Прислать ссылку для сброса пароля (публично)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/password/reset": {
+      "post": {
+        "operationId": "AuthController_resetPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Пароль изменён, все сессии погашены"
+          },
+          "400": {
+            "description": "BAD_REQUEST — ссылка недействительна или устарела"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — пароль не по политике"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Задать новый пароль по ссылке из письма (публично)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/refresh": {
       "post": {
         "operationId": "AuthController_refresh",
@@ -14465,6 +14530,14 @@
         "properties": {}
       },
       "RegisterByInviteDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResetPasswordDto": {
         "type": "object",
         "properties": {}
       },
