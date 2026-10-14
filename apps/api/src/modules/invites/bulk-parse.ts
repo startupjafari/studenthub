@@ -14,33 +14,40 @@ export interface RawBulkRow {
   email: string
   group: string
   role: string
+  // Факультет — для деканов (обязателен) и преподавателей (по желанию).
+  faculty: string
 }
 
+type BulkColumn = 'email' | 'group' | 'role' | 'faculty'
+
 // Синонимы заголовков (ru/en). Ключи — что ищем, значения — допустимые заголовки.
-const HEADER_ALIASES: Record<'email' | 'group' | 'role', string[]> = {
+const HEADER_ALIASES: Record<BulkColumn, string[]> = {
   email: ['email', 'e-mail', 'mail', 'почта', 'эл. почта', 'емейл', 'мейл'],
   group: ['group', 'группа', 'группы', 'group name'],
   role: ['role', 'роль'],
+  faculty: ['faculty', 'факультет', 'faculty name'],
 }
 
 function normalizeHeader(h: string): string {
   return h.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-// Сопоставляет заголовки файла с нашими полями. email/group обязательны, role — нет.
-function resolveColumns(headers: string[]): { email: number; group: number; role: number } {
+// Сопоставляет заголовки файла с нашими полями. Обязателен только email: группа нужна
+// студентам и старостам, факультет — деканам, и какая колонка обязательна, решает роль
+// строки (InviteService.bulkPreview), а не заголовок. Список одних преподавателей группы
+// не содержит вовсе.
+function resolveColumns(headers: string[]): Record<BulkColumn, number> {
   const norm = headers.map(normalizeHeader)
-  const find = (field: 'email' | 'group' | 'role'): number =>
+  const find = (field: BulkColumn): number =>
     norm.findIndex((h) => HEADER_ALIASES[field].includes(h))
   const email = find('email')
-  const group = find('group')
-  if (email === -1 || group === -1) {
+  if (email === -1) {
     throw new AppException(
       'BAD_REQUEST',
-      'В файле должны быть колонки «email» и «group» (первая строка — заголовки)',
+      'В файле должна быть колонка «email» (первая строка — заголовки)',
     )
   }
-  return { email, group, role: find('role') }
+  return { email, group: find('group'), role: find('role'), faculty: find('faculty') }
 }
 
 // ── CSV: минимальный корректный парсер (кавычки, экранирование "", ,/; разделитель) ──
@@ -105,7 +112,7 @@ function parseXlsx(buffer: Buffer): string[][] {
   return XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '', blankrows: false })
 }
 
-// Матрица (первая строка — заголовки) → нормализованные строки email/group/role.
+// Матрица (первая строка — заголовки) → нормализованные строки email/group/role/faculty.
 function toRows(matrix: string[][]): RawBulkRow[] {
   const nonEmpty = matrix.filter((r) => r.some((c) => String(c ?? '').trim() !== ''))
   const headerRow = nonEmpty[0]
@@ -120,6 +127,7 @@ function toRows(matrix: string[][]): RawBulkRow[] {
     email: cell(r, cols.email),
     group: cell(r, cols.group),
     role: cell(r, cols.role),
+    faculty: cell(r, cols.faculty),
   }))
 }
 
