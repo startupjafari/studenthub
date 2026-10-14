@@ -771,7 +771,16 @@
     "specialtyExists": "Мұндай мамандық бар",
     "noSpecialties": "Мамандықтар әзірге жоқ",
     "noSpecialtiesHint": "Жоғарыда алғашқы мамандықты қосыңыз.",
-    "deleteSpecialtyConfirm": "«{name}» мамандығын жою керек пе?"
+    "deleteSpecialtyConfirm": "«{name}» мамандығын жою керек пе?",
+    "rename": "Атын өзгерту",
+    "renamed": "Атауы сақталды",
+    "nameTaken": "Мұндай атау бар",
+    "renameFaculty": "Факультеттің жаңа атауы",
+    "renameSpecialty": "Мамандықтың жаңа атауы",
+    "editGroup": "Топты өзгерту",
+    "groupUpdated": "Топ сақталды",
+    "save": "Сақтау",
+    "cancel": "Болдырмау"
   },
   "Dashboard": {
     "searchPlaceholder": "Платформадан іздеу",
@@ -3759,7 +3768,10 @@
     "manualPlaceholder": "ABCD-2345",
     "manualHint": "QR астындағы сегіз таңба. Сызықшаны термесе де болады.",
     "manualSubmit": "Бөлмені ашу",
-    "manualCta": "Кодты қолмен енгізу"
+    "manualCta": "Кодты қолмен енгізу",
+    "editRoom": "Бөлмені өзгерту",
+    "updated": "Бөлме сақталды",
+    "save": "Сақтау"
   },
   "PlatformDashboard": {
     "hours": "{h} сағ",

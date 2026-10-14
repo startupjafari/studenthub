@@ -771,7 +771,16 @@
     "specialtyExists": "Такая специальность уже есть",
     "noSpecialties": "Специальностей пока нет",
     "noSpecialtiesHint": "Добавьте первую специальность выше.",
-    "deleteSpecialtyConfirm": "Удалить специальность «{name}»?"
+    "deleteSpecialtyConfirm": "Удалить специальность «{name}»?",
+    "rename": "Переименовать",
+    "renamed": "Название сохранено",
+    "nameTaken": "Такое название уже есть",
+    "renameFaculty": "Новое название факультета",
+    "renameSpecialty": "Новое название специальности",
+    "editGroup": "Изменить группу",
+    "groupUpdated": "Группа сохранена",
+    "save": "Сохранить",
+    "cancel": "Отмена"
   },
   "Dashboard": {
     "searchPlaceholder": "Поиск по платформе",
@@ -3759,7 +3768,10 @@
     "manualPlaceholder": "ABCD-2345",
     "manualHint": "Восемь символов под QR-кодом. Дефис можно не набирать.",
     "manualSubmit": "Открыть помещение",
-    "manualCta": "Ввести код вручную"
+    "manualCta": "Ввести код вручную",
+    "editRoom": "Изменить помещение",
+    "updated": "Помещение сохранено",
+    "save": "Сохранить"
   },
   "PlatformDashboard": {
     "hours": "{h} ч",

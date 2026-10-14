@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, Plus, Trash2, Users } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
@@ -20,6 +20,7 @@ import {
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
 import { CreateGroupModal } from './create-group-modal'
 import { AssignStarosta } from '../../../features/assign-starosta'
+import { EditGroupModal } from './edit-group-modal'
 import {
   deleteGroupRequest,
   fetchGroupMembers,
@@ -46,6 +47,7 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
   const tRoles = useTranslations('Roles')
   const confirm = useConfirm()
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const members = useQuery({
     queryKey: groupKeys.members(group.id),
@@ -90,6 +92,17 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
           </div>
         </button>
         {group.starostaId && <Badge variant="info">{t('hasStarosta')}</Badge>}
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
+          aria-label={t('editGroup')}
+          title={t('editGroup')}
+          onClick={() => setEditing(true)}
+          className="text-muted-foreground"
+        >
+          <Pencil className="size-4" aria-hidden />
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -146,6 +159,7 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
           )}
         </div>
       )}
+      {editing && <EditGroupModal group={group} onClose={() => setEditing(false)} />}
     </Card>
   )
 }

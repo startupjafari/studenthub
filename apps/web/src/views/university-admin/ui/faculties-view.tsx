@@ -6,8 +6,14 @@ import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Building2, Plus, Trash2 } from 'lucide-react'
 import { Button, Card, EmptyState, PageHeader, Skeleton, useConfirm } from '../../../shared/ui'
-import { deleteFacultyRequest, facultyKeys, fetchFaculties } from '../../../entities/faculty'
+import {
+  deleteFacultyRequest,
+  facultyKeys,
+  fetchFaculties,
+  updateFacultyRequest,
+} from '../../../entities/faculty'
 import { CreateFacultyModal } from './create-faculty-modal'
+import { RenameButton } from './rename-button'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -64,24 +70,32 @@ export function FacultiesAdminView() {
                 </span>
                 <span className="font-medium">{f.name}</span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon
-                aria-label={t('delete')}
-                loading={deleteMut.isPending && deleteMut.variables === f.id}
-                onClick={() => {
-                  void confirm({
-                    title: t('deleteFacultyConfirm', { name: f.name }),
-                    destructive: true,
-                  }).then((ok) => {
-                    if (ok) deleteMut.mutate(f.id)
-                  })
-                }}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="size-4" aria-hidden />
-              </Button>
+              <div className="flex items-center gap-1">
+                <RenameButton
+                  name={f.name}
+                  title={t('renameFaculty')}
+                  save={(name) => updateFacultyRequest(f.id, { name })}
+                  onSaved={() => void qc.invalidateQueries({ queryKey: facultyKeys.list() })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  aria-label={t('delete')}
+                  loading={deleteMut.isPending && deleteMut.variables === f.id}
+                  onClick={() => {
+                    void confirm({
+                      title: t('deleteFacultyConfirm', { name: f.name }),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) deleteMut.mutate(f.id)
+                    })
+                  }}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

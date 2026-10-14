@@ -771,7 +771,16 @@
     "specialtyExists": "This specialty already exists",
     "noSpecialties": "No specialties yet",
     "noSpecialtiesHint": "Add the first specialty above.",
-    "deleteSpecialtyConfirm": "Delete specialty \"{name}\"?"
+    "deleteSpecialtyConfirm": "Delete specialty \"{name}\"?",
+    "rename": "Rename",
+    "renamed": "Name saved",
+    "nameTaken": "This name is already taken",
+    "renameFaculty": "New faculty name",
+    "renameSpecialty": "New specialty name",
+    "editGroup": "Edit group",
+    "groupUpdated": "Group saved",
+    "save": "Save",
+    "cancel": "Cancel"
   },
   "Dashboard": {
     "searchPlaceholder": "Search the platform",
@@ -3759,7 +3768,10 @@
     "manualPlaceholder": "ABCD-2345",
     "manualHint": "Eight characters below the QR code. The dash is optional.",
     "manualSubmit": "Open room",
-    "manualCta": "Enter code manually"
+    "manualCta": "Enter code manually",
+    "editRoom": "Edit room",
+    "updated": "Room saved",
+    "save": "Save"
   },
   "PlatformDashboard": {
     "hours": "{h} h",
