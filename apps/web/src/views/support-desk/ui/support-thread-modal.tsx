@@ -67,7 +67,8 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     queryKey: supportKeys.thread(ticketId),
     queryFn: () => fetchSupportThread(ticketId),
   })
-  const ticket = thread.data?.ticket
+  const data = thread.data
+  const ticket = data?.ticket
 
   const refresh = async (): Promise<void> => {
     await qc.invalidateQueries({ queryKey: supportKeys.all })
@@ -126,7 +127,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const takenByOther = !!ticket?.assigneeId && !mine
   const closedTicket = !!ticket?.closedAt
   // Сервер отдаёт свежие сверху; читается переписка сверху вниз.
-  const messages = [...(thread.data?.messages ?? [])].reverse()
+  const messages = [...(data?.messages ?? [])].reverse()
 
   function toggleTag(tag: SupportTag): void {
     if (!ticket) return
@@ -142,7 +143,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     <Modal onClose={onClose} title={title} size="2xl" height="stable">
       {thread.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
-      ) : thread.isError || !ticket ? (
+      ) : thread.isError || !data || !ticket ? (
         <EmptyState title={tErr(toApiError(thread.error).code)} />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -162,9 +163,9 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                   })
                 : t('free')}
             </span>
-            {thread.data.mergedCount > 0 && (
+            {data.mergedCount > 0 && (
               <span className="text-muted-foreground">
-                {t('mergedCount', { count: thread.data.mergedCount })}
+                {t('mergedCount', { count: data.mergedCount })}
               </span>
             )}
           </div>
@@ -268,7 +269,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                   {t('release')}
                 </Button>
               )}
-              {thread.data.siblings.length > 0 && (
+              {data.siblings.length > 0 && (
                 <span className="flex items-center gap-1">
                   <select
                     aria-label={t('mergeWith')}
@@ -277,7 +278,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                     className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
                   >
                     <option value="">{t('mergeWith')}</option>
-                    {thread.data.siblings.map((s) => (
+                    {data.siblings.map((s) => (
                       <option key={s.id} value={s.id}>
                         {new Date(s.createdAt).toLocaleDateString(locale)}
                         {s.closed ? ` · ${t('statusClosed')}` : ''}
