@@ -162,6 +162,12 @@ export class ApplicationsController {
     return this.process.take(user, id)
   }
 
+  @Get(':id/assignees')
+  @ApiOperation({ summary: 'Кому можно поручить заявку: сотрудники, вправе её обработать' })
+  assignees(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.process.assignees(user, id)
+  }
+
   @Post(':id/assign')
   @ApiOperation({ summary: 'Назначить ответственного сотрудника' })
   assign(

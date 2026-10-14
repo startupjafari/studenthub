@@ -75,6 +75,8 @@ function setup(appRow: Record<string, unknown>) {
   const users = {
     academicSubject: jest.fn().mockResolvedValue(academicSubject),
     fullName: jest.fn().mockResolvedValue('Иванова Елена'),
+    findAssigneeScope: jest.fn().mockResolvedValue(null),
+    listApplicationAssignees: jest.fn().mockResolvedValue([]),
   }
   const branding = {
     publicUrl: 'https://studenthub.kz',
@@ -312,5 +314,58 @@ describe('ApplicationProcessService — отзыв справки', () => {
     exportRegistry.revokeByDocumentNumber.mockResolvedValue(0)
 
     await expect(service.revokeStudyCertificate(dean, 'app-1')).rejects.toThrow(AppException)
+  })
+})
+
+describe('ApplicationProcessService.assign — кому можно поручить заявку', () => {
+  it('админу вуза заявки — можно', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+
+    await service.assign(dean, 'a1', 'ua')
+
+    expect(prisma.application.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ assignedToId: 'ua' }) }),
+    )
+  })
+
+  it('декану другого факультета — нельзя: он заявку даже не увидит', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'dean-2',
+      role: Role.DEAN,
+      universityId: 'uni',
+      facultyId: 'fac-2',
+    })
+
+    await expect(service.assign(dean, 'a1', 'dean-2')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+  })
+
+  it('студенту, преподавателю или несуществующему id — нельзя', async () => {
+    const { service, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValueOnce({
+      id: 'stud-2',
+      role: Role.STUDENT,
+      universityId: 'uni',
+      facultyId: 'fac',
+    })
+    await expect(service.assign(dean, 'a1', 'stud-2')).rejects.toBeInstanceOf(AppException)
+
+    users.findAssigneeScope.mockResolvedValueOnce(null)
+    await expect(service.assign(dean, 'a1', 'ghost')).rejects.toBeInstanceOf(AppException)
+  })
+
+  it('список кандидатов — по вузу и факультету заявки', async () => {
+    const { service, users } = setup({ ...base, status: 'IN_REVIEW' })
+    await service.assignees(dean, 'a1')
+    expect(users.listApplicationAssignees).toHaveBeenCalledWith('uni', 'fac')
   })
 })
