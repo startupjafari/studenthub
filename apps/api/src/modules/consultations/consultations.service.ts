@@ -112,7 +112,14 @@ export class ConsultationsService {
       where: {
         status: 'OPEN',
         startsAt: { gte: now },
-        teacher: { is: { universityId: viewer.universityId ?? '__none__' } },
+        // Удалённый или заблокированный преподаватель консультаций не ведёт.
+        teacher: {
+          is: {
+            universityId: viewer.universityId ?? '__none__',
+            deletedAt: null,
+            isBlocked: false,
+          },
+        },
       },
       select: {
         teacher: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
@@ -173,19 +180,28 @@ export class ConsultationsService {
         status: true,
         startsAt: true,
         teacherId: true,
-        teacher: { select: { universityId: true } },
+        teacher: { select: { universityId: true, deletedAt: true, isBlocked: true } },
       },
     })
-    if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
+    if (!slot || slot.teacher.deletedAt || slot.teacher.isBlocked) {
+      throw new AppException('NOT_FOUND', 'Слот не найден')
+    }
     if (slot.teacher.universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Преподаватель другого университета')
     }
     if (slot.status !== 'OPEN') throw new AppException('CONFLICT', 'Слот занят')
     if (slot.startsAt < new Date()) throw new AppException('CONFLICT', 'Время уже прошло')
 
-    const booked = await this.prisma.consultationSlot.update({
-      where: { id },
+    // Условная запись: из двух одновременных записей на слот проходит одна. Проверка статуса
+    // выше её не заменяет — между чтением и записью слот успевал занять другой, и второй
+    // студент перезаписывал первого, а тот получал 200 и считал, что записан.
+    const claimed = await this.prisma.consultationSlot.updateMany({
+      where: { id, status: 'OPEN' },
       data: { status: 'BOOKED', studentId: actor.sub, topic: input.topic },
+    })
+    if (claimed.count === 0) throw new AppException('CONFLICT', 'Слот занят')
+    const booked = await this.prisma.consultationSlot.findUniqueOrThrow({
+      where: { id },
       select: SLOT_SELECT,
     })
     await this.record(actor, 'consultation_booked', id, ctx)
@@ -195,7 +211,9 @@ export class ConsultationsService {
       'consultations.booked.title',
       this.slotLabel(slot.startsAt),
       '/teacher/consultations',
-      `consultation-booked:${id}`,
+      // На один слот записываются не однажды (запись → отмена → новая запись): ключ без
+      // момента записи гасил повторное уведомление как дубль.
+      `consultation-booked:${id}:${actor.sub}:${Date.now()}`,
     )
     return booked
   }
@@ -208,10 +226,15 @@ export class ConsultationsService {
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
 
     if (slot.studentId === actor.sub) {
-      // Студент отменяет свою запись → слот снова открыт.
-      const updated = await this.prisma.consultationSlot.update({
-        where: { id },
+      // Студент отменяет свою запись → слот снова открыт. Только из BOOKED: слот, отменённый
+      // преподавателем, хранит studentId, и без условия «отмена» студентом его воскрешала.
+      const released = await this.prisma.consultationSlot.updateMany({
+        where: { id, studentId: actor.sub, status: 'BOOKED' },
         data: { status: 'OPEN', studentId: null, topic: null },
+      })
+      if (released.count === 0) throw new AppException('CONFLICT', 'Запись уже не действует')
+      const updated = await this.prisma.consultationSlot.findUniqueOrThrow({
+        where: { id },
         select: SLOT_SELECT,
       })
       await this.record(actor, 'consultation_cancelled_by_student', id, ctx)
@@ -221,7 +244,7 @@ export class ConsultationsService {
         'consultations.bookingCancelled.title',
         this.slotLabel(slot.startsAt),
         '/teacher/consultations',
-        `consultation-cancelled:${id}:${actor.sub}`,
+        `consultation-cancelled:${id}:${actor.sub}:${Date.now()}`,
       )
       return updated
     }
