@@ -955,7 +955,8 @@
     "birthDateHint": "Needed to determine whether a legal representative’s consent is required",
     "consent": "I accept the privacy policy and the terms of use",
     "consentRequired": "Registration is not possible without consent",
-    "guardianConsent": "I am under 18, and my legal representative has consented to the processing of my personal data"
+    "guardianConsent": "I am under 18, and my legal representative has consented to the processing of my personal data",
+    "passwordChangedRelogin": "Password changed. Sign in with your new password — sessions on your other devices have ended"
   },
   "Legal": {
     "privacyLink": "Privacy Policy",
@@ -1070,7 +1071,6 @@
     "changePassword": "Change password",
     "currentPassword": "Current password",
     "newPassword": "New password",
-    "passwordChanged": "Password changed, other devices signed out",
     "dangerZone": "Danger zone",
     "deleteAccount": "Delete account",
     "deleteConfirm": "Delete account permanently? Data will be anonymized.",

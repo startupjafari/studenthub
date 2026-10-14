@@ -59,6 +59,15 @@ export function LoginForm() {
     toast.dismiss('login-error')
   }
 
+  // Сюда ведёт смена пароля: сессии погашены, и человеку нужно объяснить, почему он снова
+  // на экране входа.
+  const reason = searchParams.get('reason')
+  useEffect(() => {
+    if (reason === 'password-changed') {
+      toast.success(t('passwordChangedRelogin'), { id: 'password-changed' })
+    }
+  }, [reason, t])
+
   async function completeLogin(token: string) {
     // Вход удался — уносить ошибку прошлой попытки на следующий экран незачем.
     dismissLoginError()
