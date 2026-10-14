@@ -3,6 +3,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino'
 import { Observable } from 'rxjs'
 import { tap } from 'rxjs/operators'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { scrubUrl } from '@studenthub/shared-config'
 import { clientVersionFrom } from '../logging/client-version'
 
 // Логирует завершение каждого HTTP-запроса с requestId, методом, путём, статусом и длительностью.
@@ -23,7 +24,12 @@ export class LoggingInterceptor implements NestInterceptor {
     const http = context.switchToHttp()
     const request = http.getRequest<FastifyRequest>()
     const startedAt = Date.now()
-    const { method, url } = request
+    const { method } = request
+    // Секреты из адреса не пишем (§13): токен инвайта стоит прямо в пути
+    // (`/invites/:token/preview`), а `?token=` / `?code=` — в query. Сырой URL в логе
+    // означал бы, что регистрироваться по чужому неиспользованному инвайту может любой,
+    // у кого есть доступ к логам.
+    const url = scrubUrl(request.url)
     const requestId = request.id
     const clientVersion = clientVersionFrom(request)
 

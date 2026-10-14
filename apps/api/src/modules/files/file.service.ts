@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import type { Client as MinioClient } from 'minio'
+import { CopyDestinationOptions, CopySourceOptions, type Client as MinioClient } from 'minio'
 import sharp from 'sharp'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -220,8 +220,9 @@ export class FileService {
     const key = `${params.ownerId}/${randomUUID()}.${ext}`
     // Тот же префикс владельца, что и у одиночного presign: на нём держится вся проверка
     // прав и на подписи частей, и на сборке.
+    // Тип клиента в метаданные не пишем: настоящий закрепляется на confirm по содержимому.
     const uploadId = await this.minio.initiateNewMultipartUpload(params.bucket, key, {
-      'Content-Type': params.mime,
+      'Content-Type': 'application/octet-stream',
     })
     return { key, uploadId, partSize, partCount }
   }
@@ -409,6 +410,29 @@ export class FileService {
       throw new AppException('FILE_TOO_LARGE', `Файл превышает лимит ${maxBytes} байт`)
     }
 
+    // Тип объекта в хранилище — тот, что определён по содержимому, а не заявленный клиентом
+    // при PUT. Иначе файл, начинающийся как PDF или GIF, но залитый с Content-Type
+    // text/html, открывался бы в браузере как страница на домене хранилища (XSS, фишинг) —
+    // а у публичных бакетов ещё и по постоянной ссылке.
+    try {
+      await this.minio.copyObject(
+        new CopySourceOptions({ Bucket: params.bucket, Object: params.key }),
+        new CopyDestinationOptions({
+          Bucket: params.bucket,
+          Object: params.key,
+          MetadataDirective: 'REPLACE',
+          Headers: { 'Content-Type': detected.mime },
+        }),
+      )
+    } catch (error) {
+      this.logger.error(
+        { err: error, bucket: params.bucket },
+        'Не удалось закрепить тип загруженного объекта',
+      )
+      await this.discard(params.bucket, params.key)
+      throw new AppException('INTERNAL_ERROR', 'Не удалось сохранить файл')
+    }
+
     const file = await this.prisma.file.create({
       data: {
         bucket: params.bucket,
@@ -524,7 +548,7 @@ export class FileService {
     if (fileIds.length === 0) return new Map()
     const files = await this.prisma.file.findMany({
       where: { id: { in: fileIds } },
-      select: { id: true, bucket: true, key: true },
+      select: { id: true, bucket: true, key: true, mime: true },
       take: fileIds.length,
     })
     const out = new Map<string, string>()
@@ -536,6 +560,7 @@ export class FileService {
             f.bucket,
             f.key,
             TTL.PRESIGNED_URL_MINUTES * 60,
+            { 'response-content-type': f.mime },
           ),
         )
       }),
@@ -550,11 +575,16 @@ export class FileService {
   ): Promise<string> {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
+    // Тип ответа задаёт сервер (определён по содержимому при загрузке): метаданные объекта,
+    // залитого до закрепления типа на confirm, могли остаться клиентскими.
     return this.minioPublic.presignedGetObject(
       file.bucket,
       file.key,
       TTL.PRESIGNED_URL_MINUTES * 60,
-      asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : undefined,
+      {
+        'response-content-type': file.mime,
+        ...(asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : {}),
+      },
     )
   }
 

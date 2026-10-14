@@ -32,8 +32,8 @@ export const ALLOWED_ISSUERS: Record<Role, Role[]> = {
 }
 
 // Выводит фактический scope инвайта из иерархии и scope создателя.
-// Бросает FORBIDDEN/WRONG_SCOPE/BAD_REQUEST. Cross-level membership
-// (факультет ∈ вуз, группа ∈ факультет) проверяется в Ф5, когда появятся эти таблицы.
+// Бросает FORBIDDEN/WRONG_SCOPE/BAD_REQUEST. Связность (группа ∈ факультет ∈ вуз) здесь
+// не проверяется — для этого нужна БД: её проверяет InviteService.assertScopeExists.
 export function resolveInviteTarget(issuer: JwtPayload, input: InviteRequest): InviteScope {
   const allowed = ALLOWED_ISSUERS[input.role]
   if (!allowed.includes(issuer.role)) {

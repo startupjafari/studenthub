@@ -1,3 +1,4 @@
+import { scrubUrl } from '@studenthub/shared-config'
 import {
   ArgumentsHost,
   Catch,
@@ -98,7 +99,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.error(
         {
           err: exception,
-          path: request.url,
+          path: scrubUrl(request.url),
           method: request.method,
           ...(eventId ? { sentryEventId: eventId } : {}),
         },

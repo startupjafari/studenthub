@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ComplaintPriority, ComplaintStatus, ComplaintTargetType, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   ComplaintListQueryInput,
   CreateComplaintInput,
@@ -313,6 +313,18 @@ export class ComplaintsService {
     if (input.action === 'DELETE_CONTENT') {
       if (targetType === ComplaintTargetType.USER) {
         throw new AppException('BAD_REQUEST', 'Для пользователя используйте блокировку')
+      }
+      // Тот же ранг, что при удалении контента напрямую (posts/stories): по жалобе модератор
+      // вуза не снимает пост админа своего вуза.
+      const ownerId = await this.ownerOf(complaint)
+      if (ownerId) {
+        const owner = await this.prisma.user.findUnique({
+          where: { id: ownerId },
+          select: { role: true },
+        })
+        if (owner && !isHigherRole(actor.role, owner.role)) {
+          throw new AppException('FORBIDDEN', 'Чужой контент снимает только роль выше автора')
+        }
       }
       await this.softDeleteTarget(targetType, complaint.targetId)
     } else if (input.action === 'BLOCK_USER') {

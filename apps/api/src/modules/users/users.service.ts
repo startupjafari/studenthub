@@ -1,7 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   UserListQueryInput,
   UpdateProfileInput,
@@ -1602,18 +1602,7 @@ export class UserService {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя заблокировать самого себя')
     }
-    const target = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true },
-    })
-    if (!target) {
-      throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    }
-    const isPlatform =
-      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
-    if (!isPlatform && target.universityId !== viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
-    }
+    await this.assertModeratable(viewer, userId)
     await this.prisma.user.update({
       where: { id: userId },
       data: { isBlocked: blocked, blockedUntil: blocked ? until : null },
@@ -1648,18 +1637,7 @@ export class UserService {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя предупредить самого себя')
     }
-    const target = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true },
-    })
-    if (!target) {
-      throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    }
-    const isPlatform =
-      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
-    if (!isPlatform && target.universityId !== viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
-    }
+    await this.assertModeratable(viewer, userId)
 
     const warning = await this.prisma.moderationWarning.create({
       data: { userId, issuedById: viewer.sub, complaintId },
@@ -1700,17 +1678,8 @@ export class UserService {
    * заново, сменив пароль.
    */
   async revokeSessions(viewer: JwtPayload, userId: string): Promise<void> {
-    const target = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true },
-    })
-    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
-
-    const isPlatform =
-      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
-    if (!isPlatform && target.universityId !== viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
-    }
+    // Свои сессии завершить можно всегда; чужие — только того, кто ниже по роли.
+    if (userId !== viewer.sub) await this.assertModeratable(viewer, userId)
 
     await this.authService.revokeAllUserSessions(userId)
     await this.audit.record({
@@ -1719,6 +1688,30 @@ export class UserService {
       entity: 'User',
       entityId: userId,
     })
+  }
+
+  /**
+   * Над кем модератор вправе применить меру (блокировка, предупреждение, сброс сессий):
+   * человек его вуза (платформенным — любой) и СТРОГО ниже по роли. Без проверки ранга
+   * модератор вуза блокировал админа своего вуза, а модератор платформы — её админа, и
+   * блокировка тут же гасила все их сессии.
+   */
+  private async assertModeratable(viewer: JwtPayload, userId: string): Promise<void> {
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, universityId: true, role: true },
+    })
+    if (!target) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const isPlatform =
+      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!isPlatform && target.universityId !== viewer.universityId) {
+      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
+    }
+    if (!isHigherRole(viewer.role, target.role)) {
+      throw new AppException('FORBIDDEN', 'Мера доступна только к роли ниже вашей')
+    }
   }
 
   /** Создание пользователя при регистрации по инвайту (в транзакции AuthService). */

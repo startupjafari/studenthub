@@ -247,8 +247,13 @@ export class ApplicationDocumentsService {
     if (!result?.documentId) {
       throw new AppException('NOT_FOUND', 'К результату не приложен документ')
     }
+    // Файл — только документа самого студента заявки: результат, записанный до проверки
+    // владельца в addResult, мог ссылаться на чужой документ.
     const file = await this.prisma.file.findFirst({
-      where: { documentId: result.documentId },
+      where: {
+        documentId: result.documentId,
+        document: { is: { ownerId: scope.studentId, deletedAt: null } },
+      },
       orderBy: { order: 'asc' },
       select: { id: true },
     })

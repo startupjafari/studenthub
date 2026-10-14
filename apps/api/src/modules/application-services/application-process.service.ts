@@ -183,6 +183,12 @@ export class ApplicationProcessService {
     // Файл готовой справки превращаем в документ студента ДО транзакции результата:
     // выдача трогает хранилище файлов, и держать на этом открытую транзакцию нельзя.
     let documentId = dto.documentId ?? null
+    // Готовый документ из хранилища — только документ САМОГО студента. Иначе обработчик
+    // прикладывал id любого документа платформы (хоть паспорта из другого вуза) и получал
+    // ссылку на его файл через результат заявки.
+    if (documentId && !(await this.documents.isOwnedBy(documentId, app.studentId))) {
+      throw new AppException('BAD_REQUEST', 'Документ не принадлежит студенту заявки')
+    }
     if (dto.fileId && dto.documentType) {
       const issued = await this.documents.issueToOwner(viewer, {
         ownerId: app.studentId,

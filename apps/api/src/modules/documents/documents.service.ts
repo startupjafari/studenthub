@@ -456,6 +456,19 @@ export class DocumentsService {
    * выдачи (заявки-услуги, §17). Иначе выданная справка оседала бы в личных документах
    * сотрудника, а студент не находил бы её у себя.
    */
+  /**
+   * Принадлежит ли документ человеку (живой, не удалённый). Для других доменов, которые
+   * ссылаются на документ по id из запроса: без этой проверки id чужого документа
+   * превращался в доступ к его файлу (результат заявки, §3.2).
+   */
+  async isOwnedBy(documentId: string, ownerId: string): Promise<boolean> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, ownerId, deletedAt: null },
+      select: { id: true },
+    })
+    return doc !== null
+  }
+
   async issueToOwner(
     actor: JwtPayload,
     input: {

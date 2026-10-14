@@ -5,7 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { saveFile, useMediaQuery } from '../../../shared/lib'
@@ -269,29 +269,33 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                   </TableCell>
                   {canBlock && (
                     <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        loading={blockMut.isPending && blockMut.variables?.id === u.id}
-                        onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
-                        className={u.isBlocked ? 'text-success' : 'text-destructive'}
-                        // До `md` подпись не влезает в колонку и обрезается на полуслове —
-                        // остаётся иконка, а название действия уходит в доступное имя.
-                        aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
-                      >
-                        {u.isBlocked ? (
-                          <>
-                            <ShieldCheck className="size-4" aria-hidden />
-                            {isWide && t('unblock')}
-                          </>
-                        ) : (
-                          <>
-                            <Ban className="size-4" aria-hidden />
-                            {isWide && t('block')}
-                          </>
-                        )}
-                      </Button>
+                      {/* Блокировать можно только того, кто ниже по роли (сервер так же):
+                          себя, равного и старшего — кнопки нет. */}
+                      {viewerRole && isHigherRole(viewerRole, u.role) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={blockMut.isPending && blockMut.variables?.id === u.id}
+                          onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
+                          className={u.isBlocked ? 'text-success' : 'text-destructive'}
+                          // До `md` подпись не влезает в колонку и обрезается на полуслове —
+                          // остаётся иконка, а название действия уходит в доступное имя.
+                          aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
+                        >
+                          {u.isBlocked ? (
+                            <>
+                              <ShieldCheck className="size-4" aria-hidden />
+                              {isWide && t('unblock')}
+                            </>
+                          ) : (
+                            <>
+                              <Ban className="size-4" aria-hidden />
+                              {isWide && t('block')}
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </TableCell>
                   )}
                 </TableRow>

@@ -31,6 +31,26 @@ describe('LinkPreviewService — SSRF-гарды', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('служебные IPv6 и IPv4-диапазоны → null, без запроса', async () => {
+    for (const host of [
+      '[::]', // «неуказанный»: на Linux подключение к нему попадает в loopback
+      '[::ffff:127.0.0.1]', // IPv4-mapped loopback
+      '[::ffff:a9fe:a9fe]', // IPv4-mapped 169.254.169.254 (метаданные облака)
+      '[64:ff9b::a00:1]', // NAT64 → 10.0.0.1
+      '[fe80::1]',
+      '[febf::1]', // конец fe80::/10 — прежняя проверка по префиксу «fe80» его пропускала
+      '[fd12::1]',
+      '[ff02::1]',
+      '224.0.0.1',
+      '240.0.0.1',
+      '198.18.0.1',
+      '100.64.0.1',
+    ]) {
+      expect(await service.fetch(`http://${host}/`)).toBeNull()
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('битый URL → null', async () => {
     expect(await service.fetch('not a url')).toBeNull()
     expect(fetchSpy).not.toHaveBeenCalled()
@@ -82,5 +102,29 @@ describe('LinkPreviewService — чтение <head>', () => {
     const preview = await service.fetch('https://example.com/page')
 
     expect(preview?.title).toBe('Ранний заголовок')
+  })
+
+  it('страница из тысяч незакрытых «<meta » разбирается быстро (ReDoS)', async () => {
+    // Прежняя регулярка `<meta[^>]+…` перебирала такую строку квадратично: 2 МБ держали
+    // цикл событий минутами. Теперь — линейно.
+    const html = `<html><head>${'<meta '.repeat(300_000)}`
+    fetchSpy.mockResolvedValue(htmlResponse(html))
+
+    const startedAt = Date.now()
+    const preview = await service.fetch('https://example.com/evil')
+
+    expect(Date.now() - startedAt).toBeLessThan(2000)
+    expect(preview?.title).toBeNull()
+  })
+
+  it('атрибуты тега в любом порядке и с пробелами вокруг «=»', async () => {
+    const html =
+      '<html><head><meta content="Описание" name = "description"><title>Заголовок</title></head>'
+    fetchSpy.mockResolvedValue(htmlResponse(html))
+
+    const preview = await service.fetch('https://example.com/page')
+
+    expect(preview?.description).toBe('Описание')
+    expect(preview?.title).toBe('Заголовок')
   })
 })

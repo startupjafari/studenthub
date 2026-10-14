@@ -401,11 +401,30 @@ describe('PostsService.remove — автор/модератор (8.5)', () => {
       universityId: 'uni-1',
       facultyId: 'fac-1',
       groupId: 'grp-1',
+      author: { role: Role.STUDENT },
     })
     const err = await service
       .remove(viewer(Role.STUDENT, { sub: 's1', groupId: 'grp-1' }), 'p1', ctx)
       .catch((e) => e)
     expect(err.code).toBe('FORBIDDEN')
+  })
+
+  it('модератор вуза не удаляет пост админа своего вуза (ранг)', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({
+      id: 'p1',
+      authorId: 'ua-1',
+      audience: 'UNIVERSITY',
+      universityId: 'uni-1',
+      facultyId: null,
+      groupId: null,
+      author: { role: Role.UNIVERSITY_ADMIN },
+    })
+    const err = await service
+      .remove(viewer(Role.UNIVERSITY_MODERATOR, { sub: 'm1', universityId: 'uni-1' }), 'p1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.post.update).not.toHaveBeenCalled()
   })
 
   it('свой пост → soft delete', async () => {

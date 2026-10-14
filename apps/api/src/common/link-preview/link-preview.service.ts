@@ -19,29 +19,98 @@ const MAX_REDIRECTS = 3
 // Нахлёст между чанками при поиске `</head>`: тег может разорваться на границе.
 const HEAD_TAG_OVERLAP = 8
 
-// Приватные/служебные диапазоны — блок SSRF (запросы во внутреннюю сеть).
-function isPrivateIp(ip: string): boolean {
-  if (isIP(ip) === 6) {
-    const v = ip.toLowerCase()
-    return (
-      v === '::1' ||
-      v.startsWith('fc') ||
-      v.startsWith('fd') || // unique-local
-      v.startsWith('fe80') || // link-local
-      v.startsWith('::ffff:') // IPv4-mapped — проверим как v4 ниже
-    )
-  }
+// Разбор (см. parse): сколько HTML смотрим и какой длины бывает тег. Повторения ограничены,
+// чтобы ни одна регулярка не могла откатываться по всему документу.
+const PARSE_LIMIT = 1024 * 1024
+const META_TAG = /<meta\b[^>]{0,2048}>/gi
+const META_KEY = /\b(?:property|name)\s*=\s*["']([^"']{1,100})["']/i
+const META_CONTENT = /\bcontent\s*=\s*["']([^"']{0,2000})["']/i
+const TITLE_TAG = /<title\b[^>]{0,256}>([^<]{0,1024})<\/title>/i
+const MAX_META_TAGS = 300
+
+// Приватные/служебные диапазоны — блок SSRF (запросы во внутреннюю сеть). Разрешён только
+// обычный глобальный unicast: всё служебное (loopback, link-local, multicast, документационные
+// и зарезервированные сети, NAT64, «неуказанный» адрес) отклоняется.
+function isPrivateIp(raw: string): boolean {
+  const ip = raw.replace(/^\[|\]$/g, '')
+  const family = isIP(ip)
+  if (family === 4) return isPrivateV4(ip)
+  if (family === 6) return isPrivateV6(ip)
+  // Не адрес вовсе — пропускать нечего.
+  return true
+}
+
+function isPrivateV4(ip: string): boolean {
   const p = ip.split('.').map(Number)
-  if (p.length !== 4 || p.some((n) => Number.isNaN(n))) return true
-  const [a, b] = p as [number, number, number, number]
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true
+  const [a, b, c] = p as [number, number, number, number]
   return (
+    a === 0 ||
     a === 10 ||
     a === 127 ||
-    a === 0 ||
+    a >= 224 || // multicast 224/4 и зарезервированные 240/4, включая broadcast
+    (a === 100 && b >= 64 && b <= 127) || // CGNAT
     (a === 169 && b === 254) || // link-local
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) // CGNAT
+    (a === 192 && b === 0 && (c === 0 || c === 2)) || // IETF и TEST-NET-1
+    (a === 198 && (b === 18 || b === 19)) || // бенчмарки
+    (a === 198 && b === 51 && c === 100) || // TEST-NET-2
+    (a === 203 && b === 0 && c === 113) // TEST-NET-3
+  )
+}
+
+/** Восемь 16-битных групп IPv6; хвост в виде IPv4 раскладывается в две группы. */
+function expandV6(ip: string): number[] | null {
+  let text = ip.toLowerCase().split('%')[0] ?? ''
+  const v4Tail = /(\d+\.\d+\.\d+\.\d+)$/.exec(text)
+  if (v4Tail) {
+    const q = (v4Tail[1] ?? '').split('.').map(Number)
+    if (q.length !== 4 || q.some((n) => !Number.isInteger(n) || n > 255)) return null
+    const [q0, q1, q2, q3] = q as [number, number, number, number]
+    text = `${text.slice(0, v4Tail.index)}${((q0 << 8) | q1).toString(16)}:${((q2 << 8) | q3).toString(16)}`
+  }
+  const halves = text.split('::')
+  if (halves.length > 2) return null
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const missing = 8 - head.length - tail.length
+  if (halves.length === 1 ? missing !== 0 : missing < 0) return null
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...tail]
+  const nums = groups.map((g) => parseInt(g, 16))
+  return nums.length === 8 && nums.every((n) => Number.isInteger(n) && n >= 0 && n <= 0xffff)
+    ? nums
+    : null
+}
+
+function isPrivateV6(ip: string): boolean {
+  const g = expandV6(ip)
+  if (!g) return true
+  const [g0, g1, g2, g3, g4, g5, g6, g7] = g as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ]
+  const zeroPrefix = g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0
+  // :: и ::1 — «неуказанный» и loopback (на Linux подключение к :: попадает в loopback).
+  if (zeroPrefix && g5 === 0 && g6 === 0 && (g7 === 0 || g7 === 1)) return true
+  // IPv4-mapped (::ffff:a.b.c.d) и устаревший IPv4-compatible (::a.b.c.d) — проверяем как v4.
+  if (zeroPrefix && (g5 === 0xffff || g5 === 0)) {
+    return isPrivateV4(`${g6 >> 8}.${g6 & 0xff}.${g7 >> 8}.${g7 & 0xff}`)
+  }
+  return (
+    (g0 & 0xfe00) === 0xfc00 || // unique-local fc00::/7
+    (g0 & 0xffc0) === 0xfe80 || // link-local fe80::/10
+    (g0 & 0xff00) === 0xff00 || // multicast ff00::/8
+    (g0 === 0x64 && g1 === 0xff9b) || // NAT64 64:ff9b::/96 — ведёт в IPv4, в т.ч. внутренний
+    (g0 === 0x100 && g1 === 0 && g2 === 0 && g3 === 0) || // discard 100::/64
+    (g0 === 0x2001 && g1 === 0xdb8) || // документационная 2001:db8::/32
+    g0 === 0 // прочее из ::/16 — зарезервировано
   )
 }
 
@@ -97,7 +166,9 @@ export class LinkPreviewService {
   }
 
   // Резолвим все адреса хоста и отклоняем, если хоть один приватный (защита от DNS-обхода).
-  private async hostAllowed(hostname: string): Promise<boolean> {
+  private async hostAllowed(rawHostname: string): Promise<boolean> {
+    // URL отдаёт IPv6-литерал в скобках ([::1]) — без них isIP его не узнаёт.
+    const hostname = rawHostname.replace(/^\[|\]$/g, '')
     if (isIP(hostname)) return !isPrivateIp(hostname)
     try {
       const addrs = await lookup(hostname, { all: true })
@@ -146,19 +217,32 @@ export class LinkPreviewService {
     return Buffer.concat(chunks).toString('utf8')
   }
 
-  private parse(html: string, finalUrl: string): LinkPreview {
+  /**
+   * Разбор OG-тегов без регулярок с откатом по всему документу. Прежнее
+   * `<meta[^>]+…` на странице из тысяч «<meta » без «>» перебирало строку квадратично:
+   * 2 МБ такой страницы держали цикл событий минутами, и вставка одной ссылки в чат
+   * останавливала весь API. Теперь длина тега и разбираемый объём ограничены, а каждый тег
+   * разбирается отдельно — время линейно от размера страницы.
+   */
+  private parse(rawHtml: string, finalUrl: string): LinkPreview {
+    const html = rawHtml.slice(0, PARSE_LIMIT)
+    const metas = new Map<string, string>()
+    for (const match of html.matchAll(META_TAG)) {
+      const tag = match[0]
+      const key = META_KEY.exec(tag)?.[1]?.toLowerCase()
+      if (!key || metas.has(key)) continue
+      const content = META_CONTENT.exec(tag)?.[1]
+      if (content !== undefined) metas.set(key, content)
+      if (metas.size >= MAX_META_TAGS) break
+    }
     const meta = (prop: string): string | null => {
-      // <meta property="og:title" content="..."> или name="..."; порядок атрибутов любой.
-      const re = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*>`, 'i')
-      const tag = re.exec(html)?.[0]
-      if (!tag) return null
-      const content = /content=["']([^"']*)["']/i.exec(tag)?.[1]
+      const content = metas.get(prop)
       return content ? this.decode(content).trim() || null : null
     }
     const title =
       meta('og:title') ??
       (() => {
-        const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html)
+        const m = TITLE_TAG.exec(html)
         return m?.[1] ? this.decode(m[1]).trim() || null : null
       })()
     const description = meta('og:description') ?? meta('description')
