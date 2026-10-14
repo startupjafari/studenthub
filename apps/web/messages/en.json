@@ -2447,7 +2447,9 @@
     "colFiles": "Files",
     "colCreated": "Added",
     "open": "Open",
-    "noFiles": "No files"
+    "noFiles": "No files",
+    "noSubject": "No subject",
+    "noSubjectsHint": "This group has none of your subjects — students will find the material under Other materials."
   },
   "SetupTwoFactor": {
     "title": "Set up two-factor authentication",
@@ -3054,7 +3056,8 @@
     "noAttendanceData": "No attendance records",
     "chatTitle": "Discipline chat",
     "chatHint": "Open the group chat to discuss this discipline.",
-    "openChat": "Open chat"
+    "openChat": "Open chat",
+    "otherMaterials": "Other materials"
   },
   "CourseAdmin": {
     "colCode": "Code",
