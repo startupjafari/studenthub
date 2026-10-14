@@ -324,8 +324,15 @@ export class AssignmentsService {
     if (!existing.text && !existing.linkUrl) {
       throw new AppException('VALIDATION_ERROR', 'Работа пустая')
     }
-    // Просрочка без разрешения поздней сдачи.
-    if (assignment.dueAt && !assignment.allowLate && new Date() > assignment.dueAt) {
+    // Просрочка без разрешения поздней сдачи. Возвращённую на доработку работу срок не
+    // держит: преподаватель возвращает её обычно уже после дедлайна, и иначе исправить её
+    // было бы невозможно.
+    if (
+      existing.status !== 'RETURNED' &&
+      assignment.dueAt &&
+      !assignment.allowLate &&
+      new Date() > assignment.dueAt
+    ) {
       throw new AppException('CONFLICT', 'Срок сдачи истёк')
     }
     const nextAttempt =

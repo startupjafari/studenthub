@@ -149,7 +149,17 @@ export class GradebookService {
   }
 
   async deleteColumn(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
-    await this.findManageableColumn(actor, id)
+    const column = await this.findManageableColumn(actor, id)
+    // Опубликованные оценки студенты уже видели: колонку с ними сначала снимают с публикации,
+    // а не стирают одним нажатием вместе с оценками.
+    if (column.published) {
+      const graded = await this.prisma.grade.count({
+        where: { columnId: id, score: { not: null } },
+      })
+      if (graded > 0) {
+        throw new AppException('CONFLICT', 'В опубликованной колонке есть оценки')
+      }
+    }
     await this.prisma.gradeColumn.delete({ where: { id } })
     await this.record(actor, 'grade_column_deleted', id, ctx)
   }
@@ -158,7 +168,11 @@ export class GradebookService {
   async saveGrades(actor: JwtPayload, input: SaveGradesInput, ctx: RequestContext) {
     const col = await this.findManageableColumn(actor, input.columnId)
     const groupStudents = await this.prisma.user.findMany({
-      where: { groupId: col.course.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
+      where: {
+        groupId: col.course.groupId,
+        role: { in: ['STUDENT', 'STAROSTA'] },
+        deletedAt: null,
+      },
       select: { id: true },
       take: GROUP_STUDENTS_LIMIT,
     })
@@ -266,6 +280,7 @@ export class GradebookService {
       where: { id },
       select: {
         id: true,
+        published: true,
         course: {
           select: {
             id: true,
@@ -283,7 +298,7 @@ export class GradebookService {
       facultyId: c.group.facultyId,
       universityId: c.group.faculty.universityId,
     })
-    return { id: column.id, course: { groupId: c.groupId } }
+    return { id: column.id, published: column.published, course: { groupId: c.groupId } }
   }
 
   private async resolveCourse(courseId: string): Promise<{

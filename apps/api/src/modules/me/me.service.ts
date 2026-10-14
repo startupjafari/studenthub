@@ -8,6 +8,7 @@ import { EventsService } from '../events/events.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AssignmentsService } from '../assignments/assignments.service'
 import { ApplicationsService } from '../application-services/applications.service'
+import { localDateString } from '../../common/time/local-label'
 
 const STUDENT_ROLES: readonly Role[] = [Role.STUDENT, Role.STAROSTA]
 
@@ -43,9 +44,15 @@ export class MeService {
   ) {}
 
   async today(viewer: JwtPayload): Promise<MeTodayResponse> {
-    // Дата дня в UTC — окно для изменений расписания. Отображение в таймзоне вуза
-    // остаётся на фронте (nowInTz); формат совпадает с DateStringSchema (YYYY-MM-DD).
-    const date = new Date().toISOString().slice(0, 10)
+    // Дата дня по часам вуза — окно для изменений расписания: в UTC с полуночи до пяти утра
+    // по Алматы «сегодня» показывало вчерашние замены. Формат — DateStringSchema (YYYY-MM-DD).
+    const university = viewer.universityId
+      ? await this.prisma.university.findUnique({
+          where: { id: viewer.universityId },
+          select: { timezone: true },
+        })
+      : null
+    const date = localDateString(new Date(), university?.timezone)
     const isStudent = STUDENT_ROLES.includes(viewer.role)
 
     const [schedule, scheduleChanges, applications, events, assignments, notifications] =

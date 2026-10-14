@@ -109,7 +109,10 @@ export function ResultModal({
       onDone()
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => {
+      const code = errCode(e)
+      toast.error(code === 'CONFLICT' ? t('certificateAlreadyIssued') : tErr(code))
+    },
   })
 
   const saveMut = useMutation({

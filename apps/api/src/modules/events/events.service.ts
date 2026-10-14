@@ -259,6 +259,8 @@ export class EventsService {
           : {}),
         startsAt: input.startsAt ? startsAt : undefined,
         endsAt: input.endsAt !== undefined ? endsAt : undefined,
+        // Перенесли начало — напоминание о новом времени должно уйти заново.
+        ...(startsAt.getTime() !== event.startsAt.getTime() ? { reminderSentAt: null } : {}),
       },
       select: EVENT_SELECT,
     })
@@ -385,7 +387,7 @@ export class EventsService {
     for (;;) {
       const events = await this.prisma.event.findMany({
         where: { reminderSentAt: null, startsAt: { gte: from, lte: to } },
-        select: { id: true, title: true },
+        select: { id: true, title: true, startsAt: true },
         take: BATCH,
       })
       if (events.length === 0) break
@@ -412,11 +414,12 @@ export class EventsService {
               params: { title: event.title },
               // Карточка события, а не общий список: в напоминании речь об одном событии.
               data: { eventId: event.id, url: `/events/${event.id}` },
-              // dedupeKey один на событие: повторная доставка отсекается по (пользователь, ключ),
-              // а jobId разный — иначе BullMQ отбросил бы все страницы кроме первой.
-              dedupeKey: `event-reminder:${event.id}`,
+              // dedupeKey один на событие и его время начала: повторная доставка отсекается по
+              // (пользователь, ключ), а перенесённое событие напоминает о себе заново. jobId
+              // разный — иначе BullMQ отбросил бы все страницы кроме первой.
+              dedupeKey: `event-reminder:${event.id}:${event.startsAt.getTime()}`,
             },
-            { jobId: `event-reminder:${event.id}:${page}` },
+            { jobId: `event-reminder:${event.id}:${event.startsAt.getTime()}:${page}` },
           )
           if (participants.length < PARTICIPANTS_BATCH) break
           cursor = participants.at(-1)?.id

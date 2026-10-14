@@ -56,6 +56,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       {} as unknown as LoginAttemptsService,
       {} as never,
       redis as unknown as Redis,
+      {} as never,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
     const withPrivate = service as unknown as {

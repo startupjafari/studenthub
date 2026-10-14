@@ -9,6 +9,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
+import { SessionRevocationService } from '../../common/redis/session-revocation.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { isAdult, LEGAL_VERSION } from '@studenthub/shared-schemas'
 import type { EnvVars } from '../../config/env.schema'
@@ -69,6 +70,7 @@ export class AuthService {
     private readonly loginAttempts: LoginAttemptsService,
     private readonly realtime: RealtimeGateway,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly revocation: SessionRevocationService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -423,10 +425,11 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     })
-    // Refresh-цепочки погашены, но открытый WS живёт сам по себе: его пускали по access-токену,
-    // и до истечения токена заблокированный (или скомпрометированный) пользователь продолжал
-    // бы получать уведомления и сообщения. Рвём соединения сразу — клиент попробует
-    // переподключиться со свежим токеном и не сможет.
+    // Уже выданные access-токены тоже: без метки отзыва заблокированный ещё до 15 минут
+    // ходил в API и переподключал WS тем же токеном (JwtStrategy и gateway её проверяют).
+    await this.revocation.revokeIssuedBefore(userId)
+    // Открытый WS живёт сам по себе: рвём соединения сразу, переподключиться старым
+    // токеном не даст метка отзыва.
     this.realtime.disconnectUser(userId)
   }
 

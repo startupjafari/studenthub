@@ -155,6 +155,25 @@ describe('EventsService — управление и регистрация', () 
     expect(res.id).toBe('e1')
   })
 
+  it('перенос начала сбрасывает отметку о напоминании, правка текста — нет', async () => {
+    const { service, prisma } = setup()
+    const startsAt = new Date('2026-11-01T10:00:00.000Z')
+    prisma.event.findUnique.mockResolvedValue({
+      id: 'e1',
+      organizerId: 'u1',
+      startsAt,
+      endsAt: null,
+    })
+    prisma.event.update.mockResolvedValue({ id: 'e1' })
+    const organizer = user(Role.STUDENT, { sub: 'u1' })
+
+    await service.update(organizer, 'e1', { title: 'x' }, ctx)
+    expect(prisma.event.update.mock.calls[0][0].data).not.toHaveProperty('reminderSentAt')
+
+    await service.update(organizer, 'e1', { startsAt: '2026-11-02T10:00:00.000Z' } as never, ctx)
+    expect(prisma.event.update.mock.calls[1][0].data.reminderSentAt).toBeNull()
+  })
+
   it('регистрация идемпотентна (P2002 не ошибка)', async () => {
     const { service, prisma } = setup()
     prisma.event.findFirst.mockResolvedValue({
@@ -178,14 +197,15 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
   it('шлёт job участникам и помечает reminderSentAt', async () => {
     const { service, prisma, queue } = setup()
     prisma.event.findMany
-      .mockResolvedValueOnce([{ id: 'e1', title: 'Событие' }])
+      .mockResolvedValueOnce([{ id: 'e1', title: 'Событие', startsAt: new Date(1_000_000) }])
       .mockResolvedValueOnce([])
     prisma.eventParticipant.findMany.mockResolvedValue([{ userId: 'u2' }, { userId: 'u3' }])
     const n = await service.remindDue()
     expect(n).toBe(1)
     const job = queue.enqueue.mock.calls[0][2]
     expect(job.type).toBe('EVENT')
-    expect(job.dedupeKey).toBe('event-reminder:e1')
+    // Время начала в ключе: перенесённое событие напомнит о себе заново.
+    expect(job.dedupeKey).toBe('event-reminder:e1:1000000')
     // Напоминание ведёт в карточку этого события, а не в общий список.
     expect(job.data.url).toBe('/events/e1')
     expect(new Set(job.recipientIds)).toEqual(new Set(['u2', 'u3']))

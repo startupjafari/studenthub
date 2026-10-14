@@ -10,6 +10,7 @@ import type {
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 
 // Потолки на выборки (BACKEND_RULES §7.2). Голоса одного пользователя ограничены числом
 // вариантов опроса, поэтому здесь потолок — честная граница, а не обрезка данных.
@@ -150,31 +151,31 @@ export class PollsService {
       throw new AppException('BAD_REQUEST', 'Нужно выбрать один вариант')
     }
 
-    const existing = await this.prisma.pollVote.findMany({
-      where: { pollId: id, userId: actor.sub },
-      select: { id: true },
-      take: POLL_OPTIONS_LIMIT,
-    })
-    if (existing.length > 0 && !poll.allowRevote) {
-      throw new AppException('CONFLICT', 'Вы уже проголосовали')
-    }
-
-    await this.prisma.$transaction([
-      this.prisma.pollVote.deleteMany({ where: { pollId: id, userId: actor.sub } }),
-      this.prisma.pollVote.createMany({
+    // Проверка «уже голосовал» и запись — под одним локом на (опрос, голосующий): иначе два
+    // параллельных запроса оба видели «голоса нет» и записывали по варианту каждый.
+    await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `poll-vote:${id}:${actor.sub}`)
+      const existing = await tx.pollVote.count({ where: { pollId: id, userId: actor.sub } })
+      if (existing > 0 && !poll.allowRevote) {
+        throw new AppException('CONFLICT', 'Вы уже проголосовали')
+      }
+      await tx.pollVote.deleteMany({ where: { pollId: id, userId: actor.sub } })
+      await tx.pollVote.createMany({
         data: optionIds.map((optionId) => ({ pollId: id, optionId, userId: actor.sub })),
-      }),
-    ])
+      })
+    })
     return this.get(actor, id)
   }
 
   async cancelVote(actor: JwtPayload, id: string): Promise<PollView> {
     const poll = await this.prisma.poll.findUnique({
       where: { id },
-      select: { id: true, allowRevote: true },
+      select: { id: true, allowRevote: true, closesAt: true },
     })
     if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
     if (!poll.allowRevote) throw new AppException('FORBIDDEN', 'Отмена голоса недоступна')
+    // После закрытия итоги не меняются — ни новым голосом, ни отменой старого.
+    if (this.isClosed(poll)) throw new AppException('CONFLICT', 'Опрос завершён')
     await this.prisma.pollVote.deleteMany({ where: { pollId: id, userId: actor.sub } })
     return this.get(actor, id)
   }

@@ -123,7 +123,10 @@ export function GradebookTable({
       invalidate()
       toast.success(t('columnDeleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('deleteColumnPublished') : tErr(code))
+    },
   })
 
   async function onDeleteColumn(col: GradeColumnItem) {

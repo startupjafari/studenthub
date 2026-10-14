@@ -380,9 +380,13 @@ function SecuritySection({ me }: { me: MeResponse }) {
   const form = useForm<ChangePasswordInput>({ resolver: zodResolver(ChangePasswordSchema) })
   const mut = useMutation({
     mutationFn: changePasswordRequest,
-    onSuccess: () => {
+    // Смена пароля гасит все сессии, и эту тоже: выданный до неё токен сервер больше не
+    // принимает. Выходим сами и ведём на вход, а не ждём, пока следующий запрос
+    // выкинет на логин без объяснений.
+    onSuccess: async () => {
       form.reset({ currentPassword: '', newPassword: '' })
-      toast.success(tP('passwordChanged'))
+      await endSession()
+      window.location.assign('/login?reason=password-changed')
     },
     onError: (e) => showApiError(e),
   })

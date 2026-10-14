@@ -119,6 +119,25 @@ export class ExportRegistryService {
     return count
   }
 
+  /** Есть ли действующий (не отозванный) документ с этим номером. */
+  async hasActiveDocument(documentNumber: string, kind = 'certificate'): Promise<boolean> {
+    const count = await this.prisma.documentExport.count({
+      where: { documentNumber, kind, revokedAt: null },
+    })
+    return count > 0
+  }
+
+  /**
+   * Отозвать одну запись по коду. Нужен, когда выдача сорвалась после регистрации: код
+   * уже существует, а документа под ним нет — страница проверки не должна его подтверждать.
+   */
+  async revokeByShortId(shortId: string): Promise<void> {
+    await this.prisma.documentExport.updateMany({
+      where: { shortId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+  }
+
   /**
    * Запись по короткому коду — для публичной страницы проверки.
    *

@@ -116,7 +116,7 @@ export class AttendanceService {
     this.assertManagePair(actor, pair)
 
     const groupStudents = await this.prisma.user.findMany({
-      where: { groupId: pair.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
+      where: { groupId: pair.groupId, role: { in: ['STUDENT', 'STAROSTA'] }, deletedAt: null },
       select: { id: true },
       take: 500,
     })

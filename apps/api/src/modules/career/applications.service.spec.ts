@@ -33,7 +33,10 @@ const employer: JwtPayload = {
 
 function setup() {
   const tx = {
-    careerApplication: { create: jest.fn().mockResolvedValue({ id: 'a-1' }), update: jest.fn() },
+    careerApplication: {
+      create: jest.fn().mockResolvedValue({ id: 'a-1' }),
+      update: jest.fn().mockResolvedValue({}),
+    },
     careerApplicationEvent: { create: jest.fn() },
   }
   const prisma = {
@@ -161,6 +164,11 @@ describe('ApplicationsService — воронка компании', () => {
         data: expect.objectContaining({ fromStatus: 'SUBMITTED', toStatus: 'SHORTLISTED' }),
       }),
     )
+    // Запись условная: статус должен быть тем же, что прочитали.
+    expect(tx.careerApplication.update).toHaveBeenCalledWith({
+      where: { id: 'a-1', status: 'SUBMITTED' },
+      data: { status: 'SHORTLISTED' },
+    })
   })
 
   it('студент узнаёт о движении по заявке — молчание и есть претензия к job-бордам', async () => {

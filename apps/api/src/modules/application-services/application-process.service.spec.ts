@@ -92,6 +92,8 @@ function setup(appRow: Record<string, unknown>) {
   const exportRegistry = {
     register: jest.fn().mockResolvedValue({ id: 'exp-1', shortId: 'JT9ZPNDD' }),
     revokeByDocumentNumber: jest.fn().mockResolvedValue(1),
+    hasActiveDocument: jest.fn().mockResolvedValue(false),
+    revokeByShortId: jest.fn().mockResolvedValue(undefined),
   }
   const service = new ApplicationProcessService(
     prisma as unknown as PrismaService,
@@ -279,6 +281,21 @@ describe('ApplicationProcessService — справка об обучении', (
     // в отличие от рабочих выгрузок, где сбой журнала терпим.
     await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow(AppException)
     expect(documents.issueToOwner).not.toHaveBeenCalled()
+  })
+
+  it('действующая справка по заявке уже есть → CONFLICT, вторую не регистрирует', async () => {
+    const { service, exportRegistry } = setup(inPreparation)
+    exportRegistry.hasActiveDocument.mockResolvedValue(true)
+    const err = await service.issueStudyCertificate(dean, 'app-1', 'ru').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(exportRegistry.register).not.toHaveBeenCalled()
+  })
+
+  it('выдача сорвалась после регистрации → код отзывается', async () => {
+    const { service, documents, exportRegistry } = setup(inPreparation)
+    documents.issueToOwner.mockRejectedValue(new Error('minio down'))
+    await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow('minio down')
+    expect(exportRegistry.revokeByShortId).toHaveBeenCalledWith('JT9ZPNDD')
   })
 })
 

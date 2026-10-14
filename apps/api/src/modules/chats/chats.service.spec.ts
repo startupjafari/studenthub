@@ -1189,9 +1189,20 @@ describe('ChatsService — опросы (§38–39)', () => {
       options: [{ id: 'o1' }, { id: 'o2' }],
     })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
-    prisma.chatPollVote.findMany.mockResolvedValue([{ id: 'v1' }])
+    // Проверка «уже голосовал» идёт внутри транзакции под advisory-локом.
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      chatPollVote: {
+        count: jest.fn().mockResolvedValue(1),
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+      },
+    }
+    prisma.$transaction.mockImplementation((fn: (t: typeof tx) => Promise<unknown>) => fn(tx))
     const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o2'] }).catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(tx.chatPollVote.createMany).not.toHaveBeenCalled()
   })
 })
 
@@ -1904,5 +1915,50 @@ describe('ChatsService.markRead', () => {
       code: 'WRONG_SCOPE',
     })
     expect(prisma.chatMember.updateMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatsService — доставка отложенных', () => {
+  const row = {
+    id: 's1',
+    chatId: 'c1',
+    senderId: 'u1',
+    content: 'привет',
+    replyToId: null,
+    replyQuote: null,
+    silent: false,
+    scheduledAt: new Date(),
+  }
+
+  function primed(claimed: number) {
+    const ctx = setup()
+    const scheduledMessage = {
+      findMany: jest.fn().mockResolvedValue([row]),
+      deleteMany: jest.fn().mockResolvedValue({ count: claimed }),
+    }
+    ;(ctx.prisma as unknown as { scheduledMessage: typeof scheduledMessage }).scheduledMessage =
+      scheduledMessage
+    const send = jest
+      .spyOn(ctx.service, 'createMessage')
+      .mockResolvedValue({ message: { id: 'm1' } as never, recipientIds: [] })
+    return { ...ctx, scheduledMessage, send }
+  }
+
+  it('строку уже забрал другой инстанс → не отправляем второй раз', async () => {
+    const { service, send } = primed(0)
+    await expect(service.deliverDueScheduled()).resolves.toBe(0)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('забрал сам → отправляет и шлёт message:new в комнату чата', async () => {
+    const { service, send, realtime, scheduledMessage } = primed(1)
+    await expect(service.deliverDueScheduled()).resolves.toBe(1)
+    expect(scheduledMessage.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      send.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:c1', 'message:new', {
+      message: { id: 'm1' },
+      chatId: 'c1',
+    })
   })
 })
