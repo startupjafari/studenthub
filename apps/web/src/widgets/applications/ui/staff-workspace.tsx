@@ -20,6 +20,9 @@ import {
   requestDocReplacementRequest,
   fetchApplicationDocumentUrl,
   fetchApplicationResultUrl,
+  fetchApplicationAssignees,
+  assignApplicationRequest,
+  revokeCertificateRequest,
   pickLocale,
   type ApplicationDetail,
   type ApplicationDocumentItem,
@@ -32,7 +35,14 @@ import {
   Stepper,
   EmptyState,
   PromptDialog,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '../../../shared/ui'
+import { toApiError } from '../../../shared/lib'
+import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
 
 // Состояние текстового промпта для действий сотрудника.
@@ -111,7 +121,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
             {app.dueAt && (
               <Row label={t('expectedReady')} value={new Date(app.dueAt).toLocaleString(locale)} />
             )}
-            <Row label={t('assignee')} value={app.assignedToId ? '✓' : t('unassigned')} />
+            <AssigneeRow app={app} onChanged={() => void q.refetch()} />
             {app.pickupCode && <Row label={t('pickupCodeLabel')} value={app.pickupCode} />}
           </Card>
 
@@ -135,6 +145,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               {app.results.map((r) => (
                 <ResultRow key={r.id} appId={app.id} result={r} />
               ))}
+              <RevokeCertificate app={app} onDone={() => void q.refetch()} />
             </Card>
           )}
 
@@ -159,7 +170,8 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                       <span className="text-xs text-muted-foreground">
                         {new Date(e.createdAt).toLocaleString(locale)}
                       </span>
-                      {e.comment && (
+                      {/* У назначения в comment лежит id сотрудника, а не текст — его не показываем. */}
+                      {e.comment && e.action !== 'ASSIGNED' && (
                         <span className="text-xs text-muted-foreground">{e.comment}</span>
                       )}
                     </div>
@@ -493,6 +505,136 @@ function ResultRow({
       )}
     </div>
   )
+}
+
+/**
+ * Ответственный за заявку. Список — только те, кто сам вправе её вести (сервер проверяет то
+ * же самое): админ и модератор вуза, декан факультета заявки. У закрытой заявки — только чтение.
+ */
+function AssigneeRow({ app, onChanged }: { app: ApplicationDetail; onChanged: () => void }) {
+  const t = useTranslations('Applications')
+  const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
+  const closed = TERMINAL_STATUSES.includes(app.status)
+  const candidates = useQuery({
+    queryKey: applicationKeys.assignees(app.id),
+    queryFn: () => fetchApplicationAssignees(app.id),
+    enabled: !closed,
+  })
+  const assign = useMutation({
+    mutationFn: (userId: string) => assignApplicationRequest(app.id, userId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: applicationKeys.all })
+      toast.success(t('assigned'))
+      onChanged()
+    },
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
+  })
+
+  const people = candidates.data ?? []
+  const current = people.find((p) => p.id === app.assignedToId)
+  const fullName = (p: { firstName: string; lastName: string }) => `${p.lastName} ${p.firstName}`
+
+  if (closed || candidates.isError) {
+    return (
+      <Row
+        label={t('assignee')}
+        value={
+          current ? fullName(current) : app.assignedToId ? t('assignedSomeone') : t('unassigned')
+        }
+      />
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{t('assignee')}</span>
+      <Select
+        value={app.assignedToId ?? undefined}
+        onValueChange={(userId) => assign.mutate(userId)}
+        disabled={assign.isPending || candidates.isLoading}
+      >
+        <SelectTrigger size="sm" className="w-full sm:w-72" aria-label={t('assignee')}>
+          <SelectValue placeholder={t('unassigned')} />
+        </SelectTrigger>
+        <SelectContent>
+          {/* Назначенный мог уйти из круга (заблокирован, сменил факультет) — показываем его,
+              чтобы селект не выглядел пустым при живом назначении. */}
+          {app.assignedToId && !current && (
+            <SelectItem value={app.assignedToId} disabled>
+              {t('assignedSomeone')}
+            </SelectItem>
+          )}
+          {people.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {fullName(p)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+/**
+ * Отзыв выданной справки. Файл у студента остаётся (изъять его нельзя), но проверка по коду
+ * с этого момента отвечает «документ отозван». Кнопка видна, пока после последней выдачи
+ * отзыва ещё не было; «уже отозвано» сервер отдаёт как 404 — его и показываем.
+ */
+function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
+  const t = useTranslations('Applications')
+  const tErr = useTranslations('Errors')
+  const [asking, setAsking] = useState(false)
+  const revoke = useMutation({
+    mutationFn: (reason: string) => revokeCertificateRequest(app.id, reason || undefined),
+    onSuccess: () => {
+      toast.success(t('certificateRevoked'))
+      onDone()
+    },
+    onError: (error) => {
+      const code = toApiError(error).code
+      toast.error(code === 'NOT_FOUND' ? t('certificateNothingToRevoke') : tErr(code))
+    },
+  })
+
+  const hasNumbered = app.results.some((r) => r.documentNumber)
+  const lastAdded = lastEventTime(app, 'RESULT_ADDED')
+  const lastRevoked = lastEventTime(app, 'RESULT_REVOKED')
+  if (!hasNumbered || (lastRevoked !== null && lastAdded !== null && lastRevoked >= lastAdded)) {
+    return null
+  }
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="self-start text-destructive"
+        loading={revoke.isPending}
+        onClick={() => setAsking(true)}
+      >
+        {t('revokeCertificate')}
+      </Button>
+      <PromptDialog
+        open={asking}
+        title={t('revokeCertificateTitle')}
+        placeholder={t('revokeCertificateReason')}
+        multiline
+        submitLabel={t('revokeCertificate')}
+        cancelLabel={t('promptCancel')}
+        onSubmit={(reason) => {
+          revoke.mutate(reason)
+          setAsking(false)
+        }}
+        onClose={() => setAsking(false)}
+      />
+    </>
+  )
+}
+
+function lastEventTime(app: ApplicationDetail, action: string): number | null {
+  const times = app.events.filter((e) => e.action === action).map((e) => Date.parse(e.createdAt))
+  return times.length ? Math.max(...times) : null
 }
 
 function Row({ label, value }: { label: string; value: string }) {

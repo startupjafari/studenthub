@@ -81,10 +81,39 @@ export class ApplicationProcessService {
     })
   }
 
+  /**
+   * Кому можно поручить заявку: сотрудники, которые сами вправе её обработать (тот же
+   * canProcess, что и у действий): админ и модератор её вуза, декан её факультета.
+   */
+  async assignees(viewer: JwtPayload, id: string) {
+    this.policy.assert(viewer.role, 'assign')
+    const app = await this.load(viewer, id)
+    return this.users.listApplicationAssignees(app.universityId, app.facultyId)
+  }
+
   /** Назначить ответственного (permission assign). Статус не меняется. */
   async assign(viewer: JwtPayload, id: string, userId: string) {
     this.policy.assert(viewer.role, 'assign')
     const app = await this.load(viewer, id)
+    // Назначить можно только того, кто сам вправе обработать эту заявку. Иначе заявку
+    // студента можно было поручить кому угодно — хоть сотруднику другого вуза, — и она
+    // повисла бы на человеке, который её даже не увидит.
+    const assignee = await this.users.findAssigneeScope(userId)
+    if (
+      !assignee ||
+      !this.policy.canProcess(
+        {
+          sub: assignee.id,
+          role: assignee.role,
+          universityId: assignee.universityId,
+          facultyId: assignee.facultyId,
+          groupId: null,
+        },
+        app,
+      )
+    ) {
+      throw new AppException('BAD_REQUEST', 'Этому сотруднику заявку поручить нельзя')
+    }
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.application.update({
         where: { id: app.id },

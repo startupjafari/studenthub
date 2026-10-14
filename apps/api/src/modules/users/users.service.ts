@@ -1288,6 +1288,44 @@ export class UserService {
   }
 
   /**
+   * Сотрудники, которым можно поручить заявку (домен «Услуги», назначение ответственного):
+   * админ и модератор вуза, а для заявки факультета — ещё и декан этого факультета. Только
+   * id, ФИО и роль: список рисуется в выпадающем меню обработчика.
+   */
+  listApplicationAssignees(
+    universityId: string,
+    facultyId: string | null,
+  ): Promise<Array<{ id: string; firstName: string; lastName: string; role: Role }>> {
+    return this.prisma.user.findMany({
+      where: {
+        universityId,
+        deletedAt: null,
+        isBlocked: false,
+        OR: [
+          { role: { in: [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] } },
+          ...(facultyId ? [{ role: Role.DEAN, facultyId }] : []),
+        ],
+      },
+      select: { id: true, firstName: true, lastName: true, role: true },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      take: 100,
+    })
+  }
+
+  /** Кого назначают ответственным: роль и scope — для проверки, что он вправе вести заявку. */
+  findAssigneeScope(userId: string): Promise<{
+    id: string
+    role: Role
+    universityId: string | null
+    facultyId: string | null
+  } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null, isBlocked: false },
+      select: { id: true, role: true, universityId: true, facultyId: true },
+    })
+  }
+
+  /**
    * Новый пароль по ссылке из письма — без старого: одноразовый токен уже проверил и погасил
    * AuthModule. Все сессии гаснут, как при обычной смене пароля: сброс часто делают именно
    * потому, что пароль утёк, и открытая у злоумышленника сессия не должна пережить его.

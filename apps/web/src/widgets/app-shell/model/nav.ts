@@ -129,6 +129,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     group: 'services',
   },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
+  // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
+  { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
 
   // Коммуникации вуза.
@@ -231,6 +233,8 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'stats', href: '/platform-admin/stats', icon: BarChart3 },
   { key: 'audit', href: '/platform-admin/audit', icon: ScrollText },
   { key: 'documentAccess', href: '/platform-admin/document-access', icon: FolderLock },
+  // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
+  { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
 ]
 

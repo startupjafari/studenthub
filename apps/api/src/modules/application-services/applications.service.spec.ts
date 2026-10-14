@@ -20,7 +20,12 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
     create: jest.fn().mockResolvedValue({ id: 'new' }),
     count: jest.fn().mockResolvedValue(0),
   }
-  const applicationService = { findFirst: jest.fn(), findUnique: jest.fn() }
+  const applicationService = {
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    // Коды услуг вуза: копия вуза скрывает одноимённый глобальный шаблон (service-visibility.ts).
+    findMany: jest.fn().mockResolvedValue([]),
+  }
   const serviceFormField = { findMany: jest.fn().mockResolvedValue([]) }
   const serviceRequirement = { findMany: jest.fn().mockResolvedValue([]) }
   const applicationDocument = {
