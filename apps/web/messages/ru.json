@@ -1676,7 +1676,8 @@
     "event_RESULT_ADDED": "Добавлен результат",
     "accept": "Принять",
     "groupRequestsTitle": "Обращения группы",
-    "groupRequestsEmpty": "В группе пока нет заявок"
+    "groupRequestsEmpty": "В группе пока нет заявок",
+    "certificateAlreadyIssued": "Справка по этой заявке уже выдана. Чтобы выпустить новую, сначала отзовите прежнюю"
   },
   "Feed": {
     "published": "Пост опубликован",

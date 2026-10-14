@@ -1676,7 +1676,8 @@
     "event_RESULT_ADDED": "Нәтиже қосылды",
     "accept": "Қабылдау",
     "groupRequestsTitle": "Топ өтініштері",
-    "groupRequestsEmpty": "Топта әзірге өтініш жоқ"
+    "groupRequestsEmpty": "Топта әзірге өтініш жоқ",
+    "certificateAlreadyIssued": "Бұл өтінім бойынша анықтама берілген. Жаңасын шығару үшін алдымен бұрынғысын кері қайтарыңыз"
   },
   "Feed": {
     "published": "Пост жарияланды",

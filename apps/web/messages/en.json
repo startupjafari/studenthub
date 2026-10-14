@@ -1676,7 +1676,8 @@
     "event_RESULT_ADDED": "Result added",
     "accept": "Accept",
     "groupRequestsTitle": "Group requests",
-    "groupRequestsEmpty": "No requests in the group yet"
+    "groupRequestsEmpty": "No requests in the group yet",
+    "certificateAlreadyIssued": "A certificate has already been issued for this request. Revoke it first to issue a new one"
   },
   "Feed": {
     "published": "Post published",
