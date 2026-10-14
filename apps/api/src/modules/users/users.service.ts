@@ -7,6 +7,7 @@ import type {
   UpdateProfileInput,
   UserDirectoryQueryInput,
   UserDirectorySectionValue,
+  UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
 import { disallowedProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -228,6 +229,39 @@ export class UserService {
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
   getPresence(userId: string): { online: boolean } {
     return { online: this.realtime.isOnline(userId) }
+  }
+
+  /**
+   * Присутствие по запросу зрителя: только человека своего вуза или друга (платформенным —
+   * любого). Рассылку присутствия по WS уже ограничили комнатой вуза, а REST-ручка отдавала
+   * «в сети ли» любого по id — работодателю и чужому вузу тоже. Вне охвата ответ тот же,
+   * что «не в сети»: отказ сам по себе подсказывал бы, что такой id существует.
+   */
+  async getPresenceFor(viewer: JwtPayload, userId: string): Promise<{ online: boolean }> {
+    if (userId === viewer.sub) return this.getPresence(userId)
+    const platform = viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!platform) {
+      const target = await this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+        select: { universityId: true },
+      })
+      const sameUniversity =
+        !!target && viewer.universityId !== null && target.universityId === viewer.universityId
+      if (!sameUniversity) {
+        const friends = await this.prisma.friendship.findFirst({
+          where: {
+            status: 'ACCEPTED',
+            OR: [
+              { requesterId: viewer.sub, addresseeId: userId },
+              { requesterId: userId, addresseeId: viewer.sub },
+            ],
+          },
+          select: { id: true },
+        })
+        if (!friends) return { online: false }
+      }
+    }
+    return this.getPresence(userId)
   }
 
   /**
@@ -898,8 +932,13 @@ export class UserService {
       gpa,
       twoFactorEnabled,
       username,
+      birthDate,
+      fundingType,
+      academicStatus,
+      dormitory,
       ...rest
     } = target
+    const academic = this.canSeeAcademicRecords(viewer, target)
     void showEmail
     void studentCardNumber
     void employeeNumber
@@ -912,7 +951,14 @@ export class UserService {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,
       phone: showPhone || viewer.sub === target.id ? phone : null,
-      gpa: this.canSeeAcademicRecords(viewer, target) ? gpa : null,
+      gpa: academic ? gpa : null,
+      // Дата рождения, форма оплаты (грант/платное), учебный статус и общежитие — личные
+      // сведения, а не визитка: «полная» карточка открыта всему вузу (у сотрудников — всей
+      // платформе, включая работодателей). Видят их владелец и те, кто ведёт его учёбу.
+      birthDate: academic ? birthDate : null,
+      fundingType: academic ? fundingType : null,
+      academicStatus: academic ? academicStatus : null,
+      dormitory: academic ? dormitory : null,
       access: 'full',
     }
   }
@@ -1260,6 +1306,49 @@ export class UserService {
     const passwordHash = await this.passwords.hash(newPassword)
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } })
     await this.authService.revokeAllUserSessions(userId)
+  }
+
+  /**
+   * Учебные данные студента — правит вуз (STAFF_MANAGED_STUDENT_FIELDS): декан своего
+   * факультета или админ своего вуза. Из этих полей печатаются справка об обучении и
+   * студенческий, поэтому каждая правка пишется в аудит со списком изменённых полей.
+   */
+  async updateAcademicRecord(
+    actor: JwtPayload,
+    userId: string,
+    data: UpdateAcademicRecordInput,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<UserProfile> {
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, role: true, universityId: true, facultyId: true },
+    })
+    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    if (target.role !== Role.STUDENT && target.role !== Role.STAROSTA) {
+      throw new AppException('BAD_REQUEST', 'Учебные данные ведутся только у студентов')
+    }
+    const inScope =
+      actor.role === Role.DEAN
+        ? target.facultyId !== null && target.facultyId === actor.facultyId
+        : actor.role === Role.UNIVERSITY_ADMIN
+          ? target.universityId !== null && target.universityId === actor.universityId
+          : false
+    if (!inScope) throw new AppException('WRONG_SCOPE', 'Студент вне вашей области')
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: PROFILE_SELECT,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'user_academic_updated',
+      entity: 'User',
+      entityId: userId,
+      metadata: { fields: Object.keys(data) },
+      ...ctx,
+    })
+    return updated
   }
 
   /**

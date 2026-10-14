@@ -250,6 +250,24 @@ duties — только STAROSTA. Платформенные роли вне в�
 перечисляет отклонённые поля (`field` + сообщение). Запрос отклоняется целиком, разрешённая
 часть тоже не сохраняется. Роль читается из JWT, не из тела.
 
+**Учебные данные ведёт вуз.** Поля `course`, `enrollmentYear`, `graduationYear`,
+`educationLevel`, `studyForm`, `fundingType`, `specialty`, `studentCardNumber`, `academicStatus`,
+`gpa` студент видит в своём профиле, но не меняет: `PATCH /users/me` с ними — тот же `400`
+(список — `STAFF_MANAGED_STUDENT_FIELDS`, проверка — `profileFieldSelfEditable`). Из них
+печатаются справка об обучении и цифровой студенческий, и самозаполнение давало подписанную
+справку с «грантом» и «обучающимся», которых вуз не подтверждал. Правит их
+`PATCH /users/:id/academic` (DEAN — студенты своего факультета, UNIVERSITY_ADMIN — своего вуза;
+цель — только STUDENT/STAROSTA, иначе `400`; вне области — `403 WRONG_SCOPE`; тело —
+`UpdateAcademicRecordSchema`, строгое). Каждая правка пишется в аудит `user_academic_updated`
+со списком полей. В вебе — кнопка «Учебные данные» в таблице студентов; уходят только
+изменённые поля, потому что `studentCardNumber` в чужую карточку не приходит.
+
+**Чужая карточка: что видно.** `birthDate`, `fundingType`, `academicStatus` и `dormitory`
+в `GET /users/:id` приходят только тем, кто ведёт учёт студента (владелец, сотрудники вуза
+по области, платформенные роли); остальным — `null`. Проверка студенческого
+(`student-id/verify`) старосте и преподавателю отдаёт карточку без даты рождения,
+формы оплаты и общежития: им для проверки достаточно личности и статуса.
+
 **Контент профиля (вкладки).** Профиль разбит на вкладки: Профиль / Фото / Видео / Статьи /
 Опросы. Просмотр — любой аутентифицированный с учётом `visibility` (ALL/UNIVERSITY/FACULTY/GROUP);
 черновики (`status=DRAFT`) видит только автор; загрузка/редактирование — только владелец.
@@ -273,7 +291,9 @@ AFTER_END / HIDDEN); один голос на пользователя (`@@uniqu
 (Прежняя модель `ProfileQa` удалена миграцией `articles_polls` — заменена опросами.)
 
 **Присутствие.** `GET /users/:id/presence` → `{ online }` (снапшот по активным WS-соединениям,
-`RealtimeGateway`). Живые изменения — глобальное WS-событие `presence:changed { userId, online }`.
+`RealtimeGateway`). Настоящий статус видят свой вуз, друзья и платформенные роли; остальным
+всегда `{ online: false }` — иначе любой аккаунт мог бы по id следить, когда человек в сети.
+Живые изменения — WS-событие `presence:changed { userId, online }` в комнату `university:<id>`.
 Аватар профиля показывает статус в сети/не в сети (свой профиль — всегда в сети).
 
 ### 3.8 Документы (Ф15)
@@ -706,7 +726,7 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 
 **Инвайты** — `GET /invites/:token/preview` (публ.) · `POST /auth/register-by-invite` (публ.) · `POST /invites` · `GET /invites` · `POST /invites/bulk/preview` · `POST /invites/bulk` · `PATCH /invites/:id/revoke`
 
-**Пользователи** — `GET|PATCH /users/me` · `PATCH /users/me/username` (смена имени входа; тело `{ username }`, нормализуется в нижний регистр, `409 USERNAME_TAKEN` если занято; пишется в аудит как `change_username`) · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+; фильтры `role/facultyId/groupId/search/blocked`, offset-пагинация (`limit` ≤ 200 — таблица даёт выбрать 20/100/150/200) + сортировка `?sort=name|email|role|blocked|createdAt&order=asc|desc` — по всей выборке, не по странице; поле сортировки — enum, произвольное имя в `orderBy` не попадает) · `GET /users/directory?q=&limit=` (справочник людей «кому написать», §50 — **все роли**, в отличие от `GET /users`: отдаёт только визитки (id, ФИО, аватар, роль, headline, группа/факультет) в пределах вуза смотрящего — платформенные роли вуза не имеют и ищут по всем, `EMPLOYER` доступа к справочнику не имеет. Ответ `{ items, hasMore }` без курсора: это пикер, при переполнении клиент просит уточнить запрос. У каждой карточки `isFriend` и `section` = `friend|group|university` — секции задают порядок: друзья → одногруппники → остальной вуз. Заблокированные в любую сторону исключены) · `GET /users/export?format=xlsx|csv&locale=` (Admin+; выгрузка списка файлом — та же выборка и те же фильтры, что у `GET /users`, включая scope; потолок 5000 строк, выше — `400 BAD_REQUEST` вместо тихого обрезания; пишется в `AuditLog` (`users_export`) и в `DocumentExport`) · `PATCH /users/:id/block|unblock` (Moderator+). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
+**Пользователи** — `GET|PATCH /users/me` · `PATCH /users/me/username` (смена имени входа; тело `{ username }`, нормализуется в нижний регистр, `409 USERNAME_TAKEN` если занято; пишется в аудит как `change_username`) · `POST|DELETE /users/me/avatar` · `POST|DELETE /users/me/cover` (обложка профиля, multipart-изображение ≤ 10 МБ, бакет `profile-covers`) · `PATCH /users/me/password` · `DELETE /users/me` · `GET /users/:id` · `GET /users` (Admin+; фильтры `role/facultyId/groupId/search/blocked`, offset-пагинация (`limit` ≤ 200 — таблица даёт выбрать 20/100/150/200) + сортировка `?sort=name|email|role|blocked|createdAt&order=asc|desc` — по всей выборке, не по странице; поле сортировки — enum, произвольное имя в `orderBy` не попадает) · `GET /users/directory?q=&limit=` (справочник людей «кому написать», §50 — **все роли**, в отличие от `GET /users`: отдаёт только визитки (id, ФИО, аватар, роль, headline, группа/факультет) в пределах вуза смотрящего — платформенные роли вуза не имеют и ищут по всем, `EMPLOYER` доступа к справочнику не имеет. Ответ `{ items, hasMore }` без курсора: это пикер, при переполнении клиент просит уточнить запрос. У каждой карточки `isFriend` и `section` = `friend|group|university` — секции задают порядок: друзья → одногруппники → остальной вуз. Заблокированные в любую сторону исключены) · `GET /users/export?format=xlsx|csv&locale=` (Admin+; выгрузка списка файлом — та же выборка и те же фильтры, что у `GET /users`, включая scope; потолок 5000 строк, выше — `400 BAD_REQUEST` вместо тихого обрезания; пишется в `AuditLog` (`users_export`) и в `DocumentExport`) · `PATCH /users/:id/block|unblock` (Moderator+) · `PATCH /users/:id/academic` (DEAN/UNIVERSITY_ADMIN, учебные данные студента — §3.7). Профиль отдаёт `avatarUrl`, `avatarThumbUrl` (квадратное превью ≈128px, генерируется джобой `generate-thumbnail` в очереди `file-processing`; асинхронно, до готовности `null`) и `coverUrl` (публичные URL; `coverUrl` виден и в «визитке» закрытого профиля).
 
 **Друзья** (симметричная дружба, ВК-стиль; Social-зона — все роли) — `POST /friends/requests {userId}` (заявка; встречная PENDING → авто-принятие) · `POST /friends/requests/:id/accept` (только адресат) · `DELETE /friends/:id` (отмена/отклонение/удаление из друзей — любой участник) · `GET /friends` (друзья, cursor) · `GET /friends/requests?direction=incoming|outgoing` (заявки, cursor) · `GET /friends/count` (счётчики) · `GET /friends/status/:userId` (статус `NONE|PENDING_OUTGOING|PENDING_INCOMING|ACCEPTED` + `friendshipId` — для кнопки в профиле). Модель `Friendship` (`requesterId`/`addresseeId`/`status`, `@@unique([requesterId, addresseeId])`); enum `FriendshipStatus = PENDING|ACCEPTED` (блокировка — отдельная `UserBlock`). Уведомления о заявке/принятии — тип `SYSTEM` (`data.url='/friends'`).
 
