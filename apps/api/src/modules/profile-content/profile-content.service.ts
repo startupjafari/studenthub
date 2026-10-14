@@ -369,12 +369,26 @@ export class ProfileContentService {
     return { url: this.buildPublicUrl(this.coversBucket, file.key) }
   }
 
+  /**
+   * Обложка — только файл платформы: загруженный через POST /profile/articles/cover или из
+   * медиа профиля (так обложки берёт сид). Произвольная строка показывалась бы картинкой
+   * каждому читателю и работала как трекинг-пиксель с чужого сервера.
+   */
+  private coverUrlOrThrow(url: string | undefined): string | null {
+    if (!url) return null
+    const own = [this.coversBucket, this.bucket].map((b) => this.buildPublicUrl(b, ''))
+    if (!own.some((prefix) => url.startsWith(prefix))) {
+      throw new AppException('BAD_REQUEST', 'Обложку нужно загрузить на платформу')
+    }
+    return url
+  }
+
   private articleData(input: CreateProfileArticleInput) {
     return {
       title: input.title,
       description: input.description ?? null,
       content: input.content,
-      coverUrl: input.coverUrl ? input.coverUrl : null,
+      coverUrl: this.coverUrlOrThrow(input.coverUrl),
       coverGradient: input.coverGradient ? input.coverGradient : null,
       category: input.category ?? null,
       tags: input.tags ?? [],

@@ -35,6 +35,7 @@ import {
   CardTitle,
   CountryFlag,
   LanguageFlag,
+  MarkdownImage,
 } from '../../../shared/ui'
 import { countryCodeOf, languageFlagOf } from '../../../shared/config'
 import { cn } from '../../../shared/lib/utils'
@@ -454,7 +455,9 @@ function AboutCard({ bio, title }: { bio: string; title: string }) {
       <CardContent>
         {bio.trim() ? (
           <div className="text-sm leading-relaxed text-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:mb-1 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{bio}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: MarkdownImage }}>
+              {bio}
+            </ReactMarkdown>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground/60">{t('noData')}</p>

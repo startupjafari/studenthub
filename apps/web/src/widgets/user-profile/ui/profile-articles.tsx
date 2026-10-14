@@ -32,7 +32,7 @@ import {
   toggleArticleBookmark,
   type ProfileArticle,
 } from '../../../entities/profile-content'
-import { Badge, Button, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
+import { Badge, Button, EmptyState, MarkdownImage, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { ArticleEditorModal } from './article-editor-modal'
@@ -440,6 +440,7 @@ function ArticleReader({
     h1: ({ children }) => <h1 id={slugify(nodeText(children))}>{children}</h1>,
     h2: ({ children }) => <h2 id={slugify(nodeText(children))}>{children}</h2>,
     h3: ({ children }) => <h3 id={slugify(nodeText(children))}>{children}</h3>,
+    img: MarkdownImage,
   }
 
   function scrollTo(slug: string): void {
