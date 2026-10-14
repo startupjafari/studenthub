@@ -69,6 +69,7 @@ function setup(appRow: Record<string, unknown>) {
   const documents = {
     issueToOwner: jest.fn().mockResolvedValue({ id: 'doc-issued' }),
     uploadFile: jest.fn().mockResolvedValue({ id: 'file-1', mime: 'application/pdf', size: 1024 }),
+    isOwnedBy: jest.fn().mockResolvedValue(true),
   }
   // Справка об обучении (B7): данные студента, брендирование и журнал выгрузок — чужие
   // домены, в юните подменяются заглушками. Сам рендер PDF проверяется отдельно.
@@ -312,5 +313,26 @@ describe('ApplicationProcessService — отзыв справки', () => {
     exportRegistry.revokeByDocumentNumber.mockResolvedValue(0)
 
     await expect(service.revokeStudyCertificate(dean, 'app-1')).rejects.toThrow(AppException)
+  })
+})
+
+describe('ApplicationProcessService.addResult — документ из хранилища', () => {
+  it('чужой документ к результату не приложить', async () => {
+    const { service, prisma, documents } = setup({ ...base, status: 'IN_PREPARATION' })
+    documents.isOwnedBy.mockResolvedValue(false)
+
+    await expect(
+      service.addResult(dean, 'a1', { type: 'DOCUMENT', documentId: 'doc-of-someone-else' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(documents.isOwnedBy).toHaveBeenCalledWith('doc-of-someone-else', 'stud')
+    expect(prisma.applicationResult.create).not.toHaveBeenCalled()
+  })
+
+  it('документ самого студента прикладывается', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_PREPARATION' })
+    await service.addResult(dean, 'a1', { type: 'DOCUMENT', documentId: 'doc-own' })
+    expect(prisma.applicationResult.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ documentId: 'doc-own' }) }),
+    )
   })
 })
