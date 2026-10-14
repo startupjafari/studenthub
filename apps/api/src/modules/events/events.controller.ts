@@ -22,6 +22,7 @@ import { EventsService } from './events.service'
 import { CreateEventDto } from './dto/create-event.dto'
 import { UpdateEventDto } from './dto/update-event.dto'
 import { EventListQueryDto } from './dto/event-list-query.dto'
+import { CreateEventCommentDto } from './dto/create-event-comment.dto'
 
 // Создавать события могут все, кроме модераторов (docs/PROJECT.md §2.2).
 const AUTHOR_ROLES = [
@@ -119,6 +120,40 @@ export class EventsController {
   @ApiResponse({ status: 403, description: 'FORBIDDEN' })
   participants(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.events.listParticipants(user, id)
+  }
+
+  @Get(':id/comments')
+  @ApiOperation({ summary: 'Комментарии к событию (видны всей аудитории события)' })
+  @ApiResponse({ status: 200, description: 'Последние комментарии, по порядку написания' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие не видно' })
+  comments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.events.listComments(user, id)
+  }
+
+  @Post(':id/comments')
+  @ApiOperation({ summary: 'Прокомментировать событие' })
+  @ApiResponse({ status: 201, description: 'Комментарий создан' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  addComment(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: CreateEventCommentDto,
+  ) {
+    return this.events.addComment(user, id, dto)
+  }
+
+  @Delete(':id/comments/:commentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Удалить комментарий (автор, организатор, админ или модератор)' })
+  @ApiResponse({ status: 204, description: 'Удалён' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN' })
+  async removeComment(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    await this.events.removeComment(user, id, commentId, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {

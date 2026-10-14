@@ -2267,7 +2267,19 @@
     "joinOpen": "Кездесуді ашу",
     "copyPasscode": "Кіру кодын көшіру",
     "passcodeCopied": "Код көшірілді",
-    "meetingUnavailable": "Сілтеме қолжетімді емес: іс-шараға тіркелу қажет"
+    "meetingUnavailable": "Сілтеме қолжетімді емес: іс-шараға тіркелу қажет",
+    "back": "Артқа",
+    "notFoundHint": "Іс-шара жойылған немесе сізге қолжетімсіз.",
+    "participantsCount": "{count, plural, =0 {Әзірге ешкім жазылмаған} other {# қатысушы}}",
+    "organizer": "Ұйымдастырушы",
+    "participants": "Қатысушылар",
+    "noParticipants": "Әзірге ешкім жазылмаған",
+    "comments": "Талқылау",
+    "noComments": "Әзірге сұрақтар мен пікірлер жоқ",
+    "deleteComment": "Пікірді жою",
+    "commentPlaceholder": "Ұйымдастырушыға сұрақ немесе пікір",
+    "commentInvalid": "1-ден 2000 таңбаға дейін",
+    "sendComment": "Жіберу"
   },
   "Moderation": {
     "complaintsTitle": "Шағымдар",

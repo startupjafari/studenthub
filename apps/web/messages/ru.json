@@ -2267,7 +2267,19 @@
     "joinOpen": "Открыть встречу",
     "copyPasscode": "Скопировать код доступа",
     "passcodeCopied": "Код скопирован",
-    "meetingUnavailable": "Ссылка недоступна: нужна регистрация на событие"
+    "meetingUnavailable": "Ссылка недоступна: нужна регистрация на событие",
+    "back": "Назад",
+    "notFoundHint": "Событие удалено или недоступно вам.",
+    "participantsCount": "{count, plural, =0 {Пока никто не записался} one {# участник} few {# участника} other {# участников}}",
+    "organizer": "Организатор",
+    "participants": "Участники",
+    "noParticipants": "Пока никто не записался",
+    "comments": "Обсуждение",
+    "noComments": "Вопросов и комментариев пока нет",
+    "deleteComment": "Удалить комментарий",
+    "commentPlaceholder": "Вопрос организатору или комментарий",
+    "commentInvalid": "От 1 до 2000 символов",
+    "sendComment": "Отправить"
   },
   "Moderation": {
     "complaintsTitle": "Жалобы",
