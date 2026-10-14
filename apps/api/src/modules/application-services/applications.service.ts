@@ -12,6 +12,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { visibleServicesWhere } from './service-visibility'
 import { ApplicationPolicy } from './application.policy'
 
 // Поля заявки для scope-проверок (без загрузки всей записи).
@@ -88,12 +89,10 @@ export class ApplicationsService {
     if (!viewer.universityId) {
       throw new AppException('BAD_REQUEST', 'Профиль без университета не может подавать заявки')
     }
+    // Та же видимость, что в каталоге: шаблон, заменённый копией вуза, недоступен и по id.
+    const visible = await visibleServicesWhere(this.prisma, viewer.universityId)
     const service = await this.prisma.applicationService.findFirst({
-      where: {
-        id: serviceId,
-        active: true,
-        OR: [{ universityId: null }, { universityId: viewer.universityId }],
-      },
+      where: { AND: [{ id: serviceId }, visible] },
       select: { id: true, facultyScoped: true },
     })
     if (!service) {

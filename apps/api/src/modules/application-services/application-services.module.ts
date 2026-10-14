@@ -5,6 +5,7 @@ import { UsersModule } from '../users/users.module'
 import { ApplicationServicesController } from './application-services.controller'
 import { ApplicationsController } from './applications.controller'
 import { CatalogService } from './catalog.service'
+import { CatalogAdminService } from './catalog-admin.service'
 import { ApplicationsService } from './applications.service'
 import { ApplicationDocumentsService } from './application-documents.service'
 import { ApplicationProcessService } from './application-process.service'
@@ -19,6 +20,7 @@ import { ApplicationPolicy } from './application.policy'
   controllers: [ApplicationServicesController, ApplicationsController],
   providers: [
     CatalogService,
+    CatalogAdminService,
     ApplicationsService,
     ApplicationDocumentsService,
     ApplicationProcessService,

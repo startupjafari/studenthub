@@ -215,3 +215,123 @@ export const ApplicationQuerySchema = OffsetPaginationSchema.extend({
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 }).strict()
 export type ApplicationQueryInput = z.infer<typeof ApplicationQuerySchema>
+
+// ── Управление каталогом услуг (§3.2: «настраиваемый, не enum») ──────────────
+// Админ вуза ведёт услуги своего вуза, админ платформы — глобальные шаблоны. Шаблон вуз не
+// правит, а «настраивает»: получает копию с тем же кодом, и она заменяет шаблон для его
+// студентов. Требования и поля формы сохраняются целиком, по `code`: пропавшие из списка
+// выключаются, а не удаляются — к ним уже могут быть привязаны документы поданных заявок.
+
+// Код — стабильный идентификатор в рамках услуги/вуза: латиница, цифры и дефис, как у шаблонов.
+export const CatalogCodeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9-]{1,59}$/, 'Латиница, цифры и дефис, 2–60 символов')
+
+const LocalizedTitle = z.string().trim().min(1).max(200)
+// Пустая строка из формы и null равнозначны: сервер сохраняет их как null.
+const OptionalText = (max: number) => z.string().trim().max(max).nullish()
+
+export const ServiceRequirementInputSchema = z
+  .object({
+    code: CatalogCodeSchema,
+    // Тип из каталога «Документов» — по нему студент выбирает документ из своего хранилища.
+    documentType: OptionalText(60),
+    titleRu: LocalizedTitle,
+    titleKk: LocalizedTitle,
+    titleEn: LocalizedTitle,
+    description: OptionalText(500),
+    required: z.boolean().default(true),
+    allowStorage: z.boolean().default(true),
+    allowUpload: z.boolean().default(true),
+    maxFiles: z.number().int().min(1).max(10).default(1),
+  })
+  .strict()
+export type ServiceRequirementInput = z.infer<typeof ServiceRequirementInputSchema>
+
+export const ServiceFormFieldOptionSchema = z
+  .object({
+    value: z.string().trim().min(1).max(60),
+    labelRu: z.string().trim().min(1).max(120),
+    labelKk: z.string().trim().min(1).max(120),
+    labelEn: z.string().trim().min(1).max(120),
+  })
+  .strict()
+export type ServiceFormFieldOptionInput = z.infer<typeof ServiceFormFieldOptionSchema>
+
+const CHOICE_FIELD_TYPES: FormFieldType[] = ['SELECT', 'RADIO']
+
+export const ServiceFormFieldInputSchema = z
+  .object({
+    code: CatalogCodeSchema,
+    type: FormFieldTypeSchema,
+    labelRu: LocalizedTitle,
+    labelKk: LocalizedTitle,
+    labelEn: LocalizedTitle,
+    placeholderRu: OptionalText(200),
+    placeholderKk: OptionalText(200),
+    placeholderEn: OptionalText(200),
+    required: z.boolean().default(false),
+    options: z.array(ServiceFormFieldOptionSchema).max(30).nullish(),
+  })
+  .strict()
+  // Поле выбора без вариантов студент заполнить не сможет, а сервер отклонит любой ответ.
+  .refine((f) => !CHOICE_FIELD_TYPES.includes(f.type) || (f.options?.length ?? 0) > 0, {
+    message: 'У поля выбора нужен хотя бы один вариант',
+    path: ['options'],
+  })
+export type ServiceFormFieldInput = z.infer<typeof ServiceFormFieldInputSchema>
+
+function uniqueCodes(items: { code: string }[]): boolean {
+  return new Set(items.map((i) => i.code)).size === items.length
+}
+
+export const UpsertApplicationServiceSchema = z
+  .object({
+    categoryId: z.string().min(1),
+    code: CatalogCodeSchema,
+    nameRu: LocalizedTitle,
+    nameKk: LocalizedTitle,
+    nameEn: LocalizedTitle,
+    descriptionRu: OptionalText(2000),
+    descriptionKk: OptionalText(2000),
+    descriptionEn: OptionalText(2000),
+    instructionsRu: OptionalText(4000),
+    instructionsKk: OptionalText(4000),
+    instructionsEn: OptionalText(4000),
+    // До 90 дней: SLA дольше — уже не срок обработки, а отсутствие срока.
+    slaHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 90),
+    deliveryModes: z.array(DeliveryModeSchema).min(1).max(2),
+    requiresPickup: z.boolean().default(false),
+    // true — заявку ведёт деканат факультета студента; false — вузовский уровень.
+    facultyScoped: z.boolean().default(true),
+    active: z.boolean().default(true),
+    sortOrder: z.number().int().min(0).max(1000).default(0),
+    requirements: z.array(ServiceRequirementInputSchema).max(30).default([]),
+    formFields: z.array(ServiceFormFieldInputSchema).max(40).default([]),
+  })
+  .strict()
+  .refine((s) => new Set(s.deliveryModes).size === s.deliveryModes.length, {
+    message: 'Способ выдачи указан дважды',
+    path: ['deliveryModes'],
+  })
+  .refine((s) => uniqueCodes(s.requirements), {
+    message: 'Коды документов должны быть разными',
+    path: ['requirements'],
+  })
+  .refine((s) => uniqueCodes(s.formFields), {
+    message: 'Коды полей должны быть разными',
+    path: ['formFields'],
+  })
+export type UpsertApplicationServiceInput = z.infer<typeof UpsertApplicationServiceSchema>
+
+export const ManagedServicesQuerySchema = OffsetPaginationSchema.extend({
+  search: z.string().trim().max(120).optional(),
+  categoryId: z.string().min(1).optional(),
+}).strict()
+export type ManagedServicesQueryInput = z.infer<typeof ManagedServicesQuerySchema>
