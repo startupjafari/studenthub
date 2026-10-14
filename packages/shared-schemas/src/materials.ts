@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { httpUrl } from './url.js'
 
 // Учебные материалы (docs/PROJECT.md §12 teacher/materials, Ф12).
 export const CreateMaterialSchema = z
@@ -7,7 +8,7 @@ export const CreateMaterialSchema = z
     title: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),
     subject: z.string().min(1).max(200).optional(),
-    url: z.string().url().max(1000).optional(),
+    url: httpUrl(1000).optional(),
   })
   .strict()
 export type CreateMaterialInput = z.infer<typeof CreateMaterialSchema>

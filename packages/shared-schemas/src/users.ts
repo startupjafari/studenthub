@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { WebsiteSchema } from './url.js'
 import { Role } from '@studenthub/shared-types'
 import { PasswordSchema, UsernameSchema } from './auth.js'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
@@ -69,7 +70,7 @@ export const UpdateProfileSchema = z
     languages: strList.optional(),
     telegram: shortText.optional(),
     instagram: shortText.optional(),
-    website: shortText.optional(),
+    website: WebsiteSchema.optional(),
     headline: shortText.optional(),
     timezone: shortText.optional(),
     // Язык интерфейса и исходящих писем. Закрытым списком, а не свободной строкой:

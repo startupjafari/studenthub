@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Role } from '@studenthub/shared-types'
-import type { ProfileFieldKey } from '@studenthub/shared-schemas'
+import { websiteHref, type ProfileFieldKey } from '@studenthub/shared-schemas'
 import {
   Badge,
   Card,
@@ -328,7 +328,8 @@ function ContactsCard({ data }: { data: ProfileData }) {
       field: 'website',
       label: t('website'),
       value: website,
-      href: website ?? undefined,
+      // Ссылкой — только настоящий адрес сайта; `//host` и чужие схемы показываем текстом.
+      href: websiteHref(website) ?? undefined,
       copy: website ?? undefined,
     },
   ]

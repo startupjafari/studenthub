@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { httpUrl } from './url.js'
 import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Задания (docs/ACADEMIC_CORE.md, задача 3). Статусы/типы — строки (SSOT здесь).
@@ -77,7 +78,7 @@ export type AssignmentListQueryInput = z.infer<typeof AssignmentListQuerySchema>
 export const SaveSubmissionDraftSchema = z
   .object({
     text: z.string().max(50000).nullable().optional(),
-    linkUrl: z.string().url().max(2000).nullable().optional(),
+    linkUrl: httpUrl(2000).nullable().optional(),
   })
   .strict()
 export type SaveSubmissionDraftInput = z.infer<typeof SaveSubmissionDraftSchema>
