@@ -1677,7 +1677,15 @@
     "event_RESULT_ADDED": "Result added",
     "accept": "Accept",
     "groupRequestsTitle": "Group requests",
-    "groupRequestsEmpty": "No requests in the group yet"
+    "groupRequestsEmpty": "No requests in the group yet",
+    "assigned": "Assignee set",
+    "assignedSomeone": "Assigned to a staff member",
+    "revokeCertificate": "Revoke certificate",
+    "revokeCertificateTitle": "Revoke the issued certificate?",
+    "revokeCertificateReason": "Reason — optional. The student keeps the file, but the code check will show “revoked”.",
+    "certificateRevoked": "Certificate revoked",
+    "certificateNothingToRevoke": "There is no valid certificate for this request",
+    "event_RESULT_REVOKED": "Certificate revoked"
   },
   "Feed": {
     "published": "Post published",

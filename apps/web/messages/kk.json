@@ -1677,7 +1677,15 @@
     "event_RESULT_ADDED": "Нәтиже қосылды",
     "accept": "Қабылдау",
     "groupRequestsTitle": "Топ өтініштері",
-    "groupRequestsEmpty": "Топта әзірге өтініш жоқ"
+    "groupRequestsEmpty": "Топта әзірге өтініш жоқ",
+    "assigned": "Жауапты тағайындалды",
+    "assignedSomeone": "Қызметкер тағайындалған",
+    "revokeCertificate": "Анықтаманы кері қайтару",
+    "revokeCertificateTitle": "Берілген анықтаманы кері қайтару керек пе?",
+    "revokeCertificateReason": "Себебі — міндетті емес. Файл студентте қалады, бірақ код бойынша тексеру «кері қайтарылған» деп көрсетеді.",
+    "certificateRevoked": "Анықтама кері қайтарылды",
+    "certificateNothingToRevoke": "Бұл өтініш бойынша жарамды анықтама жоқ",
+    "event_RESULT_REVOKED": "Анықтама кері қайтарылды"
   },
   "Feed": {
     "published": "Пост жарияланды",
