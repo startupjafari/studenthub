@@ -3,6 +3,7 @@ import { PostAudience, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
   meetingProviderOf,
+  type CreateEventCommentInput,
   type CreateEventInput,
   type EventListQueryInput,
   type EventMeeting,
@@ -77,6 +78,16 @@ const EVENT_SELECT = {
 } satisfies Prisma.EventSelect
 
 type EventRow = Prisma.EventGetPayload<{ select: typeof EVENT_SELECT }>
+
+// Потолок обсуждения под событием в одном ответе (BACKEND_RULES §5.3: findMany без take нельзя).
+const COMMENTS_LIMIT = 100
+
+const COMMENT_SELECT = {
+  id: true,
+  content: true,
+  createdAt: true,
+  author: { select: { id: true, firstName: true, lastName: true, avatarThumbUrl: true } },
+} satisfies Prisma.EventCommentSelect
 
 interface EventTarget {
   universityId?: string
@@ -319,6 +330,67 @@ export class EventsService {
     })
   }
 
+  // ── Комментарии (§3.5) ──────────────────────────────────────────────────────
+
+  /**
+   * Комментарии видит вся аудитория события — то же правило, что у самой карточки. Отдаём
+   * последние сто, по порядку написания: обсуждение под событием короткое, а в длинном
+   * важнее свежие вопросы, чем первые.
+   */
+  async listComments(viewer: JwtPayload, id: string) {
+    await this.assertVisible(viewer, id)
+    const rows = await this.prisma.eventComment.findMany({
+      where: { eventId: id, deletedAt: null },
+      select: COMMENT_SELECT,
+      orderBy: { createdAt: 'desc' },
+      take: COMMENTS_LIMIT,
+    })
+    return rows.reverse()
+  }
+
+  async addComment(viewer: JwtPayload, id: string, input: CreateEventCommentInput) {
+    await this.assertVisible(viewer, id)
+    return this.prisma.eventComment.create({
+      data: { eventId: id, authorId: viewer.sub, content: input.content },
+      select: COMMENT_SELECT,
+    })
+  }
+
+  /**
+   * Удалить комментарий: автор — свой; организатор и админ scope события — любой под своим
+   * событием; модератор — в своей зоне. Удаление мягкое, как у комментариев к постам.
+   */
+  async removeComment(
+    viewer: JwtPayload,
+    id: string,
+    commentId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const comment = await this.prisma.eventComment.findFirst({
+      where: { id: commentId, eventId: id, deletedAt: null },
+      select: { id: true, authorId: true, event: { select: { universityId: true } } },
+    })
+    if (!comment) throw new AppException('NOT_FOUND', 'Комментарий не найден')
+    if (comment.authorId !== viewer.sub && !(await this.canModerateComments(viewer, id))) {
+      throw new AppException('FORBIDDEN', 'Нет прав на удаление комментария')
+    }
+    await this.prisma.eventComment.update({
+      where: { id: commentId },
+      data: { deletedAt: new Date() },
+    })
+    // Чужой комментарий удаляют властью организатора или модератора — это решение модерации.
+    if (comment.authorId !== viewer.sub) {
+      await this.audit.record({
+        userId: viewer.sub,
+        action: 'event_comment_deleted',
+        entity: 'EventComment',
+        entityId: commentId,
+        metadata: { eventId: id, authorId: comment.authorId },
+        ...ctx,
+      })
+    }
+  }
+
   // ── Напоминания за час (задача 10.4, вызывается из CleanupService) ─────────
 
   async remindDue(): Promise<number> {
@@ -354,7 +426,8 @@ export class EventsService {
               titleKey: 'events.reminder.title',
               bodyKey: 'events.reminder.body',
               params: { title: event.title },
-              data: { eventId: event.id, url: '/events' },
+              // Карточка события, а не общий список: в напоминании речь об одном событии.
+              data: { eventId: event.id, url: `/events/${event.id}` },
               // dedupeKey один на событие: повторная доставка отсекается по (пользователь, ключ),
               // а jobId разный — иначе BullMQ отбросил бы все страницы кроме первой.
               dedupeKey: `event-reminder:${event.id}`,
@@ -379,6 +452,31 @@ export class EventsService {
   }
 
   // ── Внутреннее ────────────────────────────────────────────────────────────
+
+  /** Событие видно зрителю — иначе NOT_FOUND (не раскрываем существование чужих событий). */
+  private async assertVisible(viewer: JwtPayload, id: string): Promise<void> {
+    const event = await this.prisma.event.findFirst({
+      where: { id, ...this.visibilityWhere(viewer) },
+      select: { id: true },
+    })
+    if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
+  }
+
+  /** Может ли зритель удалять чужие комментарии под событием. */
+  private async canModerateComments(viewer: JwtPayload, id: string): Promise<boolean> {
+    try {
+      await this.findManageable(viewer, id)
+      return true
+    } catch (error) {
+      if (!(error instanceof AppException)) throw error
+    }
+    if (viewer.role !== Role.UNIVERSITY_MODERATOR || !viewer.universityId) return false
+    const event = await this.prisma.event.findUnique({
+      where: { id },
+      select: { universityId: true },
+    })
+    return event?.universityId === viewer.universityId
+  }
 
   /** Событие + проверка прав управления (организатор или админ/декан своего scope). */
   private async findManageable(actor: JwtPayload, id: string): Promise<EventRow> {
