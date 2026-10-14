@@ -292,6 +292,39 @@ describe('DocumentsService — доступ (15.11)', () => {
     )
   })
 
+  it('гранты «Университет» и «факультет» не действуют для студента — только USER', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'other',
+      universityId: 'uni-1',
+    })
+    prisma.documentAccess.findFirst.mockResolvedValue(null)
+    const peer = { ...actor(), facultyId: 'fac-1' }
+    await service.getFileUrl(peer, 'd1', 'f1').catch(() => null)
+    const or = prisma.documentAccess.findFirst.mock.calls[0][0].where.OR
+    expect(or).toEqual([{ granteeType: 'USER', granteeId: 'me' }])
+  })
+
+  it('декан своего факультета попадает под оба гранта', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'other',
+      universityId: 'uni-1',
+    })
+    prisma.documentAccess.findFirst.mockResolvedValue(null)
+    const dean = { ...actor(), role: Role.DEAN, facultyId: 'fac-1' }
+    await service.getFileUrl(dean, 'd1', 'f1').catch(() => null)
+    const or = prisma.documentAccess.findFirst.mock.calls[0][0].where.OR
+    expect(or).toEqual(
+      expect.arrayContaining([
+        { granteeType: 'DEPARTMENT', granteeId: 'fac-1' },
+        { granteeType: 'UNIVERSITY' },
+      ]),
+    )
+  })
+
   it('getFileUrl: не владелец без гранта → NOT_FOUND', async () => {
     const { service, prisma, files } = setup()
     prisma.document.findFirst.mockResolvedValue({
