@@ -2849,7 +2849,9 @@
     "pa_actionFile": "Файл",
     "pa_repeat": "Повторить",
     "req_targetsRequired": "Выберите хотя бы одного адресата",
-    "fieldFilesCount": "Файлов: {n}"
+    "fieldFilesCount": "Файлов: {n}",
+    "req_targetGroup": "Группе {name}",
+    "req_targetNoGroups": "У вас нет дисциплин — адресовать запрос некому"
   },
   "DatePicker": {
     "prevPage": "Назад",

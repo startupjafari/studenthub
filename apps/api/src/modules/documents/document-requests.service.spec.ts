@@ -56,7 +56,10 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(null),
     },
-    user: { findMany: jest.fn().mockResolvedValue([]) },
+    user: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+    faculty: { findFirst: jest.fn().mockResolvedValue({ id: 'fac-1' }) },
+    group: { findFirst: jest.fn() },
+    course: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const documents = { presign: jest.fn().mockResolvedValue('https://minio/signed') }
@@ -141,10 +144,60 @@ describe('DocumentRequestsService — создание запроса (15.14)', 
   it('§15.2: преподаватель запрашивает учебный тип → успех', async () => {
     const { service, prisma } = setup()
     prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    prisma.group.findFirst.mockResolvedValue({ facultyId: 'fac-2' })
+    prisma.course.findMany.mockResolvedValue([{ groupId: 'grp-7' }])
     await service.createRequest(staff(Role.TEACHER), {
       title: 'Дипломы',
       items: [{ documentType: 'DIPLOMA', title: 'Диплом' }], // ACADEMIC
-      targets: [{ targetType: 'UNIVERSITY' }],
+      targets: [{ targetType: 'GROUP', targetId: 'grp-7' }],
+    })
+    expect(prisma.documentRequest.create).toHaveBeenCalled()
+  })
+
+  it('адресаты вне области автора → WRONG_SCOPE, запрос не создаётся', async () => {
+    const cases: [
+      Role,
+      { targetType: 'UNIVERSITY' | 'FACULTY' | 'GROUP' | 'USER'; targetId?: string },
+    ][] = [
+      // Весь вуз — только модератору вуза.
+      [Role.DEAN, { targetType: 'UNIVERSITY' }],
+      [Role.TEACHER, { targetType: 'UNIVERSITY' }],
+      // Декан — только свой факультет.
+      [Role.DEAN, { targetType: 'FACULTY', targetId: 'fac-2' }],
+      [Role.TEACHER, { targetType: 'FACULTY', targetId: 'fac-1' }],
+      // Группа чужого факультета / группа, где преподаватель не ведёт.
+      [Role.DEAN, { targetType: 'GROUP', targetId: 'grp-x' }],
+      [Role.TEACHER, { targetType: 'GROUP', targetId: 'grp-x' }],
+      // Студент чужого факультета.
+      [Role.DEAN, { targetType: 'USER', targetId: 'stu-x' }],
+    ]
+    for (const [role, target] of cases) {
+      const { service, prisma } = setup()
+      prisma.group.findFirst.mockResolvedValue({ facultyId: 'fac-2' })
+      prisma.user.findFirst.mockResolvedValue({ facultyId: 'fac-2', groupId: 'grp-x' })
+      const err = await service
+        .createRequest(staff(role), {
+          title: 'x',
+          items: [{ documentType: 'DIPLOMA', title: 'Диплом' }],
+          targets: [target],
+        })
+        .catch((e) => e)
+      expect([role, target, err.code]).toEqual([role, target, 'WRONG_SCOPE'])
+      expect(prisma.documentRequest.create).not.toHaveBeenCalled()
+    }
+  })
+
+  it('декан адресует свой факультет и его группу → успех', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    prisma.group.findFirst.mockResolvedValue({ facultyId: 'fac-1' })
+    await service.createRequest(staff(Role.DEAN), {
+      title: 'Комплект',
+      items: [OK_ITEM],
+      targets: [
+        { targetType: 'FACULTY', targetId: 'fac-1' },
+        { targetType: 'GROUP', targetId: 'grp-1' },
+      ],
     })
     expect(prisma.documentRequest.create).toHaveBeenCalled()
   })
@@ -152,7 +205,7 @@ describe('DocumentRequestsService — создание запроса (15.14)', 
   it('успех: создаёт запрос, UNIVERSITY-адресат → targetId=null, событие REQUEST_CREATE', async () => {
     const { service, prisma } = setup()
     prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' }) // findAuthoredOrThrow
-    await service.createRequest(staff(), {
+    await service.createRequest(staff(Role.UNIVERSITY_MODERATOR), {
       title: 'Комплект',
       items: [OK_ITEM],
       targets: [{ targetType: 'UNIVERSITY' }],

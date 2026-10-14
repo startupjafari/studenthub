@@ -2849,7 +2849,9 @@
     "pa_actionFile": "File",
     "pa_repeat": "Repeat",
     "req_targetsRequired": "Choose at least one recipient",
-    "fieldFilesCount": "Files: {n}"
+    "fieldFilesCount": "Files: {n}",
+    "req_targetGroup": "Group {name}",
+    "req_targetNoGroups": "You have no courses, so there is no one to send the request to"
   },
   "DatePicker": {
     "prevPage": "Previous",
