@@ -169,6 +169,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server?.in(`user:${userId}`).disconnectSockets(true)
   }
 
+  /**
+   * Вывести все сокеты пользователя из комнаты (исключение или бан в чате). Без этого
+   * исключённый, чьё соединение уже было в `chat:<id>`, получал переписку вживую до
+   * переподключения — а злонамеренный клиент просто не переподключался бы.
+   */
+  leaveRoom(userId: string, room: string): void {
+    this.server?.in(`user:${userId}`).socketsLeave(room)
+  }
+
   private extractToken(client: Socket): string | null {
     const fromAuth = client.handshake.auth?.token
     if (typeof fromAuth === 'string' && fromAuth.length > 0) return fromAuth

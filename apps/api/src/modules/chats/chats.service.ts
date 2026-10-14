@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
+import { randomBytes } from 'node:crypto'
 import { ConfigService } from '@nestjs/config'
 import type Redis from 'ioredis'
 import { ChatType, Prisma } from '@prisma/client'
@@ -304,6 +305,12 @@ type AutoChat =
   /** Чаты предметов, которые ВЕДЁТ сам, — по своим парам в любой группе. */
   | 'SUBJECT_TAUGHT'
 
+// Платформенные роли вне вуза: правило «переписка только внутри своего вуза» к ним не
+// применяется (§50) — в отличие от работодателя, у которого universityId тоже пустой.
+function isPlatform(role: Role): boolean {
+  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
+}
+
 const AUTO_CHATS_BY_ROLE: Record<Role, readonly AutoChat[]> = {
   [Role.STUDENT]: ['SAVED', 'GROUP_OFFICIAL', 'FACULTY', 'DEAN', 'SUPPORT', 'SUBJECT_OF_GROUP'],
   // Староста — тот же студент по набору чатов; отличия у него в правах внутри них.
@@ -376,12 +383,14 @@ export class ChatsService {
     }
   }
 
+  // Забаненный участник строку членства сохраняет (bannedAt), но в комнату чата его не
+  // пускаем: REST ему закрыт assertMembership, а через сокет он читал бы группу вживую.
   async isMember(userId: string, chatId: string): Promise<boolean> {
     const m = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId } },
-      select: { id: true },
+      select: { id: true, bannedAt: true },
     })
-    return m !== null
+    return m !== null && m.bannedAt === null
   }
 
   /**
@@ -677,7 +686,18 @@ export class ChatsService {
   // ── Создание PRIVATE/GROUP (9.5) ────────────────────────────────────────────
 
   async createChat(actor: JwtPayload, input: CreateChatInput) {
+    // Работодатель переписку не начинает: к студентам у него доступ только через карьерный
+    // модуль и только после допуска вуза (BACKEND_RULES §19 п.9), а чат был бы обходом.
+    if (actor.role === Role.EMPLOYER) {
+      throw new AppException('FORBIDDEN', 'Работодатель не создаёт чаты')
+    }
     const memberIds = [...new Set([actor.sub, ...input.memberIds])]
+    if (input.type === 'GROUP') {
+      await this.assertCanAddToGroup(
+        actor,
+        memberIds.filter((id) => id !== actor.sub),
+      )
+    }
     // Друзья — единственное, что открывает переписку сразу; всем остальным уходит запрос (§50).
     let requestPendingForId: string | null = null
     // Личный чат с заблокированным (в любую сторону) создать нельзя.
@@ -748,7 +768,9 @@ export class ChatsService {
     otherId: string,
     friends: boolean,
   ): Promise<void> {
-    if (friends || actor.universityId == null) return
+    // Без ограничения по вузу — только платформенные роли. Работодатель сюда не доходит
+    // (createChat его отсекает): раньше его пустой universityId снимал ограничение целиком.
+    if (friends || isPlatform(actor.role)) return
     const other = await this.prisma.user.findFirst({
       where: { id: otherId, deletedAt: null, isBlocked: false },
       select: { universityId: true },
@@ -756,6 +778,62 @@ export class ChatsService {
     if (!other) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     if (other.universityId != null && other.universityId !== actor.universityId) {
       throw new AppException('FORBIDDEN', 'Написать можно только людям своего вуза')
+    }
+  }
+
+  /**
+   * Кого можно добавить в пользовательскую группу. Те же правила, что у личного чата: живой
+   * незаблокированный пользователь, без блокировки между сторонами, свой вуз (или дружба;
+   * платформенным ролям — любой), не работодатель. Без этого «группа» из двух человек была
+   * обходом запроса на переписку, личной блокировки и правила «свой вуз» (§50), а
+   * несуществующий id ронял запрос в 500.
+   */
+  private async assertCanAddToGroup(actor: JwtPayload, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds }, deletedAt: null, isBlocked: false },
+      select: { id: true, universityId: true, role: true },
+      take: userIds.length,
+    })
+    if (users.length !== userIds.length) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    if (users.some((u) => u.role === Role.EMPLOYER)) {
+      throw new AppException('FORBIDDEN', 'Работодателя нельзя добавить в группу')
+    }
+    const blocked = await this.prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: actor.sub, blockedId: { in: userIds } },
+          { blockerId: { in: userIds }, blockedId: actor.sub },
+        ],
+      },
+      select: { id: true },
+    })
+    if (blocked) {
+      throw new AppException('FORBIDDEN', 'Переписка недоступна: пользователь заблокирован')
+    }
+    if (isPlatform(actor.role)) return
+    const outsiders = users
+      .filter((u) => u.universityId == null || u.universityId !== actor.universityId)
+      .map((u) => u.id)
+    if (outsiders.length === 0) return
+    const friendships = await this.prisma.friendship.findMany({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { requesterId: actor.sub, addresseeId: { in: outsiders } },
+          { requesterId: { in: outsiders }, addresseeId: actor.sub },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+      take: outsiders.length,
+    })
+    const friends = new Set(
+      friendships.map((f) => (f.requesterId === actor.sub ? f.addresseeId : f.requesterId)),
+    )
+    if (outsiders.some((id) => !friends.has(id))) {
+      throw new AppException('FORBIDDEN', 'Добавить можно только людей своего вуза или друзей')
     }
   }
 
@@ -1479,6 +1557,7 @@ export class ChatsService {
     // Управление составом группы — только админам группы (не любому участнику): иначе
     // рядовой участник добавлял бы произвольных пользователей. GROUP-only (проверяет helper).
     await this.assertGroupAdmin(actor, chatId)
+    await this.assertCanAddToGroup(actor, [userId])
     try {
       await this.prisma.chatMember.create({ data: { chatId, userId } })
     } catch (error) {
@@ -1515,6 +1594,10 @@ export class ChatsService {
       select: { firstName: true, lastName: true },
     })
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
+    // Исключённого выводим из комнаты и гасим ссылку-приглашение: старую он знает и иначе
+    // вернулся бы по ней сразу же.
+    this.realtime.leaveRoom(userId, `chat:${chatId}`)
+    await this.rotateInviteCode(chatId)
     // Realtime (9.4): удалённый участник больше не в комнате — пингуем его отдельно, чтобы
     // чат исчез из его списка; остальным обновляем открытое окно и список.
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-removed', { chatId, userId })
@@ -1584,6 +1667,8 @@ export class ChatsService {
       const batch = await this.prisma.chatMember.findMany({
         where: {
           chatId,
+          // Забаненным не шлём ни сигналов активности, ни уведомлений о сообщениях.
+          bannedAt: null,
           ...(opts.exceptUserId ? { userId: { not: opts.exceptUserId } } : {}),
         },
         select: {
@@ -1621,23 +1706,55 @@ export class ChatsService {
 
   /**
    * Присоединиться к группе по ссылке-приглашению (Ф9+). Только пользовательские GROUP-чаты
-   * (официальные/личные так не присоединяют). Идемпотентно. id чата служит одноразово-непубличным токеном.
+   * (официальные/личные так не присоединяют). Идемпотентно.
+   *
+   * Ссылка — это код приглашения, а не id чата. Раньше пускал один id: его знал каждый
+   * бывший участник (и он лежал в ссылках уведомлений), исключённый возвращался сразу же,
+   * а отозвать «ссылку» было нельзя. Код админ группы меняет, и он сменяется сам при
+   * исключении или бане участника. Забаненного код не пускает.
    */
-  async joinByInvite(userId: string, chatId: string) {
+  async joinByInvite(actor: JwtPayload, chatId: string, code: string) {
+    if (actor.role === Role.EMPLOYER) {
+      throw new AppException('FORBIDDEN', 'Работодатель не вступает в группы')
+    }
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      select: { id: true, type: true, title: true },
+      select: { id: true, type: true, title: true, inviteCode: true },
     })
-    if (!chat) throw new AppException('NOT_FOUND', 'Чат не найден')
-    if (chat.type !== ChatType.GROUP) {
-      throw new AppException('WRONG_SCOPE', 'К этому чату нельзя присоединиться по ссылке')
+    // Неверный код отвечает так же, как несуществующий чат: иначе id перебирался бы.
+    if (!chat || chat.type !== ChatType.GROUP || !chat.inviteCode || chat.inviteCode !== code) {
+      throw new AppException('NOT_FOUND', 'Приглашение недействительно')
     }
     const exists = await this.prisma.chatMember.findUnique({
-      where: { chatId_userId: { chatId, userId } },
-      select: { id: true },
+      where: { chatId_userId: { chatId, userId: actor.sub } },
+      select: { id: true, bannedAt: true },
     })
-    if (!exists) await this.prisma.chatMember.create({ data: { chatId, userId } })
-    return chat
+    if (exists?.bannedAt) throw new AppException('FORBIDDEN', 'Вы заблокированы в этом чате')
+    if (!exists) await this.prisma.chatMember.create({ data: { chatId, userId: actor.sub } })
+    return { id: chat.id, type: chat.type, title: chat.title }
+  }
+
+  /** Код приглашения группы для админа: выдаётся при первом запросе. */
+  async getInviteCode(actor: JwtPayload, chatId: string): Promise<{ code: string }> {
+    await this.assertGroupAdmin(actor, chatId)
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { inviteCode: true },
+    })
+    if (chat?.inviteCode) return { code: chat.inviteCode }
+    return { code: await this.rotateInviteCode(chatId) }
+  }
+
+  /** Сменить код приглашения (админ): прежняя ссылка перестаёт работать. */
+  async resetInviteCode(actor: JwtPayload, chatId: string): Promise<{ code: string }> {
+    await this.assertGroupAdmin(actor, chatId)
+    return { code: await this.rotateInviteCode(chatId) }
+  }
+
+  private async rotateInviteCode(chatId: string): Promise<string> {
+    const code = randomBytes(18).toString('base64url')
+    await this.prisma.chat.update({ where: { id: chatId }, data: { inviteCode: code } })
+    return code
   }
 
   // ── Сообщения (используются ChatGateway) ─────────────────────────────────────
@@ -2015,7 +2132,6 @@ export class ChatsService {
       .filter((m) => !isMemberMuted(m) || important.has(m.userId))
       .map((m) => m.userId)
     if (recipientIds.length > 0) {
-      const preview = message.content.slice(0, 140) || '📎 Вложение'
       await this.queue.enqueue(
         QUEUES.NOTIFICATIONS,
         NOTIFICATION_JOBS.NEW_MESSAGE,
@@ -2023,7 +2139,10 @@ export class ChatsService {
           recipientIds,
           type: 'MESSAGE',
           title: `${message.sender.lastName} ${message.sender.firstName}`,
-          body: preview,
+          // Текст сообщения сюда не попадает (docs/PERSONAL_DATA.md §3): уведомление уходит
+          // в push-сервисы и почтовому провайдеру и остаётся в истории уведомлений даже
+          // после удаления сообщения. Превью клиент покажет сам, открыв чат.
+          bodyKey: 'chats.message.body',
           data: { chatId, messageId: message.id, url: `/chats?c=${chatId}` },
           dedupeKey: `new-message:${message.id}`,
         },
@@ -2170,10 +2289,19 @@ export class ChatsService {
     if (!file.messageId) throw new AppException('NOT_FOUND', 'Файл не является вложением сообщения')
     const msg = await this.prisma.message.findUnique({
       where: { id: file.messageId },
-      select: { chatId: true },
+      select: { chatId: true, deletedAt: true, createdAt: true },
     })
-    if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+    // Вложение удалённого сообщения не отдаём: «удалить для всех» обязано убирать и файл.
+    if (!msg || msg.deletedAt) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     await this.assertMembership(userId, msg.chatId)
+    // Историю, очищенную «у себя», по прямой ссылке тоже не открываем.
+    const member = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId: msg.chatId, userId } },
+      select: { clearedAt: true },
+    })
+    if (member?.clearedAt && msg.createdAt <= member.clearedAt) {
+      throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+    }
     return this.files.getPresignedUrl(fileId)
   }
 
@@ -2831,6 +2959,8 @@ export class ChatsService {
       data: { bannedAt: new Date() },
     })
     if (res.count === 0) throw new AppException('NOT_FOUND', 'Участник не найден')
+    this.realtime.leaveRoom(userId, `chat:${chatId}`)
+    await this.rotateInviteCode(chatId)
     return { chatId, userId, banned: true }
   }
 
@@ -3017,6 +3147,7 @@ export class ChatsService {
     }
     // Групповой чат — выходим (убираем членство); если участников не осталось, удаляем чат целиком.
     await this.prisma.chatMember.deleteMany({ where: { chatId, userId: actor.sub } })
+    this.realtime.leaveRoom(actor.sub, `chat:${chatId}`)
     const left = await this.prisma.chatMember.count({ where: { chatId } })
     if (left === 0) {
       await this.prisma.chat.delete({ where: { id: chatId } })

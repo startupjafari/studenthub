@@ -47,6 +47,9 @@ const RU = {
 
   'chats.request.title': 'Запрос на переписку',
   'chats.request.body': '{name} хочет вам написать',
+  // Текст сообщения в уведомление не подставляется (docs/PERSONAL_DATA.md §3): оно уходит
+  // в push-сервисы и почтовому провайдеру и живёт в истории уведомлений дольше сообщения.
+  'chats.message.body': 'Новое сообщение',
   'chats.scheduledFailed.title': 'Отложенное сообщение не отправлено',
 
   'documents.request.title': 'Новый запрос документов',
@@ -117,6 +120,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'chats.request.title': 'Хат алмасу сұрауы',
   'chats.request.body': '{name} сізге жазғысы келеді',
+  'chats.message.body': 'Жаңа хабарлама',
   'chats.scheduledFailed.title': 'Кейінге қалдырылған хабарлама жіберілмеді',
 
   'documents.request.title': 'Жаңа құжат сұрауы',
@@ -184,6 +188,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'chats.request.title': 'Message request',
   'chats.request.body': '{name} wants to message you',
+  'chats.message.body': 'New message',
   'chats.scheduledFailed.title': 'Scheduled message was not sent',
 
   'documents.request.title': 'New document request',

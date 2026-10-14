@@ -2214,7 +2214,9 @@
     "typeSupportPlatform": "StudentHub support",
     "tagSupportPlatform": "Support",
     "cancelUpload": "Cancel upload",
-    "joinUnavailable": "Employer accounts have no chats, so you can't join this group"
+    "joinUnavailable": "Employer accounts have no chats, so you can't join this group",
+    "inviteLinkResetAction": "Reset invite link",
+    "inviteLinkReset": "New link copied — the old one no longer works"
   },
   "Events": {
     "title": "Events",

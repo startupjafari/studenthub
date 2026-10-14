@@ -56,7 +56,10 @@ function setup() {
       delete: jest.fn(),
     },
     // §50: по умолчанию — не друзья, поэтому переписка начинается с запроса.
-    friendship: { findFirst: jest.fn().mockResolvedValue(null) },
+    friendship: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userBlock: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -141,10 +144,13 @@ describe('ChatsService — членство', () => {
 
   it('isMember true/false', async () => {
     const { service, prisma } = setup()
-    prisma.chatMember.findUnique.mockResolvedValueOnce({ id: 'm1' })
+    prisma.chatMember.findUnique.mockResolvedValueOnce({ id: 'm1', bannedAt: null })
     expect(await service.isMember('u1', 'c1')).toBe(true)
     prisma.chatMember.findUnique.mockResolvedValueOnce(null)
     expect(await service.isMember('u1', 'c2')).toBe(false)
+    // Забаненный в комнату чата не входит: иначе читал бы группу вживую через сокет.
+    prisma.chatMember.findUnique.mockResolvedValueOnce({ id: 'm1', bannedAt: new Date() })
+    expect(await service.isMember('u1', 'c3')).toBe(false)
   })
 })
 
@@ -1345,9 +1351,13 @@ describe('ChatsService.createChat — один личный чат на пару
   it('поиск требует ровно двух участников пары: третий в чате его не подходит', async () => {
     const { service, prisma } = setup()
     prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1' })
     prisma.chat.create.mockResolvedValueOnce({ id: 'c-new', type: 'PRIVATE', title: null })
 
-    await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
+    await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'PRIVATE', memberIds: ['u2'] },
+    )
 
     // `every` отсекает чаты с третьим участником, два `some` требуют обоих из пары.
     expect(prisma.chat.findFirst).toHaveBeenCalledWith(
@@ -1364,9 +1374,13 @@ describe('ChatsService.createChat — один личный чат на пару
   it('чата ещё нет — создаётся новый', async () => {
     const { service, prisma } = setup()
     prisma.chat.findFirst.mockResolvedValueOnce(null)
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1' })
     prisma.chat.create.mockResolvedValueOnce({ id: 'c-new', type: 'PRIVATE', title: null })
 
-    const res = await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
+    const res = await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'PRIVATE', memberIds: ['u2'] },
+    )
 
     expect(res.id).toBe('c-new')
     expect(prisma.chat.create).toHaveBeenCalledTimes(1)
@@ -1453,15 +1467,117 @@ describe('ChatsService.createChat — один личный чат на пару
   it('группу не ищем — её создают явно, с собственным названием', async () => {
     const { service, prisma } = setup()
     prisma.chat.create.mockResolvedValueOnce({ id: 'g1', type: 'GROUP', title: 'Проект' })
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u2', universityId: 'uni1', role: 'STUDENT' },
+      { id: 'u3', universityId: 'uni1', role: 'STUDENT' },
+    ])
 
-    await service.createChat(user('u1'), {
-      type: 'GROUP',
-      title: 'Проект',
-      memberIds: ['u2', 'u3'],
-    })
+    await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'GROUP', title: 'Проект', memberIds: ['u2', 'u3'] },
+    )
 
     expect(prisma.chat.findFirst).not.toHaveBeenCalled()
     expect(prisma.chat.create).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChatsService — группа не обходит правила личной переписки', () => {
+  const me = { ...user('u1'), universityId: 'uni1' }
+
+  it('работодатель чаты не создаёт', async () => {
+    const { service, prisma } = setup()
+    const err = await service
+      .createChat(
+        { ...user('e1'), role: 'EMPLOYER' as never },
+        { type: 'GROUP', memberIds: ['u2'] },
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  it('в группу нельзя позвать того, кто тебя заблокировал', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u2', universityId: 'uni1', role: 'STUDENT' },
+    ])
+    prisma.userBlock.findFirst.mockResolvedValueOnce({ id: 'b1' })
+    const err = await service.createChat(me, { type: 'GROUP', memberIds: ['u2'] }).catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  it('человека чужого вуза без дружбы в группу не позвать', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u9', universityId: 'uni2', role: 'STUDENT' },
+    ])
+    const err = await service.createChat(me, { type: 'GROUP', memberIds: ['u9'] }).catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+  })
+
+  it('друга из чужого вуза — можно', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u9', universityId: 'uni2', role: 'STUDENT' },
+    ])
+    prisma.friendship.findMany.mockResolvedValueOnce([{ requesterId: 'u9', addresseeId: 'u1' }])
+    prisma.chat.create.mockResolvedValueOnce({ id: 'g1', type: 'GROUP', title: null })
+    await service.createChat(me, { type: 'GROUP', memberIds: ['u9'] })
+    expect(prisma.chat.create).toHaveBeenCalled()
+  })
+
+  it('несуществующий или удалённый пользователь — NOT_FOUND, а не 500', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([])
+    const err = await service
+      .createChat(me, { type: 'GROUP', memberIds: ['ghost'] })
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('ChatsService — вступление по ссылке-приглашению', () => {
+  const me = { ...user('u5'), universityId: 'uni1' }
+
+  it('без верного кода не пускает, ответ как у несуществующего чата', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findUnique.mockResolvedValueOnce({
+      id: 'g1',
+      type: 'GROUP',
+      title: 'Проект',
+      inviteCode: 'secret-code-1',
+    })
+    const err = await service.joinByInvite(me, 'g1', 'wrong-code').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.chatMember.create).not.toHaveBeenCalled()
+  })
+
+  it('забаненного верный код не пускает', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findUnique.mockResolvedValueOnce({
+      id: 'g1',
+      type: 'GROUP',
+      title: 'Проект',
+      inviteCode: 'secret-code-1',
+    })
+    prisma.chatMember.findUnique.mockResolvedValueOnce({ id: 'm1', bannedAt: new Date() })
+    const err = await service.joinByInvite(me, 'g1', 'secret-code-1').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+  })
+
+  it('верный код — участник добавляется', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findUnique.mockResolvedValueOnce({
+      id: 'g1',
+      type: 'GROUP',
+      title: 'Проект',
+      inviteCode: 'secret-code-1',
+    })
+    prisma.chatMember.findUnique.mockResolvedValueOnce(null)
+    await service.joinByInvite(me, 'g1', 'secret-code-1')
+    expect(prisma.chatMember.create).toHaveBeenCalledWith({ data: { chatId: 'g1', userId: 'u5' } })
   })
 })
 

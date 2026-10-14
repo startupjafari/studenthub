@@ -1,3 +1,4 @@
+import { Role } from '@studenthub/shared-types'
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type {
@@ -51,12 +52,31 @@ export class FriendsService {
     if (targetId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя добавить в друзья самого себя')
     }
+    // Работодатель в друзья не добавляет и не добавляется: дружба снимает правило «свой
+    // вуз» для личной переписки (§50) и была бы для компании обходом допуска вуза.
+    if (viewer.role === Role.EMPLOYER) {
+      throw new AppException('FORBIDDEN', 'Работодатель не добавляет в друзья')
+    }
     const target = await this.prisma.user.findFirst({
-      where: { id: targetId, deletedAt: null },
+      where: { id: targetId, deletedAt: null, isBlocked: false, role: { not: Role.EMPLOYER } },
       select: { id: true },
     })
     if (!target) {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    // Личная блокировка в любую сторону закрывает и заявки: иначе заблокированный продолжал
+    // бы стучаться уведомлениями «хочет добавить вас в друзья».
+    const blocked = await this.prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: viewer.sub, blockedId: targetId },
+          { blockerId: targetId, blockedId: viewer.sub },
+        ],
+      },
+      select: { id: true },
+    })
+    if (blocked) {
+      throw new AppException('FORBIDDEN', 'Заявка недоступна: пользователь заблокирован')
     }
 
     const existing = await this.findBetween(viewer.sub, targetId)

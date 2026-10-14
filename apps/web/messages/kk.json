@@ -2214,7 +2214,9 @@
     "typeSupportPlatform": "StudentHub қолдауы",
     "tagSupportPlatform": "Қолдау",
     "cancelUpload": "Жүктеуді тоқтату",
-    "joinUnavailable": "Жұмыс берушінің кабинетінде чаттар жоқ — топқа қосылу мүмкін емес"
+    "joinUnavailable": "Жұмыс берушінің кабинетінде чаттар жоқ — топқа қосылу мүмкін емес",
+    "inviteLinkResetAction": "Шақыру сілтемесін ауыстыру",
+    "inviteLinkReset": "Жаңа сілтеме көшірілді — бұрынғысы енді жұмыс істемейді"
   },
   "Events": {
     "title": "Іс-шаралар",
