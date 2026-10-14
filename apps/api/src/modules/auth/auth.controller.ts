@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   Req,
   Res,
@@ -36,6 +37,8 @@ import { MaintenanceExempt } from '../../common/decorators'
 @MaintenanceExempt()
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name)
+
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService<EnvVars, true>,
@@ -148,8 +151,13 @@ export class AuthController {
   @ApiResponse({ status: 202, description: 'Если адрес зарегистрирован — письмо ушло' })
   @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
   @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
-  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: FastifyRequest): Promise<null> {
-    await this.passwordReset.requestReset(dto, this.ctx(req))
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: FastifyRequest): null {
+    // Не ждём: для существующего адреса работа (транзакция, очередь, аудит) занимает заметно
+    // дольше, чем для несуществующего, и по времени ответа было видно, есть ли такой
+    // пользователь. Ответ одинаковый и сразу; сбой — только в лог.
+    void this.passwordReset
+      .requestReset(dto, this.ctx(req))
+      .catch((e: unknown) => this.logger.error(`Сброс пароля не запущен: ${String(e)}`))
     return null
   }
 
