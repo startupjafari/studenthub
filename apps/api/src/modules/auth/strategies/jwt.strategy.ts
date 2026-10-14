@@ -4,11 +4,15 @@ import { PassportStrategy } from '@nestjs/passport'
 import { ExtractJwt, Strategy } from 'passport-jwt'
 import type { EnvVars } from '../../../config/env.schema'
 import type { JwtPayload } from '../../../common/auth/jwt-payload.type'
+import { SessionRevocationService } from '../../../common/redis/session-revocation.service'
 
 // Валидирует access-токен из Authorization: Bearer. Payload → request.user.
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(config: ConfigService<EnvVars, true>) {
+  constructor(
+    config: ConfigService<EnvVars, true>,
+    private readonly revocation: SessionRevocationService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -17,11 +21,15 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   // passport-jwt уже проверил подпись и срок; возвращаем payload как есть.
-  validate(payload: JwtPayload & { typ?: string }): JwtPayload {
+  async validate(payload: JwtPayload & { typ?: string; iat?: number }): Promise<JwtPayload> {
     // Промежуточный challenge-токен 2FA (typ='TWO_FACTOR') подписан тем же секретом,
     // но НЕ является access-токеном — отвергаем, чтобы им нельзя было авторизоваться.
     if (payload.typ) {
       throw new UnauthorizedException('Недопустимый токен')
+    }
+    // Сессии пользователя отозваны (блокировка, удаление, смена пароля) после выдачи токена.
+    if (await this.revocation.isRevoked(payload.sub, payload.iat)) {
+      throw new UnauthorizedException('Сессия отозвана')
     }
     // Белый список полей: в request.user попадает только то, что перечислено здесь, —
     // посторонние claim'ы из подписанного токена внутрь приложения не проходят.
