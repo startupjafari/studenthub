@@ -955,7 +955,9 @@
     "birthDateHint": "Needed to determine whether a legal representative’s consent is required",
     "consent": "I accept the privacy policy and the terms of use",
     "consentRequired": "Registration is not possible without consent",
-    "guardianConsent": "I am under 18, and my legal representative has consented to the processing of my personal data"
+    "guardianConsent": "I am under 18, and my legal representative has consented to the processing of my personal data",
+    "qrApproveRequester": "Sign-in requested from",
+    "qrApproveUnknownBrowser": "Unknown browser"
   },
   "Legal": {
     "privacyLink": "Privacy Policy",

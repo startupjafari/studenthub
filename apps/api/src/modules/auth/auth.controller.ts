@@ -71,8 +71,19 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } }) // защита от спама генерацией QR
   @Post('qr/create')
   @ApiOperation({ summary: 'Создать QR-сессию входа (десктоп; возвращает QR + claimSecret)' })
-  qrCreate() {
-    return this.qrLogin.create()
+  qrCreate(@Req() req: FastifyRequest) {
+    return this.qrLogin.create(this.ctx(req))
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('qr/preview')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Кто просит вход по QR: браузер, ОС и сеть устройства (до подтверждения)',
+  })
+  @ApiResponse({ status: 404, description: 'QR-сессия не найдена, истекла или уже подтверждена' })
+  qrPreview(@Body() dto: QrApproveDto) {
+    return this.qrLogin.preview(dto.approveToken)
   }
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } }) // подтверждений с телефона не бывает много
