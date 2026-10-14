@@ -15,6 +15,10 @@ interface PrismaMock {
   user: {
     findUnique: jest.Mock
   }
+  // Связность scope инвайта (assertScopeExists): группа ∈ факультет ∈ вуз.
+  group: { findUnique: jest.Mock }
+  faculty: { findUnique: jest.Mock }
+  university: { findUnique: jest.Mock }
   invite: {
     create: jest.Mock
     // findFirst, а не findUnique: поиск идёт по двум значениям сразу — хэшу и (переходно)
@@ -39,6 +43,13 @@ function setup() {
     // Язык письма-приглашения берётся из профиля приглашающего (invites.service:
     // issuerLocale) — без этого мока сервис падает ещё до постановки письма в очередь.
     user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }) },
+    group: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ facultyId: 'fac-A', faculty: { universityId: 'uni-A' } }),
+    },
+    faculty: { findUnique: jest.fn().mockResolvedValue({ universityId: 'uni-A' }) },
+    university: { findUnique: jest.fn().mockResolvedValue({ id: 'uni-A' }) },
     invite: {
       create: jest.fn(),
       findFirst: jest.fn(),
@@ -148,6 +159,63 @@ describe('InviteService', () => {
       )
 
       expect(res).toMatchObject({ id: 'inv-1' })
+    })
+  })
+
+  describe('create — связность scope', () => {
+    const uniAdminA: JwtPayload = {
+      sub: 'ua-1',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni-A',
+      facultyId: null,
+      groupId: null,
+    }
+
+    it('декан не приглашает в группу чужого факультета', async () => {
+      const { service, prisma } = setup()
+      prisma.group.findUnique.mockResolvedValue({
+        facultyId: 'fac-B',
+        faculty: { universityId: 'uni-A' },
+      })
+      await expect(
+        service.create(deanA, { role: Role.STUDENT, groupId: 'grp-of-B' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+      expect(prisma.invite.create).not.toHaveBeenCalled()
+    })
+
+    it('декан не приглашает в группу другого вуза', async () => {
+      const { service, prisma } = setup()
+      prisma.group.findUnique.mockResolvedValue({
+        facultyId: 'fac-A',
+        faculty: { universityId: 'uni-B' },
+      })
+      await expect(
+        service.create(deanA, { role: Role.STAROSTA, groupId: 'grp-X' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    })
+
+    it('несуществующая группа — тот же отказ, что чужая', async () => {
+      const { service, prisma } = setup()
+      prisma.group.findUnique.mockResolvedValue(null)
+      await expect(
+        service.create(deanA, { role: Role.STUDENT, groupId: 'nope' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    })
+
+    it('админ вуза не назначает декана на факультет другого вуза', async () => {
+      const { service, prisma } = setup()
+      prisma.faculty.findUnique.mockResolvedValue({ universityId: 'uni-B' })
+      await expect(
+        service.create(uniAdminA, { role: Role.DEAN, facultyId: 'fac-of-B' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+      expect(prisma.invite.create).not.toHaveBeenCalled()
+    })
+
+    it('свой факультет — инвайт создаётся', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.DEAN })
+      await service.create(uniAdminA, { role: Role.DEAN, facultyId: 'fac-A' }, ctx)
+      expect(prisma.invite.create).toHaveBeenCalled()
     })
   })
 

@@ -24,7 +24,7 @@ import { QueueService, QUEUES, EMAIL_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
-import { resolveInviteTarget } from './invite-hierarchy'
+import { resolveInviteTarget, type InviteScope } from './invite-hierarchy'
 import type { RawBulkRow } from './bulk-parse'
 import { emailDict } from '../email/email-strings'
 
@@ -85,6 +85,7 @@ export class InviteService {
     options: { notify?: boolean } = {},
   ) {
     const scope = resolveInviteTarget(issuer, input)
+    await this.assertScopeExists(scope)
     const token = randomUUID()
     const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
 
@@ -200,6 +201,49 @@ export class InviteService {
     }
   }
 
+  /**
+   * Связность scope инвайта: группа лежит на этом факультете, факультет — в этом вузе.
+   *
+   * resolveInviteTarget берёт вуз и факультет создателя из его токена, а группу и (для
+   * преподавателя и декана) факультет — из запроса, и их принадлежность не проверяет. Без
+   * этого декан прямым запросом приглашал студента в группу чужого факультета или вуза, а
+   * админ вуза — декана на факультет другого вуза: человек получал роль с правами там, где
+   * у пригласившего их нет. Несуществующий id даёт тот же отказ, что чужой — не оракул.
+   */
+  private async assertScopeExists(scope: InviteScope): Promise<void> {
+    if (scope.groupId) {
+      const group = await this.prisma.group.findUnique({
+        where: { id: scope.groupId },
+        select: { facultyId: true, faculty: { select: { universityId: true } } },
+      })
+      if (
+        !group ||
+        group.faculty.universityId !== scope.universityId ||
+        (scope.facultyId !== null && group.facultyId !== scope.facultyId)
+      ) {
+        throw new AppException('WRONG_SCOPE', 'Группа вне вашей области')
+      }
+      return
+    }
+    if (scope.facultyId) {
+      const faculty = await this.prisma.faculty.findUnique({
+        where: { id: scope.facultyId },
+        select: { universityId: true },
+      })
+      if (!faculty || faculty.universityId !== scope.universityId) {
+        throw new AppException('WRONG_SCOPE', 'Факультет вне вашей области')
+      }
+      return
+    }
+    if (scope.universityId) {
+      const university = await this.prisma.university.findUnique({
+        where: { id: scope.universityId },
+        select: { id: true },
+      })
+      if (!university) throw new AppException('NOT_FOUND', 'Университет не найден')
+    }
+  }
+
   // ── Массовый импорт (CSV/XLSX) ────────────────────────────────────────────
 
   /**
@@ -294,6 +338,8 @@ export class InviteService {
           groupId: row.groupId,
           facultyId: issuer.facultyId,
         })
+        // groupId пришёл от клиента: проверяем связность, как у одиночного инвайта.
+        await this.assertScopeExists(scope)
       } catch {
         failed++
         continue

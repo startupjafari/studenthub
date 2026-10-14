@@ -19,7 +19,13 @@ const dean: JwtPayload = {
 }
 
 function setup() {
-  const group = { findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101' }]) }
+  const group = {
+    findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101' }]),
+    // Связность scope (assertScopeExists): grp-1 лежит на факультете декана в его вузе.
+    findUnique: jest
+      .fn()
+      .mockResolvedValue({ facultyId: 'fac-A', faculty: { universityId: 'uni-A' } }),
+  }
   const user = {
     findMany: jest.fn().mockResolvedValue([]),
     // Язык писем-приглашений — язык приглашающего (invites.service: issuerLocale).
@@ -149,6 +155,20 @@ describe('InviteService.bulkCreate', () => {
       ctx,
     )
     expect(res).toEqual({ created: 0, skipped: 0, failed: 1 })
+  })
+})
+
+describe('InviteService.bulkCreate — подмена группы в запросе', () => {
+  it('группа чужого факультета из тела запроса → failed, инвайт не создаётся', async () => {
+    const { service, group, invite } = setup()
+    group.findUnique.mockResolvedValue({ facultyId: 'fac-B', faculty: { universityId: 'uni-A' } })
+    const res = await service.bulkCreate(
+      dean,
+      { rows: [{ email: 'a@x.kz', groupId: 'grp-of-B', role: Role.STUDENT }] },
+      ctx,
+    )
+    expect(res).toEqual({ created: 0, skipped: 0, failed: 1 })
+    expect(invite.create).not.toHaveBeenCalled()
   })
 })
 
