@@ -1,7 +1,7 @@
 // Шаблоны писем (docs/PROJECT.md §10.1, §3.3 EmailProcessor).
-// Десять типов: приглашение, подтверждение email компании, приветствие, статус заявки,
-// изменение расписания, напоминание о событии, офлайн-зеркало in-app уведомления и три
-// письма прихода вуза — подтверждение адреса заявки, одобрение, отказ.
+// Одиннадцать типов: приглашение, подтверждение email компании, сброс пароля, приветствие,
+// статус заявки, изменение расписания, напоминание о событии, офлайн-зеркало in-app
+// уведомления и три письма прихода вуза — подтверждение адреса заявки, одобрение, отказ.
 // Тексты — в email-strings.ts на трёх языках; язык берётся из `locale` в payload'е job'а,
 // то есть из User.locale получателя. У внешних адресатов (компания, заявка вуза с лендинга)
 // учётной записи ещё нет — для них русский по умолчанию.
@@ -56,6 +56,17 @@ export interface CompanyVerificationPayload extends LocalizedEmailPayload {
   to: string
   companyName: string
   verifyUrl: string
+  expiresAt: string
+}
+
+/**
+ * Ссылка «забыли пароль» (docs/PROJECT.md §7.2). Одноразовая и короткая: она даёт войти в
+ * аккаунт, поэтому в письме прямо сказано, что делать, если сброс просили не вы.
+ */
+export interface PasswordResetPayload extends LocalizedEmailPayload {
+  to: string
+  firstName: string
+  resetUrl: string
   expiresAt: string
 }
 
@@ -341,6 +352,35 @@ export function renderCompanyVerification(data: CompanyVerificationPayload): Ren
       data.verifyUrl,
       '',
       t.companyVerification.plainNote,
+    ],
+    t,
+  )
+  return { subject, html, text }
+}
+
+export function renderPasswordReset(data: PasswordResetPayload): RenderedEmail {
+  const t = emailDict(data.locale)
+  const subject = t.passwordReset.subject
+  const html = layout(
+    {
+      preheader: t.passwordReset.preheader,
+      heading: t.passwordReset.heading,
+      body:
+        paragraph(t.passwordReset.lead(esc(data.firstName))) +
+        facts([[t.facts.validUntil, esc(data.expiresAt)]]) +
+        action(data.resetUrl, t.passwordReset.action, t) +
+        note(t.passwordReset.note),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      t.passwordReset.lead(data.firstName),
+      `${t.facts.validUntil} ${data.expiresAt}`,
+      '',
+      data.resetUrl,
+      '',
+      t.passwordReset.plainNote,
     ],
     t,
   )

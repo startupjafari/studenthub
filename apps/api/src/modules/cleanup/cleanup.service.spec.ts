@@ -6,6 +6,7 @@ type Mock = jest.Mock
 function makeService() {
   const prisma = {
     invite: { findMany: jest.fn() as Mock, updateMany: jest.fn() as Mock },
+    passwordResetToken: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     auditLog: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     file: { findMany: jest.fn() as Mock, groupBy: jest.fn(async () => []) as Mock },
@@ -178,6 +179,28 @@ describe('CleanupService', () => {
       const total = await service.expireInvites()
       expect(total).toBe(0)
       expect(prisma.invite.updateMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('purgePasswordResetTokens', () => {
+    it('удаляет истёкшие и использованные больше суток назад', async () => {
+      const { service, prisma } = makeService()
+      prisma.passwordResetToken.findMany
+        .mockResolvedValueOnce([{ id: 't1' }])
+        .mockResolvedValueOnce([])
+      prisma.passwordResetToken.deleteMany.mockResolvedValue({ count: 1 })
+
+      const total = await service.purgePasswordResetTokens()
+
+      expect(total).toBe(1)
+      const where = prisma.passwordResetToken.findMany.mock.calls[0][0].where
+      const [expired, used] = where.OR
+      // Свежая ссылка, которую ещё можно открыть, под удаление не попадает.
+      expect(expired.expiresAt.lt.getTime()).toBeLessThan(Date.now() - 23 * 60 * 60 * 1000)
+      expect(used.usedAt.lt.getTime()).toBeLessThan(Date.now() - 23 * 60 * 60 * 1000)
+      expect(prisma.passwordResetToken.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['t1'] } },
+      })
     })
   })
 

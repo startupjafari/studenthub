@@ -1263,6 +1263,59 @@ export class UserService {
   }
 
   /**
+   * Кому слать ссылку сброса пароля (AuthModule, docs/PROJECT.md §7.2). Без passwordHash:
+   * для письма нужны только адрес, имя и язык. Удалённые не находятся — их почта затёрта.
+   */
+  findForPasswordReset(email: string): Promise<{
+    id: string
+    email: string
+    username: string | null
+    firstName: string
+    locale: string
+    isBlocked: boolean
+  } | null> {
+    return this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        locale: true,
+        isBlocked: true,
+      },
+    })
+  }
+
+  /**
+   * Новый пароль по ссылке из письма — без старого: одноразовый токен уже проверил и погасил
+   * AuthModule. Все сессии гаснут, как при обычной смене пароля: сброс часто делают именно
+   * потому, что пароль утёк, и открытая у злоумышленника сессия не должна пережить его.
+   */
+  async setPasswordAfterReset(
+    userId: string,
+    newPassword: string,
+  ): Promise<{ email: string; username: string | null }> {
+    // Аккаунт могли удалить, пока письмо лежало в ящике: затёртой учётке пароль не задаём.
+    const alive = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!alive) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const passwordHash = await this.passwords.hash(newPassword)
+    // Возвращаем, чем человек входит: AuthModule снимет по ним блокировку подбора.
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+      select: { email: true, username: true },
+    })
+    await this.authService.revokeAllUserSessions(userId)
+    return user
+  }
+
+  /**
    * Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств.
    * Затираем ВСЕ персональные поля (не только email/имя), гасим 2FA и приватность,
    * а также сносим объекты аватара и обложки в MinIO. Структурные поля (role, scope,

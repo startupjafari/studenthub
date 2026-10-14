@@ -98,6 +98,15 @@ export class LoginAttemptsService {
     await this.safe(() => this.redis.del(this.failKey(identifier)), 0)
   }
 
+  /**
+   * Снять и счётчик, и действующую блокировку. Только после сброса пароля по ссылке из
+   * письма: блокировка защищала прежний пароль от подбора, а человек, доказавший владение
+   * почтой, не должен ждать час, чтобы войти с новым. История блокировок остаётся.
+   */
+  async unlock(identifier: string): Promise<void> {
+    await this.safe(() => this.redis.del(this.failKey(identifier), this.lockKey(identifier)), 0)
+  }
+
   // --- приватные ---
 
   private hash(identifier: string): string {

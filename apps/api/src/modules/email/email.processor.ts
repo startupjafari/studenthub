@@ -14,6 +14,7 @@ import {
   renderEventReminder,
   renderInvite,
   renderNotification,
+  renderPasswordReset,
   renderScheduleChange,
   renderWelcome,
   type ApplicationStatusPayload,
@@ -24,6 +25,7 @@ import {
   type EventReminderPayload,
   type InvitePayload,
   type NotificationPayload,
+  type PasswordResetPayload,
   type RenderedEmail,
   type ScheduleChangePayload,
   type WelcomePayload,
@@ -84,6 +86,8 @@ export class EmailProcessor extends WorkerHost {
         return renderNotification(data as unknown as NotificationPayload)
       case EMAIL_JOBS.SEND_COMPANY_VERIFICATION:
         return renderCompanyVerification(data as unknown as CompanyVerificationPayload)
+      case EMAIL_JOBS.SEND_PASSWORD_RESET:
+        return renderPasswordReset(data as unknown as PasswordResetPayload)
       case EMAIL_JOBS.SEND_DEMO_VERIFICATION:
         return renderDemoVerification(data as unknown as DemoVerificationPayload)
       case EMAIL_JOBS.SEND_DEMO_APPROVED:

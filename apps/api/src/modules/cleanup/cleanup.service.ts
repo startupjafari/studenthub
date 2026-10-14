@@ -42,6 +42,7 @@ const LOCK_TTL_MS = {
   deliverScheduledMessages: 55 * 1000,
   sweepDocumentExpiry: 15 * 60 * 1000,
   expireInvites: 10 * 60 * 1000,
+  purgePasswordResetTokens: 10 * 60 * 1000,
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
@@ -257,6 +258,30 @@ export class CleanupService {
       if (batch.length < BATCH_SIZE) break
     }
     this.logger.log(`expireInvites: помечено EXPIRED ${total}`)
+    return total
+  }
+
+  // Ссылки сброса пароля, истёкшие или использованные больше суток назад. Ежедневно, 03:15.
+  // Сутки запаса — чтобы по свежей строке можно было разобрать жалобу «ссылка не сработала».
+  @Cron('15 3 * * *', { name: 'purgePasswordResetTokens' })
+  async purgePasswordResetTokens(): Promise<number | null> {
+    return this.locks.run('purgePasswordResetTokens', LOCK_TTL_MS.purgePasswordResetTokens, () =>
+      this.purgePasswordResetTokensTask(),
+    )
+  }
+
+  private async purgePasswordResetTokensTask(): Promise<number> {
+    const cutoff = new Date(Date.now() - DAY_MS)
+    const total = await this.deleteInBatches(
+      () =>
+        this.prisma.passwordResetToken.findMany({
+          where: { OR: [{ expiresAt: { lt: cutoff } }, { usedAt: { lt: cutoff } }] },
+          select: { id: true },
+          take: BATCH_SIZE,
+        }),
+      (ids) => this.prisma.passwordResetToken.deleteMany({ where: { id: { in: ids } } }),
+    )
+    this.logger.log(`purgePasswordResetTokens: удалено ${total}`)
     return total
   }
 

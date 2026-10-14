@@ -5,6 +5,7 @@ import {
   renderEventReminder,
   renderInvite,
   renderNotification,
+  renderPasswordReset,
   renderScheduleChange,
   renderWelcome,
 } from './templates'
@@ -34,6 +35,31 @@ describe('email templates', () => {
       expiresAt: '01.01.2027',
     })
     expect(r.html).toContain('Вас пригласили')
+  })
+
+  it('password-reset: ссылка, срок и что делать, если сброс просили не вы', () => {
+    const r = renderPasswordReset({
+      to: 'a@b.c',
+      firstName: 'Алия',
+      resetUrl: 'https://app/reset-password?token=xyz',
+      expiresAt: '14 октября 2026 г. в 13:00',
+    })
+    expect(r.subject).toContain('Сброс пароля')
+    expect(r.html).toContain('https://app/reset-password?token=xyz')
+    expect(r.html).toContain('Алия')
+    expect(r.text).toContain('https://app/reset-password?token=xyz')
+    expect(r.text).toContain('14 октября 2026 г. в 13:00')
+    expect(r.text).toContain('проигнорируйте')
+  })
+
+  it('password-reset: имя экранируется в html', () => {
+    const r = renderPasswordReset({
+      to: 'a@b.c',
+      firstName: '<b>x</b>',
+      resetUrl: 'https://app/x',
+      expiresAt: '-',
+    })
+    expect(r.html).not.toContain('<b>x</b>')
   })
 
   it('welcome: обращается по имени', () => {

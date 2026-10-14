@@ -72,6 +72,15 @@ export interface EmailDict {
     note: string
     plainNote: string
   }
+  passwordReset: {
+    subject: string
+    heading: string
+    preheader: string
+    lead: (firstName: string) => string
+    action: string
+    note: string
+    plainNote: string
+  }
   welcome: {
     subject: string
     heading: (firstName: string) => string
@@ -187,6 +196,16 @@ const RU: EmailDict = {
     action: 'Подтвердить email',
     note: 'Если вы не регистрировались — просто проигнорируйте это письмо, аккаунт останется неактивным.',
     plainNote: 'Если вы не регистрировались — просто проигнорируйте это письмо.',
+  },
+  passwordReset: {
+    subject: `Сброс пароля в ${BRAND}`,
+    heading: 'Сброс пароля',
+    preheader: 'Ссылка для нового пароля — действует час',
+    lead: (firstName) =>
+      `${firstName}, кто-то попросил сбросить пароль вашей учётной записи в ${BRAND}. Если это были вы — задайте новый пароль по ссылке ниже. После этого вход на всех устройствах потребуется заново.`,
+    action: 'Задать новый пароль',
+    note: 'Если вы не просили сброс — просто проигнорируйте это письмо: пароль останется прежним.',
+    plainNote: 'Если вы не просили сброс — проигнорируйте это письмо, пароль останется прежним.',
   },
   welcome: {
     subject: `Добро пожаловать в ${BRAND}`,
@@ -308,6 +327,16 @@ const KK: EmailDict = {
     action: 'Поштаны растау',
     note: 'Егер тіркелмеген болсаңыз — бұл хатты елемей қоя беріңіз, тіркелгі белсенді болмай қалады.',
     plainNote: 'Егер тіркелмеген болсаңыз — бұл хатты елемей қоя беріңіз.',
+  },
+  passwordReset: {
+    subject: `${BRAND} платформасында құпия сөзді қалпына келтіру`,
+    heading: 'Құпия сөзді қалпына келтіру',
+    preheader: 'Жаңа құпия сөзге арналған сілтеме — бір сағат жарамды',
+    lead: (firstName) =>
+      `${firstName}, біреу ${BRAND} платформасындағы тіркелгіңіздің құпия сөзін қалпына келтіруді сұрады. Егер бұл сіз болсаңыз — төмендегі сілтеме арқылы жаңа құпия сөз орнатыңыз. Осыдан кейін барлық құрылғыда қайта кіру қажет болады.`,
+    action: 'Жаңа құпия сөз орнату',
+    note: 'Егер сіз сұрамаған болсаңыз — бұл хатты елемей қоя беріңіз: құпия сөз өзгермейді.',
+    plainNote: 'Егер сіз сұрамаған болсаңыз — бұл хатты елемеңіз, құпия сөз өзгермейді.',
   },
   welcome: {
     subject: `${BRAND} платформасына қош келдіңіз`,
@@ -431,6 +460,17 @@ const EN: EmailDict = {
     action: 'Confirm email',
     note: 'If you did not register, simply ignore this message — the account will stay inactive.',
     plainNote: 'If you did not register, simply ignore this message.',
+  },
+  passwordReset: {
+    subject: `Reset your ${BRAND} password`,
+    heading: 'Reset your password',
+    preheader: 'A link to set a new password — valid for one hour',
+    lead: (firstName) =>
+      `${firstName}, someone asked to reset the password for your ${BRAND} account. If it was you, set a new password using the link below. You will then need to sign in again on all devices.`,
+    action: 'Set a new password',
+    note: 'If you did not request a reset, simply ignore this message — your password will stay the same.',
+    plainNote:
+      'If you did not request a reset, ignore this message — your password will stay the same.',
   },
   welcome: {
     subject: `Welcome to ${BRAND}`,
