@@ -165,6 +165,8 @@ describe('ApplicationsService.listGroupRequests — только группа с
     const arg = application.findMany.mock.calls[0][0] as { where: Record<string, unknown> }
     expect(arg.where.student).toEqual({ is: { groupId: 'g1' } })
     expect(arg.where.deletedAt).toBeNull()
+    // Черновики одногруппников — не обращения, старосте их не показываем.
+    expect(arg.where.AND).toEqual([{ status: { not: 'DRAFT' } }])
   })
 
   it('не отдаёт formData одногруппников — там свободный текст (§14.7)', async () => {

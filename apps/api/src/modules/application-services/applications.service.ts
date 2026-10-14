@@ -259,7 +259,9 @@ export class ApplicationsService {
     const where: Prisma.ApplicationWhereInput = {
       deletedAt: null,
       student: { is: { groupId: viewer.groupId } },
-      ...(query.status ? { status: query.status } : {}),
+      // Черновик — ещё не обращение: студент его никуда не подавал, и старосте его видеть
+      // незачем (в т.ч. что одногруппник «собирался» оформить академический отпуск).
+      AND: [{ status: { not: 'DRAFT' } }, ...(query.status ? [{ status: query.status }] : [])],
     }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.application.findMany({

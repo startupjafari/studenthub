@@ -6,6 +6,7 @@ import type {
   UserListQueryInput,
   ProfileVisibilityValue,
   UserDirectorySectionValue,
+  UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 import { api, getPaged } from '../../../shared/api'
@@ -210,6 +211,17 @@ export async function blockUserRequest(id: string): Promise<void> {
 
 export async function unblockUserRequest(id: string): Promise<void> {
   await api.patch(`/users/${id}/unblock`)
+}
+
+/**
+ * Учебные данные студента (курс, форма оплаты, статус…). Их ведёт вуз — декан своего
+ * факультета или админ вуза: из них печатается справка об обучении. Сам студент их не меняет.
+ */
+export async function updateAcademicRecordRequest(
+  id: string,
+  input: UpdateAcademicRecordInput,
+): Promise<void> {
+  await api.patch(`/users/${id}/academic`, input)
 }
 
 // ── Справочник людей своего вуза (§50, «кому написать») ─────────────────────

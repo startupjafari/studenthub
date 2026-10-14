@@ -104,8 +104,18 @@ export class StudentIdService {
     if (!isPlatform(verifier.role) && user.universityId !== verifier.universityId) {
       throw new AppException('WRONG_SCOPE', 'Студент другого университета')
     }
+    const card = this.toCard(user)
+    // Староста и преподаватель проверяют, что перед ними студент вуза (на паре, на
+    // мероприятии) — им хватает ФИО, фото, группы и статуса. Дата рождения, грант/платное и
+    // общежитие нужны деканату и администрации, а не однокурснику или лектору.
+    const narrow = verifier.role === Role.STAROSTA || verifier.role === Role.TEACHER
     // Время проверки — для отображения на странице верификации (когда сотрудник сканировал).
-    return { valid: true, verifiedAt: new Date().toISOString(), ...this.toCard(user) }
+    return {
+      valid: true,
+      verifiedAt: new Date().toISOString(),
+      ...card,
+      ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────

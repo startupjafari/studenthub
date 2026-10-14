@@ -712,7 +712,44 @@
             "description": ""
           }
         },
-        "summary": "Статус присутствия пользователя (в сети / не в сети)",
+        "summary": "Статус присутствия (в сети / не в сети): человек своего вуза или друг",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/{id}/academic": {
+      "patch": {
+        "operationId": "UsersController_updateAcademic",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAcademicRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Профиль студента"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — студент вне области"
+          }
+        },
+        "summary": "Учебные данные студента (декан своего факультета, админ своего вуза)",
         "tags": [
           "Пользователи"
         ]
@@ -14982,6 +15019,10 @@
         "properties": {}
       },
       "ChangePasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateAcademicRecordDto": {
         "type": "object",
         "properties": {}
       },

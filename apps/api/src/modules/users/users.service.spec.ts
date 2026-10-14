@@ -290,6 +290,35 @@ describe('UserService — закрытый профиль (видимость п
     expect(starosta.gpa).toBeNull()
   })
 
+  it('дата рождения, форма оплаты, статус и общежитие — как gpa: одногруппнику не видны', async () => {
+    const { service, prisma } = setup()
+    const personal = {
+      ...target,
+      birthDate: new Date('2005-03-01'),
+      fundingType: 'Грант',
+      academicStatus: 'Обучающийся',
+      dormitory: 'Да',
+    }
+    prisma.user.findFirst.mockResolvedValue(personal)
+    const peer = await service.getProfileForViewer(
+      'target-1',
+      viewer(Role.STUDENT, { universityId: 'uni-A', facultyId: 'fac-A', groupId: 'grp-A' }, 'p'),
+    )
+    expect(peer.access).toBe('full')
+    expect(peer).toMatchObject({
+      birthDate: null,
+      fundingType: null,
+      academicStatus: null,
+      dormitory: null,
+    })
+    prisma.user.findFirst.mockResolvedValue(personal)
+    const admin = await service.getProfileForViewer(
+      'target-1',
+      viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }),
+    )
+    expect(admin).toMatchObject({ fundingType: 'Грант', dormitory: 'Да' })
+  })
+
   it('createInvitedUser — дефолт видимости по роли (студент → UNIVERSITY, декан → PUBLIC)', async () => {
     const { service, prisma } = setup()
     const tx = {
@@ -1146,5 +1175,95 @@ describe('UserService — роль старосты группы', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'user_role_changed', entityId: 'old-1' }),
     )
+  })
+})
+
+describe('UserService — учебные данные ведёт вуз', () => {
+  it('студент не меняет себе статус, форму оплаты и курс через свой профиль', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.updateProfile('s1', Role.STUDENT, { academicStatus: 'Обучающийся', course: 4 }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('декан правит учебные данные студента своего факультета, правка в аудите', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+    })
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateAcademicRecord(
+      viewer(Role.DEAN, { universityId: 'uni-A', facultyId: 'fac-A' }),
+      's1',
+      { course: 3 },
+    )
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 's1' }, data: { course: 3 } }),
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'user_academic_updated',
+        metadata: { fields: ['course'] },
+      }),
+    )
+  })
+
+  it('декан чужого факультета — WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-B',
+    })
+    await expect(
+      service.updateAcademicRecord(
+        viewer(Role.DEAN, { universityId: 'uni-A', facultyId: 'fac-A' }),
+        's1',
+        { course: 3 },
+      ),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  it('у не-студента учебных данных нет', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't1',
+      role: Role.TEACHER,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+    })
+    await expect(
+      service.updateAcademicRecord(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't1', {
+        course: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})
+
+describe('UserService — присутствие только в охвате', () => {
+  it('человек другого вуза без дружбы — «не в сети», без раскрытия', async () => {
+    const { service, prisma, realtime } = setup()
+    realtime.isOnline.mockReturnValue(true)
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-B' })
+    ;(
+      prisma as unknown as { friendship: { findFirst: jest.Mock } }
+    ).friendship.findFirst.mockResolvedValue(null)
+    await expect(
+      service.getPresenceFor(viewer(Role.STUDENT, { universityId: 'uni-A' }), 'x'),
+    ).resolves.toEqual({ online: false })
+  })
+
+  it('свой вуз — реальный статус', async () => {
+    const { service, prisma, realtime } = setup()
+    realtime.isOnline.mockReturnValue(true)
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-A' })
+    await expect(
+      service.getPresenceFor(viewer(Role.STUDENT, { universityId: 'uni-A' }), 'x'),
+    ).resolves.toEqual({ online: true })
   })
 })
