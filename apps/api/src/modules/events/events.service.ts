@@ -8,6 +8,7 @@ import {
   type EventMeeting,
   type UpdateEventInput,
 } from '@studenthub/shared-schemas'
+import { eventVisibilityWhere } from './event-visibility'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -100,30 +101,13 @@ export class EventsService {
 
   // ── Видимость (по аналогии с постами, задача 10.2) ─────────────────────────
 
-  private visibilityWhere(viewer: JwtPayload): Prisma.EventWhereInput {
-    const or: Prisma.EventWhereInput[] = [
-      { audience: PostAudience.ALL },
-      { organizerId: viewer.sub },
-    ]
-    if (viewer.universityId) {
-      or.push({ audience: PostAudience.UNIVERSITY, universityId: viewer.universityId })
-      or.push({ audience: PostAudience.SUBJECT, universityId: viewer.universityId })
-      if (viewer.role === Role.TEACHER) {
-        or.push({ audience: PostAudience.TEACHERS, universityId: viewer.universityId })
-      }
-    }
-    if (viewer.facultyId) or.push({ audience: PostAudience.FACULTY, facultyId: viewer.facultyId })
-    if (viewer.groupId) or.push({ audience: PostAudience.GROUP, groupId: viewer.groupId })
-    return { OR: or }
-  }
-
   async list(viewer: JwtPayload, query: EventListQueryInput): Promise<Paginated<unknown>> {
     const now = new Date()
     const timeWhere: Prisma.EventWhereInput =
       query.filter === 'past' ? { startsAt: { lt: now } } : { startsAt: { gte: now } }
     const where: Prisma.EventWhereInput = {
       AND: [
-        this.visibilityWhere(viewer),
+        eventVisibilityWhere(viewer),
         timeWhere,
         ...(query.mine ? [{ participants: { some: { userId: viewer.sub } } }] : []),
       ],
@@ -150,7 +134,7 @@ export class EventsService {
 
   async getById(viewer: JwtPayload, id: string) {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...this.visibilityWhere(viewer) },
+      where: { id, ...eventVisibilityWhere(viewer) },
       select: {
         ...EVENT_SELECT,
         participants: { where: { userId: viewer.sub }, select: { id: true } },
@@ -172,7 +156,7 @@ export class EventsService {
    */
   async meeting(viewer: JwtPayload, id: string): Promise<EventMeeting> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...this.visibilityWhere(viewer) },
+      where: { id, ...eventVisibilityWhere(viewer) },
       select: {
         organizerId: true,
         startsAt: true,
