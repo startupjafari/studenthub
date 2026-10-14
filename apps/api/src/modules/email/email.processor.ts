@@ -63,8 +63,9 @@ export class EmailProcessor extends WorkerHost {
     }
 
     await this.mailer.send({ to, ...rendered })
+    // Адрес получателя в лог не пишем: это ПДн (§13), а найти письмо можно по jobId.
     this.logger.log(
-      `Отправлено письмо ${job.name} → ${to} (jobId=${job.id ?? '?'}, requestId=${requestId ?? '-'})`,
+      `Отправлено письмо ${job.name} (jobId=${job.id ?? '?'}, requestId=${requestId ?? '-'})`,
     )
   }
 
