@@ -87,3 +87,34 @@ describe('QrLoginService', () => {
     await expect(service.approve('nope', 'user-1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 })
+
+describe('QrLoginService — кто просит вход', () => {
+  const CHROME_WIN =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+
+  it('preview показывает браузер, ОС и сеть инициатора, IP замаскирован', async () => {
+    const { service, redis } = setup()
+    const { qrId } = await service.create({ ip: '203.0.113.57', userAgent: CHROME_WIN })
+    const preview = await service.preview(await approveTokenOf(redis, qrId))
+    expect(preview.requester).toEqual({ browser: 'Chrome', os: 'Windows', ip: '203.0.113.x' })
+  })
+
+  it('после подтверждения preview недоступен', async () => {
+    const { service, redis } = setup()
+    const { qrId } = await service.create({ ip: '203.0.113.57', userAgent: CHROME_WIN })
+    const token = await approveTokenOf(redis, qrId)
+    await service.approve(token, 'u1')
+    await expect(service.preview(token)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('claim забирает ровно один: второй параллельный — NOT_FOUND', async () => {
+    const { service, redis } = setup()
+    const { qrId, claimSecret } = await service.create()
+    await service.approve(await approveTokenOf(redis, qrId), 'u1')
+    const results = await Promise.allSettled([
+      service.claim(qrId, claimSecret),
+      service.claim(qrId, claimSecret),
+    ])
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+  })
+})

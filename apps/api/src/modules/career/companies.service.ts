@@ -66,6 +66,9 @@ export class CompaniesService {
    * превращается в проверку «есть ли такой пользователь на платформе».
    */
   async signup(input: EmployerSignupInput, ctx: RequestContext): Promise<{ email: string }> {
+    // Хэш — до проверки адреса: bcrypt занимает ~250 мс, и без него ответ на занятый адрес
+    // приходил заметно быстрее — по времени было видно, зарегистрирован ли человек.
+    const passwordHash = await this.passwords.hash(input.password)
     const existing = await this.prisma.user.findUnique({
       where: { email: input.email },
       select: { id: true },
@@ -76,7 +79,6 @@ export class CompaniesService {
       return { email: input.email }
     }
 
-    const passwordHash = await this.passwords.hash(input.password)
     const rawToken = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + VERIFY_TTL_MS)
 

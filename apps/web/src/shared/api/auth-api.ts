@@ -190,6 +190,17 @@ export async function qrApproveRequest(approveToken: string): Promise<void> {
   await api.post('/auth/qr/approve', { approveToken })
 }
 
+// Кто просит вход по QR — показывается до подтверждения (защита от подмены QR).
+export interface QrPreview {
+  requester: { browser: string | null; os: string | null; ip: string | null }
+  createdAt: string | null
+}
+
+export async function qrPreviewRequest(approveToken: string): Promise<QrPreview> {
+  const { data } = await api.post<QrPreview>('/auth/qr/preview', { approveToken })
+  return data
+}
+
 export async function registerByInviteRequest(input: RegisterByInviteInput): Promise<string> {
   const { data } = await api.post<{ accessToken: string }>('/auth/register-by-invite', input)
   return data.accessToken

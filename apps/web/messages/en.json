@@ -999,7 +999,9 @@
     "resetInvalidTitle": "This link doesn't work",
     "resetInvalidText": "It has expired or was already used. Request a new one — it will arrive by email.",
     "resetRequestAgain": "Request a new link",
-    "passwordChangedRelogin": "Password changed. Sign in with your new password — sessions on your other devices have ended"
+    "passwordChangedRelogin": "Password changed. Sign in with your new password — sessions on your other devices have ended",
+    "qrApproveRequester": "Sign-in requested from",
+    "qrApproveUnknownBrowser": "Unknown browser"
   },
   "Legal": {
     "privacyLink": "Privacy Policy",

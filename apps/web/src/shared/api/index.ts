@@ -10,6 +10,8 @@ export {
   qrCreateRequest,
   qrClaimRequest,
   qrApproveRequest,
+  qrPreviewRequest,
+  type QrPreview,
   type QrCreateResponse,
   registerByInviteRequest,
   previewInviteRequest,
