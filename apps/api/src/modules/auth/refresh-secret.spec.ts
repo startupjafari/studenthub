@@ -37,6 +37,7 @@ describe('AuthService: refresh-токен без верного секрета',
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     return { service, prisma, audit }
   }

@@ -443,7 +443,7 @@ export class EventsService {
   /** Событие видно зрителю — иначе NOT_FOUND (не раскрываем существование чужих событий). */
   private async assertVisible(viewer: JwtPayload, id: string): Promise<void> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...this.visibilityWhere(viewer) },
+      where: { id, ...eventVisibilityWhere(viewer) },
       select: { id: true },
     })
     if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
