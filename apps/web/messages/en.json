@@ -2162,7 +2162,9 @@
     "chatActions": "Chat actions",
     "typeSupportPlatform": "StudentHub support",
     "tagSupportPlatform": "Support",
-    "cancelUpload": "Cancel upload"
+    "cancelUpload": "Cancel upload",
+    "inviteLinkResetAction": "Reset invite link",
+    "inviteLinkReset": "New link copied — the old one no longer works"
   },
   "Events": {
     "title": "Events",

@@ -19,6 +19,7 @@ import {
   FileText,
   Image as ImageIcon,
   Link2,
+  RotateCcw,
   Loader2,
   LogOut,
   MessageSquare,
@@ -48,7 +49,9 @@ import {
   fetchChatLinks,
   fetchChatMedia,
   fetchChatMembers,
+  fetchChatInviteCode,
   removeChatMemberRequest,
+  resetChatInviteCode,
   setChatAdminRequest,
   transferOwnershipRequest,
   unbanChatMemberRequest,
@@ -1087,10 +1090,18 @@ export function ChatDetailsPanel({
   // заново на каждый чат (key={chat.id} у вызывающего).
   const [descriptionOpen, setDescriptionOpen] = useState(false)
 
-  // Адрес приглашения строим на клиенте: страница /join-chat/<id> публичная и одинакова
-  // для всех, отдельной ручки за ним нет. origin читается лениво — на сервере его нет.
-  const inviteLink =
-    typeof window === 'undefined' ? '' : `${window.location.origin}/join-chat/${chat.id}`
+  // Ссылка-приглашение: /join-chat/<id>?k=<код>. Код выдаёт сервер и только админу группы;
+  // один id чата больше не пускает — иначе исключённый возвращался по старой ссылке.
+  const copyInvite = useMutation({
+    mutationFn: async (reset: boolean) => {
+      const code = reset ? await resetChatInviteCode(chat.id) : await fetchChatInviteCode(chat.id)
+      const link = `${window.location.origin}/join-chat/${chat.id}?k=${encodeURIComponent(code)}`
+      await navigator.clipboard?.writeText(link)
+      return reset
+    },
+    onSuccess: (reset) => toast.success(reset ? t('inviteLinkReset') : t('linkCopied')),
+    onError: err,
+  })
 
   // Вкладка по умолчанию: участники в группе, профиль в личном чате, иначе медиа.
   const firstTab = isGroup ? 'participants' : peer ? 'profile' : 'media'
@@ -1245,21 +1256,29 @@ export function ChatDetailsPanel({
             )}
           </div>
 
-          {isGroup && (
+          {canEdit && (
             <>
               <div className="h-px bg-border" aria-hidden />
-              {/* В буфер уходит адрес приглашения — читать в нём нечего, это идентификатор
-                  чата, поэтому строка называет действие, а не показывает ссылку. */}
+              {/* В буфер уходит адрес приглашения — читать в нём нечего, поэтому строка
+                  называет действие, а не показывает ссылку. Ссылку выдаёт сервер и только
+                  админам группы. */}
               <button
                 type="button"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(inviteLink)
-                  toast.success(t('linkCopied'))
-                }}
+                disabled={copyInvite.isPending}
+                onClick={() => copyInvite.mutate(false)}
                 className={DETAILS_ROW}
               >
                 <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{t('inviteLink')}</span>
+              </button>
+              <button
+                type="button"
+                disabled={copyInvite.isPending}
+                onClick={() => copyInvite.mutate(true)}
+                className={DETAILS_ROW}
+              >
+                <RotateCcw className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{t('inviteLinkResetAction')}</span>
               </button>
             </>
           )}

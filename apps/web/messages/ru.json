@@ -2162,7 +2162,9 @@
     "chatActions": "Действия с чатом",
     "typeSupportPlatform": "Поддержка StudentHub",
     "tagSupportPlatform": "Поддержка",
-    "cancelUpload": "Отменить загрузку"
+    "cancelUpload": "Отменить загрузку",
+    "inviteLinkResetAction": "Сменить ссылку-приглашение",
+    "inviteLinkReset": "Новая ссылка скопирована — прежняя больше не работает"
   },
   "Events": {
     "title": "События",

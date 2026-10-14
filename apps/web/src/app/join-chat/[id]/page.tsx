@@ -1,7 +1,7 @@
 'use client'
 
 import { use, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
@@ -33,6 +33,9 @@ function chatsPathFromCookie(): string {
 export default function JoinChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  // Код приглашения из ссылки (?k=). Без него сервер не пустит: один id чата больше не
+  // работает как приглашение.
+  const code = useSearchParams().get('k') ?? ''
   const t = useTranslations('Chats')
   const [error, setError] = useState(false)
   const done = useRef(false)
@@ -40,10 +43,10 @@ export default function JoinChatPage({ params }: { params: Promise<{ id: string 
   useEffect(() => {
     if (done.current) return
     done.current = true
-    joinChatRequest(id)
+    joinChatRequest(id, code)
       .then(() => router.replace(chatsPathFromCookie()))
       .catch(() => setError(true))
-  }, [id, router])
+  }, [id, code, router])
 
   return (
     <div className="flex min-h-dvh items-center justify-center p-6 text-center">

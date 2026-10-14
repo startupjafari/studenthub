@@ -109,10 +109,15 @@ export async function setChatArchivedRequest(chatId: string, archived: boolean):
 }
 
 // Присоединиться к группе по ссылке-приглашению (Ф9+).
+// Вступление по ссылке-приглашению: код из ссылки обязателен — один id чата больше не пускает.
 export async function joinChatRequest(
   chatId: string,
+  code: string,
 ): Promise<{ id: string; title: string | null }> {
-  const { data } = await api.post<{ id: string; title: string | null }>(`/chats/${chatId}/join`)
+  const { data } = await api.post<{ id: string; title: string | null }>(
+    `/chats/${encodeURIComponent(chatId)}/join`,
+    { code },
+  )
   return data
 }
 
@@ -579,4 +584,18 @@ export async function chatAttachmentPartUrls(
     input,
   )
   return data.parts
+}
+
+/** Код ссылки-приглашения группы (только админ группы); выдаётся при первом запросе. */
+export async function fetchChatInviteCode(chatId: string): Promise<string> {
+  const { data } = await api.get<{ code: string }>(`/chats/${encodeURIComponent(chatId)}/invite`)
+  return data.code
+}
+
+/** Сменить код: прежняя ссылка перестаёт пускать. */
+export async function resetChatInviteCode(chatId: string): Promise<string> {
+  const { data } = await api.post<{ code: string }>(
+    `/chats/${encodeURIComponent(chatId)}/invite/reset`,
+  )
+  return data.code
 }

@@ -2162,7 +2162,9 @@
     "chatActions": "Чат әрекеттері",
     "typeSupportPlatform": "StudentHub қолдауы",
     "tagSupportPlatform": "Қолдау",
-    "cancelUpload": "Жүктеуді тоқтату"
+    "cancelUpload": "Жүктеуді тоқтату",
+    "inviteLinkResetAction": "Шақыру сілтемесін ауыстыру",
+    "inviteLinkReset": "Жаңа сілтеме көшірілді — бұрынғысы енді жұмыс істемейді"
   },
   "Events": {
     "title": "Іс-шаралар",
