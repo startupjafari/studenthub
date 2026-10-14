@@ -150,8 +150,12 @@ export class ExamsService {
 
   async update(actor: JwtPayload, id: string, input: UpdateExamInput, ctx: RequestContext) {
     const exam = await this.findManageable(actor, id)
-    if (input.examinerId)
-      await this.assertSameUniversity(input.examinerId, await this.universityOfGroup(exam.groupId))
+    if (input.examinerId || input.roomId) {
+      const universityId = await this.universityOfGroup(exam.groupId)
+      if (input.examinerId) await this.assertSameUniversity(input.examinerId, universityId)
+      // Как и при создании: аудитория чужого вуза в экзамен не ставится.
+      if (input.roomId) await this.assertRoomUniversity(input.roomId, universityId)
+    }
     const updated = await this.prisma.exam.update({
       where: { id },
       data: {
