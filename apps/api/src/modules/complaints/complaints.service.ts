@@ -339,9 +339,16 @@ export class ComplaintsService {
     }
 
     const status = input.action === 'DISMISS' ? ComplaintStatus.DISMISSED : ComplaintStatus.RESOLVED
+    const resolvedDate = new Date()
+    const resolvedAt = resolvedDate.getTime()
     const updated = await this.prisma.complaint.update({
       where: { id },
-      data: { status, resolvedById: actor.sub, resolution: input.comment, resolvedAt: new Date() },
+      data: {
+        status,
+        resolvedById: actor.sub,
+        resolution: input.comment,
+        resolvedAt: resolvedDate,
+      },
       select: COMPLAINT_SELECT,
     })
 
@@ -364,9 +371,11 @@ export class ComplaintsService {
         titleKey: 'complaints.resolved.title',
         bodyKey: input.action === 'DISMISS' ? 'complaints.dismissed.body' : 'complaints.acted.body',
         data: { complaintId: id },
-        dedupeKey: `complaint-resolved:${id}`,
+        // Жалобу могут открыть заново и решить ещё раз — второе решение тоже должно дойти.
+        // Момент решения в ключе: ретрай той же job приходит с тем же payload и отсекается.
+        dedupeKey: `complaint-resolved:${id}:${resolvedAt}`,
       },
-      { jobId: `complaint-resolved:${id}` },
+      { jobId: `complaint-resolved:${id}:${resolvedAt}` },
     )
 
     if (input.applyToDuplicates) await this.closeDuplicates(actor, complaint, status, id, ctx)
