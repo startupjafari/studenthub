@@ -2162,7 +2162,8 @@
     "chatActions": "Действия с чатом",
     "typeSupportPlatform": "Поддержка StudentHub",
     "tagSupportPlatform": "Поддержка",
-    "cancelUpload": "Отменить загрузку"
+    "cancelUpload": "Отменить загрузку",
+    "joinUnavailable": "В кабинете работодателя чатов нет — присоединиться к группе нельзя"
   },
   "Events": {
     "title": "События",

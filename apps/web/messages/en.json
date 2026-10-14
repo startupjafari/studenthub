@@ -2162,7 +2162,8 @@
     "chatActions": "Chat actions",
     "typeSupportPlatform": "StudentHub support",
     "tagSupportPlatform": "Support",
-    "cancelUpload": "Cancel upload"
+    "cancelUpload": "Cancel upload",
+    "joinUnavailable": "Employer accounts have no chats, so you can't join this group"
   },
   "Events": {
     "title": "Events",

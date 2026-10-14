@@ -2162,7 +2162,8 @@
     "chatActions": "Чат әрекеттері",
     "typeSupportPlatform": "StudentHub қолдауы",
     "tagSupportPlatform": "Қолдау",
-    "cancelUpload": "Жүктеуді тоқтату"
+    "cancelUpload": "Жүктеуді тоқтату",
+    "joinUnavailable": "Жұмыс берушінің кабинетінде чаттар жоқ — топқа қосылу мүмкін емес"
   },
   "Events": {
     "title": "Іс-шаралар",
