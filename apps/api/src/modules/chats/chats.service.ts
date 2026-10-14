@@ -3120,6 +3120,11 @@ export class ChatsService {
     })
     let sent = 0
     for (const row of due) {
+      // Сначала забираем строку, потом отправляем. Обратный порядок давал дубли: медленная
+      // пачка переживала TTL лока (или Redis был недоступен и лок пропускал всех), и второй
+      // инстанс отправлял то же сообщение, пока первый не успел удалить строку.
+      const claimed = await this.prisma.scheduledMessage.deleteMany({ where: { id: row.id } })
+      if (claimed.count === 0) continue
       try {
         // Сообщение-адресат ответа могли удалить за время ожидания. Ронять из-за этого
         // весь текст неправильно — отправляем без ответа и цитаты.
@@ -3128,7 +3133,7 @@ export class ChatsService {
           (await this.prisma.message.count({
             where: { id: row.replyToId, chatId: row.chatId, deletedAt: null },
           })) > 0
-        await this.createMessage(
+        const { message } = await this.createMessage(
           row.senderId,
           {
             chatId: row.chatId,
@@ -3139,6 +3144,12 @@ export class ChatsService {
           },
           { skipFlood: true },
         )
+        // message:new обычной отправки шлёт gateway; у cron его нет, и тот, у кого чат
+        // открыт (ему не приходит и уведомление), отложенное сообщение вживую не видел.
+        this.realtime.emitToRoom(`chat:${row.chatId}`, 'message:new', {
+          message,
+          chatId: row.chatId,
+        })
         sent += 1
       } catch (error) {
         // Молча терять написанный текст нельзя: человек рассчитывал, что оно уйдёт.
@@ -3147,7 +3158,6 @@ export class ChatsService {
         )
         await this.notifyScheduleFailed(row.senderId, row.chatId, row.content)
       }
-      await this.prisma.scheduledMessage.delete({ where: { id: row.id } }).catch(() => undefined)
     }
     if (sent > 0) this.logger.log(`Отложенных сообщений отправлено: ${sent}`)
     return sent
