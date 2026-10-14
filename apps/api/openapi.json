@@ -5014,6 +5014,37 @@
         ]
       }
     },
+    "/career/companies/resend-verification": {
+      "post": {
+        "operationId": "CompaniesController_resendVerification",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendCompanyVerificationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Если компания ждёт подтверждения — письмо ушло"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Отправить письмо с подтверждением email компании ещё раз (публично)",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
     "/career/companies/me": {
       "get": {
         "operationId": "CompaniesController_myCompany",
@@ -14682,6 +14713,10 @@
         "properties": {}
       },
       "VerifyCompanyEmailDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResendCompanyVerificationDto": {
         "type": "object",
         "properties": {}
       },
