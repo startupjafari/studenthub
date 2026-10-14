@@ -25,5 +25,10 @@ export function hashInviteToken(raw: string): string {
  * выката таких строк не останется и фолбэк нужно убрать — вместе с этим комментарием.
  */
 export function inviteTokenLookups(raw: string): string[] {
-  return [hashInviteToken(raw), raw]
+  // Строку вида sha256 (64 hex) по открытому значению не ищем: это формат самих хэшей в
+  // колонке, и иначе хэш, прочитанный из бэкапа или реплики, проходил как токен — поиск
+  // находил строку по равенству. Настоящие токены (UUID, токены сида) так не выглядят.
+  return SHA256_HEX.test(raw) ? [hashInviteToken(raw)] : [hashInviteToken(raw), raw]
 }
+
+const SHA256_HEX = /^[0-9a-f]{64}$/i
