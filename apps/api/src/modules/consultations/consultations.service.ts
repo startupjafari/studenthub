@@ -11,6 +11,7 @@ import { QueueService } from '../../common/queue/queue.service'
 import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { localDateTimeLabel } from '../../common/time/local-label'
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 const TEACHER_ROLES: Role[] = [Role.TEACHER, Role.DEAN]
@@ -57,7 +58,13 @@ export class ConsultationsService {
   async deleteSlot(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const slot = await this.prisma.consultationSlot.findUnique({
       where: { id },
-      select: { id: true, teacherId: true, studentId: true, startsAt: true },
+      select: {
+        id: true,
+        teacherId: true,
+        studentId: true,
+        startsAt: true,
+        teacher: { select: { university: { select: { timezone: true } } } },
+      },
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
     if (slot.teacherId !== actor.sub) throw new AppException('FORBIDDEN', 'Не ваш слот')
@@ -66,7 +73,7 @@ export class ConsultationsService {
         slot.studentId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
         'consultations.cancelled.title',
-        this.slotLabel(slot.startsAt),
+        localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
         '/consultations',
         `consultation-cancelled:${id}`,
       )
@@ -180,7 +187,14 @@ export class ConsultationsService {
         status: true,
         startsAt: true,
         teacherId: true,
-        teacher: { select: { universityId: true, deletedAt: true, isBlocked: true } },
+        teacher: {
+          select: {
+            universityId: true,
+            deletedAt: true,
+            isBlocked: true,
+            university: { select: { timezone: true } },
+          },
+        },
       },
     })
     if (!slot || slot.teacher.deletedAt || slot.teacher.isBlocked) {
@@ -209,7 +223,7 @@ export class ConsultationsService {
       slot.teacherId,
       NOTIFICATION_JOBS.CONSULTATION_BOOKED,
       'consultations.booked.title',
-      this.slotLabel(slot.startsAt),
+      localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
       '/teacher/consultations',
       // На один слот записываются не однажды (запись → отмена → новая запись): ключ без
       // момента записи гасил повторное уведомление как дубль.
@@ -221,7 +235,14 @@ export class ConsultationsService {
   async cancel(actor: JwtPayload, id: string, ctx: RequestContext) {
     const slot = await this.prisma.consultationSlot.findUnique({
       where: { id },
-      select: { id: true, status: true, startsAt: true, teacherId: true, studentId: true },
+      select: {
+        id: true,
+        status: true,
+        startsAt: true,
+        teacherId: true,
+        studentId: true,
+        teacher: { select: { university: { select: { timezone: true } } } },
+      },
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
 
@@ -242,7 +263,7 @@ export class ConsultationsService {
         slot.teacherId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
         'consultations.bookingCancelled.title',
-        this.slotLabel(slot.startsAt),
+        localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
         '/teacher/consultations',
         `consultation-cancelled:${id}:${actor.sub}:${Date.now()}`,
       )
@@ -260,7 +281,7 @@ export class ConsultationsService {
           slot.studentId,
           NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
           'consultations.cancelled.title',
-          this.slotLabel(slot.startsAt),
+          localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
           '/consultations',
           `consultation-cancelled:${id}:teacher`,
         )
@@ -271,10 +292,6 @@ export class ConsultationsService {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
-
-  private slotLabel(date: Date): string {
-    return date.toISOString().slice(0, 16).replace('T', ' ')
-  }
 
   private async assertSameUniversity(
     teacherId: string,
