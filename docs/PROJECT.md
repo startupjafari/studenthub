@@ -716,7 +716,7 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 
 **Факультеты** — `GET|POST /faculties` · `GET|PATCH|DELETE /faculties/:id` (удаление только без групп)
 
-**Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members`
+**Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members` · `PATCH /groups/:id/starosta` (`{ starostaId | null }`, админ вуза или декан факультета группы; старостой становится только студент этой группы. Староста — роль, а не отметка: в одной транзакции выбранный получает `STAROSTA`, остальные старосты группы — `STUDENT`; разжалованным гасятся сессии, обе смены роли пишутся в аудит `user_role_changed`)
 
 **Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id`
 

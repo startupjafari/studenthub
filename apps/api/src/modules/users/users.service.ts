@@ -61,6 +61,9 @@ export interface TwoFactorLoginRecord {
   twoFactorBackupCodes: string[]
 }
 
+// Потолок выборки старост одной группы при смене старосты (§5.3: findMany без take нельзя).
+const GROUP_STAROSTA_SCAN_LIMIT = 50
+
 // Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
 // но потолок обязателен и здесь (BACKEND_RULES §7.2).
 const OLD_AVATARS_LIMIT = 100
@@ -1260,6 +1263,79 @@ export class UserService {
     const passwordHash = await this.passwords.hash(newPassword)
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } })
     await this.authService.revokeAllUserSessions(userId)
+  }
+
+  /**
+   * Староста группы — это роль, а не только отметка в группе: права старосты (инвайты в
+   * группу, групповые обращения, его меню) держатся на `User.role`. Вызывается GroupService
+   * внутри его транзакции вместе с `Group.starostaId`.
+   *
+   * В группе один староста: остальные со старостинской ролью (в том числе пришедшие по
+   * инвайту и к группе не привязанные) возвращаются в студенты. Возвращает их id — после
+   * коммита им гасятся сессии (`afterStarostaChange`).
+   */
+  async syncGroupStarosta(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    starostaId: string | null,
+  ): Promise<string[]> {
+    const demoted = await tx.user.findMany({
+      where: {
+        groupId,
+        role: Role.STAROSTA,
+        deletedAt: null,
+        ...(starostaId ? { id: { not: starostaId } } : {}),
+      },
+      select: { id: true },
+      take: GROUP_STAROSTA_SCAN_LIMIT,
+    })
+    const demotedIds = demoted.map((u) => u.id)
+    if (demotedIds.length) {
+      await tx.user.updateMany({
+        where: { id: { in: demotedIds } },
+        data: { role: Role.STUDENT, starostaSince: null },
+      })
+    }
+    if (starostaId) {
+      // Только из студентов: уже действующий староста сохраняет дату начала полномочий.
+      await tx.user.updateMany({
+        where: { id: starostaId, role: Role.STUDENT },
+        data: { role: Role.STAROSTA, starostaSince: new Date() },
+      })
+    }
+    return demotedIds
+  }
+
+  /**
+   * После смены старосты: разжалованным гасим сессии. В их access-токене ещё 15 минут жила
+   * бы роль старосты — с инвайтами в группу и списком её обращений. Новый староста получит
+   * роль при ближайшем обновлении токена (refresh читает роль из БД).
+   */
+  async afterStarostaChange(
+    actorId: string,
+    groupId: string,
+    promotedId: string | null,
+    demotedIds: string[],
+  ): Promise<void> {
+    for (const id of demotedIds) {
+      await this.authService.revokeAllUserSessions(id)
+      await this.audit.record({
+        userId: actorId,
+        action: 'user_role_changed',
+        entity: 'User',
+        entityId: id,
+        metadata: { from: Role.STAROSTA, to: Role.STUDENT, groupId },
+      })
+    }
+    if (promotedId) {
+      await this.audit.record({
+        userId: actorId,
+        action: 'user_role_changed',
+        entity: 'User',
+        entityId: promotedId,
+        metadata: { to: Role.STAROSTA, groupId },
+      })
+    }
   }
 
   /**

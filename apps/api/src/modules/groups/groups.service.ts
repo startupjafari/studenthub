@@ -12,6 +12,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { UserService } from '../users/users.service'
 import { UniversityService } from '../universities/universities.service'
 
 // Внутренняя выборка для scope: год/факультет + universityId факультета.
@@ -67,6 +68,7 @@ export class GroupService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly universities: UniversityService,
+    private readonly users: UserService,
   ) {}
 
   /** Создание группы (PLATFORM_ADMIN / UNIVERSITY_ADMIN своего вуза). */
@@ -166,29 +168,44 @@ export class GroupService {
     if (input.starostaId !== null) {
       const user = await this.prisma.user.findFirst({
         where: { id: input.starostaId, deletedAt: null },
-        select: { id: true, groupId: true },
+        select: { id: true, groupId: true, role: true, isBlocked: true },
       })
-      if (!user || user.groupId !== id) {
+      // Старостой становится студент этой группы: преподаватель или сотрудник с тем же
+      // groupId (такого быть не должно, но данные бывают кривыми) роль не меняет.
+      if (
+        !user ||
+        user.groupId !== id ||
+        user.isBlocked ||
+        (user.role !== Role.STUDENT && user.role !== Role.STAROSTA)
+      ) {
         throw new AppException(
           'BAD_REQUEST',
-          'Старостой можно назначить только участника этой группы',
+          'Старостой можно назначить только студента этой группы',
         )
       }
     }
 
+    // Отметка в группе и роли — одной транзакцией: староста без роли не получил бы ни меню,
+    // ни прав, а роль без отметки — не значилась бы старостой группы.
     let updated: GroupRow
+    let demoted: string[]
     try {
-      updated = await this.prisma.group.update({
-        where: { id },
-        data: { starostaId: input.starostaId },
-        select: GROUP_SELECT,
-      })
+      ;({ updated, demoted } = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.group.update({
+          where: { id },
+          data: { starostaId: input.starostaId },
+          select: GROUP_SELECT,
+        })
+        const ids = await this.users.syncGroupStarosta(tx, id, input.starostaId)
+        return { updated: row, demoted: ids }
+      }))
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppException('CONFLICT', 'Этот пользователь уже староста другой группы')
       }
       throw error
     }
+    await this.users.afterStarostaChange(actor.sub, id, input.starostaId, demoted)
     await this.audit.record({
       userId: actor.sub,
       action: input.starostaId ? 'group_starosta_assigned' : 'group_starosta_cleared',
