@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ExternalLink, Send } from 'lucide-react'
 import { isApplicationFinal } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
+  fetchApplicationHistory,
   fetchMyApplications,
   withdrawApplication,
   type StudentApplication,
@@ -108,6 +109,7 @@ function ApplicationRow({
 }) {
   const t = useTranslations('CareerApplications')
   const { label, tone } = useApplicationStatusLabels()
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   return (
     <li className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4">
@@ -133,11 +135,75 @@ function ApplicationRow({
         )}
       </div>
 
-      {!isApplicationFinal(application.status) && (
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onWithdraw}>
-          {t('withdraw')}
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen((open) => !open)}
+        >
+          {historyOpen ? t('historyHide') : t('history')}
         </Button>
-      )}
+        {!isApplicationFinal(application.status) && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onWithdraw}>
+            {t('withdraw')}
+          </Button>
+        )}
+      </div>
+
+      {historyOpen && <ApplicationHistory applicationId={application.id} />}
     </li>
+  )
+}
+
+/**
+ * Хронология отклика: когда компания посмотрела, позвала, отказала. Причина отказа —
+ * то единственное, что студенту есть узнать из отказа, поэтому показываем её текстом.
+ */
+function ApplicationHistory({ applicationId }: { applicationId: string }) {
+  const t = useTranslations('CareerApplications')
+  const tErr = useTranslations('Errors')
+  const locale = useLocale()
+  const { label } = useApplicationStatusLabels()
+  const query = useQuery({
+    queryKey: applicationKeys.history(applicationId),
+    queryFn: () => fetchApplicationHistory(applicationId),
+  })
+
+  if (query.isLoading) {
+    return <Skeleton className="h-12 w-full basis-full rounded-lg" />
+  }
+  if (query.isError) {
+    return (
+      <p className="basis-full text-sm text-destructive">{tErr(toApiError(query.error).code)}</p>
+    )
+  }
+
+  const events = query.data ?? []
+  if (events.length === 0) {
+    return <p className="basis-full text-sm text-muted-foreground">{t('historyEmpty')}</p>
+  }
+
+  return (
+    <ol className="flex basis-full flex-col gap-2 border-t border-border pt-3">
+      {events.map((event) => (
+        <li key={event.id} className="flex flex-col gap-0.5 text-sm">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {new Date(event.createdAt).toLocaleString(locale, {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+            <span className="font-medium">{label[event.toStatus]}</span>
+          </div>
+          {event.comment && (
+            <p className="whitespace-pre-line text-muted-foreground">{event.comment}</p>
+          )}
+        </li>
+      ))}
+    </ol>
   )
 }

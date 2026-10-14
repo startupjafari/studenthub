@@ -8,6 +8,7 @@ import { Briefcase } from 'lucide-react'
 import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import type { VacancyReviewStatus } from '@studenthub/shared-schemas'
 import {
+  VACANCY_REVIEW_DECIDERS,
   decideVacancyReview,
   fetchVacancyReviewQueue,
   vacancyKeys,
@@ -35,6 +36,7 @@ import {
   useCareerUniversity,
 } from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
+import { useAppSelector } from '../../../shared/store'
 
 type Filter = VacancyReviewStatus | 'ALL'
 
@@ -49,11 +51,15 @@ type Filter = VacancyReviewStatus | 'ALL'
 const PAGE_SIZES = ADMIN_PAGE_SIZES
 
 const COLS = ['26%', '20%', '30%', '10%', '14%'] as const
+// Без колонки решений — для декана: очередь он видит, а решает вуз.
+const COLS_READONLY = ['30%', '24%', '34%', '12%'] as const
 
 export function CareerVacancyReviewView() {
   const t = useTranslations('CareerAdmin')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const role = useAppSelector((s) => s.auth.role)
+  const canDecide = role !== null && VACANCY_REVIEW_DECIDERS.includes(role)
   const [status, setStatus] = useState<Filter>('PENDING')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
@@ -149,18 +155,18 @@ export function CareerVacancyReviewView() {
       ) : (
         <>
           <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-            <Table fixed scrollBody fill cols={COLS}>
+            <Table fixed scrollBody fill cols={canDecide ? COLS : COLS_READONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('colVacancy')}</TableHead>
                   <TableHead className="hidden md:table-cell">{t('colCompany')}</TableHead>
                   <TableHead className="hidden lg:table-cell">{t('colDescription')}</TableHead>
                   <TableHead>{t('colStatus')}</TableHead>
-                  <TableHead className="text-right">{t('colActions')}</TableHead>
+                  {canDecide && <TableHead className="text-right">{t('colActions')}</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {query.isLoading && <TableSkeletonRows columns={5} />}
+                {query.isLoading && <TableSkeletonRows columns={canDecide ? 5 : 4} />}
                 {rows.map((row) => (
                   <TableRow key={row.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
@@ -179,27 +185,29 @@ export function CareerVacancyReviewView() {
                         {statusLabel[row.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      {row.status === 'PENDING' && (
-                        <span className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            disabled={decide.isPending}
-                            onClick={() => decide.mutate({ id: row.id, status: 'APPROVED' })}
-                          >
-                            {t('approve')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={decide.isPending}
-                            onClick={() => setAsking(row.id)}
-                          >
-                            {t('reject')}
-                          </Button>
-                        </span>
-                      )}
-                    </TableCell>
+                    {canDecide && (
+                      <TableCell className="text-right">
+                        {row.status === 'PENDING' && (
+                          <span className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              disabled={decide.isPending}
+                              onClick={() => decide.mutate({ id: row.id, status: 'APPROVED' })}
+                            >
+                              {t('approve')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={decide.isPending}
+                              onClick={() => setAsking(row.id)}
+                            >
+                              {t('reject')}
+                            </Button>
+                          </span>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

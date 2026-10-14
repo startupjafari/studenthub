@@ -148,7 +148,13 @@
     "verifyOkTitle": "Email расталды",
     "verifyOkText": "Аккаунтқа кіріп, университетке өтінім беріңіз.",
     "verifyFailTitle": "Растау мүмкін болмады",
-    "verifyNoToken": "Сілтемеде растау токені жоқ."
+    "verifyNoToken": "Сілтемеде растау токені жоқ.",
+    "resend": "Хатты қайта жіберу",
+    "resendDone": "Хат жіберілді",
+    "resendSent": "Жаңа сілтеме жіберілді — бұрынғысы енді жарамсыз",
+    "resendMaybeSent": "Егер осы мекенжайы бар компания растауды күтіп тұрса, оған жаңа сілтеме жібердік. Ол бір тәулік жарамды.",
+    "resendEmailLabel": "Тіркелу кезінде көрсетілген email",
+    "resendEmailInvalid": "Дұрыс email енгізіңіз"
   },
   "Demo": {
     "title": "Тестілеуге өтінім",
@@ -432,7 +438,15 @@
     "colCompany": "Компания",
     "colFormat": "Формат",
     "colCity": "Қала",
-    "colSalary": "Жалақы"
+    "colSalary": "Жалақы",
+    "deadline": "өтінім {date} дейін",
+    "coverLetter": "Ілеспе хат",
+    "coverLetterPlaceholder": "Міндетті емес: бұл бос орын сізге неге қызық",
+    "coverLetterTooLong": "4000 таңбадан аспауы керек",
+    "apply": "Өтінім беру",
+    "applied": "Өтінім жіберілді",
+    "alreadyApplied": "Сіз өтінім бердіңіз:",
+    "goToApplications": "Менің өтінімдерім"
   },
   "EmployerVacancies": {
     "title": "Вакансиялар",
@@ -474,7 +488,10 @@
     "statusOffer": "Ұсыныс",
     "statusHired": "Қабылданды",
     "statusRejected": "Бас тарту",
-    "statusWithdrawn": "Қайтарылды"
+    "statusWithdrawn": "Қайтарылды",
+    "history": "Тарих",
+    "historyHide": "Тарихты жасыру",
+    "historyEmpty": "Әзірге өзгерістер болған жоқ"
   },
   "CareerHome": {
     "statsActive": "Белсенді өтінімдер",

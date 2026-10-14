@@ -148,7 +148,13 @@
     "verifyOkTitle": "Email confirmed",
     "verifyOkText": "Sign in and request access from a university.",
     "verifyFailTitle": "Could not confirm",
-    "verifyNoToken": "The link has no confirmation token."
+    "verifyNoToken": "The link has no confirmation token.",
+    "resend": "Send the email again",
+    "resendDone": "Email sent",
+    "resendSent": "We sent a new link — the previous one no longer works",
+    "resendMaybeSent": "If a company with this address is awaiting confirmation, we've sent it a new link. It's valid for 24 hours.",
+    "resendEmailLabel": "Email you signed up with",
+    "resendEmailInvalid": "Enter a valid email"
   },
   "Demo": {
     "title": "Request a trial",
@@ -432,7 +438,15 @@
     "colCompany": "Company",
     "colFormat": "Format",
     "colCity": "City",
-    "colSalary": "Salary"
+    "colSalary": "Salary",
+    "deadline": "apply by {date}",
+    "coverLetter": "Cover letter",
+    "coverLetterPlaceholder": "Optional: why this role interests you",
+    "coverLetterTooLong": "No more than 4000 characters",
+    "apply": "Apply",
+    "applied": "Application sent",
+    "alreadyApplied": "You applied:",
+    "goToApplications": "My applications"
   },
   "EmployerVacancies": {
     "title": "Jobs",
@@ -474,7 +488,10 @@
     "statusOffer": "Offer",
     "statusHired": "Hired",
     "statusRejected": "Rejected",
-    "statusWithdrawn": "Withdrawn"
+    "statusWithdrawn": "Withdrawn",
+    "history": "History",
+    "historyHide": "Hide history",
+    "historyEmpty": "No changes yet"
   },
   "CareerHome": {
     "statsActive": "Active applications",
