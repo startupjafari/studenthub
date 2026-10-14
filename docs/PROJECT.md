@@ -298,6 +298,12 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 **Ролевая матрица (§15.2).** Создают/проверяют запросы деканат/студ.офис (`DEAN`,
 `UNIVERSITY_MODERATOR`) и преподаватель (только учебные типы); админ вуза управляет типами/сроками
 (не участвует в запросах); студент/староста — отвечают. Сотрудник видит только СВОИ запросы.
+Адресаты — в области автора, иначе `403 WRONG_SCOPE`: весь вуз (`UNIVERSITY`) — только
+`UNIVERSITY_MODERATOR`; декан — свой факультет, его группы и студентов; преподаватель — группы
+своих дисциплин (`Course.teacherId`) и их студентов, факультет и вуз ему недоступны.
+Гранты на документ `DEPARTMENT` и `UNIVERSITY` — доступ администрации: `DEPARTMENT` действует
+для декана этого факультета, `UNIVERSITY` — для админа, модератора вуза и декана. Студентов и
+преподавателей вуза такой грант не пускает: им документ открывают персональным грантом `USER`.
 Платформенный админ обычного доступа к содержимому не имеет — только спец-режим с обязательной
 причиной (пишется в `AuditLog` + `DocumentEvent`).
 
@@ -718,7 +724,7 @@ enum DemoRejectionReason { NOT_ELIGIBLE DUPLICATE INSUFFICIENT_INFO NO_CAPACITY 
 
 **Группы** — `GET|POST /groups` · `GET|PATCH|DELETE /groups/:id` · `GET /groups/:id/members`
 
-**Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` · `PATCH|DELETE /pairs/:id`
+**Расписание** — `GET /schedule` (по роли; фильтры `groupId/teacherId/roomId/dayOfWeek/weekType/subject`, отдаёт таймзону вуза) · `GET /schedule/changes` (`?from=&to=`) · `POST /schedule/changes` (Dean/Admin) · `GET|POST /schedules` · `GET|PATCH|DELETE /schedules/:id` · `POST /pairs` (преподаватель — только себе и только в группе, где ведёт дисциплину, иначе `403 WRONG_SCOPE`: пара даёт ему ростер, посещаемость и предметный чат группы) · `PATCH|DELETE /pairs/:id`
 
 **Файлы** — `POST /files/upload?bucket=` (буферная, ≤10 МБ) · `POST /files/presign` + `POST /files/confirm` (прямая загрузка крупных файлов: шаги 1 и 3, между ними браузер делает PUT в MinIO) · `GET /files/:id/presigned` · `DELETE /files/:id`. Доменные загрузки имеют свои пары: `POST /documents/upload/presign|confirm`, `POST /materials/:id/files/presign|confirm`, `POST /profile-content/media/presign|confirm`. Файлы больше `FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES` (50 МБ) — многочастной загрузкой: `POST /files/multipart/start` (→ `key`, `uploadId`, размер и число частей) · `POST /files/multipart/urls` (подписи на диапазон частей `[from, to]`, нумерация с единицы) · PUT каждой части браузером · `POST /files/multipart/complete` (сервер склеивает и прогоняет объект через ту же проверку, что и `confirm`) · `POST /files/multipart/abort`. Сборку делает сервер, а не подписанная ссылка: иначе в приватном бакете появлялись бы объекты, которых никто не проверял по magic bytes. `etag` частей присылает клиент — в `minio@8` `listParts` объявлен protected, и серверу их взять неоткуда; подлог бесполезен, MinIO сверяет их сам. Ключ на каждом шаге обязан начинаться с идентификатора вызывающего. Предел видео и документов — 500 МБ (скан сборника или лекция с телефона весят больше прежних 25 и 100 МБ), изображения и аудио прежние. Архивы (`FILE_UPLOAD.ALLOWED_MIME.ARCHIVE`: ZIP, RAR, 7z, GZ, TAR, BZ2, XZ по magic bytes; предел 500 МБ) — категория «по приглашению» (`FILE_UPLOAD.OPT_IN_CATEGORIES`): `FileService` принимает её только при `allowArchives: true`, и передают его лишь вложения чатов. Любой другой путь (`/files/*`, документы, материалы, медиа профиля) отвечает на архив `415 FILE_TYPE_NOT_ALLOWED`, при прямой загрузке объект удаляется. Правила недоверия на шаге confirm — `docs/BACKEND_RULES.md §8.1`. Пара `(bucket, key)` **не уникальна**: на один объект хранилища может ссылаться несколько записей `File` (общий пул медиа у сида). Поэтому `DELETE /files/:id` удаляет объект в MinIO только когда ушла последняя ссылающаяся на него запись; пока есть другие — удаляется только строка. Обратный порядок непоправим: снесённый объект гасит картинку у всех остальных владельцев ссылок. Осиротевший объект (если две последние записи ушли одновременно) ночью уберёт `cleanOrphanFiles`.
 
