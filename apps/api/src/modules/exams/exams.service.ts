@@ -170,6 +170,13 @@ export class ExamsService {
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     await this.findManageable(actor, id)
+    // Экзамен с выставленными результатами не удаляем: каскад стёр бы ведомость.
+    const scored = await this.prisma.examResult.count({
+      where: { examId: id, OR: [{ score: { not: null } }, { status: { not: 'SCHEDULED' } }] },
+    })
+    if (scored > 0) {
+      throw new AppException('CONFLICT', 'По экзамену уже есть результаты')
+    }
     await this.prisma.exam.delete({ where: { id } })
     await this.record(actor, 'exam_deleted', id, ctx)
   }

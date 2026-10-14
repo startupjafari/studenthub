@@ -3110,7 +3110,8 @@
     "term": "Term",
     "noTerm": "No term",
     "credits": "Credits",
-    "courseCreated": "Course assigned"
+    "courseCreated": "Course assigned",
+    "deleteCourseHasRecords": "This course has grades, submitted work or exam results, so it can't be deleted"
   },
   "Assignments": {
     "title": "Assignments",
@@ -3298,7 +3299,8 @@
     "kind_LAB": "Lab",
     "kind_CONTROL": "Test",
     "kind_EXAM": "Exam",
-    "kind_OTHER": "Other"
+    "kind_OTHER": "Other",
+    "deleteColumnPublished": "This column has published grades. Unpublish it first"
   },
   "Grades": {
     "title": "My grades",
@@ -3370,7 +3372,8 @@
     "colRoom": "Room",
     "colExaminer": "Examiner",
     "colStudent": "Student",
-    "colStatus": "Status"
+    "colStatus": "Status",
+    "deleteHasResults": "This exam already has results, so it can't be deleted"
   },
   "StudyPlan": {
     "title": "Study plan",

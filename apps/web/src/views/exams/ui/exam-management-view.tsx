@@ -64,7 +64,10 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
       qc.invalidateQueries({ queryKey: examKeys.all })
       toast.success(t('deleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('deleteHasResults') : tErr(code))
+    },
   })
 
   const rows = q.data ?? []

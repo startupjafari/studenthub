@@ -352,6 +352,21 @@ export class CoursesService {
     })
     if (!course) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
     await this.assertGroupManage(actor, course.groupId)
+    // Задания, колонки журнала и экзамены висят на дисциплине каскадом: удаление стёрло бы
+    // оценки, сданные работы и результаты экзаменов без следа. Такую дисциплину не удаляем.
+    const [grades, submissions, results] = await Promise.all([
+      this.prisma.grade.count({ where: { column: { courseId: id }, score: { not: null } } }),
+      this.prisma.submission.count({
+        where: { assignment: { courseId: id }, status: { not: 'DRAFT' } },
+      }),
+      this.prisma.examResult.count({ where: { exam: { courseId: id }, score: { not: null } } }),
+    ])
+    if (grades + submissions + results > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'У дисциплины есть оценки, сданные работы или результаты экзаменов',
+      )
+    }
     await this.prisma.course.delete({ where: { id } })
     await this.record(actor, 'course_deleted', 'Course', id, ctx)
   }
