@@ -21,6 +21,7 @@ import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { DocumentsService } from '../documents/documents.service'
 import { ApplicationPolicy } from './application.policy'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 // Обработка заявки сотрудником (§15–§17, §27): business-actions вместо generic PATCH /status.
 // Каждое действие: canProcess + scope + проверка перехода (state-machine) + событие + уведомление.
@@ -427,11 +428,13 @@ export class ApplicationProcessService {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     const { updated, eventId } = await this.prisma.$transaction(async (tx) => {
-      const u = await tx.application.update({
-        where: { id: app.id },
-        data: { status: to, ...opts.data },
-        select: PROC_SELECT,
-      })
+      const u = await tx.application
+        .update({
+          where: { id: app.id, status: app.status },
+          data: { status: to, ...opts.data },
+          select: PROC_SELECT,
+        })
+        .catch(rethrowStaleStatus)
       const event = await tx.applicationEvent.create({
         data: {
           applicationId: app.id,

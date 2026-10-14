@@ -13,6 +13,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 // Поля заявки для scope-проверок (без загрузки всей записи).
 // Потолки на выборки (BACKEND_RULES §7.2). Анкета услуги и её список требований —
@@ -181,11 +182,13 @@ export class ApplicationsService {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.application.update({
-        where: { id },
-        data: { status: 'CANCELLED', cancelledAt: new Date() },
-        select: APP_SELECT,
-      })
+      const updated = await tx.application
+        .update({
+          where: { id, status },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+          select: APP_SELECT,
+        })
+        .catch(rethrowStaleStatus)
       await tx.applicationEvent.create({
         data: {
           applicationId: id,

@@ -17,6 +17,7 @@ import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { CareerAccessService } from './career-access.service'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 /** Что видит студент в списке своих откликов. */
 const STUDENT_SELECT = {
@@ -314,7 +315,9 @@ export class ApplicationsService {
     comment?: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.careerApplication.update({ where: { id: applicationId }, data: { status: to } })
+      await tx.careerApplication
+        .update({ where: { id: applicationId, status: from }, data: { status: to } })
+        .catch(rethrowStaleStatus)
       await tx.careerApplicationEvent.create({
         data: { applicationId, fromStatus: from, toStatus: to, comment, actorId },
       })
