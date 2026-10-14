@@ -1183,9 +1183,20 @@ describe('ChatsService — опросы (§38–39)', () => {
       options: [{ id: 'o1' }, { id: 'o2' }],
     })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
-    prisma.chatPollVote.findMany.mockResolvedValue([{ id: 'v1' }])
+    // Проверка «уже голосовал» идёт внутри транзакции под advisory-локом.
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      chatPollVote: {
+        count: jest.fn().mockResolvedValue(1),
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+      },
+    }
+    prisma.$transaction.mockImplementation((fn: (t: typeof tx) => Promise<unknown>) => fn(tx))
     const err = await service.votePoll(user('u1'), 'p1', { optionIds: ['o2'] }).catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(tx.chatPollVote.createMany).not.toHaveBeenCalled()
   })
 })
 

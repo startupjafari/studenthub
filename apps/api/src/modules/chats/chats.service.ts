@@ -35,6 +35,7 @@ import { PostsService } from '../posts/posts.service'
 import type { EnvVars } from '../../config/env.schema'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext } from '../../common/export/export-branding.types'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 
 /** Проголосовавший в неанонимном опросе (§39). */
 interface PollVoter {
@@ -1364,16 +1365,14 @@ export class ChatsService {
       throw new AppException('BAD_REQUEST', 'Неизвестный вариант опроса')
     }
 
-    const existing = await this.prisma.chatPollVote.findMany({
-      where: { pollId, userId: viewer.sub },
-      take: POLL_VOTES_LIMIT,
-      select: { id: true },
-    })
-    if (existing.length > 0 && !poll.allowRevote) {
-      throw new AppException('BAD_REQUEST', 'Изменение голоса запрещено')
-    }
-
+    // Как в опросах профиля: проверка и запись под локом на (опрос, голосующий), иначе два
+    // параллельных голоса записывались оба.
     await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `chat-poll-vote:${pollId}:${viewer.sub}`)
+      const existing = await tx.chatPollVote.count({ where: { pollId, userId: viewer.sub } })
+      if (existing > 0 && !poll.allowRevote) {
+        throw new AppException('BAD_REQUEST', 'Изменение голоса запрещено')
+      }
       await tx.chatPollVote.deleteMany({ where: { pollId, userId: viewer.sub } })
       if (optionIds.length > 0) {
         await tx.chatPollVote.createMany({
