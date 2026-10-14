@@ -208,3 +208,13 @@ export async function meRequest(): Promise<MeResponse> {
 export async function logoutRequest(): Promise<void> {
   await api.post('/auth/logout')
 }
+
+// «Забыли пароль»: сервер отвечает одинаково для любого адреса и сам решает, слать ли письмо.
+export async function forgotPasswordRequest(email: string): Promise<void> {
+  await api.post('/auth/password/forgot', { email })
+}
+
+// Новый пароль по токену из письма. Сессию не выдаёт: дальше — обычный вход.
+export async function resetPasswordRequest(token: string, password: string): Promise<void> {
+  await api.post('/auth/password/reset', { token, password })
+}

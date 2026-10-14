@@ -29,6 +29,8 @@ export const EMAIL_JOBS = {
   // Карьера (Ф18): подтверждение email при самостоятельной регистрации работодателя.
   // Единственный сценарий на платформе, где адрес не проверен инвайтом заранее.
   SEND_COMPANY_VERIFICATION: 'send-company-verification',
+  // Ссылка «забыли пароль» (docs/PROJECT.md §7.2): одноразовая, живёт час.
+  SEND_PASSWORD_RESET: 'send-password-reset',
   // Приход вуза (§31): подтверждение адреса заявки и решение по ней. Второй после
   // работодателя случай, когда адрес не проверен инвайтом заранее.
   SEND_DEMO_VERIFICATION: 'send-demo-verification',

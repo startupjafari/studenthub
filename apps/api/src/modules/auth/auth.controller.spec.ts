@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { AuthController } from './auth.controller'
 import type { AuthService, SessionResult } from './auth.service'
 import type { QrLoginService } from './qr-login.service'
+import type { PasswordResetService } from './password-reset.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
@@ -21,6 +22,7 @@ function setup(refreshImpl: () => Promise<SessionResult>) {
     config,
     {} as QrLoginService,
     {} as AuditService,
+    {} as PasswordResetService,
   )
 
   const setCookie = jest.fn()

@@ -20,6 +20,7 @@ import { AuthService } from './auth.service'
 import { TwoFactorService } from './two-factor.service'
 import { LoginAttemptsService } from './login-attempts.service'
 import { QrLoginService } from './qr-login.service'
+import { PasswordResetService } from './password-reset.service'
 import { QrLoginGateway } from './qr-login.gateway'
 import { JwtStrategy } from './strategies/jwt.strategy'
 import { LocalStrategy } from './strategies/local.strategy'
@@ -46,6 +47,7 @@ import { LocalStrategy } from './strategies/local.strategy'
     LoginAttemptsService,
     QrLoginService,
     QrLoginGateway,
+    PasswordResetService,
     JwtStrategy,
     LocalStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
