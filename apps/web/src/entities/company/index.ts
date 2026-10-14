@@ -10,6 +10,7 @@ export {
   fetchUniversityCompanyAccess,
   decideCompanyAccess,
 } from './api/company-api'
+export { COMPANY_ACCESS_DECIDERS } from './model/permissions'
 export type {
   Company,
   CompanyAccess,
