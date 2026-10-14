@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   UpdatePostInput,
   CreateCommentInput,
@@ -567,13 +567,13 @@ export class PostsService {
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: POST_SCOPE_SELECT,
+      select: { ...POST_SCOPE_SELECT, author: { select: { role: true } } },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
     if (post.authorId !== actor.sub) {
-      this.assertModerator(actor, post)
+      this.assertModerator(actor, post, post.author.role)
     }
     await this.prisma.post.update({ where: { id }, data: { deletedAt: new Date() } })
     await this.audit.record({
@@ -674,13 +674,18 @@ export class PostsService {
   ): Promise<void> {
     const comment = await this.prisma.comment.findFirst({
       where: { id: commentId, postId: id, deletedAt: null },
-      select: { id: true, authorId: true, post: { select: POST_SCOPE_SELECT } },
+      select: {
+        id: true,
+        authorId: true,
+        author: { select: { role: true } },
+        post: { select: POST_SCOPE_SELECT },
+      },
     })
     if (!comment) {
       throw new AppException('NOT_FOUND', 'Комментарий не найден')
     }
     if (comment.authorId !== actor.sub) {
-      this.assertModerator(actor, comment.post)
+      this.assertModerator(actor, comment.post, comment.author.role)
     }
     await this.prisma.comment.update({ where: { id: commentId }, data: { deletedAt: new Date() } })
     await this.audit.record({
@@ -701,10 +706,16 @@ export class PostsService {
   }
 
   // Модерация поста: платформа — любой; админ/мод вуза — свой вуз; декан — свой факультет.
+  // Чужой контент снимает только роль СТРОГО выше автора (если роль автора известна): иначе
+  // модератор вуза удалял посты админа вуза, а декан — посты админа в ленте факультета.
   private assertModerator(
     actor: JwtPayload,
     post: { universityId: string | null; facultyId: string | null },
+    authorRole?: Role,
   ): void {
+    if (authorRole && !isHigherRole(actor.role, authorRole)) {
+      throw new AppException('FORBIDDEN', 'Чужой контент снимает только роль выше автора')
+    }
     if (isPlatform(actor.role)) return
     if (actor.role === Role.DEAN) {
       if (post.facultyId && post.facultyId === actor.facultyId) return

@@ -533,7 +533,7 @@ describe('UserService — setBlocked', () => {
 
   it('чужой вуз (админ вуза) → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await expect(
       service.setBlocked(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't', true),
     ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
@@ -541,7 +541,7 @@ describe('UserService — setBlocked', () => {
 
   it('платформенный админ блокирует и гасит сессии', async () => {
     const { service, prisma, authService } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true)
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -554,11 +554,62 @@ describe('UserService — setBlocked', () => {
   })
 })
 
+describe('UserService — ранг при мерах модерации', () => {
+  it('модератор вуза не блокирует админа своего вуза', async () => {
+    const { service, prisma, authService } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: 'uni-A',
+      role: Role.UNIVERSITY_ADMIN,
+    })
+    await expect(
+      service.setBlocked(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't', true),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalled()
+  })
+
+  it('модератор платформы не блокирует и не выкидывает из сессий её админа', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: null,
+      role: Role.PLATFORM_ADMIN,
+    })
+    await expect(
+      service.setBlocked(viewer(Role.PLATFORM_MODERATOR), 't', true),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      service.revokeSessions(viewer(Role.PLATFORM_MODERATOR), 't'),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+  })
+
+  it('равный по роли тоже под защитой: админ вуза не предупреждает другого админа', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: 'uni-A',
+      role: Role.UNIVERSITY_ADMIN,
+    })
+    await expect(
+      service.warn(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't'),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('свои сессии завершить можно всегда', async () => {
+    const { service, authService } = setup()
+    await service.revokeSessions(viewer(Role.UNIVERSITY_MODERATOR, {}, 'me'), 'me')
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('me')
+  })
+})
+
 // ── Предупреждение и временная блокировка ───────────────────────────────────
 describe('UserService — предупреждение', () => {
   it('чужой вуз (модератор вуза) → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await expect(
       service.warn(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't'),
     ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
@@ -567,7 +618,7 @@ describe('UserService — предупреждение', () => {
   // Предупреждение, о котором человек не узнал, — это не мера, а запись в базе.
   it('уведомляет предупреждённого и возвращает счётчик', async () => {
     const { service, prisma, queue } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.moderationWarning.count.mockResolvedValue(2)
 
     await expect(service.warn(viewer(Role.PLATFORM_ADMIN), 't', 'c1')).resolves.toEqual({
@@ -579,7 +630,7 @@ describe('UserService — предупреждение', () => {
   // Комментарий к решению — внутренняя записка модератора: её писали не нарушителю.
   it('не пересылает нарушителю внутренний текст', async () => {
     const { service, prisma, queue } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await service.warn(viewer(Role.PLATFORM_ADMIN), 't', 'c1')
     const payload = queue.enqueue.mock.calls[0][2]
     expect(payload.data).toEqual({ warningId: 'w1' })
@@ -587,7 +638,7 @@ describe('UserService — предупреждение', () => {
 
   it('доступ ни у кого не отбирает', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await service.warn(viewer(Role.PLATFORM_ADMIN), 't')
     expect(prisma.user.update).not.toHaveBeenCalled()
   })
@@ -596,7 +647,7 @@ describe('UserService — предупреждение', () => {
 describe('UserService — временная блокировка', () => {
   it('со сроком пишет blockedUntil', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
     const until = new Date('2026-10-01T00:00:00.000Z')
 
@@ -611,7 +662,7 @@ describe('UserService — временная блокировка', () => {
   // оставлять в карточке срок, которого больше нет.
   it('разблокировка стирает срок', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
 
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', false)
