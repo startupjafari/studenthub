@@ -14,6 +14,7 @@ function setup() {
     enableTwoFactor: jest.fn().mockResolvedValue(undefined),
     disableTwoFactor: jest.fn().mockResolvedValue(undefined),
     setBackupCodes: jest.fn().mockResolvedValue(undefined),
+    consumeBackupCode: jest.fn().mockResolvedValue(true),
   }
   const crypto = {
     encrypt: jest.fn((s: string) => `enc(${s})`),
@@ -23,12 +24,35 @@ function setup() {
     hash: jest.fn(async (s: string) => `hash:${s}`),
     compare: jest.fn(async (plain: string, hash: string) => hash === `hash:${plain}`),
   }
+  // Redis как Map: использованные шаги TOTP и счётчик неверных кодов.
+  const store = new Map<string, string>()
+  const redis = {
+    set: jest.fn(async (key: string, value: string, ...args: unknown[]) => {
+      if (args.includes('NX') && store.has(key)) return null
+      store.set(key, value)
+      return 'OK'
+    }),
+    get: jest.fn(async (key: string) => store.get(key) ?? null),
+    del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
+    multi: jest.fn(() => {
+      const chain = {
+        incr: (key: string) => {
+          store.set(key, String(Number(store.get(key) ?? 0) + 1))
+          return chain
+        },
+        expire: () => chain,
+        exec: async () => [],
+      }
+      return chain
+    }),
+  }
   const service = new TwoFactorService(
     users as unknown as UserService,
     crypto as unknown as CryptoService,
     passwords as unknown as PasswordService,
+    redis as unknown as import('ioredis').default,
   )
-  return { service, users, crypto, passwords }
+  return { service, users, crypto, passwords, redis, store }
 }
 
 function loginRecord(over: Partial<TwoFactorLoginRecord> = {}): TwoFactorLoginRecord {
@@ -133,8 +157,38 @@ describe('TwoFactorService', () => {
     const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234', 'hash:EEEE9999'] })
     const ok = await service.verifyCode(rec, 'ABCD1234')
     expect(ok).toBe(true)
-    // Использованный код удаляется из набора.
-    expect(users.setBackupCodes).toHaveBeenCalledWith('u1', ['hash:EEEE9999'])
+    // Использованный код сжигается условной записью — не перезаписью всего набора.
+    expect(users.consumeBackupCode).toHaveBeenCalledWith('u1', 'hash:ABCD1234')
+  })
+
+  it('verifyCode: backup-код, уже сожжённый параллельным входом → false', async () => {
+    const { service, users } = setup()
+    users.consumeBackupCode.mockResolvedValue(false)
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    expect(await service.verifyCode(rec, 'ABCD1234')).toBe(false)
+  })
+
+  it('verifyCode: тот же TOTP-код второй раз не принимается', async () => {
+    const { service } = setup()
+    const secret = authenticator.generateSecret()
+    const rec = loginRecord({ twoFactorSecret: `enc(${secret})` })
+    const token = authenticator.generate(secret)
+    expect(await service.verifyCode(rec, token)).toBe(true)
+    expect(await service.verifyCode(rec, token)).toBe(false)
+  })
+
+  it('verifyForUser: после пяти неверных кодов — RATE_LIMIT, даже с верным', async () => {
+    const { service, users } = setup()
+    const secret = authenticator.generateSecret()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorEnabled: true, twoFactorSecret: `enc(${secret})` }),
+    )
+    for (let i = 0; i < 5; i++) {
+      await expect(service.verifyForUser('u1', '000000')).resolves.toBe(false)
+    }
+    await expect(service.verifyForUser('u1', authenticator.generate(secret))).rejects.toMatchObject(
+      { code: 'RATE_LIMIT' },
+    )
   })
 
   it('verifyCode: неверный код → false', async () => {

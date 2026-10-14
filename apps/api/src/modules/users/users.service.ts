@@ -1232,6 +1232,19 @@ export class UserService {
   }
 
   /** Обновить набор backup-кодов (при «сжигании» использованного). */
+  /**
+   * Сжечь backup-код: убрать хэш из набора, только если он там ещё есть. Чтение и запись
+   * набора целиком («прочитать → отфильтровать → записать») давали двум параллельным входам
+   * с одним кодом пройти оба. Возвращает, был ли код списан этим вызовом.
+   */
+  async consumeBackupCode(userId: string, hash: string): Promise<boolean> {
+    const count = await this.prisma.$executeRaw`
+      UPDATE users
+      SET two_factor_backup_codes = array_remove(two_factor_backup_codes, ${hash})
+      WHERE id = ${userId} AND ${hash} = ANY(two_factor_backup_codes)`
+    return count > 0
+  }
+
   async setBackupCodes(userId: string, hashes: string[]): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
