@@ -432,7 +432,15 @@
     "colCompany": "Компания",
     "colFormat": "Формат",
     "colCity": "Город",
-    "colSalary": "Зарплата"
+    "colSalary": "Зарплата",
+    "deadline": "отклик до {date}",
+    "coverLetter": "Сопроводительное письмо",
+    "coverLetterPlaceholder": "Необязательно: почему вам интересна эта вакансия",
+    "coverLetterTooLong": "Не больше 4000 символов",
+    "apply": "Откликнуться",
+    "applied": "Отклик отправлен",
+    "alreadyApplied": "Вы откликнулись:",
+    "goToApplications": "Мои отклики"
   },
   "EmployerVacancies": {
     "title": "Вакансии",
@@ -474,7 +482,10 @@
     "statusOffer": "Оффер",
     "statusHired": "Принят",
     "statusRejected": "Отказ",
-    "statusWithdrawn": "Отозван"
+    "statusWithdrawn": "Отозван",
+    "history": "История",
+    "historyHide": "Скрыть историю",
+    "historyEmpty": "Изменений пока не было"
   },
   "CareerHome": {
     "statsActive": "Активные отклики",

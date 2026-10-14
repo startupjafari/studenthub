@@ -432,7 +432,15 @@
     "colCompany": "Company",
     "colFormat": "Format",
     "colCity": "City",
-    "colSalary": "Salary"
+    "colSalary": "Salary",
+    "deadline": "apply by {date}",
+    "coverLetter": "Cover letter",
+    "coverLetterPlaceholder": "Optional: why this role interests you",
+    "coverLetterTooLong": "No more than 4000 characters",
+    "apply": "Apply",
+    "applied": "Application sent",
+    "alreadyApplied": "You applied:",
+    "goToApplications": "My applications"
   },
   "EmployerVacancies": {
     "title": "Jobs",
@@ -474,7 +482,10 @@
     "statusOffer": "Offer",
     "statusHired": "Hired",
     "statusRejected": "Rejected",
-    "statusWithdrawn": "Withdrawn"
+    "statusWithdrawn": "Withdrawn",
+    "history": "History",
+    "historyHide": "Hide history",
+    "historyEmpty": "No changes yet"
   },
   "CareerHome": {
     "statsActive": "Active applications",
