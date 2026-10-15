@@ -63,3 +63,62 @@ describe('AuthService: refresh-токен без верного секрета',
     )
   })
 })
+
+// Окно грации меряется от прихода запроса: долгий bcrypt не должен выталкивать честный
+// повтор за окно (на раннере CI сравнение хэша занимало больше всего окна в 300 мс).
+describe('AuthService: окно грации считается до сверки секрета', () => {
+  it('повтор ротированного токена внутри окна не рвёт цепочку, даже если bcrypt долгий', async () => {
+    let now = 1_000_000
+    const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      const record = {
+        id: 'rt-1',
+        userId: 'u1',
+        familyId: 'fam-1',
+        tokenHash: 'hash:good',
+        revokedAt: new Date(now - 100), // ротирован 100 мс назад
+        expiresAt: new Date(now + 86_400_000),
+      }
+      const prisma = {
+        refreshToken: {
+          findUnique: jest.fn().mockResolvedValue(record),
+          count: jest.fn().mockResolvedValue(1), // преемник жив
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+      }
+      const passwords = {
+        // Сравнение «идёт» 500 мс — дольше окна в 300 мс.
+        compare: jest.fn(async (plain: string, hash: string) => {
+          now += 500
+          return hash === `hash:${plain}`
+        }),
+      }
+      const audit = { record: jest.fn() }
+      // Дальше грации тест не идёт: пользователь «недоступен» — это отдельная ветка ответа.
+      const users = { findByIdForAuth: jest.fn().mockResolvedValue(null) }
+      const service = new AuthService(
+        prisma as never,
+        {} as never,
+        { get: jest.fn((k: string) => (k === 'REFRESH_REUSE_GRACE_MS' ? 300 : 0)) } as never,
+        audit as never,
+        passwords as unknown as PasswordService,
+        users as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      )
+
+      const err = await service.refresh('rt-1.good', {}).catch((e) => e)
+
+      expect(err.message).toBe('Учётная запись недоступна')
+      expect(audit.record).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'refresh_reuse_detected' }),
+      )
+    } finally {
+      dateSpy.mockRestore()
+    }
+  })
+})

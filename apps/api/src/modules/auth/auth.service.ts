@@ -336,6 +336,11 @@ export class AuthService {
       throw new AppException('UNAUTHORIZED', 'Сессия не найдена')
     }
 
+    // Попал ли повтор в окно грации — решаем по моменту прихода запроса, до сверки секрета:
+    // bcrypt занимает сотни миллисекунд, и, считай мы окно после него, честный повтор мог
+    // вылететь за окно только из-за собственной проверки.
+    const reuseInGrace = await this.withinReuseGrace(record)
+
     // Секрет — до детектора повтора: иначе одного id (без секрета) хватало, чтобы объявить
     // «повтор» и погасить чужую цепочку сессий.
     const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
@@ -351,7 +356,6 @@ export class AuthService {
     // до клиента не доехала, и он честно повторяет обмен старым токеном. Рвать за это сессию
     // значит выкидывать пользователя на ровном месте. В окне выдаём новую ротацию в той же цепочке,
     // оставляя ровно один живой токен. Ширина окна — REFRESH_REUSE_GRACE_MS (0 отключает).
-    const reuseInGrace = await this.withinReuseGrace(record)
     if (record.revokedAt && !reuseInGrace) {
       await this.revokeFamily(record.familyId)
       await this.audit.record({
