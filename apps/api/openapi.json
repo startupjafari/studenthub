@@ -118,6 +118,36 @@
         ]
       }
     },
+    "/auth/qr/preview": {
+      "post": {
+        "operationId": "AuthController_qrPreview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QrApproveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "QR-сессия не найдена, истекла или уже подтверждена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Кто просит вход по QR: браузер, ОС и сеть устройства (до подтверждения)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/qr/approve": {
       "post": {
         "operationId": "AuthController_qrApprove",
@@ -193,6 +223,71 @@
           }
         },
         "summary": "Регистрация по инвайту (роль и scope — из инвайта)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/password/forgot": {
+      "post": {
+        "operationId": "AuthController_forgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Если адрес зарегистрирован — письмо ушло"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Прислать ссылку для сброса пароля (публично)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/password/reset": {
+      "post": {
+        "operationId": "AuthController_resetPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Пароль изменён, все сессии погашены"
+          },
+          "400": {
+            "description": "BAD_REQUEST — ссылка недействительна или устарела"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — пароль не по политике"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Задать новый пароль по ссылке из письма (публично)",
         "tags": [
           "Auth"
         ]
@@ -647,7 +742,44 @@
             "description": ""
           }
         },
-        "summary": "Статус присутствия пользователя (в сети / не в сети)",
+        "summary": "Статус присутствия (в сети / не в сети): человек своего вуза или друг",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/{id}/academic": {
+      "patch": {
+        "operationId": "UsersController_updateAcademic",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAcademicRecordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Профиль студента"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — студент вне области"
+          }
+        },
+        "summary": "Учебные данные студента (декан своего факультета, админ своего вуза)",
         "tags": [
           "Пользователи"
         ]
@@ -1748,6 +1880,38 @@
       }
     },
     "/specialties/{id}": {
+      "patch": {
+        "operationId": "SpecialtiesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSpecialtyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Переименовать специальность (админ вуза, только своего вуза)",
+        "tags": [
+          "Специальности"
+        ]
+      },
       "delete": {
         "operationId": "SpecialtiesController_remove",
         "parameters": [
@@ -5014,6 +5178,37 @@
         ]
       }
     },
+    "/career/companies/resend-verification": {
+      "post": {
+        "operationId": "CompaniesController_resendVerification",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendCompanyVerificationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Если компания ждёт подтверждения — письмо ушло"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Отправить письмо с подтверждением email компании ещё раз (публично)",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
     "/career/companies/me": {
       "get": {
         "operationId": "CompaniesController_myCompany",
@@ -6031,7 +6226,155 @@
         ]
       }
     },
+    "/application-categories/manage": {
+      "get": {
+        "operationId": "ApplicationServicesController_manageCategories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Все активные категории — для формы услуги",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services/manage": {
+      "get": {
+        "operationId": "ApplicationServicesController_manageList",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Услуги для управления: свои услуги вуза и шаблоны платформы (у админа платформы — шаблоны)",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services/manage/{id}": {
+      "get": {
+        "operationId": "ApplicationServicesController_manageGet",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — услуга другого вуза или не существует"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Услуга для редактора: требования и поля формы, признак editable",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services": {
+      "post": {
+        "operationId": "ApplicationServicesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertApplicationServiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Создано: { id }"
+          },
+          "409": {
+            "description": "CONFLICT — код уже занят"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать услугу: у админа вуза — в своём вузе, у админа платформы — шаблон",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
     "/application-services/{id}": {
+      "put": {
+        "operationId": "ApplicationServicesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertApplicationServiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Сохранено: { id }"
+          },
+          "403": {
+            "description": "FORBIDDEN — шаблон платформы правит только её админ"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сохранить услугу целиком; убранные требования и поля выключаются, а не удаляются",
+        "tags": [
+          "Услуги университета"
+        ]
+      },
       "get": {
         "operationId": "ApplicationServicesController_service",
         "parameters": [
@@ -6055,6 +6398,38 @@
           }
         ],
         "summary": "Детали услуги: описание, требования-документы, поля формы",
+        "tags": [
+          "Услуги университета"
+        ]
+      }
+    },
+    "/application-services/{id}/customize": {
+      "post": {
+        "operationId": "ApplicationServicesController_customize",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Копия создана: { id }"
+          },
+          "409": {
+            "description": "CONFLICT — копия уже есть"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Настроить шаблон для своего вуза: копия с тем же кодом заменяет шаблон",
         "tags": [
           "Услуги университета"
         ]
@@ -6532,6 +6907,35 @@
           }
         ],
         "summary": "Взять в работу (SUBMITTED/RESUBMITTED → IN_REVIEW, назначить на себя)",
+        "tags": [
+          "Заявки"
+        ]
+      }
+    },
+    "/applications/{id}/assignees": {
+      "get": {
+        "operationId": "ApplicationsController_assignees",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Кому можно поручить заявку: сотрудники, вправе её обработать",
         "tags": [
           "Заявки"
         ]
@@ -10433,12 +10837,25 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinChatByInviteDto"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Присоединён (идемпотентно)"
           },
           "403": {
-            "description": "WRONG_SCOPE — чат не является пользовательской группой"
+            "description": "FORBIDDEN — заблокирован в чате или работодатель"
+          },
+          "404": {
+            "description": "NOT_FOUND — приглашение недействительно"
           }
         },
         "security": [
@@ -10446,7 +10863,65 @@
             "bearer": []
           }
         ],
-        "summary": "Присоединиться к группе по ссылке-приглашению",
+        "summary": "Присоединиться к группе по ссылке-приглашению (с кодом из ссылки)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/invite": {
+      "get": {
+        "operationId": "ChatsController_inviteCode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ code }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Код ссылки-приглашения группы (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/invite/reset": {
+      "post": {
+        "operationId": "ChatsController_resetInvite",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ code }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сменить код ссылки-приглашения (прежняя ссылка перестаёт работать)",
         "tags": [
           "Чаты"
         ]
@@ -11540,6 +12015,118 @@
           }
         ],
         "summary": "Участники события (организатор/админ)",
+        "tags": [
+          "События"
+        ]
+      }
+    },
+    "/events/{id}/comments": {
+      "get": {
+        "operationId": "EventsController_comments",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Последние комментарии, по порядку написания"
+          },
+          "404": {
+            "description": "NOT_FOUND — событие не видно"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Комментарии к событию (видны всей аудитории события)",
+        "tags": [
+          "События"
+        ]
+      },
+      "post": {
+        "operationId": "EventsController_addComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEventCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Комментарий создан"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прокомментировать событие",
+        "tags": [
+          "События"
+        ]
+      }
+    },
+    "/events/{id}/comments/{commentId}": {
+      "delete": {
+        "operationId": "EventsController_removeComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалён"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить комментарий (автор, организатор, админ или модератор)",
         "tags": [
           "События"
         ]
@@ -14437,6 +15024,14 @@
         "type": "object",
         "properties": {}
       },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
       "TwoFactorEnableDto": {
         "type": "object",
         "properties": {}
@@ -14454,6 +15049,10 @@
         "properties": {}
       },
       "ChangePasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateAcademicRecordDto": {
         "type": "object",
         "properties": {}
       },
@@ -14530,6 +15129,10 @@
         "properties": {}
       },
       "CreateSpecialtyDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateSpecialtyDto": {
         "type": "object",
         "properties": {}
       },
@@ -14685,6 +15288,10 @@
         "type": "object",
         "properties": {}
       },
+      "ResendCompanyVerificationDto": {
+        "type": "object",
+        "properties": {}
+      },
       "UpdateCompanyDto": {
         "type": "object",
         "properties": {}
@@ -14726,6 +15333,10 @@
         "properties": {}
       },
       "UpdateResumeDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpsertApplicationServiceDto": {
         "type": "object",
         "properties": {}
       },
@@ -14917,6 +15528,10 @@
         "type": "object",
         "properties": {}
       },
+      "JoinChatByInviteDto": {
+        "type": "object",
+        "properties": {}
+      },
       "AddChatMemberDto": {
         "type": "object",
         "properties": {}
@@ -14950,6 +15565,10 @@
         "properties": {}
       },
       "UpdateEventDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateEventCommentDto": {
         "type": "object",
         "properties": {}
       },

@@ -25,6 +25,12 @@ function setup() {
       create: jest.fn(),
       deleteMany: jest.fn(),
     },
+    eventComment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
+      create: jest.fn().mockResolvedValue({ id: 'c-new' }),
+      update: jest.fn(),
+    },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
@@ -36,7 +42,7 @@ function setup() {
     audit as unknown as AuditService,
     queue as unknown as QueueService,
   )
-  return { service, prisma, queue }
+  return { service, prisma, queue, audit }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -149,6 +155,25 @@ describe('EventsService — управление и регистрация', () 
     expect(res.id).toBe('e1')
   })
 
+  it('перенос начала сбрасывает отметку о напоминании, правка текста — нет', async () => {
+    const { service, prisma } = setup()
+    const startsAt = new Date('2026-11-01T10:00:00.000Z')
+    prisma.event.findUnique.mockResolvedValue({
+      id: 'e1',
+      organizerId: 'u1',
+      startsAt,
+      endsAt: null,
+    })
+    prisma.event.update.mockResolvedValue({ id: 'e1' })
+    const organizer = user(Role.STUDENT, { sub: 'u1' })
+
+    await service.update(organizer, 'e1', { title: 'x' }, ctx)
+    expect(prisma.event.update.mock.calls[0][0].data).not.toHaveProperty('reminderSentAt')
+
+    await service.update(organizer, 'e1', { startsAt: '2026-11-02T10:00:00.000Z' } as never, ctx)
+    expect(prisma.event.update.mock.calls[1][0].data.reminderSentAt).toBeNull()
+  })
+
   it('регистрация идемпотентна (P2002 не ошибка)', async () => {
     const { service, prisma } = setup()
     prisma.event.findFirst.mockResolvedValue({
@@ -172,14 +197,17 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
   it('шлёт job участникам и помечает reminderSentAt', async () => {
     const { service, prisma, queue } = setup()
     prisma.event.findMany
-      .mockResolvedValueOnce([{ id: 'e1', title: 'Событие' }])
+      .mockResolvedValueOnce([{ id: 'e1', title: 'Событие', startsAt: new Date(1_000_000) }])
       .mockResolvedValueOnce([])
     prisma.eventParticipant.findMany.mockResolvedValue([{ userId: 'u2' }, { userId: 'u3' }])
     const n = await service.remindDue()
     expect(n).toBe(1)
     const job = queue.enqueue.mock.calls[0][2]
     expect(job.type).toBe('EVENT')
-    expect(job.dedupeKey).toBe('event-reminder:e1')
+    // Время начала в ключе: перенесённое событие напомнит о себе заново.
+    expect(job.dedupeKey).toBe('event-reminder:e1:1000000')
+    // Напоминание ведёт в карточку этого события, а не в общий список.
+    expect(job.data.url).toBe('/events/e1')
     expect(new Set(job.recipientIds)).toEqual(new Set(['u2', 'u3']))
     expect(prisma.event.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -319,5 +347,95 @@ describe('EventsService.create — встреча (Ф14.5)', () => {
       meetingProvider: null,
       meetingPasscode: null,
     })
+  })
+})
+
+describe('EventsService — комментарии (§3.5)', () => {
+  const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
+
+  it('чужое (невидимое) событие — NOT_FOUND и для чтения, и для записи', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue(null)
+    const viewer = user(Role.STUDENT, { groupId: 'g1' })
+    await expect(service.listComments(viewer, 'e1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(service.addComment(viewer, 'e1', { content: 'Вопрос' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(prisma.eventComment.create).not.toHaveBeenCalled()
+  })
+
+  it('отдаёт последние комментарии по порядку написания', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ id: 'e1' })
+    prisma.eventComment.findMany.mockResolvedValue([{ id: 'c3' }, { id: 'c2' }])
+    const rows = await service.listComments(user(Role.STUDENT, { groupId: 'g1' }), 'e1')
+    expect(rows.map((r: { id: string }) => r.id)).toEqual(['c2', 'c3'])
+    expect(prisma.eventComment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { eventId: 'e1', deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      }),
+    )
+  })
+
+  it('автор удаляет свой комментарий мягко и без записи в аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'u1',
+      event: { universityId: 'uni-1' },
+    })
+    await service.removeComment(user(Role.STUDENT, { sub: 'u1' }), 'e1', 'c1', ctx)
+    expect(prisma.eventComment.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { deletedAt: expect.any(Date) },
+    })
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('организатор удаляет чужой комментарий — с записью в аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'someone',
+      event: { universityId: 'uni-1' },
+    })
+    prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
+    await service.removeComment(user(Role.TEACHER, { sub: 'org-1' }), 'e1', 'c1', ctx)
+    expect(prisma.eventComment.update).toHaveBeenCalled()
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'event_comment_deleted' }),
+    )
+  })
+
+  it('модератор вуза удаляет комментарий под событием своего вуза', async () => {
+    const { service, prisma } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'someone',
+      event: { universityId: 'uni-1' },
+    })
+    prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
+    await service.removeComment(
+      user(Role.UNIVERSITY_MODERATOR, { sub: 'mod-1', universityId: 'uni-1' }),
+      'e1',
+      'c1',
+      ctx,
+    )
+    expect(prisma.eventComment.update).toHaveBeenCalled()
+  })
+
+  it('посторонний чужой комментарий не удалит', async () => {
+    const { service, prisma } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'someone',
+      event: { universityId: 'uni-1' },
+    })
+    prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
+    await expect(
+      service.removeComment(user(Role.STUDENT, { sub: 'u9' }), 'e1', 'c1', ctx),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.eventComment.update).not.toHaveBeenCalled()
   })
 })

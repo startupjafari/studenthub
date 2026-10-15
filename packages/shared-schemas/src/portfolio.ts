@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { httpUrl } from './url.js'
 
 // Портфолио (docs/ACADEMIC_CORE.md, задача 21). Вид записи и видимость — строки (SSOT здесь).
 export const PORTFOLIO_KINDS = [
@@ -24,7 +25,7 @@ export const CreatePortfolioItemSchema = z
     title: z.string().min(1).max(200),
     organization: z.string().max(200).optional(),
     description: z.string().max(2000).optional(),
-    url: z.string().url().max(500).optional(),
+    url: httpUrl(500).optional(),
     startDate: isoDate.optional(),
     endDate: isoDate.optional(),
     visibility: PortfolioVisibilitySchema.optional(),
@@ -42,7 +43,7 @@ export const UpdatePortfolioItemSchema = z
     title: z.string().min(1).max(200).optional(),
     organization: z.string().max(200).nullish(),
     description: z.string().max(2000).nullish(),
-    url: z.string().url().max(500).nullish(),
+    url: httpUrl(500).nullish(),
     startDate: isoDate.nullish(),
     endDate: isoDate.nullish(),
     visibility: PortfolioVisibilitySchema.optional(),

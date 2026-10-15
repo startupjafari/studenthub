@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
-import { InviteStatus } from '@prisma/client'
+import { InviteStatus, type Prisma } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -42,8 +42,10 @@ const LOCK_TTL_MS = {
   deliverScheduledMessages: 55 * 1000,
   sweepDocumentExpiry: 15 * 60 * 1000,
   expireInvites: 10 * 60 * 1000,
+  purgePasswordResetTokens: 10 * 60 * 1000,
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
+  cleanDetachedFiles: 10 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
   sweepIncompleteUploads: 60 * 60 * 1000,
   sendDailyDigest: 10 * 60 * 1000,
@@ -260,6 +262,30 @@ export class CleanupService {
     return total
   }
 
+  // Ссылки сброса пароля, истёкшие или использованные больше суток назад. Ежедневно, 03:15.
+  // Сутки запаса — чтобы по свежей строке можно было разобрать жалобу «ссылка не сработала».
+  @Cron('15 3 * * *', { name: 'purgePasswordResetTokens' })
+  async purgePasswordResetTokens(): Promise<number | null> {
+    return this.locks.run('purgePasswordResetTokens', LOCK_TTL_MS.purgePasswordResetTokens, () =>
+      this.purgePasswordResetTokensTask(),
+    )
+  }
+
+  private async purgePasswordResetTokensTask(): Promise<number> {
+    const cutoff = new Date(Date.now() - DAY_MS)
+    const total = await this.deleteInBatches(
+      () =>
+        this.prisma.passwordResetToken.findMany({
+          where: { OR: [{ expiresAt: { lt: cutoff } }, { usedAt: { lt: cutoff } }] },
+          select: { id: true },
+          take: BATCH_SIZE,
+        }),
+      (ids) => this.prisma.passwordResetToken.deleteMany({ where: { id: { in: ids } } }),
+    )
+    this.logger.log(`purgePasswordResetTokens: удалено ${total}`)
+    return total
+  }
+
   // Прочитанные уведомления старше 30 дней. Еженедельно (вс, 02:00).
   @Cron('0 2 * * 0', { name: 'cleanOldNotifications' })
   async cleanOldNotifications(): Promise<number | null> {
@@ -303,6 +329,48 @@ export class CleanupService {
       (ids) => this.prisma.auditLog.deleteMany({ where: { id: { in: ids } } }),
     )
     this.logger.log(`cleanAuditLogs: удалено ${total}`)
+    return total
+  }
+
+  // Записи File, потерявшие владельца. Ежедневно, 03:45 — перед чисткой сирот.
+  @Cron('45 3 * * *', { name: 'cleanDetachedFiles' })
+  async cleanDetachedFiles(): Promise<number | null> {
+    return this.locks.run('cleanDetachedFiles', LOCK_TTL_MS.cleanDetachedFiles, () =>
+      this.cleanDetachedFilesTask(),
+    )
+  }
+
+  /**
+   * Вложения чатов и файлы материалов создаются сразу привязанными (`messageId`,
+   * `materialId`), а связь объявлена `onDelete: SetNull`. Удалили чат или материал — строка
+   * File остаётся без владельца, и `cleanOrphanFiles` её объект не трогает: он убирает только
+   * объекты БЕЗ строки. Так вложения удалённых чатов лежали в хранилище вечно.
+   *
+   * Здесь удаляются такие строки; их объекты снимет `cleanOrphanFiles` в 04:00. Бакеты —
+   * только эти два: в остальных (аватары, медиа профиля) строка без связей — норма.
+   */
+  private async cleanDetachedFilesTask(): Promise<number> {
+    const targets: Prisma.FileWhereInput[] = [
+      { bucket: this.config.get('MINIO_BUCKET_CHAT', { infer: true }), messageId: null },
+      { bucket: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), materialId: null },
+    ]
+    let total = 0
+    for (const where of targets) {
+      for (;;) {
+        const batch = await this.prisma.file.findMany({
+          where,
+          select: { id: true },
+          take: BATCH_SIZE,
+        })
+        if (batch.length === 0) break
+        const { count } = await this.prisma.file.deleteMany({
+          where: { id: { in: batch.map((f) => f.id) } },
+        })
+        total += count
+        if (batch.length < BATCH_SIZE) break
+      }
+    }
+    this.logger.log(`cleanDetachedFiles: удалено записей ${total}`)
     return total
   }
 

@@ -131,7 +131,14 @@ export function CourseAdminView() {
       qc.invalidateQueries({ queryKey: courseKeys.all })
       toast.success(t('deleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    // CONFLICT у дисциплины — на ней оценки, работы или результаты экзаменов; у предмета и
+    // семестра — на них ещё ссылаются дисциплины. Причина разная, текст тоже.
+    onError: (e, task) => {
+      const code = toApiError(e).code
+      toast.error(
+        code === 'CONFLICT' && task.kind === 'course' ? t('deleteCourseHasRecords') : tErr(code),
+      )
+    },
   })
 
   const courseRows = courses.data?.items ?? []

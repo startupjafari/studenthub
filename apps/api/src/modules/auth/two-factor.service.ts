@@ -1,6 +1,8 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { randomBytes } from 'node:crypto'
+import type Redis from 'ioredis'
 import { authenticator } from 'otplib'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { AppException } from '../../common/exceptions/app.exception'
 import { CryptoService } from '../../common/security/crypto.service'
@@ -9,6 +11,13 @@ import { UserService, type TwoFactorLoginRecord } from '../users/users.service'
 
 const ISSUER = 'StudentHub'
 const BACKUP_CODES_COUNT = 10
+const TOTP_STEP_SEC = 30
+// Использованный шаг помним дольше окна проверки (±1 шаг): повтор кода внутри окна отсекается.
+const USED_STEP_TTL_SEC = 4 * TOTP_STEP_SEC
+// Подтверждение действия и отключение 2FA: столько неверных кодов за окно — и проверка
+// закрыта до конца окна. У входа свой счётчик (три попытки на challenge).
+const CONFIRM_MAX_FAILS = 5
+const CONFIRM_FAIL_WINDOW_SEC = 15 * 60
 
 export interface TwoFactorSetup {
   secret: string
@@ -24,6 +33,7 @@ export class TwoFactorService {
     @Inject(forwardRef(() => UserService)) private readonly users: UserService,
     private readonly crypto: CryptoService,
     private readonly passwords: PasswordService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     // Допускаем расхождение часов на ±1 шаг (30 с) — стандартная практика.
     authenticator.options = { window: 1 }
@@ -93,7 +103,7 @@ export class TwoFactorService {
     if (!rec?.twoFactorEnabled) {
       throw new AppException('BAD_REQUEST', 'Двухфакторная аутентификация не включена')
     }
-    const ok = await this.verifyCode(rec, code)
+    const ok = await this.verifyWithLimit(userId, () => this.verifyCode(rec, code))
     if (!ok) {
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
@@ -110,7 +120,33 @@ export class TwoFactorService {
   async verifyForUser(userId: string, code: string): Promise<boolean> {
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec?.twoFactorEnabled) return false
-    return this.verifyCode(rec, code)
+    return this.verifyWithLimit(userId, () => this.verifyCode(rec, code))
+  }
+
+  /**
+   * Счётчик неверных кодов на пользователя. Без него подтверждение действия и отключение
+   * 2FA перебирались под общим лимитом 100 запросов в минуту — миллион кодов за пару недель
+   * с одной сессии. Redis недоступен — проверяем без счётчика: запереть админов из-за сбоя
+   * кэша хуже.
+   */
+  private async verifyWithLimit(userId: string, check: () => Promise<boolean>): Promise<boolean> {
+    const key = `2fa:confirm-fails:${userId}`
+    const fails = Number((await this.redis.get(key).catch(() => null)) ?? 0)
+    if (fails >= CONFIRM_MAX_FAILS) {
+      throw new AppException('RATE_LIMIT', 'Слишком много неверных кодов — попробуйте позже')
+    }
+    const ok = await check()
+    if (ok) {
+      await this.redis.del(key).catch(() => undefined)
+    } else {
+      await this.redis
+        .multi()
+        .incr(key)
+        .expire(key, CONFIRM_FAIL_WINDOW_SEC)
+        .exec()
+        .catch(() => undefined)
+    }
+    return ok
   }
 
   /**
@@ -121,17 +157,40 @@ export class TwoFactorService {
     if (/^\d{6}$/.test(code)) {
       if (!rec.twoFactorSecret) return false
       const secret = this.crypto.decrypt(rec.twoFactorSecret)
-      return authenticator.verify({ token: code, secret })
+      const delta = authenticator.checkDelta(code, secret)
+      if (delta === null) return false
+      return this.claimStep(rec.id, Math.floor(Date.now() / 1000 / TOTP_STEP_SEC) + delta)
     }
-    // Backup-код: ищем совпадающий хэш; при успехе удаляем его из набора (одноразовость).
+    // Backup-код: ищем совпадающий хэш и сжигаем его условной записью — из двух
+    // одновременных входов с одним кодом пройдёт один.
     for (const hash of rec.twoFactorBackupCodes) {
       if (await this.passwords.compare(code, hash)) {
-        const remaining = rec.twoFactorBackupCodes.filter((h) => h !== hash)
-        await this.users.setBackupCodes(rec.id, remaining)
-        return true
+        return this.users.consumeBackupCode(rec.id, hash)
       }
     }
     return false
+  }
+
+  /**
+   * TOTP-код одноразовый: шаг, которым уже вошли или подтвердили действие, второй раз не
+   * принимается. Иначе подсмотренный код (плечо, запись экрана) ещё ~90 секунд годился для
+   * нового входа, отключения 2FA или подтверждения опасного действия. `SET NX` атомарен —
+   * из двух одновременных запросов с одним кодом пройдёт один. При недоступном Redis
+   * пропускаем (как было до проверки), чтобы сбой кэша не запирал вход.
+   */
+  private async claimStep(userId: string, step: number): Promise<boolean> {
+    try {
+      const res = await this.redis.set(
+        `2fa:used-step:${userId}:${step}`,
+        '1',
+        'EX',
+        USED_STEP_TTL_SEC,
+        'NX',
+      )
+      return res === 'OK'
+    } catch {
+      return true
+    }
   }
 
   // 8 hex-символов в верхнем регистре (например 3F9A2B7C). Показывается пользователю один раз.

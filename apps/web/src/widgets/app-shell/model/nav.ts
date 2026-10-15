@@ -22,6 +22,7 @@ import {
   Inbox,
   IdCard,
   LayoutDashboard,
+  LifeBuoy,
   ListChecks,
   MessagesSquare,
   Milestone,
@@ -129,6 +130,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     group: 'services',
   },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
+  // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
+  { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
 
   // Коммуникации вуза.
@@ -228,15 +231,20 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'users', href: '/platform-admin/users', icon: Users },
   { key: 'invites', href: '/platform-admin/invites', icon: Send },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },
+  // Обращения в поддержку платформы: раньше их разбирали только в мини-аппе Telegram.
+  { key: 'support', href: '/platform-admin/support', icon: LifeBuoy },
   { key: 'stats', href: '/platform-admin/stats', icon: BarChart3 },
   { key: 'audit', href: '/platform-admin/audit', icon: ScrollText },
   { key: 'documentAccess', href: '/platform-admin/document-access', icon: FolderLock },
+  // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
+  { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
 ]
 
 export const PLATFORM_MODERATOR_NAV: NavItem[] = [
   { key: 'dashboard', href: '/moderator/platform', icon: LayoutDashboard, exact: true },
   { key: 'complaints', href: '/moderator/platform/complaints', icon: ShieldAlert },
+  { key: 'support', href: '/moderator/platform/support', icon: LifeBuoy },
   { key: 'posts', href: '/moderator/platform/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/platform/users', icon: Users },
   { key: 'stats', href: '/moderator/platform/stats', icon: BarChart3 },

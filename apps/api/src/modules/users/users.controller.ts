@@ -16,6 +16,7 @@ import { UpdateUsernameDto } from './dto/update-username.dto'
 import { UserListQueryDto } from './dto/user-list-query.dto'
 import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
 import { BlockUserDto } from './dto/block-user.dto'
+import { UpdateAcademicRecordDto } from './dto/update-academic-record.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -202,9 +203,30 @@ export class UsersController {
   }
 
   @Get(':id/presence')
-  @ApiOperation({ summary: 'Статус присутствия пользователя (в сети / не в сети)' })
-  getPresence(@Param('id') id: string) {
-    return this.users.getPresence(id)
+  @ApiOperation({
+    summary: 'Статус присутствия (в сети / не в сети): человек своего вуза или друг',
+  })
+  getPresence(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.users.getPresenceFor(user, id)
+  }
+
+  @Patch(':id/academic')
+  @Roles(Role.DEAN, Role.UNIVERSITY_ADMIN)
+  @ApiOperation({
+    summary: 'Учебные данные студента (декан своего факультета, админ своего вуза)',
+  })
+  @ApiResponse({ status: 200, description: 'Профиль студента' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — студент вне области' })
+  updateAcademic(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: UpdateAcademicRecordDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.users.updateAcademicRecord(user, id, dto, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
   }
 
   @Patch(':id/block')

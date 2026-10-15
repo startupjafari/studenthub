@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerModule } from '@nestjs/throttler'
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'
 import type Redis from 'ioredis'
 import { SentryModule } from '@sentry/nestjs/setup'
 import { validateEnv, type EnvVars } from './config/env.schema'
 import { CommonModule } from './common/common.module'
+import { UserThrottlerGuard } from './common/guards/user-throttler.guard'
 import { PrismaModule } from './common/prisma/prisma.module'
 import { REDIS_CLIENT } from './common/redis/redis.constants'
 import { ResilientThrottlerStorage } from './common/security/resilient-throttler.storage'
@@ -171,6 +172,6 @@ import { AppController } from './app.controller'
     MiniModule,
   ],
   controllers: [AppController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: UserThrottlerGuard }],
 })
 export class AppModule {}

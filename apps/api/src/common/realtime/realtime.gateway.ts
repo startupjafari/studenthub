@@ -16,6 +16,7 @@ import type { JwtPayload } from '../auth/jwt-payload.type'
 import { TWO_FACTOR_REQUIRED_ROLES } from '../guards/two-factor.guard'
 import type { EnvVars } from '../../config/env.schema'
 import { PrismaService } from '../prisma/prisma.service'
+import { SessionRevocationService } from '../redis/session-revocation.service'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
 const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
@@ -35,6 +36,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly revocation: SessionRevocationService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -44,8 +46,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       return
     }
     try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token)
-      if (!this.isUsableAccessToken(payload)) {
+      const payload = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
+      if (!this.isUsableAccessToken(payload) || (await this.isRevoked(payload))) {
         client.disconnect()
         return
       }
@@ -122,10 +124,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const token = payload?.token
     if (typeof token !== 'string' || token.length === 0) return
     try {
-      const p = await this.jwt.verifyAsync<JwtPayload>(token)
-      // Те же требования, что и в handshake: промежуточный токен 2FA и непройденный
-      // второй фактор не должны продлевать уже открытое соединение.
-      if (!this.isUsableAccessToken(p)) {
+      const p = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
+      // Те же требования, что и в handshake: промежуточный токен 2FA, непройденный
+      // второй фактор и отозванная сессия не должны продлевать уже открытое соединение.
+      if (!this.isUsableAccessToken(p) || (await this.isRevoked(p))) {
         client.disconnect()
         return
       }
@@ -148,6 +150,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    * применяется, и привилегированная роль, которой HTTP отвечает TWO_FACTOR_SETUP_REQUIRED,
    * подключалась бы по WS свободно.
    */
+  /** Токен выдан до отзыва сессий пользователя (блокировка, удаление, смена пароля). */
+  private async isRevoked(payload: JwtPayload & { iat?: number }): Promise<boolean> {
+    if (!(await this.revocation.isRevoked(payload.sub, payload.iat))) return false
+    this.logger.warn(`WS отклонён: сессии пользователя отозваны (user=${payload.sub})`)
+    return true
+  }
+
   private isUsableAccessToken(payload: JwtPayload & { typ?: string }): boolean {
     if (payload.typ) {
       this.logger.warn(`WS отклонён: токен типа ${payload.typ} не является access-токеном`)
@@ -167,6 +176,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    */
   disconnectUser(userId: string): void {
     this.server?.in(`user:${userId}`).disconnectSockets(true)
+  }
+
+  /**
+   * Вывести все сокеты пользователя из комнаты (исключение или бан в чате). Без этого
+   * исключённый, чьё соединение уже было в `chat:<id>`, получал переписку вживую до
+   * переподключения — а злонамеренный клиент просто не переподключался бы.
+   */
+  leaveRoom(userId: string, room: string): void {
+    this.server?.in(`user:${userId}`).socketsLeave(room)
   }
 
   private extractToken(client: Socket): string | null {

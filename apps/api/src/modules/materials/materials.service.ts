@@ -159,7 +159,8 @@ export class MaterialsService {
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     await this.findManageable(actor, id)
-    // Файлы (File.materialId → SetNull) осиротеют и будут удалены cron cleanOrphanFiles.
+    // Файлы (File.materialId → SetNull) отвяжутся: строки снимет cron cleanDetachedFiles,
+    // объекты — следом cleanOrphanFiles.
     await this.prisma.material.delete({ where: { id } })
     await this.audit.record({
       userId: actor.sub,

@@ -117,6 +117,7 @@ model User {
   moderationAreas   String?   @map("moderation_areas")
 
   refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
   invitesCreated       Invite[]                @relation("InviteCreatedBy")
   invitesUsed          Invite[]                @relation("InviteUsedBy")
   demoRequestsReviewed UniversityDemoRequest[] @relation("DemoRequestReviewer")
@@ -166,6 +167,7 @@ model User {
   // События (Ф10): организованные события и участия.
   eventsOrganized     Event[]            @relation("EventOrganizer")
   eventParticipations EventParticipant[]
+  eventComments       EventComment[]     @relation("EventCommentAuthor")
 
   // Жалобы (Ф11): поданные и разрешённые пользователем.
   complaintsReported  Complaint[] @relation("ComplaintReporter")
@@ -253,6 +255,25 @@ model RefreshToken {
   @@index([familyId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// Ссылка «забыли пароль» (docs/PROJECT.md §7.2). Владелец — AuthModule, как и у RefreshToken.
+// В БД только SHA-256 токена: сырой живёт в письме. Ссылка одноразовая (usedAt) и короткая
+// (expiresAt, час); новая просьба гасит прежние неиспользованные. Протухшие строки убирает
+// CleanupService.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model Invite {

@@ -11,6 +11,7 @@ import type {
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
+import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -25,6 +26,12 @@ import { DocumentTypesService } from './document-types.service'
 // схема reorder (30), грантов на документ — единицы; лимит фиксируем в запросе.
 const DOCUMENT_FILES_LIMIT = 30
 const DOCUMENT_ACCESS_LIMIT = 200
+// Кто открывает документ по гранту «Университет»: администрация вуза, не все его люди.
+const UNIVERSITY_GRANT_ROLES: ReadonlySet<Role> = new Set([
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+])
 
 const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
@@ -350,8 +357,16 @@ export class DocumentsService {
     const granteeOr: { granteeType: string; granteeId?: string | null }[] = [
       { granteeType: 'USER', granteeId: actor.sub },
     ]
-    if (actor.facultyId) granteeOr.push({ granteeType: 'DEPARTMENT', granteeId: actor.facultyId })
-    if (actor.universityId && doc.universityId === actor.universityId) {
+    // «Мой факультет (деканат)» и «Университет» — доступ администрации, а не всем людям
+    // факультета или вуза: раньше по такому гранту скан паспорта открывал и однокурсник.
+    if (actor.facultyId && actor.role === Role.DEAN) {
+      granteeOr.push({ granteeType: 'DEPARTMENT', granteeId: actor.facultyId })
+    }
+    if (
+      actor.universityId &&
+      doc.universityId === actor.universityId &&
+      UNIVERSITY_GRANT_ROLES.has(actor.role)
+    ) {
       granteeOr.push({ granteeType: 'UNIVERSITY' })
     }
     const grant = await this.prisma.documentAccess.findFirst({
@@ -456,6 +471,19 @@ export class DocumentsService {
    * выдачи (заявки-услуги, §17). Иначе выданная справка оседала бы в личных документах
    * сотрудника, а студент не находил бы её у себя.
    */
+  /**
+   * Принадлежит ли документ человеку (живой, не удалённый). Для других доменов, которые
+   * ссылаются на документ по id из запроса: без этой проверки id чужого документа
+   * превращался в доступ к его файлу (результат заявки, §3.2).
+   */
+  async isOwnedBy(documentId: string, ownerId: string): Promise<boolean> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, ownerId, deletedAt: null },
+      select: { id: true },
+    })
+    return doc !== null
+  }
+
   async issueToOwner(
     actor: JwtPayload,
     input: {

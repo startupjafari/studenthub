@@ -19,6 +19,7 @@ import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { materialKeys, fetchMaterials } from '../../../entities/material'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import { buildCourses, mergeApiCourses, type CourseNextLesson } from '../lib/build-courses'
+import { MaterialRow } from './material-row'
 
 // «Дисциплины» студента — единое пространство каждого предмета (задача 2).
 export function CoursesView() {
@@ -41,6 +42,16 @@ export function CoursesView() {
     const base = buildCourses(schedule.data.pairs, materials.data ?? [], now)
     return mergeApiCourses(base, apiCourses.data ?? [])
   }, [schedule.data, materials.data, apiCourses.data])
+
+  // Материалы, которые не попали ни в одну дисциплину: без предмета или с предметом, которого
+  // нет в расписании студента. Во вкладке дисциплины их не найти — показываем здесь, иначе
+  // студент не увидел бы их нигде.
+  const otherMaterials = useMemo(() => {
+    // Пока расписание не пришло, дисциплин ещё нет — «прочими» оказались бы все материалы.
+    if (!schedule.data) return []
+    const subjects = new Set(courses.map((c) => c.subject))
+    return (materials.data ?? []).filter((m) => !m.subject || !subjects.has(m.subject))
+  }, [schedule.data, courses, materials.data])
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -103,6 +114,21 @@ export function CoursesView() {
             </Link>
           ))}
         </div>
+      )}
+
+      {otherMaterials.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-heading text-base font-semibold">{t('otherMaterials')}</h2>
+          <Card className="py-0">
+            <CardContent className="p-4">
+              <ul className="flex flex-col gap-1.5">
+                {otherMaterials.map((m) => (
+                  <MaterialRow key={m.id} material={m} locale={locale} t={t} />
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
       )}
     </div>
   )

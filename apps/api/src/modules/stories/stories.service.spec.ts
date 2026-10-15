@@ -406,6 +406,7 @@ describe('StoriesService.remove', () => {
     fileId: 'f-1',
     universityId: 'uni-1',
     facultyId: 'fac-1',
+    author: { role: Role.STUDENT },
   }
 
   it('чужую сторис студент удалить не может', async () => {
@@ -438,6 +439,19 @@ describe('StoriesService.remove', () => {
     expect(prisma.story.delete).toHaveBeenCalledWith({ where: { id: 's1' } })
     expect(files.delete).toHaveBeenCalledWith('f-1')
     expect(audit.record.mock.calls[0][0]).toMatchObject({ action: 'story_deleted' })
+  })
+
+  it('модератор вуза не снимает сторис админа своего вуза (ранг)', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findUnique.mockResolvedValue({
+      ...story,
+      author: { role: Role.UNIVERSITY_ADMIN },
+    })
+    const err = await service
+      .remove(viewer(Role.UNIVERSITY_MODERATOR, { sub: 'm1', universityId: 'uni-1' }), 's1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.story.delete).not.toHaveBeenCalled()
   })
 
   it('декан своего факультета удаляет чужую сторис', async () => {

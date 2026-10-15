@@ -10,6 +10,7 @@ import { EmployerSignupSchema, type EmployerSignupInput } from '@studenthub/shar
 import { employerSignup } from '../../../entities/company'
 import { Button, FormAlert, Input, Label } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
+import { ResendVerificationButton } from '../../../features/resend-company-verification'
 
 /**
  * Публичная регистрация работодателя — единственный вход на платформу без приглашения.
@@ -38,9 +39,12 @@ export function EmployerSignupView() {
           <h2 className="text-xl font-semibold">{t('signupSentTitle')}</h2>
           <p className="text-sm text-muted-foreground">{t('signupSentText', { email: sentTo })}</p>
         </div>
-        <Button asChild variant="outline">
-          <Link href="/login">{t('toLogin')}</Link>
-        </Button>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/login">{t('toLogin')}</Link>
+          </Button>
+          <ResendVerificationButton email={sentTo} variant="ghost" />
+        </div>
       </div>
     )
   }

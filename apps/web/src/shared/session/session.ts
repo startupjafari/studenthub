@@ -5,6 +5,7 @@ import { clearAuth, setAccessToken, setAuth, setSessionUser } from '../store/aut
 import type { AuthUser } from '../store/auth-slice'
 import { logoutRequest } from '../api/auth-api'
 import { syncLocaleCookieFromProfile } from '../i18n/locale-cookie'
+import { claimDeviceCache, forgetDeviceData } from './device-data'
 
 // Поля профиля, которые держит стор сессии (остальное читается из кэша `me`).
 function toSessionUser(me: MeResponse): AuthUser {
@@ -19,6 +20,9 @@ export async function establishSession(accessToken: string): Promise<Role> {
   // устройства: там cookie ещё дефолтная, а язык человека уже известен. Перерендер здесь
   // не вызываем — за входом всегда следует переход, он и подхватит.
   syncLocaleCookieFromProfile(me.locale)
+  // До наполнения стора: следующие запросы уже пойдут от нового человека, и офлайн-кэш
+  // прошлого не должен им подвернуться.
+  await claimDeviceCache(me.id)
   store.dispatch(
     setAuth({
       user: toSessionUser(me),
@@ -54,9 +58,10 @@ export async function restoreSession(): Promise<Role | null> {
   }
 }
 
-// Выход: гасим серверную сессию и локальный стор.
+// Выход: стираем данные пользователя с устройства, гасим серверную сессию и локальный стор.
 export async function endSession(): Promise<void> {
   try {
+    await forgetDeviceData()
     await logoutRequest()
   } finally {
     store.dispatch(clearAuth())

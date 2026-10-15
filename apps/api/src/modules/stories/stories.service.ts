@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma, StoryAudience } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
   STORY_TTL_HOURS,
   type CreateStoryInput,
@@ -81,6 +81,7 @@ const STORY_SCOPE_SELECT = {
   fileId: true,
   universityId: true,
   facultyId: true,
+  author: { select: { role: true } },
 } satisfies Prisma.StorySelect
 
 type StoryRow = Prisma.StoryGetPayload<{ select: typeof STORY_SELECT }>
@@ -309,7 +310,7 @@ export class StoriesService {
         reactions: reactionsByStory.get(row.id) ?? [],
         seen: seenIds.has(row.id),
         viewsCount: row.authorId === viewer.sub ? (viewsByStory.get(row.id) ?? 0) : null,
-        canDelete: row.authorId === viewer.sub || this.canModerate(viewer, row),
+        canDelete: row.authorId === viewer.sub || this.canModerate(viewer, row, row.author.role),
       }
     })
   }
@@ -489,7 +490,7 @@ export class StoriesService {
       throw new AppException('NOT_FOUND', 'Сторис не найдена')
     }
     if (story.authorId !== actor.sub) {
-      this.assertModerator(actor, story)
+      this.assertModerator(actor, story, story.author.role)
     }
     await this.prisma.story.delete({ where: { id } })
     if (story.fileId) await this.deleteMedia(story.fileId)
@@ -561,10 +562,13 @@ export class StoriesService {
   }
 
   /** Модерация сторис: платформа — любую; админ/мод вуза — свой вуз; декан — свой факультет. */
+  // Чужую сторис снимает только роль СТРОГО выше автора — как посты (posts.service).
   private canModerate(
     actor: JwtPayload,
     story: { universityId: string | null; facultyId: string | null },
+    authorRole: Role,
   ): boolean {
+    if (!isHigherRole(actor.role, authorRole)) return false
     if (isPlatform(actor.role)) return true
     if (actor.role === Role.DEAN) {
       return Boolean(story.facultyId) && story.facultyId === actor.facultyId
@@ -578,8 +582,12 @@ export class StoriesService {
   private assertModerator(
     actor: JwtPayload,
     story: { universityId: string | null; facultyId: string | null },
+    authorRole: Role,
   ): void {
-    if (this.canModerate(actor, story)) return
+    if (this.canModerate(actor, story, authorRole)) return
+    if (!isHigherRole(actor.role, authorRole)) {
+      throw new AppException('FORBIDDEN', 'Чужой контент снимает только роль выше автора')
+    }
     if (
       actor.role === Role.DEAN ||
       actor.role === Role.UNIVERSITY_ADMIN ||

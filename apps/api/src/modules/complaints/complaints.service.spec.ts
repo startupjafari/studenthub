@@ -26,6 +26,7 @@ function setup() {
     post: { findFirst: jest.fn(), updateMany: jest.fn() },
     story: { findFirst: jest.fn() },
     comment: { findFirst: jest.fn(), updateMany: jest.fn() },
+    chatMember: { findFirst: jest.fn().mockResolvedValue({ id: 'member' }) },
     message: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -379,14 +380,61 @@ describe('ComplaintsService.getMessageContext (11.5)', () => {
     prisma.complaint.findUnique.mockResolvedValue(
       complaint({ targetType: 'MESSAGE', targetId: 'm1' }),
     )
-    prisma.message.findUnique.mockResolvedValue({ chatId: 'chat1' })
+    const at = new Date('2026-10-01T10:00:00Z')
+    prisma.message.findUnique.mockResolvedValue({ chatId: 'chat1', createdAt: at })
     await service.getMessageContext(mod, 'c1', ctx)
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'moderator_chat_access', entityId: 'chat1' }),
     )
+    // Окно вокруг обжалованного сообщения, а не начало чата.
     expect(prisma.message.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { chatId: 'chat1' } }),
+      expect.objectContaining({ where: { chatId: 'chat1', createdAt: { lte: at } } }),
     )
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { chatId: 'chat1', createdAt: { gt: at } } }),
+    )
+  })
+
+  it('у удалённых соседних сообщений текста нет, у обжалованного — есть', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(
+      complaint({ targetType: 'MESSAGE', targetId: 'm1' }),
+    )
+    const at = new Date('2026-10-01T10:00:00Z')
+    prisma.message.findUnique.mockResolvedValue({ chatId: 'chat1', createdAt: at })
+    prisma.message.findMany
+      .mockResolvedValueOnce([
+        { id: 'm1', content: 'угроза', deletedAt: at },
+        { id: 'm0', content: 'личное', deletedAt: at },
+      ])
+      .mockResolvedValueOnce([])
+    const rows = (await service.getMessageContext(mod, 'c1', ctx)) as Array<{
+      id: string
+      content: string | null
+    }>
+    expect(rows.find((r) => r.id === 'm1')?.content).toBe('угроза')
+    expect(rows.find((r) => r.id === 'm0')?.content).toBeNull()
+  })
+})
+
+describe('ComplaintsService.create — жалоба на сообщение', () => {
+  it('не участник чата пожаловаться не может — ответ как у несуществующего', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({ senderId: 's1', sender: { universityId: 'uni1' } })
+    prisma.chatMember.findFirst.mockResolvedValue(null)
+    const err = await service
+      .create(
+        user(Role.STUDENT, { universityId: 'uni1' }),
+        {
+          targetType: 'MESSAGE',
+          targetId: 'm1',
+          reason: 'спам',
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
   })
 })
 

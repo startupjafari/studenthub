@@ -46,6 +46,8 @@ function setup(
       : jest.fn().mockResolvedValue({ size: options.size ?? 20 * 1024 * 1024 }),
     getPartialObject: jest.fn().mockResolvedValue(Readable.from([options.head ?? PDF])),
     removeObject: jest.fn().mockResolvedValue(undefined),
+    // Закрепление типа по содержимому на confirm (copyObject объекта в самого себя).
+    copyObject: jest.fn().mockResolvedValue({ etag: 'c' }),
     presignedPutObject: jest.fn().mockResolvedValue('http://minio/put?sig=1'),
     presignedUrl: jest
       .fn()
@@ -102,6 +104,35 @@ describe('FileService.confirmDirectUpload', () => {
 
     expect(file.mime).toBe('application/pdf')
     expect(file.size).toBe(20 * 1024 * 1024)
+  })
+
+  it('тип объекта в хранилище перезаписывается определённым по содержимому', async () => {
+    // Клиент при PUT мог заявить text/html для файла, начинающегося как PDF: без этого
+    // такой «PDF» открывался бы в браузере страницей на домене хранилища.
+    const { service, minio } = setup({ head: PDF })
+
+    await service.confirmDirectUpload({ ...base, key: 'user-1/a.pdf' })
+
+    const [, dest] = minio.copyObject.mock.calls[0] as [
+      unknown,
+      { getHeaders(): Record<string, string> },
+    ]
+    const headers = dest.getHeaders()
+    expect(headers['X-Amz-Metadata-Directive']).toBe('REPLACE')
+    expect(headers['Content-Type']).toBe('application/pdf')
+  })
+
+  it('сбой закрепления типа — объект удаляется, File не создаётся', async () => {
+    const { service, minio, prisma } = setup({ head: PDF })
+    minio.copyObject.mockRejectedValue(new Error('minio down'))
+
+    await expect(
+      service.confirmDirectUpload({ ...base, key: 'user-1/a.pdf' }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    })
+    expect(prisma.file.create).not.toHaveBeenCalled()
+    expect(minio.removeObject).toHaveBeenCalled()
   })
 
   it('отклоняет чужой ключ: подтвердить чужой объект как свой нельзя', async () => {

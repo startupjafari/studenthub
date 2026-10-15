@@ -190,6 +190,17 @@ export async function qrApproveRequest(approveToken: string): Promise<void> {
   await api.post('/auth/qr/approve', { approveToken })
 }
 
+// Кто просит вход по QR — показывается до подтверждения (защита от подмены QR).
+export interface QrPreview {
+  requester: { browser: string | null; os: string | null; ip: string | null }
+  createdAt: string | null
+}
+
+export async function qrPreviewRequest(approveToken: string): Promise<QrPreview> {
+  const { data } = await api.post<QrPreview>('/auth/qr/preview', { approveToken })
+  return data
+}
+
 export async function registerByInviteRequest(input: RegisterByInviteInput): Promise<string> {
   const { data } = await api.post<{ accessToken: string }>('/auth/register-by-invite', input)
   return data.accessToken
@@ -207,4 +218,14 @@ export async function meRequest(): Promise<MeResponse> {
 
 export async function logoutRequest(): Promise<void> {
   await api.post('/auth/logout')
+}
+
+// «Забыли пароль»: сервер отвечает одинаково для любого адреса и сам решает, слать ли письмо.
+export async function forgotPasswordRequest(email: string): Promise<void> {
+  await api.post('/auth/password/forgot', { email })
+}
+
+// Новый пароль по токену из письма. Сессию не выдаёт: дальше — обычный вход.
+export async function resetPasswordRequest(token: string, password: string): Promise<void> {
+  await api.post('/auth/password/reset', { token, password })
 }

@@ -16,6 +16,7 @@ function setup() {
       count: jest.fn(),
     },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    userBlock: { findFirst: jest.fn().mockResolvedValue(null) },
   }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new FriendsService(
@@ -114,6 +115,36 @@ describe('FriendsService.sendRequest', () => {
       status: 'ACCEPTED',
     })
     await expect(service.sendRequest(me, 'target')).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+})
+
+describe('FriendsService.sendRequest — кому нельзя', () => {
+  it('работодатель заявок не шлёт', async () => {
+    const { service, prisma } = setup()
+    await expect(service.sendRequest({ ...me, role: Role.EMPLOYER }, 'u2')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(prisma.friendship.create).not.toHaveBeenCalled()
+  })
+
+  it('при личной блокировке в любую сторону заявка не уходит', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'u2' })
+    prisma.userBlock.findFirst.mockResolvedValue({ id: 'b1' })
+    await expect(service.sendRequest(me, 'u2')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.friendship.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('работодателя и заблокированного платформой цель не находит', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    await service.sendRequest(me, 'u2').catch(() => undefined)
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ isBlocked: false, role: { not: Role.EMPLOYER } }),
+      }),
+    )
   })
 })
 

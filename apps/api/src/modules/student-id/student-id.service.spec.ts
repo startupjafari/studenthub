@@ -96,6 +96,22 @@ describe('StudentIdService — непрозрачный токен', () => {
     expect(typeof res.verifiedAt).toBe('string')
   })
 
+  it('преподавателю — без даты рождения, формы оплаты и общежития; декану — полностью', async () => {
+    const { service, prisma } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    const teacher = await service.verify(
+      { ...viewer('t', 'uni-A'), role: Role.TEACHER },
+      card.token,
+    )
+    expect(teacher).toMatchObject({ birthDate: null, fundingType: null, dormitory: null })
+    expect(teacher.course).toBe(2)
+    prisma.user.findFirst.mockResolvedValue(student)
+    const dean = await service.verify({ ...viewer('d', 'uni-A'), role: Role.DEAN }, card.token)
+    expect(dean.fundingType).toBe('GRANT')
+    expect(dean.dormitory).toBe(student.dormitory)
+  })
+
   it('подделанный токен → UNAUTHORIZED', async () => {
     const { service } = setup()
     await expect(service.verify(viewer('staff', 'uni-A'), 'garbage')).rejects.toMatchObject({

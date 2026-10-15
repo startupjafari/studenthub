@@ -12,7 +12,10 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { visibleServicesWhere } from './service-visibility'
 import { ApplicationPolicy } from './application.policy'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { localDateString, localDayRange } from '../../common/time/local-label'
 
 // Поля заявки для scope-проверок (без загрузки всей записи).
 // Потолки на выборки (BACKEND_RULES §7.2). Анкета услуги и её список требований —
@@ -88,12 +91,10 @@ export class ApplicationsService {
     if (!viewer.universityId) {
       throw new AppException('BAD_REQUEST', 'Профиль без университета не может подавать заявки')
     }
+    // Та же видимость, что в каталоге: шаблон, заменённый копией вуза, недоступен и по id.
+    const visible = await visibleServicesWhere(this.prisma, viewer.universityId)
     const service = await this.prisma.applicationService.findFirst({
-      where: {
-        id: serviceId,
-        active: true,
-        OR: [{ universityId: null }, { universityId: viewer.universityId }],
-      },
+      where: { AND: [{ id: serviceId }, visible] },
       select: { id: true, facultyScoped: true },
     })
     if (!service) {
@@ -149,7 +150,11 @@ export class ApplicationsService {
     const now = new Date()
     const dueAt = new Date(now.getTime() + service.slaHours * 3_600_000)
     // Номер SH-YYYY-NNNNNN. Уникальность гарантирует БД; при гонке — повтор транзакции.
-    return this.withNumberRetry(now.getFullYear(), (number) =>
+    // Год — по часам вуза: заявка, поданная в новогоднюю ночь, относится к новому году.
+    const year = Number(
+      localDateString(now, await this.timezoneOf(viewer.universityId)).slice(0, 4),
+    )
+    return this.withNumberRetry(year, (number) =>
       this.prisma.$transaction(async (tx) => {
         const updated = await tx.application.update({
           where: { id },
@@ -181,11 +186,13 @@ export class ApplicationsService {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.application.update({
-        where: { id },
-        data: { status: 'CANCELLED', cancelledAt: new Date() },
-        select: APP_SELECT,
-      })
+      const updated = await tx.application
+        .update({
+          where: { id, status },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+          select: APP_SELECT,
+        })
+        .catch(rethrowStaleStatus)
       await tx.applicationEvent.create({
         data: {
           applicationId: id,
@@ -233,7 +240,8 @@ export class ApplicationsService {
 
   /** Список/очередь по scope роли (§16/§33): server-side пагинация + фильтры. */
   async list(viewer: JwtPayload, query: ApplicationQueryInput): Promise<Paginated<unknown>> {
-    const where = this.buildWhere(viewer, query)
+    const timezone = query.dueToday ? await this.timezoneOf(viewer.universityId) : null
+    const where = this.buildWhere(viewer, query, timezone)
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.application.findMany({
         where,
@@ -260,7 +268,9 @@ export class ApplicationsService {
     const where: Prisma.ApplicationWhereInput = {
       deletedAt: null,
       student: { is: { groupId: viewer.groupId } },
-      ...(query.status ? { status: query.status } : {}),
+      // Черновик — ещё не обращение: студент его никуда не подавал, и старосте его видеть
+      // незачем (в т.ч. что одногруппник «собирался» оформить академический отпуск).
+      AND: [{ status: { not: 'DRAFT' } }, ...(query.status ? [{ status: query.status }] : [])],
     }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.application.findMany({
@@ -355,9 +365,20 @@ export class ApplicationsService {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /** Часовой пояс вуза (null — у платформенных ролей вуза нет, считаем в UTC). */
+  private async timezoneOf(universityId: string | null | undefined): Promise<string | null> {
+    if (!universityId) return null
+    const university = await this.prisma.university.findUnique({
+      where: { id: universityId },
+      select: { timezone: true },
+    })
+    return university?.timezone ?? null
+  }
+
   private buildWhere(
     viewer: JwtPayload,
     query: ApplicationQueryInput,
+    timezone: string | null = null,
   ): Prisma.ApplicationWhereInput {
     const now = new Date()
     const and: Prisma.ApplicationWhereInput[] = [
@@ -374,10 +395,9 @@ export class ApplicationsService {
     if (query.overdue) {
       and.push({ dueAt: { lt: now }, status: { notIn: DONE_OR_READY } })
     }
+    // «Сегодня» — по часам вуза, а не сервера.
     if (query.dueToday) {
-      const start = new Date(now)
-      start.setHours(0, 0, 0, 0)
-      const end = new Date(start.getTime() + 86_400_000)
+      const { start, end } = localDayRange(now, timezone)
       and.push({ dueAt: { gte: start, lt: end } })
     }
     return { AND: and }

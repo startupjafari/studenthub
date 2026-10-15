@@ -1,12 +1,13 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   UserListQueryInput,
   UpdateProfileInput,
   UserDirectoryQueryInput,
   UserDirectorySectionValue,
+  UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
 import { disallowedProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -60,6 +61,9 @@ export interface TwoFactorLoginRecord {
   twoFactorSecret: string | null
   twoFactorBackupCodes: string[]
 }
+
+// Потолок выборки старост одной группы при смене старосты (§5.3: findMany без take нельзя).
+const GROUP_STAROSTA_SCAN_LIMIT = 50
 
 // Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
 // но потолок обязателен и здесь (BACKEND_RULES §7.2).
@@ -228,6 +232,39 @@ export class UserService {
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
   getPresence(userId: string): { online: boolean } {
     return { online: this.realtime.isOnline(userId) }
+  }
+
+  /**
+   * Присутствие по запросу зрителя: только человека своего вуза или друга (платформенным —
+   * любого). Рассылку присутствия по WS уже ограничили комнатой вуза, а REST-ручка отдавала
+   * «в сети ли» любого по id — работодателю и чужому вузу тоже. Вне охвата ответ тот же,
+   * что «не в сети»: отказ сам по себе подсказывал бы, что такой id существует.
+   */
+  async getPresenceFor(viewer: JwtPayload, userId: string): Promise<{ online: boolean }> {
+    if (userId === viewer.sub) return this.getPresence(userId)
+    const platform = viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!platform) {
+      const target = await this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+        select: { universityId: true },
+      })
+      const sameUniversity =
+        !!target && viewer.universityId !== null && target.universityId === viewer.universityId
+      if (!sameUniversity) {
+        const friends = await this.prisma.friendship.findFirst({
+          where: {
+            status: 'ACCEPTED',
+            OR: [
+              { requesterId: viewer.sub, addresseeId: userId },
+              { requesterId: userId, addresseeId: viewer.sub },
+            ],
+          },
+          select: { id: true },
+        })
+        if (!friends) return { online: false }
+      }
+    }
+    return this.getPresence(userId)
   }
 
   /**
@@ -898,8 +935,13 @@ export class UserService {
       gpa,
       twoFactorEnabled,
       username,
+      birthDate,
+      fundingType,
+      academicStatus,
+      dormitory,
       ...rest
     } = target
+    const academic = this.canSeeAcademicRecords(viewer, target)
     void showEmail
     void studentCardNumber
     void employeeNumber
@@ -912,7 +954,14 @@ export class UserService {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,
       phone: showPhone || viewer.sub === target.id ? phone : null,
-      gpa: this.canSeeAcademicRecords(viewer, target) ? gpa : null,
+      gpa: academic ? gpa : null,
+      // Дата рождения, форма оплаты (грант/платное), учебный статус и общежитие — личные
+      // сведения, а не визитка: «полная» карточка открыта всему вузу (у сотрудников — всей
+      // платформе, включая работодателей). Видят их владелец и те, кто ведёт его учёбу.
+      birthDate: academic ? birthDate : null,
+      fundingType: academic ? fundingType : null,
+      academicStatus: academic ? academicStatus : null,
+      dormitory: academic ? dormitory : null,
       access: 'full',
     }
   }
@@ -1232,6 +1281,19 @@ export class UserService {
   }
 
   /** Обновить набор backup-кодов (при «сжигании» использованного). */
+  /**
+   * Сжечь backup-код: убрать хэш из набора, только если он там ещё есть. Чтение и запись
+   * набора целиком («прочитать → отфильтровать → записать») давали двум параллельным входам
+   * с одним кодом пройти оба. Возвращает, был ли код списан этим вызовом.
+   */
+  async consumeBackupCode(userId: string, hash: string): Promise<boolean> {
+    const count = await this.prisma.$executeRaw`
+      UPDATE users
+      SET two_factor_backup_codes = array_remove(two_factor_backup_codes, ${hash})
+      WHERE id = ${userId} AND ${hash} = ANY(two_factor_backup_codes)`
+    return count > 0
+  }
+
   async setBackupCodes(userId: string, hashes: string[]): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
@@ -1263,6 +1325,213 @@ export class UserService {
   }
 
   /**
+   * Кому слать ссылку сброса пароля (AuthModule, docs/PROJECT.md §7.2). Без passwordHash:
+   * для письма нужны только адрес, имя и язык. Удалённые не находятся — их почта затёрта.
+   */
+  findForPasswordReset(email: string): Promise<{
+    id: string
+    email: string
+    username: string | null
+    firstName: string
+    locale: string
+    isBlocked: boolean
+  } | null> {
+    return this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        locale: true,
+        isBlocked: true,
+      },
+    })
+  }
+
+  /**
+   * Сотрудники, которым можно поручить заявку (домен «Услуги», назначение ответственного):
+   * админ и модератор вуза, а для заявки факультета — ещё и декан этого факультета. Только
+   * id, ФИО и роль: список рисуется в выпадающем меню обработчика.
+   */
+  listApplicationAssignees(
+    universityId: string,
+    facultyId: string | null,
+  ): Promise<Array<{ id: string; firstName: string; lastName: string; role: Role }>> {
+    return this.prisma.user.findMany({
+      where: {
+        universityId,
+        deletedAt: null,
+        isBlocked: false,
+        OR: [
+          { role: { in: [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] } },
+          ...(facultyId ? [{ role: Role.DEAN, facultyId }] : []),
+        ],
+      },
+      select: { id: true, firstName: true, lastName: true, role: true },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      take: 100,
+    })
+  }
+
+  /** Кого назначают ответственным: роль и scope — для проверки, что он вправе вести заявку. */
+  findAssigneeScope(userId: string): Promise<{
+    id: string
+    role: Role
+    universityId: string | null
+    facultyId: string | null
+  } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null, isBlocked: false },
+      select: { id: true, role: true, universityId: true, facultyId: true },
+    })
+  }
+
+  /**
+   * Новый пароль по ссылке из письма — без старого: одноразовый токен уже проверил и погасил
+   * AuthModule. Все сессии гаснут, как при обычной смене пароля: сброс часто делают именно
+   * потому, что пароль утёк, и открытая у злоумышленника сессия не должна пережить его.
+   */
+  async setPasswordAfterReset(
+    userId: string,
+    newPassword: string,
+  ): Promise<{ email: string; username: string | null }> {
+    // Аккаунт могли удалить, пока письмо лежало в ящике: затёртой учётке пароль не задаём.
+    const alive = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!alive) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const passwordHash = await this.passwords.hash(newPassword)
+    // Возвращаем, чем человек входит: AuthModule снимет по ним блокировку подбора.
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+      select: { email: true, username: true },
+    })
+    await this.authService.revokeAllUserSessions(userId)
+    return user
+  }
+
+  /**
+   * Староста группы — это роль, а не только отметка в группе: права старосты (инвайты в
+   * группу, групповые обращения, его меню) держатся на `User.role`. Вызывается GroupService
+   * внутри его транзакции вместе с `Group.starostaId`.
+   *
+   * В группе один староста: остальные со старостинской ролью (в том числе пришедшие по
+   * инвайту и к группе не привязанные) возвращаются в студенты. Возвращает их id — после
+   * коммита им гасятся сессии (`afterStarostaChange`).
+   */
+  async syncGroupStarosta(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    starostaId: string | null,
+  ): Promise<string[]> {
+    const demoted = await tx.user.findMany({
+      where: {
+        groupId,
+        role: Role.STAROSTA,
+        deletedAt: null,
+        ...(starostaId ? { id: { not: starostaId } } : {}),
+      },
+      select: { id: true },
+      take: GROUP_STAROSTA_SCAN_LIMIT,
+    })
+    const demotedIds = demoted.map((u) => u.id)
+    if (demotedIds.length) {
+      await tx.user.updateMany({
+        where: { id: { in: demotedIds } },
+        data: { role: Role.STUDENT, starostaSince: null },
+      })
+    }
+    if (starostaId) {
+      // Только из студентов: уже действующий староста сохраняет дату начала полномочий.
+      await tx.user.updateMany({
+        where: { id: starostaId, role: Role.STUDENT },
+        data: { role: Role.STAROSTA, starostaSince: new Date() },
+      })
+    }
+    return demotedIds
+  }
+
+  /**
+   * После смены старосты: разжалованным гасим сессии. В их access-токене ещё 15 минут жила
+   * бы роль старосты — с инвайтами в группу и списком её обращений. Новый староста получит
+   * роль при ближайшем обновлении токена (refresh читает роль из БД).
+   */
+  async afterStarostaChange(
+    actorId: string,
+    groupId: string,
+    promotedId: string | null,
+    demotedIds: string[],
+  ): Promise<void> {
+    for (const id of demotedIds) {
+      await this.authService.revokeAllUserSessions(id)
+      await this.audit.record({
+        userId: actorId,
+        action: 'user_role_changed',
+        entity: 'User',
+        entityId: id,
+        metadata: { from: Role.STAROSTA, to: Role.STUDENT, groupId },
+      })
+    }
+    if (promotedId) {
+      await this.audit.record({
+        userId: actorId,
+        action: 'user_role_changed',
+        entity: 'User',
+        entityId: promotedId,
+        metadata: { to: Role.STAROSTA, groupId },
+      })
+    }
+  }
+
+  /**
+   * Учебные данные студента — правит вуз (STAFF_MANAGED_STUDENT_FIELDS): декан своего
+   * факультета или админ своего вуза. Из этих полей печатаются справка об обучении и
+   * студенческий, поэтому каждая правка пишется в аудит со списком изменённых полей.
+   */
+  async updateAcademicRecord(
+    actor: JwtPayload,
+    userId: string,
+    data: UpdateAcademicRecordInput,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<UserProfile> {
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, role: true, universityId: true, facultyId: true },
+    })
+    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    if (target.role !== Role.STUDENT && target.role !== Role.STAROSTA) {
+      throw new AppException('BAD_REQUEST', 'Учебные данные ведутся только у студентов')
+    }
+    const inScope =
+      actor.role === Role.DEAN
+        ? target.facultyId !== null && target.facultyId === actor.facultyId
+        : actor.role === Role.UNIVERSITY_ADMIN
+          ? target.universityId !== null && target.universityId === actor.universityId
+          : false
+    if (!inScope) throw new AppException('WRONG_SCOPE', 'Студент вне вашей области')
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: PROFILE_SELECT,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'user_academic_updated',
+      entity: 'User',
+      entityId: userId,
+      metadata: { fields: Object.keys(data) },
+      ...ctx,
+    })
+    return updated
+  }
+
+  /**
    * Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств.
    * Затираем ВСЕ персональные поля (не только email/имя), гасим 2FA и приватность,
    * а также сносим объекты аватара и обложки в MinIO. Структурные поля (role, scope,
@@ -1275,11 +1544,23 @@ export class UserService {
     const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
     // Пароль забиваем невосстановимым хешем случайной строки.
     const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
-    await this.prisma.user.update({
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    })
+    // Староста — роль и отметка в группе; удалённому не остаётся ни того, ни другого.
+    const demoted = current?.role === Role.STAROSTA ? { role: Role.STUDENT } : {}
+    const anonymize = this.prisma.user.update({
       where: { id: userId },
       data: {
         deletedAt: new Date(),
         email: anonymizedEmail,
+        // Имя входа — тоже ПДн, и без обнуления оно оставалось занятым навсегда.
+        username: null,
+        // Из группы удалённый выходит: иначе группу нельзя было удалить (FK Restrict), а
+        // он сам числился в её составе. Оценки и посещаемость привязаны к студенту, не к группе.
+        groupId: null,
+        ...demoted,
         passwordHash: anonymizedHash,
         firstName: 'Удалённый',
         lastName: 'пользователь',
@@ -1341,6 +1622,10 @@ export class UserService {
         moderationAreas: null,
       },
     })
+    await this.prisma.$transaction([
+      anonymize,
+      this.prisma.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } }),
+    ])
     await this.authService.revokeAllUserSessions(userId)
   }
 
@@ -1435,18 +1720,7 @@ export class UserService {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя заблокировать самого себя')
     }
-    const target = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true },
-    })
-    if (!target) {
-      throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    }
-    const isPlatform =
-      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
-    if (!isPlatform && target.universityId !== viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
-    }
+    await this.assertModeratable(viewer, userId)
     await this.prisma.user.update({
       where: { id: userId },
       data: { isBlocked: blocked, blockedUntil: blocked ? until : null },
@@ -1481,18 +1755,7 @@ export class UserService {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя предупредить самого себя')
     }
-    const target = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true },
-    })
-    if (!target) {
-      throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    }
-    const isPlatform =
-      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
-    if (!isPlatform && target.universityId !== viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
-    }
+    await this.assertModeratable(viewer, userId)
 
     const warning = await this.prisma.moderationWarning.create({
       data: { userId, issuedById: viewer.sub, complaintId },
@@ -1533,17 +1796,8 @@ export class UserService {
    * заново, сменив пароль.
    */
   async revokeSessions(viewer: JwtPayload, userId: string): Promise<void> {
-    const target = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true },
-    })
-    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
-
-    const isPlatform =
-      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
-    if (!isPlatform && target.universityId !== viewer.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
-    }
+    // Свои сессии завершить можно всегда; чужие — только того, кто ниже по роли.
+    if (userId !== viewer.sub) await this.assertModeratable(viewer, userId)
 
     await this.authService.revokeAllUserSessions(userId)
     await this.audit.record({
@@ -1552,6 +1806,30 @@ export class UserService {
       entity: 'User',
       entityId: userId,
     })
+  }
+
+  /**
+   * Над кем модератор вправе применить меру (блокировка, предупреждение, сброс сессий):
+   * человек его вуза (платформенным — любой) и СТРОГО ниже по роли. Без проверки ранга
+   * модератор вуза блокировал админа своего вуза, а модератор платформы — её админа, и
+   * блокировка тут же гасила все их сессии.
+   */
+  private async assertModeratable(viewer: JwtPayload, userId: string): Promise<void> {
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, universityId: true, role: true },
+    })
+    if (!target) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const isPlatform =
+      viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR
+    if (!isPlatform && target.universityId !== viewer.universityId) {
+      throw new AppException('WRONG_SCOPE', 'Пользователь другого университета')
+    }
+    if (!isHigherRole(viewer.role, target.role)) {
+      throw new AppException('FORBIDDEN', 'Мера доступна только к роли ниже вашей')
+    }
   }
 
   /** Создание пользователя при регистрации по инвайту (в транзакции AuthService). */

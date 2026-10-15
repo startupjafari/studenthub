@@ -87,7 +87,7 @@ export class ExamsService {
 
   /** Ведомость экзамена: студенты группы + их результаты (декан/экзаменатор). */
   async results(viewer: JwtPayload, examId: string) {
-    const exam = await this.findManageable(viewer, examId)
+    const exam = await this.findManageable(viewer, examId, { examiner: true })
     const [students, results] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where: {
@@ -150,8 +150,12 @@ export class ExamsService {
 
   async update(actor: JwtPayload, id: string, input: UpdateExamInput, ctx: RequestContext) {
     const exam = await this.findManageable(actor, id)
-    if (input.examinerId)
-      await this.assertSameUniversity(input.examinerId, await this.universityOfGroup(exam.groupId))
+    if (input.examinerId || input.roomId) {
+      const universityId = await this.universityOfGroup(exam.groupId)
+      if (input.examinerId) await this.assertSameUniversity(input.examinerId, universityId)
+      // Как и при создании: аудитория чужого вуза в экзамен не ставится.
+      if (input.roomId) await this.assertRoomUniversity(input.roomId, universityId)
+    }
     const updated = await this.prisma.exam.update({
       where: { id },
       data: {
@@ -170,14 +174,21 @@ export class ExamsService {
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     await this.findManageable(actor, id)
+    // Экзамен с выставленными результатами не удаляем: каскад стёр бы ведомость.
+    const scored = await this.prisma.examResult.count({
+      where: { examId: id, OR: [{ score: { not: null } }, { status: { not: 'SCHEDULED' } }] },
+    })
+    if (scored > 0) {
+      throw new AppException('CONFLICT', 'По экзамену уже есть результаты')
+    }
     await this.prisma.exam.delete({ where: { id } })
     await this.record(actor, 'exam_deleted', id, ctx)
   }
 
   async setResults(actor: JwtPayload, input: SetExamResultsInput, ctx: RequestContext) {
-    const exam = await this.findManageable(actor, input.examId)
+    const exam = await this.findManageable(actor, input.examId, { examiner: true })
     const groupStudents = await this.prisma.user.findMany({
-      where: { groupId: exam.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
+      where: { groupId: exam.groupId, role: { in: ['STUDENT', 'STAROSTA'] }, deletedAt: null },
       select: { id: true },
       take: GROUP_STUDENTS_LIMIT,
     })
@@ -295,15 +306,23 @@ export class ExamsService {
     throw new AppException('FORBIDDEN', 'Недостаточно прав')
   }
 
+  /**
+   * Экзамен, которым актор вправе управлять. `examiner: true` — для ведомости: её ведёт
+   * назначенный экзаменатор, даже если дисциплину читает другой преподаватель (приглашённый
+   * председатель комиссии, замена заболевшего). Править и удалять сам экзамен экзаменатор не
+   * может — это остаётся за ведущим дисциплину и деканатом.
+   */
   private async findManageable(
     actor: JwtPayload,
     id: string,
+    opts: { examiner?: boolean } = {},
   ): Promise<{ id: string; groupId: string }> {
     const exam = await this.prisma.exam.findUnique({
       where: { id },
       select: {
         id: true,
         groupId: true,
+        examinerId: true,
         course: {
           select: {
             teacherId: true,
@@ -313,6 +332,9 @@ export class ExamsService {
       },
     })
     if (!exam) throw new AppException('NOT_FOUND', 'Экзамен не найден')
+    if (opts.examiner && actor.role === Role.TEACHER && exam.examinerId === actor.sub) {
+      return { id: exam.id, groupId: exam.groupId }
+    }
     this.assertManageCourse(actor, {
       teacherId: exam.course.teacherId,
       facultyId: exam.course.group.facultyId,
@@ -360,12 +382,16 @@ export class ExamsService {
   }
 
   private async assertSameUniversity(userId: string, universityId: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { universityId: true },
+    // Экзаменатор — действующий преподаватель или декан своего вуза.
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null, isBlocked: false },
+      select: { universityId: true, role: true },
     })
     if (!user || user.universityId !== universityId) {
       throw new AppException('WRONG_SCOPE', 'Экзаменатор другого университета')
+    }
+    if (user.role !== Role.TEACHER && user.role !== Role.DEAN) {
+      throw new AppException('BAD_REQUEST', 'Экзаменатором может быть преподаватель или декан')
     }
   }
 

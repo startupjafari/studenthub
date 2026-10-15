@@ -21,6 +21,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { CompaniesService } from './companies.service'
 import { EmployerSignupDto } from './dto/employer-signup.dto'
 import { VerifyCompanyEmailDto } from './dto/verify-company-email.dto'
+import { ResendCompanyVerificationDto } from './dto/resend-company-verification.dto'
 import { UpdateCompanyDto } from './dto/update-company.dto'
 import { RequestCompanyAccessDto } from './dto/request-company-access.dto'
 
@@ -55,6 +56,23 @@ export class CompaniesController {
   @ApiResponse({ status: 404, description: 'NOT_FOUND — ссылка недействительна' })
   verifyEmail(@Body() dto: VerifyCompanyEmailDto, @Req() req: FastifyRequest) {
     return this.companies.verifyEmail(dto.token, this.ctx(req))
+  }
+
+  /**
+   * Новая ссылка подтверждения взамен истёкшей. Публичный: работодатель с неподтверждённой
+   * почтой ещё не прошёл бы дальше главной. Ответ одинаков для любого адреса (см. сервис),
+   * лимит строже входа — каждый вызов отправляет письмо.
+   */
+  @Post('resend-verification')
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 15 * 60_000 } })
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Отправить письмо с подтверждением email компании ещё раз (публично)' })
+  @ApiResponse({ status: 202, description: 'Если компания ждёт подтверждения — письмо ушло' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
+  resendVerification(@Body() dto: ResendCompanyVerificationDto, @Req() req: FastifyRequest) {
+    return this.companies.resendVerification(dto, this.ctx(req))
   }
 
   @Get('me')

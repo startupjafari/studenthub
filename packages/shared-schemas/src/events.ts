@@ -115,3 +115,9 @@ export const EventMeetingSchema = z.object({
   joinable: z.boolean(),
 })
 export type EventMeeting = z.infer<typeof EventMeetingSchema>
+
+// Комментарий к событию (§3.5): вопрос организатору, уточнение, обсуждение. Только текст.
+export const CreateEventCommentSchema = z
+  .object({ content: z.string().trim().min(1).max(2000) })
+  .strict()
+export type CreateEventCommentInput = z.infer<typeof CreateEventCommentSchema>

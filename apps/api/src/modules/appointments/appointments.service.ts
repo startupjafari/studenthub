@@ -14,6 +14,24 @@ import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { RequestContext } from '../auth/auth.service'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { localDateTimeLabel } from '../../common/time/local-label'
+
+// Допустимые переходы записи в деканат. Завершённая и отменённая — конечные: раньше сотрудник
+// подтверждал запись, которую студент уже отменил, а студент «отменял» отменённую.
+const TRANSITIONS: Record<string, readonly string[]> = {
+  REQUESTED: ['CONFIRMED', 'RESCHEDULED', 'CANCELLED'],
+  CONFIRMED: ['RESCHEDULED', 'COMPLETED', 'CANCELLED'],
+  RESCHEDULED: ['CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+}
+
+function assertTransition(from: string, to: string): void {
+  if (!(TRANSITIONS[from] ?? []).includes(to)) {
+    throw new AppException('CONFLICT', 'Запись уже в другом статусе')
+  }
+}
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
@@ -80,12 +98,14 @@ export class AppointmentsService {
     })
     if (!appt) throw new AppException('NOT_FOUND', 'Запись не найдена')
     if (appt.studentId !== actor.sub) throw new AppException('FORBIDDEN', 'Не ваша запись')
-    if (appt.status === 'COMPLETED') throw new AppException('CONFLICT', 'Приём уже завершён')
-    const updated = await this.prisma.deaneryAppointment.update({
-      where: { id },
-      data: { status: 'CANCELLED' },
-      select: SELECT,
-    })
+    assertTransition(appt.status, 'CANCELLED')
+    const updated = await this.prisma.deaneryAppointment
+      .update({
+        where: { id, status: appt.status },
+        data: { status: 'CANCELLED' },
+        select: SELECT,
+      })
+      .catch(rethrowStaleStatus)
     await this.record(actor, 'appointment_cancelled_by_student', id, ctx)
     return updated
   }
@@ -111,21 +131,24 @@ export class AppointmentsService {
     ctx: RequestContext,
   ) {
     const appt = await this.findManageable(actor, id)
-    const updated = await this.prisma.deaneryAppointment.update({
-      where: { id },
-      data: {
-        status,
-        scheduledAt: new Date(input.scheduledAt),
-        staffNote: input.staffNote,
-        assignedToId: actor.sub,
-      },
-      select: SELECT,
-    })
+    assertTransition(appt.status, status)
+    const updated = await this.prisma.deaneryAppointment
+      .update({
+        where: { id, status: appt.status },
+        data: {
+          status,
+          scheduledAt: new Date(input.scheduledAt),
+          staffNote: input.staffNote,
+          assignedToId: actor.sub,
+        },
+        select: SELECT,
+      })
+      .catch(rethrowStaleStatus)
     await this.record(actor, `appointment_${status.toLowerCase()}`, id, ctx)
     await this.notifyStudent(
       appt.studentId,
       status === 'CONFIRMED' ? 'appointments.confirmed.title' : 'appointments.rescheduled.title',
-      this.label(new Date(input.scheduledAt)),
+      localDateTimeLabel(new Date(input.scheduledAt), appt.timezone),
       id,
     )
     return updated
@@ -138,11 +161,10 @@ export class AppointmentsService {
     ctx: RequestContext,
   ) {
     const appt = await this.findManageable(actor, id)
-    const updated = await this.prisma.deaneryAppointment.update({
-      where: { id },
-      data: { status },
-      select: SELECT,
-    })
+    assertTransition(appt.status, status)
+    const updated = await this.prisma.deaneryAppointment
+      .update({ where: { id, status: appt.status }, data: { status }, select: SELECT })
+      .catch(rethrowStaleStatus)
     await this.record(actor, `appointment_${status.toLowerCase()}_by_staff`, id, ctx)
     await this.notifyStudent(
       appt.studentId,
@@ -165,31 +187,34 @@ export class AppointmentsService {
   private async findManageable(
     actor: JwtPayload,
     id: string,
-  ): Promise<{ id: string; studentId: string }> {
-    const appt = await this.prisma.deaneryAppointment.findUnique({
+  ): Promise<{ id: string; studentId: string; status: string; timezone: string | null }> {
+    const row = await this.prisma.deaneryAppointment.findUnique({
       where: { id },
       select: {
         id: true,
         studentId: true,
+        status: true,
         facultyId: true,
-        faculty: { select: { universityId: true } },
+        faculty: { select: { universityId: true, university: { select: { timezone: true } } } },
       },
     })
-    if (!appt) throw new AppException('NOT_FOUND', 'Запись не найдена')
+    if (!row) throw new AppException('NOT_FOUND', 'Запись не найдена')
+    const appt = {
+      id: row.id,
+      studentId: row.studentId,
+      status: row.status,
+      timezone: row.faculty.university.timezone,
+    }
     if (isPlatform(actor.role)) return appt
     if (actor.role === Role.DEAN) {
-      if (actor.facultyId === appt.facultyId) return appt
+      if (actor.facultyId === row.facultyId) return appt
       throw new AppException('WRONG_SCOPE', 'Другой факультет')
     }
     if (actor.role === Role.UNIVERSITY_ADMIN || actor.role === Role.UNIVERSITY_MODERATOR) {
-      if (actor.universityId === appt.faculty.universityId) return appt
+      if (actor.universityId === row.faculty.universityId) return appt
       throw new AppException('WRONG_SCOPE', 'Другой университет')
     }
     throw new AppException('FORBIDDEN', 'Недостаточно прав')
-  }
-
-  private label(date: Date): string {
-    return date.toISOString().slice(0, 16).replace('T', ' ')
   }
 
   private async notifyStudent(
@@ -210,7 +235,8 @@ export class AppointmentsService {
         data: { url: '/appointments', appointmentId: id },
         // Ключ словарной статьи, а не переведённый заголовок: тот менялся бы вместе с
         // языком получателя, и идемпотентность развалилась бы на ровном месте.
-        dedupeKey: `appointment-updated:${id}:${titleKey}`,
+        // Время входит в ключ: второй перенос той же записи — новое уведомление, а не дубль.
+        dedupeKey: `appointment-updated:${id}:${titleKey}:${body}`,
       },
       { jobId: `appointment-updated:${id}:${Date.now()}` },
     )

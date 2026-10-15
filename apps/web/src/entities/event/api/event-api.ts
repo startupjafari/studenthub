@@ -5,7 +5,7 @@ import type {
   UpdateEventInput,
 } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
-import type { EventItem, EventParticipant } from '../model/types'
+import type { EventComment, EventItem, EventParticipant } from '../model/types'
 
 export const eventKeys = {
   all: ['events'] as const,
@@ -13,6 +13,7 @@ export const eventKeys = {
   detail: (id: string) => ['events', 'detail', id] as const,
   participants: (id: string) => ['events', id, 'participants'] as const,
   meeting: (id: string) => ['events', id, 'meeting'] as const,
+  comments: (id: string) => ['events', id, 'comments'] as const,
 }
 
 export async function fetchEvents(query: Partial<EventListQueryInput> = {}): Promise<EventItem[]> {
@@ -62,4 +63,19 @@ export async function cancelEventRequest(id: string): Promise<void> {
 export async function fetchEventParticipants(id: string): Promise<EventParticipant[]> {
   const { data } = await api.get<EventParticipant[]>(`/events/${id}/participants`)
   return data
+}
+
+// Комментарии видит вся аудитория события; сервер отдаёт последние по порядку написания.
+export async function fetchEventComments(id: string): Promise<EventComment[]> {
+  const { data } = await api.get<EventComment[]>(`/events/${id}/comments`)
+  return data
+}
+
+export async function addEventCommentRequest(id: string, content: string): Promise<EventComment> {
+  const { data } = await api.post<EventComment>(`/events/${id}/comments`, { content })
+  return data
+}
+
+export async function deleteEventCommentRequest(id: string, commentId: string): Promise<void> {
+  await api.delete(`/events/${id}/comments/${commentId}`)
 }

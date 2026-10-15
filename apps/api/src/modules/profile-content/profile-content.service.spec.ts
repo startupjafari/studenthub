@@ -175,6 +175,28 @@ describe('ProfileContentService — статьи владение', () => {
     )
   })
 
+  it('обложка из своего бакета принимается', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.create.mockResolvedValue({
+      id: 'a1',
+      _count: { comments: 0, bookmarks: 0 },
+    })
+    const coverUrl = 'http://localhost:9000/profile-media/cover.webp'
+    await service.createArticle(user('me'), { ...article, coverUrl })
+    expect(prisma.profileArticle.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ coverUrl }) }),
+    )
+  })
+
+  it('обложка с чужого хоста → BAD_REQUEST, статья не создаётся', async () => {
+    const { service, prisma } = setup()
+    const err = await service
+      .createArticle(user('me'), { ...article, coverUrl: 'https://evil.example/pixel.png' })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.profileArticle.create).not.toHaveBeenCalled()
+  })
+
   it('createArticle со статусом DRAFT → publishedAt = null', async () => {
     const { service, prisma } = setup()
     prisma.profileArticle.create.mockResolvedValue({

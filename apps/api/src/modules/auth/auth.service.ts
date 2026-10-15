@@ -9,6 +9,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
+import { SessionRevocationService } from '../../common/redis/session-revocation.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { isAdult, LEGAL_VERSION } from '@studenthub/shared-schemas'
 import type { EnvVars } from '../../config/env.schema'
@@ -69,6 +70,7 @@ export class AuthService {
     private readonly loginAttempts: LoginAttemptsService,
     private readonly realtime: RealtimeGateway,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly revocation: SessionRevocationService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -334,6 +336,13 @@ export class AuthService {
       throw new AppException('UNAUTHORIZED', 'Сессия не найдена')
     }
 
+    // Секрет — до детектора повтора: иначе одного id (без секрета) хватало, чтобы объявить
+    // «повтор» и погасить чужую цепочку сессий.
+    const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
+    if (!secretOk) {
+      throw new AppException('UNAUTHORIZED', 'Некорректный refresh-токен')
+    }
+
     // Повторное использование инвалидированного токена → рвём всю цепочку (§6.2).
     //
     // Кроме окна грации: повтор ТОЛЬКО ЧТО ротированного токена, когда цепочка ещё жива, — это,
@@ -371,11 +380,6 @@ export class AuthService {
       throw new AppException('UNAUTHORIZED', 'Сессия истекла')
     }
 
-    const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
-    if (!secretOk) {
-      throw new AppException('UNAUTHORIZED', 'Некорректный refresh-токен')
-    }
-
     const user = await this.users.findByIdForAuth(record.userId)
     if (!user || user.isBlocked) {
       await this.revokeFamily(record.familyId)
@@ -405,7 +409,9 @@ export class AuthService {
       return
     }
     const record = await this.prisma.refreshToken.findUnique({ where: { id: parsed.id } })
-    if (!record) {
+    // Без верного секрета выход ничего не гасит: id токена сам по себе не доказывает, что
+    // это та же сессия.
+    if (!record || !(await this.passwords.compare(parsed.secret, record.tokenHash))) {
       return
     }
     await this.revokeFamily(record.familyId)
@@ -423,10 +429,11 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     })
-    // Refresh-цепочки погашены, но открытый WS живёт сам по себе: его пускали по access-токену,
-    // и до истечения токена заблокированный (или скомпрометированный) пользователь продолжал
-    // бы получать уведомления и сообщения. Рвём соединения сразу — клиент попробует
-    // переподключиться со свежим токеном и не сможет.
+    // Уже выданные access-токены тоже: без метки отзыва заблокированный ещё до 15 минут
+    // ходил в API и переподключал WS тем же токеном (JwtStrategy и gateway её проверяют).
+    await this.revocation.revokeIssuedBefore(userId)
+    // Открытый WS живёт сам по себе: рвём соединения сразу, переподключиться старым
+    // токеном не даст метка отзыва.
     this.realtime.disconnectUser(userId)
   }
 

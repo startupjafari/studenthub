@@ -195,6 +195,7 @@ export const applicationKeys = {
   groupRequests: (filters: ApplicationFilters) =>
     ['applications-v2', 'group-requests', filters] as const,
   detail: (id: string) => ['applications-v2', 'detail', id] as const,
+  assignees: (id: string) => ['applications-v2', 'assignees', id] as const,
 }
 
 // ── Каталог ──────────────────────────────────────────────────────────────────
@@ -357,4 +358,28 @@ export async function requestDocReplacementRequest(
   comment: string,
 ): Promise<void> {
   await api.post(`/applications/${appId}/documents/${docId}/request-replacement`, { comment })
+}
+
+// ── Ответственный и отзыв справки ────────────────────────────────────────────
+
+/** Сотрудник, которому можно поручить заявку (админ/модератор вуза, декан факультета). */
+export interface ApplicationAssignee {
+  id: string
+  firstName: string
+  lastName: string
+  role: string
+}
+
+export async function fetchApplicationAssignees(id: string): Promise<ApplicationAssignee[]> {
+  const { data } = await api.get<ApplicationAssignee[]>(`/applications/${id}/assignees`)
+  return data
+}
+
+export async function assignApplicationRequest(id: string, userId: string): Promise<void> {
+  await api.post(`/applications/${id}/assign`, { userId })
+}
+
+// Файл у студента остаётся; отзыв меняет ответ проверки по коду на «документ отозван».
+export async function revokeCertificateRequest(id: string, reason?: string): Promise<void> {
+  await api.post(`/applications/${id}/results/certificate/revoke`, reason ? { reason } : {})
 }

@@ -12,6 +12,7 @@ import type {
   DecideCompanyAccessInput,
 } from '@studenthub/shared-schemas'
 import {
+  COMPANY_ACCESS_DECIDERS,
   companyKeys,
   decideCompanyAccess,
   fetchUniversityCompanyAccess,
@@ -40,6 +41,7 @@ import {
   useCareerUniversity,
 } from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
+import { useAppSelector } from '../../../shared/store'
 
 /** Фильтр очереди. 'ALL' — не статус, а «показать все», поэтому отдельным типом. */
 type StatusFilter = CompanyAccessStatus | 'ALL'
@@ -49,6 +51,8 @@ type StatusFilter = CompanyAccessStatus | 'ALL'
 const PAGE_SIZES = ADMIN_PAGE_SIZES
 
 const COLS = ['26%', '22%', '28%', '10%', '14%'] as const
+// Без колонки решений — для тех, кто очередь только смотрит (декан, модераторы).
+const COLS_READONLY = ['30%', '26%', '32%', '12%'] as const
 
 /**
  * Карьерный центр вуза: очередь заявок компаний.
@@ -60,6 +64,8 @@ export function CareerCompaniesView() {
   const t = useTranslations('CareerAdmin')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const role = useAppSelector((s) => s.auth.role)
+  const canDecide = role !== null && COMPANY_ACCESS_DECIDERS.includes(role)
   const [status, setStatus] = useState<StatusFilter>('REQUESTED')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
@@ -155,7 +161,7 @@ export function CareerCompaniesView() {
       ) : (
         <>
           <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
-            <Table fixed scrollBody fill cols={COLS}>
+            <Table fixed scrollBody fill cols={canDecide ? COLS : COLS_READONLY}>
               <TableHeader>
                 <TableRow>
                   <TableHead sortKey="name" sort={sort} onSort={sortBy}>
@@ -166,11 +172,11 @@ export function CareerCompaniesView() {
                   <TableHead sortKey="status" sort={sort} onSort={sortBy}>
                     {t('colStatus')}
                   </TableHead>
-                  <TableHead className="text-right">{t('colActions')}</TableHead>
+                  {canDecide && <TableHead className="text-right">{t('colActions')}</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {query.isLoading && <TableSkeletonRows columns={5} />}
+                {query.isLoading && <TableSkeletonRows columns={canDecide ? 5 : 4} />}
                 {rows.map((row) => (
                   <TableRow key={row.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
@@ -204,41 +210,43 @@ export function CareerCompaniesView() {
                     <TableCell>
                       <Badge variant={STATUS_TONE[row.status]}>{statusLabel[row.status]}</Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <span className="flex justify-end gap-2">
-                        {row.status === 'REQUESTED' && (
-                          <>
-                            <Button
-                              size="sm"
-                              disabled={decide.isPending}
-                              onClick={() =>
-                                decide.mutate({ id: row.id, input: { status: 'APPROVED' } })
-                              }
-                            >
-                              {t('approve')}
-                            </Button>
+                    {canDecide && (
+                      <TableCell className="text-right">
+                        <span className="flex justify-end gap-2">
+                          {row.status === 'REQUESTED' && (
+                            <>
+                              <Button
+                                size="sm"
+                                disabled={decide.isPending}
+                                onClick={() =>
+                                  decide.mutate({ id: row.id, input: { status: 'APPROVED' } })
+                                }
+                              >
+                                {t('approve')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={decide.isPending}
+                                onClick={() => setAsking({ id: row.id, status: 'REJECTED' })}
+                              >
+                                {t('reject')}
+                              </Button>
+                            </>
+                          )}
+                          {row.status === 'APPROVED' && (
                             <Button
                               size="sm"
                               variant="outline"
                               disabled={decide.isPending}
-                              onClick={() => setAsking({ id: row.id, status: 'REJECTED' })}
+                              onClick={() => setAsking({ id: row.id, status: 'REVOKED' })}
                             >
-                              {t('reject')}
+                              {t('revoke')}
                             </Button>
-                          </>
-                        )}
-                        {row.status === 'APPROVED' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={decide.isPending}
-                            onClick={() => setAsking({ id: row.id, status: 'REVOKED' })}
-                          >
-                            {t('revoke')}
-                          </Button>
-                        )}
-                      </span>
-                    </TableCell>
+                          )}
+                        </span>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

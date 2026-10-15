@@ -24,7 +24,7 @@ import { QueueService, QUEUES, EMAIL_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
-import { resolveInviteTarget } from './invite-hierarchy'
+import { resolveInviteTarget, type InviteScope } from './invite-hierarchy'
 import type { RawBulkRow } from './bulk-parse'
 import { emailDict } from '../email/email-strings'
 
@@ -58,6 +58,10 @@ function inviteOrderBy(
   }
 }
 
+// Роли, которые в файле импорта привязываются к группе и к факультету (bulkPreview).
+const GROUP_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
+const FACULTY_ROLES: Role[] = [Role.DEAN, Role.TEACHER]
+
 @Injectable()
 export class InviteService {
   private readonly logger = new Logger(InviteService.name)
@@ -85,6 +89,7 @@ export class InviteService {
     options: { notify?: boolean } = {},
   ) {
     const scope = resolveInviteTarget(issuer, input)
+    await this.assertScopeExists(scope)
     const token = randomUUID()
     const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
 
@@ -200,6 +205,49 @@ export class InviteService {
     }
   }
 
+  /**
+   * Связность scope инвайта: группа лежит на этом факультете, факультет — в этом вузе.
+   *
+   * resolveInviteTarget берёт вуз и факультет создателя из его токена, а группу и (для
+   * преподавателя и декана) факультет — из запроса, и их принадлежность не проверяет. Без
+   * этого декан прямым запросом приглашал студента в группу чужого факультета или вуза, а
+   * админ вуза — декана на факультет другого вуза: человек получал роль с правами там, где
+   * у пригласившего их нет. Несуществующий id даёт тот же отказ, что чужой — не оракул.
+   */
+  private async assertScopeExists(scope: InviteScope): Promise<void> {
+    if (scope.groupId) {
+      const group = await this.prisma.group.findUnique({
+        where: { id: scope.groupId },
+        select: { facultyId: true, faculty: { select: { universityId: true } } },
+      })
+      if (
+        !group ||
+        group.faculty.universityId !== scope.universityId ||
+        (scope.facultyId !== null && group.facultyId !== scope.facultyId)
+      ) {
+        throw new AppException('WRONG_SCOPE', 'Группа вне вашей области')
+      }
+      return
+    }
+    if (scope.facultyId) {
+      const faculty = await this.prisma.faculty.findUnique({
+        where: { id: scope.facultyId },
+        select: { universityId: true },
+      })
+      if (!faculty || faculty.universityId !== scope.universityId) {
+        throw new AppException('WRONG_SCOPE', 'Факультет вне вашей области')
+      }
+      return
+    }
+    if (scope.universityId) {
+      const university = await this.prisma.university.findUnique({
+        where: { id: scope.universityId },
+        select: { id: true },
+      })
+      if (!university) throw new AppException('NOT_FOUND', 'Университет не найден')
+    }
+  }
+
   // ── Массовый импорт (CSV/XLSX) ────────────────────────────────────────────
 
   /**
@@ -212,43 +260,74 @@ export class InviteService {
     if (rawRows.length > BULK_INVITE_MAX_ROWS) {
       throw new AppException('BAD_REQUEST', `Не более ${BULK_INVITE_MAX_ROWS} строк за импорт`)
     }
-    const groupsByName = await this.loadScopedGroups(issuer)
+    const [groupsByName, facultiesByName] = await Promise.all([
+      this.loadScopedGroups(issuer),
+      this.loadScopedFaculties(issuer),
+    ])
     const taken = await this.loadTakenEmails(rawRows.map((r) => r.email))
     const seenInFile = new Set<string>()
 
     const rows: BulkInvitePreviewRow[] = rawRows.map((raw) => {
       const email = raw.email.trim()
       const role = this.parseRole(raw.role)
-      const base = { line: raw.line, email, groupName: raw.group, role: role ?? Role.STUDENT }
+      const base = {
+        line: raw.line,
+        email,
+        groupName: raw.group,
+        facultyName: raw.faculty,
+        role: role ?? Role.STUDENT,
+      }
       const err = (error: string): BulkInvitePreviewRow => ({
         ...base,
         groupId: null,
+        facultyId: null,
         status: 'ERROR',
         error,
       })
 
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('Некорректный email')
       if (role === null) return err(`Неизвестная роль: ${raw.role}`)
-      if (!raw.group.trim()) return err('Не указана группа')
 
-      const matches = groupsByName.get(raw.group.trim().toLowerCase())
-      if (!matches || matches.length === 0) return err(`Группа не найдена: ${raw.group}`)
-      if (matches.length > 1) return err(`Неоднозначное имя группы: ${raw.group}`)
-      const groupId = matches[0]! // length === 1 гарантировано проверками выше
+      // Группа — у тех, кто в ней учится; факультет — у декана (обязательно) и, по желанию,
+      // у преподавателя. Остальным колонкам этих ролей значения не нужны.
+      let groupId: string | null = null
+      if (GROUP_ROLES.includes(role)) {
+        if (!raw.group.trim()) return err('Не указана группа')
+        const matches = groupsByName.get(raw.group.trim().toLowerCase())
+        if (!matches || matches.length === 0) return err(`Группа не найдена: ${raw.group}`)
+        if (matches.length > 1) return err(`Неоднозначное имя группы: ${raw.group}`)
+        groupId = matches[0]! // length === 1 гарантировано проверками выше
+      }
+      let facultyId: string | null = null
+      if (FACULTY_ROLES.includes(role)) {
+        if (role === Role.DEAN && !raw.faculty.trim()) return err('Не указан факультет')
+        if (raw.faculty.trim()) {
+          const matches = facultiesByName.get(raw.faculty.trim().toLowerCase())
+          if (!matches || matches.length === 0) return err(`Факультет не найден: ${raw.faculty}`)
+          if (matches.length > 1) return err(`Неоднозначное имя факультета: ${raw.faculty}`)
+          facultyId = matches[0]!
+        }
+      }
 
       // Scope/иерархия — единый источник истины resolveInviteTarget (как у одиночного инвайта).
       try {
-        resolveInviteTarget(issuer, { role, groupId, facultyId: issuer.facultyId })
+        resolveInviteTarget(issuer, { role, groupId, facultyId: facultyId ?? issuer.facultyId })
       } catch (e) {
         return err(e instanceof AppException ? e.message : 'Недопустимо для вашей роли')
       }
 
       const key = email.toLowerCase()
       if (taken.has(key) || seenInFile.has(key)) {
-        return { ...base, groupId, status: 'DUPLICATE', error: 'Уже приглашён или зарегистрирован' }
+        return {
+          ...base,
+          groupId,
+          facultyId,
+          status: 'DUPLICATE',
+          error: 'Уже приглашён или зарегистрирован',
+        }
       }
       seenInFile.add(key)
-      return { ...base, groupId, status: 'READY', error: null }
+      return { ...base, groupId, facultyId, status: 'READY', error: null }
     })
 
     const summary = {
@@ -271,6 +350,15 @@ export class InviteService {
     ctx: RequestContext,
   ): Promise<BulkInviteResult> {
     const taken = await this.loadTakenEmails(input.rows.map((r) => r.email))
+    // id группы и факультета пришли от клиента: перепроверяем, что они в scope создателя.
+    // resolveInviteTarget принадлежность не проверяет, и без этого прямым запросом можно
+    // было выдать инвайт в группу чужого факультета или вуза.
+    const [groupsByName, facultiesByName] = await Promise.all([
+      this.loadScopedGroups(issuer),
+      this.loadScopedFaculties(issuer),
+    ])
+    const scopedGroups = new Set([...groupsByName.values()].flat())
+    const scopedFaculties = new Set([...facultiesByName.values()].flat())
     const seen = new Set<string>()
     const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
 
@@ -287,13 +375,24 @@ export class InviteService {
         continue
       }
       const role = this.parseRole(row.role ?? '') ?? Role.STUDENT
+      const groupId = row.groupId ?? null
+      const facultyId = row.facultyId ?? null
+      if (
+        (groupId !== null && !scopedGroups.has(groupId)) ||
+        (facultyId !== null && !scopedFaculties.has(facultyId))
+      ) {
+        failed++
+        continue
+      }
       let scope
       try {
         scope = resolveInviteTarget(issuer, {
           role,
-          groupId: row.groupId,
-          facultyId: issuer.facultyId,
+          groupId,
+          facultyId: facultyId ?? issuer.facultyId,
         })
+        // groupId пришёл от клиента: проверяем связность, как у одиночного инвайта.
+        await this.assertScopeExists(scope)
       } catch {
         failed++
         continue
@@ -361,6 +460,28 @@ export class InviteService {
     for (const g of groups) {
       const nameKey = g.name.trim().toLowerCase()
       map.set(nameKey, [...(map.get(nameKey) ?? []), g.id])
+    }
+    return map
+  }
+
+  // Факультеты в scope создателя: имя(lowercased) → id[]. Декан — только свой факультет.
+  private async loadScopedFaculties(issuer: JwtPayload): Promise<Map<string, string[]>> {
+    if (!issuer.universityId) return new Map()
+    const where: Prisma.FacultyWhereInput =
+      issuer.role === Role.DEAN
+        ? { id: issuer.facultyId ?? '__none__' }
+        : issuer.role === Role.STAROSTA
+          ? { id: '__none__' }
+          : { universityId: issuer.universityId }
+    const faculties = await this.prisma.faculty.findMany({
+      where,
+      select: { id: true, name: true },
+      take: 500,
+    })
+    const map = new Map<string, string[]>()
+    for (const f of faculties) {
+      const nameKey = f.name.trim().toLowerCase()
+      map.set(nameKey, [...(map.get(nameKey) ?? []), f.id])
     }
     return map
   }

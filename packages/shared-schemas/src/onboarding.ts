@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { httpUrl } from './url.js'
 import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Приход вуза на платформу (docs/PROJECT.md §31): заявка с публичной формы, решение
@@ -42,7 +43,7 @@ export const SubmitDemoRequestSchema = z
     universityName: z.string().trim().min(3).max(200),
     city: z.string().trim().min(1).max(100).optional(),
     country: z.string().trim().min(1).max(100).optional(),
-    website: z.string().trim().url().max(200).optional(),
+    website: httpUrl(200).optional(),
     /**
      * Порядок величины, а не точное число: точного не знает и сам заявитель, а нам оно
      * нужно, только чтобы понимать масштаб стенда.

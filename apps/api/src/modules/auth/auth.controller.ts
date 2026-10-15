@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Logger,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
@@ -16,6 +27,9 @@ import { TwoFactorVerifyDto } from './dto/two-factor-verify.dto'
 import { QrApproveDto } from './dto/qr-approve.dto'
 import { QrClaimDto } from './dto/qr-claim.dto'
 import { QrLoginService } from './qr-login.service'
+import { PasswordResetService } from './password-reset.service'
+import { ForgotPasswordDto } from './dto/forgot-password.dto'
+import { ResetPasswordDto } from './dto/reset-password.dto'
 import { MaintenanceExempt } from '../../common/decorators'
 
 @ApiTags('Auth')
@@ -23,11 +37,14 @@ import { MaintenanceExempt } from '../../common/decorators'
 @MaintenanceExempt()
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name)
+
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly qrLogin: QrLoginService,
     private readonly audit: AuditService,
+    private readonly passwordReset: PasswordResetService,
   ) {}
 
   @Public()
@@ -71,8 +88,19 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } }) // защита от спама генерацией QR
   @Post('qr/create')
   @ApiOperation({ summary: 'Создать QR-сессию входа (десктоп; возвращает QR + claimSecret)' })
-  qrCreate() {
-    return this.qrLogin.create()
+  qrCreate(@Req() req: FastifyRequest) {
+    return this.qrLogin.create(this.ctx(req))
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('qr/preview')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Кто просит вход по QR: браузер, ОС и сеть устройства (до подтверждения)',
+  })
+  @ApiResponse({ status: 404, description: 'QR-сессия не найдена, истекла или уже подтверждена' })
+  qrPreview(@Body() dto: QrApproveDto) {
+    return this.qrLogin.preview(dto.approveToken)
   }
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } }) // подтверждений с телефона не бывает много
@@ -119,6 +147,47 @@ export class AuthController {
     const session = await this.authService.registerByInvite(dto, this.ctx(req))
     this.setAuthCookies(reply, session)
     return { accessToken: session.accessToken }
+  }
+
+  /**
+   * «Забыли пароль» (docs/PROJECT.md §7.2). Ответ одинаков для любого адреса — эндпоинт не
+   * должен работать проверкой, кто зарегистрирован. Лимит строже входа: каждый вызов
+   * отправляет письмо, и без потолка им заваливали бы чужой ящик.
+   */
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 15 * 60_000 } })
+  @Post('password/forgot')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Прислать ссылку для сброса пароля (публично)' })
+  @ApiResponse({ status: 202, description: 'Если адрес зарегистрирован — письмо ушло' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: FastifyRequest): null {
+    // Не ждём: для существующего адреса работа (транзакция, очередь, аудит) занимает заметно
+    // дольше, чем для несуществующего, и по времени ответа было видно, есть ли такой
+    // пользователь. Ответ одинаковый и сразу; сбой — только в лог.
+    void this.passwordReset
+      .requestReset(dto, this.ctx(req))
+      .catch((e: unknown) => this.logger.error(`Сброс пароля не запущен: ${String(e)}`))
+    return null
+  }
+
+  /**
+   * Новый пароль по ссылке из письма. Сессию не выдаёт: после сброса гаснут все сессии, и
+   * входить человек идёт сам — так новый пароль сразу проверяется на деле, а 2FA, если она
+   * включена, не обходится ссылкой из почты.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } }) // как /login: перебор токена
+  @Post('password/reset')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Задать новый пароль по ссылке из письма (публично)' })
+  @ApiResponse({ status: 204, description: 'Пароль изменён, все сессии погашены' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — ссылка недействительна или устарела' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — пароль не по политике' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
+  async resetPassword(@Body() dto: ResetPasswordDto, @Req() req: FastifyRequest): Promise<void> {
+    await this.passwordReset.reset(dto, this.ctx(req))
   }
 
   @Public()

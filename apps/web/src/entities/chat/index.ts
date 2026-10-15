@@ -8,6 +8,8 @@ export {
   acceptChatRequestRequest,
   declineChatRequestRequest,
   joinChatRequest,
+  fetchChatInviteCode,
+  resetChatInviteCode,
   fetchMessages,
   sendMessageWithAttachments,
   sendMessageWithUploaded,

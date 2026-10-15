@@ -352,6 +352,21 @@ export class CoursesService {
     })
     if (!course) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
     await this.assertGroupManage(actor, course.groupId)
+    // Задания, колонки журнала и экзамены висят на дисциплине каскадом: удаление стёрло бы
+    // оценки, сданные работы и результаты экзаменов без следа. Такую дисциплину не удаляем.
+    const [grades, submissions, results] = await Promise.all([
+      this.prisma.grade.count({ where: { column: { courseId: id }, score: { not: null } } }),
+      this.prisma.submission.count({
+        where: { assignment: { courseId: id }, status: { not: 'DRAFT' } },
+      }),
+      this.prisma.examResult.count({ where: { exam: { courseId: id }, score: { not: null } } }),
+    ])
+    if (grades + submissions + results > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'У дисциплины есть оценки, сданные работы или результаты экзаменов',
+      )
+    }
     await this.prisma.course.delete({ where: { id } })
     await this.record(actor, 'course_deleted', 'Course', id, ctx)
   }
@@ -444,13 +459,18 @@ export class CoursesService {
     teacherId: string,
     universityId: string,
   ): Promise<void> {
-    const teacher = await this.prisma.user.findUnique({
-      where: { id: teacherId },
+    // Вести дисциплину может только действующий преподаватель или декан: раньше сюда
+    // проходил кто угодно из вуза, включая удалённых, заблокированных и студентов.
+    const teacher = await this.prisma.user.findFirst({
+      where: { id: teacherId, deletedAt: null, isBlocked: false },
       select: { universityId: true, role: true },
     })
     if (!teacher) throw new AppException('NOT_FOUND', 'Преподаватель не найден')
     if (teacher.universityId !== universityId)
       throw new AppException('WRONG_SCOPE', 'Преподаватель другого университета')
+    if (teacher.role !== Role.TEACHER && teacher.role !== Role.DEAN) {
+      throw new AppException('BAD_REQUEST', 'Назначить можно только преподавателя или декана')
+    }
   }
 
   private async resolveGroup(

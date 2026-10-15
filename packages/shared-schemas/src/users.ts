@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { WebsiteSchema } from './url.js'
 import { Role } from '@studenthub/shared-types'
 import { PasswordSchema, UsernameSchema } from './auth.js'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
@@ -69,7 +70,7 @@ export const UpdateProfileSchema = z
     languages: strList.optional(),
     telegram: shortText.optional(),
     instagram: shortText.optional(),
-    website: shortText.optional(),
+    website: WebsiteSchema.optional(),
     headline: shortText.optional(),
     timezone: shortText.optional(),
     // Язык интерфейса и исходящих писем. Закрытым списком, а не свободной строкой:
@@ -254,11 +255,55 @@ export function profileFieldsForRole(role: Role): ProfileFieldKey[] {
 }
 
 /**
+ * Учебные данные студента, которые ведёт ВУЗ, а не сам студент: из них платформа печатает
+ * справку об обучении с кодом проверки и цифровой студенческий. Пока их можно было менять
+ * через PATCH /users/me, студент сам ставил себе «грант», «обучающийся» и любой курс — и
+ * получал подписанную справку с этими сведениями. Видны они по-прежнему (PROFILE_FIELD_ROLES),
+ * а меняют их декан факультета и админ вуза (`PATCH /users/:id/academic`).
+ */
+export const STAFF_MANAGED_STUDENT_FIELDS = [
+  'course',
+  'enrollmentYear',
+  'graduationYear',
+  'educationLevel',
+  'studyForm',
+  'fundingType',
+  'specialty',
+  'studentCardNumber',
+  'academicStatus',
+  'gpa',
+] as const satisfies readonly ProfileFieldKey[]
+export type StaffManagedStudentField = (typeof STAFF_MANAGED_STUDENT_FIELDS)[number]
+
+/** Может ли роль менять поле в СВОЁМ профиле (видимость — profileFieldAllowed). */
+export function profileFieldSelfEditable(key: ProfileFieldKey, role: Role): boolean {
+  if (!profileFieldAllowed(key, role)) return false
+  return !(STAFF_MANAGED_STUDENT_FIELDS as readonly ProfileFieldKey[]).includes(key)
+}
+
+/** Учебные данные студента — правит сотрудник вуза (декан факультета или админ вуза). */
+export const UpdateAcademicRecordSchema = UpdateProfileSchema.pick({
+  course: true,
+  enrollmentYear: true,
+  graduationYear: true,
+  educationLevel: true,
+  studyForm: true,
+  fundingType: true,
+  specialty: true,
+  studentCardNumber: true,
+  academicStatus: true,
+  gpa: true,
+}).strict()
+export type UpdateAcademicRecordInput = z.infer<typeof UpdateAcademicRecordSchema>
+
+/**
  * Поля DTO, недоступные роли. Пустой массив — запрос валиден.
  * Роль передаётся вызывающим из JWT, никогда из тела (docs/BACKEND_RULES.md §0).
  * Вызывающий отвечает на непустой результат ошибкой 400, а не тихим отбрасыванием:
  * молчаливый игнор выглядел бы для клиента как успешное сохранение.
  */
 export function disallowedProfileFields(role: Role, input: UpdateProfileInput): ProfileFieldKey[] {
-  return (Object.keys(input) as ProfileFieldKey[]).filter((key) => !profileFieldAllowed(key, role))
+  return (Object.keys(input) as ProfileFieldKey[]).filter(
+    (key) => !profileFieldSelfEditable(key, role),
+  )
 }

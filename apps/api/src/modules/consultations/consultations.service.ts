@@ -11,6 +11,7 @@ import { QueueService } from '../../common/queue/queue.service'
 import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { localDateTimeLabel } from '../../common/time/local-label'
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 const TEACHER_ROLES: Role[] = [Role.TEACHER, Role.DEAN]
@@ -57,7 +58,13 @@ export class ConsultationsService {
   async deleteSlot(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const slot = await this.prisma.consultationSlot.findUnique({
       where: { id },
-      select: { id: true, teacherId: true, studentId: true, startsAt: true },
+      select: {
+        id: true,
+        teacherId: true,
+        studentId: true,
+        startsAt: true,
+        teacher: { select: { university: { select: { timezone: true } } } },
+      },
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
     if (slot.teacherId !== actor.sub) throw new AppException('FORBIDDEN', 'Не ваш слот')
@@ -66,7 +73,7 @@ export class ConsultationsService {
         slot.studentId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
         'consultations.cancelled.title',
-        this.slotLabel(slot.startsAt),
+        localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
         '/consultations',
         `consultation-cancelled:${id}`,
       )
@@ -112,7 +119,14 @@ export class ConsultationsService {
       where: {
         status: 'OPEN',
         startsAt: { gte: now },
-        teacher: { is: { universityId: viewer.universityId ?? '__none__' } },
+        // Удалённый или заблокированный преподаватель консультаций не ведёт.
+        teacher: {
+          is: {
+            universityId: viewer.universityId ?? '__none__',
+            deletedAt: null,
+            isBlocked: false,
+          },
+        },
       },
       select: {
         teacher: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
@@ -173,19 +187,35 @@ export class ConsultationsService {
         status: true,
         startsAt: true,
         teacherId: true,
-        teacher: { select: { universityId: true } },
+        teacher: {
+          select: {
+            universityId: true,
+            deletedAt: true,
+            isBlocked: true,
+            university: { select: { timezone: true } },
+          },
+        },
       },
     })
-    if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
+    if (!slot || slot.teacher.deletedAt || slot.teacher.isBlocked) {
+      throw new AppException('NOT_FOUND', 'Слот не найден')
+    }
     if (slot.teacher.universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Преподаватель другого университета')
     }
     if (slot.status !== 'OPEN') throw new AppException('CONFLICT', 'Слот занят')
     if (slot.startsAt < new Date()) throw new AppException('CONFLICT', 'Время уже прошло')
 
-    const booked = await this.prisma.consultationSlot.update({
-      where: { id },
+    // Условная запись: из двух одновременных записей на слот проходит одна. Проверка статуса
+    // выше её не заменяет — между чтением и записью слот успевал занять другой, и второй
+    // студент перезаписывал первого, а тот получал 200 и считал, что записан.
+    const claimed = await this.prisma.consultationSlot.updateMany({
+      where: { id, status: 'OPEN' },
       data: { status: 'BOOKED', studentId: actor.sub, topic: input.topic },
+    })
+    if (claimed.count === 0) throw new AppException('CONFLICT', 'Слот занят')
+    const booked = await this.prisma.consultationSlot.findUniqueOrThrow({
+      where: { id },
       select: SLOT_SELECT,
     })
     await this.record(actor, 'consultation_booked', id, ctx)
@@ -193,9 +223,11 @@ export class ConsultationsService {
       slot.teacherId,
       NOTIFICATION_JOBS.CONSULTATION_BOOKED,
       'consultations.booked.title',
-      this.slotLabel(slot.startsAt),
+      localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
       '/teacher/consultations',
-      `consultation-booked:${id}`,
+      // На один слот записываются не однажды (запись → отмена → новая запись): ключ без
+      // момента записи гасил повторное уведомление как дубль.
+      `consultation-booked:${id}:${actor.sub}:${Date.now()}`,
     )
     return booked
   }
@@ -203,15 +235,27 @@ export class ConsultationsService {
   async cancel(actor: JwtPayload, id: string, ctx: RequestContext) {
     const slot = await this.prisma.consultationSlot.findUnique({
       where: { id },
-      select: { id: true, status: true, startsAt: true, teacherId: true, studentId: true },
+      select: {
+        id: true,
+        status: true,
+        startsAt: true,
+        teacherId: true,
+        studentId: true,
+        teacher: { select: { university: { select: { timezone: true } } } },
+      },
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
 
     if (slot.studentId === actor.sub) {
-      // Студент отменяет свою запись → слот снова открыт.
-      const updated = await this.prisma.consultationSlot.update({
-        where: { id },
+      // Студент отменяет свою запись → слот снова открыт. Только из BOOKED: слот, отменённый
+      // преподавателем, хранит studentId, и без условия «отмена» студентом его воскрешала.
+      const released = await this.prisma.consultationSlot.updateMany({
+        where: { id, studentId: actor.sub, status: 'BOOKED' },
         data: { status: 'OPEN', studentId: null, topic: null },
+      })
+      if (released.count === 0) throw new AppException('CONFLICT', 'Запись уже не действует')
+      const updated = await this.prisma.consultationSlot.findUniqueOrThrow({
+        where: { id },
         select: SLOT_SELECT,
       })
       await this.record(actor, 'consultation_cancelled_by_student', id, ctx)
@@ -219,9 +263,9 @@ export class ConsultationsService {
         slot.teacherId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
         'consultations.bookingCancelled.title',
-        this.slotLabel(slot.startsAt),
+        localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
         '/teacher/consultations',
-        `consultation-cancelled:${id}:${actor.sub}`,
+        `consultation-cancelled:${id}:${actor.sub}:${Date.now()}`,
       )
       return updated
     }
@@ -237,7 +281,7 @@ export class ConsultationsService {
           slot.studentId,
           NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
           'consultations.cancelled.title',
-          this.slotLabel(slot.startsAt),
+          localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
           '/consultations',
           `consultation-cancelled:${id}:teacher`,
         )
@@ -248,10 +292,6 @@ export class ConsultationsService {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
-
-  private slotLabel(date: Date): string {
-    return date.toISOString().slice(0, 16).replace('T', ' ')
-  }
 
   private async assertSameUniversity(
     teacherId: string,

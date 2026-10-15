@@ -20,7 +20,12 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
     create: jest.fn().mockResolvedValue({ id: 'new' }),
     count: jest.fn().mockResolvedValue(0),
   }
-  const applicationService = { findFirst: jest.fn(), findUnique: jest.fn() }
+  const applicationService = {
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    // Коды услуг вуза: копия вуза скрывает одноимённый глобальный шаблон (service-visibility.ts).
+    findMany: jest.fn().mockResolvedValue([]),
+  }
   const serviceFormField = { findMany: jest.fn().mockResolvedValue([]) }
   const serviceRequirement = { findMany: jest.fn().mockResolvedValue([]) }
   const applicationDocument = {
@@ -38,6 +43,7 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
   }
   const prisma = {
     ...tx,
+    university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     $transaction: jest.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (t: typeof tx) => unknown)(tx)
@@ -160,6 +166,8 @@ describe('ApplicationsService.listGroupRequests — только группа с
     const arg = application.findMany.mock.calls[0][0] as { where: Record<string, unknown> }
     expect(arg.where.student).toEqual({ is: { groupId: 'g1' } })
     expect(arg.where.deletedAt).toBeNull()
+    // Черновики одногруппников — не обращения, старосте их не показываем.
+    expect(arg.where.AND).toEqual([{ status: { not: 'DRAFT' } }])
   })
 
   it('не отдаёт formData одногруппников — там свободный текст (§14.7)', async () => {
@@ -171,5 +179,31 @@ describe('ApplicationsService.listGroupRequests — только группа с
     // Список старосты рисует имя, номер и статус — они остаются.
     expect(arg.select.status).toBe(true)
     expect(arg.select.student).toBeDefined()
+  })
+})
+
+describe('ApplicationsService.list — «срок сегодня»', () => {
+  it('сутки считаются по часам вуза, а не сервера', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-01T21:00:00.000Z')) // 02:00 по Алматы
+    try {
+      const { service, application } = setup()
+      const dean: JwtPayload = { ...student, sub: 'd', role: Role.DEAN }
+      await service.list(dean, {
+        page: 1,
+        limit: 20,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        dueToday: true,
+      } as never)
+      const and = application.findMany.mock.calls[0][0].where.AND as Record<string, unknown>[]
+      expect(and).toContainEqual({
+        dueAt: {
+          gte: new Date('2026-10-01T19:00:00.000Z'),
+          lt: new Date('2026-10-02T19:00:00.000Z'),
+        },
+      })
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })

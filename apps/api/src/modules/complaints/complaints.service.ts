@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ComplaintPriority, ComplaintStatus, ComplaintTargetType, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   ComplaintListQueryInput,
   CreateComplaintInput,
@@ -79,6 +79,9 @@ const TARGET_WORD: Record<ComplaintTargetType, string> = {
   COMMENT: 'на комментарий',
 }
 
+// Сколько сообщений до и после обжалованного видит модератор (getMessageContext).
+const CONTEXT_WINDOW = 50
+
 @Injectable()
 export class ComplaintsService {
   private readonly logger = new Logger(ComplaintsService.name)
@@ -96,6 +99,20 @@ export class ComplaintsService {
 
   async create(reporter: JwtPayload, input: CreateComplaintInput, ctx: RequestContext) {
     const target = await this.getTarget(input.targetType as ComplaintTargetType, input.targetId)
+    // На сообщение жалуется только участник его чата. Иначе по одному id чужой личной
+    // переписки любой заводил жалобу — и у модератора появлялся формальный повод её читать.
+    // Ответ тот же, что у несуществующего сообщения: не подтверждаем, что такой id есть.
+    if (input.targetType === ComplaintTargetType.MESSAGE) {
+      const member = await this.prisma.chatMember.findFirst({
+        where: {
+          userId: reporter.sub,
+          bannedAt: null,
+          chat: { messages: { some: { id: input.targetId } } },
+        },
+        select: { id: true },
+      })
+      if (!member) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+    }
     const complaint = await this.prisma.complaint.create({
       data: {
         reporterId: reporter.sub,
@@ -314,6 +331,18 @@ export class ComplaintsService {
       if (targetType === ComplaintTargetType.USER) {
         throw new AppException('BAD_REQUEST', 'Для пользователя используйте блокировку')
       }
+      // Тот же ранг, что при удалении контента напрямую (posts/stories): по жалобе модератор
+      // вуза не снимает пост админа своего вуза.
+      const ownerId = await this.ownerOf(complaint)
+      if (ownerId) {
+        const owner = await this.prisma.user.findUnique({
+          where: { id: ownerId },
+          select: { role: true },
+        })
+        if (owner && !isHigherRole(actor.role, owner.role)) {
+          throw new AppException('FORBIDDEN', 'Чужой контент снимает только роль выше автора')
+        }
+      }
       await this.softDeleteTarget(targetType, complaint.targetId)
     } else if (input.action === 'BLOCK_USER') {
       const ownerId = await this.ownerOf(complaint)
@@ -339,9 +368,16 @@ export class ComplaintsService {
     }
 
     const status = input.action === 'DISMISS' ? ComplaintStatus.DISMISSED : ComplaintStatus.RESOLVED
+    const resolvedDate = new Date()
+    const resolvedAt = resolvedDate.getTime()
     const updated = await this.prisma.complaint.update({
       where: { id },
-      data: { status, resolvedById: actor.sub, resolution: input.comment, resolvedAt: new Date() },
+      data: {
+        status,
+        resolvedById: actor.sub,
+        resolution: input.comment,
+        resolvedAt: resolvedDate,
+      },
       select: COMPLAINT_SELECT,
     })
 
@@ -364,9 +400,11 @@ export class ComplaintsService {
         titleKey: 'complaints.resolved.title',
         bodyKey: input.action === 'DISMISS' ? 'complaints.dismissed.body' : 'complaints.acted.body',
         data: { complaintId: id },
-        dedupeKey: `complaint-resolved:${id}`,
+        // Жалобу могут открыть заново и решить ещё раз — второе решение тоже должно дойти.
+        // Момент решения в ключе: ретрай той же job приходит с тем же payload и отсекается.
+        dedupeKey: `complaint-resolved:${id}:${resolvedAt}`,
       },
-      { jobId: `complaint-resolved:${id}` },
+      { jobId: `complaint-resolved:${id}:${resolvedAt}` },
     )
 
     if (input.applyToDuplicates) await this.closeDuplicates(actor, complaint, status, id, ctx)
@@ -499,7 +537,7 @@ export class ComplaintsService {
     }
     const target = await this.prisma.message.findUnique({
       where: { id: complaint.targetId },
-      select: { chatId: true },
+      select: { chatId: true, createdAt: true },
     })
     if (!target) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
 
@@ -513,19 +551,36 @@ export class ComplaintsService {
       ...ctx,
     })
 
-    return this.prisma.message.findMany({
-      where: { chatId: target.chatId },
-      select: {
-        id: true,
-        senderId: true,
-        content: true,
-        createdAt: true,
-        deletedAt: true,
-        sender: USER_MINI,
-      },
-      orderBy: { createdAt: 'asc' },
-      take: 100,
-    })
+    // Окно вокруг обжалованного сообщения, а не начало чата: в длинной переписке первые сто
+    // сообщений — годичной давности, и самого нарушения среди них не было. Доступ —
+    // минимально нужный для разбора, а не вся история.
+    const select = {
+      id: true,
+      senderId: true,
+      content: true,
+      createdAt: true,
+      deletedAt: true,
+      sender: USER_MINI,
+    } satisfies Prisma.MessageSelect
+    const [before, after] = await Promise.all([
+      this.prisma.message.findMany({
+        where: { chatId: target.chatId, createdAt: { lte: target.createdAt } },
+        select,
+        orderBy: { createdAt: 'desc' },
+        take: CONTEXT_WINDOW + 1,
+      }),
+      this.prisma.message.findMany({
+        where: { chatId: target.chatId, createdAt: { gt: target.createdAt } },
+        select,
+        orderBy: { createdAt: 'asc' },
+        take: CONTEXT_WINDOW,
+      }),
+    ])
+    // Удалённые сообщения вокруг — без текста: их удалили для всех. Само обжалованное
+    // остаётся с текстом, даже если автор успел его удалить: это и есть предмет жалобы.
+    return [...before.reverse(), ...after].map((m) =>
+      m.deletedAt && m.id !== complaint.targetId ? { ...m, content: null } : m,
+    )
   }
 
   // ── Внутреннее ─────────────────────────────────────────────────────────────
@@ -550,17 +605,29 @@ export class ComplaintsService {
 
   /** Проверка существования цели и вычисление её вуза/владельца. */
   /** Владелец цели: автор поста, отправитель сообщения или сам пользователь. */
+  // Автора ищем и у уже удалённого контента: иначе нарушитель уходил от блокировки, просто
+  // удалив пост или сообщение до разбора жалобы.
   private async ownerOf(complaint: { targetType: ComplaintTargetType; targetId: string }) {
-    const target = await this.getTarget(complaint.targetType, complaint.targetId).catch(() => null)
+    const target = await this.getTarget(complaint.targetType, complaint.targetId, {
+      includeDeleted: true,
+    }).catch(() => null)
     return target?.ownerId ?? null
   }
 
-  private async getTarget(type: ComplaintTargetType, targetId: string): Promise<TargetInfo> {
+  private async getTarget(
+    type: ComplaintTargetType,
+    targetId: string,
+    opts: { includeDeleted?: boolean } = {},
+  ): Promise<TargetInfo> {
+    const alive = opts.includeDeleted ? {} : { deletedAt: null }
     switch (type) {
       case ComplaintTargetType.STORY: {
         // Истёкшая сторис для жалобы не существует: разбирать нечего, контента уже нет.
         const s = await this.prisma.story.findFirst({
-          where: { id: targetId, expiresAt: { gt: new Date() } },
+          where: {
+            id: targetId,
+            ...(opts.includeDeleted ? {} : { expiresAt: { gt: new Date() } }),
+          },
           select: {
             authorId: true,
             universityId: true,
@@ -572,7 +639,7 @@ export class ComplaintsService {
       }
       case ComplaintTargetType.POST: {
         const p = await this.prisma.post.findFirst({
-          where: { id: targetId, deletedAt: null },
+          where: { id: targetId, ...alive },
           select: {
             authorId: true,
             universityId: true,
@@ -584,7 +651,7 @@ export class ComplaintsService {
       }
       case ComplaintTargetType.COMMENT: {
         const c = await this.prisma.comment.findFirst({
-          where: { id: targetId, deletedAt: null },
+          where: { id: targetId, ...alive },
           select: { authorId: true, author: { select: { universityId: true } } },
         })
         if (!c) throw new AppException('NOT_FOUND', 'Комментарий не найден')
@@ -592,7 +659,7 @@ export class ComplaintsService {
       }
       case ComplaintTargetType.MESSAGE: {
         const m = await this.prisma.message.findFirst({
-          where: { id: targetId, deletedAt: null },
+          where: { id: targetId, ...alive },
           select: { senderId: true, sender: { select: { universityId: true } } },
         })
         if (!m) throw new AppException('NOT_FOUND', 'Сообщение не найдено')

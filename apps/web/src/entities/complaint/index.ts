@@ -3,6 +3,8 @@ export {
   createComplaintRequest,
   fetchComplaints,
   resolveComplaintRequest,
+  takeComplaintRequest,
+  reopenComplaintRequest,
   fetchComplaintMessages,
 } from './api/complaint-api'
 export {

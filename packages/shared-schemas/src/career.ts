@@ -117,6 +117,16 @@ export const VerifyCompanyEmailSchema = z.object({
 })
 export type VerifyCompanyEmailInput = z.infer<typeof VerifyCompanyEmailSchema>
 
+/**
+ * Повторная отправка письма с подтверждением. Ссылка живёт сутки: без этого компания,
+ * не успевшая открыть письмо, оставалась в PENDING_EMAIL навсегда — повторная регистрация
+ * на тот же адрес молча ничего не делает (защита от перебора адресов).
+ */
+export const ResendCompanyVerificationSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(160),
+})
+export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerificationSchema>
+
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
 export const UpdateCompanySchema = z.object({

@@ -19,7 +19,17 @@ const dean: JwtPayload = {
 }
 
 function setup() {
-  const group = { findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101' }]) }
+  const group = {
+    findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101' }]),
+    // Связность scope (assertScopeExists): grp-1 лежит на факультете декана в его вузе.
+    findUnique: jest
+      .fn()
+      .mockResolvedValue({ facultyId: 'fac-A', faculty: { universityId: 'uni-A' } }),
+  }
+  const faculty = {
+    findMany: jest.fn().mockResolvedValue([{ id: 'fac-A', name: 'ИТ' }]),
+    findUnique: jest.fn().mockResolvedValue({ universityId: 'uni-A' }),
+  }
   const user = {
     findMany: jest.fn().mockResolvedValue([]),
     // Язык писем-приглашений — язык приглашающего (invites.service: issuerLocale).
@@ -28,6 +38,7 @@ function setup() {
   const invite = { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
   const prisma = {
     group,
+    faculty,
     user,
     invite,
     $transaction: jest.fn((arg: unknown) =>
@@ -43,7 +54,7 @@ function setup() {
     queue as unknown as QueueService,
     config as unknown as ConfigService<EnvVars, true>,
   )
-  return { service, prisma, group, user, invite, audit }
+  return { service, prisma, group, faculty, user, invite, audit }
 }
 
 describe('parseBulkInviteFile', () => {
@@ -51,8 +62,14 @@ describe('parseBulkInviteFile', () => {
     const csv = 'email,group,role\r\nstud@x.kz,BT-101,STUDENT\r\n"a@b.kz","BT-101",\r\n'
     const rows = parseBulkInviteFile(Buffer.from(csv), 'list.csv')
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toEqual({ line: 2, email: 'stud@x.kz', group: 'BT-101', role: 'STUDENT' })
-    expect(rows[1]).toEqual({ line: 3, email: 'a@b.kz', group: 'BT-101', role: '' })
+    expect(rows[0]).toEqual({
+      line: 2,
+      email: 'stud@x.kz',
+      group: 'BT-101',
+      role: 'STUDENT',
+      faculty: '',
+    })
+    expect(rows[1]).toEqual({ line: 3, email: 'a@b.kz', group: 'BT-101', role: '', faculty: '' })
   })
 
   it('CSV: авто-детект разделителя «;» и русских заголовков', () => {
@@ -61,7 +78,13 @@ describe('parseBulkInviteFile', () => {
     expect(rows[0]).toMatchObject({ email: 'студ@x.kz', group: 'BT-101' })
   })
 
-  it('без обязательных колонок → BAD_REQUEST', () => {
+  it('колонка факультета читается, группа необязательна', () => {
+    const csv = 'email,role,факультет\nteach@x.kz,DEAN,ИТ\n'
+    const rows = parseBulkInviteFile(Buffer.from(csv), 'list.csv')
+    expect(rows[0]).toMatchObject({ email: 'teach@x.kz', role: 'DEAN', faculty: 'ИТ', group: '' })
+  })
+
+  it('без колонки email → BAD_REQUEST', () => {
     expect(() => parseBulkInviteFile(Buffer.from('name,age\nx,1\n'), 'x.csv')).toThrow()
   })
 
@@ -74,7 +97,7 @@ describe('InviteService.bulkPreview', () => {
   it('валидная строка → READY с разрешённым groupId', async () => {
     const { service } = setup()
     const res = await service.bulkPreview(dean, [
-      { line: 2, email: 'new@x.kz', group: 'BT-101', role: 'STUDENT' },
+      { line: 2, email: 'new@x.kz', group: 'BT-101', role: 'STUDENT', faculty: '' },
     ])
     expect(res.summary).toEqual({ total: 1, ready: 1, duplicate: 0, error: 0 })
     expect(res.rows[0]).toMatchObject({ status: 'READY', groupId: 'grp-1' })
@@ -83,7 +106,7 @@ describe('InviteService.bulkPreview', () => {
   it('несуществующая группа → ERROR', async () => {
     const { service } = setup()
     const res = await service.bulkPreview(dean, [
-      { line: 2, email: 'new@x.kz', group: 'NO-SUCH', role: '' },
+      { line: 2, email: 'new@x.kz', group: 'NO-SUCH', role: '', faculty: '' },
     ])
     expect(res.rows[0]).toMatchObject({ status: 'ERROR' })
     expect(res.summary.error).toBe(1)
@@ -92,7 +115,7 @@ describe('InviteService.bulkPreview', () => {
   it('битый email → ERROR', async () => {
     const { service } = setup()
     const res = await service.bulkPreview(dean, [
-      { line: 2, email: 'not-an-email', group: 'BT-101', role: '' },
+      { line: 2, email: 'not-an-email', group: 'BT-101', role: '', faculty: '' },
     ])
     expect(res.rows[0]).toMatchObject({ status: 'ERROR' })
   })
@@ -101,7 +124,7 @@ describe('InviteService.bulkPreview', () => {
     const { service, invite } = setup()
     invite.findMany.mockResolvedValue([{ email: 'dupe@x.kz' }])
     const res = await service.bulkPreview(dean, [
-      { line: 2, email: 'dupe@x.kz', group: 'BT-101', role: '' },
+      { line: 2, email: 'dupe@x.kz', group: 'BT-101', role: '', faculty: '' },
     ])
     expect(res.rows[0]).toMatchObject({ status: 'DUPLICATE' })
   })
@@ -109,8 +132,8 @@ describe('InviteService.bulkPreview', () => {
   it('повтор email внутри файла → второй DUPLICATE', async () => {
     const { service } = setup()
     const res = await service.bulkPreview(dean, [
-      { line: 2, email: 'same@x.kz', group: 'BT-101', role: '' },
-      { line: 3, email: 'same@x.kz', group: 'BT-101', role: '' },
+      { line: 2, email: 'same@x.kz', group: 'BT-101', role: '', faculty: '' },
+      { line: 3, email: 'same@x.kz', group: 'BT-101', role: '', faculty: '' },
     ])
     expect(res.rows[0]!.status).toBe('READY')
     expect(res.rows[1]!.status).toBe('DUPLICATE')
@@ -149,6 +172,81 @@ describe('InviteService.bulkCreate', () => {
       ctx,
     )
     expect(res).toEqual({ created: 0, skipped: 0, failed: 1 })
+  })
+})
+
+describe('InviteService — импорт у админа вуза: преподаватели и деканы', () => {
+  const admin: JwtPayload = {
+    sub: 'ua-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-A',
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('преподаватель без группы → READY, декан с факультетом → READY', async () => {
+    const { service } = setup()
+    const res = await service.bulkPreview(admin, [
+      { line: 2, email: 't@x.kz', group: '', role: 'TEACHER', faculty: '' },
+      { line: 3, email: 'd@x.kz', group: '', role: 'DEAN', faculty: 'ИТ' },
+    ])
+    expect(res.rows[0]).toMatchObject({ status: 'READY', groupId: null, facultyId: null })
+    expect(res.rows[1]).toMatchObject({ status: 'READY', facultyId: 'fac-A' })
+  })
+
+  it('декан без факультета → ERROR, студента админ не приглашает → ERROR', async () => {
+    const { service } = setup()
+    const res = await service.bulkPreview(admin, [
+      { line: 2, email: 'd@x.kz', group: '', role: 'DEAN', faculty: '' },
+      { line: 3, email: 's@x.kz', group: 'BT-101', role: 'STUDENT', faculty: '' },
+    ])
+    expect(res.rows.map((r) => r.status)).toEqual(['ERROR', 'ERROR'])
+  })
+
+  it('декан создаётся с факультетом из файла', async () => {
+    const { service, invite } = setup()
+    invite.create.mockResolvedValue({ id: 'inv-1' })
+    const res = await service.bulkCreate(
+      admin,
+      { rows: [{ email: 'd@x.kz', facultyId: 'fac-A', role: Role.DEAN }] },
+      ctx,
+    )
+    expect(res).toEqual({ created: 1, skipped: 0, failed: 0 })
+    expect(invite.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ role: Role.DEAN, facultyId: 'fac-A' }),
+      }),
+    )
+  })
+
+  it('id группы или факультета вне scope создателя → failed (подмена в запросе)', async () => {
+    const { service, invite } = setup()
+    const res = await service.bulkCreate(
+      dean,
+      {
+        rows: [
+          { email: 'a@x.kz', groupId: 'grp-of-other-faculty', role: Role.STUDENT },
+          { email: 'b@x.kz', facultyId: 'fac-other', role: Role.TEACHER },
+        ],
+      },
+      ctx,
+    )
+    expect(res).toEqual({ created: 0, skipped: 0, failed: 2 })
+    expect(invite.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('InviteService.bulkCreate — подмена группы в запросе', () => {
+  it('группа чужого факультета из тела запроса → failed, инвайт не создаётся', async () => {
+    const { service, group, invite } = setup()
+    group.findUnique.mockResolvedValue({ facultyId: 'fac-B', faculty: { universityId: 'uni-A' } })
+    const res = await service.bulkCreate(
+      dean,
+      { rows: [{ email: 'a@x.kz', groupId: 'grp-of-B', role: Role.STUDENT }] },
+      ctx,
+    )
+    expect(res).toEqual({ created: 0, skipped: 0, failed: 1 })
+    expect(invite.create).not.toHaveBeenCalled()
   })
 })
 

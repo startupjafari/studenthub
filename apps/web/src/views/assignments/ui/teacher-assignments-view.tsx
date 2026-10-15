@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -78,7 +79,12 @@ export function TeacherAssignmentsView() {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
-  const [gradingId, setGradingId] = useState<string | null>(null)
+  // Диплинк из очереди проверки на главной: /teacher/assignments?open=<id> сразу открывает
+  // проверку работ этого задания (отдельного роута у проверки нет — как и у студента).
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [gradingId, setGradingId] = useState<string | null>(() => searchParams.get('open'))
   const paged = usePagedSort<AssignmentSort>()
 
   const q = useQuery({
@@ -122,7 +128,16 @@ export function TeacherAssignmentsView() {
   // проверки меняло число хуков между рендерами: React бросал исключение, экран уходил
   // в общий error boundary («Что-то пошло не так»).
   if (gradingId) {
-    return <GradingWorkspace assignmentId={gradingId} onBack={() => setGradingId(null)} />
+    return (
+      <GradingWorkspace
+        assignmentId={gradingId}
+        onBack={() => {
+          setGradingId(null)
+          // Иначе обновление страницы снова открыло бы проверку из диплинка.
+          if (searchParams.has('open')) router.replace(pathname)
+        }}
+      />
+    )
   }
 
   const rows = q.data?.items ?? []

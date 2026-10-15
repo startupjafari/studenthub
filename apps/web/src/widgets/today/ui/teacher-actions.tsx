@@ -142,7 +142,7 @@ export function ReviewQueuePanel() {
           {items.map((a) => (
             <li key={a.id}>
               <Link
-                href={`/teacher/assignments/${a.id}`}
+                href={`/teacher/assignments?open=${a.id}`}
                 className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-muted/40"
               >
                 <span className="min-w-0 flex-1">

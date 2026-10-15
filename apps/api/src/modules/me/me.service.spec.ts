@@ -21,48 +21,44 @@ function setup() {
   const applications = { list: jest.fn().mockResolvedValue({ items: [{ id: 'app1' }], meta: {} }) }
   const prisma = {
     applicationEvent: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue([
-          {
-            id: 'ae1',
-            action: 'STATUS_CHANGED',
-            applicationId: 'app1',
-            actorId: 'x',
-            fromStatus: 'DRAFT',
-            toStatus: 'SUBMITTED',
-            comment: null,
-            createdAt: new Date('2026-06-15T10:00:00Z'),
-          },
-        ]),
+      findMany: jest.fn().mockResolvedValue([
+        {
+          id: 'ae1',
+          action: 'STATUS_CHANGED',
+          applicationId: 'app1',
+          actorId: 'x',
+          fromStatus: 'DRAFT',
+          toStatus: 'SUBMITTED',
+          comment: null,
+          createdAt: new Date('2026-06-15T10:00:00Z'),
+        },
+      ]),
     },
+    // Часовой пояс вуза — для даты «сегодня».
+    university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     documentEvent: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue([
-          {
-            id: 'de1',
-            action: 'UPLOAD',
-            documentId: 'doc1',
-            actorId: 'u1',
-            metadata: null,
-            createdAt: new Date('2026-06-15T12:00:00Z'),
-          },
-        ]),
+      findMany: jest.fn().mockResolvedValue([
+        {
+          id: 'de1',
+          action: 'UPLOAD',
+          documentId: 'doc1',
+          actorId: 'u1',
+          metadata: null,
+          createdAt: new Date('2026-06-15T12:00:00Z'),
+        },
+      ]),
     },
     auditLog: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue([
-          {
-            id: 'al1',
-            action: 'LOGIN',
-            entity: 'User',
-            entityId: 'u1',
-            metadata: null,
-            createdAt: new Date('2026-06-15T08:00:00Z'),
-          },
-        ]),
+      findMany: jest.fn().mockResolvedValue([
+        {
+          id: 'al1',
+          action: 'LOGIN',
+          entity: 'User',
+          entityId: 'u1',
+          metadata: null,
+          createdAt: new Date('2026-06-15T08:00:00Z'),
+        },
+      ]),
     },
   }
   const service = new MeService(

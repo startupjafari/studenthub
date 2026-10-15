@@ -427,7 +427,7 @@ describe('Auth (e2e)', () => {
     })
 
     it('disable отключает 2FA → login снова отдаёт токены напрямую', async () => {
-      const { secret } = await enable2fa()
+      const { secret, backupCodes } = await enable2fa()
       // Войти (через 2FA), получить access-токен.
       const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
       const verified = await request(server)
@@ -438,15 +438,33 @@ describe('Auth (e2e)', () => {
         })
       const token = verified.body.data.accessToken as string
 
+      // TOTP одноразовый: код, которым только что вошли, второй раз не примут — отключаем
+      // backup-кодом.
       const disable = await request(server)
         .post('/api/v1/auth/2fa/disable')
         .set('Authorization', `Bearer ${token}`)
-        .send({ code: authenticator.generate(secret) })
+        .send({ code: backupCodes[0] })
       expect([200, 201]).toContain(disable.status)
 
       const res = await request(server).post('/api/v1/auth/login').send(LOGIN)
       expect(res.body.data.accessToken).toEqual(expect.any(String))
       expect(res.body.data.twoFactorRequired).toBeUndefined()
+    })
+
+    it('тот же TOTP-код второй раз не открывает вход', async () => {
+      const { secret } = await enable2fa()
+      const code = authenticator.generate(secret)
+      const login1 = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const ok = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({ challengeToken: login1.body.data.challengeToken, code })
+      expect([200, 201]).toContain(ok.status)
+
+      const login2 = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const replay = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({ challengeToken: login2.body.data.challengeToken, code })
+      expect(replay.status).toBe(401)
     })
 
     it('challenge-токен нельзя использовать как access-токен (GET /auth/me)', async () => {

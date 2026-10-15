@@ -10,16 +10,18 @@ function setup(enforceTwoFactor = true) {
   const jwt = { verifyAsync: jest.fn() }
   const prisma = { user: { update: jest.fn().mockResolvedValue({}) } }
   const config = { get: jest.fn(() => enforceTwoFactor) }
+  const revocation = { isRevoked: jest.fn().mockResolvedValue(false) }
   const gateway = new RealtimeGateway(
     jwt as unknown as JwtService,
     prisma as unknown as import('../prisma/prisma.service').PrismaService,
     config as unknown as ConfigService<EnvVars, true>,
+    revocation as unknown as import('../redis/session-revocation.service').SessionRevocationService,
   )
   // Присутствие рассылается адресно: server.to(room).emit(...). Мокаем цепочку to→emit.
   const roomEmit = jest.fn()
   const server = { emit: jest.fn(), to: jest.fn(() => ({ emit: roomEmit })) }
   ;(gateway as unknown as { server: Server }).server = server as unknown as Server
-  return { gateway, jwt, server, roomEmit }
+  return { gateway, jwt, server, roomEmit, revocation }
 }
 
 function socket(token?: string): Socket {
@@ -167,5 +169,18 @@ describe('RealtimeGateway — второй фактор в handshake', () => {
     await gateway.handleAuthRefresh(client, { token: 'challenge' })
     expect(client.disconnect).toHaveBeenCalled()
     expect(client.data.userId).toBe('prev')
+  })
+})
+
+describe('RealtimeGateway — отозванные сессии', () => {
+  it('токен, выданный до блокировки, не открывает соединение', async () => {
+    const { gateway, jwt, revocation } = setup(false)
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', iat: 100 })
+    revocation.isRevoked.mockResolvedValue(true)
+    const client = socket('tok')
+    await gateway.handleConnection(client)
+    expect(revocation.isRevoked).toHaveBeenCalledWith('u1', 100)
+    expect(client.disconnect).toHaveBeenCalled()
+    expect(client.join).not.toHaveBeenCalled()
   })
 })

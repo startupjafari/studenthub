@@ -29,6 +29,8 @@ export interface Complaint {
   createdAt: string
   reporter: ComplaintUser
   resolvedBy: ComplaintUser | null
+  /** Кто взял жалобу в разбор (PATCH /complaints/:id/take); перехватить чужую нельзя. */
+  reviewingBy?: ComplaintUser | null
 }
 
 export interface ComplaintChatMessage {

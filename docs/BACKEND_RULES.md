@@ -215,7 +215,7 @@ RolesGuard     (@Roles(Role.DEAN, Role.UNIVERSITY_ADMIN))
 ScopeGuard     (universityId / facultyId / groupId из токена = scope ресурса)
 ```
 
-- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 16 маршрутов**, сверен с кодом 2026-10-06; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
+- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 20 маршрутов**, сверен с кодом 2026-10-14; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
 
   | Маршрут | Почему публичный | Где обосновано |
   |---|---|---|
@@ -224,6 +224,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `POST /auth/refresh` | обмен по refresh-cookie | §6.2 |
   | `POST /auth/logout` | выход обязан работать при истёкшем access (см. ниже) | §6.1 |
   | `POST /auth/register-by-invite` | регистрация по инвайту | §7 |
+  | `POST /auth/password/forgot` | ссылка сброса пароля: человек, забывший пароль, войти не может; ответ одинаков для любого адреса | `PROJECT.md` §7.2 |
+  | `POST /auth/password/reset` | новый пароль по одноразовому токену из письма; сессию не выдаёт | `PROJECT.md` §7.2 |
   | `POST /auth/qr/create` | QR-сессию создаёт неавторизованный десктоп | `PROJECT.md` §Вход по QR |
   | `POST /auth/qr/claim` | сессию забирает тот же десктоп по `claimSecret` | `PROJECT.md` §Вход по QR |
   | `GET /invites/:token/preview` | превью инвайта до регистрации | §7 |
@@ -234,6 +236,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `GET /career/resume/public/:slug` | резюме по ссылке, публикацию включает сам студент | `PROJECT.md` §Резюме |
   | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
   | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
+  | `POST /career/companies/resend-verification` | новая ссылка взамен истёкшей: без входа компания с неподтверждённой почтой застревала навсегда; ответ одинаков для любого адреса | §19 п. 9 |
   | `POST /mini/session` | Telegram открывает мини-апп без нашего JWT; защита — подпись initData | `PROJECT.md` §Мини-апп |
   | `POST /mini/link` | то же, плюс одноразовый код, выданный в вебе | `PROJECT.md` §Мини-апп |
 
@@ -271,6 +274,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 |---|---|
 | `POST /auth/login` | 5 / 15 мин с IP |
 | `POST /auth/register-by-invite` | 3 / час с IP |
+| `POST /auth/password/forgot` | 3 / 15 мин с IP |
+| `POST /auth/password/reset` | 5 / 15 мин с IP |
 | `GET /invites/:token/preview` | 10 / час с IP |
 | `POST /complaints` | 10 / час с пользователя |
 | Остальные | 100 / мин с пользователя |
@@ -349,6 +354,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 | `scheduleEventReminders` | `*/15 * * * *` (см. замечание ниже) |
 | `cleanOldNotifications` | `0 2 * * 0` |
 | `cleanAuditLogs` | `0 1 1 * *` |
+| `purgePasswordResetTokens` | `15 3 * * *` |
 
 - Все cron-задачи — только в `CleanupService`. Разбрасывать `@Cron` по модулям запрещено.
 - Каждая задача логирует количество обработанных записей.

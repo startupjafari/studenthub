@@ -6,9 +6,14 @@ type Mock = jest.Mock
 function makeService() {
   const prisma = {
     invite: { findMany: jest.fn() as Mock, updateMany: jest.fn() as Mock },
+    passwordResetToken: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     auditLog: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
-    file: { findMany: jest.fn() as Mock, groupBy: jest.fn(async () => []) as Mock },
+    file: {
+      findMany: jest.fn() as Mock,
+      deleteMany: jest.fn() as Mock,
+      groupBy: jest.fn(async () => []) as Mock,
+    },
     // Счётчики суточной сводки.
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
@@ -181,6 +186,28 @@ describe('CleanupService', () => {
     })
   })
 
+  describe('purgePasswordResetTokens', () => {
+    it('удаляет истёкшие и использованные больше суток назад', async () => {
+      const { service, prisma } = makeService()
+      prisma.passwordResetToken.findMany
+        .mockResolvedValueOnce([{ id: 't1' }])
+        .mockResolvedValueOnce([])
+      prisma.passwordResetToken.deleteMany.mockResolvedValue({ count: 1 })
+
+      const total = await service.purgePasswordResetTokens()
+
+      expect(total).toBe(1)
+      const where = prisma.passwordResetToken.findMany.mock.calls[0][0].where
+      const [expired, used] = where.OR
+      // Свежая ссылка, которую ещё можно открыть, под удаление не попадает.
+      expect(expired.expiresAt.lt.getTime()).toBeLessThan(Date.now() - 23 * 60 * 60 * 1000)
+      expect(used.usedAt.lt.getTime()).toBeLessThan(Date.now() - 23 * 60 * 60 * 1000)
+      expect(prisma.passwordResetToken.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['t1'] } },
+      })
+    })
+  })
+
   describe('cleanOldNotifications', () => {
     it('удаляет прочитанные старше 30 дней с cutoff в прошлом', async () => {
       const { service, prisma } = makeService()
@@ -205,6 +232,26 @@ describe('CleanupService', () => {
       prisma.auditLog.deleteMany.mockResolvedValue({ count: 2 })
       const total = await service.cleanAuditLogs()
       expect(total).toBe(2)
+    })
+  })
+
+  describe('cleanDetachedFiles', () => {
+    it('снимает строки вложений удалённых чатов и материалов, только в их бакетах', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany
+        .mockResolvedValueOnce([{ id: 'f1' }, { id: 'f2' }])
+        .mockResolvedValueOnce([{ id: 'f3' }])
+      prisma.file.deleteMany.mockImplementation(
+        async ({ where }: { where: { id: { in: string[] } } }) => ({
+          count: where.id.in.length,
+        }),
+      )
+      await expect(service.cleanDetachedFiles()).resolves.toBe(3)
+      const wheres = prisma.file.findMany.mock.calls.map((c: [{ where: unknown }]) => c[0].where)
+      expect(wheres).toEqual([
+        { bucket: 'MINIO_BUCKET_CHAT', messageId: null },
+        { bucket: 'MINIO_BUCKET_MATERIALS', materialId: null },
+      ])
     })
   })
 

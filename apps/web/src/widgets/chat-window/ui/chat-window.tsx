@@ -295,7 +295,9 @@ export function ChatWindow() {
   const [activeId, setActiveId] = useState<string | null>(null)
   // Открытие конкретного чата извне через ?chat=<id> (например кнопка «Написать» из профиля).
   const searchParams = useSearchParams()
-  const requestedChatId = searchParams.get('chat')
+  // id из адреса подставляются в пути API (`/chats/${id}/messages`): `../` в параметре
+  // вёл бы запрос на другой эндпоинт. Чужой формат просто игнорируем.
+  const requestedChatId = safeParamId(searchParams.get('chat'))
   const appliedChatParam = useRef<string | null>(null)
   useEffect(() => {
     if (requestedChatId && requestedChatId !== appliedChatParam.current) {
@@ -308,8 +310,8 @@ export function ChatWindow() {
   }, [requestedChatId, qc])
   // Deeplink на конкретное сообщение (#10): /chats?c=<chatId>&m=<messageId> (кнопка «Копировать ссылку»).
   // Открываем чат c, затем после загрузки истории прыгаем к сообщению m (эффект — ниже, после messages).
-  const deepChatId = searchParams.get('c')
-  const deepMsgId = searchParams.get('m')
+  const deepChatId = safeParamId(searchParams.get('c'))
+  const deepMsgId = safeParamId(searchParams.get('m'))
   const appliedDeeplink = useRef<string | null>(null)
   // Черновики по чатам: локально (мгновенно) + синхронизация с сервером (#3, дебаунс).
   const draftsRef = useRef<Map<string, string>>(new Map())
@@ -4187,4 +4189,9 @@ export function ChatWindow() {
       )}
     </div>
   )
+}
+
+// Идентификаторы сущностей — uuid и токены сида: буквы, цифры, дефис и подчёркивание.
+function safeParamId(value: string | null): string | null {
+  return value && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null
 }

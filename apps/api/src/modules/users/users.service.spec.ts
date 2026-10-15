@@ -26,6 +26,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    group: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     complaint: { count: jest.fn().mockResolvedValue(0) },
     moderationWarning: {
       create: jest.fn().mockResolvedValue({ id: 'w1' }),
@@ -290,6 +291,35 @@ describe('UserService — закрытый профиль (видимость п
     expect(starosta.gpa).toBeNull()
   })
 
+  it('дата рождения, форма оплаты, статус и общежитие — как gpa: одногруппнику не видны', async () => {
+    const { service, prisma } = setup()
+    const personal = {
+      ...target,
+      birthDate: new Date('2005-03-01'),
+      fundingType: 'Грант',
+      academicStatus: 'Обучающийся',
+      dormitory: 'Да',
+    }
+    prisma.user.findFirst.mockResolvedValue(personal)
+    const peer = await service.getProfileForViewer(
+      'target-1',
+      viewer(Role.STUDENT, { universityId: 'uni-A', facultyId: 'fac-A', groupId: 'grp-A' }, 'p'),
+    )
+    expect(peer.access).toBe('full')
+    expect(peer).toMatchObject({
+      birthDate: null,
+      fundingType: null,
+      academicStatus: null,
+      dormitory: null,
+    })
+    prisma.user.findFirst.mockResolvedValue(personal)
+    const admin = await service.getProfileForViewer(
+      'target-1',
+      viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }),
+    )
+    expect(admin).toMatchObject({ fundingType: 'Грант', dormitory: 'Да' })
+  })
+
   it('createInvitedUser — дефолт видимости по роли (студент → UNIVERSITY, декан → PUBLIC)', async () => {
     const { service, prisma } = setup()
     const tx = {
@@ -432,6 +462,23 @@ describe('UserService — softDeleteSelf', () => {
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
   })
 
+  it('староста: освобождает имя входа, выходит из группы и снимает отметку старосты', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.findUnique.mockResolvedValue({ role: Role.STAROSTA })
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    const { data } = prisma.user.update.mock.calls[0][0]
+    expect(data.username).toBeNull()
+    expect(data.groupId).toBeNull()
+    expect(data.role).toBe(Role.STUDENT)
+    expect(prisma.group.updateMany).toHaveBeenCalledWith({
+      where: { starostaId: 'u' },
+      data: { starostaId: null },
+    })
+  })
+
   it('сносит объекты аватара и обложки в MinIO', async () => {
     const { service, prisma, passwords, files, config } = setup()
     withBuckets(config)
@@ -533,7 +580,7 @@ describe('UserService — setBlocked', () => {
 
   it('чужой вуз (админ вуза) → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await expect(
       service.setBlocked(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't', true),
     ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
@@ -541,7 +588,7 @@ describe('UserService — setBlocked', () => {
 
   it('платформенный админ блокирует и гасит сессии', async () => {
     const { service, prisma, authService } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true)
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -554,11 +601,62 @@ describe('UserService — setBlocked', () => {
   })
 })
 
+describe('UserService — ранг при мерах модерации', () => {
+  it('модератор вуза не блокирует админа своего вуза', async () => {
+    const { service, prisma, authService } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: 'uni-A',
+      role: Role.UNIVERSITY_ADMIN,
+    })
+    await expect(
+      service.setBlocked(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't', true),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalled()
+  })
+
+  it('модератор платформы не блокирует и не выкидывает из сессий её админа', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: null,
+      role: Role.PLATFORM_ADMIN,
+    })
+    await expect(
+      service.setBlocked(viewer(Role.PLATFORM_MODERATOR), 't', true),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      service.revokeSessions(viewer(Role.PLATFORM_MODERATOR), 't'),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+  })
+
+  it('равный по роли тоже под защитой: админ вуза не предупреждает другого админа', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: 'uni-A',
+      role: Role.UNIVERSITY_ADMIN,
+    })
+    await expect(
+      service.warn(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't'),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('свои сессии завершить можно всегда', async () => {
+    const { service, authService } = setup()
+    await service.revokeSessions(viewer(Role.UNIVERSITY_MODERATOR, {}, 'me'), 'me')
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('me')
+  })
+})
+
 // ── Предупреждение и временная блокировка ───────────────────────────────────
 describe('UserService — предупреждение', () => {
   it('чужой вуз (модератор вуза) → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await expect(
       service.warn(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-A' }), 't'),
     ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
@@ -567,7 +665,7 @@ describe('UserService — предупреждение', () => {
   // Предупреждение, о котором человек не узнал, — это не мера, а запись в базе.
   it('уведомляет предупреждённого и возвращает счётчик', async () => {
     const { service, prisma, queue } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.moderationWarning.count.mockResolvedValue(2)
 
     await expect(service.warn(viewer(Role.PLATFORM_ADMIN), 't', 'c1')).resolves.toEqual({
@@ -579,7 +677,7 @@ describe('UserService — предупреждение', () => {
   // Комментарий к решению — внутренняя записка модератора: её писали не нарушителю.
   it('не пересылает нарушителю внутренний текст', async () => {
     const { service, prisma, queue } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await service.warn(viewer(Role.PLATFORM_ADMIN), 't', 'c1')
     const payload = queue.enqueue.mock.calls[0][2]
     expect(payload.data).toEqual({ warningId: 'w1' })
@@ -587,7 +685,7 @@ describe('UserService — предупреждение', () => {
 
   it('доступ ни у кого не отбирает', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     await service.warn(viewer(Role.PLATFORM_ADMIN), 't')
     expect(prisma.user.update).not.toHaveBeenCalled()
   })
@@ -596,7 +694,7 @@ describe('UserService — предупреждение', () => {
 describe('UserService — временная блокировка', () => {
   it('со сроком пишет blockedUntil', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
     const until = new Date('2026-10-01T00:00:00.000Z')
 
@@ -611,7 +709,7 @@ describe('UserService — временная блокировка', () => {
   // оставлять в карточке срок, которого больше нет.
   it('разблокировка стирает срок', async () => {
     const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B' })
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
 
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', false)
@@ -1045,5 +1143,145 @@ describe('UserService — выгрузка списка', () => {
 
     expect(typeof body).toBe('string')
     expect((body as string).charCodeAt(0)).toBe(0xfeff)
+  })
+})
+
+describe('UserService — роль старосты группы', () => {
+  function tx() {
+    return {
+      user: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'old-1' }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    }
+  }
+
+  it('прежние старосты группы — в студенты, новый — в старосты', async () => {
+    const { service } = setup()
+    const t = tx()
+
+    const demoted = await service.syncGroupStarosta(t as never, 'grp-1', 'stud-1')
+
+    expect(demoted).toEqual(['old-1'])
+    expect(t.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          groupId: 'grp-1',
+          role: Role.STAROSTA,
+          id: { not: 'stud-1' },
+        }),
+      }),
+    )
+    expect(t.user.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['old-1'] } },
+      data: { role: Role.STUDENT, starostaSince: null },
+    })
+    // Повышается только студент: действующий староста сохраняет дату начала полномочий.
+    expect(t.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'stud-1', role: Role.STUDENT } }),
+    )
+  })
+
+  it('разжалованному гасятся сессии, обе смены роли — в журнал', async () => {
+    const { service, authService, audit } = setup()
+
+    await service.afterStarostaChange('dean-1', 'grp-1', 'stud-1', ['old-1'])
+
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('old-1')
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalledWith('stud-1')
+    expect(audit.record).toHaveBeenCalledTimes(2)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'user_role_changed', entityId: 'old-1' }),
+    )
+  })
+})
+
+describe('UserService — учебные данные ведёт вуз', () => {
+  it('студент не меняет себе статус, форму оплаты и курс через свой профиль', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.updateProfile('s1', Role.STUDENT, { academicStatus: 'Обучающийся', course: 4 }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('декан правит учебные данные студента своего факультета, правка в аудите', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+    })
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateAcademicRecord(
+      viewer(Role.DEAN, { universityId: 'uni-A', facultyId: 'fac-A' }),
+      's1',
+      { course: 3 },
+    )
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 's1' }, data: { course: 3 } }),
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'user_academic_updated',
+        metadata: { fields: ['course'] },
+      }),
+    )
+  })
+
+  it('декан чужого факультета — WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-B',
+    })
+    await expect(
+      service.updateAcademicRecord(
+        viewer(Role.DEAN, { universityId: 'uni-A', facultyId: 'fac-A' }),
+        's1',
+        { course: 3 },
+      ),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  it('у не-студента учебных данных нет', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't1',
+      role: Role.TEACHER,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+    })
+    await expect(
+      service.updateAcademicRecord(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't1', {
+        course: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})
+
+describe('UserService — присутствие только в охвате', () => {
+  it('человек другого вуза без дружбы — «не в сети», без раскрытия', async () => {
+    const { service, prisma, realtime } = setup()
+    realtime.isOnline.mockReturnValue(true)
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-B' })
+    ;(
+      prisma as unknown as { friendship: { findFirst: jest.Mock } }
+    ).friendship.findFirst.mockResolvedValue(null)
+    await expect(
+      service.getPresenceFor(viewer(Role.STUDENT, { universityId: 'uni-A' }), 'x'),
+    ).resolves.toEqual({ online: false })
+  })
+
+  it('свой вуз — реальный статус', async () => {
+    const { service, prisma, realtime } = setup()
+    realtime.isOnline.mockReturnValue(true)
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-A' })
+    await expect(
+      service.getPresenceFor(viewer(Role.STUDENT, { universityId: 'uni-A' }), 'x'),
+    ).resolves.toEqual({ online: true })
   })
 })

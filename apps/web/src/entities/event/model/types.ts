@@ -44,3 +44,10 @@ export interface EventParticipant {
   createdAt: string
   user: EventOrganizer
 }
+
+export interface EventComment {
+  id: string
+  content: string
+  createdAt: string
+  author: EventOrganizer & { avatarThumbUrl: string | null }
+}

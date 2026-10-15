@@ -51,6 +51,9 @@ export const BulkInvitePreviewRowSchema = z.object({
   groupName: z.string(),
   role: RoleSchema,
   groupId: z.string().nullable(),
+  // Факультет из файла: обязателен для декана, по желанию у преподавателя.
+  facultyName: z.string(),
+  facultyId: z.string().nullable(),
   status: BulkInviteRowStatusSchema,
   error: z.string().nullable(),
 })
@@ -67,11 +70,14 @@ export const BulkInvitePreviewResponseSchema = z.object({
 })
 export type BulkInvitePreviewResponse = z.infer<typeof BulkInvitePreviewResponseSchema>
 
-// Подтверждение импорта: только валидные строки (groupId уже разрешён на preview).
+// Подтверждение импорта: только валидные строки (groupId/facultyId уже разрешены на preview,
+// сервер всё равно перепроверяет их по scope создателя). Группа нужна студентам и старостам,
+// факультет — деканам; у преподавателя обязательного нет.
 export const BulkInviteCommitRowSchema = z
   .object({
     email: z.string().email(),
-    groupId: z.string().min(1),
+    groupId: z.string().min(1).nullish(),
+    facultyId: z.string().min(1).nullish(),
     role: RoleSchema.optional(),
   })
   .strict()

@@ -144,3 +144,21 @@ export const QrClaimSchema = z
   .object({ qrId: z.string().min(1), claimSecret: z.string().min(1) })
   .strict()
 export type QrClaimInput = z.infer<typeof QrClaimSchema>
+
+// ── Сброс пароля по ссылке из письма (docs/PROJECT.md §7.2) ──────────────────
+
+// Просьба прислать ссылку. Только email: письмо уходит на адрес учётной записи, а имя
+// пользователя почтового ящика не знает. Ответ сервера одинаков для любого адреса.
+export const ForgotPasswordSchema = z
+  .object({ email: z.string().trim().toLowerCase().email().max(160) })
+  .strict()
+export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>
+
+// Новый пароль по одноразовому токену из письма. Политика пароля — та же, что везде.
+export const ResetPasswordSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+    password: PasswordSchema,
+  })
+  .strict()
+export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>

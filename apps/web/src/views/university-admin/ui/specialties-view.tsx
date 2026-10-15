@@ -10,8 +10,10 @@ import {
   deleteSpecialtyRequest,
   fetchSpecialties,
   specialtyKeys,
+  updateSpecialtyRequest,
 } from '../../../entities/specialty'
 import { CreateSpecialtyModal } from './create-specialty-modal'
+import { RenameButton } from './rename-button'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -65,24 +67,32 @@ export function SpecialtiesAdminView() {
                 </span>
                 <span className="font-medium">{s.name}</span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon
-                aria-label={t('delete')}
-                loading={deleteMut.isPending && deleteMut.variables === s.id}
-                onClick={() => {
-                  void confirm({
-                    title: t('deleteSpecialtyConfirm', { name: s.name }),
-                    destructive: true,
-                  }).then((ok) => {
-                    if (ok) deleteMut.mutate(s.id)
-                  })
-                }}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="size-4" aria-hidden />
-              </Button>
+              <div className="flex items-center gap-1">
+                <RenameButton
+                  name={s.name}
+                  title={t('renameSpecialty')}
+                  save={(name) => updateSpecialtyRequest(s.id, { name })}
+                  onSaved={() => void qc.invalidateQueries({ queryKey: specialtyKeys.list() })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  aria-label={t('delete')}
+                  loading={deleteMut.isPending && deleteMut.variables === s.id}
+                  onClick={() => {
+                    void confirm({
+                      title: t('deleteSpecialtyConfirm', { name: s.name }),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) deleteMut.mutate(s.id)
+                    })
+                  }}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

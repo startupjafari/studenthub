@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   UpdatePostInput,
   CreateCommentInput,
@@ -109,7 +109,7 @@ const POST_SELECT_BASE = {
 
 const POST_SELECT = {
   ...POST_SELECT_BASE,
-  _count: { select: { comments: true } },
+  _count: { select: { comments: { where: { deletedAt: null } } } },
 } satisfies Prisma.PostSelect
 
 type PostRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT }>
@@ -261,9 +261,8 @@ export class PostsService {
    * Postgres считать агрегат по всей таблице комментариев ДО сортировки, и ради этого
    * планировщик бросает индекс порядка ленты (см. комментарий у POST_SELECT_BASE).
    *
-   * Считаются все комментарии поста, включая мягко удалённые, — ровно как считал
-   * `_count` до этой правки. Число на экране не должно измениться от перестановки
-   * запроса; надо ли исключать удалённые — вопрос отдельный и не к оптимизации.
+   * Удалённые комментарии не считаются: в обсуждении их не видно, и счётчик «5» над
+   * тремя видимыми комментариями выглядел ошибкой. Карточка поста считает так же.
    */
   private async decorateFeed(viewerId: string, rows: FeedRow[]): Promise<ViewerPost[]> {
     if (rows.length === 0) return []
@@ -275,7 +274,7 @@ export class PostsService {
       }),
       this.prisma.comment.groupBy({
         by: ['postId'],
-        where: { postId: { in: ids } },
+        where: { postId: { in: ids }, deletedAt: null },
         _count: { _all: true },
       }),
     ])
@@ -390,21 +389,26 @@ export class PostsService {
 
   async create(actor: JwtPayload, input: CreatePostInput, ctx: RequestContext): Promise<PostRow> {
     const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
-    const post = await this.prisma.post.create({
-      data: {
-        authorId: actor.sub,
-        audience: input.audience as PostAudience,
-        title: input.title?.trim() || null,
-        content: input.content,
-        priority: this.priorityFor(actor, input.audience as PostAudience),
-        ...this.resolvePublishState(input),
-        ...target,
-      },
-      select: { id: true },
+    // Пост и привязка медиа — одной транзакцией: раньше пост публиковался, а следом
+    // linkMedia отвечал 400, клиент повторял отправку — и в ленте оказывалось два поста.
+    const post = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.post.create({
+        data: {
+          authorId: actor.sub,
+          audience: input.audience as PostAudience,
+          title: input.title?.trim() || null,
+          content: input.content,
+          priority: this.priorityFor(actor, input.audience as PostAudience),
+          ...this.resolvePublishState(input),
+          ...target,
+        },
+        select: { id: true },
+      })
+      if (input.mediaIds?.length) {
+        await this.linkMedia(tx, actor.sub, created.id, input.mediaIds)
+      }
+      return created
     })
-    if (input.mediaIds?.length) {
-      await this.linkMedia(actor.sub, post.id, input.mediaIds)
-    }
     await this.audit.record({
       userId: actor.sub,
       action: 'post_created',
@@ -567,13 +571,13 @@ export class PostsService {
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: POST_SCOPE_SELECT,
+      select: { ...POST_SCOPE_SELECT, author: { select: { role: true } } },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
     if (post.authorId !== actor.sub) {
-      this.assertModerator(actor, post)
+      this.assertModerator(actor, post, post.author.role)
     }
     await this.prisma.post.update({ where: { id }, data: { deletedAt: new Date() } })
     await this.audit.record({
@@ -674,13 +678,18 @@ export class PostsService {
   ): Promise<void> {
     const comment = await this.prisma.comment.findFirst({
       where: { id: commentId, postId: id, deletedAt: null },
-      select: { id: true, authorId: true, post: { select: POST_SCOPE_SELECT } },
+      select: {
+        id: true,
+        authorId: true,
+        author: { select: { role: true } },
+        post: { select: POST_SCOPE_SELECT },
+      },
     })
     if (!comment) {
       throw new AppException('NOT_FOUND', 'Комментарий не найден')
     }
     if (comment.authorId !== actor.sub) {
-      this.assertModerator(actor, comment.post)
+      this.assertModerator(actor, comment.post, comment.author.role)
     }
     await this.prisma.comment.update({ where: { id: commentId }, data: { deletedAt: new Date() } })
     await this.audit.record({
@@ -701,10 +710,16 @@ export class PostsService {
   }
 
   // Модерация поста: платформа — любой; админ/мод вуза — свой вуз; декан — свой факультет.
+  // Чужой контент снимает только роль СТРОГО выше автора (если роль автора известна): иначе
+  // модератор вуза удалял посты админа вуза, а декан — посты админа в ленте факультета.
   private assertModerator(
     actor: JwtPayload,
     post: { universityId: string | null; facultyId: string | null },
+    authorRole?: Role,
   ): void {
+    if (authorRole && !isHigherRole(actor.role, authorRole)) {
+      throw new AppException('FORBIDDEN', 'Чужой контент снимает только роль выше автора')
+    }
     if (isPlatform(actor.role)) return
     if (actor.role === Role.DEAN) {
       if (post.facultyId && post.facultyId === actor.facultyId) return
@@ -813,22 +828,29 @@ export class PostsService {
     }
   }
 
-  private async linkMedia(ownerId: string, postId: string, mediaIds: string[]): Promise<void> {
-    const bucket = this.config.get('MINIO_BUCKET_POSTS', { infer: true })
-    const files = await this.prisma.file.findMany({
-      where: { id: { in: mediaIds } },
-      select: { id: true, ownerId: true, bucket: true, postId: true },
-      take: mediaIds.length,
-    })
-    const valid = files.filter(
-      (f) => f.ownerId === ownerId && f.bucket === bucket && f.postId === null,
-    )
-    if (valid.length !== mediaIds.length) {
-      throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
-    }
-    await this.prisma.file.updateMany({
-      where: { id: { in: valid.map((f) => f.id) } },
+  /**
+   * Привязка своих загруженных медиа к посту. Условие `postId: null` стоит в самом
+   * updateMany: проверка отдельным чтением пропускала гонку, и один файл оказывался в двух
+   * постах. Не привязались все — BAD_REQUEST, и транзакция создания откатывается.
+   */
+  private async linkMedia(
+    tx: Prisma.TransactionClient,
+    ownerId: string,
+    postId: string,
+    mediaIds: string[],
+  ): Promise<void> {
+    const ids = [...new Set(mediaIds)]
+    const { count } = await tx.file.updateMany({
+      where: {
+        id: { in: ids },
+        ownerId,
+        bucket: this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+        postId: null,
+      },
       data: { postId },
     })
+    if (count !== ids.length) {
+      throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
+    }
   }
 }

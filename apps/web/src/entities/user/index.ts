@@ -18,6 +18,7 @@ export {
   exportMyData,
   blockUserRequest,
   unblockUserRequest,
+  updateAcademicRecordRequest,
   type AdminUser,
   directoryKeys,
   fetchUserDirectory,

@@ -21,6 +21,7 @@ import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { DocumentsService } from '../documents/documents.service'
 import { ApplicationPolicy } from './application.policy'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 // Обработка заявки сотрудником (§15–§17, §27): business-actions вместо generic PATCH /status.
 // Каждое действие: canProcess + scope + проверка перехода (state-machine) + событие + уведомление.
@@ -81,10 +82,39 @@ export class ApplicationProcessService {
     })
   }
 
+  /**
+   * Кому можно поручить заявку: сотрудники, которые сами вправе её обработать (тот же
+   * canProcess, что и у действий): админ и модератор её вуза, декан её факультета.
+   */
+  async assignees(viewer: JwtPayload, id: string) {
+    this.policy.assert(viewer.role, 'assign')
+    const app = await this.load(viewer, id)
+    return this.users.listApplicationAssignees(app.universityId, app.facultyId)
+  }
+
   /** Назначить ответственного (permission assign). Статус не меняется. */
   async assign(viewer: JwtPayload, id: string, userId: string) {
     this.policy.assert(viewer.role, 'assign')
     const app = await this.load(viewer, id)
+    // Назначить можно только того, кто сам вправе обработать эту заявку. Иначе заявку
+    // студента можно было поручить кому угодно — хоть сотруднику другого вуза, — и она
+    // повисла бы на человеке, который её даже не увидит.
+    const assignee = await this.users.findAssigneeScope(userId)
+    if (
+      !assignee ||
+      !this.policy.canProcess(
+        {
+          sub: assignee.id,
+          role: assignee.role,
+          universityId: assignee.universityId,
+          facultyId: assignee.facultyId,
+          groupId: null,
+        },
+        app,
+      )
+    ) {
+      throw new AppException('BAD_REQUEST', 'Этому сотруднику заявку поручить нельзя')
+    }
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.application.update({
         where: { id: app.id },
@@ -154,6 +184,12 @@ export class ApplicationProcessService {
     // Файл готовой справки превращаем в документ студента ДО транзакции результата:
     // выдача трогает хранилище файлов, и держать на этом открытую транзакцию нельзя.
     let documentId = dto.documentId ?? null
+    // Готовый документ из хранилища — только документ САМОГО студента. Иначе обработчик
+    // прикладывал id любого документа платформы (хоть паспорта из другого вуза) и получал
+    // ссылку на его файл через результат заявки.
+    if (documentId && !(await this.documents.isOwnedBy(documentId, app.studentId))) {
+      throw new AppException('BAD_REQUEST', 'Документ не принадлежит студенту заявки')
+    }
     if (dto.fileId && dto.documentType) {
       const issued = await this.documents.issueToOwner(viewer, {
         ownerId: app.studentId,
@@ -189,6 +225,11 @@ export class ApplicationProcessService {
     const app = await this.load(viewer, id)
     if (app.status !== 'IN_PREPARATION') {
       throw new AppException('BAD_REQUEST', 'Справка формируется на этапе подготовки')
+    }
+    // Повторный вызов выпускал вторую действующую справку по той же заявке. Новую — только
+    // после отзыва прежней (например, если в ней ошибка).
+    if (app.number && (await this.exports.hasActiveDocument(app.number))) {
+      throw new AppException('CONFLICT', 'Справка по заявке уже выдана — сначала отзовите её')
     }
     const subject = await this.users.academicSubject(app.studentId)
     if (!subject) {
@@ -226,11 +267,36 @@ export class ApplicationProcessService {
       )
     }
 
-    const withCode: ExportContext = { ...context, shortId: record.shortId }
-    const verifyUrl = `${this.branding.publicUrl}/verify/${record.shortId}`
+    try {
+      return await this.renderAndIssue(viewer, app, id, subject, context, locale, record.shortId)
+    } catch (e) {
+      // Код уже в журнале, а документа под ним нет: отзываем, чтобы проверка по коду не
+      // подтверждала справку, которой у студента никогда не было.
+      await this.exports.revokeByShortId(record.shortId).catch(() => undefined)
+      throw e
+    }
+  }
+
+  /** Рендер справки с уже выданным кодом, загрузка и выдача студенту. */
+  private async renderAndIssue(
+    viewer: JwtPayload,
+    app: {
+      number: string | null
+      studentId: string
+      universityId: string
+      service: { nameRu: string }
+    },
+    id: string,
+    subject: NonNullable<Awaited<ReturnType<UserService['academicSubject']>>>,
+    context: ExportContext,
+    locale: ExportLocale,
+    shortId: string,
+  ) {
+    const withCode: ExportContext = { ...context, shortId }
+    const verifyUrl = `${this.branding.publicUrl}/verify/${shortId}`
     const buffer = await renderStudyCertificatePdf({
-      number: app.number ?? record.shortId,
-      verificationCode: record.shortId,
+      number: app.number ?? shortId,
+      verificationCode: shortId,
       verificationUrl: verifyUrl,
       verificationQr: await renderQrPngDataUrl(verifyUrl, { width: 256 }),
       subject,
@@ -254,7 +320,7 @@ export class ApplicationProcessService {
       documentId: issued.id,
       documentNumber: app.number ?? undefined,
     })
-    return { documentId: issued.id, verificationCode: record.shortId }
+    return { documentId: issued.id, verificationCode: shortId }
   }
 
   /**
@@ -427,11 +493,13 @@ export class ApplicationProcessService {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     const { updated, eventId } = await this.prisma.$transaction(async (tx) => {
-      const u = await tx.application.update({
-        where: { id: app.id },
-        data: { status: to, ...opts.data },
-        select: PROC_SELECT,
-      })
+      const u = await tx.application
+        .update({
+          where: { id: app.id, status: app.status },
+          data: { status: to, ...opts.data },
+          select: PROC_SELECT,
+        })
+        .catch(rethrowStaleStatus)
       const event = await tx.applicationEvent.create({
         data: {
           applicationId: app.id,

@@ -36,6 +36,12 @@ export async function verifyCompanyEmail(token: string): Promise<{ companyId: st
   return data
 }
 
+// Новая ссылка подтверждения взамен истёкшей. Ответ одинаков для любого адреса — сервер не
+// говорит, есть ли такая компания.
+export async function resendCompanyVerification(email: string): Promise<void> {
+  await api.post('/career/companies/resend-verification', { email })
+}
+
 // ── Работодатель ─────────────────────────────────────────────────────────────
 
 export async function fetchMyCompany(): Promise<Company> {

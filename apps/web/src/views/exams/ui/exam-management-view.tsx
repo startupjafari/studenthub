@@ -28,6 +28,8 @@ import {
   useTableSort,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { useAppSelector } from '../../../shared/store'
+import { Role } from '@studenthub/shared-types'
 import { cn } from '../../../shared/lib/utils'
 import { examKeys, fetchExams, deleteExamRequest, type ExamItem } from '../../../entities/exam'
 import { examFormatKey } from '../lib/visuals'
@@ -55,6 +57,11 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   const qc = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [rosterId, setRosterId] = useState<string | null>(null)
+  const role = useAppSelector((s) => s.auth.role)
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  // Экзаменатор, не читающий дисциплину, ведёт только ведомость: удалить экзамен может
+  // преподаватель дисциплины или деканат (так же решает сервер).
+  const canDelete = (e: ExamItem): boolean => role !== Role.TEACHER || e.course.teacherId === myId
 
   const q = useQuery({ queryKey: examKeys.list(), queryFn: () => fetchExams() })
 
@@ -64,7 +71,10 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
       qc.invalidateQueries({ queryKey: examKeys.all })
       toast.success(t('deleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('deleteHasResults') : tErr(code))
+    },
   })
 
   const rows = q.data ?? []
@@ -195,11 +205,18 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                           <Users aria-hidden />
                           {t('openRoster')}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onClick={() => remove.mutate(e.id)}>
-                          <Trash2 aria-hidden />
-                          {t('delete')}
-                        </DropdownMenuItem>
+                        {canDelete(e) && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => remove.mutate(e.id)}
+                            >
+                              <Trash2 aria-hidden />
+                              {t('delete')}
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

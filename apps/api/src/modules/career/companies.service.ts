@@ -9,6 +9,7 @@ import {
   type DecideCompanyAccessInput,
   type EmployerSignupInput,
   type RequestCompanyAccessInput,
+  type ResendCompanyVerificationInput,
   type UpdateCompanyInput,
 } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -65,6 +66,9 @@ export class CompaniesService {
    * превращается в проверку «есть ли такой пользователь на платформе».
    */
   async signup(input: EmployerSignupInput, ctx: RequestContext): Promise<{ email: string }> {
+    // Хэш — до проверки адреса: bcrypt занимает ~250 мс, и без него ответ на занятый адрес
+    // приходил заметно быстрее — по времени было видно, зарегистрирован ли человек.
+    const passwordHash = await this.passwords.hash(input.password)
     const existing = await this.prisma.user.findUnique({
       where: { email: input.email },
       select: { id: true },
@@ -75,7 +79,6 @@ export class CompaniesService {
       return { email: input.email }
     }
 
-    const passwordHash = await this.passwords.hash(input.password)
     const rawToken = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + VERIFY_TTL_MS)
 
@@ -137,6 +140,67 @@ export class CompaniesService {
       ...ctx,
     })
 
+    return { email: input.email }
+  }
+
+  /**
+   * Повторное письмо с подтверждением — новая ссылка взамен истёкшей или потерянной.
+   *
+   * Ответ одинаков для любого адреса: занятого, свободного, уже подтверждённого. Иначе по
+   * нему можно было бы выяснить, зарегистрирована ли компания с такой почтой, — ровно то,
+   * от чего закрыт signup. Прежняя ссылка гаснет: хэш в записи один.
+   */
+  async resendVerification(
+    input: ResendCompanyVerificationInput,
+    ctx: RequestContext,
+  ): Promise<{ email: string }> {
+    const company = await this.prisma.company.findFirst({
+      where: {
+        status: 'PENDING_EMAIL',
+        deletedAt: null,
+        members: {
+          some: {
+            role: 'OWNER',
+            user: { email: input.email, role: Role.EMPLOYER, deletedAt: null },
+          },
+        },
+      },
+      select: { id: true, name: true },
+    })
+    if (!company) {
+      this.logger.warn('Повторное письмо компании: ожидающей подтверждения нет — ответ-заглушка')
+      return { email: input.email }
+    }
+
+    const rawToken = randomBytes(32).toString('base64url')
+    const expiresAt = new Date(Date.now() + VERIFY_TTL_MS)
+    await this.prisma.company.update({
+      where: { id: company.id },
+      data: {
+        emailVerificationHash: this.hashToken(rawToken),
+        emailVerificationExpiresAt: expiresAt,
+      },
+    })
+
+    await this.queue.enqueue(
+      QUEUES.EMAIL,
+      EMAIL_JOBS.SEND_COMPANY_VERIFICATION,
+      {
+        to: input.email,
+        companyName: company.name,
+        verifyUrl: `${this.webBase()}/employer/verify?token=${rawToken}`,
+        expiresAt: expiresAt.toLocaleString('ru-RU'),
+      },
+      // В jobId — срок ссылки: письмо с прежним jobId BullMQ отбросил бы как дубль.
+      { jobId: `company-verify:${company.id}:${expiresAt.getTime()}` },
+    )
+
+    await this.audit.record({
+      action: 'company_verification_resent',
+      entity: 'Company',
+      entityId: company.id,
+      ...ctx,
+    })
     return { email: input.email }
   }
 

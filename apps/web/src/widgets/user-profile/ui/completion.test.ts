@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Role } from '@studenthub/shared-types'
 import { computeProfileCompletion } from './completion'
-import { visibleSections } from './sections'
+import { editableSections, visibleSections } from './sections'
 
 // Заполненность считается только по полям, доступным роли. Раньше в знаменатель
 // попадал весь блок «Работа» (кафедра, учёная степень, предметы), и платформенный
@@ -55,6 +55,27 @@ describe('computeProfileCompletion', () => {
     expect(keys).toContain('department')
     expect(keys).not.toContain('gpa')
     expect(keys).not.toContain('dormitory')
+  })
+
+  it('не требует у студента учебных данных — их ведёт вуз', () => {
+    const keys = computeProfileCompletion({}, Role.STUDENT).missing.map((m) => m.key)
+    expect(keys).not.toContain('course')
+    expect(keys).not.toContain('fundingType')
+    expect(keys).not.toContain('academicStatus')
+    // Своё по-прежнему спрашивается.
+    expect(keys).toContain('dormitory')
+    expect(keys).toContain('bio')
+  })
+})
+
+describe('editableSections', () => {
+  it('в форме студента нет полей, которые ведёт вуз, но «Учёба» остаётся', () => {
+    const study = editableSections(Role.STUDENT).find((s) => s.title === 'sectionStudy')
+    const keys = study?.fields.map((f) => f.key) ?? []
+    expect(keys).not.toContain('course')
+    expect(keys).not.toContain('gpa')
+    expect(keys).toContain('dormitory')
+    expect(keys).toContain('address')
   })
 })
 
