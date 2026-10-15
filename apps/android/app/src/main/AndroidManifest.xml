@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 13+: уведомления показываются только с разрешения человека. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Голосовые сообщения. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
       Резервные копии выключены целиком: кэш хранит персональные данные студентов
@@ -41,6 +45,18 @@
                 <data android:scheme="studenthub" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".core.push.MessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".core.push.ReplyReceiver"
+            android:exported="false" />
 
         <!--
           Модуль сканера QR из Google Play services скачивается при установке, а не при

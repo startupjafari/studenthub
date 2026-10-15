@@ -46,6 +46,23 @@ studenthub.apiBaseUrl=http://192.168.1.10:3001/api/v1
 Открытый HTTP разрешён только отладочной сборке и только к адресам из
 `app/src/debug/res/xml/network_security_config.xml` — адрес телефона в сети добавляется туда же.
 
+## Пуши (Firebase Cloud Messaging)
+
+Firebase нужен только для доставки пушей. Плагин google-services не используется, и
+`google-services.json` в репозитории нет: четыре параметра проекта берутся из
+`~/.gradle/gradle.properties` (или из переменных CI через `-P`):
+
+```properties
+studenthub.firebase.projectId=studenthub-12345
+studenthub.firebase.appId=1:1234567890:android:abcdef
+studenthub.firebase.apiKey=AIza...
+studenthub.firebase.senderId=1234567890
+```
+
+Значения — из консоли Firebase: Project settings → General → Your apps → Android-приложение
+`kz.studenthub.app`. Без них сборка рабочая, просто без пушей. Серверу нужен сервисный
+аккаунт того же проекта — переменные `FCM_*` в `apps/api/.env`.
+
 ## Подпись релиза
 
 Ключ загрузки для Google Play в репозиторий не попадает. Релизная сборка подписывается,

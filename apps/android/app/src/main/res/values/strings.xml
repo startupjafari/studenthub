@@ -12,4 +12,11 @@
 
     <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
     <string name="common_back">Назад</string>
+
+    <!-- Каналы уведомлений: их видно в настройках системы -->
+    <string name="push_channelMessages">Сообщения</string>
+    <string name="push_channelGeneral">Уведомления платформы</string>
+
+    <!-- Двойная галочка: собеседник прочитал -->
+    <string name="chats_readMark">Прочитано</string>
 </resources>

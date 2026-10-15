@@ -5,4 +5,9 @@
 
     <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
     <string name="common_back">Артқа</string>
+
+    <string name="push_channelMessages">Хабарламалар</string>
+    <string name="push_channelGeneral">Платформа хабарландырулары</string>
+
+    <string name="chats_readMark">Оқылды</string>
 </resources>

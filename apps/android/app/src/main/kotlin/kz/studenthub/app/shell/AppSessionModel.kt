@@ -18,12 +18,12 @@ class AppSessionModel(
     private val store: SessionStore,
     /** Что сделать перед выходом: порвать сокет, отвязать устройство от пушей. */
     private val beforeSignOut: suspend () -> Unit = {},
-    private val afterSignOut: () -> Unit = {},
+    private val afterSignOut: suspend () -> Unit = {},
 ) {
     constructor(services: AppServices) : this(
         store = services.session,
         beforeSignOut = { services.beforeSignOut() },
-        afterSignOut = { services.router.reset() },
+        afterSignOut = { services.afterSignOut() },
     )
 
     sealed interface State {
