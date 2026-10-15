@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Строки, которых нет в iOS: то, что на Android устроено иначе. Общие с iOS строки —
+  в strings_ios.xml, он генерируется скриптом и руками не правится.
+-->
 <resources>
     <string name="app_name" translatable="false">StudentHub</string>
-    <string name="skeleton_placeholder">Каркас приложения. Экраны появятся в следующих задачах.</string>
+
+    <!-- Вход по QR: сканер — системный, из Google Play services -->
+    <string name="auth_qrScanStart">Сканировать QR-код</string>
+    <string name="auth_qrScannerUnavailable">Сканер недоступен: на телефоне нет сервисов Google Play или их нужно обновить.</string>
+
+    <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
+    <string name="common_back">Назад</string>
 </resources>

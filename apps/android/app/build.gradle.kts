@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // Адрес API для отладки. По умолчанию — `pnpm dev` на машине разработчика, каким его
@@ -64,6 +65,18 @@ android {
         compose = true
         buildConfig = true
     }
+
+    lint {
+        // Казахский переведён не целиком (как и в iOS): недостающие строки показываются
+        // по-русски. Видно в отчёте, но сборку не валит.
+        warning += "MissingTranslation"
+    }
+
+    testOptions {
+        // android.* в unit-тестах отдаёт значения по умолчанию, а не падает: модели
+        // экранов трогают Log и Uri мимоходом, и ради этого не нужен Robolectric.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -74,7 +87,22 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.process)
+
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Сканер QR из Google Play services: камера, разрешение и интерфейс — их, а не
+    // наши. Без сервисов Google (Huawei) вход по QR недоступен, остальное работает.
+    implementation(libs.play.services.code.scanner)
+
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 }

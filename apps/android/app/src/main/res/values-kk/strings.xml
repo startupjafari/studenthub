@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="skeleton_placeholder">Қосымшаның қаңқасы. Экрандар келесі тапсырмаларда пайда болады.</string>
+    <string name="auth_qrScanStart">QR-кодты сканерлеу</string>
+    <string name="auth_qrScannerUnavailable">Сканер қолжетімсіз: телефонда Google Play қызметтері жоқ немесе оларды жаңарту қажет.</string>
+
+    <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
+    <string name="common_back">Артқа</string>
 </resources>
