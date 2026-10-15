@@ -9,8 +9,10 @@
       телефоне. Всё, что нужно пользователю, и так лежит на сервере.
     -->
     <application
+        android:name=".StudentHubApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -18,13 +20,34 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.StudentHub">
 
+        <!--
+          singleTask: ссылка из уведомления или браузера приходит в уже открытое
+          приложение (onNewIntent), а не поднимает вторую копию поверх.
+        -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Собственная схема: её кладёт в пуш сервер и ею же пользуется веб. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="studenthub" />
+            </intent-filter>
         </activity>
+
+        <!--
+          Модуль сканера QR из Google Play services скачивается при установке, а не при
+          первом нажатии: иначе человек ждал бы загрузки перед камерой.
+        -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
     </application>
 </manifest>

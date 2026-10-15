@@ -1,61 +1,50 @@
 package kz.studenthub.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.CompositionLocalProvider
+import kz.studenthub.app.designsystem.StudentHubTheme
+import kz.studenthub.app.shell.LocalServices
+import kz.studenthub.app.shell.RootScreen
 
+/**
+ * Единственная активность. Ссылки (`studenthub://…`, нажатие на уведомление) приходят
+ * сюда и уходят в общую очередь: открыть их можно, только когда человек вошёл, а вход
+ * может быть ещё впереди.
+ */
 class MainActivity : ComponentActivity() {
+    private val services get() = (application as StudentHubApplication).services
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // До super: окно сразу рисуется под системными панелями, без вспышки отступов.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Повторное создание после поворота несёт тот же intent — ссылку уже открыли.
+        if (savedInstanceState == null) deliver(intent)
         setContent {
-            SkeletonScreen()
-        }
-    }
-}
-
-// Временный экран каркаса. Его заменят тема из задачи «Дизайн-ядро» и оболочка с
-// пятью разделами из задачи «Навигация» — обе в Ф0.
-@Composable
-private fun SkeletonScreen() {
-    val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-    MaterialTheme(colorScheme = colors) {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = stringResource(R.string.skeleton_placeholder),
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                )
+            CompositionLocalProvider(LocalServices provides services) {
+                StudentHubTheme {
+                    RootScreen()
+                }
             }
         }
     }
-}
 
-@Preview(showBackground = true)
-@Composable
-private fun SkeletonScreenPreview() {
-    SkeletonScreen()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        deliver(intent)
+    }
+
+    private fun deliver(intent: Intent?) {
+        val link = intent?.getStringExtra(EXTRA_LINK) ?: intent?.dataString ?: return
+        services.pendingLink = link
+    }
+
+    companion object {
+        /** Ссылка из уведомления: пуш кладёт путь веба, а не адрес со схемой. */
+        const val EXTRA_LINK = "kz.studenthub.app.LINK"
+    }
 }
