@@ -33,6 +33,8 @@ import kz.studenthub.app.core.push.PushSync
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.realtime.SocketIoTransport
 import kz.studenthub.app.core.storage.AppDatabase
+import kz.studenthub.app.core.applications.ApplicationsApi
+import kz.studenthub.app.core.feed.FeedApi
 import kz.studenthub.app.core.study.StudyApi
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -95,6 +97,14 @@ class AppServices(context: Context) {
     val realtime = RealtimeCoordinator(SocketIoTransport(BuildConfig.API_BASE_URL), session, database, appScope)
 
     val studyApi = StudyApi(api)
+    val feedApi = FeedApi(api)
+    val applicationsApi = ApplicationsApi(api)
+
+    /** Картинки постов: ключ — «пост/файл», ссылка подписанная и короткоживущая. */
+    val postMediaUrls = AttachmentUrls { key ->
+        val (postId, fileId) = key.split('/', limit = 2)
+        ChatsApi.AttachmentLink(feedApi.postMediaUrl(postId, fileId))
+    }
 
     val push = PushRegistrar(appContext, api, clientVersion)
     val pushSync = PushSync(chatsApi, chatStore)

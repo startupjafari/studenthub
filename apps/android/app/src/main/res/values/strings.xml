@@ -22,4 +22,36 @@
 
     <!-- Отметка посещаемости сохранена -->
     <string name="study_saved">Сохранено</string>
+
+    <!-- Настройки: типы уведомлений — те же переключатели, что в вебе -->
+    <string name="notifications_types">Что присылать</string>
+    <string name="notifications_typeMessages">Сообщения</string>
+    <string name="notifications_typeSchedule">Изменения расписания</string>
+    <string name="notifications_typePosts">Публикации</string>
+    <string name="notifications_typeEvents">События</string>
+    <string name="notifications_typeSystem">Системные</string>
+    <string name="settings_systemNotifications">Звук и вид уведомлений</string>
+    <string name="settings_language">Язык приложения</string>
+    <string name="settings_version">Версия %1$s (%2$d)</string>
+
+    <!-- Заявки: статусы и шаги, которых нет в iOS-каталоге (сверено с сервером) -->
+    <string name="applications_sla">Срок: %1$d ч</string>
+    <string name="applications_needsCorrection">Нужны исправления</string>
+    <string name="applications_resubmitted">Подана повторно</string>
+    <string name="applications_inPreparation">Готовится</string>
+    <string name="applications_readyForPickup">Готова к выдаче</string>
+    <string name="applications_delivered">Доставлена</string>
+    <string name="applications_delivery">Способ получения</string>
+    <string name="applications_deliveryElectronic">Электронно</string>
+    <string name="applications_deliveryPaper">На бумаге</string>
+    <string name="applications_deliveryBoth">Электронно и на бумаге</string>
+    <string name="applications_documents">Документы к заявке</string>
+    <string name="applications_pickDocument">Выбрать документ</string>
+    <string name="applications_noSuitableDocuments">Подходящих документов нет — загрузите их в разделе «Документы» в браузере</string>
+    <string name="applications_cancelAction">Отозвать заявку</string>
+    <string name="applications_result">Результат</string>
+    <string name="applications_download">Скачать</string>
+    <string name="applications_number">№ %1$s</string>
+    <string name="documents_downloading">Файл сохраняется в «Загрузки»</string>
+    <string name="common_yes">Да</string>
 </resources>

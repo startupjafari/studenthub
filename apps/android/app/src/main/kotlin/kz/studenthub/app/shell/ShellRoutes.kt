@@ -18,6 +18,17 @@ import kz.studenthub.app.features.chats.ChatListScreen
 import kz.studenthub.app.features.chats.ChatThreadScreen
 import kz.studenthub.app.core.model.Role
 import kz.studenthub.app.core.navigation.MoreSection
+import kz.studenthub.app.features.applications.ApplicationDetailScreen
+import kz.studenthub.app.features.applications.ApplicationFormScreen
+import kz.studenthub.app.features.applications.ApplicationsScreen
+import kz.studenthub.app.features.applications.DocumentsScreen
+import kz.studenthub.app.features.applications.ServiceCatalogScreen
+import kz.studenthub.app.features.feed.EventsScreen
+import kz.studenthub.app.features.feed.HomeScreen
+import kz.studenthub.app.features.feed.NotificationsScreen
+import kz.studenthub.app.features.feed.PostDetailScreen
+import kz.studenthub.app.features.feed.ProfileScreen
+import kz.studenthub.app.features.feed.SettingsScreen
 import kz.studenthub.app.features.more.MoreScreen
 import kz.studenthub.app.features.study.AssignmentDetailScreen
 import kz.studenthub.app.features.study.AssignmentsScreen
@@ -36,6 +47,7 @@ import kz.studenthub.app.features.study.StudyScreen
 @Composable
 fun TabRoot(tab: AppTab, viewer: AccessToken) {
     when (tab) {
+        AppTab.HOME -> HomeScreen(viewer)
         AppTab.CHATS -> ChatListScreen()
         AppTab.SCHEDULE -> ScheduleScreen()
         AppTab.STUDY -> StudyScreen(viewer.role)
@@ -56,8 +68,20 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
             MoreSection.ATTENDANCE -> return AttendanceScreen()
             MoreSection.ASSIGNMENTS -> return AssignmentsScreen()
             MoreSection.MATERIALS -> return MaterialsScreen()
+            MoreSection.NOTIFICATIONS -> return NotificationsScreen(viewer)
+            MoreSection.EVENTS -> return EventsScreen()
+            MoreSection.SETTINGS -> return SettingsScreen()
+            MoreSection.PROFILE -> return ProfileScreen(userId = null)
+            MoreSection.APPLICATIONS -> return ApplicationsScreen()
+            MoreSection.SERVICE_CATALOG -> return ServiceCatalogScreen()
+            MoreSection.DOCUMENTS -> return DocumentsScreen()
             else -> Unit
         }
+        is AppRoute.Post -> return PostDetailScreen(route.id)
+        is AppRoute.Application -> return ApplicationDetailScreen(route.id)
+        is AppRoute.Service -> return ApplicationFormScreen(route.id)
+        is AppRoute.Event -> return EventsScreen()
+        is AppRoute.Profile -> return ProfileScreen(userId = route.userId.takeIf { it != viewer.subject })
         is AppRoute.Assignment -> return AssignmentDetailScreen(route.id)
         // Преподаватель с занятия идёт отмечать посещаемость — главное, зачем он вообще
         // открывает пару на телефоне.
