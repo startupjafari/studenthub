@@ -209,6 +209,19 @@ export const envSchema = z.object({
   /** Адрес приложения в App Store — для кнопки «Обновить». Не задан — кнопки не будет. */
   IOS_STORE_URL: optionalEnv(z.string().url()),
 
+  /**
+   * Минимальная поддерживаемая версия приложения для Android (план Android, Задача АБ2).
+   *
+   * Отдельно от iOS: релизы платформ выходят в разное время, и общая планка
+   * блокировала бы одних из-за других. Умолчание то же — `0.0.0`, никого не блокируем.
+   */
+  ANDROID_MIN_SUPPORTED_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, 'ANDROID_MIN_SUPPORTED_VERSION: формат SemVer, например 1.2.0')
+    .default('0.0.0'),
+  /** Адрес приложения в Google Play — для кнопки «Обновить». Не задан — кнопки не будет. */
+  ANDROID_STORE_URL: optionalEnv(z.string().url()),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
