@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -15,6 +16,11 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,16 +50,28 @@ fun AppShell(viewer: AccessToken) {
     val reduceMotion = rememberReduceMotion()
     // Состояние экранов (прокрутка, набранный текст) переживает уход на соседнюю вкладку.
     val saveable = rememberSaveableStateHolder()
+    val stores = remember { RouteStores() }
+    DisposableEffect(Unit) { onDispose { stores.clear() } }
+
+    // Шаг навигации — ключ его модели и сохранённого состояния. Ушёл из стека — отпускаем.
+    val live = AppTab.entries.flatMap { tab -> (0..router.stack(tab).size).map { depth -> routeKey(tab, depth, router.stack(tab)) } }.toSet()
+    SideEffect { stores.retainOnly(live) }
 
     ShellEffects(viewer)
 
     // «Назад» сначала идёт по стеку раздела; пустой стек — уход с главного раздела.
     BackHandler(enabled = router.stack(router.selectedTab).isNotEmpty()) { router.pop() }
 
+    // В открытом чате панели разделов нет: под клавиатурой она бы только мешала, а в
+    // переписке её место занимает поле ввода — так же, как в iOS.
+    val showsBar = router.stack(router.selectedTab).lastOrNull() !is AppRoute.Chat
+
     Scaffold(
         containerColor = AppTheme.colors.background,
+        // Системные отступы считают сами экраны и панель разделов — иначе сверху двойной.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            NavigationBar(containerColor = AppTheme.colors.card) {
+            if (showsBar) NavigationBar(containerColor = AppTheme.colors.card) {
                 AppTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = router.selectedTab == tab,
@@ -80,18 +98,22 @@ fun AppShell(viewer: AccessToken) {
                 targetState = Triple(tab, depth, route),
                 transitionSpec = { Motion.crossfade(reduceMotion) },
                 label = "shell",
-            ) { (currentTab, currentDepth, currentRoute) ->
-                saveable.SaveableStateProvider(key = "$currentTab/$currentDepth/$currentRoute") {
-                    if (currentRoute == null) {
-                        TabRoot(currentTab, viewer)
-                    } else {
-                        Destination(currentRoute, viewer)
+            ) { (currentTab, currentDepth, _) ->
+                val key = routeKey(currentTab, currentDepth, router.stack(currentTab))
+                val route = router.stack(currentTab).getOrNull(currentDepth - 1)
+                saveable.SaveableStateProvider(key = key) {
+                    CompositionLocalProvider(LocalViewModelStoreOwner provides stores.owner(key)) {
+                        if (route == null) TabRoot(currentTab, viewer) else Destination(route, viewer)
                     }
                 }
             }
         }
     }
 }
+
+/** Ключ шага: вкладка, глубина и сам маршрут — один и тот же чат на разной глубине различим. */
+private fun routeKey(tab: AppTab, depth: Int, stack: List<AppRoute>): String =
+    "$tab/$depth/${stack.getOrNull(depth - 1)}"
 
 /**
  * Заглушка раздела. Пустой экран без объяснения человек читает как поломку.
