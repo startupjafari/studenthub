@@ -7,6 +7,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { EnvVars } from '../../config/env.schema'
 import type { RegisterDeviceInput } from '@studenthub/shared-schemas'
 import { ApnsService } from './apns.service'
+import { FcmService } from './fcm.service'
 
 export interface PushPayload {
   title: string
@@ -30,6 +31,7 @@ export class PushService implements OnModuleInit {
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly apns: ApnsService,
+    private readonly fcm: FcmService,
   ) {}
 
   onModuleInit(): void {
@@ -74,7 +76,7 @@ export class PushService implements OnModuleInit {
   }
 
   /**
-   * Зарегистрировать устройство (план iOS, Задача Б1).
+   * Зарегистрировать устройство (план iOS, Задача Б1; Android — Задача АБ1).
    *
    * Токен уникален сам по себе, поэтому `upsert` по нему, а не по паре с
    * пользователем: одно и то же устройство может сменить владельца — человек вышел
@@ -113,21 +115,23 @@ export class PushService implements OnModuleInit {
    * Пуши на телефоны. Бейдж — число непрочитанных уведомлений: считаем один раз на
    * отправку по индексу `[userId, isRead]`, иначе цифра на иконке живёт своей
    * жизнью и перестаёт что-либо значить.
+   *
+   * Транспорт выбирается по платформе записи, а не по виду токена: у APNs и FCM
+   * токены разной формы, но угадывать по форме — способ однажды отправить пуш не туда.
    */
   private async sendToDevices(userId: string, payload: PushPayload): Promise<void> {
-    if (!this.apns.isEnabled()) return
+    if (!this.apns.isEnabled() && !this.fcm.isEnabled()) return
     const devices = await this.prisma.deviceToken.findMany({ where: { userId }, take: 20 })
     if (devices.length === 0) return
 
     const badge = await this.prisma.notification.count({ where: { userId, isRead: false } })
+    const message = { title: payload.title, body: payload.body, url: payload.url, badge }
     await Promise.all(
       devices.map(async (device) => {
-        const outcome = await this.apns.send(device.token, {
-          title: payload.title,
-          body: payload.body,
-          url: payload.url,
-          badge,
-        })
+        const outcome =
+          device.platform === 'ANDROID'
+            ? await this.fcm.send(device.token, message)
+            : await this.apns.send(device.token, message)
         if (outcome === 'gone') {
           // Приложение удалили или переустановили — адреса больше нет.
           await this.prisma.deviceToken.deleteMany({ where: { token: device.token } })

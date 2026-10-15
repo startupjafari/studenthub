@@ -194,6 +194,15 @@ export const envSchema = z.object({
   /** Боевой шлюз вместо песочницы. TestFlight и App Store — боевой. */
   APNS_PRODUCTION: booleanFromString,
 
+  // Пуши на Android через FCM HTTP v1 (план Android, Задача АБ1). Три поля из JSON
+  // сервисного аккаунта Firebase. Без них отправка на Android молчит, как APNs без p8.
+  /** `project_id` проекта Firebase. */
+  FCM_PROJECT_ID: optionalEnv(z.string().min(1)),
+  /** `client_email` сервисного аккаунта. */
+  FCM_CLIENT_EMAIL: optionalEnv(z.string().email()),
+  /** `private_key` сервисного аккаунта. Переводы строк экранированы: PEM многострочный. */
+  FCM_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+
   /**
    * Минимальная поддерживаемая версия приложения для iPhone (план iOS, Задача Б3).
    *
