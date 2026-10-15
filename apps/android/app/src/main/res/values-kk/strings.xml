@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auth_qrScanStart">QR-кодты сканерлеу</string>
+    <string name="auth_qrScannerUnavailable">Сканер қолжетімсіз: телефонда Google Play қызметтері жоқ немесе оларды жаңарту қажет.</string>
+
+    <!-- Кнопка «назад» в заголовке: в iOS её подпись даёт система -->
+    <string name="common_back">Артқа</string>
+
+    <string name="push_channelMessages">Хабарламалар</string>
+    <string name="push_channelGeneral">Платформа хабарландырулары</string>
+
+    <string name="chats_readMark">Оқылды</string>
+
+    <string name="study_saved">Сақталды</string>
+
+    <string name="notifications_types">Не жіберу керек</string>
+    <string name="notifications_typeMessages">Хабарламалар</string>
+    <string name="notifications_typeSchedule">Кесте өзгерістері</string>
+    <string name="notifications_typePosts">Жарияланымдар</string>
+    <string name="notifications_typeEvents">Іс-шаралар</string>
+    <string name="notifications_typeSystem">Жүйелік</string>
+    <string name="settings_systemNotifications">Хабарландырулардың дыбысы мен түрі</string>
+    <string name="settings_language">Қосымша тілі</string>
+    <string name="settings_version">Нұсқа %1$s (%2$d)</string>
+
+    <string name="applications_sla">Мерзімі: %1$d сағ</string>
+    <string name="applications_needsCorrection">Түзету қажет</string>
+    <string name="applications_resubmitted">Қайта берілді</string>
+    <string name="applications_inPreparation">Дайындалуда</string>
+    <string name="applications_readyForPickup">Беруге дайын</string>
+    <string name="applications_delivered">Жеткізілді</string>
+    <string name="applications_delivery">Алу тәсілі</string>
+    <string name="applications_deliveryElectronic">Электронды</string>
+    <string name="applications_deliveryPaper">Қағаз түрінде</string>
+    <string name="applications_deliveryBoth">Электронды және қағаз түрінде</string>
+    <string name="applications_documents">Өтінімге құжаттар</string>
+    <string name="applications_pickDocument">Құжатты таңдау</string>
+    <string name="applications_noSuitableDocuments">Сәйкес құжаттар жоқ — оларды браузердегі «Құжаттар» бөліміне жүктеңіз</string>
+    <string name="applications_cancelAction">Өтінімді кері қайтару</string>
+    <string name="applications_result">Нәтиже</string>
+    <string name="applications_download">Жүктеп алу</string>
+    <string name="applications_number">№ %1$s</string>
+    <string name="documents_downloading">Файл «Жүктеулер» қалтасына сақталуда</string>
+    <string name="common_yes">Иә</string>
+</resources>

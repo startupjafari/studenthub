@@ -1,0 +1,107 @@
+# StudentHub Android
+
+Нативное приложение StudentHub для Android на Kotlin, Jetpack Compose и Material 3.
+Бэкенд — `apps/api` из этого же монорепо, собственного сервера у приложения нет.
+
+План работ — док «StudentHub Android — план реализации». Правила продукта, контракт API и
+дизайн-система — в корне репозитория: `docs/PROJECT.md`, `docs/DESIGN_SYSTEM.md`,
+`AGENTS.md`. Решения повторяют iOS-клиент (`apps/ios`) — при сомнении смотреть туда.
+
+## Требования
+
+- JDK 17;
+- Android SDK с платформой 37 — проще всего через Android Studio;
+- Gradle ставить не нужно: его скачивает `./gradlew` нужной версии.
+
+На Windows с WSL2 Android Studio и эмулятор ставятся **в Windows**: эмулятору нужна
+аппаратная виртуализация, внутри WSL её нет. Проект открывается по пути
+`\\wsl$\...\apps\android`.
+
+## Сборка
+
+Все команды — из `apps/android`. Проект к pnpm-воркспейсу не относится: `package.json`
+у него нет, turbo и pnpm этот каталог не видят.
+
+```sh
+./gradlew assembleDebug        # отладочный APK
+./gradlew testDebugUnitTest    # unit-тесты
+./gradlew lintDebug            # Android lint
+```
+
+Отладочная сборка ставится рядом с релизной: у неё `applicationId` с суффиксом `.debug`.
+
+## Адрес API
+
+| Сборка  | Откуда адрес                                                                                                                |
+| ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| debug   | `http://10.0.2.2:3001/api/v1` — `pnpm dev` на машине разработчика, как его видит эмулятор                                   |
+| release | параметр `studenthub.releaseApiBaseUrl` (в CI — переменная `ANDROID_API_BASE_URL`); без него заглушка `api.example.invalid` |
+
+Для телефона вместо эмулятора адрес переопределяется в `~/.gradle/gradle.properties`:
+
+```properties
+studenthub.apiBaseUrl=http://192.168.1.10:3001/api/v1
+```
+
+Открытый HTTP разрешён только отладочной сборке и только к адресам из
+`app/src/debug/res/xml/network_security_config.xml` — адрес телефона в сети добавляется туда же.
+
+## Пуши (Firebase Cloud Messaging)
+
+Firebase нужен только для доставки пушей. Плагин google-services не используется, и
+`google-services.json` в репозитории нет: четыре параметра проекта берутся из
+`~/.gradle/gradle.properties` (или из переменных CI через `-P`):
+
+```properties
+studenthub.firebase.projectId=studenthub-12345
+studenthub.firebase.appId=1:1234567890:android:abcdef
+studenthub.firebase.apiKey=AIza...
+studenthub.firebase.senderId=1234567890
+```
+
+Значения — из консоли Firebase: Project settings → General → Your apps → Android-приложение
+`kz.studenthub.app`. Без них сборка рабочая, просто без пушей. Серверу нужен сервисный
+аккаунт того же проекта — переменные `FCM_*` в `apps/api/.env`.
+
+## Трекер ошибок (Sentry)
+
+`studenthub.sentryDsn=…` в `~/.gradle/gradle.properties` или параметром сборки. Пусто —
+трекер не поднимается, события пишутся в журнал отладки. Выпуск в Google Play —
+`docs/RELEASE_ANDROID.md`.
+
+## Подпись релиза
+
+Ключ загрузки для Google Play в репозиторий не попадает. Релизная сборка подписывается,
+когда в окружении задан `ANDROID_KEYSTORE_PATH`; три остальные переменные тогда обязательны:
+
+```
+ANDROID_KEYSTORE_PATH   путь к .jks
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
+
+Без них `./gradlew bundleRelease` собирает неподписанный AAB. Подпись для магазина ставит
+Play App Signing: у нас хранится только ключ загрузки.
+
+## Структура
+
+```
+app/src/main/kotlin/kz/studenthub/app/
+  core/          сеть, сессия, база Room, чаты, реальное время, пуши, учёба, лента, заявки
+  designsystem/  токены, тема Material 3, контролы форм и списков
+  features/      экраны по областям: вход, чаты, учёба, лента, заявки, «Ещё»
+  shell/         корень, оболочка с пятью разделами, сборка зависимостей (AppServices)
+app/schemas/     схема базы каждой версии — по ней пишутся миграции
+scripts/         перенос строк из каталога iOS в strings_ios.xml
+```
+
+Один Gradle-модуль с пакетами по образцу iOS: модули выделяются, когда сборка начнёт
+тормозить, а не заранее.
+
+## Чего в этом репозитории не бывает
+
+- кода, ресурсов и звуков из чужих мессенджеров — в том числе из Telegram-Android
+  (GPL-2.0, несовместима с закрытым приложением в Google Play);
+- захардкоженных пользовательских строк — только ресурсы `strings.xml`;
+- ключей подписи, токенов и паролей в коде и в истории.

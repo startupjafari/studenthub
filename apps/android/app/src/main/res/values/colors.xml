@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Цвета окна до первого кадра Compose и фон иконки. Совпадают с LaunchBackground в iOS
+  и с theme_color веба; токены дизайн-системы приходят задачей «Дизайн-ядро».
+-->
+<resources>
+    <color name="launch_background">#FFFFFF</color>
+    <color name="brand_primary">#2563EB</color>
+    <color name="brand_on_primary">#FFFFFF</color>
+    <color name="brand_primary_container">#BFDBFE</color>
+</resources>
