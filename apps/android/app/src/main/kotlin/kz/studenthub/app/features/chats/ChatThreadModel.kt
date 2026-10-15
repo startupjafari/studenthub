@@ -20,6 +20,7 @@ import kz.studenthub.app.core.chats.OutgoingAttachment
 import kz.studenthub.app.core.network.displayMessage
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.storage.AppDatabase
+import kz.studenthub.app.core.storage.ChatKind
 import kz.studenthub.app.core.storage.DraftEntity
 import kz.studenthub.app.core.storage.MessageEntity
 import kz.studenthub.app.core.ui.UiText
@@ -47,6 +48,8 @@ class ChatThreadModel(
     var days by mutableStateOf<List<MessageTimeline.Day>>(emptyList())
         private set
     var title by mutableStateOf<String?>(null)
+        private set
+    var kind by mutableStateOf<ChatKind?>(null)
         private set
     var isLoadingOlder by mutableStateOf(false)
         private set
@@ -88,7 +91,9 @@ class ChatThreadModel(
             pickAnchorIfNeeded()
         }.launchIn(viewModelScope)
         db.chats().observe(chatId).onEach { chat ->
-            title = chat?.title
+            // Чат предмета названия не имеет — за него говорит предмет; остальное подписывает экран по типу.
+            title = chat?.title ?: chat?.subject
+            kind = chat?.type?.let(ChatKind::from)
             // Счётчик для якоря — только первый, до нашей же отметки прочтения.
             if (!chatLoaded) unreadCount = chat?.unreadCount ?: 0
             chatLoaded = true

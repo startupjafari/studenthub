@@ -137,7 +137,7 @@ fun ChatThreadScreen(chatId: String, viewerId: String) {
 
     // Панели разделов в чате нет — низ экрана (клавиатура или жесты системы) учитываем сами.
     ScreenScaffold(
-        title = model.title ?: stringResource(R.string.shell_chat),
+        title = model.kind?.let { chatTitle(it, model.title) } ?: model.title ?: stringResource(R.string.shell_chat),
         modifier = Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
     ) {
         model.failure?.let { FormAlert(it.resolve(), Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.md)) }

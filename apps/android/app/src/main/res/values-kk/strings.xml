@@ -42,4 +42,11 @@
     <string name="applications_number">№ %1$s</string>
     <string name="documents_downloading">Файл «Жүктеулер» қалтасына сақталуда</string>
     <string name="common_yes">Иә</string>
+    <string name="chats_saved">Сақталған</string>
+    <string name="chats_typeGroupOfficial">Топ чаты</string>
+    <string name="chats_typeFaculty">Факультет чаты</string>
+    <string name="chats_typeDean">Деканат</string>
+    <string name="chats_typeSupport">Университет көмегі (жалпы чат)</string>
+    <string name="chats_typeSupportPlatform">StudentHub қолдауы</string>
+    <string name="chats_typeSubject">Пән</string>
 </resources>

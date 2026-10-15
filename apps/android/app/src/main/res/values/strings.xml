@@ -54,4 +54,11 @@
     <string name="applications_number">№ %1$s</string>
     <string name="documents_downloading">Файл сохраняется в «Загрузки»</string>
     <string name="common_yes">Да</string>
+    <string name="chats_saved">Сохранённые</string>
+    <string name="chats_typeGroupOfficial">Чат группы</string>
+    <string name="chats_typeFaculty">Чат факультета</string>
+    <string name="chats_typeDean">Деканат</string>
+    <string name="chats_typeSupport">Помощь вуза (общий чат)</string>
+    <string name="chats_typeSupportPlatform">Поддержка StudentHub</string>
+    <string name="chats_typeSubject">Предмет</string>
 </resources>

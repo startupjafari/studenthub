@@ -164,11 +164,12 @@ fun ChatRow(
                 )
                 .padding(horizontal = Spacing.xl, vertical = Spacing.md),
         ) {
-            ChatAvatar(row.title, row.kind)
+            val title = chatTitle(row.kind, row.title)
+            ChatAvatar(title, row.kind)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Text(
-                        row.title ?: stringResource(R.string.chats_untitled),
+                        title,
                         style = AppType.cardTitle,
                         color = colors.foreground,
                         maxLines = 1,

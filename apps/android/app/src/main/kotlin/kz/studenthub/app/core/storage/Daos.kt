@@ -74,7 +74,7 @@ interface ChatDao {
     private companion object {
         const val ROWS = """
             SELECT
-                c.id, c.type, c.title, c.avatarUrl, c.unreadCount, c.muted,
+                c.id, c.type, COALESCE(c.title, c.subject) AS title, c.avatarUrl, c.unreadCount, c.muted,
                 c.pinnedAt, c.archivedAt, c.requestIncoming, c.updatedAt,
                 d.text AS draftText,
                 m.content AS lastContent,
