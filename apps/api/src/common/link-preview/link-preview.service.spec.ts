@@ -121,16 +121,21 @@ describe('LinkPreviewService — чтение <head>', () => {
 
   it('страница из тысяч незакрытых «<meta » разбирается быстро (ReDoS)', async () => {
     // Прежняя регулярка `<meta[^>]+…` перебирала такую строку квадратично: 2 МБ держали
-    // цикл событий минутами. Теперь — линейно.
+    // цикл событий минутами. Теперь — линейно: локально доли секунды.
+    //
+    // Порог щедрый намеренно. На раннере CI тесты идут с покрытием и параллельно с
+    // десятками других наборов, и линейный разбор там занимал 3 с — порог в 2 с ронял
+    // сборку на ровном месте. Квадратичный разбор на этом объёме — минуты, так что 15 с
+    // по-прежнему отделяют исправленный код от ReDoS.
     const html = `<html><head>${'<meta '.repeat(300_000)}`
     fetchSpy.mockResolvedValue(htmlResponse(html))
 
     const startedAt = Date.now()
     const preview = await service.fetch('https://example.com/evil')
 
-    expect(Date.now() - startedAt).toBeLessThan(2000)
+    expect(Date.now() - startedAt).toBeLessThan(15_000)
     expect(preview?.title).toBeNull()
-  })
+  }, 30_000)
 
   it('атрибуты тега в любом порядке и с пробелами вокруг «=»', async () => {
     const html =
