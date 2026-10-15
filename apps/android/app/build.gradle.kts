@@ -17,6 +17,9 @@ val debugApiBaseUrl = providers.gradleProperty("studenthub.apiBaseUrl")
 // репозитории. Не заданы — приложение собирается и работает, просто без пушей.
 fun firebase(name: String) = providers.gradleProperty("studenthub.firebase.$name").orElse("").get()
 
+val releaseApiBaseUrl = providers.gradleProperty("studenthub.releaseApiBaseUrl")
+    .orElse("https://api.example.invalid/api/v1")
+
 // Ключ загрузки для Google Play. Приходит только из окружения — секретов CI или
 // терминала человека; без него релизная сборка собирается неподписанной.
 val releaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
@@ -29,9 +32,13 @@ android {
         applicationId = "kz.studenthub.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        // Номер сборки задаёт релизный прогон CI (`-Pstudenthub.versionCode=…`): Google Play
+        // не примет вторую сборку с тем же номером.
+        versionCode = providers.gradleProperty("studenthub.versionCode").orElse("1").get().toInt()
         versionName = "0.1.0"
 
+        // Трекер ошибок. Пусто — Sentry не инициализируется (как в iOS и на сервере).
+        buildConfigField("String", "SENTRY_DSN", "\"${providers.gradleProperty("studenthub.sentryDsn").orElse("").get()}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${firebase("projectId")}\"")
         buildConfigField("String", "FIREBASE_APP_ID", "\"${firebase("appId")}\"")
         buildConfigField("String", "FIREBASE_API_KEY", "\"${firebase("apiKey")}\"")
@@ -58,10 +65,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // TODO(человек): подставить домен API из Railway (docs/RAILWAY.md) до первой
-            // сборки для Google Play. Заглушка намеренная, как в iOS: релиз с ней ходит в
-            // никуда, и адрес нельзя забыть.
-            buildConfigField("String", "API_BASE_URL", "\"https://api.example.invalid/api/v1\"")
+            // Адрес боевого API приходит параметром сборки (секрет релизного прогона CI).
+            // Без него — заглушка, как в iOS: релиз с ней ходит в никуда, и адрес нельзя забыть.
+            buildConfigField("String", "API_BASE_URL", "\"${releaseApiBaseUrl.get()}\"")
             if (releaseKeystore.isPresent) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -132,6 +138,7 @@ dependencies {
     // Только доставка пушей: ни Analytics, ни Crashlytics — минимум данных в Google.
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    implementation(libs.sentry.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

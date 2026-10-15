@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kz.studenthub.app.core.observability.Observability
+import kz.studenthub.app.core.observability.SentryObservability
 import kz.studenthub.app.core.session.AccessToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -120,7 +121,7 @@ class AppServices(context: Context) {
 
     val sessionModel = AppSessionModel(this)
 
-    val observability = Observability()
+    val observability: Observability = SentryObservability.start(appContext)
 
     /**
      * Ссылка, которую ещё не открыли: пришла до входа или до того, как оболочка

@@ -65,6 +65,11 @@
             android:name=".core.push.ReplyReceiver"
             android:exported="false" />
 
+        <!-- Sentry поднимается вручную и только с DSN (SentryObservability), а не провайдером при старте. -->
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+
         <!--
           Модуль сканера QR из Google Play services скачивается при установке, а не при
           первом нажатии: иначе человек ждал бы загрузки перед камерой.

@@ -20,6 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import kz.studenthub.app.R
 import kz.studenthub.app.designsystem.AppTheme
@@ -53,7 +55,14 @@ fun ScreenScaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(title, style = AppType.sectionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Заголовок экрана — заголовок и для TalkBack: по ним переходят жестом.
+                    Text(
+                        title,
+                        style = AppType.sectionTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
                 },
                 navigationIcon = {
                     if (canGoBack) {

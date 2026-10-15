@@ -20,6 +20,7 @@ work = "2.12.0"
 coil = "3.6.3"
 socketIo = "2.1.2"
 firebaseBom = "35.0.1"
+sentry = "8.61.0"
 
 [libraries]
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -55,6 +56,7 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 socket-io-client = { module = "io.socket:socket.io-client", version.ref = "socketIo" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+sentry-android = { module = "io.sentry:sentry-android-core", version.ref = "sentry" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
 

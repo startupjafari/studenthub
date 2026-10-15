@@ -59,6 +59,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -173,7 +175,12 @@ fun HomeScreen(viewer: AccessToken) {
 
 @Composable
 private fun SectionTitle(text: String) {
-    Text(text, style = AppType.sectionTitle, color = AppTheme.colors.foreground, modifier = Modifier.padding(top = Spacing.sm))
+    Text(
+        text,
+        style = AppType.sectionTitle,
+        color = AppTheme.colors.foreground,
+        modifier = Modifier.padding(top = Spacing.sm).semantics { heading() },
+    )
 }
 
 /** Карточка поста: автор, текст, медиа, реакции и переход к комментариям. */
