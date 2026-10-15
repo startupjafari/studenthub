@@ -1,10 +1,19 @@
+import { lookup } from 'node:dns/promises'
 import { LinkPreviewService } from './link-preview.service'
+
+// Резолв хоста — без сети: настоящий DNS на CI отвечал секундами, и тест на скорость
+// разбора падал по таймеру, хотя сам разбор укладывался в миллисекунды. По умолчанию
+// хост резолвится в публичный адрес; проверки литералов IP до lookup не доходят.
+jest.mock('node:dns/promises', () => ({
+  lookup: jest.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]),
+}))
 
 // Один шпион на весь файл: два jest.spyOn на один и тот же globalThis.fetch вкладываются
 // друг в друга, и mockRestore из первого блока снимает мок второго — дальше тесты молча
 // уходят в реальную сеть.
 const fetchSpy = jest.spyOn(globalThis, 'fetch')
 const service = new LinkPreviewService()
+const lookupMock = lookup as unknown as jest.Mock
 
 afterEach(() => fetchSpy.mockReset())
 afterAll(() => fetchSpy.mockRestore())
@@ -15,6 +24,12 @@ describe('LinkPreviewService — SSRF-гарды', () => {
   it('не-http(s) протокол → null, без запроса', async () => {
     expect(await service.fetch('ftp://example.com/file')).toBeNull()
     expect(await service.fetch('javascript:alert(1)')).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('хост, резолвящийся в приватный адрес → null, без запроса', async () => {
+    lookupMock.mockResolvedValueOnce([{ address: '10.0.0.7', family: 4 }])
+    expect(await service.fetch('https://intranet.example.com/')).toBeNull()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
