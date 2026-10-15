@@ -194,6 +194,15 @@ export const envSchema = z.object({
   /** Боевой шлюз вместо песочницы. TestFlight и App Store — боевой. */
   APNS_PRODUCTION: booleanFromString,
 
+  // Пуши на Android через FCM HTTP v1 (план Android, Задача АБ1). Три поля из JSON
+  // сервисного аккаунта Firebase. Без них отправка на Android молчит, как APNs без p8.
+  /** `project_id` проекта Firebase. */
+  FCM_PROJECT_ID: optionalEnv(z.string().min(1)),
+  /** `client_email` сервисного аккаунта. */
+  FCM_CLIENT_EMAIL: optionalEnv(z.string().email()),
+  /** `private_key` сервисного аккаунта. Переводы строк экранированы: PEM многострочный. */
+  FCM_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+
   /**
    * Минимальная поддерживаемая версия приложения для iPhone (план iOS, Задача Б3).
    *
@@ -208,6 +217,19 @@ export const envSchema = z.object({
     .default('0.0.0'),
   /** Адрес приложения в App Store — для кнопки «Обновить». Не задан — кнопки не будет. */
   IOS_STORE_URL: optionalEnv(z.string().url()),
+
+  /**
+   * Минимальная поддерживаемая версия приложения для Android (план Android, Задача АБ2).
+   *
+   * Отдельно от iOS: релизы платформ выходят в разное время, и общая планка
+   * блокировала бы одних из-за других. Умолчание то же — `0.0.0`, никого не блокируем.
+   */
+  ANDROID_MIN_SUPPORTED_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, 'ANDROID_MIN_SUPPORTED_VERSION: формат SemVer, например 1.2.0')
+    .default('0.0.0'),
+  /** Адрес приложения в Google Play — для кнопки «Обновить». Не задан — кнопки не будет. */
+  ANDROID_STORE_URL: optionalEnv(z.string().url()),
 
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
