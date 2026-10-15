@@ -106,23 +106,19 @@ class ApiClient(
         for (retry in 0..maxRetries) {
             // Выдержка с ростом: 0.5 с, затем 1 с. Без неё повтор приходит в тот же обрыв.
             if (retry > 0) backoff(retry)
-            val response = try {
+            val reply = try {
                 http.newCall(request(endpoint, token)).await()
             } catch (error: IOException) {
                 if (!endpoint.isIdempotent || retry == maxRetries) throw ApiError.Transport(error)
                 lastTransportError = error
                 continue
             }
-            response.use {
-                val text = it.body.string()
-                if (it.isSuccessful) return text
-                val failure = serverError(text, it.code)
-                // 5xx и 429 — состояние сервера, а не запроса: их стоит повторить,
-                // если запрос идемпотентный.
-                val worthRetrying = it.code >= 500 || it.code == 429
-                if (worthRetrying && endpoint.isIdempotent && retry < maxRetries) return@use
-                throw failure
-            }
+            if (reply.isSuccessful) return reply.text
+            // 5xx и 429 — состояние сервера, а не запроса: их стоит повторить,
+            // если запрос идемпотентный.
+            val worthRetrying = reply.code >= 500 || reply.code == 429
+            if (worthRetrying && endpoint.isIdempotent && retry < maxRetries) continue
+            throw serverError(reply.text, reply.code)
         }
         throw ApiError.Transport(lastTransportError ?: IOException("нет ответа"))
     }
@@ -164,11 +160,31 @@ class ApiClient(
     }
 }
 
-/** Асинхронный вызов OkHttp как приостановка; отмена корутины отменяет и запрос. */
-suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+/** Ответ, уже прочитанный целиком: статус и тело текстом. */
+class HttpReply(val code: Int, val text: String) {
+    val isSuccessful: Boolean get() = code in 200..299
+}
+
+/**
+ * Асинхронный вызов OkHttp как приостановка; отмена корутины отменяет и запрос.
+ *
+ * Тело читается и закрывается здесь же, в потоке OkHttp. Корутина продолжается на том
+ * диспетчере, где её позвали, — обычно это Main, а чтение сокета в главном потоке
+ * Android обрывает исключением `NetworkOnMainThreadException`. Обрыв посреди тела —
+ * та же ошибка транспорта, что и обрыв до ответа.
+ */
+suspend fun Call.await(): HttpReply = suspendCancellableCoroutine { continuation ->
     continuation.invokeOnCancellation { cancel() }
     enqueue(object : Callback {
-        override fun onResponse(call: Call, response: Response) = continuation.resume(response)
+        override fun onResponse(call: Call, response: Response) {
+            val reply = try {
+                response.use { HttpReply(it.code, it.body.string()) }
+            } catch (e: IOException) {
+                onFailure(call, e)
+                return
+            }
+            continuation.resume(reply)
+        }
 
         override fun onFailure(call: Call, e: IOException) {
             if (!continuation.isCancelled) continuation.resumeWithException(e)

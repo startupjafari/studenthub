@@ -105,8 +105,8 @@ class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient)
      */
     override suspend fun upload(file: File, url: String, mime: String) {
         val body: RequestBody = file.asRequestBody(mime.toMediaType())
-        val response = storage.newCall(Request.Builder().url(url).put(body).build()).await()
-        response.use { if (!it.isSuccessful) throw ApiError.Malformed(it.code) }
+        val reply = storage.newCall(Request.Builder().url(url).put(body).build()).await()
+        if (!reply.isSuccessful) throw ApiError.Malformed(reply.code)
     }
 
     override suspend fun sendUploaded(
