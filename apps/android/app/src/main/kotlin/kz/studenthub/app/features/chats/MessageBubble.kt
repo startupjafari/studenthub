@@ -71,6 +71,7 @@ import kz.studenthub.app.designsystem.AppType
 import kz.studenthub.app.designsystem.ControlHeight
 import kz.studenthub.app.designsystem.Radius
 import kz.studenthub.app.designsystem.Spacing
+import kz.studenthub.app.designsystem.currentLocale
 import kz.studenthub.app.shell.LocalServices
 import java.io.File
 import java.time.Instant
@@ -157,7 +158,7 @@ fun MessageBubble(
                     modifier = Modifier.align(Alignment.End),
                 ) {
                     if (message.editedAt != null && !deleted) Text(stringResource(R.string.chats_edited), style = AppType.meta, color = metaColor)
-                    Text(ChatMoment.time(message.createdAt), style = AppType.tabular(AppType.meta), color = metaColor)
+                    Text(ChatMoment.time(message.createdAt, locale = currentLocale()), style = AppType.tabular(AppType.meta), color = metaColor)
                     if (item.isOwn) SendMark(message.sendState, read = othersReadAt != null && !othersReadAt.isBefore(message.createdAt), metaColor)
                 }
             }

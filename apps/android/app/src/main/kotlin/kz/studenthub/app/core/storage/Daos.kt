@@ -198,3 +198,32 @@ interface FolderDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMembers(members: List<FolderChatEntity>)
 }
+
+@Dao
+interface ScheduleDao {
+    @Query("DELETE FROM pair")
+    suspend fun clearPairs()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPairs(pairs: List<PairEntity>)
+
+    /** Пары одного дня в порядке занятий. */
+    @Query("SELECT * FROM pair WHERE dayOfWeek = :dayOfWeek ORDER BY startTime")
+    fun observeDay(dayOfWeek: Int): Flow<List<PairEntity>>
+
+    @Query("SELECT * FROM pair WHERE id = :id")
+    suspend fun pair(id: String): PairEntity?
+
+    @Query("SELECT * FROM pair ORDER BY dayOfWeek, startTime")
+    suspend fun allPairs(): List<PairEntity>
+
+    @Query("DELETE FROM pairChange WHERE date < :before")
+    suspend fun deleteChangesBefore(before: java.time.Instant)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChanges(changes: List<PairChangeEntity>)
+
+    @Query("SELECT * FROM pairChange WHERE date >= :from AND date < :to")
+    fun observeChanges(from: java.time.Instant, to: java.time.Instant): Flow<List<PairChangeEntity>>
+}
+

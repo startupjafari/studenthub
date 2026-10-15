@@ -92,3 +92,11 @@ private val MaterialShapes = Shapes(
     large = RoundedCornerShape(Radius.xxl),
     extraLarge = RoundedCornerShape(Radius.xxxl),
 )
+
+/**
+ * Язык интерфейса для форматирования дат и дней недели. Через конфигурацию, а не
+ * `Locale.getDefault()`: так смена языка в настройках перерисовывает экран сразу.
+ */
+@Composable
+@ReadOnlyComposable
+fun currentLocale(): java.util.Locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]

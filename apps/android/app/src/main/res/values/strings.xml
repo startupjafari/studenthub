@@ -19,4 +19,7 @@
 
     <!-- Двойная галочка: собеседник прочитал -->
     <string name="chats_readMark">Прочитано</string>
+
+    <!-- Отметка посещаемости сохранена -->
+    <string name="study_saved">Сохранено</string>
 </resources>

@@ -16,7 +16,18 @@ import kz.studenthub.app.core.navigation.AppTab
 import kz.studenthub.app.core.session.AccessToken
 import kz.studenthub.app.features.chats.ChatListScreen
 import kz.studenthub.app.features.chats.ChatThreadScreen
+import kz.studenthub.app.core.model.Role
+import kz.studenthub.app.core.navigation.MoreSection
 import kz.studenthub.app.features.more.MoreScreen
+import kz.studenthub.app.features.study.AssignmentDetailScreen
+import kz.studenthub.app.features.study.AssignmentsScreen
+import kz.studenthub.app.features.study.AttendanceMarkingScreen
+import kz.studenthub.app.features.study.AttendanceScreen
+import kz.studenthub.app.features.study.GradesScreen
+import kz.studenthub.app.features.study.LessonScreen
+import kz.studenthub.app.features.study.MaterialsScreen
+import kz.studenthub.app.features.study.ScheduleScreen
+import kz.studenthub.app.features.study.StudyScreen
 
 /**
  * Корень раздела. Экраны разделов приходят фазами плана; что ещё не готово, стоит
@@ -26,6 +37,8 @@ import kz.studenthub.app.features.more.MoreScreen
 fun TabRoot(tab: AppTab, viewer: AccessToken) {
     when (tab) {
         AppTab.CHATS -> ChatListScreen()
+        AppTab.SCHEDULE -> ScheduleScreen()
+        AppTab.STUDY -> StudyScreen(viewer.role)
         AppTab.MORE -> MoreScreen(role = viewer.role)
         else -> ScreenScaffold(title = stringResource(tab.title)) {
             PlaceholderScreen(title = stringResource(tab.title))
@@ -38,6 +51,17 @@ fun TabRoot(tab: AppTab, viewer: AccessToken) {
 fun Destination(route: AppRoute, viewer: AccessToken) {
     when (route) {
         is AppRoute.Chat -> return ChatThreadScreen(chatId = route.id, viewerId = viewer.subject)
+        is AppRoute.Section -> when (route.section) {
+            MoreSection.GRADES -> return GradesScreen()
+            MoreSection.ATTENDANCE -> return AttendanceScreen()
+            MoreSection.ASSIGNMENTS -> return AssignmentsScreen()
+            MoreSection.MATERIALS -> return MaterialsScreen()
+            else -> Unit
+        }
+        is AppRoute.Assignment -> return AssignmentDetailScreen(route.id)
+        // Преподаватель с занятия идёт отмечать посещаемость — главное, зачем он вообще
+        // открывает пару на телефоне.
+        is AppRoute.Lesson -> return if (viewer.role == Role.TEACHER) AttendanceMarkingScreen(route.id) else LessonScreen(route.id)
         else -> Unit
     }
     val title = when (route) {

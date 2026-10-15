@@ -53,6 +53,7 @@ import kz.studenthub.app.designsystem.AppType
 import kz.studenthub.app.designsystem.ControlHeight
 import kz.studenthub.app.designsystem.FormAlert
 import kz.studenthub.app.designsystem.Spacing
+import kz.studenthub.app.designsystem.currentLocale
 import kz.studenthub.app.shell.LocalServices
 import kz.studenthub.app.shell.ScreenScaffold
 
@@ -197,7 +198,7 @@ fun ChatRow(
                 }
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                Text(ChatMoment.short(row.lastCreatedAt ?: row.updatedAt), style = AppType.tabular(AppType.meta), color = colors.mutedForeground)
+                Text(ChatMoment.short(row.lastCreatedAt ?: row.updatedAt, locale = currentLocale()), style = AppType.tabular(AppType.meta), color = colors.mutedForeground)
                 if (row.unreadCount > 0) {
                     Text(
                         if (row.unreadCount > 99) "99+" else row.unreadCount.toString(),

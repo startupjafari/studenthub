@@ -33,6 +33,7 @@ import kz.studenthub.app.core.push.PushSync
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.realtime.SocketIoTransport
 import kz.studenthub.app.core.storage.AppDatabase
+import kz.studenthub.app.core.study.StudyApi
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -92,6 +93,8 @@ class AppServices(context: Context) {
 
     /** Реальное время. Транспорт — единственное место, знающее про socket.io. */
     val realtime = RealtimeCoordinator(SocketIoTransport(BuildConfig.API_BASE_URL), session, database, appScope)
+
+    val studyApi = StudyApi(api)
 
     val push = PushRegistrar(appContext, api, clientVersion)
     val pushSync = PushSync(chatsApi, chatStore)

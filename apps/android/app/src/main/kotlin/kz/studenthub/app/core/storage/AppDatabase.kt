@@ -1,6 +1,7 @@
 package kz.studenthub.app.core.storage
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -27,9 +28,14 @@ import java.time.Instant
         FolderEntity::class,
         FolderChatEntity::class,
         AttachmentEntity::class,
+        PairEntity::class,
+        PairChangeEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    // Новые таблицы без правки старых — автомиграция по сохранённым схемам. Сложные
+    // изменения (переименования, перенос данных) пишутся миграцией руками.
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +46,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun drafts(): DraftDao
 
     abstract fun folders(): FolderDao
+
+    abstract fun schedule(): ScheduleDao
 
     companion object {
         private const val NAME = "studenthub.db"

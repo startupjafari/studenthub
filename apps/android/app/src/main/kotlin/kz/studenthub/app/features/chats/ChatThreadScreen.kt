@@ -74,6 +74,7 @@ import kz.studenthub.app.designsystem.ControlHeight
 import kz.studenthub.app.designsystem.FormAlert
 import kz.studenthub.app.designsystem.Radius
 import kz.studenthub.app.designsystem.Spacing
+import kz.studenthub.app.designsystem.currentLocale
 import kz.studenthub.app.shell.LocalServices
 import kz.studenthub.app.shell.ScreenScaffold
 import java.time.LocalDate
@@ -206,7 +207,7 @@ private fun MessageList(rows: List<ThreadRow>, model: ChatThreadModel, modifier:
 /** Разделитель дня — «пилюля» по центру. */
 @Composable
 private fun DaySeparator(day: LocalDate, today: LocalDate) {
-    val label = when (val value = ChatMoment.day(day, today)) {
+    val label = when (val value = ChatMoment.day(day, today, currentLocale())) {
         ChatMoment.DayLabel.Today -> stringResource(R.string.chats_today)
         ChatMoment.DayLabel.Yesterday -> stringResource(R.string.chats_yesterday)
         is ChatMoment.DayLabel.Date -> value.text

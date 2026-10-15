@@ -187,3 +187,39 @@ data class ChatListRow(
             else -> lastContent
         }
 }
+
+/**
+ * Пара расписания. Расписание обязано работать в самолёте и в подвале: его смотрят чаще
+ * всего и ровно там, где связи нет. Поэтому оно лежит в базе целиком.
+ */
+@Entity(tableName = "pair", indices = [Index("dayOfWeek", "startTime")])
+data class PairEntity(
+    @PrimaryKey val id: String,
+    val subject: String,
+    /** 1 — понедельник, 7 — воскресенье. */
+    val dayOfWeek: Int,
+    /** «HH:mm»: сравнимо строкой и не зависит от часового пояса телефона. */
+    val startTime: String,
+    val endTime: String,
+    val weekType: String,
+    val teacherName: String?,
+    val roomName: String?,
+    val groupId: String?,
+)
+
+/**
+ * Разовое изменение пары. Без внешнего ключа на пару: изменение может прийти раньше
+ * самой пары, а потерять его из-за порядка загрузки нельзя.
+ */
+@Entity(tableName = "pairChange", indices = [Index("date"), Index("pairId")])
+data class PairChangeEntity(
+    @PrimaryKey val id: String,
+    val pairId: String,
+    val type: String,
+    /** День, на который изменение действует. */
+    val date: Instant,
+    val newStartTime: String?,
+    val newEndTime: String?,
+    val note: String?,
+)
+
