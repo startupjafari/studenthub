@@ -118,9 +118,7 @@ class ScheduleModel(
         isRefreshing = true
         try {
             store.save(api.schedule())
-            val from = today.atStartOfDay(zone).toInstant()
-            val to = today.plusDays(14).atStartOfDay(zone).toInstant()
-            store.saveChanges(api.changes(from, to), from)
+            store.saveChanges(api.changes(today, today.plusDays(14)), today.atStartOfDay(zone).toInstant())
             val now = clock.instant()
             syncedAt = now
             prefs?.edit { putLong(SYNCED_KEY, now.toEpochMilli()) }

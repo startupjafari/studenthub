@@ -99,4 +99,5 @@ private val MaterialShapes = Shapes(
  */
 @Composable
 @ReadOnlyComposable
-fun currentLocale(): java.util.Locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+fun currentLocale(): java.util.Locale =
+    kz.studenthub.app.core.model.appLocale(androidx.compose.ui.platform.LocalConfiguration.current.locales[0])

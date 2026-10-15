@@ -165,7 +165,7 @@ class ScheduleTest {
     private class NoNetworkSchedule : ScheduleFetching {
         override suspend fun schedule(): ScheduleDto = throw kz.studenthub.app.core.network.ApiError.Transport(java.io.IOException("offline"))
 
-        override suspend fun changes(from: Instant, to: Instant): List<ScheduleChangeDto> = emptyList()
+        override suspend fun changes(from: LocalDate, to: LocalDate): List<ScheduleChangeDto> = emptyList()
     }
 }
 

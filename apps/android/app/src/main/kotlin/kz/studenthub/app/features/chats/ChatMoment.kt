@@ -1,5 +1,6 @@
 package kz.studenthub.app.features.chats
 
+import kz.studenthub.app.core.model.appLocale
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -12,7 +13,7 @@ import java.util.Locale
  * Как в вебе и в iOS: длинная дата в строке не читается.
  */
 object ChatMoment {
-    fun short(moment: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String {
+    fun short(moment: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault(), locale: Locale = appLocale()): String {
         val date = moment.atZone(zone)
         val today = now.atZone(zone).toLocalDate()
         return when {
@@ -23,11 +24,11 @@ object ChatMoment {
     }
 
     /** Время сообщения в пузыре. */
-    fun time(moment: Instant, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
+    fun time(moment: Instant, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = appLocale()): String =
         moment.atZone(zone).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale))
 
     /** Подпись разделителя дня: «Сегодня», «Вчера», иначе число и месяц. */
-    fun day(day: LocalDate, today: LocalDate, locale: Locale = Locale.getDefault()): DayLabel = when (day) {
+    fun day(day: LocalDate, today: LocalDate, locale: Locale = appLocale()): DayLabel = when (day) {
         today -> DayLabel.Today
         today.minusDays(1) -> DayLabel.Yesterday
         else -> DayLabel.Date(day.format(DateTimeFormatter.ofPattern("d MMMM", locale)))

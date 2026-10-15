@@ -5,14 +5,14 @@ import kotlinx.serialization.builtins.ListSerializer
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.Endpoint
 import kz.studenthub.app.core.network.HttpMethod
-import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 interface ScheduleFetching {
     suspend fun schedule(): ScheduleDto
 
-    suspend fun changes(from: Instant, to: Instant): List<ScheduleChangeDto>
+    /** Разовые изменения за дни [from, to] включительно — сервер принимает только даты. */
+    suspend fun changes(from: LocalDate, to: LocalDate): List<ScheduleChangeDto>
 }
 
 interface StudyFetching {
@@ -42,9 +42,9 @@ interface StudyFetching {
 class StudyApi(private val client: ApiClient) : ScheduleFetching, StudyFetching {
     override suspend fun schedule(): ScheduleDto = client.send(Endpoint.get("schedule"), ScheduleDto.serializer())
 
-    override suspend fun changes(from: Instant, to: Instant): List<ScheduleChangeDto> =
+    override suspend fun changes(from: LocalDate, to: LocalDate): List<ScheduleChangeDto> =
         client.send(
-            Endpoint.get("schedule/changes", "from" to DateTimeFormatter.ISO_INSTANT.format(from), "to" to DateTimeFormatter.ISO_INSTANT.format(to)),
+            Endpoint.get("schedule/changes", "from" to from.format(DateTimeFormatter.ISO_LOCAL_DATE), "to" to to.format(DateTimeFormatter.ISO_LOCAL_DATE)),
             ListSerializer(ScheduleChangeDto.serializer()),
         )
 
