@@ -9,6 +9,7 @@ import {
   BookOpen,
   Briefcase,
   CalendarDays,
+  ChevronDown,
   Code2,
   Copy,
   FileText,
@@ -24,7 +25,7 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Role } from '@studenthub/shared-types'
 import { websiteHref, type ProfileFieldKey } from '@studenthub/shared-schemas'
 import {
@@ -400,9 +401,11 @@ function ContactsCard({ data }: { data: ProfileData }) {
 }
 
 // ── Карточка чипов (навыки / интересы / языки) ──────────────────────────────
-// Сколько чипов видно сразу. Списки навыков и интересов бывают по 30 пунктов — целиком
-// они вытягивали колонку на экран вниз, и карточки под ними уходили за край.
-const CHIPS_PREVIEW = 10
+// Свёрнутый список чипов — около четырёх рядов. Списки навыков и интересов бывают по 30
+// пунктов: целиком они вытягивали колонку на экран вниз, и карточки под ними уходили за край.
+// Режем по высоте, а не по числу: короткие «Jira» и длинные «Stakeholder Management»
+// занимают разное место, и «первые 10» давали то два ряда, то шесть.
+const CHIPS_COLLAPSED_PX = 136
 
 function ChipsCard({
   title,
@@ -419,16 +422,28 @@ function ChipsCard({
 }) {
   const t = useTranslations('Profile')
   const [expanded, setExpanded] = useState(false)
+  // Не влезает ли список в свёрнутую высоту — замер, а не догадка: от него зависят и
+  // затухание, и кнопка. Пересчитывается на ресайз (ширина колонки меняет число рядов).
+  const listRef = useRef<HTMLDivElement>(null)
+  const [overflows, setOverflows] = useState(false)
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    const check = () => setOverflows(el.scrollHeight > CHIPS_COLLAPSED_PX + 1)
+    check()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [items])
+
   const chipTone =
     tone === 'primary'
       ? 'bg-primary/10 text-primary'
       : tone === 'accent'
         ? 'bg-info/10 text-info'
         : 'bg-muted text-foreground'
-  // Сворачиваем, только когда скрыто хотя бы два пункта: кнопка «показать ещё один» длиннее
-  // самого пункта.
-  const collapsible = items.length > CHIPS_PREVIEW + 1
-  const shown = collapsible && !expanded ? items.slice(0, CHIPS_PREVIEW) : items
+  const collapsed = overflows && !expanded
   return (
     <Card className={cn(CARD_LIFT, ENTER)}>
       <CardHeader>
@@ -442,28 +457,42 @@ function ChipsCard({
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-col items-start gap-3">
+      <CardContent className="flex flex-col gap-3">
         {items.length === 0 ? (
           <span className="text-sm text-muted-foreground/60">{t('noData')}</span>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {shown.map((it) => (
+          <div
+            ref={listRef}
+            // Свёрнутый список растворяется к нижнему краю (маска, а не наложенный градиент:
+            // фон карточки под ним не нужно знать) — видно, что значения продолжаются.
+            className={cn(
+              'flex flex-wrap gap-2',
+              collapsed &&
+                'overflow-hidden [mask-image:linear-gradient(to_bottom,black_45%,transparent)]',
+            )}
+            style={collapsed ? { maxHeight: CHIPS_COLLAPSED_PX } : undefined}
+          >
+            {items.map((it) => (
               <span key={it} className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}>
                 {renderItem ? renderItem(it) : it}
               </span>
             ))}
           </div>
         )}
-        {collapsible && (
+        {overflows && (
           <Button
             type="button"
-            variant="ghost"
+            variant="secondary"
             size="sm"
             aria-expanded={expanded}
-            className="-ml-2"
+            className="w-full"
             onClick={() => setExpanded((v) => !v)}
           >
             {expanded ? t('chipsCollapse') : t('chipsShowAll', { count: items.length })}
+            <ChevronDown
+              className={cn('size-4 transition-transform', expanded && 'rotate-180')}
+              aria-hidden
+            />
           </Button>
         )}
       </CardContent>
