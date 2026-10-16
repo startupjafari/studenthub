@@ -382,7 +382,8 @@ export function ConversationList({
   const folderTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
   // Непринятые запросы (§50) в счётчик «Непрочитанные» не идут: у них своя вкладка.
   const unreadTotal = useMemo(
-    () => chats.filter((c) => !c.requestIncoming && c.unreadCount > 0).length,
+    // Архив во вкладке «Непрочитанные» не показывается — и в её счётчике его быть не должно.
+    () => chats.filter((c) => !c.requestIncoming && !c.archived && c.unreadCount > 0).length,
     [chats],
   )
   const requestsTotal = useMemo(() => chats.filter((c) => c.requestIncoming).length, [chats])
