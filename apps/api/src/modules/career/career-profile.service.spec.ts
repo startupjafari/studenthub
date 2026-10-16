@@ -69,6 +69,7 @@ function sourceUser(over: Record<string, unknown> = {}) {
         url: null,
         startDate: null,
         endDate: null,
+        visibility: 'PUBLIC',
       },
     ],
     documents: [{ id: 'd-1', title: 'Сертификат курса', issuedBy: 'Алатау', issuedAt: new Date() }],
@@ -76,9 +77,28 @@ function sourceUser(over: Record<string, unknown> = {}) {
   }
 }
 
+type PortfolioQuery = { select: { portfolioItems: { where?: { visibility?: { in: string[] } } } } }
+
+/**
+ * Мок `user.findFirst`, который честно применяет фильтр видимости к портфолио: со статичным
+ * ответом тест проверял бы фикстуру, а не запрос. Понимает ровно ту форму условия, что
+ * строит portfolioVisibilityWhere; нет условия — отдаёт все записи, как и Prisma.
+ */
+function honourPortfolioVisibility(user: Record<string, unknown> | null) {
+  return jest.fn<Promise<unknown>, [PortfolioQuery]>(async (args) => {
+    if (!user) return null
+    const items = (user.portfolioItems ?? []) as { visibility: string }[]
+    const allowed = args.select.portfolioItems.where?.visibility?.in
+    return {
+      ...user,
+      portfolioItems: items.filter((item) => !allowed || allowed.includes(item.visibility)),
+    }
+  })
+}
+
 function setup(user: Record<string, unknown> | null = sourceUser(), consents: string[] = []) {
   const prisma = {
-    user: { findFirst: jest.fn().mockResolvedValue(user) },
+    user: { findFirst: honourPortfolioVisibility(user) },
     careerProfile: { update: jest.fn(), upsert: jest.fn() },
     careerConsent: {
       findMany: jest.fn().mockResolvedValue(consents.map((field) => ({ field }))),
@@ -174,6 +194,52 @@ describe('CareerProfileService — карточка для работодате�
         }),
       }),
     )
+  })
+})
+
+describe('CareerProfileService — видимость записей портфолио', () => {
+  /** По записи каждой видимости — чтобы утечку было видно. */
+  const item = (id: string, visibility: string) => ({
+    id,
+    kind: 'PROJECT',
+    title: `Запись ${visibility}`,
+    organization: null,
+    description: null,
+    url: null,
+    startDate: null,
+    endDate: null,
+    visibility,
+  })
+  const mixed = () =>
+    sourceUser({
+      portfolioItems: [
+        item('p-pub', 'PUBLIC'),
+        item('p-uni', 'UNIVERSITY'),
+        item('p-priv', 'PRIVATE'),
+      ],
+    })
+
+  it('работодатель видит только PUBLIC: компания вне вуза, UNIVERSITY и PRIVATE ей не отдаются', async () => {
+    const { service, prisma } = setup(mixed())
+
+    const card = await service.cardForEmployer(employer, 'stu-1', ctx)
+
+    expect(card.portfolio.map((p) => p.id)).toEqual(['p-pub'])
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          portfolioItems: expect.objectContaining({ where: { visibility: { in: ['PUBLIC'] } } }),
+        }),
+      }),
+    )
+  })
+
+  it('владелец в своём профиле считает все записи, включая приватные', async () => {
+    const { service } = setup(mixed())
+
+    const profile = await service.myProfile(student)
+
+    expect(profile.inherited.portfolioCount).toBe(3)
   })
 })
 

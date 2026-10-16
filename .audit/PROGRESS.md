@@ -49,3 +49,4 @@
 - ФАЗА 2 ЗАВЕРШЕНА: 178 проблем (P0 6, P1 64, P2 108); процессы: 27 работают, 116 с проблемами, 4–5 сломаны. Отчёт собран build_report.py, задачи (133) — build_tasks.py. Шаблон агента-исправителя в AGENT_PROMPTS.md.
 - Волна P0-1 запущена: FIX-B-F01, FIX-C-F01, FIX-E-F01 (+D-F14).
 - FIX-B-F01 done: reviveDates оживляет все DateTime (типизированный список), toDate без Invalid Date; guard не роняет запрос при ошибке проверки (лог раз в минуту); +5 тестов, platform+guards 91/91. Запущен FIX-F-F01.
+- FIX-E-F01 done (+D-F14): portfolioVisibilityWhere(owner|university|external) в portfolio.service, публичное резюме и карточка работодателя — только PUBLIC; новый spec портфолио + регрессии, 42 теста, typecheck чистый. PROJECT.md дополнен. Хвост → P2-E-portfolio-followup. Запущен FIX-C-F11.

@@ -10,6 +10,11 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import {
+  PORTFOLIO_ITEM_ORDER,
+  portfolioVisibilityWhere,
+  type PortfolioAudience,
+} from '../portfolio/portfolio.service'
 import { CareerAccessService } from './career-access.service'
 
 /**
@@ -17,9 +22,10 @@ import { CareerAccessService } from './career-access.service'
  * студента для работодателя.
  *
  * Правило, ради которого сервис существует: работодатель никогда не читает `User` напрямую.
- * Любая выдача идёт через `cardForEmployer`, которая применяет три фильтра подряд:
- * допуск компании к вузу, видимость карьерного профиля и согласия на чувствительные поля.
- * Размажь эту логику по контроллерам — и однажды где-то забудут один из трёх.
+ * Любая выдача идёт через `cardForEmployer`, которая применяет четыре фильтра подряд:
+ * допуск компании к вузу, видимость карьерного профиля, согласия на чувствительные поля
+ * и видимость каждой записи портфолио.
+ * Размажь эту логику по контроллерам — и однажды где-то забудут один из них.
  */
 @Injectable()
 export class CareerProfileService {
@@ -33,7 +39,7 @@ export class CareerProfileService {
 
   /** Карьерный профиль владельца — со всеми полями и с разбором готовности. */
   async myProfile(viewer: JwtPayload) {
-    const source = await this.loadSource(viewer.sub)
+    const source = await this.loadSource(viewer.sub, 'owner')
     const profile = source.careerProfile
 
     const readiness = careerReadiness({
@@ -150,19 +156,21 @@ export class CareerProfileService {
   // ── Карточка для работодателя ──────────────────────────────────────────────
 
   /**
-   * Карточка студента глазами работодателя. Три барьера подряд, все обязательны:
+   * Карточка студента глазами работодателя. Четыре барьера подряд, все обязательны:
    *
    * 1. Компания допущена к вузу этого студента (иначе WRONG_SCOPE).
    * 2. Карьерный профиль открыт для работодателей (иначе NOT_FOUND — существование
    *    скрытого профиля не подтверждаем).
    * 3. GPA, телефон и email отдаются только при активном согласии.
+   * 4. Из портфолио — только PUBLIC-записи: компания вне вуза, UNIVERSITY ей не положено,
+   *    PRIVATE — тем более.
    *
    * Каждое открытие карточки пишется в аудит: это чтение персональных данных студента
    * внешней компанией, и оно должно быть прослеживаемым.
    */
   async cardForEmployer(viewer: JwtPayload, studentId: string, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
-    const source = await this.loadSource(studentId)
+    const source = await this.loadSource(studentId, 'external')
 
     if (!source.universityId) {
       throw new AppException('NOT_FOUND', 'Профиль не найден')
@@ -254,8 +262,11 @@ export class CareerProfileService {
     return new Set(rows.map((r) => r.field as ConsentField))
   }
 
-  /** Одна выборка на всё: профиль вуза + карьерный блок + портфолио + сертификаты. */
-  private loadSource(userId: string) {
+  /**
+   * Одна выборка на всё: профиль вуза + карьерный блок + портфолио + сертификаты.
+   * `audience` решает, какие записи портфолио попадут в выборку (см. portfolioVisibilityWhere).
+   */
+  private loadSource(userId: string, audience: PortfolioAudience) {
     return this.prisma.user
       .findFirst({
         where: { id: userId, deletedAt: null },
@@ -279,6 +290,7 @@ export class CareerProfileService {
           university: { select: { name: true } },
           careerProfile: true,
           portfolioItems: {
+            where: portfolioVisibilityWhere(audience),
             select: {
               id: true,
               kind: true,
@@ -289,7 +301,7 @@ export class CareerProfileService {
               startDate: true,
               endDate: true,
             },
-            orderBy: { order: 'asc' },
+            orderBy: PORTFOLIO_ITEM_ORDER,
             take: 50,
           },
           // Только подтверждённые вузом сертификаты: самозаявленные лежат в портфолио.

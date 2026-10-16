@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import type { CreatePortfolioItemInput, UpdatePortfolioItemInput } from '@studenthub/shared-schemas'
+import type {
+  CreatePortfolioItemInput,
+  PortfolioVisibility,
+  UpdatePortfolioItemInput,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -22,11 +26,38 @@ const ITEM_SELECT = {
 } satisfies Prisma.PortfolioItemSelect
 
 // Сортировка: сначала явный order, затем по дате начала (свежие выше), затем по создании.
-const ITEM_ORDER: Prisma.PortfolioItemOrderByWithRelationInput[] = [
+// Экспортируется для карьерного модуля: резюме и карточка кандидата режут портфолио по take,
+// и без полной сортировки в срез попадали бы произвольные записи (order у всех одинаковый).
+export const PORTFOLIO_ITEM_ORDER: Prisma.PortfolioItemOrderByWithRelationInput[] = [
   { order: 'asc' },
   { startDate: 'desc' },
   { createdAt: 'desc' },
 ]
+
+/**
+ * Кто смотрит на портфолио — от этого зависит, какие записи ему видны:
+ * - `owner` — сам владелец: всё, включая PRIVATE;
+ * - `university` — пользователь того же вуза: PUBLIC и UNIVERSITY;
+ * - `external` — все остальные: только PUBLIC. Сюда же аноним по публичной ссылке на резюме
+ *   и работодатель — компания по определению вне вуза, UNIVERSITY ей не положено.
+ */
+export type PortfolioAudience = 'owner' | 'university' | 'external'
+
+const AUDIENCE_VISIBILITIES: Record<Exclude<PortfolioAudience, 'owner'>, PortfolioVisibility[]> = {
+  university: ['PUBLIC', 'UNIVERSITY'],
+  external: ['PUBLIC'],
+}
+
+/**
+ * Условие выборки записей портфолио, видимых аудитории. ЕДИНСТВЕННОЕ место правила
+ * видимости: его зовут и этот сервис, и карьерный модуль (резюме, карточка кандидата),
+ * чтобы флаг приватности записи не игнорировался молча там, где про него забыли.
+ */
+export function portfolioVisibilityWhere(
+  audience: PortfolioAudience,
+): Prisma.PortfolioItemWhereInput {
+  return audience === 'owner' ? {} : { visibility: { in: AUDIENCE_VISIBILITIES[audience] } }
+}
 
 @Injectable()
 export class PortfolioService {
@@ -40,7 +71,7 @@ export class PortfolioService {
     return this.prisma.portfolioItem.findMany({
       where: { userId: viewer.sub },
       select: ITEM_SELECT,
-      orderBy: ITEM_ORDER,
+      orderBy: PORTFOLIO_ITEM_ORDER,
       take: 500,
     })
   }
@@ -54,11 +85,10 @@ export class PortfolioService {
     })
     if (!owner) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     const sameUniversity = owner.universityId != null && owner.universityId === viewer.universityId
-    const visibilities = sameUniversity ? ['PUBLIC', 'UNIVERSITY'] : ['PUBLIC']
     return this.prisma.portfolioItem.findMany({
-      where: { userId, visibility: { in: visibilities } },
+      where: { userId, ...portfolioVisibilityWhere(sameUniversity ? 'university' : 'external') },
       select: ITEM_SELECT,
-      orderBy: ITEM_ORDER,
+      orderBy: PORTFOLIO_ITEM_ORDER,
       take: 500,
     })
   }

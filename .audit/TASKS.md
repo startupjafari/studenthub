@@ -49,11 +49,11 @@
   - Суть: Преподавателя нельзя назначить на дисциплину ни из одного клиента — преподавательские сценарии на новых курсах мертвы
   - Файлы: apps/web/src/views/course-admin/ui/course-admin-view.tsx, apps/web/src/views/course-admin/ui/create-course-modal.tsx, apps/web/src/views/course-admin/ui/edit-course-modal.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F11 · P0 · проблемы: C-F11 · стоп: миграция
+- [in_progress] FIX-C-F11 · P0 · проблемы: C-F11 · стоп: миграция
   - Суть: Удаление пары (и версии расписания) каскадом стирает всю историю посещаемости по ней
   - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx, prisma/schema/19-attendance.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-E-F01 · P0 · проблемы: E-F01, D-F14
+- [done] FIX-E-F01 · P0 · проблемы: E-F01, D-F14
   - Суть: PRIVATE- и UNIVERSITY-записи портфолио уходят в публичное резюме и в карточку работодателя
   - Файлы: apps/api/src/modules/career/career-profile.service.ts, apps/api/src/modules/career/resume.service.ts, apps/api/src/modules/portfolio/portfolio.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F01, D-F14; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -575,3 +575,9 @@
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
 
 <!-- задач: 133; P0/P1: 69; P2-пакетов: 64 -->
+
+### Дополнительные задачи (хвосты исправлений)
+
+- [todo] P2-E-portfolio-followup · P2 · из FIX-E-F01: экран резюме — подсказка, что PRIVATE/UNIVERSITY не попадают в публичную ссылку и карточку работодателя; `portfolioCount` в оценке готовности не должен учитывать PRIVATE, если оценку видит работодатель
+  - Файлы: apps/web/src/views/career/**, apps/api/src/modules/career/career-profile.service.ts
+  - Готово, когда: подсказка на экране, счётчик готовности для работодателя без PRIVATE, тесты зелёные.

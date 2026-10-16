@@ -9,6 +9,11 @@ import type { RequestContext } from '../auth/auth.service'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportLocale } from '../../common/export/export-branding.types'
+import {
+  PORTFOLIO_ITEM_ORDER,
+  portfolioVisibilityWhere,
+  type PortfolioAudience,
+} from '../portfolio/portfolio.service'
 import { renderResumePdf, type ResumeData, type ResumeItem, type ResumeLabels } from './resume-pdf'
 
 /**
@@ -104,7 +109,13 @@ export class ResumeService {
     locale: ExportLocale,
     request: { ip?: string; userAgent?: string } = {},
   ): Promise<{ buffer: Buffer; filename: string }> {
-    const { timezone, ...resume } = await this.assemble(viewer.sub, { withContacts: true, labels })
+    // PDF качает сам владелец — в нём всё его портфолио, включая приватные записи:
+    // кому отдать файл, решает он.
+    const { timezone, ...resume } = await this.assemble(viewer.sub, {
+      withContacts: true,
+      labels,
+      audience: 'owner',
+    })
     const context = {
       kind: 'resume' as const,
       actor: { id: viewer.sub, fullName: resume.fullName },
@@ -129,6 +140,8 @@ export class ResumeService {
    *
    * Отдаёт ровно то, что студент опубликовал: контакты — только если он их включил.
    * Ссылку могут переслать куда угодно, поэтому email по умолчанию наружу не уходит.
+   * По той же причине из портфолио идут только PUBLIC-записи: читатель ссылки — аноним
+   * вне вуза, и ни PRIVATE, ни UNIVERSITY ему не положены.
    */
   async publicBySlug(slug: string) {
     const resume = await this.prisma.resume.findFirst({
@@ -142,6 +155,7 @@ export class ResumeService {
     const { timezone: _timezone, ...data } = await this.assemble(resume.userId, {
       withContacts: resume.includeContacts,
       labels: null,
+      audience: 'external',
     })
     return { title: resume.title, updatedAt: resume.updatedAt, ...data }
   }
@@ -151,7 +165,7 @@ export class ResumeService {
   /** Резюме из профиля и портфолио. Один запрос — те же источники, что у карточки. */
   private async assemble(
     userId: string,
-    options: { withContacts: boolean; labels: ResumeLabels | null },
+    options: { withContacts: boolean; labels: ResumeLabels | null; audience: PortfolioAudience },
   ): Promise<AssembledResume> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
@@ -171,6 +185,8 @@ export class ResumeService {
         university: { select: { name: true, timezone: true } },
         careerProfile: { select: { about: true } },
         portfolioItems: {
+          // Видимость записей — по общему правилу портфолио, а не своим условием здесь.
+          where: portfolioVisibilityWhere(options.audience),
           select: {
             kind: true,
             title: true,
@@ -179,7 +195,7 @@ export class ResumeService {
             startDate: true,
             endDate: true,
           },
-          orderBy: { order: 'asc' },
+          orderBy: PORTFOLIO_ITEM_ORDER,
           take: 50,
         },
         documents: {

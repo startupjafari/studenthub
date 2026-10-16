@@ -1,5 +1,6 @@
 import { Role } from '@studenthub/shared-types'
 import { ResumeService } from './resume.service'
+import { renderResumePdf } from './resume-pdf'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -48,6 +49,7 @@ function sourceUser(over: Record<string, unknown> = {}) {
         description: null,
         startDate: new Date('2026-01-01'),
         endDate: new Date('2026-06-01'),
+        visibility: 'PUBLIC',
       },
       {
         kind: 'EXPERIENCE',
@@ -56,11 +58,31 @@ function sourceUser(over: Record<string, unknown> = {}) {
         description: null,
         startDate: null,
         endDate: null,
+        visibility: 'PUBLIC',
       },
     ],
     documents: [{ title: 'Курс по вебу', issuedBy: 'Алатау', issuedAt: new Date('2026-05-01') }],
     ...over,
   }
+}
+
+type PortfolioQuery = { select: { portfolioItems: { where?: { visibility?: { in: string[] } } } } }
+
+/**
+ * Мок `user.findFirst`, который честно применяет фильтр видимости к портфолио: со статичным
+ * ответом тест проверял бы фикстуру, а не запрос. Понимает ровно ту форму условия, что
+ * строит portfolioVisibilityWhere; нет условия — отдаёт все записи, как и Prisma.
+ */
+function honourPortfolioVisibility(user: ReturnType<typeof sourceUser>) {
+  return jest.fn<Promise<unknown>, [PortfolioQuery]>(async (args) => {
+    const allowed = args.select.portfolioItems.where?.visibility?.in
+    return {
+      ...user,
+      portfolioItems: user.portfolioItems.filter(
+        (item) => !allowed || allowed.includes(item.visibility),
+      ),
+    }
+  })
 }
 
 function setup(resume: Record<string, unknown> | null = null) {
@@ -70,7 +92,7 @@ function setup(resume: Record<string, unknown> | null = null) {
       findFirst: jest.fn().mockResolvedValue(resume),
       upsert: jest.fn(),
     },
-    user: { findFirst: jest.fn().mockResolvedValue(sourceUser()) },
+    user: { findFirst: honourPortfolioVisibility(sourceUser()) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   // Брендирование проверяется своим тестом (common/export); здесь важно лишь, что сервис
@@ -225,6 +247,86 @@ describe('ResumeService — сборка содержимого', () => {
     })
     prisma.user.findFirst.mockResolvedValue(null)
     await expect(service.publicBySlug('abc123')).rejects.toBeInstanceOf(AppException)
+  })
+})
+
+describe('ResumeService — видимость записей портфолио', () => {
+  /** По записи каждой видимости и разного вида — чтобы утечку было видно в любом разделе. */
+  const mixed = sourceUser({
+    portfolioItems: [
+      {
+        kind: 'EXPERIENCE',
+        title: 'Публичный опыт',
+        organization: null,
+        description: null,
+        startDate: null,
+        endDate: null,
+        visibility: 'PUBLIC',
+      },
+      {
+        kind: 'PROJECT',
+        title: 'Проект для вуза',
+        organization: null,
+        description: null,
+        startDate: null,
+        endDate: null,
+        visibility: 'UNIVERSITY',
+      },
+      {
+        kind: 'CERTIFICATE',
+        title: 'Личный сертификат',
+        organization: null,
+        description: null,
+        startDate: null,
+        endDate: null,
+        visibility: 'PRIVATE',
+      },
+    ],
+  })
+
+  const titles = (resume: { experience: { title: string }[]; projects: { title: string }[] }) =>
+    [...resume.experience, ...resume.projects].map((item) => item.title)
+
+  it('публичная ссылка отдаёт только PUBLIC: ни PRIVATE, ни UNIVERSITY аноним не видит', async () => {
+    const { service, prisma } = setup({
+      userId: 'stu-1',
+      title: 'Резюме',
+      includeContacts: false,
+      updatedAt: new Date(),
+    })
+    prisma.user.findFirst = honourPortfolioVisibility(mixed)
+
+    const result = await service.publicBySlug('abc123')
+
+    expect(titles(result)).toEqual(['Публичный опыт'])
+    // Самозаявленный PRIVATE-сертификат не просочился; остался только подтверждённый вузом.
+    expect(result.certificates.map((c) => c.title)).toEqual(['Курс по вебу'])
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          portfolioItems: expect.objectContaining({ where: { visibility: { in: ['PUBLIC'] } } }),
+        }),
+      }),
+    )
+  })
+
+  it('свой PDF владелец получает со всеми записями, включая приватные', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst = honourPortfolioVisibility(mixed)
+    const render = jest.mocked(renderResumePdf)
+
+    await service.pdf(student, EMPTY_PDF_LABELS, 'ru')
+
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          portfolioItems: expect.objectContaining({ where: {} }),
+        }),
+      }),
+    )
+    const [data] = render.mock.calls[0] ?? []
+    expect(data && titles(data)).toEqual(['Публичный опыт', 'Проект для вуза'])
+    expect(data?.certificates.map((c) => c.title)).toContain('Личный сертификат')
   })
 })
 
