@@ -554,7 +554,11 @@ export class ChatsService {
     const onlineOthers = new Set(this.realtime.onlineAmong(otherIds))
 
     // Числовой счётчик непрочитанных: считаем только для чатов, где вообще есть непрочитанное
-    // (последнее сообщение чужое и позже watermark'а), чтобы не делать COUNT по всем чатам.
+    // (последнее сообщение позже watermark'а), чтобы не делать COUNT по всем чатам.
+    //
+    // Автора последнего сообщения здесь не проверяем: условие «последнее — чужое» давало 0 в
+    // списке, когда после чужих непрочитанных последним шло своё сообщение, — а сводный
+    // счётчик (getUnreadSummary) те же сообщения считал. Свои сообщения отсекает сам COUNT.
     const needCount = chats.filter((c) => {
       const lm = c.messages[0]
       const mem = c.members[0]
@@ -562,7 +566,7 @@ export class ChatsService {
       const floor = unreadFloor(mem)
       const cleared = mem.clearedAt
       const afterClear = !cleared || lm.createdAt > cleared
-      return lm.senderId !== viewer.sub && afterClear && (floor === null || lm.createdAt > floor)
+      return afterClear && (floor === null || lm.createdAt > floor)
     })
     // Непрочитанные — ОДНИМ запросом на все чаты с непрочитанным (иначе N COUNT-ов по числу
     // чатов). Пер-чатовый порог createdAt задаём OR-ветками; senderId/deletedAt общие для всех.
@@ -1579,7 +1583,9 @@ export class ChatsService {
     await this.assertGroupAdmin(actor, chatId)
     await this.assertCanAddToGroup(actor, [userId])
     try {
-      await this.prisma.chatMember.create({ data: { chatId, userId } })
+      // Вступивший видит историю, но не получает её как непрочитанное: иначе новичок в
+      // большой группе сразу видел тысячи «новых» сообщений.
+      await this.prisma.chatMember.create({ data: { chatId, userId, lastReadAt: new Date() } })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppException('CONFLICT', 'Пользователь уже в чате')
@@ -1750,7 +1756,12 @@ export class ChatsService {
       select: { id: true, bannedAt: true },
     })
     if (exists?.bannedAt) throw new AppException('FORBIDDEN', 'Вы заблокированы в этом чате')
-    if (!exists) await this.prisma.chatMember.create({ data: { chatId, userId: actor.sub } })
+    if (!exists) {
+      // История до вступления — не непрочитанное (см. addMember).
+      await this.prisma.chatMember.create({
+        data: { chatId, userId: actor.sub, lastReadAt: new Date() },
+      })
+    }
     return { id: chat.id, type: chat.type, title: chat.title }
   }
 
@@ -2104,6 +2115,59 @@ export class ChatsService {
     )
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
+    // Системное сообщение становится последним в чате: без сигнала список у закрытых чатов
+    // показывал старое превью. Актор событие видел — для него оно прочитано.
+    await this.advanceReadMark(chatId, actorId, message.createdAt)
+    await this.pingLists(chatId)
+  }
+
+  /**
+   * Сдвинуть отметку прочтения участника вперёд (только вперёд) и сообщить его устройствам.
+   *
+   * Отправка — тоже прочтение, как в Telegram: кто написал в чат, тот видел всё до своего
+   * сообщения. Без этого чат, где после чужих сообщений последним шло своё, оставался
+   * с непрочитанными, хотя человек в нём только что писал.
+   */
+  private async advanceReadMark(chatId: string, userId: string, at: Date): Promise<Date> {
+    await this.prisma.chatMember.updateMany({
+      where: { chatId, userId, OR: [{ lastReadAt: null }, { lastReadAt: { lt: at } }] },
+      data: { lastReadAt: at },
+    })
+    const member = await this.prisma.chatMember.findFirst({
+      where: { chatId, userId },
+      select: { lastReadAt: true },
+    })
+    const readAt = member?.lastReadAt ?? at
+    this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
+    return readAt
+  }
+
+  /**
+   * Тихий сигнал «обнови список чатов» всем участникам (включая автора события): превью,
+   * порядок и счётчик в списке. `message:new` уходит только в комнату чата, а её джойнят
+   * лишь те, у кого чат открыт.
+   */
+  private async pingLists(chatId: string): Promise<void> {
+    for (const m of await this.allMembers(chatId)) {
+      this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
+    }
+  }
+
+  /** Правка или удаление меняет превью в списке, только если это последнее сообщение чата. */
+  private async pingListsIfLatest(chatId: string, seq: number): Promise<void> {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { lastSeq: true },
+    })
+    if (chat?.lastSeq === seq) await this.pingLists(chatId)
+  }
+
+  /**
+   * Разослать новое сообщение в комнату чата. Для путей, где сообщение создаёт не шлюз
+   * (ответы поддержки): `createMessage` сам в комнату не шлёт — это делает шлюз со своим nonce.
+   */
+  publishNewMessage(chatId: string, message: MessageRow): void {
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
   }
 
   // Ответ (replyToId) должен ссылаться на сообщение того же чата, иначе BAD_REQUEST.
@@ -2134,6 +2198,11 @@ export class ChatsService {
     for (const m of members) {
       this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
     }
+    // И отправителю: его список тоже должен показать новое сообщение — на других устройствах
+    // и когда отправлено не из окна чата («Поделиться профилем», пересылка, репост поста).
+    // Отправка — прочтение: отметка отправителя встаёт на его сообщение.
+    await this.advanceReadMark(chatId, senderId, message.createdAt)
+    this.realtime.emitToUser(senderId, 'chat:activity', { chatId })
     // Кто сейчас открыл этот чат (в комнате chat:{id}) — уведомление не создаём: они читают его вживую.
     // Заглушённые — тоже без уведомления (Telegram-стиль), но сообщение им приходит.
     const viewing = await this.realtime.usersInRoom(`chat:${chatId}`)
@@ -2187,22 +2256,25 @@ export class ChatsService {
         'Редактировать сообщение можно в течение 10 минут после отправки',
       )
     }
-    return this.prisma.message.update({
+    const updated = await this.prisma.message.update({
       where: { id: messageId },
       data: { content, editedAt: new Date() },
       select: MESSAGE_SELECT,
     })
+    await this.pingListsIfLatest(updated.chatId, updated.seq)
+    return updated
   }
 
   async deleteMessage(senderId: string, messageId: string): Promise<{ chatId: string }> {
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, deletedAt: null },
-      select: { id: true, senderId: true, chatId: true },
+      select: { id: true, senderId: true, chatId: true, seq: true },
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     if (msg.senderId !== senderId)
       throw new AppException('WRONG_SCOPE', 'Можно удалять только свои сообщения')
     await this.prisma.message.update({ where: { id: messageId }, data: { deletedAt: new Date() } })
+    await this.pingListsIfLatest(msg.chatId, msg.seq)
     return { chatId: msg.chatId }
   }
 
@@ -2233,20 +2305,7 @@ export class ChatsService {
       select: { createdAt: true },
     })
     if (!message) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
-    await this.prisma.chatMember.updateMany({
-      where: {
-        chatId,
-        userId,
-        OR: [{ lastReadAt: null }, { lastReadAt: { lt: message.createdAt } }],
-      },
-      data: { lastReadAt: message.createdAt },
-    })
-    const member = await this.prisma.chatMember.findFirst({
-      where: { chatId, userId },
-      select: { lastReadAt: true },
-    })
-    const readAt = member?.lastReadAt ?? message.createdAt
-    this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
+    const readAt = await this.advanceReadMark(chatId, userId, message.createdAt)
     return { chatId, messageId, userId, readAt }
   }
 
@@ -3527,8 +3586,9 @@ export class ChatsService {
       select: { id: true },
     })
     if (!exists) {
+      // История официального чата до вступления — не непрочитанное (см. addMember).
       await this.prisma.chatMember
-        .create({ data: { chatId: chat.id, userId } })
+        .create({ data: { chatId: chat.id, userId, lastReadAt: new Date() } })
         .catch(() => undefined)
     }
   }

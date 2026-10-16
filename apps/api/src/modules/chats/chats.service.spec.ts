@@ -425,6 +425,8 @@ describe('ChatsService.setPinned — закрепление', () => {
     prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
     prisma.message.update.mockResolvedValue({ id: 'm1', chatId: 'c1', pinnedAt: new Date() })
+    // Закрепление пишет системное сообщение «закрепил сообщение».
+    prisma.message.create.mockResolvedValue({ id: 'sys1', chatId: 'c1', createdAt: new Date() })
     await service.setPinned('u1', 'm1', true)
     expect(prisma.message.update.mock.calls[0][0].data.pinnedById).toBe('u1')
     expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:c1', 'message:pinned', expect.anything())
@@ -781,6 +783,40 @@ describe('ChatsService.setMuted / notifyNewMessage', () => {
     await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
     expect(realtime.emitToUser).toHaveBeenCalledWith('u2', 'chat:activity', { chatId: 'c1' })
     expect(queue.enqueue).toHaveBeenCalled()
+  })
+
+  it('отправителю: chat:activity (его список и другие устройства) и отметка прочтения на своём сообщении', async () => {
+    const { service, prisma, realtime } = setup()
+    const sentAt = new Date('2026-10-17T01:24:00Z')
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      content: 'Имя\nhttps://example/profile/u9',
+      createdAt: sentAt,
+      sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+    })
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2', mutedAt: null }])
+    prisma.chatMember.findFirst.mockResolvedValue({ lastReadAt: sentAt })
+    await service.createMessage('u1', { chatId: 'c1', content: 'Имя\nhttps://example/profile/u9' })
+    // Список отправителя обновляется: раньше сигнал уходил всем, кроме него, и превью
+    // оставалось прежним, пока не перезагрузишь страницу.
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'chat:activity', { chatId: 'c1' })
+    // Отправка — прочтение: отметка встаёт на своё сообщение, только вперёд.
+    expect(prisma.chatMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        chatId: 'c1',
+        userId: 'u1',
+        OR: [{ lastReadAt: null }, { lastReadAt: { lt: sentAt } }],
+      },
+      data: { lastReadAt: sentAt },
+    })
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'chat:read', {
+      chatId: 'c1',
+      readAt: sentAt,
+    })
   })
 })
 
@@ -1600,7 +1636,10 @@ describe('ChatsService — вступление по ссылке-приглаш
     })
     prisma.chatMember.findUnique.mockResolvedValueOnce(null)
     await service.joinByInvite(me, 'g1', 'secret-code-1')
-    expect(prisma.chatMember.create).toHaveBeenCalledWith({ data: { chatId: 'g1', userId: 'u5' } })
+    // История до вступления — не непрочитанное: отметка прочтения ставится на момент входа.
+    expect(prisma.chatMember.create).toHaveBeenCalledWith({
+      data: { chatId: 'g1', userId: 'u5', lastReadAt: expect.any(Date) },
+    })
   })
 })
 

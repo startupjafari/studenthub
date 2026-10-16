@@ -41,6 +41,7 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
   }
   const chats = {
     createMessage: jest.fn().mockResolvedValue({ message: { id: 'msg-1' }, recipientIds: [] }),
+    publishNewMessage: jest.fn(),
     getMessages: jest.fn().mockResolvedValue({ items: [], meta: {} }),
     sendMessageRest: jest.fn().mockResolvedValue({ id: 'voice-1' }),
   }
