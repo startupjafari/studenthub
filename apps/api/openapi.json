@@ -3406,6 +3406,218 @@
         ]
       }
     },
+    "/assignments/{id}/submission/files": {
+      "post": {
+        "operationId": "AssignmentsController_addSubmissionFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, name, mime, size, createdAt }"
+          },
+          "409": {
+            "description": "CONFLICT — работа отправлена или файлов уже 10"
+          },
+          "422": {
+            "description": "FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Приложить файл к работе (до порога буферной загрузки)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/presign": {
+      "post": {
+        "operationId": "AssignmentsController_presignSubmissionFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresignSubmissionFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key + PUT-URL + срок действия"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прямая загрузка файла работы: подписанная ссылка (шаг 1 из 3)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/confirm": {
+      "post": {
+        "operationId": "AssignmentsController_confirmSubmissionFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmSubmissionFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, name, mime, size, createdAt }"
+          },
+          "403": {
+            "description": "FORBIDDEN — ключ не принадлежит вызывающему"
+          },
+          "422": {
+            "description": "FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подтвердить прямую загрузку файла работы (шаг 3 из 3)",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/assignments/{id}/submission/files/{fileId}": {
+      "delete": {
+        "operationId": "AssignmentsController_removeSubmissionFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "CONFLICT — работа уже отправлена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать файл из неотправленной работы",
+        "tags": [
+          "Задания"
+        ]
+      }
+    },
+    "/submissions/{id}/files/{fileId}/presigned": {
+      "get": {
+        "operationId": "SubmissionsController_fileUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ url, expiresAt } — скачивание с исходным именем"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ссылка на файл работы (автор или проверяющий)",
+        "tags": [
+          "Задания: проверка"
+        ]
+      }
+    },
     "/submissions/{id}/grade": {
       "post": {
         "operationId": "SubmissionsController_grade",
@@ -15338,6 +15550,14 @@
         "properties": {}
       },
       "SaveSubmissionDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "PresignSubmissionFileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ConfirmSubmissionFileDto": {
         "type": "object",
         "properties": {}
       },

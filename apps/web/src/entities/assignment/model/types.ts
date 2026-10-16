@@ -17,11 +17,22 @@ export interface AssignmentCourseRef {
   group: { id: string; name: string }
 }
 
+/** Файл в работе студента. Байты — по ссылке `fetchSubmissionFileUrl` после проверки прав. */
+export interface SubmissionFile {
+  id: string
+  name: string | null
+  mime: string
+  size: number
+  createdAt: string
+}
+
 export interface SubmissionItem {
   id: string
   status: SubmissionStatus
   text: string | null
   linkUrl: string | null
+  // Необязательное: API до вложений сдач поля не отдавал.
+  files?: SubmissionFile[]
   attemptNumber: number
   score: number | null
   feedback: string | null

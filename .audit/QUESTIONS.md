@@ -35,3 +35,24 @@ ALTER TABLE "attendance" ADD CONSTRAINT "attendance_pair_id_fkey" FOREIGN KEY ("
 ```sql
 DELETE FROM telegram_accounts WHERE user_id IN (SELECT id FROM users WHERE deleted_at IS NOT NULL);
 ```
+
+## Q4. Применить миграции к локальной БД (и затем к проду обычным деплоем) — СРОЧНО для локального dev
+
+Автоматический классификатор прав не дал мне выполнить `prisma migrate deploy`, поэтому две
+неразрушающие миграции ждут вас. Prisma-клиент уже сгенерирован под новую схему: пока колонки
+`files.submission_id` нет, перезапущенный локальный API падает на запросах к файлам.
+
+```bash
+set -a && . apps/api/.env && set +a && pnpm exec prisma migrate deploy
+```
+
+- `20261017120000_attendance_pair_restrict` — FK посещаемость → пара CASCADE → RESTRICT (Q1).
+- `20261017140000_submission_files` (FIX-C-F06):
+
+```sql
+ALTER TABLE "files" ADD COLUMN "submission_id" TEXT;
+CREATE INDEX "files_submission_id_idx" ON "files"("submission_id");
+ALTER TABLE "files" ADD CONSTRAINT "files_submission_id_fkey" FOREIGN KEY ("submission_id") REFERENCES "submissions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+```
+
+Данные ни одна из них не меняет.

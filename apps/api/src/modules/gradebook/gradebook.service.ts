@@ -104,6 +104,21 @@ export class GradebookService {
     ctx: RequestContext,
   ) {
     await this.findManageableColumn(actor, id)
+    // Максимум ниже уже выставленной оценки сделал бы её «больше 100 %» — и итог студента,
+    // и средний процент в аналитике декана уехали бы за сотню.
+    if (input.maxScore != null) {
+      const { _max } = await this.prisma.grade.aggregate({
+        where: { columnId: id, score: { not: null } },
+        _max: { score: true },
+      })
+      if (_max.score != null && _max.score > input.maxScore) {
+        throw new AppException(
+          'CONFLICT',
+          `В колонке уже есть оценка ${_max.score} — максимум не может быть меньше`,
+          [{ field: 'maxScore', message: `Не меньше ${_max.score}` }],
+        )
+      }
+    }
     const column = await this.prisma.gradeColumn.update({
       where: { id },
       data: {
@@ -180,6 +195,20 @@ export class GradebookService {
     for (const e of input.entries) {
       if (!allowed.has(e.studentId))
         throw new AppException('WRONG_SCOPE', 'Студент не из этой группы')
+    }
+    // Схема держит только общий потолок 0..1000, а максимум у каждой колонки свой: лишний
+    // ноль («150 из 10») сохранялся как есть. Отказ целиком, с адресом каждой ячейки — путь
+    // как у ошибок схемы (`entries.<i>.score`), чтобы клиент подсветил их одинаково.
+    const max = col.maxScore
+    if (max != null) {
+      const over = input.entries.flatMap((e, i) =>
+        e.score !== null && e.score > max
+          ? [{ field: `entries.${i}.score`, message: `Не больше ${max}` }]
+          : [],
+      )
+      if (over.length > 0) {
+        throw new AppException('VALIDATION_ERROR', `Балл больше максимума колонки (${max})`, over)
+      }
     }
     await this.prisma.$transaction(
       input.entries.map((e) =>
@@ -281,6 +310,7 @@ export class GradebookService {
       select: {
         id: true,
         published: true,
+        maxScore: true,
         course: {
           select: {
             id: true,
@@ -298,7 +328,12 @@ export class GradebookService {
       facultyId: c.group.facultyId,
       universityId: c.group.faculty.universityId,
     })
-    return { id: column.id, published: column.published, course: { groupId: c.groupId } }
+    return {
+      id: column.id,
+      published: column.published,
+      maxScore: column.maxScore,
+      course: { groupId: c.groupId },
+    }
   }
 
   private async resolveCourse(courseId: string): Promise<{

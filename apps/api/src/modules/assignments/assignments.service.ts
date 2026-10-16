@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
@@ -18,10 +19,17 @@ import { Paginated } from '../../common/http/paginated'
 import { QueueService } from '../../common/queue/queue.service'
 import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { signingWindow } from '../../common/minio/stable-sign'
+import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
+import { FileService } from '../files/file.service'
 
 // Потолок на список студентов группы при рассылке (BACKEND_RULES §7.2).
 const GROUP_STUDENTS_LIMIT = 500
+
+// Сколько файлов можно приложить к одной сдаче: отчёт, исходники архивом, пара сканов.
+// Потолок нужен и сам по себе — presign выдаёт ссылки на запись, а платит за них хранилище.
+export const SUBMISSION_FILES_LIMIT = 10
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
@@ -37,11 +45,26 @@ const COURSE_MINI = {
   group: { select: { id: true, name: true } },
 } satisfies Prisma.CourseSelect
 
+// Файл сдачи наружу: ключ и бакет не отдаём — ссылку на байты выдаёт отдельный эндпоинт
+// после проверки прав (преподаватель дисциплины или сам автор работы).
+const SUBMISSION_FILE_SELECT = {
+  id: true,
+  name: true,
+  mime: true,
+  size: true,
+  createdAt: true,
+} satisfies Prisma.FileSelect
+
 const SUBMISSION_SELECT = {
   id: true,
   status: true,
   text: true,
   linkUrl: true,
+  files: {
+    select: SUBMISSION_FILE_SELECT,
+    orderBy: { createdAt: 'asc' },
+    take: SUBMISSION_FILES_LIMIT,
+  },
   attemptNumber: true,
   score: true,
   feedback: true,
@@ -75,6 +98,8 @@ export class AssignmentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly queue: QueueService,
+    private readonly files: FileService,
+    private readonly config: ConfigService<EnvVars, true>,
   ) {}
 
   /**
@@ -236,6 +261,20 @@ export class AssignmentsService {
 
   async update(actor: JwtPayload, id: string, input: UpdateAssignmentInput, ctx: RequestContext) {
     await this.findManageable(actor, id)
+    // Максимум ниже уже выставленного балла сделал бы старые оценки «больше 100 %».
+    if (input.maxScore != null) {
+      const { _max } = await this.prisma.submission.aggregate({
+        where: { assignmentId: id, score: { not: null } },
+        _max: { score: true },
+      })
+      if (_max.score != null && _max.score > input.maxScore) {
+        throw new AppException(
+          'CONFLICT',
+          `Уже выставлен балл ${_max.score} — максимум не может быть меньше`,
+          [{ field: 'maxScore', message: `Не меньше ${_max.score}` }],
+        )
+      }
+    }
     const assignment = await this.prisma.assignment.update({
       where: { id },
       data: {
@@ -282,7 +321,21 @@ export class AssignmentsService {
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     await this.findManageable(actor, id)
-    await this.prisma.assignment.delete({ where: { id } })
+    // Сдачи висят на задании каскадом: удаление стёрло бы работы группы вместе с баллами
+    // и отзывами. Как у дисциплины, колонки журнала и экзамена — такое задание не удаляем,
+    // его закрывают. Черновики студентов (ещё не отправленное) удалению не мешают.
+    //
+    // Проверка — в условии самого удаления, а не отдельным count перед ним: между ними
+    // студент успел бы отправить работу, и она ушла бы вместе с заданием.
+    const { count } = await this.prisma.assignment.deleteMany({
+      where: { id, submissions: { none: { status: { not: 'DRAFT' } } } },
+    })
+    if (count === 0) {
+      throw new AppException(
+        'CONFLICT',
+        'По заданию уже есть сданные работы — его можно закрыть, но не удалить',
+      )
+    }
     await this.record(actor, 'assignment_deleted', id, ctx)
   }
 
@@ -316,12 +369,20 @@ export class AssignmentsService {
     const assignment = await this.assertStudentCanSubmit(actor, assignmentId)
     const existing = await this.prisma.submission.findUnique({
       where: { assignmentId_studentId: { assignmentId, studentId: actor.sub } },
-      select: { id: true, status: true, text: true, linkUrl: true, attemptNumber: true },
+      select: {
+        id: true,
+        status: true,
+        text: true,
+        linkUrl: true,
+        attemptNumber: true,
+        _count: { select: { files: true } },
+      },
     })
     if (!existing || (existing.status !== 'DRAFT' && existing.status !== 'RETURNED')) {
       throw new AppException('BAD_REQUEST', 'Нет черновика для отправки')
     }
-    if (!existing.text && !existing.linkUrl) {
+    // Файлы — полноценная работа: задание с типом «Файл» сдаётся без текста и ссылки.
+    if (!existing.text && !existing.linkUrl && existing._count.files === 0) {
       throw new AppException('VALIDATION_ERROR', 'Работа пустая')
     }
     // Просрочка без разрешения поздней сдачи. Возвращённую на доработку работу срок не
@@ -344,6 +405,95 @@ export class AssignmentsService {
     })
   }
 
+  // ── Файлы сдачи (студент) ─────────────────────────────────────────────────
+  // Схема та же, что у материалов: до порога — буферная загрузка через API, больше —
+  // presign → PUT в MinIO → confirm. Файл сразу привязывается к черновику сдачи, поэтому
+  // «ничейных» загрузок не остаётся. Бакет applications — приватный, байты отдаются только
+  // по подписанной ссылке после проверки прав (getSubmissionFileUrl).
+
+  /** Буферная загрузка файла в черновик сдачи (до FILE_UPLOAD.DIRECT_UPLOAD_THRESHOLD_BYTES). */
+  async addSubmissionFile(
+    actor: JwtPayload,
+    assignmentId: string,
+    upload: { buffer: Buffer; name?: string },
+  ) {
+    const submissionId = await this.draftForFiles(actor, assignmentId)
+    const file = await this.files.upload({
+      buffer: upload.buffer,
+      bucket: this.submissionsBucket(),
+      ownerId: actor.sub,
+      name: upload.name,
+      // Лабораторные с кодом и проекты сдают архивом — для сдач это обычный формат.
+      allowArchives: true,
+    })
+    return this.attachFile(file.id, submissionId)
+  }
+
+  /** Прямая загрузка крупного файла, шаг 1: подписанная ссылка. Права — ДО выдачи ключа. */
+  async presignSubmissionFile(actor: JwtPayload, assignmentId: string, mime: string) {
+    await this.assertCanAttach(actor, assignmentId)
+    return this.files.presignPut(this.submissionsBucket(), mime, actor.sub)
+  }
+
+  /** Шаг 3: подтверждение — тип и размер FileService определяет по самому объекту. */
+  async confirmSubmissionFile(
+    actor: JwtPayload,
+    assignmentId: string,
+    key: string,
+    name: string | undefined,
+  ) {
+    const submissionId = await this.draftForFiles(actor, assignmentId)
+    const file = await this.files.confirmDirectUpload({
+      bucket: this.submissionsBucket(),
+      key,
+      ownerId: actor.sub,
+      name,
+      allowArchives: true,
+    })
+    return this.attachFile(file.id, submissionId)
+  }
+
+  /** Убрать файл из черновика (или из работы, возвращённой на доработку). */
+  async removeSubmissionFile(actor: JwtPayload, assignmentId: string, fileId: string) {
+    await this.assertStudentCanSubmit(actor, assignmentId)
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, submission: { is: { assignmentId, studentId: actor.sub } } },
+      select: { id: true, submission: { select: { status: true } } },
+    })
+    if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
+    if (file.submission?.status === 'SUBMITTED' || file.submission?.status === 'GRADED') {
+      throw new AppException('CONFLICT', 'Работа уже отправлена')
+    }
+    await this.files.delete(file.id)
+  }
+
+  /**
+   * Ссылка на файл сдачи: автору работы и тем, кто вправе проверять её (тот же круг, что у
+   * списка сдач). Ссылка со схемой attachment и исходным именем — преподаватель сохраняет
+   * работу как «Иванов_ЛР3.docx», а не под ключом хранилища.
+   */
+  async getSubmissionFileUrl(viewer: JwtPayload, submissionId: string, fileId: string) {
+    const sub = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: { studentId: true, assignment: { select: { course: { select: COURSE_MINI } } } },
+    })
+    if (!sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
+    if (STUDENT_ROLES.includes(viewer.role)) {
+      // Чужую работу студенту не раскрываем даже фактом существования.
+      if (sub.studentId !== viewer.sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
+    } else {
+      await this.assertManage(viewer, sub.assignment.course)
+    }
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, submissionId },
+      select: { id: true },
+    })
+    if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
+    const now = Date.now()
+    const url = await this.files.getPresignedUrl(file.id, undefined, true)
+    return { url, expiresAt: signingWindow(now).expiresAt.toISOString() }
+  }
+
   // ── Submissions (преподаватель) ──────────────────────────────────────────
 
   async grade(
@@ -354,6 +504,14 @@ export class AssignmentsService {
   ) {
     const sub = await this.findGradableSubmission(actor, submissionId)
     if (sub.status !== 'SUBMITTED') throw new AppException('CONFLICT', 'Работа не на проверке')
+    // Схема держит только общий потолок 0..1000; «150 из 100» — опечатка, а не оценка, и
+    // уводит процент студента и аналитику декана за 100 %.
+    const max = sub.assignment.maxScore
+    if (max != null && input.score > max) {
+      throw new AppException('VALIDATION_ERROR', `Балл больше максимального (${max})`, [
+        { field: 'score', message: `Не больше ${max}` },
+      ])
+    }
     const graded = await this.prisma.submission.update({
       where: { id: submissionId },
       data: {
@@ -552,12 +710,66 @@ export class AssignmentsService {
       select: {
         id: true,
         status: true,
-        assignment: { select: { title: true, course: { select: COURSE_MINI } } },
+        assignment: { select: { title: true, maxScore: true, course: { select: COURSE_MINI } } },
       },
     })
     if (!sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
     await this.assertManage(actor, sub.assignment.course)
     return sub
+  }
+
+  /**
+   * Можно ли добавить файл в работу: задание открыто для сдачи, работа ещё не отправлена
+   * (или возвращена на доработку) и потолок файлов не выбран. Отдаёт черновик, если он уже
+   * есть. Только проверка — её же зовёт presign: ссылку на запись выдаём лишь тому, кто
+   * вправе сдавать, а строку сдачи заводим уже на confirm.
+   */
+  private async assertCanAttach(
+    actor: JwtPayload,
+    assignmentId: string,
+  ): Promise<{ id: string } | null> {
+    await this.assertStudentCanSubmit(actor, assignmentId)
+    const existing = await this.prisma.submission.findUnique({
+      where: { assignmentId_studentId: { assignmentId, studentId: actor.sub } },
+      select: { id: true, status: true, _count: { select: { files: true } } },
+    })
+    if (!existing) return null
+    if (existing.status === 'SUBMITTED' || existing.status === 'GRADED') {
+      throw new AppException('CONFLICT', 'Работа уже отправлена')
+    }
+    if (existing._count.files >= SUBMISSION_FILES_LIMIT) {
+      throw new AppException(
+        'CONFLICT',
+        `К работе можно приложить не больше ${SUBMISSION_FILES_LIMIT} файлов`,
+      )
+    }
+    return { id: existing.id }
+  }
+
+  /** Черновик для нового файла; нет — создаётся пустой. */
+  private async draftForFiles(actor: JwtPayload, assignmentId: string): Promise<string> {
+    const existing = await this.assertCanAttach(actor, assignmentId)
+    if (existing) return existing.id
+    // upsert, а не create: две параллельные загрузки первого файла не упрутся в уникальный ключ.
+    const created = await this.prisma.submission.upsert({
+      where: { assignmentId_studentId: { assignmentId, studentId: actor.sub } },
+      create: { assignmentId, studentId: actor.sub, status: 'DRAFT' },
+      update: {},
+      select: { id: true },
+    })
+    return created.id
+  }
+
+  private async attachFile(fileId: string, submissionId: string) {
+    return this.prisma.file.update({
+      where: { id: fileId },
+      data: { submissionId },
+      select: SUBMISSION_FILE_SELECT,
+    })
+  }
+
+  private submissionsBucket(): string {
+    return this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true })
   }
 
   // ── Уведомления (задача 24) ────────────────────────────────────────────────

@@ -5,15 +5,19 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CheckCircle2, Link2, RotateCcw } from 'lucide-react'
-import { Badge, Button, Input, Label, Modal, Textarea } from '../../../shared/ui'
+import { Badge, Button, FieldError, Input, Label, Modal, Textarea } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useErrorToast } from '../../../shared/lib'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import {
   assignmentKeys,
   gradeSubmissionRequest,
   returnSubmissionRequest,
   type SubmissionItem,
 } from '../../../entities/assignment'
+import { SubmissionFiles } from './submission-files'
+
+// Общий потолок схемы (GradeSubmissionSchema): действует, когда у задания нет максимума.
+const SCORE_CEILING = 1000
 
 interface Props {
   assignmentId: string
@@ -47,6 +51,9 @@ export function GradeSubmissionModal({
   const errorToast = useErrorToast(`grade-${submission.id}`)
   const [score, setScore] = useState(submission.score != null ? String(submission.score) : '')
   const [feedback, setFeedback] = useState(submission.feedback ?? '')
+  // Ошибка балла — под полем, а не тостом: исправляют её там же (DESIGN_SYSTEM §10.3).
+  const [scoreError, setScoreError] = useState<string | null>(null)
+  const ceiling = maxScore ?? SCORE_CEILING
 
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: assignmentKeys.submissions(assignmentId) })
@@ -63,7 +70,15 @@ export function GradeSubmissionModal({
       toast.success(t('graded'))
       onGraded()
     },
-    onError: (e) => errorToast.show(e),
+    onError: (e) => {
+      // Сервер сверяет балл с максимумом задания — его отказ тоже под полем.
+      const err = toApiError(e)
+      if (err.code === 'VALIDATION_ERROR' && err.details?.some((d) => d.field === 'score')) {
+        setScoreError(t('scoreOutOfRange', { max: ceiling }))
+        return
+      }
+      errorToast.show(e)
+    },
   })
   const back = useMutation({
     mutationFn: () => returnSubmissionRequest(submission.id, { feedback: feedback.trim() }),
@@ -77,9 +92,16 @@ export function GradeSubmissionModal({
 
   function onGrade() {
     if (score === '' || Number.isNaN(Number(score))) {
-      toast.error(t('scoreRequired'))
+      setScoreError(t('scoreRequired'))
       return
     }
+    const n = Number(score)
+    // Схема принимает только целые 0..1000; «150 из 100» — опечатка, а не оценка.
+    if (!Number.isInteger(n) || n < 0 || n > ceiling) {
+      setScoreError(t('scoreOutOfRange', { max: ceiling }))
+      return
+    }
+    setScoreError(null)
     grade.mutate()
   }
   function onReturn() {
@@ -105,7 +127,7 @@ export function GradeSubmissionModal({
       title={`${submission.student.firstName} ${submission.student.lastName}`}
     >
       <div className="flex flex-col gap-4">
-        {/* Сама работа: попытка, время сдачи, текст и ссылка. */}
+        {/* Сама работа: попытка, время сдачи, текст, ссылка и файлы. */}
         <div className="flex flex-col gap-2">
           <span className="text-xs text-muted-foreground">
             {t('attempt', { n: submission.attemptNumber })}
@@ -127,6 +149,7 @@ export function GradeSubmissionModal({
               {submission.linkUrl}
             </a>
           )}
+          <SubmissionFiles files={submission.files ?? []} submissionId={submission.id} />
         </div>
 
         {/* Линия вместо второй карточки: в окне работа и оценка — один разговор,
@@ -144,10 +167,16 @@ export function GradeSubmissionModal({
                 id="grade-score"
                 type="number"
                 value={score}
-                onChange={(e) => setScore(e.target.value)}
-                max={maxScore ?? undefined}
+                onChange={(e) => {
+                  setScore(e.target.value)
+                  setScoreError(null)
+                }}
+                min={0}
+                max={ceiling}
+                aria-invalid={!!scoreError}
                 className="w-32"
               />
+              <FieldError>{scoreError}</FieldError>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="grade-feedback">{t('feedback')}</Label>

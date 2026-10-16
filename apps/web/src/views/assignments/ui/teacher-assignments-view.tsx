@@ -116,11 +116,22 @@ export function TeacherAssignmentsView() {
       invalidate()
       toast.success(t('deleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      // CONFLICT — по заданию есть сданные работы: сервер их не стирает, подсказываем выход.
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('deleteHasWork') : tErr(code))
+    },
   })
 
   async function onDelete(a: AssignmentItem) {
-    const ok = await confirm({ title: t('confirmDelete'), description: a.title, destructive: true })
+    // Черновик студенты не видели — хватит названия. У опубликованного предупреждаем
+    // заранее: черновики студентов уйдут вместе с заданием, а со сданными работами
+    // удаление не пройдёт — такое задание закрывают.
+    const ok = await confirm({
+      title: t('confirmDelete'),
+      description: a.status === 'DRAFT' ? a.title : t('confirmDeletePublished', { title: a.title }),
+      destructive: true,
+    })
     if (ok) remove.mutate(a.id)
   }
 

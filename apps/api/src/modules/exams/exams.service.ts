@@ -150,6 +150,20 @@ export class ExamsService {
 
   async update(actor: JwtPayload, id: string, input: UpdateExamInput, ctx: RequestContext) {
     const exam = await this.findManageable(actor, id)
+    // Максимум ниже уже выставленного балла сделал бы старые результаты «больше 100 %».
+    if (input.maxScore != null) {
+      const { _max } = await this.prisma.examResult.aggregate({
+        where: { examId: id, score: { not: null } },
+        _max: { score: true },
+      })
+      if (_max.score != null && _max.score > input.maxScore) {
+        throw new AppException(
+          'CONFLICT',
+          `Уже выставлен балл ${_max.score} — максимум не может быть меньше`,
+          [{ field: 'maxScore', message: `Не меньше ${_max.score}` }],
+        )
+      }
+    }
     if (input.examinerId || input.roomId) {
       const universityId = await this.universityOfGroup(exam.groupId)
       if (input.examinerId) await this.assertSameUniversity(input.examinerId, universityId)
@@ -197,6 +211,7 @@ export class ExamsService {
       if (!allowed.has(e.studentId))
         throw new AppException('WRONG_SCOPE', 'Студент не из этой группы')
     }
+    assertResultsConsistent(input.entries, exam.maxScore)
     await this.prisma.$transaction(
       input.entries.map((e) =>
         this.prisma.examResult.upsert({
@@ -316,12 +331,13 @@ export class ExamsService {
     actor: JwtPayload,
     id: string,
     opts: { examiner?: boolean } = {},
-  ): Promise<{ id: string; groupId: string }> {
+  ): Promise<{ id: string; groupId: string; maxScore: number | null }> {
     const exam = await this.prisma.exam.findUnique({
       where: { id },
       select: {
         id: true,
         groupId: true,
+        maxScore: true,
         examinerId: true,
         course: {
           select: {
@@ -332,15 +348,16 @@ export class ExamsService {
       },
     })
     if (!exam) throw new AppException('NOT_FOUND', 'Экзамен не найден')
+    const found = { id: exam.id, groupId: exam.groupId, maxScore: exam.maxScore ?? null }
     if (opts.examiner && actor.role === Role.TEACHER && exam.examinerId === actor.sub) {
-      return { id: exam.id, groupId: exam.groupId }
+      return found
     }
     this.assertManageCourse(actor, {
       teacherId: exam.course.teacherId,
       facultyId: exam.course.group.facultyId,
       universityId: exam.course.group.faculty.universityId,
     })
-    return { id: exam.id, groupId: exam.groupId }
+    return found
   }
 
   private async resolveCourse(courseId: string): Promise<{
@@ -412,5 +429,28 @@ export class ExamsService {
     ctx: RequestContext,
   ): Promise<void> {
     await this.audit.record({ userId: actor.sub, action, entity: 'Exam', entityId, ...ctx })
+  }
+}
+
+/**
+ * Ведомость не должна противоречить сама себе. Схема держит только общий потолок 0..1000,
+ * поэтому «150 из 100» сохранялось как есть, а недопущенный студент мог получить «сдал».
+ * Отказ целиком, с адресом каждой строки — путь как у ошибок схемы (`entries.<i>.<поле>`),
+ * чтобы клиент подсветил их одинаково.
+ */
+export function assertResultsConsistent(
+  entries: SetExamResultsInput['entries'],
+  maxScore: number | null,
+): void {
+  const details = entries.flatMap((e, i) => [
+    ...(maxScore != null && e.score != null && e.score > maxScore
+      ? [{ field: `entries.${i}.score`, message: `Не больше ${maxScore}` }]
+      : []),
+    ...(!e.admitted && (e.status === 'PASSED' || e.status === 'FAILED')
+      ? [{ field: `entries.${i}.status`, message: 'Студент не допущен к экзамену' }]
+      : []),
+  ])
+  if (details.length > 0) {
+    throw new AppException('VALIDATION_ERROR', 'Ведомость заполнена с ошибками', details)
   }
 }

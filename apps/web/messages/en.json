@@ -3338,7 +3338,18 @@
     "colStudent": "Student",
     "colAttempt": "Attempt",
     "colSubmitted": "Submitted",
-    "review": "Review"
+    "review": "Review",
+    "files": "Files",
+    "fileN": "File {n}",
+    "attachFile": "Attach file",
+    "filesHint": "Up to {n} files: documents, images, archives",
+    "fileUploading": "Uploading… {percent}%",
+    "fileDownload": "Download file",
+    "fileRemove": "Remove file",
+    "filesLimit": "You can attach up to {n} files",
+    "scoreOutOfRange": "Score from 0 to {max}",
+    "confirmDeletePublished": "“{title}”: students' drafts will be deleted along with the assignment. If work has already been submitted, it can't be deleted — close the assignment instead.",
+    "deleteHasWork": "This assignment has submitted work, so it can't be deleted. Close it to stop accepting submissions."
   },
   "Attendance": {
     "title": "Attendance",
@@ -3428,7 +3439,9 @@
     "kind_CONTROL": "Test",
     "kind_EXAM": "Exam",
     "kind_OTHER": "Other",
-    "deleteColumnPublished": "This column has published grades. Unpublish it first"
+    "deleteColumnPublished": "This column has published grades. Unpublish it first",
+    "scoresOutOfRange": "Some scores are out of range — fix the highlighted cells",
+    "cellOutOfRange": "From 0 to {max}"
   },
   "Grades": {
     "title": "My grades",
@@ -3501,7 +3514,10 @@
     "colExaminer": "Examiner",
     "colStudent": "Student",
     "colStatus": "Status",
-    "deleteHasResults": "This exam already has results, so it can't be deleted"
+    "deleteHasResults": "This exam already has results, so it can't be deleted",
+    "rosterInvalid": "The roster has errors — fix the highlighted fields",
+    "scoreOutOfRange": "Score from 0 to {max}",
+    "notAdmittedStatus": "A student who isn't admitted can't be marked Passed or Failed"
   },
   "StudyPlan": {
     "title": "Study plan",

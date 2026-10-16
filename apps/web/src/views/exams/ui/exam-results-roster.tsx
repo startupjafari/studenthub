@@ -42,13 +42,37 @@ interface Row {
   score: string
 }
 
+// Общий потолок схемы (SetExamResultsSchema): действует, когда у экзамена нет максимума.
+const SCORE_CEILING = 1000
+
+/**
+ * Ошибки строки ведомости — те же, что проверяет сервер: балл вне 0..максимум и «сдал»
+ * или «не сдал» у недопущенного. Подсветка сразу при вводе дешевле отказа всей ведомости.
+ */
+function rowErrors(r: Row, ceiling: number): { score: boolean; status: boolean } {
+  const n = Number(r.score)
+  return {
+    score: r.score !== '' && (Number.isNaN(n) || n < 0 || n > ceiling),
+    status: !r.admitted && (r.status === 'PASSED' || r.status === 'FAILED'),
+  }
+}
+
 // Имя забирает остаток ширины: остальные колонки — под конкретный контрол.
 // «Статус» — под самую длинную подпись («Запланирован»), «Балл» — под трёхзначное
 // число со стрелками числового поля: у́же placeholder обрезался до «Бал».
 const COLS = ['auto', '6rem', '13rem', '7rem'] as const
 
 // Ведомость экзамена: допуск + статус + балл по каждому студенту (декан/экзаменатор).
-export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: () => void }) {
+export function ExamResultsRoster({
+  examId,
+  maxScore,
+  onBack,
+}: {
+  examId: string
+  /** Максимум экзамена; null — действует только общий потолок схемы. */
+  maxScore: number | null
+  onBack: () => void
+}) {
   const t = useTranslations('Exams')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -57,6 +81,7 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
     queryFn: () => fetchExamResults(examId),
   })
   const [rows, setRows] = useState<Record<string, Row>>({})
+  const ceiling = maxScore ?? SCORE_CEILING
 
   useEffect(() => {
     if (!q.data) return
@@ -85,8 +110,25 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
       qc.invalidateQueries({ queryKey: examKeys.all })
       toast.success(t('resultsSaved'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'VALIDATION_ERROR' ? t('rosterInvalid') : tErr(code))
+    },
   })
+
+  // Ведомость с ошибками не отправляем: сервер отклонил бы её целиком, а поля и так
+  // подсвечены.
+  function onSave() {
+    const invalid = Object.values(rows).some((r) => {
+      const err = rowErrors(r, ceiling)
+      return err.score || err.status
+    })
+    if (invalid) {
+      toast.error(t('rosterInvalid'))
+      return
+    }
+    save.mutate()
+  }
 
   const patch = (id: string, p: Partial<Row>) =>
     setRows((prev) => ({ ...prev, [id]: { ...prev[id]!, ...p } }))
@@ -122,12 +164,7 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
         onBack={onBack}
         backLabel={t('back')}
         actions={
-          <Button
-            size="sm"
-            className="gap-1.5"
-            onClick={() => save.mutate()}
-            loading={save.isPending}
-          >
+          <Button size="sm" className="gap-1.5" onClick={onSave} loading={save.isPending}>
             <Save className="size-4" aria-hidden />
             {t('save')}
           </Button>
@@ -165,6 +202,7 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                 const r = rows[s.studentId]
                 if (!r) return null
                 const name = `${s.lastName} ${s.firstName}`
+                const err = rowErrors(r, ceiling)
                 return (
                   <TableRow key={s.studentId}>
                     <TableCell className="font-medium">
@@ -184,7 +222,12 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                         value={r.status}
                         onValueChange={(v) => patch(s.studentId, { status: v as ExamResultStatus })}
                       >
-                        <SelectTrigger size="md" aria-label={`${t('colStatus')}: ${name}`}>
+                        <SelectTrigger
+                          size="md"
+                          aria-label={`${t('colStatus')}: ${name}`}
+                          aria-invalid={err.status || undefined}
+                          title={err.status ? t('notAdmittedStatus') : undefined}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -203,7 +246,11 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                         onChange={(e) => patch(s.studentId, { score: e.target.value })}
                         size="md"
                         className="text-center"
+                        min={0}
+                        max={ceiling}
                         aria-label={`${t('scoreShort')}: ${name}`}
+                        aria-invalid={err.score || undefined}
+                        title={err.score ? t('scoreOutOfRange', { max: ceiling }) : undefined}
                         placeholder={t('scoreShort')}
                       />
                     </TableCell>

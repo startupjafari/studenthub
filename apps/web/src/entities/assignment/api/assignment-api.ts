@@ -6,8 +6,16 @@ import type {
   SaveSubmissionDraftInput,
   UpdateAssignmentInput,
 } from '@studenthub/shared-schemas'
-import { api, getPaged, type Paged } from '../../../shared/api'
-import type { AssignmentItem, SubmissionItem } from '../model/types'
+import type { AxiosProgressEvent } from 'axios'
+import {
+  api,
+  getPaged,
+  needsDirectUpload,
+  uploadDirect,
+  type Paged,
+  type PresignedTarget,
+} from '../../../shared/api'
+import type { AssignmentItem, SubmissionFile, SubmissionItem } from '../model/types'
 
 export const assignmentKeys = {
   reviewQueue: (limit: number) => ['assignments', 'review-queue', limit] as const,
@@ -110,6 +118,58 @@ export async function saveSubmissionDraftRequest(
 export async function submitAssignmentRequest(assignmentId: string): Promise<SubmissionItem> {
   const { data } = await api.post<SubmissionItem>(`/assignments/${assignmentId}/submit`)
   return data
+}
+
+/**
+ * Приложить файл к работе. Как у материалов: до порога — буферная загрузка через API,
+ * больше — прямая в MinIO по подписанной ссылке. Черновика сдачи нет — сервер заведёт его.
+ */
+export async function uploadSubmissionFileRequest(
+  assignmentId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<SubmissionFile> {
+  const base = `/assignments/${assignmentId}/submission/files`
+  if (needsDirectUpload(file.size)) {
+    return uploadDirect<SubmissionFile>({
+      file,
+      presign: async (mime) => {
+        const { data } = await api.post<PresignedTarget>(`${base}/presign`, { mime })
+        return data
+      },
+      confirm: async (key, name) => {
+        const { data } = await api.post<SubmissionFile>(`${base}/confirm`, { key, name })
+        return data
+      },
+      onProgress,
+    })
+  }
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<SubmissionFile>(base, form, {
+    onUploadProgress: (e: AxiosProgressEvent) => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+    },
+  })
+  return data
+}
+
+export async function deleteSubmissionFileRequest(
+  assignmentId: string,
+  fileId: string,
+): Promise<void> {
+  await api.delete(`/assignments/${assignmentId}/submission/files/${fileId}`)
+}
+
+/** Ссылка на скачивание файла работы (автору и проверяющему), с исходным именем файла. */
+export async function fetchSubmissionFileUrl(
+  submissionId: string,
+  fileId: string,
+): Promise<string> {
+  const { data } = await api.get<{ url: string }>(
+    `/submissions/${submissionId}/files/${fileId}/presigned`,
+  )
+  return data.url
 }
 
 /** Очередь проверки преподавателя: сколько работ ждёт оценки и по каким заданиям. */

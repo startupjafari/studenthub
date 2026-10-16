@@ -97,7 +97,13 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   )
 
   if (rosterId) {
-    return <ExamResultsRoster examId={rosterId} onBack={() => setRosterId(null)} />
+    return (
+      <ExamResultsRoster
+        examId={rosterId}
+        maxScore={rows.find((e) => e.id === rosterId)?.maxScore ?? null}
+        onBack={() => setRosterId(null)}
+      />
+    )
   }
 
   return (

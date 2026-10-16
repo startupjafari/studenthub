@@ -1,5 +1,5 @@
-import { Body, Controller, Param, Post, Req } from '@nestjs/common'
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
+import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common'
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -17,6 +17,19 @@ const TEACH_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role
 @Controller('submissions')
 export class SubmissionsController {
   constructor(private readonly assignments: AssignmentsService) {}
+
+  // Без @Roles: ссылку получает и автор работы, и тот, кто её проверяет, — права решает
+  // сервис (студенту — только своя сдача, персоналу — тот же круг, что у списка сдач).
+  @Get(':id/files/:fileId/presigned')
+  @ApiOperation({ summary: 'Ссылка на файл работы (автор или проверяющий)' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt } — скачивание с исходным именем' })
+  fileUrl(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.assignments.getSubmissionFileUrl(user, id, fileId)
+  }
 
   @Post(':id/grade')
   @Roles(...TEACH_ROLES)

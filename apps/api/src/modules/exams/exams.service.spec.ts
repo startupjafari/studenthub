@@ -85,3 +85,58 @@ describe('ExamsService — ведомость ведёт экзаменатор'
     await expect(service.results(teacher('lecturer'), 'ex-1')).resolves.toBeDefined()
   })
 })
+
+describe('ExamsService.setResults — ведомость без противоречий (C-F08)', () => {
+  function setupWithMax(maxScore: number | null) {
+    const env = setup()
+    env.prisma.exam.findUnique.mockResolvedValue({ ...examRow, maxScore })
+    return env
+  }
+
+  it('балл больше максимума экзамена → VALIDATION_ERROR, ничего не сохраняется', async () => {
+    const { service, prisma } = setupWithMax(100)
+    const err = await service
+      .setResults(
+        teacher('examiner'),
+        {
+          examId: 'ex-1',
+          entries: [{ studentId: 'st-1', admitted: true, status: 'PASSED', score: 150 }],
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'entries.0.score' })])
+    expect(prisma.examResult.upsert).not.toHaveBeenCalled()
+  })
+
+  it('недопущенному нельзя поставить «сдал»', async () => {
+    const { service, prisma } = setupWithMax(100)
+    const err = await service
+      .setResults(
+        teacher('examiner'),
+        {
+          examId: 'ex-1',
+          entries: [{ studentId: 'st-1', admitted: false, status: 'PASSED', score: null }],
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'entries.0.status' })])
+    expect(prisma.examResult.upsert).not.toHaveBeenCalled()
+  })
+
+  it('недопущенный с «неявкой» сохраняется', async () => {
+    const { service, prisma } = setupWithMax(100)
+    await service.setResults(
+      teacher('examiner'),
+      {
+        examId: 'ex-1',
+        entries: [{ studentId: 'st-1', admitted: false, status: 'ABSENT', score: null }],
+      },
+      ctx,
+    )
+    expect(prisma.examResult.upsert).toHaveBeenCalled()
+  })
+})

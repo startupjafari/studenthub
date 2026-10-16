@@ -145,15 +145,15 @@
   - Суть: Удаление курса стирает результаты экзаменов без балла (зачёт «сдал», «неявка», «не сдал»)
   - Файлы: apps/api/src/modules/courses/courses.service.spec.ts, apps/api/src/modules/courses/courses.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F06 · P1 · проблемы: C-F06 · стоп: контракт, миграция
+- [done] FIX-C-F06 · P1 · проблемы: C-F06 · стоп: контракт, миграция
   - Суть: Задание с типом сдачи «Файл» сдать невозможно
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/create-assignment-modal.tsx, apps/web/src/views/assignments/ui/student-assignment-detail.tsx, packages/shared-schemas/src/assignments.ts, prisma/schema/18-assignments.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F07 · P1 · проблемы: C-F07 · после: FIX-C-F06
+- [done] FIX-C-F07 · P1 · проблемы: C-F07 · после: FIX-C-F06
   - Суть: Удаление задания одним кликом стирает все сданные и оценённые работы
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/teacher-assignments-view.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F08 · P1 · проблемы: C-F08 · после: FIX-C-F06, FIX-C-F07
+- [done] FIX-C-F08 · P1 · проблемы: C-F08 · после: FIX-C-F06, FIX-C-F07
   - Суть: Баллы не сверяются с максимумом: журнал и задания принимают «150 из 10», средний процент студента и аналитика декана уезжают за 100 %
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/exams/exams.service.ts, apps/api/src/modules/gradebook/gradebook.service.ts, apps/web/src/views/assignments/ui/grade-submission-modal.tsx, apps/web/src/views/exams/ui/exam-results-roster.tsx, apps/web/src/views/gradebook/ui/gradebook-table.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -237,11 +237,11 @@
   - Суть: Истёкший допуск компании не снимает её вакансии: студенты продолжают откликаться, компания получает новых кандидатов
   - Файлы: apps/api/src/modules/career/applications.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/career/vacancies.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-E-F02 · P1 · проблемы: E-F02
+- [in_progress] FIX-E-F02 · P1 · проблемы: E-F02
   - Суть: Цитата оригинала в репосте отдаётся без проверки видимости — и после удаления оригинала модератором
   - Файлы: apps/api/src/modules/posts/posts.service.ts, apps/web/src/widgets/feed-list/ui/post-card.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-E-F03 · P1 · проблемы: E-F03 · после: FIX-E-F02 · стоп: контракт
+- [in_progress] FIX-E-F03 · P1 · проблемы: E-F03 · после: FIX-E-F02 · стоп: контракт
   - Суть: Модераторы и админы не видят в ленте посты, которые вправе снимать и закреплять
   - Файлы: apps/api/src/modules/posts/posts.service.ts, apps/web/src/views/feed/ui/feed-view.tsx, packages/shared-schemas/src/posts.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
