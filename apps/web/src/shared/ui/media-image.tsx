@@ -63,14 +63,18 @@ export function MediaImage({
   // Новый снимок — снова с заглушки (листание просмотрщика, смена сторис).
   useEffect(() => setLoaded(false), [src, srcSet])
 
-  // Из кеша картинка бывает готова раньше, чем навесится onLoad, — проверяем complete.
+  // Из кеша картинка бывает готова раньше, чем навесится onLoad, — проверяем complete и
+  // сообщаем наружу так же, как событием (повторный вызов зовущим безвреден).
   const attach = useCallback(
     (el: HTMLImageElement | null) => {
-      if (el?.complete && el.naturalWidth > 0) setLoaded(true)
+      if (el?.complete && el.naturalWidth > 0) {
+        setLoaded(true)
+        onLoad?.()
+      }
       if (typeof imgRef === 'function') imgRef(el)
       else if (imgRef) (imgRef as { current: HTMLImageElement | null }).current = el
     },
-    [imgRef],
+    [imgRef, onLoad],
   )
 
   const objectFit = fit === 'cover' ? 'object-cover' : 'object-contain'

@@ -5,9 +5,16 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Eye, ExternalLink, Trash2, X } from 'lucide-react'
-import { useBackClose, useBodyScrollLock } from '../../../shared/lib'
+import { pickSource, srcSetOf, useBackClose, useBodyScrollLock, useHls } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { Avatar, AvatarFallback, AvatarImage, Button, useConfirm } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  MediaImage,
+  useConfirm,
+} from '../../../shared/ui'
 import {
   addStoryReactionRequest,
   deleteStoryRequest,
@@ -23,6 +30,25 @@ import { StoryViewersSheet } from './story-viewers-sheet'
 
 // Сколько держится кадр без своего таймера (текст и фото). У видео длительность своя.
 const FRAME_MS = 7000
+// Ширина кадра сторис для srcset: на телефоне во весь экран, на десктопе — колонка ~420px.
+const STORY_SIZES = '(max-width: 640px) 100vw, 420px'
+
+/** Прогреть следующий кадр, пока смотрят текущий: листание не упирается в сеть. */
+function warmStory(card: StoryCard | undefined): void {
+  const media = card?.media
+  if (!media) return
+  const img = new Image()
+  img.sizes = STORY_SIZES
+  if (media.mime.startsWith('video/')) {
+    const poster = pickSource(media.poster, 640)
+    if (!poster) return
+    img.src = poster.url
+    return
+  }
+  const srcset = srcSetOf(media.sources, { url: media.url, width: media.width })
+  if (srcset) img.srcset = srcset
+  img.src = media.url
+}
 // Быстрые реакции: один тап, без клавиатуры и выбора эмодзи. Набор закрыт намеренно —
 // полноценный пикер в формате, который смотрят секундами, никто не открывает.
 const QUICK_REACTIONS = ['❤️', '🔥', '👏', '😮', '😢'] as const
@@ -106,10 +132,26 @@ export function StoryViewer({
     void markStoryViewed(storyId).catch(() => undefined)
   }, [storyId])
 
+  // Снимок ещё не пришёл — время кадра не идёт: на медленной сети сторис иначе пролистывалась,
+  // так и не показавшись (раньше таймер стартовал вместе с запросом картинки).
+  // Готовность привязана к id кадра, а не сбрасывается эффектом: снимок из кэша присылает
+  // load раньше, чем отработал бы сброс, и кадр навсегда остался бы «не готов».
+  const [readyStoryId, setReadyStoryId] = useState<string | null>(null)
+  const imageReady = !!storyId && readyStoryId === storyId
+
+  // Следующий кадр греем заранее — и в этом кольце, и первый у следующего автора.
+  const nextCard = ring?.stories[storyIndex + 1] ?? rings[ringIndex + 1]?.stories[0]
+  useEffect(() => warmStory(nextCard), [nextCard])
+
+  // Видео — адаптивным HLS (качество под сеть), запасной путь — оригинал.
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+  useHls(videoEl, story?.media?.hls, story?.media?.url)
+
   // Таймер кадра. Шаг 50 мс: полоса растёт плавно, а таймеров на секунду немного.
   const isVideo = story?.media?.mime.startsWith('video/') ?? false
+  const waitingImage = !!story?.media && !isVideo && !imageReady
   useEffect(() => {
-    if (!story || paused || viewersOpen || isVideo) return
+    if (!story || paused || viewersOpen || isVideo || waitingImage) return
     const step = 50
     const timer = setInterval(() => {
       setProgress((value) => {
@@ -123,7 +165,7 @@ export function StoryViewer({
       })
     }, step)
     return () => clearInterval(timer)
-  }, [goNext, isVideo, paused, story, viewersOpen])
+  }, [goNext, isVideo, paused, story, viewersOpen, waitingImage])
 
   // Клавиатура: листание стрелками, пробел — пауза, Esc закрывает (useBackClose).
   useEffect(() => {
@@ -245,7 +287,10 @@ export function StoryViewer({
             isVideo ? (
               <video
                 key={story.id}
-                src={story.media.url}
+                ref={setVideoEl}
+                // При HLS источник ставит useHls; иначе — оригинал, как раньше.
+                src={story.media.hls ? undefined : story.media.url}
+                poster={pickSource(story.media.poster, 1280)?.url}
                 className="size-full object-contain"
                 autoPlay
                 playsInline
@@ -258,8 +303,20 @@ export function StoryViewer({
               />
             ) : (
               // Ссылка подписана сервером и живёт 15 минут: next/image её не оптимизирует,
-              // как и у медиа постов (widgets/feed-list/post-media).
-              <img src={story.media.url} alt="" className="size-full object-contain" />
+              // как и у медиа постов. Заглушка видна сразу, копия — по ширине экрана.
+              <MediaImage
+                key={story.id}
+                src={story.media.url}
+                media={story.media}
+                alt=""
+                fit="contain"
+                loading="eager"
+                sizes={STORY_SIZES}
+                className="size-full"
+                onLoad={() => setReadyStoryId(story.id)}
+                // Битую картинку не ждём вечно: кадр идёт дальше по своему таймеру.
+                onError={() => setReadyStoryId(story.id)}
+              />
             )
           ) : null}
 
