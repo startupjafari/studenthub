@@ -15,6 +15,8 @@ import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import { FileService } from '../files/file.service'
+import { MediaService } from '../media/media.service'
+import { MEDIA_FILE_SELECT, type MediaInfo } from '../media/media.types'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
@@ -64,7 +66,8 @@ const STORY_SELECT = {
   expiresAt: true,
   createdAt: true,
   author: AUTHOR_SELECT,
-  file: { select: { id: true, mime: true, width: true, height: true } },
+  // Вместе с вариантами медиа-системы: заглушка, srcset, постер и HLS собираются без N+1.
+  file: { select: MEDIA_FILE_SELECT },
   poll: {
     select: {
       id: true,
@@ -97,14 +100,17 @@ export interface StoryCard {
   createdAt: Date
   expiresAt: Date
   author: StoryRow['author']
-  /** Presigned-ссылка живёт 15 минут (BACKEND_RULES §8); у текстовой сторис медиа нет. */
-  media: {
-    id: string
-    mime: string
-    width: number | null
-    height: number | null
-    url: string
-  } | null
+  /**
+   * Presigned-ссылка живёт 15 минут (BACKEND_RULES §8); у текстовой сторис медиа нет.
+   * Поля описания медиа (заглушка, srcset, постер, HLS) — рядом с `url`.
+   */
+  media:
+    | (MediaInfo & {
+        id: string
+        mime: string
+        url: string
+      })
+    | null
   poll: {
     id: string
     question: string
@@ -140,7 +146,31 @@ export class StoriesService {
     private readonly audit: AuditService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly files: FileService,
+    private readonly media: MediaService,
   ) {}
+
+  /** Медиа сторис для клиента: файл, ссылка на оригинал и описание вариантов. */
+  private storyMedia(
+    file: NonNullable<StoryRow['file']>,
+    url: string,
+    described: Map<string, MediaInfo>,
+  ): NonNullable<StoryCard['media']> {
+    const info = described.get(file.id)
+    return {
+      status: info?.status ?? file.mediaStatus,
+      placeholder: info?.placeholder ?? file.placeholder,
+      width: file.width,
+      height: file.height,
+      durationMs: info?.durationMs ?? file.durationMs,
+      sources: info?.sources ?? [],
+      poster: info?.poster ?? [],
+      hls: info?.hls ?? null,
+      expiresAt: info?.expiresAt ?? null,
+      id: file.id,
+      mime: file.mime,
+      url,
+    }
+  }
 
   // ── Видимость ───────────────────────────────────────────────────────────────
 
@@ -220,7 +250,7 @@ export class StoriesService {
     const pollIds = rows.flatMap((row) => (row.poll ? [row.poll.id] : []))
     const fileIds = rows.flatMap((row) => (row.file ? [row.file.id] : []))
 
-    const [seen, viewCounts, reactionCounts, myReactions, voteCounts, myVotes, urls] =
+    const [seen, viewCounts, reactionCounts, myReactions, voteCounts, myVotes, urls, described] =
       await Promise.all([
         this.prisma.storyView.findMany({
           where: { userId: viewer.sub, storyId: { in: ids } },
@@ -261,6 +291,7 @@ export class StoriesService {
             })
           : Promise.resolve([]),
         this.files.getPresignedUrls(fileIds),
+        this.media.describe(rows.flatMap((row) => (row.file ? [row.file] : []))),
       ])
 
     const seenIds = new Set(seen.map((row) => row.storyId))
@@ -297,7 +328,7 @@ export class StoriesService {
         author: row.author,
         // Файл мог исчезнуть между выборкой и подписью — тогда это текстовая сторис,
         // а не битая картинка: ссылки, ведущей в никуда, клиент не получит.
-        media: row.file && url ? { ...row.file, url } : null,
+        media: row.file && url ? this.storyMedia(row.file, url, described) : null,
         poll: row.poll
           ? {
               id: row.poll.id,

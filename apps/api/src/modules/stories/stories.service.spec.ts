@@ -55,13 +55,16 @@ function setup() {
       .mockResolvedValue({ id: 'f-1', ownerId: 'u-1', bucket: 'stories-media' }),
     delete: jest.fn().mockResolvedValue(undefined),
   }
+  // Описание вариантов — media.service.spec.ts; здесь достаточно пустой карты.
+  const media = { describe: jest.fn().mockResolvedValue(new Map()) }
   const service = new StoriesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
     files as unknown as FileService,
+    media as never,
   )
-  return { service, prisma, tx, audit, files }
+  return { service, prisma, tx, audit, files, media }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
