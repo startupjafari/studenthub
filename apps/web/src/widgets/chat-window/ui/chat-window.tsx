@@ -339,6 +339,28 @@ export function ChatWindow() {
   const [newerCursor, setNewerCursor] = useState<string | undefined>(undefined)
   const [canLoadNewer, setCanLoadNewer] = useState(false)
   const loadingNewerRef = useRef(false)
+  // Курсоры истории живут ПО ЧАТУ. Кэш сообщений у каждого чата свой и переживает
+  // переключение, а курсоры были одни на окно: A → B → A — и A догружал старые по курсору B,
+  // сервер не находил его в чате A, отвечал пустой страницей с hasNext=false, и история A
+  // дальше не листалась. Окно вокруг найденного сообщения тоже возвращалось как «низ».
+  type Pager = { older?: string; canOlder: boolean; newer?: string; canNewer: boolean }
+  const pagerByChatRef = useRef(new Map<string, Pager>())
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+  function setPager(chatId: string, patch: Partial<Pager>): void {
+    const next: Pager = {
+      canOlder: false,
+      canNewer: false,
+      ...pagerByChatRef.current.get(chatId),
+      ...patch,
+    }
+    pagerByChatRef.current.set(chatId, next)
+    if (chatId !== activeIdRef.current) return
+    setOlderCursor(next.older)
+    setCanLoadOlder(next.canOlder)
+    setNewerCursor(next.newer)
+    setCanLoadNewer(next.canNewer)
+  }
   // Ф9+: ответ, вложения, поиск.
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   // Процитированный фрагмент отвечаемого сообщения: заполняется, если в момент нажатия
@@ -500,12 +522,15 @@ export function ChatWindow() {
   const messages = useQuery({
     queryKey: chatKeys.messages(activeId ?? ''),
     queryFn: async () => {
-      const page = await fetchMessages(activeId as string, { limit: 30 })
-      setOlderCursor(page.cursor)
-      setCanLoadOlder(page.hasNext)
+      const chatId = activeId as string
+      const page = await fetchMessages(chatId, { limit: 30 })
       // Первичная загрузка — у низа истории: более новых нет.
-      setNewerCursor(undefined)
-      setCanLoadNewer(false)
+      setPager(chatId, {
+        older: page.cursor,
+        canOlder: page.hasNext,
+        newer: undefined,
+        canNewer: false,
+      })
       // API отдаёт новые первыми — разворачиваем в хронологический порядок.
       return [...page.items].reverse()
     },
@@ -1741,6 +1766,26 @@ export function ChatWindow() {
   // Новый чат — прочтение начинается заново: плашку «Непрочитанные» и отметку «прочитано до»
   // ставит первичный скролл, когда лента загрузится. Недоотправленную отметку прошлого чата
   // отправляем сразу, а не теряем при переключении.
+  // Курсоры истории этого чата: сохранённые — как были; кэш без сохранённых (чат открыт в
+  // этой вкладке впервые после перезагрузки страницы) — старее самого старого загруженного.
+  useEffect(() => {
+    if (!activeId) return
+    const saved = pagerByChatRef.current.get(activeId)
+    if (saved) {
+      setOlderCursor(saved.older)
+      setCanLoadOlder(saved.canOlder)
+      setNewerCursor(saved.newer)
+      setCanLoadNewer(saved.canNewer)
+      return
+    }
+    const cached = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
+    setOlderCursor(cached?.[0]?.id)
+    setCanLoadOlder(!!cached?.length)
+    setNewerCursor(undefined)
+    setCanLoadNewer(false)
+    // qc стабилен; эффект — ровно на смену чата.
+  }, [activeId])
+
   useEffect(() => {
     setUnreadDividerId(null)
     readUpToRef.current = null
@@ -1962,8 +2007,7 @@ export function ChatWindow() {
     if (canLoadNewer && id) {
       // В «прыгнутом» окне последнее загруженное ≠ реальный низ — перезагружаем новейшие
       // (эффект первичного скролла проскроллит к низу, т.к. scrolledForRef сброшен).
-      setNewerCursor(undefined)
-      setCanLoadNewer(false)
+      setPager(id, { newer: undefined, canNewer: false })
       scrolledForRef.current = null
       void qc.invalidateQueries({ queryKey: chatKeys.messages(id) })
     } else {
@@ -2605,8 +2649,7 @@ export function ChatWindow() {
         ...older,
         ...(old ?? []),
       ])
-      setOlderCursor(page.cursor)
-      setCanLoadOlder(page.hasNext)
+      setPager(activeId, { older: page.cursor, canOlder: page.hasNext })
     } finally {
       setLoadingOlder(false)
     }
@@ -2631,8 +2674,7 @@ export function ChatWindow() {
       // Догрузка вниз — не «новое входящее»: не даём эффекту автоскролла увести к низу.
       const updated = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
       lastMsgIdRef.current = updated?.[updated.length - 1]?.id ?? lastMsgIdRef.current
-      setNewerCursor(page.prevCursor)
-      setCanLoadNewer(page.hasPrev)
+      setPager(activeId, { newer: page.prevCursor, canNewer: page.hasPrev })
     } finally {
       loadingNewerRef.current = false
     }
@@ -2647,10 +2689,12 @@ export function ChatWindow() {
     if (!activeId) return win
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), win)
     lastMsgIdRef.current = win[win.length - 1]?.id ?? null
-    setOlderCursor(page.cursor)
-    setCanLoadOlder(page.hasNext)
-    setNewerCursor(page.prevCursor)
-    setCanLoadNewer(page.hasPrev)
+    setPager(activeId, {
+      older: page.cursor,
+      canOlder: page.hasNext,
+      newer: page.prevCursor,
+      canNewer: page.hasPrev,
+    })
     return win
   }
 
