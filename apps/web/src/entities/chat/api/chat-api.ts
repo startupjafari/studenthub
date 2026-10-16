@@ -5,6 +5,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import {
   api,
+  toMediaLink,
   type MediaLink,
   type MultipartTarget,
   type PresignedTarget,
@@ -259,20 +260,7 @@ export async function unpinMessageRequest(messageId: string): Promise<ChatMessag
  */
 export async function fetchAttachmentLink(fileId: string): Promise<MediaLink> {
   const { data } = await api.get<MediaLink | string>(`/chats/attachments/${fileId}/url`)
-  if (typeof data !== 'string')
-    return { ...data, sources: data.sources ?? [], poster: data.poster ?? [] }
-  return {
-    url: data,
-    expiresAt: '',
-    status: 'NONE',
-    placeholder: null,
-    width: null,
-    height: null,
-    durationMs: null,
-    sources: [],
-    poster: [],
-    hls: null,
-  }
+  return toMediaLink(data)
 }
 
 // Опросы в чате (§38–39).

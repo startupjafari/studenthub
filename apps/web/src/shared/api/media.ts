@@ -54,3 +54,23 @@ export function resolveApiPath(path: string): string {
   if (!base || !/^https?:\/\//.test(base)) return path
   return new URL(path, base).toString()
 }
+
+/**
+ * Ответ «ссылка на файл» → `MediaLink`. Старый API (до медиа-системы) отдавал голую строку
+ * или `{ url }` без описания — тогда вариантов нет, и медиа показывается оригиналом.
+ */
+export function toMediaLink(data: string | (Partial<MediaLink> & { url: string })): MediaLink {
+  const raw = typeof data === 'string' ? { url: data } : data
+  return {
+    url: raw.url,
+    expiresAt: raw.expiresAt ?? '',
+    status: raw.status ?? 'NONE',
+    placeholder: raw.placeholder ?? null,
+    width: raw.width ?? null,
+    height: raw.height ?? null,
+    durationMs: raw.durationMs ?? null,
+    sources: raw.sources ?? [],
+    poster: raw.poster ?? [],
+    hls: raw.hls ?? null,
+  }
+}

@@ -416,7 +416,13 @@ function MediaCollage({
           {media.length === 1 ? (
             <MediaFrame postId={postId} media={m} imageClassName="max-h-[32rem]" />
           ) : (
-            <PostMediaView postId={postId} media={m} fit="cover" className="size-full" />
+            <PostMediaView
+              postId={postId}
+              media={m}
+              fit="cover"
+              sizes="(max-width: 768px) 50vw, 336px"
+              className="size-full"
+            />
           )}
           {m.mime.startsWith('video/') && (
             <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md">

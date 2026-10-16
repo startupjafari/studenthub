@@ -15,7 +15,7 @@ export {
   fetchComments,
   addCommentRequest,
   deleteCommentRequest,
-  fetchPostMediaUrl,
+  fetchPostMediaLink,
   incrementPostView,
   type FeedPage,
 } from './api/post-api'

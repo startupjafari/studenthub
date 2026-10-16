@@ -2,6 +2,7 @@ export { api, refreshAccessToken, type ResponseWithMeta } from './instance'
 export { getPaged, type Paged } from './paged'
 export {
   resolveApiPath,
+  toMediaLink,
   type MediaInfo,
   type MediaLink,
   type MediaPreview,

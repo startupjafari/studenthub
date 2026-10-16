@@ -4,7 +4,7 @@ import type {
   FeedQueryInput,
   RepostInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, toMediaLink, type MediaLink } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type { FeedPost, PostComment } from '../model/types'
 
@@ -105,10 +105,11 @@ export async function incrementPostView(id: string): Promise<number> {
   return data.views
 }
 
-// Presigned-URL к медиа поста (по видимости поста, TTL 15 мин). Файл авторизуется через сам пост.
-export async function fetchPostMediaUrl(postId: string, fileId: string): Promise<string> {
-  const { data } = await api.get<{ url: string }>(`/posts/${postId}/media/${fileId}/url`)
-  return data.url
+// Ссылка на медиа поста и его варианты (по видимости поста, TTL 15 мин): копии для srcset,
+// постер и HLS видео. Файл авторизуется через сам пост.
+export async function fetchPostMediaLink(postId: string, fileId: string): Promise<MediaLink> {
+  const { data } = await api.get<MediaLink>(`/posts/${postId}/media/${fileId}/url`)
+  return toMediaLink(data)
 }
 
 export async function fetchComments(id: string): Promise<PostComment[]> {

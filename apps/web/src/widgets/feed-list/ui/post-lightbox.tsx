@@ -535,6 +535,9 @@ function PostView({
             // высоту окна. Размытая подложка заполняет поля, поэтому пустоты не видно.
             className="h-[45vh] shrink-0 bg-black max-md:order-2 sm:h-[60vh] md:h-full md:min-w-0 md:flex-1"
             controls={!isImage}
+            // На телефоне кадр во всю ширину, с md — левая колонка; зум ×1.5 возьмёт
+            // крупную копию из того же srcset.
+            sizes="(max-width: 768px) 100vw, 70vw"
             imageClassName={cn(
               'max-h-full transition-transform duration-200',
               zoomed && 'max-h-none scale-150',
