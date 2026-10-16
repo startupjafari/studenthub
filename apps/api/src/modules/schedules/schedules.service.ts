@@ -41,6 +41,22 @@ const PAIR_SELECT = {
 
 type PairRow = Prisma.PairGetPayload<{ select: typeof PAIR_SELECT }>
 
+// Отметки посещаемости держат пару (C-F11): удалить пару или версию расписания с отметками
+// нельзя — вместе с ними пропала бы история посещаемости за семестр. Проверяем заранее, чтобы
+// ответить понятным CONFLICT; связь Attendance.pair = Restrict страхует от гонки (P2003).
+const PAIR_HAS_ATTENDANCE =
+  'Нельзя удалить пару: по ней уже отмечена посещаемость. Перенесите пару — измените день или время'
+const SCHEDULE_HAS_ATTENDANCE =
+  'Нельзя удалить версию расписания: по её парам уже отмечена посещаемость. Сделайте версию неактивной'
+
+function attendanceConflict(message: string): AppException {
+  return new AppException('CONFLICT', message, [{ field: 'attendance', message }])
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003'
+}
+
 const SCHEDULE_SELECT = {
   id: true,
   groupId: true,
@@ -309,8 +325,19 @@ export class SchedulesService {
     }
     const gctx = await this.resolveGroupContext(existing.groupId)
     this.assertManageScopeForGroup(actor, gctx)
-    // Пары и их изменения удаляются каскадом (onDelete: Cascade в схеме).
-    await this.prisma.schedule.delete({ where: { id } })
+    // Пары и их изменения удаляются каскадом, а посещаемость — нет: версию с отметками
+    // не удаляем, а деактивируем (C-F11).
+    const marked = await this.prisma.attendance.findFirst({
+      where: { pair: { is: { scheduleId: id } } },
+      select: { id: true },
+    })
+    if (marked) throw attendanceConflict(SCHEDULE_HAS_ATTENDANCE)
+    try {
+      await this.prisma.schedule.delete({ where: { id } })
+    } catch (error) {
+      if (isForeignKeyViolation(error)) throw attendanceConflict(SCHEDULE_HAS_ATTENDANCE)
+      throw error
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'schedule_deleted',
@@ -486,7 +513,18 @@ export class SchedulesService {
     } else {
       this.assertManageScopeForGroup(actor, gctx)
     }
-    await this.prisma.pair.delete({ where: { id } })
+    // Пару с отметками посещаемости не удаляем (C-F11): её переносят правкой (PATCH).
+    const marked = await this.prisma.attendance.findFirst({
+      where: { pairId: id },
+      select: { id: true },
+    })
+    if (marked) throw attendanceConflict(PAIR_HAS_ATTENDANCE)
+    try {
+      await this.prisma.pair.delete({ where: { id } })
+    } catch (error) {
+      if (isForeignKeyViolation(error)) throw attendanceConflict(PAIR_HAS_ATTENDANCE)
+      throw error
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'pair_deleted',

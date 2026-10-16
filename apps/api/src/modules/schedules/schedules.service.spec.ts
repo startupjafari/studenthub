@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { SchedulesService } from './schedules.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
@@ -28,6 +29,7 @@ function setup() {
       delete: jest.fn(),
     },
     scheduleChange: { create: jest.fn(), findMany: jest.fn() },
+    attendance: { findFirst: jest.fn().mockResolvedValue(null) },
     group: { findUnique: jest.fn() },
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c-1' }) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
@@ -456,5 +458,86 @@ describe('SchedulesService — scope преподавателя (свои пар
     expect(err).toBeInstanceOf(AppException)
     expect(err.code).toBe('WRONG_SCOPE')
     expect(bad.prisma.pair.delete).not.toHaveBeenCalled()
+  })
+})
+
+// ── C-F11: удаление пары/версии не стирает посещаемость ────────────────────
+describe('SchedulesService — удаление при наличии посещаемости (C-F11)', () => {
+  const dean = viewer(Role.DEAN, { facultyId: 'fac-1', universityId: 'uni-1' })
+  const fkError = new Prisma.PrismaClientKnownRequestError('fk', {
+    code: 'P2003',
+    clientVersion: '6',
+  })
+
+  function primePair(prisma: ReturnType<typeof setup>['prisma']): void {
+    prisma.pair.findUnique.mockResolvedValue({ id: 'p-1', groupId: 'grp-1', teacherId: null })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+  }
+
+  function primeSchedule(prisma: ReturnType<typeof setup>['prisma']): void {
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+  }
+
+  it('пара с отметками → CONFLICT (attendance), пара не удаляется, аудита нет', async () => {
+    const { service, prisma, audit } = setup()
+    primePair(prisma)
+    prisma.attendance.findFirst.mockResolvedValue({ id: 'a-1' })
+    const err = await service.removePair(dean, 'p-1', ctx).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'attendance' })])
+    expect(prisma.attendance.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pairId: 'p-1' } }),
+    )
+    expect(prisma.pair.delete).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('пара без отметок → удаляется', async () => {
+    const { service, prisma, audit } = setup()
+    primePair(prisma)
+    prisma.pair.delete.mockResolvedValue({})
+    await service.removePair(dean, 'p-1', ctx)
+    expect(prisma.pair.delete).toHaveBeenCalledWith({ where: { id: 'p-1' } })
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'pair_deleted' }))
+  })
+
+  it('отметка появилась между проверкой и удалением (FK Restrict, P2003) → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    primePair(prisma)
+    prisma.pair.delete.mockRejectedValue(fkError)
+    const err = await service.removePair(dean, 'p-1', ctx).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('версия расписания с отметками по парам → CONFLICT, версия не удаляется', async () => {
+    const { service, prisma } = setup()
+    primeSchedule(prisma)
+    prisma.attendance.findFirst.mockResolvedValue({ id: 'a-1' })
+    const err = await service.removeSchedule(dean, 'sch-1', ctx).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.attendance.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pair: { is: { scheduleId: 'sch-1' } } } }),
+    )
+    expect(prisma.schedule.delete).not.toHaveBeenCalled()
+  })
+
+  it('версия без отметок → удаляется', async () => {
+    const { service, prisma } = setup()
+    primeSchedule(prisma)
+    prisma.schedule.delete.mockResolvedValue({})
+    await service.removeSchedule(dean, 'sch-1', ctx)
+    expect(prisma.schedule.delete).toHaveBeenCalledWith({ where: { id: 'sch-1' } })
+  })
+
+  it('версия: P2003 при удалении → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    primeSchedule(prisma)
+    prisma.schedule.delete.mockRejectedValue(fkError)
+    const err = await service.removeSchedule(dean, 'sch-1', ctx).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
   })
 })

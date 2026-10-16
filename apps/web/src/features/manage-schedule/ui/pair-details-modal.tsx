@@ -129,7 +129,16 @@ export function PairDetailsModal({
       toast.success(t('pairDeleted'))
       onClose()
     },
-    onError: (e) => showApiError(e),
+    onError: (e) => {
+      // CONFLICT при удалении — по паре уже отмечена посещаемость: сервер её бережёт
+      // и предлагает перенос вместо удаления.
+      if (apiErr(e).code === 'CONFLICT') {
+        toast.error(t('deletePairHasAttendance'), {
+          id: 'pair-details',
+          description: t('deletePairHasAttendanceHint'),
+        })
+      } else showApiError(e)
+    },
   })
 
   // ── разовое изменение ────────────────────────────────────────────────────
@@ -279,7 +288,11 @@ export function PairDetailsModal({
                 className="text-destructive hover:bg-destructive/10"
                 loading={deletePair.isPending}
                 onClick={() => {
-                  void confirm({ title: t('deletePairConfirm'), destructive: true }).then((ok) => {
+                  void confirm({
+                    title: t('deletePairConfirm'),
+                    description: t('deletePairConfirmHint'),
+                    destructive: true,
+                  }).then((ok) => {
                     if (ok) deletePair.mutate()
                   })
                 }}

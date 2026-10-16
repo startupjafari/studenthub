@@ -49,7 +49,7 @@
   - Суть: Преподавателя нельзя назначить на дисциплину ни из одного клиента — преподавательские сценарии на новых курсах мертвы
   - Файлы: apps/web/src/views/course-admin/ui/course-admin-view.tsx, apps/web/src/views/course-admin/ui/create-course-modal.tsx, apps/web/src/views/course-admin/ui/edit-course-modal.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F11 · P0 · проблемы: C-F11 · стоп: миграция
+- [done] FIX-C-F11 · P0 · проблемы: C-F11 · стоп: миграция
   - Суть: Удаление пары (и версии расписания) каскадом стирает всю историю посещаемости по ней
   - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx, prisma/schema/19-attendance.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -185,7 +185,7 @@
   - Суть: Очередь записи в деканат: закрытые записи вытесняют новые после 300 строк
   - Файлы: apps/api/src/modules/appointments/appointments.service.spec.ts, apps/api/src/modules/appointments/appointments.service.ts, apps/web/src/entities/appointment/api/appointment-api.ts, apps/web/src/views/appointments/ui/dean-appointments-view.tsx, packages/shared-schemas/src/appointments.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F01 · P1 · проблемы: D-F01
+- [in_progress] FIX-D-F01 · P1 · проблемы: D-F01
   - Суть: Очередь деканата и админа вуза показывает чужие черновики, и при сортировке по умолчанию — первыми
   - Файлы: apps/api/src/modules/application-services/application-process.service.ts, apps/api/src/modules/application-services/applications.service.spec.ts, apps/api/src/modules/application-services/applications.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -193,11 +193,11 @@
   - Суть: Кнопка «Отозвать» видна в статусах, из которых сервер отзыв не пропускает
   - Файлы: apps/api/src/modules/application-services/applications.service.spec.ts, apps/web/src/widgets/applications/ui/application-detail.tsx, packages/shared-schemas/src/application-services.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F03 · P1 · проблемы: D-F03 · после: FIX-D-F01, FIX-D-F02
+- [in_progress] FIX-D-F03 · P1 · проблемы: D-F03 · после: FIX-D-F01, FIX-D-F02
   - Суть: Повторная отправка не проверяет комплект: удалённый «к замене» документ пропускает заявку дальше
   - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/api/src/modules/application-services/applications.service.spec.ts, apps/api/src/modules/application-services/applications.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F04 · P1 · проблемы: D-F04 · после: FIX-D-F01, FIX-D-F03
+- [in_progress] FIX-D-F04 · P1 · проблемы: D-F04 · после: FIX-D-F01, FIX-D-F03
   - Суть: Переходы заявки без проверки статуса в UPDATE: двойная отправка перевыпускает номер, гонка откатывает статус
   - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/api/src/modules/application-services/applications.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
