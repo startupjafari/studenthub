@@ -467,7 +467,45 @@ describe('ChatsService.searchMessages — область поиска', () => {
     await service.searchMessages(user('u1'), { limit: 20, q: 'тест' })
     expect(prisma.chatMember.findUnique).not.toHaveBeenCalled()
     const where = prisma.message.findMany.mock.calls[0][0].where
-    expect(where.chat).toEqual({ members: { some: { userId: 'u1' } } })
+    expect(where.chat).toEqual({ members: { some: { userId: 'u1', bannedAt: null } } })
+  })
+
+  it('забаненный в группе не находит её сообщения глобальным поиском', async () => {
+    const { service, prisma } = setup()
+    // Строка членства у забаненного остаётся — отсечь её обязан фильтр bannedAt: null.
+    const members = [
+      { chatId: 'open', userId: 'u1', bannedAt: null },
+      { chatId: 'banned', userId: 'u1', bannedAt: new Date() },
+    ]
+    const messages = [
+      { id: 'm-open', chatId: 'open', content: 'тест в своём чате' },
+      { id: 'm-banned', chatId: 'banned', content: 'тест после бана' },
+    ]
+    // Мини-исполнитель where: участник чата по строке членства с учётом всех полей фильтра.
+    prisma.message.findMany.mockImplementation(
+      async (args: { where: { chat: { members: { some: Record<string, unknown> } } } }) => {
+        const cond = args.where.chat.members.some
+        const allowed = new Set(
+          members
+            .filter((m) => Object.entries(cond).every(([k, v]) => m[k as keyof typeof m] === v))
+            .map((m) => m.chatId),
+        )
+        return messages.filter((msg) => allowed.has(msg.chatId))
+      },
+    )
+    const page = await service.searchMessages(user('u1'), { limit: 20, q: 'тест' })
+    expect(page.items.map((m: { id: string }) => m.id)).toEqual(['m-open'])
+  })
+
+  it('забаненный в группе не ищет внутри неё → FORBIDDEN, выборки нет', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: new Date() })
+    const err = await service
+      .searchMessages(user('u1'), { limit: 20, q: 'тест', chatId: 'c1' })
+      .catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.findMany).not.toHaveBeenCalled()
   })
 })
 

@@ -2484,7 +2484,9 @@ export class ChatsService {
       await this.assertMembership(viewer.sub, query.chatId)
       chatFilter = { chatId: query.chatId }
     } else {
-      chatFilter = { chat: { members: { some: { userId: viewer.sub } } } }
+      // Забаненный строку членства сохраняет — без bannedAt: null он читал бы через поиск
+      // и то, что в группе написали уже после бана (assertMembership ему чат закрывает).
+      chatFilter = { chat: { members: { some: { userId: viewer.sub, bannedAt: null } } } }
     }
     const rows = await this.prisma.message.findMany({
       where: {
