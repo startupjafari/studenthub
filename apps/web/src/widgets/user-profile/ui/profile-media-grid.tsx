@@ -27,8 +27,15 @@ import {
   uploadProfileMediaAuto,
   type ProfileMedia,
 } from '../../../entities/profile-content'
-import { Card, EmptyState, MediaImage, Skeleton, useConfirm } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
+import {
+  EmptyState,
+  MediaImage,
+  MosaicGrid,
+  MosaicTile,
+  Skeleton,
+  mosaicShape,
+  useConfirm,
+} from '../../../shared/ui'
 import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
@@ -43,6 +50,14 @@ function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+// Ширина плитки в раскладке — по ней браузер берёт копию нужного размера: высокая и широкая
+// плитки вдвое крупнее квадрата по одной из сторон, им нужна копия побольше.
+function tileSizes(index: number): string {
+  return mosaicShape(index) === 'square'
+    ? '(max-width: 640px) 33vw, 360px'
+    : '(max-width: 640px) 66vw, 720px'
 }
 
 interface ProfileMediaGridProps {
@@ -225,21 +240,13 @@ export function ProfileMediaGrid({
 
       {q.isLoading || q.isError ? (
         <ContentLayout sidebar={<FilterSkeleton groups={isPhoto ? 2 : 1} />}>
-          <div
-            className={cn(
-              'grid gap-3',
-              isPhoto
-                ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-            )}
-          >
-            {Array.from({ length: isPhoto ? 24 : 9 }).map((_, i) => (
-              <Skeleton
-                key={i}
-                className={cn('w-full rounded-xl', isPhoto ? 'aspect-square' : 'aspect-video')}
-              />
+          <MosaicGrid aria-hidden>
+            {Array.from({ length: 14 }).map((_, i) => (
+              <MosaicTile key={i} index={i}>
+                <Skeleton className="size-full rounded-none" />
+              </MosaicTile>
             ))}
-          </div>
+          </MosaicGrid>
         </ContentLayout>
       ) : allItems.length === 0 ? (
         <EmptyState
@@ -360,14 +367,14 @@ export function ProfileMediaGrid({
                 {t('albumEmpty')}
               </p>
             ) : isPhoto ? (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <MosaicGrid>
                 {items.map((m, i) => (
-                  <Card key={m.id} className="group relative overflow-hidden p-0">
+                  <MosaicTile key={m.id} index={i}>
                     <button
                       type="button"
                       onClick={() => setLightbox(i)}
                       aria-label={t('tabPhotos')}
-                      className="block w-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+                      className="block size-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:ring-inset"
                     >
                       {/* Внешний домен MinIO — next/image не оптимизирует. Плитка берёт копию
                           своей ширины (медиа-система), а заглушка видна до прихода байтов. */}
@@ -375,9 +382,9 @@ export function ProfileMediaGrid({
                         src={m.url}
                         media={m}
                         alt=""
-                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 200px"
-                        className="aspect-square w-full"
-                        imgClassName="transition-transform duration-300 ease-out group-hover:scale-105"
+                        sizes={tileSizes(i)}
+                        className="size-full"
+                        imgClassName="transition-transform duration-300 ease-out group-hover/tile:scale-105"
                       />
                     </button>
                     {isOwner && (
@@ -396,14 +403,15 @@ export function ProfileMediaGrid({
                         onDelete={() => confirmDelete(m.id)}
                       />
                     )}
-                  </Card>
+                  </MosaicTile>
                 ))}
-              </div>
+              </MosaicGrid>
             ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <MosaicGrid>
                 {items.map((m, i) => (
                   <VideoTile
                     key={m.id}
+                    index={i}
                     media={m}
                     label={t('tabVideos')}
                     onOpen={() => setLightbox(i)}
@@ -411,7 +419,7 @@ export function ProfileMediaGrid({
                     deleteLabel={t('delete')}
                   />
                 ))}
-              </div>
+              </MosaicGrid>
             )}
 
             {lightbox !== null && (
@@ -492,21 +500,23 @@ function DeleteButton({ label, onClick }: { label: string; onClick: () => void }
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-foreground/50 text-background opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
+      className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-foreground/50 text-background opacity-0 backdrop-blur transition-opacity hover:bg-destructive focus-visible:opacity-100 group-hover/tile:opacity-100"
     >
       <Trash2 className="size-3.5" aria-hidden />
     </button>
   )
 }
 
-// Карточка видео: широкая (16:9), кнопка воспроизведения и длительность (из метаданных).
+// Плитка видео в мозаике: постер во всю плитку, длительность внизу (из медиа-системы или метаданных).
 function VideoTile({
+  index,
   media,
   label,
   onOpen,
   onDelete,
   deleteLabel,
 }: {
+  index: number
   media: ProfileMedia
   label: string
   onOpen: () => void
@@ -519,12 +529,12 @@ function VideoTile({
   // Постер — картинка: плитке не нужно тянуть начало ролика ради первого кадра.
   const poster = media.posterUrl ?? media.poster?.at(-1)?.url
   return (
-    <Card className="group relative overflow-hidden p-0">
+    <MosaicTile index={index}>
       <button
         type="button"
         onClick={onOpen}
         aria-label={label}
-        className="relative block w-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+        className="relative block size-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:ring-inset"
       >
         {poster ? (
           <MediaImage
@@ -536,8 +546,9 @@ function VideoTile({
                 : { ...media, sources: media.poster }
             }
             alt=""
-            sizes="(max-width: 640px) 100vw, 360px"
-            className="aspect-video w-full bg-neutral-900"
+            sizes={tileSizes(index)}
+            className="size-full bg-neutral-900"
+            imgClassName="transition-transform duration-300 ease-out group-hover/tile:scale-105"
           />
         ) : (
           <video
@@ -545,23 +556,23 @@ function VideoTile({
             muted
             preload="metadata"
             onLoadedMetadata={(e) => setMeasured(e.currentTarget.duration)}
-            className="aspect-video w-full bg-neutral-900 object-cover"
+            className="size-full bg-neutral-900 object-cover"
           />
         )}
-        <span className="absolute inset-0 flex items-center justify-center bg-black/15 transition-colors group-hover:bg-black/30">
-          {/* Цвет значка — постоянный тёмный, а не `text-foreground`: кружок белый в обеих
-              темах, и в тёмной «▶» цвета текста сливался с ним. */}
-          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-neutral-900">
+        {/* Как в Reels: подпись внизу на затемнении (читается на любом кадре), кнопка
+            воспроизведения — по наведению, чтобы мозаика не пестрела кружками. Цвет значка —
+            постоянный тёмный: кружок белый в обеих темах, и «▶» цвета текста сливался бы с ним. */}
+        <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/tile:bg-black/25">
+          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-neutral-900 opacity-0 transition-opacity group-hover/tile:opacity-100">
             <Play className="size-5 translate-x-0.5 fill-current" aria-hidden />
           </span>
         </span>
-        {duration !== null && (
-          <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white tabular-nums">
-            {formatDuration(duration)}
-          </span>
-        )}
+        <span className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-2.5 pt-6 pb-2 text-xs font-medium text-white">
+          <Play className="size-3.5 shrink-0 fill-current" aria-hidden />
+          {duration !== null && <span className="tabular-nums">{formatDuration(duration)}</span>}
+        </span>
       </button>
       {onDelete && <DeleteButton label={deleteLabel} onClick={onDelete} />}
-    </Card>
+    </MosaicTile>
   )
 }
