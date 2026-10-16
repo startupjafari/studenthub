@@ -33,6 +33,8 @@ export class QueueService {
     @InjectQueue(QUEUES.FILE_PROCESSING) fileProcessing: Queue,
     @InjectQueue(QUEUES.CLEANUP) cleanup: Queue,
     @InjectQueue(QUEUES.LINK_PREVIEW) linkPreview: Queue,
+    @InjectQueue(QUEUES.MEDIA_IMAGE) mediaImage: Queue,
+    @InjectQueue(QUEUES.MEDIA_VIDEO) mediaVideo: Queue,
   ) {
     this.queues = {
       [QUEUES.EMAIL]: email,
@@ -40,6 +42,8 @@ export class QueueService {
       [QUEUES.FILE_PROCESSING]: fileProcessing,
       [QUEUES.CLEANUP]: cleanup,
       [QUEUES.LINK_PREVIEW]: linkPreview,
+      [QUEUES.MEDIA_IMAGE]: mediaImage,
+      [QUEUES.MEDIA_VIDEO]: mediaVideo,
     }
   }
 

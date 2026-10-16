@@ -10,6 +10,10 @@ export const QUEUES = {
   CLEANUP: 'cleanup',
   // Асинхронная выборка OG-превью первой ссылки в сообщении (инлайн-превью, Ф9+).
   LINK_PREVIEW: 'link-preview',
+  // Единая медиа-система: две очереди, а не одна, — секунда на фото не должна стоять в
+  // очереди за получасовым перекодированием видео, и конкурентность у них разная.
+  MEDIA_IMAGE: 'media-image',
+  MEDIA_VIDEO: 'media-video',
 } as const
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
@@ -70,6 +74,14 @@ export const FILE_JOBS = {
   GENERATE_THUMBNAIL: 'generate-thumbnail',
   COMPRESS_VIDEO: 'compress-video',
   SCAN_FILE: 'scan-file',
+} as const
+
+export const MEDIA_JOBS = {
+  // Подготовить варианты файла с нуля (изображение — копии и LQIP, видео — постер и HLS).
+  PROCESS: 'process-media',
+  // Скопировать готовые варианты другого файла (пересылка): перекодировать то же видео
+  // второй раз незачем, копия объектов в хранилище — дело секунд.
+  COPY: 'copy-media-variants',
 } as const
 
 export const LINK_PREVIEW_JOBS = {
