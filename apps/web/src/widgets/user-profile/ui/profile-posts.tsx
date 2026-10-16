@@ -54,8 +54,9 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
     onLoad: () => void q.fetchNextPage(),
   })
   const total = q.data?.pages[0]?.total
+  // Хотя бы один скелетон, пока есть следующая страница: на нём висит маячок подгрузки.
   const pending = q.hasNextPage
-    ? Math.min(PAGE_SIZE, total !== undefined ? Math.max(0, total - posts.length) : PAGE_SIZE)
+    ? Math.max(1, Math.min(PAGE_SIZE, total !== undefined ? total - posts.length : PAGE_SIZE))
     : 0
   const sorted = useMemo(() => {
     const filtered =
@@ -139,8 +140,7 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
       {modal}
       <ContentLayout sidebar={sidebar}>
         <div className="flex flex-col">
-          <PostGrid posts={sorted} pending={pending} />
-          <div ref={loadMoreRef} aria-hidden />
+          <PostGrid posts={sorted} pending={pending} pendingRef={loadMoreRef} />
         </div>
       </ContentLayout>
     </>

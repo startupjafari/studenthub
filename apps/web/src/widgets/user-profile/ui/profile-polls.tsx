@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type Ref } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { BarChart3 } from 'lucide-react'
@@ -147,11 +147,10 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
               <PollCard key={poll.id} poll={poll} isOwner={isOwner} />
             ))}
             {Array.from({ length: pending }, (_, j) => (
-              <PollSkeleton key={`pending-${j}`} />
+              <PollSkeleton key={`pending-${j}`} ref={j === 0 ? sentinelRef : undefined} />
             ))}
           </div>
         )}
-        <div ref={sentinelRef} aria-hidden />
       </ContentLayout>
     </>
   )
@@ -159,9 +158,10 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
 
 // Скелетон карточки опроса — той же формы, что и карточка: строка статуса, вопрос, три
 // варианта и подвал. Догруженные опросы встают на его место без сдвига соседей.
-function PollSkeleton() {
+function PollSkeleton({ ref }: { ref?: Ref<HTMLDivElement> }) {
   return (
     <div
+      ref={ref}
       className="flex flex-col gap-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
       aria-hidden
     >

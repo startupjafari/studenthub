@@ -181,7 +181,12 @@ export function ProfileMediaGrid({
     `${kind}|${albumFilter}|${sort}`,
   )
   const skeletonTail = Array.from({ length: pending }, (_, j) => (
-    <MosaicTile key={`pending-${j}`} index={shown + j} aria-hidden>
+    <MosaicTile
+      key={`pending-${j}`}
+      ref={j === 0 ? sentinelRef : undefined}
+      index={shown + j}
+      aria-hidden
+    >
       <Skeleton className="size-full rounded-none" />
     </MosaicTile>
   ))
@@ -435,7 +440,6 @@ export function ProfileMediaGrid({
                 {skeletonTail}
               </MosaicGrid>
             )}
-            <div ref={sentinelRef} aria-hidden />
 
             {lightbox !== null && (
               <MediaLightbox

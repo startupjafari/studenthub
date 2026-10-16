@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type Ref } from 'react'
 import dynamic from 'next/dynamic'
 import type { FeedPost } from '../../../entities/post'
 import { MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
@@ -14,8 +14,18 @@ const PostLightbox = dynamic(() => import('./post-lightbox').then((m) => m.PostL
 
 // Сетка постов (Instagram-стиль): мозаика из квадратных, высоких и широких плиток, клик
 // открывает лайтбокс со всеми действиями. `pending` — скелетоны в хвосте на местах
-// следующей страницы: подгруженные посты встают точно на них.
-export function PostGrid({ posts, pending = 0 }: { posts: FeedPost[]; pending?: number }) {
+// следующей страницы: подгруженные посты встают точно на них. `pendingRef` вешается на
+// ПЕРВЫЙ скелетон — маячок подгрузки: под хвостом он оказался бы на экраны ниже, и
+// читатель смотрел бы на скелетоны, а страница так и не запрашивалась.
+export function PostGrid({
+  posts,
+  pending = 0,
+  pendingRef,
+}: {
+  posts: FeedPost[]
+  pending?: number
+  pendingRef?: Ref<HTMLDivElement>
+}) {
   const [open, setOpen] = useState<number | null>(null)
 
   return (
@@ -25,7 +35,12 @@ export function PostGrid({ posts, pending = 0 }: { posts: FeedPost[]; pending?: 
           <PostTile key={post.id} post={post} index={i} onOpen={() => setOpen(i)} />
         ))}
         {Array.from({ length: pending }, (_, j) => (
-          <MosaicTile key={`pending-${j}`} index={posts.length + j} aria-hidden>
+          <MosaicTile
+            key={`pending-${j}`}
+            ref={j === 0 ? pendingRef : undefined}
+            index={posts.length + j}
+            aria-hidden
+          >
             <Skeleton className="size-full rounded-none" />
           </MosaicTile>
         ))}
