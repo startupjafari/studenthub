@@ -874,16 +874,24 @@ export class UserService {
     return seg ? seg : null
   }
 
-  // Бакет avatars используется только под аватары, поэтому все файлы пользователя в нём —
-  // его прежние аватары; удаляем их при замене/сбросе.
+  // Прежние аватары пользователя и их превью — все его файлы в бакете avatars, КРОМЕ аватаров
+  // групп: их грузит админ группы (`setChatAvatar`), владельцем файла записан он же, и без
+  // этого исключения смена своего аватара стирала картинки всех групп, где он их ставил.
   private async deleteExistingAvatars(userId: string, bucket: string): Promise<void> {
     const existing = await this.prisma.file.findMany({
       where: { ownerId: userId, bucket },
-      select: { id: true },
+      select: { id: true, key: true },
       take: OLD_AVATARS_LIMIT,
     })
+    if (existing.length === 0) return
+    const groupAvatars = await this.prisma.chat.findMany({
+      where: { OR: existing.map((f) => ({ avatarUrl: { endsWith: `/${bucket}/${f.key}` } })) },
+      select: { avatarUrl: true },
+      take: existing.length,
+    })
+    const keep = new Set(groupAvatars.map((c) => c.avatarUrl?.split('/').pop()))
     for (const f of existing) {
-      await this.files.delete(f.id)
+      if (!keep.has(f.key)) await this.files.delete(f.id)
     }
   }
 

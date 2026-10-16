@@ -26,6 +26,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    chat: { findMany: jest.fn().mockResolvedValue([]) },
     group: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     complaint: { count: jest.fn().mockResolvedValue(0) },
     moderationWarning: {
@@ -524,7 +525,7 @@ describe('UserService — avatar', () => {
   it('setAvatar: удаляет прежние, грузит с категорией IMAGE и пишет публичный URL', async () => {
     const { service, prisma, files, queue, config } = setup()
     withAvatarConfig(config)
-    prisma.file.findMany.mockResolvedValue([{ id: 'old-1' }])
+    prisma.file.findMany.mockResolvedValue([{ id: 'old-1', key: 'old-1.png' }])
     files.upload.mockResolvedValue({ id: 'file-1', key: 'new-key.png' })
     prisma.user.update.mockResolvedValue({ id: 'u', avatarUrl: 'x' })
 
@@ -556,7 +557,10 @@ describe('UserService — avatar', () => {
   it('removeAvatar: удаляет объекты и обнуляет avatarUrl', async () => {
     const { service, prisma, files, config } = setup()
     withAvatarConfig(config)
-    prisma.file.findMany.mockResolvedValue([{ id: 'old-1' }, { id: 'old-2' }])
+    prisma.file.findMany.mockResolvedValue([
+      { id: 'old-1', key: 'old-1.png' },
+      { id: 'old-2', key: 'old-2.png' },
+    ])
     prisma.user.update.mockResolvedValue({ id: 'u', avatarUrl: null })
 
     await service.removeAvatar('u')
@@ -567,6 +571,24 @@ describe('UserService — avatar', () => {
       data: { avatarUrl: null, avatarThumbUrl: null },
       select: expect.anything(),
     })
+  })
+
+  it('не удаляет аватары групп, которые пользователь ставил как админ', async () => {
+    const { service, prisma, files, config } = setup()
+    withAvatarConfig(config)
+    prisma.file.findMany.mockResolvedValue([
+      { id: 'mine', key: 'mine.png' },
+      { id: 'group', key: 'group.png' },
+    ])
+    prisma.chat.findMany.mockResolvedValue([
+      { avatarUrl: 'http://localhost:9000/avatars/group.png' },
+    ])
+    prisma.user.update.mockResolvedValue({ id: 'u', avatarUrl: null })
+
+    await service.removeAvatar('u')
+
+    expect(files.delete).toHaveBeenCalledTimes(1)
+    expect(files.delete).toHaveBeenCalledWith('mine')
   })
 })
 
