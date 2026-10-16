@@ -22,6 +22,556 @@
 - [done] AUD-C · группа C → .audit/findings/C.md
 - [done] AUD-D · группа D → .audit/findings/D.md
 - [done] AUD-E · группа E → .audit/findings/E.md
-- [in_progress] AUD-F · группа F → .audit/findings/F.md
+- [done] AUD-F · группа F → .audit/findings/F.md
 
-## Фаза 3 — исправления (появится после отчёта)
+## Фаза 3 — исправления
+
+Правила:
+
+- Порядок: все P0 → P1 → P2. Одновременно не больше 3 агентов, только на задачи с непересекающимися
+  файлами; задачи с «после <ID>» — строго после указанных. Одному агенту можно дать 1–3 задачи
+  одного модуля (они и так последовательны).
+- API меняется только обратно совместимо: веб, iOS, Android и мини-апп ходят в один API.
+  Новые необязательные поля и параметры — можно (с обновлением openapi.json и PROJECT.md);
+  смена формы ответа — вопрос в QUESTIONS.md.
+- «стоп: миграция» — агент меняет схему и пишет файл миграции, но НЕ применяет его ни к какой БД;
+  SQL выносится в QUESTIONS.md на подтверждение владельца.
+- Новые зависимости не добавляются.
+- После каждого агента: проверка `git diff --stat` (только заявленные файлы), запись в PROGRESS.md,
+  статус здесь, коммит. Две неудачи подряд — [blocked] + причина в QUESTIONS.md.
+- Задача FIX-E-F01 включает D-F14 (одна и та же утечка портфолио).
+
+- [todo] FIX-B-F01 · P0 · проблемы: B-F01
+  - Суть: Плановые техработы роняют весь API: `maintenanceFrom` из Redis-кэша не превращается обратно в Date
+  - Файлы: apps/api/src/common/guards/maintenance.guard.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F01 · P0 · проблемы: C-F01
+  - Суть: Преподавателя нельзя назначить на дисциплину ни из одного клиента — преподавательские сценарии на новых курсах мертвы
+  - Файлы: apps/web/src/views/course-admin/ui/course-admin-view.tsx, apps/web/src/views/course-admin/ui/create-course-modal.tsx, apps/web/src/views/course-admin/ui/edit-course-modal.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F11 · P0 · проблемы: C-F11 · стоп: миграция
+  - Суть: Удаление пары (и версии расписания) каскадом стирает всю историю посещаемости по ней
+  - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx, prisma/schema/19-attendance.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F01 · P0 · проблемы: E-F01, D-F14
+  - Суть: PRIVATE- и UNIVERSITY-записи портфолио уходят в публичное резюме и в карточку работодателя
+  - Файлы: apps/api/src/modules/career/career-profile.service.ts, apps/api/src/modules/career/resume.service.ts, apps/api/src/modules/portfolio/portfolio.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F01, D-F14; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F01 · P0 · проблемы: F-F01
+  - Суть: Забаненный участник группы продолжает читать её переписку через глобальный поиск по сообщениям
+  - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F09 · P0 · проблемы: F-F09 · стоп: контракт
+  - Суть: Мобильные пуши по умолчанию выключены, а iOS-клиент не может их включить — контракт настроек расходится
+  - Файлы: apps/api/src/modules/notifications/notifications.service.ts, apps/api/src/modules/push/push.service.ts, apps/ios/Sources/Core/Feed/FeedAPI.swift, apps/ios/Sources/Features/Feed/FeedModel.swift
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F01 · P1 · проблемы: A-F01 · стоп: контракт, миграция
+  - Суть: Email сравнивается с учётом регистра: сброс пароля недоступен, вход по email ломается, возможны дубли учёток
+  - Файлы: apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/users/users.service.ts, packages/shared-schemas/src/, prisma/schema/01-users.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F02 · P1 · проблемы: A-F02
+  - Суть: Лимиты публичных auth-маршрутов считаются по IP: кампус за NAT упирается в 429 на входе, регистрации и refresh
+  - Файлы: apps/api/src/common/guards/user-throttler.guard.ts, apps/api/src/modules/auth/auth.controller.ts, apps/api/src/modules/invites/invites.controller.ts, apps/web/src/shared/api/instance.ts, docs/BACKEND_RULES.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F03 · P1 · проблемы: A-F03
+  - Суть: Токен мини-аппа открывает WebSocket без ограничений белого списка
+  - Файлы: apps/api/src/common/realtime/realtime.gateway.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F04 · P1 · проблемы: A-F04 · после: FIX-A-F01
+  - Суть: Удалённый аккаунт сотрудника платформы сохраняет доступ через Telegram (бот, уведомления, мини-апп)
+  - Файлы: apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/mini/mini.service.ts, apps/api/src/modules/telegram-hook/telegram-hook.service.ts, apps/api/src/modules/users/users.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F05 · P1 · проблемы: A-F05 · после: FIX-A-F01, FIX-A-F04
+  - Суть: После входа с 2FA у работодателя в токене нет companyId — экраны карьеры сломаны до первого refresh
+  - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/users/users.service.ts, apps/api/test/auth.e2e-spec.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F06 · P1 · проблемы: A-F06 · стоп: контракт
+  - Суть: Студент сам задаёт «общежитие» и дату рождения, а сотрудник видит их в проверенном студбилете
+  - Файлы: apps/api/src/modules/student-id/student-id.service.ts, apps/web, apps/web/src/views/student-id/ui/student-id-card.tsx, packages/shared-schemas/src/users.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F07 · P1 · проблемы: A-F07 · стоп: контракт
+  - Суть: Нет процесса восстановления доступа при потере аутентификатора 2FA
+  - Файлы: apps/api/src/modules/auth/two-factor.service.ts, apps/api/src/modules/users/, apps/web/src/widgets/account-settings, apps/web/src/widgets/users-table, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F08 · P1 · проблемы: A-F08 · после: FIX-A-F02, FIX-A-F05
+  - Суть: Таблица refresh_tokens растёт без очистки, а каждый refresh пишет строку в AuditLog
+  - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, docs/BACKEND_RULES.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-A-F09 · P1 · проблемы: A-F09 · после: FIX-A-F02, FIX-A-F05, FIX-A-F08
+  - Суть: Два bcrypt cost 12 на каждый refresh — узкое место пула потоков при утреннем пике
+  - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/refresh-secret.spec.ts, docs/BACKEND_RULES.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F02 · P1 · проблемы: B-F02 · после: FIX-A-F01
+  - Суть: Одобрение демо-заявки не атомарно: двойной клик или сбой инвайта даёт вуз-дубликат
+  - Файлы: apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/onboarding/demo-requests.service.spec.ts, apps/api/src/modules/onboarding/demo-requests.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F03 · P1 · проблемы: B-F03 · после: FIX-A-F08, FIX-A-F09, FIX-B-F02 · стоп: контракт
+  - Суть: Статус вуза BLOCKED (и PENDING) ничего не ограничивает
+  - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/strategies/jwt.strategy.ts, apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/universities/universities.service.ts, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F04 · P1 · проблемы: B-F04
+  - Суть: Админ заблокированного вуза сам переводит его в ACTIVE через мастер
+  - Файлы: apps/api/src/modules/onboarding/onboarding.service.spec.ts, apps/api/src/modules/onboarding/onboarding.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F05 · P1 · проблемы: B-F05 · стоп: миграция
+  - Суть: Удаление «пустой» группы каскадом стирает курсы, задания, оценки, экзамены и материалы
+  - Файлы: apps/api/src/modules/groups/groups.service.spec.ts, apps/api/src/modules/groups/groups.service.ts, prisma/schema/12-materials.prisma, prisma/schema/17-courses.prisma, prisma/schema/21-exams.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F06 · P1 · проблемы: B-F06 · после: FIX-B-F05 · стоп: контракт
+  - Суть: Веб видит только первые 100 групп и 100 аудиторий вуза — выбор остальных невозможен
+  - Файлы: apps/api/src/modules/groups/groups.service.ts, apps/web/src/entities/group/api/group-api.ts, apps/web/src/entities/room/api/room-api.ts, apps/web/src/features/create-invite/ui/create-invite-modal.tsx, apps/web/src/features/manage-schedule/ui/manage-schedule.tsx, apps/web/src/views/university-admin/ui/groups-view.tsx, packages/shared-schemas/src/groups.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F07 · P1 · проблемы: B-F07 · после: FIX-A-F07, FIX-B-F03 · стоп: контракт
+  - Суть: `/platform-admin/stats` шлёт по запросу на вуз и при ~100 вузах упирается в rate-limit, блокируя админа на минуту
+  - Файлы: apps/api/src/modules/analytics/platform-analytics.controller.ts, apps/api/src/modules/analytics/platform-analytics.service.ts, apps/web/src/entities/analytics/api/analytics-api.ts, apps/web/src/views/platform-admin/ui/platform-stats-view.tsx, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F08 · P1 · проблемы: B-F08 · после: FIX-A-F04, FIX-A-F08
+  - Суть: Тихие часы и час суточной сводки считаются по UTC: команду будят ночью и глушат утром
+  - Файлы: apps/api/src/common/telegram/telegram-notify.service.spec.ts, apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/mini-app/src/screens/control.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F09 · P1 · проблемы: B-F09 · после: FIX-B-F01, FIX-A-F04, FIX-B-F08
+  - Суть: Если у дежурного нет активной привязки Telegram, сигналы команде теряются молча
+  - Файлы: apps/api/src/common/telegram/telegram-notify.service.spec.ts, apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-B-F10 · P1 · проблемы: B-F10
+  - Суть: Drill-down посещаемости группы грузит до 20 000 отметок в Node и молча обрезает их
+  - Файлы: apps/api/src/modules/analytics/analytics.service.spec.ts, apps/api/src/modules/analytics/analytics.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F02 · P1 · проблемы: C-F02 · после: FIX-C-F01
+  - Суть: Модалка «Новый курс» предлагает только текущую страницу предметов/семестров и первые 100 групп
+  - Файлы: apps/web/src/entities/course/api/course-api.ts, apps/web/src/entities/course/index.ts, apps/web/src/views/course-admin/ui/course-admin-view.tsx, apps/web/src/views/course-admin/ui/create-course-modal.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F03 · P1 · проблемы: C-F03
+  - Суть: Удаление курса стирает результаты экзаменов без балла (зачёт «сдал», «неявка», «не сдал»)
+  - Файлы: apps/api/src/modules/courses/courses.service.spec.ts, apps/api/src/modules/courses/courses.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F06 · P1 · проблемы: C-F06 · стоп: контракт, миграция
+  - Суть: Задание с типом сдачи «Файл» сдать невозможно
+  - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/create-assignment-modal.tsx, apps/web/src/views/assignments/ui/student-assignment-detail.tsx, packages/shared-schemas/src/assignments.ts, prisma/schema/18-assignments.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F07 · P1 · проблемы: C-F07 · после: FIX-C-F06
+  - Суть: Удаление задания одним кликом стирает все сданные и оценённые работы
+  - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/teacher-assignments-view.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F08 · P1 · проблемы: C-F08 · после: FIX-C-F06, FIX-C-F07
+  - Суть: Баллы не сверяются с максимумом: журнал и задания принимают «150 из 10», средний процент студента и аналитика декана уезжают за 100 %
+  - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/exams/exams.service.ts, apps/api/src/modules/gradebook/gradebook.service.ts, apps/web/src/views/assignments/ui/grade-submission-modal.tsx, apps/web/src/views/exams/ui/exam-results-roster.tsx, apps/web/src/views/gradebook/ui/gradebook-table.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F09 · P1 · проблемы: C-F09 · после: FIX-C-F08 · стоп: контракт
+  - Суть: Список экзаменов декана/админа: `take: 200` по возрастанию даты — после пары сессий ближайшие экзамены пропадают
+  - Файлы: apps/api/src/modules/exams/exams.service.ts, apps/web/src/entities/exam/api/exam-api.ts, apps/web/src/views/exams/ui/exam-management-view.tsx, apps/web/src/views/exams/ui/student-exams-view.tsx, packages/shared-schemas/src/exams.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F12 · P1 · проблемы: C-F12 · после: FIX-C-F11
+  - Суть: Замена преподавателя не доходит до заменяющего: пары нет в его расписании, отметить посещаемость он не может
+  - Файлы: apps/api/src/modules/attendance/attendance.service.ts, apps/api/src/modules/me/me.service.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/views/attendance/ui/teacher-attendance-view.tsx, apps/web/src/widgets/today/ui/teacher-today.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F13 · P1 · проблемы: C-F13 · после: FIX-C-F11, FIX-C-F12
+  - Суть: «Новая версия расписания» сразу становится активной и гасит текущую — группа видит пустую сетку
+  - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/create-version-modal.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F14 · P1 · проблемы: C-F14 · после: FIX-C-F12 · стоп: контракт
+  - Суть: Посещаемость студента по дисциплине и общая сводка считаются по обрезанной выборке и разными формулами
+  - Файлы: apps/api/src/modules/attendance/attendance.service.ts, apps/web/src/views/attendance/ui/student-attendance-view.tsx, apps/web/src/views/courses/ui/course-view.tsx, packages/shared-schemas/src/attendance.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F14; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F17 · P1 · проблемы: C-F17 · после: FIX-C-F07, FIX-C-F08, FIX-C-F12 · стоп: контракт
+  - Суть: Со второго семестра студент не видит новых заданий: список — 100 самых ранних по сроку за всё время
+  - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/me/me.service.ts, apps/web/src/entities/assignment/api/assignment-api.ts, apps/web/src/views/academic/ui/academic-view.tsx, apps/web/src/views/assignments/ui/student-assignments-view.tsx, apps/web/src/views/calendar/ui/calendar-view.tsx, apps/web/src/views/tasks/ui/tasks-view.tsx, packages/shared-schemas/src/assignments.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F17; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F18 · P1 · проблемы: C-F18 · после: FIX-C-F14 · стоп: контракт
+  - Суть: Материалы: преподаватель видит 200 последних материалов всего вуза, а не свои; у студента старые материалы исчезают
+  - Файлы: apps/api/src/modules/materials/materials.service.ts, apps/web/src/entities/material/api/material-api.ts, apps/web/src/views/courses/ui/course-view.tsx, apps/web/src/views/courses/ui/courses-view.tsx, apps/web/src/views/materials/ui/materials-view.tsx, packages/shared-schemas/src/materials.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F18; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-C-F19 · P1 · проблемы: C-F19 · стоп: контракт
+  - Суть: Очередь записи в деканат: закрытые записи вытесняют новые после 300 строк
+  - Файлы: apps/api/src/modules/appointments/appointments.service.spec.ts, apps/api/src/modules/appointments/appointments.service.ts, apps/web/src/entities/appointment/api/appointment-api.ts, apps/web/src/views/appointments/ui/dean-appointments-view.tsx, packages/shared-schemas/src/appointments.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F01 · P1 · проблемы: D-F01
+  - Суть: Очередь деканата и админа вуза показывает чужие черновики, и при сортировке по умолчанию — первыми
+  - Файлы: apps/api/src/modules/application-services/application-process.service.ts, apps/api/src/modules/application-services/applications.service.spec.ts, apps/api/src/modules/application-services/applications.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F02 · P1 · проблемы: D-F02 · после: FIX-D-F01 · стоп: контракт
+  - Суть: Кнопка «Отозвать» видна в статусах, из которых сервер отзыв не пропускает
+  - Файлы: apps/api/src/modules/application-services/applications.service.spec.ts, apps/web/src/widgets/applications/ui/application-detail.tsx, packages/shared-schemas/src/application-services.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F03 · P1 · проблемы: D-F03 · после: FIX-D-F01, FIX-D-F02
+  - Суть: Повторная отправка не проверяет комплект: удалённый «к замене» документ пропускает заявку дальше
+  - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/api/src/modules/application-services/applications.service.spec.ts, apps/api/src/modules/application-services/applications.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F04 · P1 · проблемы: D-F04 · после: FIX-D-F01, FIX-D-F03
+  - Суть: Переходы заявки без проверки статуса в UPDATE: двойная отправка перевыпускает номер, гонка откатывает статус
+  - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/api/src/modules/application-services/applications.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F05 · P1 · проблемы: D-F05
+  - Суть: Мастер заявки: после смены услуги отправляется черновик прежней услуги
+  - Файлы: apps/web/src/widgets/applications/ui/create-wizard.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F06 · P1 · проблемы: D-F06 · после: FIX-D-F03, FIX-D-F04 · стоп: контракт
+  - Суть: Сотрудник видит только первую страницу документа заявки, просмотр не попадает в журнал документа
+  - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/web/src/widgets/applications/ui/staff-workspace.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F07 · P1 · проблемы: D-F07
+  - Суть: Комплект по запросу документов меняется после проверки: принятый комплект с подменённым документом остаётся ACCEPTED
+  - Файлы: apps/api/src/modules/documents/document-requests.service.spec.ts, apps/api/src/modules/documents/document-requests.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F08 · P1 · проблемы: D-F08
+  - Суть: Архивация по сроку хранения останавливается навсегда, как только накопится 500 «просроченных, но ещё не к архиву» документов
+  - Файлы: apps/api/src/modules/documents/document-types.service.ts, apps/api/src/modules/documents/documents.service.spec.ts, apps/api/src/modules/documents/documents.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F09 · P1 · проблемы: D-F09 · после: FIX-A-F07, FIX-B-F03, FIX-B-F07 · стоп: контракт
+  - Суть: Каталог типов документов вуза не доходит до клиентов: выключенный тип ломает загрузку, собственные типы недоступны
+  - Файлы: apps/api/src/modules/documents/document-types.controller.ts, apps/web/src/entities/document-type/api/document-type-api.ts, apps/web/src/views/documents/ui/upload-wizard.tsx, apps/web/src/widgets/applications/ui/result-modal.tsx, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F10 · P1 · проблемы: D-F10 · после: FIX-B-F03, FIX-B-F07, FIX-D-F09 · стоп: контракт
+  - Суть: Доступ к документу третьим лицам не доходит до получателя
+  - Файлы: apps/api/src/modules/documents/documents.controller.ts, apps/web/src/views/documents/ui/, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F11 · P1 · проблемы: D-F11
+  - Суть: Два одновременных решения по жалобе применяют меру дважды
+  - Файлы: apps/api/src/modules/complaints/complaints.service.spec.ts, apps/api/src/modules/complaints/complaints.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F12 · P1 · проблемы: D-F12 · после: FIX-B-F07, FIX-D-F09, FIX-D-F10
+  - Суть: Правка одобренной вакансии сразу видна студентам без повторной модерации
+  - Файлы: apps/api/src/modules/career/vacancies.service.spec.ts, apps/api/src/modules/career/vacancies.service.ts, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-D-F13 · P1 · проблемы: D-F13 · после: FIX-A-F08, FIX-B-F08, FIX-D-F12 · стоп: миграция
+  - Суть: Истёкший допуск компании не снимает её вакансии: студенты продолжают откликаться, компания получает новых кандидатов
+  - Файлы: apps/api/src/modules/career/applications.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/career/vacancies.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F02 · P1 · проблемы: E-F02
+  - Суть: Цитата оригинала в репосте отдаётся без проверки видимости — и после удаления оригинала модератором
+  - Файлы: apps/api/src/modules/posts/posts.service.ts, apps/web/src/widgets/feed-list/ui/post-card.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F03 · P1 · проблемы: E-F03 · после: FIX-E-F02 · стоп: контракт
+  - Суть: Модераторы и админы не видят в ленте посты, которые вправе снимать и закреплять
+  - Файлы: apps/api/src/modules/posts/posts.service.ts, apps/web/src/views/feed/ui/feed-view.tsx, packages/shared-schemas/src/posts.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F04 · P1 · проблемы: E-F04 · после: FIX-E-F02, FIX-E-F03 · стоп: контракт
+  - Суть: Лента выгружает все реакции каждого поста; реакция — произвольная строка
+  - Файлы: apps/api/openapi.json, apps/api/src/modules/posts/posts.service.ts, apps/web/src/entities/post/model/types.ts, packages/shared-schemas/src/posts.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F05 · P1 · проблемы: E-F05 · после: FIX-E-F02, FIX-E-F03, FIX-E-F04 · стоп: контракт
+  - Суть: Ссылка на каждое медиа ленты — отдельный запрос; лента упирается в лимит 100 запросов/мин
+  - Файлы: apps/api/openapi.json, apps/api/src/modules/posts/posts.service.ts, apps/web/src/entities/post/model/types.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F06 · P1 · проблемы: E-F06 · после: FIX-E-F03, FIX-E-F04, FIX-E-F05 · стоп: миграция
+  - Суть: Порядок ленты: свежий пост тонет — приоритет аудитории раньше времени, отложенные и черновики по дате создания
+  - Файлы: apps/api/src/modules/posts/posts.service.ts, docs/PROJECT.md, prisma/schema/05-posts.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F07 · P1 · проблемы: E-F07
+  - Суть: Статьи и опросы закрытого профиля доступны всем по прямому запросу, включая работодателей и другие вузы
+  - Файлы: apps/api/src/modules/polls/polls.service.ts, apps/api/src/modules/profile-content/profile-content.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F08 · P1 · проблемы: E-F08 · после: FIX-D-F11 · стоп: контракт, миграция
+  - Суть: Контент профиля нельзя ни обжаловать, ни снять модератором
+  - Файлы: apps/api/src/modules/complaints/complaints.service.ts, packages/shared-schemas/src/complaints.ts, prisma/schema/_enums.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F09 · P1 · проблемы: E-F09 · после: FIX-A-F01, FIX-A-F04, FIX-A-F05
+  - Суть: Блокировка не действует на соцчасть: дружба остаётся и продолжает открывать закрытый профиль
+  - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/friends/friends.service.ts, apps/api/src/modules/users/users.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F10 · P1 · проблемы: E-F10 · после: FIX-A-F04, FIX-A-F05, FIX-E-F09
+  - Суть: Удаление аккаунта оставляет соцконтент: фото и видео в публичном бакете, статьи, опросы, портфолио
+  - Файлы: apps/api/src/modules/users/users.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-E-F11 · P1 · проблемы: E-F11
+  - Суть: Список событий и календарь показывают 4 события: общий ключ кэша с виджетом главной
+  - Файлы: apps/web/src/entities/event/api/event-api.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F02 · P1 · проблемы: F-F02 · после: FIX-F-F01, FIX-E-F09 · стоп: контракт, миграция
+  - Суть: Каждое событие в чате стоит N полных перезапросов списка, а каждый запрос списка читает ВСЕ сообщения чатов страницы
+  - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/chats/support.service.ts, apps/web/src/entities/chat/api/chat-api.ts, apps/web/src/entities/chat/lib/use-chats-unread.ts, apps/web/src/widgets/chat-window/ui/chat-window.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F03 · P1 · проблемы: F-F03 · после: FIX-F-F01, FIX-E-F09, FIX-F-F02
+  - Суть: Дописка автора обращения из окна чата не открывает закрытое обращение и не будит команду
+  - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/chats/support.service.spec.ts, apps/api/src/modules/chats/support.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F04 · P1 · проблемы: F-F04 · после: FIX-E-F09, FIX-F-F02, FIX-F-F03
+  - Суть: Пустое «сообщение-призрак» с занятым seq при отказе загрузки вложения
+  - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/files/file.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F05 · P1 · проблемы: F-F05 · после: FIX-F-F02, FIX-F-F03, FIX-F-F04 · стоп: миграция
+  - Суть: Дубли официальных чатов при одновременной первой загрузке: уникального ограничения на (тип, scope) нет
+  - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, prisma/schema/06-chats.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F06 · P1 · проблемы: F-F06 · после: FIX-F-F04 · стоп: контракт
+  - Суть: `DELETE /files/:id` снимает вложение с любой сущности: сообщения, документа на проверке, материала, сториса
+  - Файлы: apps/api/src/modules/files/file.service.spec.ts, apps/api/src/modules/files/file.service.ts, apps/api/src/modules/files/files.controller.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F07 · P1 · проблемы: F-F07 · после: FIX-F-F03, FIX-F-F04, FIX-F-F05 · стоп: миграция
+  - Суть: Каждое сообщение чата — строка Notification для каждого участника, которая не гасится прочтением чата и никогда не удаляется
+  - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/notifications/notifications.processor.ts, apps/api/src/modules/notifications/notifications.service.ts, apps/web/src/widgets/notifications-bell/ui/notifications-bell.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F08 · P1 · проблемы: F-F08 · после: FIX-F-F04, FIX-F-F05, FIX-F-F07
+  - Суть: Письмо на каждое сообщение чата каждому офлайн-участнику; транзакционные письма стоят в той же однопоточной очереди
+  - Файлы: apps/api/src/common/queue/queue.constants.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/email/email.processor.ts, apps/api/src/modules/email/mailer.service.ts, apps/api/src/modules/notifications/notifications.processor.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F10 · P1 · проблемы: F-F10 · после: FIX-F-F09, FIX-F-F07, FIX-F-F08
+  - Суть: Зависший push-провайдер останавливает всю очередь уведомлений
+  - Файлы: apps/api/src/common/queue/queue.constants.ts, apps/api/src/modules/notifications/notifications.processor.ts, apps/api/src/modules/push/apns.service.ts, apps/api/src/modules/push/fcm.service.ts, apps/api/src/modules/push/push.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F11 · P1 · проблемы: F-F11 · после: FIX-D-F13, FIX-F-F07, FIX-F-F08
+  - Суть: Ночная чистка сирот читает весь листинг бакета в память API-процесса
+  - Файлы: apps/api/src/modules/cleanup/cleanup.service.spec.ts, apps/api/src/modules/cleanup/cleanup.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] FIX-F-F12 · P1 · проблемы: F-F12 · после: FIX-F-F05, FIX-F-F07, FIX-F-F08 · стоп: контракт
+  - Суть: Присутствие рассылается на весь вуз при каждом подключении/отключении, а веб перерисовывает окно чатов на каждое событие
+  - Файлы: apps/api/src/common/realtime/realtime.gateway.ts, apps/api/src/modules/chats/chats.service.ts, apps/web/src/widgets/chat-window/ui/chat-window.tsx, apps/web/src/widgets/user-profile/ui/public-user-profile.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-realtime · P2 · проблемы: A-F32 · после: FIX-A-F05
+  - Суть: Пробелы в тестах
+  - Файлы: apps/api/src/common/realtime/_.spec.ts, apps/api/src/modules/, apps/api/test/auth.e2e-spec.ts, apps/web/src/features/
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F32; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-auth-1 · P2 · проблемы: A-F10, A-F11, A-F12, A-F21 · после: FIX-B-F03, FIX-E-F09, FIX-E-F10
+  - Суть: QR-вход: повторный approve перезаписывает пользователя; QR превращает украденный access в 30-дневную сессию; Сгоревший challenge 2FA продолжает проверять коды и списывает backup-код; Чувствительные операции учётки без аудита; перебор текущего пароля ограничен только общим лимитом; Староста, пришедший по инвайту, не становится старостой группы — в группе два старосты
+  - Файлы: apps/api/src/modules/auth/auth.controller.ts, apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/qr-login.service.ts, apps/api/src/modules/auth/two-factor-attempts.spec.ts, apps/api/src/modules/auth/two-factor.service.ts, apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/users/users.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F10, A-F11, A-F12, A-F21; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-auth-2 · P2 · проблемы: A-F22, A-F29, A-F30 · после: FIX-A-F09, FIX-B-F03, P2-A-auth-1 · стоп: контракт, миграция
+  - Суть: Email при регистрации по ссылочному инвайту не подтверждается; Нет повторного согласия при смене редакции документов; правка даты рождения не пересматривает основание согласия; Параллельный refresh из нескольких вкладок может закончиться ложным «Сессия скомпрометирована» (не подтверждено)
+  - Файлы: apps/api/src/modules/auth, apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/users, apps/web, apps/web/src/shared/api/instance.ts, packages/shared-schemas, prisma/schema/01-users.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F22, A-F29, A-F30; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-chats · P2 · проблемы: A-F28 · после: FIX-D-F10, FIX-D-F12, FIX-E-F06
+  - Суть: Режим техработ не останавливает запись через WebSocket (не подтверждено как требование)
+  - Файлы: apps/api/src/modules/chats/chats.gateway.ts, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F28; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-cleanup · P2 · проблемы: A-F19 · после: FIX-F-F08, FIX-F-F11, P2-A-auth-1 · стоп: контракт
+  - Суть: Инвайты: админ вуза не видит чужие инвайты, отзыв без условной записи, истечение без аудита
+  - Файлы: apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/invites/invites.service.ts, packages/shared-schemas/src/invites.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-invites · P2 · проблемы: A-F17, A-F18, A-F20
+  - Суть: Декан может выдать инвайт преподавателя на чужой факультет своего вуза; Ссылка в письме-приглашении строится из всей строки CORS_ORIGIN; переходный фолбэк токена не удалён; Массовый импорт: XLSX разбирается целиком без потолка, по строке на запрос, без защиты от двойной отправки
+  - Файлы: apps/api/src/modules/invites/, apps/api/src/modules/invites/invite-hierarchy.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F17, A-F18, A-F20; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-me · P2 · проблемы: A-F26 · стоп: контракт
+  - Суть: Мёртвый код: /me/activity без потребителя, StudentToday не подключён; MeService читает чужие таблицы
+  - Файлы: apps/api/src/modules/me/_, apps/web/src/entities/activity/_, apps/web/src/widgets/today/
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F26; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-mini · P2 · проблемы: A-F23 · после: FIX-A-F04
+  - Суть: Telegram, когда-то привязанный к другому админу, привязать нельзя — 409 навсегда
+  - Файлы: apps/api/src/modules/mini/mini.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F23; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-search · P2 · проблемы: A-F16 · после: FIX-D-F12, FIX-E-F06, P2-A-chats · стоп: контракт
+  - Суть: username, объявленный «половиной учётных данных», раскрывается глобальным поиском
+  - Файлы: apps/api/src/modules/search/search.service.ts, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F16; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-student-id · P2 · проблемы: A-F25 · после: FIX-A-F06
+  - Суть: Проверка студбилета не пишется в аудит; QR действует как многоразовый пропуск в пределах TTL
+  - Файлы: apps/api/src/modules/student-id/student-id.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F25; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-users · P2 · проблемы: A-F13, A-F14, A-F15, A-F27 · после: FIX-E-F10, P2-A-auth-1, P2-A-auth-2 · стоп: контракт, миграция
+  - Суть: Удаление аккаунта без повторной аутентификации; можно удалить последнего администратора платформы; Смена аватара удаляет прежний до проверки нового файла; превью может прилипнуть к чужому аватару; В полной чужой карточке уходит язык интерфейса владельца; Список и выгрузка пользователей: синхронная сборка файла и поиск ILIKE без индекса
+  - Файлы: apps/api/src/modules/users/, apps/api/src/modules/users/users.controller.ts, apps/api/src/modules/users/users.service.ts, apps/web/src/widgets/account-settings, packages/shared-schemas/src/users.ts, prisma/schema/01-users.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F13, A-F14, A-F15, A-F27; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-BACKEND_RULES · P2 · проблемы: A-F31 · после: FIX-E-F06, P2-A-chats, P2-A-search
+  - Суть: Документация расходится с кодом: состав JWT
+  - Файлы: docs/BACKEND_RULES.md, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F31; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-A-other · P2 · проблемы: A-F24 · после: FIX-A-F07, P2-A-users
+  - Суть: Веб: блокировка одним кликом и без срока; завершения сессий в вебе нет
+  - Файлы: apps/web/messages/, apps/web/src/entities/user/api/user-api.ts, apps/web/src/widgets/account-settings, apps/web/src/widgets/users-table/ui/users-table.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F24; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-analytics · P2 · проблемы: B-F21, B-F22 · после: FIX-B-F07 · стоп: контракт
+  - Суть: Период аналитики платформы не ограничен: `from=1970` строит десятки тысяч корзин с джойном на `audit_logs`; Дашборд вуза: по некэшированному обзору на каждый факультет, загрузка аудиторий считает старые расписания
+  - Файлы: apps/api/src/modules/analytics/platform-analytics.service.spec.ts, apps/api/src/modules/analytics/platform-analytics.service.ts, apps/api/src/modules/analytics/university-analytics.controller.ts, apps/api/src/modules/analytics/university-analytics.service.ts, apps/web/src/widgets/stats-dashboard/ui/stats-dashboard.tsx, packages/shared-schemas/src/analytics.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F21, B-F22; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-faculties · P2 · проблемы: B-F12, B-F15 · после: FIX-B-F06, P2-A-auth-1, P2-A-cleanup · стоп: миграция
+  - Суть: Удаление вуза, факультета или группы не отзывает ожидающие инвайты — регистрация по ним падает невнятной ошибкой; Нет уникальности названия факультета в вузе и группы на факультете
+  - Файлы: apps/api/src/modules/faculties/faculties.service.ts, apps/api/src/modules/groups/groups.service.ts, apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/universities/universities.service.ts, prisma/schema/02-academic.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F12, B-F15; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-groups · P2 · проблемы: B-F25 · после: FIX-B-F06, P2-A-other, P2-B-faculties
+  - Суть: Сообщение об ошибке удаления группы не соответствует причине
+  - Файлы: apps/api/src/modules/groups/groups.service.ts, apps/web/messages/
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F25; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-onboarding · P2 · проблемы: B-F11 · после: FIX-B-F02 · стоп: миграция
+  - Суть: Подача демо-заявки: сбой Redis даёт 500, а повтор в течение 5 минут молча не шлёт письмо; уборка удаляет заявку с живой ссылкой
+  - Файлы: apps/api/src/modules/onboarding/demo-requests.service.spec.ts, apps/api/src/modules/onboarding/demo-requests.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-platform · P2 · проблемы: B-F19, B-F20 · после: FIX-B-F01, FIX-B-F09 · стоп: контракт, миграция
+  - Суть: Публичный `GET /platform/state` раскрывает анониму адресные баннеры, список вузов-адресатов и id дежурного; Наблюдение за платформой сканирует большие таблицы целиком
+  - Файлы: apps/api/src/modules/platform/platform.controller.ts, apps/api/src/modules/platform/platform.service.ts, apps/mini-app/src/api/platform.ts, apps/web/src/entities/platform/model/state.ts, prisma/schema/09-audit.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F19, B-F20; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-rooms · P2 · проблемы: B-F16
+  - Суть: Помещения: кэш статистики не сбрасывается, удаление молча обнуляет ссылки, пакетная выдача QR не идемпотентна при гонке
+  - Файлы: apps/api/src/modules/rooms/room-qr.service.ts, apps/api/src/modules/rooms/rooms.module.ts, apps/api/src/modules/rooms/rooms.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F16; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-specialties · P2 · проблемы: B-F14 · после: P2-A-auth-1, P2-A-auth-2, P2-A-users · стоп: контракт, миграция
+  - Суть: Справочник специальностей не связан с профилем: переименование не доходит, а комментарий в коде утверждает обратное
+  - Файлы: apps/api/src/modules/specialties/specialties.service.ts, apps/api/src/modules/users/users.service.ts, packages/shared-schemas/src/users.ts, prisma/schema/01-users.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F14; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-universities · P2 · проблемы: B-F17 · после: FIX-B-F03, P2-B-faculties
+  - Суть: Статистика вуза отвечает 500 при недоступном Redis
+  - Файлы: apps/api/src/modules/universities/universities.service.spec.ts, apps/api/src/modules/universities/universities.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F17; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-other-1 · P2 · проблемы: B-F18, B-F23, B-F24, B-F26 · после: P2-A-chats, P2-A-search, P2-A-BACKEND_RULES · стоп: контракт
+  - Суть: Рычаги платформы доступны только из мини-аппа, `announcedVersion` никто не читает, мобильные клиенты состояние платформы игнорируют; Health-check отдаёт анониму сырые ошибки зависимостей, не имеет таймаутов и тестов; Мёртвый код: `/analytics/teacher`, `/analytics/my-group`, `RoleLanding`; Catch-all `[...section]` превращает любую опечатку в URL зоны роли в заглушку «в разработке»
+  - Файлы: apps/android/app/src/main, apps/api/openapi.json, apps/api/railway.json, apps/api/src/modules/analytics/analytics.controller.ts, apps/api/src/modules/analytics/analytics.service.ts, apps/api/src/modules/health/, apps/ios/Sources, apps/web/src/app/, apps/web/src/entities/release/lib/pick-note.ts, apps/web/src/views/platform-admin/, apps/web/src/views/role-landing/, apps/web/src/widgets/app-shell/model/nav.ts, apps/web/src/widgets/whats-new/ui/whats-new-dialog.tsx, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F18, B-F23, B-F24, B-F26; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-other-2 · P2 · проблемы: B-F27 · после: P2-A-realtime
+  - Суть: Пробелы в тестах группы B
+  - Файлы: apps/api/src/modules/, apps/web/e2e/_
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F27; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-B-views-onboarding · P2 · проблемы: B-F13 · стоп: контракт
+  - Суть: Город вуза хранится в двух форматах: код КАТО или свободный текст
+  - Файлы: apps/web/src/views/onboarding/ui/step-body.tsx, apps/web/src/views/platform-admin/ui/demo-request-modal.tsx, packages/shared-schemas/src/onboarding.ts, packages/shared-schemas/src/universities.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-appointments · P2 · проблемы: C-F24 · после: FIX-C-F19
+  - Суть: Запись в деканат: деканат не уведомляется о новых заявках, `applicationId` не проверяется, лимитов нет
+  - Файлы: apps/api/src/modules/appointments/appointments.service.spec.ts, apps/api/src/modules/appointments/appointments.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F24; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-assignments · P2 · проблемы: C-F20 · после: FIX-C-F07, FIX-C-F08, FIX-C-F17 · стоп: миграция
+  - Суть: Задания: попытки, отложенная публикация, правка и переоценка не реализованы; переходы статусов не охраняются
+  - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/create-assignment-modal.tsx, apps/web/src/views/assignments/ui/grade-submission-modal.tsx, apps/web/src/views/assignments/ui/teacher-assignments-view.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F20; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-attendance · P2 · проблемы: C-F15 · после: FIX-C-F12, FIX-C-F14
+  - Суть: Отметка посещаемости на любую дату: не сверяется с днём недели пары, чётностью, отменами и активностью версии
+  - Файлы: apps/api/src/modules/attendance/attendance.service.spec.ts, apps/api/src/modules/attendance/attendance.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F15; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-consultations · P2 · проблемы: C-F23
+  - Суть: Консультации: слот можно создать в прошлом и внахлёст, список преподавателей собирается из 5000 строк в памяти
+  - Файлы: apps/api/src/modules/consultations/consultations.service.spec.ts, apps/api/src/modules/consultations/consultations.service.ts, packages/shared-schemas/src/consultations.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F23; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-courses · P2 · проблемы: C-F05 · после: FIX-C-F03
+  - Суть: Семестр: PATCH допускает `startsOn > endsOn`, «активных» семестров может быть сколько угодно
+  - Файлы: apps/api/src/modules/courses/courses.service.spec.ts, apps/api/src/modules/courses/courses.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-exams · P2 · проблемы: C-F10, C-F22 · после: FIX-C-F08, FIX-C-F09, FIX-C-F17 · стоп: контракт, миграция
+  - Суть: Пересдача затирает первую попытку: `ExamResult.attempt` никогда не пишется; Экзамены: студенты не узнают о назначении, переносе и результатах; нет проверки пересечений; ведомость видна студенту по мере заполнения
+  - Файлы: apps/api/src/modules/exams/exams.service.ts, apps/web/src/views/calendar/lib/calendar-events.ts, apps/web/src/views/calendar/ui/calendar-view.tsx, apps/web/src/views/exams/ui/exam-results-roster.tsx, packages/shared-schemas/src/exams.ts, prisma/schema/21-exams.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F10, C-F22; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-gradebook · P2 · проблемы: C-F21 · после: FIX-C-F08
+  - Суть: Журнал: сохранение колонки целиком затирает чужие правки; правки опубликованных оценок не видны студенту и не попадают в аудит значениями
+  - Файлы: apps/api/src/modules/gradebook/gradebook.service.spec.ts, apps/api/src/modules/gradebook/gradebook.service.ts, apps/web/src/views/gradebook/ui/gradebook-table.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F21; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-materials · P2 · проблемы: C-F25, C-F27 · после: P2-A-search, P2-A-BACKEND_RULES, P2-B-other-1 · стоп: контракт, миграция
+  - Суть: Дисциплина склеивается по строке названия: пары, материалы и курсы разных семестров путаются; Расписание: проверки пересечений и назначения преподавателя неполные
+  - Файлы: apps/api/src/modules/materials/materials.service.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/views/courses/lib/build-courses.ts, apps/web/src/views/courses/ui/course-view.tsx, docs/PROJECT.md, prisma/schema/03-schedule.prisma, prisma/schema/12-materials.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F25, C-F27; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-schedules · P2 · проблемы: C-F16 · после: P2-A-BACKEND_RULES, P2-B-other-1, P2-C-materials · стоп: контракт, миграция
+  - Суть: Разовые изменения расписания нельзя отменить/исправить, они не проверяются на конфликты и не обновляют преподавателей вживую
+  - Файлы: apps/api/src/modules/schedules/schedule-view.controller.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx, docs/PROJECT.md, packages/shared-schemas/src/schedule.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F16; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-other · P2 · проблемы: C-F30 · после: FIX-A-F01 · стоп: контракт, миграция
+  - Суть: Дублирование и мёртвый код
+  - Файлы: apps/api/src/common/, apps/web/src/entities/_/api, packages/shared-schemas/src/, prisma/schema/
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F30; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-schema · P2 · проблемы: C-F04 · после: FIX-B-F05 · стоп: миграция
+  - Суть: Дубли курса без семестра: уникальность `[subjectId, groupId, termId]` не работает при `termId = NULL`
+  - Файлы: prisma/schema/17-courses.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-entities-course · P2 · проблемы: C-F28 · после: FIX-C-F01, FIX-C-F02
+  - Суть: Справочники в UI: у декана кнопки, которые API отклоняет; правки предметов/семестров нет
+  - Файлы: apps/web/src/entities/course/api/course-api.ts, apps/web/src/views/course-admin/ui/course-admin-view.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F28; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-views-courses · P2 · проблемы: C-F29
+  - Суть: Пробелы в тестах
+  - Файлы: apps/web/src/views/courses/lib/build-courses.test.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F29; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-C-views-study-plan · P2 · проблемы: C-F26
+  - Суть: Учебный план: статус «Пройдена/Не сдана» по первой же опубликованной оценке активного семестра
+  - Файлы: apps/web/src/views/study-plan/ui/study-plan-view.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F26; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-export · P2 · проблемы: D-F19, D-F23 · после: FIX-D-F01 · стоп: миграция
+  - Суть: Справка об обучении: гонка двойной выдачи, отзыв без уведомления и без отметки на документе, отзыв без тестов; Публичная проверка резолвит коды любых выгрузок, комментарий утверждает обратное; контроллер без тестов
+  - Файлы: apps/api/src/common/export/export-registry.service.ts, apps/api/src/common/export/export-verify.controller.ts, apps/api/src/modules/application-services/application-process.service.ts, prisma/schema/27-exports.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F19, D-F23; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-application-services-1 · P2 · проблемы: D-F15, D-F16, D-F17, D-F18 · после: P2-A-cleanup, P2-B-other-1, P2-D-export · стоп: контракт, миграция
+  - Суть: Анкета услуги: `validation` теряется при настройке шаблона и нигде не проверяется, `formData` не ограничен, выключенную услугу можно отправить; Заявки: обработчики не узнают о новых и исправленных заявках, просрочка SLA ни о чём не сигналит, у модератора вуза нет экрана; Номер заявки через `count(startsWith)`: полный подсчёт на каждую подачу и исчерпание повторов при пиковой нагрузке; Обработка заявки: назначение в любом статусе, «готово» без результата, код выдачи генерируется и нигде не используется
+  - Файлы: apps/api/src/modules/application-services/application-process.service.ts, apps/api/src/modules/application-services/applications.service.ts, apps/api/src/modules/application-services/catalog-admin.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/web/src/app/moderator/university/, apps/web/src/widgets/app-shell/model/nav.ts, apps/web/src/widgets/applications/ui/application-detail.tsx, packages/shared-schemas/src/application-services.ts, prisma/schema/16-application-services.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F15, D-F16, D-F17, D-F18; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-application-services-2 · P2 · проблемы: D-F20
+  - Суть: Политика заявок: декан без факультета читает и обрабатывает «вузовские» заявки любого вуза (защита в глубину)
+  - Файлы: apps/api/src/modules/application-services/application.policy.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F20; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-auth · P2 · проблемы: D-F28 · после: P2-A-auth-2, P2-A-cleanup, P2-D-application-services-1
+  - Суть: Карьера без уведомлений; неподтверждённый работодатель входит в платформу, такие аккаунты не чистятся
+  - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F28; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-career · P2 · проблемы: D-F29, D-F30, D-F31 · после: FIX-D-F13, P2-A-auth-2, P2-D-auth · стоп: контракт
+  - Суть: Карьерные переходы без условия на статус: решение по вакансии вновь одобряет отозванную компанию, вакансия переходит в любой статус; Мёртвые и неподключённые части карьеры: «подтверждённые сертификаты» всегда пусты, карточка кандидата и метрики компании без экрана, карьерные мероприятия только из сида; Метрики карьеры: доля «открытых профилей» считается от студентов без старост; выпускники — выборкой до 10 000 строк
+  - Файлы: apps/api/src/modules/career/career-analytics.service.ts, apps/api/src/modules/career/career-events.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/documents/_, apps/api/src/modules/events/, apps/web/src/views/employer/_, packages/shared-schemas
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F29, D-F30, D-F31; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-cleanup · P2 · проблемы: D-F21 · после: P2-A-cleanup, P2-D-application-services-1, P2-D-auth
+  - Суть: Сканы удалённых документов и брошенных загрузок остаются в MinIO навсегда, удалённый документ по-прежнему открывается через заявку и запрос
+  - Файлы: apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/documents/documents.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F21; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-complaints · P2 · проблемы: D-F27 · после: FIX-D-F11, FIX-E-F08 · стоп: контракт
+  - Суть: Жалобы: пункт «Пожаловаться» у ролей, которым сервер отвечает 403; дубликаты завышают счётчик; закрытие дублей молчит; веб без жалобы из обращения
+  - Файлы: apps/api/src/modules/complaints/complaints.service.ts, apps/web/src/views/moderator-dashboard/ui/university-moderator-dashboard.tsx, apps/web/src/views/support-desk/ui/support-thread-modal.tsx, apps/web/src/widgets/feed-list/ui/post-tile-menu.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F27; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-data-export · P2 · проблемы: D-F26
+  - Суть: Выгрузка «мои данные» неполная и содержит чужие адреса
+  - Файлы: apps/api/src/modules/data-export/data-export.service.ts, docs/PERSONAL_DATA.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F26; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-documents · P2 · проблемы: D-F22, D-F24, D-F25 · после: FIX-D-F08, FIX-D-F10, P2-D-cleanup · стоп: контракт
+  - Суть: «Выданные университетом» документы правит владелец; студент сам заводит документы этой категории; разархивация теряет статус; Спец-режим админа платформы: метаданные чужого документа открываются без причины, хотя веб её собирает; Запросы документов: срок и закрытие не работают, автор — единственный, кто видит запрос, ответ открыт любой роли, неограниченные выборки
+  - Файлы: apps/api/src/modules/documents/document-requests.service.ts, apps/api/src/modules/documents/documents.controller.ts, apps/api/src/modules/documents/documents.service.ts, apps/web/src/entities/document/api/document-api.ts, apps/web/src/views/documents/ui/staff-requests.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F22, D-F24, D-F25; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-D-other · P2 · проблемы: D-F32
+  - Суть: Пробелы тестов группы D
+  - Файлы:
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F32; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-cleanup · P2 · проблемы: E-F15 · после: P2-D-application-services-1, P2-D-auth, P2-D-cleanup
+  - Суть: Медиа брошенных форм постов и сторис не убираются
+  - Файлы: apps/api/src/modules/cleanup/cleanup.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F15; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-other-1 · P2 · проблемы: E-F12, E-F13, E-F14, E-F16 · стоп: контракт, миграция
+  - Суть: Комментарии: жёсткий потолок без пагинации, автор поста не может чистить обсуждение, уведомлений нет; Переключатели закладок без идемпотентности: двойное нажатие → 409; Просмотры постов и статей: +1 на каждое открытие и UPDATE горячей строки; Кнопки модерации показываются без проверки ранга и scope
+  - Файлы:
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F12, E-F13, E-F14, E-F16; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-other-2 · P2 · проблемы: E-F17, E-F18, E-F20, E-F21 · стоп: контракт, миграция
+  - Суть: Опросы: фильтр видимости после `take 100`, флаг `anonymous` пустой, гонка правки с голосом; Список статей отдаёт полный текст; `GET /profile/bookmarks` без перепроверки видимости и без потребителя; Друзья: встречные заявки дублируются, удалённые и заблокированные остаются в списке, повторные заявки без паузы; Мероприятия: правки в вебе нет, частичная правка стирает встречу, участников не уведомляют
+  - Файлы:
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F17, E-F18, E-F20, E-F21; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-other-3 · P2 · проблемы: E-F22, E-F23, E-F27, E-F28 · стоп: контракт, миграция
+  - Суть: Напоминание за час теряется при пропущенном тике крона и для поздно созданных событий; Поиск: подсказка упоминаний шлёт невалидные запросы и гоняет все 6 источников; события ALL не находятся; Пробелы в тестах; Аудитории SUBJECT и TEACHERS расходятся с названием
+  - Файлы:
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F22, E-F23, E-F27, E-F28; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-shared-config · P2 · проблемы: E-F26
+  - Суть: Медиа профиля: нет квоты, старый постер сносится до проверки нового
+  - Файлы: packages/shared-config
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F26; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-shared-schemas · P2 · проблемы: E-F24, E-F25 · после: FIX-E-F03, FIX-E-F04 · стоп: контракт
+  - Суть: Портфолио: чужой просмотр без учёта удаления и закрытого профиля, порядок не меняется; Вкладки профиля: сортировка по частично загруженным страницам, бейджи с потолком, бесконечные тосты
+  - Файлы: packages/shared-schemas/src/portfolio.ts, packages/shared-schemas/src/posts.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F24, E-F25; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-E-schema · P2 · проблемы: E-F19 · стоп: миграция
+  - Суть: Сторис: гонка на один файл, API не закрыт флагом раскатки
+  - Файлы: prisma/schema/32-stories.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-link-preview · P2 · проблемы: F-F29
+  - Суть: Превью ссылок: DNS-rebinding между проверкой и запросом, чтение тела без своего таймаута, картинка OG грузится у читателей напрямую
+  - Файлы: apps/api/src/common/link-preview/link-preview.service.ts, apps/api/src/modules/chats/link-preview.processor.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F29; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-queue · P2 · проблемы: F-F19, F-F20 · после: P2-B-other-1, P2-C-materials, P2-C-schedules · стоп: контракт
+  - Суть: Мёртвый код и расхождение с документацией: отложенные сообщения без клиента, неиспользуемые job'ы, шаблоны и очередь; Очереди: упавшие job'ы хранятся в Redis вечно вместе с ПДн и сырыми токенами, короткий backoff теряет письма при сбое SMTP
+  - Файлы: apps/api/src/common/queue/queue.constants.ts, apps/api/src/modules/auth/password-reset.service.ts, apps/api/src/modules/chats/chats.controller.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/email/email.processor.ts, apps/api/src/modules/email/templates.ts, apps/api/src/modules/invites/invites.service.ts, docs/PROJECT.md
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F19, F-F20; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-realtime · P2 · проблемы: F-F18 · после: FIX-A-F03, FIX-F-F12 · стоп: зависимость
+  - Суть: Realtime держит состояние в памяти процесса: без Redis-адаптера, «вечный онлайн» при гонке подключения, `auth:refresh` с чужим токеном
+  - Файлы: apps/api/src/common/realtime/realtime.gateway.spec.ts, apps/api/src/common/realtime/realtime.gateway.ts, apps/api/src/main.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F18; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-chats-1 · P2 · проблемы: F-F14, F-F15, F-F16, F-F17 · после: FIX-F-F12, P2-A-chats, P2-F-queue · стоп: контракт, миграция
+  - Суть: Отметка прочтения — по `createdAt`, а не по `seq`; заглушённые чаты идут в бейдж; очищенные периоды не учитываются в счётчике; `chat:action` в больших чатах без проверки членства и без ограничения частоты WS-событий; Правка и удаление своих сообщений без проверки текущего членства; Жизненный цикл группы и официальных чатов: удаление/бан/вступление без живых сигналов, «удалить чат» для официальных и «Сохранённых»
+  - Файлы: apps/api/src/modules/chats/chats.gateway.spec.ts, apps/api/src/modules/chats/chats.gateway.ts, apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, apps/web/src/entities/chat/lib/use-chats-unread.ts, apps/web/src/widgets/chat-window/lib/read-tracking.ts, apps/web/src/widgets/chat-window/ui/chat-window.tsx, apps/web/src/widgets/chat-window/ui/conversation-list.tsx, prisma/schema/06-chats.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F14, F-F15, F-F16, F-F17; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-chats-2 · P2 · проблемы: F-F21, F-F22, F-F23, F-F24 · после: P2-E-cleanup, P2-F-queue, P2-F-chats-1 · стоп: миграция
+  - Суть: Хранилище: вложения удалённых сообщений и брошенные загрузки живут вечно, отчёт о месте не видит вариантов, аватар группы удаляется до проверки нового; Накладные расходы на каждое сообщение и чтение в больших чатах; Поиск и выгрузка переписки: ILIKE без индекса, старейшие 5 000 сообщений, игнор очистки; Мелкие дефекты переписки: обход квоты запроса удалением, личный чат «с собой», гонки реакций и опросов, «поделиться» шире аудитории поста
+  - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/cleanup/cleanup.service.spec.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/web/src/widgets/chat-window/ui/chat-window.tsx, prisma/schema/06-chats.prisma
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F21, F-F22, F-F23, F-F24; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-chats-3 · P2 · проблемы: F-F27 · после: FIX-F-F02, FIX-F-F03
+  - Суть: Поддержка: ответ в склеенную ветку открывает «невидимое» обращение; команда — фиксированные 100 человек
+  - Файлы: apps/api/src/modules/chats/support.service.spec.ts, apps/api/src/modules/chats/support.service.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F27; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-cleanup · P2 · проблемы: F-F25, F-F26 · после: P2-D-cleanup, P2-E-cleanup, P2-F-chats-2 · стоп: контракт
+  - Суть: Push/уведомления: тумблер `systemEnabled` ничего не делает, нет группировки системных уведомлений, «онлайн» где угодно гасит пуш на телефон, токены устройств не чистятся; Самоконтроль и медиа: сигнал «Redis не отвечает» каждые 5 минут, ffmpeg без белого списка протоколов, `PROCESSING` не догоняется
+  - Файлы: apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/media/ffmpeg.ts, apps/api/src/modules/media/media.service.ts, apps/api/src/modules/notifications/notifications.processor.ts, apps/api/src/modules/notifications/notifications.service.ts, apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx, apps/web/worker/index.ts
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F25, F-F26; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-other · P2 · проблемы: F-F28
+  - Суть: Пробелы в тестах
+  - Файлы:
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F28; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+- [todo] P2-F-shared-realtime · P2 · проблемы: F-F13 · после: FIX-F-F12, P2-F-chats-1, P2-F-chats-2
+  - Суть: Реконнект сокета инвалидирует весь кэш react-query и сбрасывает подгруженную историю
+  - Файлы: apps/web/src/shared/realtime/realtime-context.tsx, apps/web/src/widgets/chat-window/ui/chat-window.tsx
+  - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
+
+<!-- задач: 133; P0/P1: 69; P2-пакетов: 64 -->

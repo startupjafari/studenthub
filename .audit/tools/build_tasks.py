@@ -12,6 +12,18 @@ from pathlib import Path
 
 issues = json.loads(Path('.audit/tools/issues.json').read_text())
 
+# Одна и та же проблема, найденная в двух группах: вторая входит в задачу первой.
+MERGE = {'D-F14': 'E-F01'}
+merged_into = {}
+for src, dst in MERGE.items():
+    merged_into.setdefault(dst, []).append(src)
+by_id = {i['id']: i for i in issues}
+for dst, srcs in merged_into.items():
+    for src in srcs:
+        if src in by_id and dst in by_id:
+            by_id[dst]['paths'] = sorted(set(by_id[dst]['paths']) | set(by_id[src]['paths']))
+issues = [i for i in issues if i['id'] not in MERGE]
+
 
 def module_of(path):
     m = re.match(r'apps/api/src/modules/([\w-]+)', path)
@@ -44,7 +56,8 @@ def stops_of(i):
 tasks = []
 for i in issues:
     if i['prio'] in ('P0', 'P1'):
-        tasks.append({'id': f'FIX-{i["id"]}', 'prio': i['prio'], 'issues': [i['id']],
+        tasks.append({'id': f'FIX-{i["id"]}', 'prio': i['prio'],
+                      'issues': [i['id']] + merged_into.get(i['id'], []),
                       'paths': set(i['paths']), 'stops': set(stops_of(i)),
                       'title': i['title']})
 
