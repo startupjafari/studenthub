@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { ApplicationDocumentsService } from './application-documents.service'
 import { ApplicationPolicy } from './application.policy'
@@ -68,8 +69,13 @@ function setup() {
     applicationEvent,
     queue,
     realtime,
+    file,
+    files,
   }
 }
+
+// Заявка обработчика в IN_REVIEW — исходная точка для запроса замены документа.
+const inReview = { studentId: 'stud', facultyId: 'fac', universityId: 'uni', status: 'IN_REVIEW' }
 
 describe('ApplicationDocumentsService.attach', () => {
   it('чужая заявка → WRONG_SCOPE', async () => {
@@ -217,5 +223,84 @@ describe('ApplicationDocumentsService.review', () => {
       service.review(dean, 'a1', 'ad1', 'request-replacement', 'причина'),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationDocumentsService.review — условие на статус заявки (D-F04)', () => {
+  it('request-replacement пишет переход с условием на прочитанный статус', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(inReview)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    await service.review(dean, 'a1', 'ad1', 'request-replacement', 'нужен новый скан')
+    expect(application.update).toHaveBeenCalledWith({
+      where: { id: 'a1', status: 'IN_REVIEW' },
+      data: { status: 'NEEDS_CORRECTION' },
+    })
+  })
+
+  // Параллельно заявку перевели (начали подготовку, отклонили, студент отозвал): откат в
+  // NEEDS_CORRECTION не должен затереть этот переход.
+  it('статус успели сменить → CONFLICT, документ не помечается и студент не уведомляется', async () => {
+    const { service, application, applicationDocument, queue, realtime } = setup()
+    application.findFirst.mockResolvedValue(inReview)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    application.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' }),
+    )
+    await expect(
+      service.review(dean, 'a1', 'ad1', 'request-replacement', 'причина'),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(applicationDocument.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationDocumentsService.remove (D-F03)', () => {
+  const owned = (status: string) => ({ id: 'a1', studentId: 'stud', status, serviceId: 's' })
+
+  it('в черновике убирает документ без условий', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(owned('DRAFT'))
+    await service.remove(student, 'a1', 'r1')
+    expect(applicationDocument.deleteMany).toHaveBeenCalledWith({
+      where: { applicationId: 'a1', requirementId: 'r1' },
+    })
+  })
+
+  it('в исправлении принятый документ убрать нельзя → BAD_REQUEST', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(owned('NEEDS_CORRECTION'))
+    applicationDocument.findFirst.mockResolvedValue({ status: 'ACCEPTED' })
+    await expect(service.remove(student, 'a1', 'r1')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(applicationDocument.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('в исправлении документ «к замене» убирается, но не принятый между проверкой и записью', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(owned('NEEDS_CORRECTION'))
+    applicationDocument.findFirst.mockResolvedValue({ status: 'REPLACEMENT_REQUIRED' })
+    await service.remove(student, 'a1', 'r1')
+    expect(applicationDocument.deleteMany).toHaveBeenCalledWith({
+      where: { applicationId: 'a1', requirementId: 'r1', status: { not: 'ACCEPTED' } },
+    })
+  })
+})
+
+describe('ApplicationDocumentsService.presignedUrl — черновик (D-F01)', () => {
+  it('обработчику документы неподанной заявки не открываются → NOT_FOUND', async () => {
+    const { service, application, files } = setup()
+    application.findFirst.mockResolvedValue(null)
+    await expect(service.presignedUrl(dean, 'a1', 'ad1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(application.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', deletedAt: null, AND: [{ submittedAt: { not: null } }] },
+      }),
+    )
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
   })
 })

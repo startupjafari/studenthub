@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { ApplicationsService } from './applications.service'
 import { ApplicationPolicy } from './application.policy'
@@ -11,10 +12,16 @@ const student: JwtPayload = {
   facultyId: 'fac',
   groupId: 'g',
 }
+const dean: JwtPayload = { ...student, sub: 'd', role: Role.DEAN, groupId: null }
+
+// Строку успели перевести между проверкой и записью: update с условием на статус её не нашёл.
+const staleStatus = () =>
+  new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' })
 
 function setup(overrides: Record<string, jest.Mock> = {}) {
   const application = {
     findFirst: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue({}),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockResolvedValue({ id: 'new' }),
@@ -104,6 +111,40 @@ describe('ApplicationsService.submit — gating', () => {
     // applicationDocument.findMany → [] (по умолчанию) → требование не покрыто
     await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
+
+  it('пишет с условием status=DRAFT — повторная отправка не перевыпускает номер', async () => {
+    const { service, application, applicationService } = setup()
+    application.findFirst.mockResolvedValue({ ...draft, deliveryType: 'ELECTRONIC' })
+    applicationService.findUnique.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    await service.submit(student, 'a1')
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a1', status: 'DRAFT' } }),
+    )
+  })
+
+  // Двойное «Отправить»: оба запроса прочитали DRAFT, первый уже записал SUBMITTED.
+  it('заявку уже отправили параллельным запросом → CONFLICT, без события', async () => {
+    const { service, application, applicationService, prisma } = setup()
+    application.findFirst.mockResolvedValue({ ...draft, deliveryType: 'ELECTRONIC' })
+    applicationService.findUnique.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    application.update.mockRejectedValue(staleStatus())
+    await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationsService.updateDraft — условие на статус', () => {
+  it('черновик отправили между проверкой и записью → CONFLICT', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status: 'DRAFT' })
+    application.update.mockRejectedValue(staleStatus())
+    await expect(service.updateDraft(student, 'a1', { formData: { x: 1 } })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a1', status: 'DRAFT' } }),
+    )
+  })
 })
 
 describe('ApplicationsService.cancel / resubmit', () => {
@@ -135,6 +176,53 @@ describe('ApplicationsService.cancel / resubmit', () => {
     })
     applicationDocument.count.mockResolvedValue(1) // остались REPLACEMENT_REQUIRED
     await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  // Регрессия D-F03: документ «к замене» удалили вместо замены — строк REPLACEMENT_REQUIRED
+  // нет, но обязательное требование не покрыто.
+  it('resubmit без обязательного документа (удалён вместо замены) → BAD_REQUEST', async () => {
+    const { service, application, serviceRequirement } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    serviceRequirement.findMany.mockResolvedValue([{ id: 'r1', titleRu: 'Удостоверение' }])
+    // applicationDocument.findMany → [] (по умолчанию): приложенного документа нет.
+    await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(application.update).not.toHaveBeenCalled()
+  })
+
+  it('resubmit с полным комплектом → RESUBMITTED с условием на NEEDS_CORRECTION', async () => {
+    const { service, application, serviceRequirement, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    serviceRequirement.findMany.mockResolvedValue([{ id: 'r1', titleRu: 'Удостоверение' }])
+    applicationDocument.findMany.mockResolvedValue([{ requirementId: 'r1' }])
+    await service.resubmit(student, 'a1')
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', status: 'NEEDS_CORRECTION' },
+        data: { status: 'RESUBMITTED' },
+      }),
+    )
+  })
+
+  it('resubmit, а заявку уже отправили повторно параллельным запросом → CONFLICT', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    application.update.mockRejectedValue(staleStatus())
+    await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   it('чужая заявка → WRONG_SCOPE', async () => {
@@ -182,12 +270,60 @@ describe('ApplicationsService.listGroupRequests — только группа с
   })
 })
 
+// Регрессия D-F01: черновик — не обращение, сотрудник его не видит ни в очереди, ни по id.
+describe('ApplicationsService — неподанные заявки видит только автор', () => {
+  const query = { page: 1, limit: 20, sortBy: 'submittedAt', sortOrder: 'desc' } as never
+  const notSubmitted = { submittedAt: { not: null } }
+
+  it('очередь сотрудника (декан, админ вуза, админ платформы) — без неподанных', async () => {
+    const uniAdmin: JwtPayload = { ...dean, role: Role.UNIVERSITY_ADMIN }
+    const platformAdmin: JwtPayload = { ...dean, role: Role.PLATFORM_ADMIN }
+    for (const viewer of [dean, uniAdmin, platformAdmin]) {
+      const { service, application } = setup()
+      await service.list(viewer, query)
+      const and = application.findMany.mock.calls[0][0].where.AND as Record<string, unknown>[]
+      expect(and).toContainEqual(notSubmitted)
+      // Счётчик пагинации — по тому же условию.
+      expect(application.count.mock.calls[0][0].where.AND).toContainEqual(notSubmitted)
+    }
+  })
+
+  it('студент свои черновики в списке видит', async () => {
+    const { service, application } = setup()
+    await service.list(student, query)
+    const and = application.findMany.mock.calls[0][0].where.AND as Record<string, unknown>[]
+    expect(and).toContainEqual({ studentId: 'stud' })
+    expect(and).not.toContainEqual(notSubmitted)
+  })
+
+  it('чужой черновик по id для сотрудника → NOT_FOUND', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue(null)
+    await expect(service.getById(dean, 'a1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(application.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a1', deletedAt: null, AND: [notSubmitted] } }),
+    )
+  })
+
+  it('свой черновик по id студент открывает', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    await service.getById(student, 'a1')
+    expect(application.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a1', deletedAt: null, AND: [{}] } }),
+    )
+  })
+})
+
 describe('ApplicationsService.list — «срок сегодня»', () => {
   it('сутки считаются по часам вуза, а не сервера', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-10-01T21:00:00.000Z')) // 02:00 по Алматы
     try {
       const { service, application } = setup()
-      const dean: JwtPayload = { ...student, sub: 'd', role: Role.DEAN }
       await service.list(dean, {
         page: 1,
         limit: 20,

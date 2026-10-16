@@ -81,7 +81,7 @@
   - Суть: Удалённый аккаунт сотрудника платформы сохраняет доступ через Telegram (бот, уведомления, мини-апп)
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/mini/mini.service.ts, apps/api/src/modules/telegram-hook/telegram-hook.service.ts, apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-A-F05 · P1 · проблемы: A-F05 · после: FIX-A-F01, FIX-A-F04
+- [in_progress] FIX-A-F05 · P1 · проблемы: A-F05 · после: FIX-A-F01, FIX-A-F04
   - Суть: После входа с 2FA у работодателя в токене нет companyId — экраны карьеры сломаны до первого refresh
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/users/users.service.ts, apps/api/test/auth.e2e-spec.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -93,11 +93,11 @@
   - Суть: Нет процесса восстановления доступа при потере аутентификатора 2FA
   - Файлы: apps/api/src/modules/auth/two-factor.service.ts, apps/api/src/modules/users/, apps/web/src/widgets/account-settings, apps/web/src/widgets/users-table, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-A-F08 · P1 · проблемы: A-F08 · после: FIX-A-F02, FIX-A-F05
+- [in_progress] FIX-A-F08 · P1 · проблемы: A-F08 · после: FIX-A-F02, FIX-A-F05
   - Суть: Таблица refresh_tokens растёт без очистки, а каждый refresh пишет строку в AuditLog
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-A-F09 · P1 · проблемы: A-F09 · после: FIX-A-F02, FIX-A-F05, FIX-A-F08
+- [in_progress] FIX-A-F09 · P1 · проблемы: A-F09 · после: FIX-A-F02, FIX-A-F05, FIX-A-F08
   - Суть: Два bcrypt cost 12 на каждый refresh — узкое место пула потоков при утреннем пике
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/refresh-secret.spec.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -185,7 +185,7 @@
   - Суть: Очередь записи в деканат: закрытые записи вытесняют новые после 300 строк
   - Файлы: apps/api/src/modules/appointments/appointments.service.spec.ts, apps/api/src/modules/appointments/appointments.service.ts, apps/web/src/entities/appointment/api/appointment-api.ts, apps/web/src/views/appointments/ui/dean-appointments-view.tsx, packages/shared-schemas/src/appointments.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F01 · P1 · проблемы: D-F01
+- [done] FIX-D-F01 · P1 · проблемы: D-F01
   - Суть: Очередь деканата и админа вуза показывает чужие черновики, и при сортировке по умолчанию — первыми
   - Файлы: apps/api/src/modules/application-services/application-process.service.ts, apps/api/src/modules/application-services/applications.service.spec.ts, apps/api/src/modules/application-services/applications.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -193,11 +193,11 @@
   - Суть: Кнопка «Отозвать» видна в статусах, из которых сервер отзыв не пропускает
   - Файлы: apps/api/src/modules/application-services/applications.service.spec.ts, apps/web/src/widgets/applications/ui/application-detail.tsx, packages/shared-schemas/src/application-services.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F03 · P1 · проблемы: D-F03 · после: FIX-D-F01, FIX-D-F02
+- [done] FIX-D-F03 · P1 · проблемы: D-F03 · после: FIX-D-F01, FIX-D-F02
   - Суть: Повторная отправка не проверяет комплект: удалённый «к замене» документ пропускает заявку дальше
   - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/api/src/modules/application-services/applications.service.spec.ts, apps/api/src/modules/application-services/applications.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F04 · P1 · проблемы: D-F04 · после: FIX-D-F01, FIX-D-F03
+- [done] FIX-D-F04 · P1 · проблемы: D-F04 · после: FIX-D-F01, FIX-D-F03
   - Суть: Переходы заявки без проверки статуса в UPDATE: двойная отправка перевыпускает номер, гонка откатывает статус
   - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/api/src/modules/application-services/applications.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -209,11 +209,11 @@
   - Суть: Сотрудник видит только первую страницу документа заявки, просмотр не попадает в журнал документа
   - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/web/src/widgets/applications/ui/staff-workspace.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F07 · P1 · проблемы: D-F07
+- [in_progress] FIX-D-F07 · P1 · проблемы: D-F07
   - Суть: Комплект по запросу документов меняется после проверки: принятый комплект с подменённым документом остаётся ACCEPTED
   - Файлы: apps/api/src/modules/documents/document-requests.service.spec.ts, apps/api/src/modules/documents/document-requests.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F08 · P1 · проблемы: D-F08
+- [in_progress] FIX-D-F08 · P1 · проблемы: D-F08
   - Суть: Архивация по сроку хранения останавливается навсегда, как только накопится 500 «просроченных, но ещё не к архиву» документов
   - Файлы: apps/api/src/modules/documents/document-types.service.ts, apps/api/src/modules/documents/documents.service.spec.ts, apps/api/src/modules/documents/documents.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -221,7 +221,7 @@
   - Суть: Каталог типов документов вуза не доходит до клиентов: выключенный тип ломает загрузку, собственные типы недоступны
   - Файлы: apps/api/src/modules/documents/document-types.controller.ts, apps/web/src/entities/document-type/api/document-type-api.ts, apps/web/src/views/documents/ui/upload-wizard.tsx, apps/web/src/widgets/applications/ui/result-modal.tsx, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F10 · P1 · проблемы: D-F10 · после: FIX-B-F03, FIX-B-F07, FIX-D-F09 · стоп: контракт
+- [in_progress] FIX-D-F10 · P1 · проблемы: D-F10 · после: FIX-B-F03, FIX-B-F07, FIX-D-F09 · стоп: контракт
   - Суть: Доступ к документу третьим лицам не доходит до получателя
   - Файлы: apps/api/src/modules/documents/documents.controller.ts, apps/web/src/views/documents/ui/, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -229,11 +229,11 @@
   - Суть: Два одновременных решения по жалобе применяют меру дважды
   - Файлы: apps/api/src/modules/complaints/complaints.service.spec.ts, apps/api/src/modules/complaints/complaints.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F12 · P1 · проблемы: D-F12 · после: FIX-B-F07, FIX-D-F09, FIX-D-F10
+- [in_progress] FIX-D-F12 · P1 · проблемы: D-F12 · после: FIX-B-F07, FIX-D-F09, FIX-D-F10
   - Суть: Правка одобренной вакансии сразу видна студентам без повторной модерации
   - Файлы: apps/api/src/modules/career/vacancies.service.spec.ts, apps/api/src/modules/career/vacancies.service.ts, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-D-F13 · P1 · проблемы: D-F13 · после: FIX-A-F08, FIX-B-F08, FIX-D-F12 · стоп: миграция
+- [in_progress] FIX-D-F13 · P1 · проблемы: D-F13 · после: FIX-A-F08, FIX-B-F08, FIX-D-F12 · стоп: миграция
   - Суть: Истёкший допуск компании не снимает её вакансии: студенты продолжают откликаться, компания получает новых кандидатов
   - Файлы: apps/api/src/modules/career/applications.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/career/vacancies.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -577,6 +577,10 @@
 <!-- задач: 133; P0/P1: 69; P2-пакетов: 64 -->
 
 ### Дополнительные задачи (хвосты исправлений)
+
+- [todo] P2-D-applications-web-followup · P2 · из FIX-D-F03: в вебе (и iOS/Android) скрыть «Убрать» у ACCEPTED-документа, пока ждут исправление (сервер отвечает 400); выполнить вместе с FIX-D-F02/D-F05/D-F06
+  - Файлы: apps/web/src/views/applications/**, apps/web/src/entities/applications/**
+  - Готово, когда: кнопки нет у принятых документов в статусе исправления, тесты зелёные.
 
 - [todo] P2-E-portfolio-followup · P2 · из FIX-E-F01: экран резюме — подсказка, что PRIVATE/UNIVERSITY не попадают в публичную ссылку и карточку работодателя; `portfolioCount` в оценке готовности не должен учитывать PRIVATE, если оценку видит работодатель
   - Файлы: apps/web/src/views/career/**, apps/api/src/modules/career/career-profile.service.ts

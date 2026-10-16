@@ -228,6 +228,18 @@ describe('ApplicationProcessService — scope', () => {
     const { service } = setup({ ...base, status: 'SUBMITTED', facultyId: 'other' })
     await expect(service.take(dean, 'a1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
+
+  // Регрессия D-F01: черновик студент никуда не подавал — для обработчика его нет (404).
+  it('неподанная заявка (черновик) обработчику не находится → NOT_FOUND', async () => {
+    const { service, prisma } = setup({ ...base, status: 'DRAFT' })
+    prisma.application.findFirst.mockResolvedValue(null)
+    await expect(service.assign(dean, 'a1', 'u2')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.application.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', deletedAt: null, AND: [{ submittedAt: { not: null } }] },
+      }),
+    )
+  })
 })
 
 describe('ApplicationProcessService — справка об обучении', () => {

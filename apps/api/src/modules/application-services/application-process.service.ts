@@ -463,8 +463,9 @@ export class ApplicationProcessService {
   // ── helpers ────────────────────────────────────────────────────────────────
 
   private async load(viewer: JwtPayload, id: string) {
+    // Неподанная заявка сотруднику не видна (404): ни назначить, ни прочитать её через действия.
     const app = await this.prisma.application.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, AND: [this.policy.submittedOnlyWhere(viewer)] },
       select: PROC_SELECT,
     })
     if (!app) {

@@ -57,6 +57,21 @@ describe('ApplicationPolicy — scopeWhere', () => {
   })
 })
 
+describe('ApplicationPolicy — submittedOnlyWhere', () => {
+  it('сотрудникам и админу платформы — только поданные; студенту и старосте — свои черновики', () => {
+    for (const role of [
+      Role.DEAN,
+      Role.UNIVERSITY_ADMIN,
+      Role.UNIVERSITY_MODERATOR,
+      Role.PLATFORM_ADMIN,
+    ]) {
+      expect(policy.submittedOnlyWhere(viewer(role))).toEqual({ submittedAt: { not: null } })
+    }
+    expect(policy.submittedOnlyWhere(viewer(Role.STUDENT))).toEqual({})
+    expect(policy.submittedOnlyWhere(viewer(Role.STAROSTA))).toEqual({})
+  })
+})
+
 describe('ApplicationPolicy — canRead / canProcess', () => {
   it('студент видит только свою заявку', () => {
     expect(policy.canRead(viewer(Role.STUDENT, { sub: 'stud' }), app)).toBe(true)

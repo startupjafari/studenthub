@@ -131,7 +131,10 @@ export class ApplicationsService {
     if (dto.formData !== undefined) {
       data.formData = dto.formData as Prisma.InputJsonValue
     }
-    return this.prisma.application.update({ where: { id }, data, select: APP_SELECT })
+    // Статус — в условии записи: черновик, отправленный параллельным запросом, уже не правится.
+    return this.prisma.application
+      .update({ where: { id, status: 'DRAFT' }, data, select: APP_SELECT })
+      .catch(rethrowStaleStatus)
   }
 
   /** Отправить заявку: DRAFT → SUBMITTED. Присваивает номер, срок по SLA, валидирует форму (§13/§14/§40). */
@@ -156,11 +159,17 @@ export class ApplicationsService {
     )
     return this.withNumberRetry(year, (number) =>
       this.prisma.$transaction(async (tx) => {
-        const updated = await tx.application.update({
-          where: { id },
-          data: { status: 'SUBMITTED', number, submittedAt: now, dueAt },
-          select: APP_SELECT,
-        })
+        // Условие на DRAFT в самой записи: двойное «Отправить» (или повтор после таймаута)
+        // проходило проверку чтением дважды и перевыпускало номер, а отправка, опоздавшая к
+        // взятию заявки в работу, возвращала её из IN_REVIEW в SUBMITTED. Теперь второй
+        // запрос получает CONFLICT (P2002 по номеру не трогаем — его ловит withNumberRetry).
+        const updated = await tx.application
+          .update({
+            where: { id, status: 'DRAFT' },
+            data: { status: 'SUBMITTED', number, submittedAt: now, dueAt },
+            select: APP_SELECT,
+          })
+          .catch(rethrowStaleStatus)
         await tx.applicationEvent.create({
           data: {
             applicationId: id,
@@ -219,12 +228,18 @@ export class ApplicationsService {
     if (pending > 0) {
       throw new AppException('BAD_REQUEST', 'Замените все документы, отмеченные к исправлению')
     }
+    // Комплект проверяется заново, как при первой отправке: документ, отмеченный к замене,
+    // можно было просто удалить — строк REPLACEMENT_REQUIRED не оставалось, и заявка уходила
+    // дальше без обязательного документа.
+    await this.assertRequiredDocuments(app.serviceId, id)
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.application.update({
-        where: { id },
-        data: { status: 'RESUBMITTED' },
-        select: APP_SELECT,
-      })
+      const updated = await tx.application
+        .update({
+          where: { id, status: 'NEEDS_CORRECTION' },
+          data: { status: 'RESUBMITTED' },
+          select: APP_SELECT,
+        })
+        .catch(rethrowStaleStatus)
       await tx.applicationEvent.create({
         data: {
           applicationId: id,
@@ -287,8 +302,9 @@ export class ApplicationsService {
 
   /** Деталь заявки + человеческий timeline. Scope проверяется политикой (§22, защита от IDOR). */
   async getById(viewer: JwtPayload, id: string) {
+    // Чужой черновик для сотрудника не существует (404), как и в списке.
     const scope = await this.prisma.application.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, AND: [this.policy.submittedOnlyWhere(viewer)] },
       select: SCOPE_SELECT,
     })
     if (!scope) {
@@ -384,6 +400,8 @@ export class ApplicationsService {
     const and: Prisma.ApplicationWhereInput[] = [
       { deletedAt: null },
       this.policy.scopeWhere(viewer),
+      // Чужие черновики в очередь не попадают (см. ApplicationPolicy.submittedOnlyWhere).
+      this.policy.submittedOnlyWhere(viewer),
     ]
     if (query.status) and.push({ status: query.status })
     if (query.serviceId) and.push({ serviceId: query.serviceId })

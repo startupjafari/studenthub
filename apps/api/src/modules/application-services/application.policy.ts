@@ -84,6 +84,19 @@ export class ApplicationPolicy {
     return { id: '__none__' }
   }
 
+  /**
+   * Неподанные заявки — черновик и черновик, отозванный до отправки, — видит только их автор:
+   * это ещё не обращение, а в formData лежит свободный текст вроде причины академического
+   * отпуска (BACKEND_RULES §14.7). Признак «подана» — `submittedAt`: его ставит только submit,
+   * а из DRAFT других переходов, кроме SUBMITTED и CANCELLED, нет. Роль с `read:self` и так
+   * видит лишь свои заявки (scopeWhere/canRead), остальным — без неподанных: иначе очередь
+   * деканата при сортировке `submittedAt desc` начиналась с чужих черновиков (NULL идут первыми).
+   */
+  submittedOnlyWhere(viewer: JwtPayload): Prisma.ApplicationWhereInput {
+    if (this.can(viewer.role, 'read:self')) return {}
+    return { submittedAt: { not: null } }
+  }
+
   /** Может ли зритель ЧИТАТЬ конкретную заявку (§22: тот же scope на detail/файлы/комменты). */
   canRead(viewer: JwtPayload, app: AppScopeFields): boolean {
     if (this.can(viewer.role, 'read:all')) return true
