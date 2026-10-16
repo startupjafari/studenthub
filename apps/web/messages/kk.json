@@ -764,8 +764,17 @@
     "needFacultyFirst": "Алдымен факультет құрыңыз.",
     "groupCreated": "Топ құрылды",
     "groupDeleted": "Топ жойылды",
-    "groupHasStudents": "Студенттері бар топты жою мүмкін емес",
+    "groupDeleteBlocked": "Топты жою мүмкін емес",
+    "groupDeleteBlockedList": "Онда бар: {list}",
+    "groupBlockers": {
+      "students": "студенттер",
+      "schedule": "кесте",
+      "courses": "курстар",
+      "exams": "емтихандар",
+      "materials": "материалдар"
+    },
     "deleteGroupConfirm": "«{name}» тобын жою керек пе?",
+    "deleteGroupWarning": "Тек бос топты ғана жоюға болады — студенттерсіз, кестесіз, курстарсыз, емтихандарсыз және материалдарсыз. Жоюды қайтару мүмкін емес.",
     "noGroups": "Топтар әзірге жоқ",
     "noGroupsHint": "Жоғарыда алғашқы топты қосыңыз.",
     "hasStarosta": "Староста бар",

@@ -46,6 +46,19 @@ const MEMBER_SELECT = {
   avatarUrl: true,
 } satisfies Prisma.UserSelect
 
+// Что не даёт удалить группу — в порядке, в котором это разбирают руками: сначала переводят
+// студентов, потом убирают расписание и учебные записи. Ключ уходит клиенту в details.field.
+const GROUP_DELETION_BLOCKERS = ['students', 'schedule', 'courses', 'exams', 'materials'] as const
+type GroupDeletionBlocker = (typeof GROUP_DELETION_BLOCKERS)[number]
+
+const GROUP_DELETION_LABELS: Record<GroupDeletionBlocker, string> = {
+  students: 'студенты',
+  schedule: 'расписание',
+  courses: 'курсы',
+  exams: 'экзамены',
+  materials: 'материалы',
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -217,15 +230,40 @@ export class GroupService {
     return mapGroup(updated)
   }
 
-  /** Удаление группы — запрещено при наличии студентов/старосты (FK Restrict → CONFLICT). */
+  /**
+   * Удаление группы — только пустой: без студентов, расписания, курсов, экзаменов и материалов.
+   *
+   * Студенты и расписание держат группу связью Restrict, а курсы, экзамены и материалы
+   * привязаны к ней каскадом. Без проверки удаление группы, из которой студентов перевели
+   * в другую, молча стирало курсы с заданиями и сдачами, журнал оценок, экзамены с
+   * результатами и материалы — академическую историю этих студентов. Поэтому всё это
+   * считается заранее, и в ответе — что именно мешает (details.field — вид записей).
+   *
+   * Подсчёт и удаление — одна транзакция под блокировкой строки группы (FOR UPDATE).
+   * Вставка курса, экзамена или материала проверяет внешний ключ и берёт на строку группы
+   * FOR KEY SHARE, несовместимую с FOR UPDATE: заведённое параллельно либо попадает
+   * в подсчёт, либо ждёт удаления и падает на внешнем ключе — каскадом не исчезает.
+   */
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const group = await this.findOrThrow(id)
     this.assertUniversityScope(actor, group.universityId)
     try {
-      await this.prisma.group.delete({ where: { id } })
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "groups" WHERE id = ${id} FOR UPDATE`
+        const blockers = await this.deletionBlockers(tx, id)
+        if (blockers.length > 0) {
+          throw new AppException(
+            'CONFLICT',
+            `Нельзя удалить группу, пока в ней есть: ${blockers.map((b) => b.message).join(', ')}`,
+            blockers,
+          )
+        }
+        await tx.group.delete({ where: { id } })
+      })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new AppException('CONFLICT', 'Нельзя удалить группу со студентами')
+        // Страховка: подсчёт выше видит все связи Restrict, сюда попадать не должно.
+        throw new AppException('CONFLICT', 'Нельзя удалить группу: на неё ссылаются другие записи')
       }
       throw error
     }
@@ -237,6 +275,33 @@ export class GroupService {
       entityId: id,
       ...ctx,
     })
+  }
+
+  /**
+   * Что держит группу от удаления. Посещаемость висит на парах расписания, задания и
+   * журнал оценок — на курсах, поэтому отдельно их не считаем.
+   *
+   * Счётчики по чужим таблицам читаются здесь напрямую, вопреки правилу самодостаточности
+   * модуля (BACKEND_RULES §2.1), — как в `UniversityService.computeStats`. Подсчёт обязан
+   * идти в той же транзакции, что и удаление, под блокировкой строки группы: через сервисы
+   * это пять новых зависимостей модуля и проброс клиента транзакции в каждый ради пяти
+   * `count`. Наружу отсюда идут только числа.
+   */
+  private async deletionBlockers(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+  ): Promise<{ field: GroupDeletionBlocker; message: string }[]> {
+    const counts: Record<GroupDeletionBlocker, number> = {
+      students: await tx.user.count({ where: { groupId } }),
+      schedule: await tx.schedule.count({ where: { groupId } }),
+      courses: await tx.course.count({ where: { groupId } }),
+      exams: await tx.exam.count({ where: { groupId } }),
+      materials: await tx.material.count({ where: { groupId } }),
+    }
+    return GROUP_DELETION_BLOCKERS.filter((field) => counts[field] > 0).map((field) => ({
+      field,
+      message: `${GROUP_DELETION_LABELS[field]} (${counts[field]})`,
+    }))
   }
 
   private async findOrThrow(id: string): Promise<GroupDto> {

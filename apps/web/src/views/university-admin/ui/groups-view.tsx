@@ -35,6 +35,15 @@ function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
 
+// Что мешает удалить группу — сервер кладёт вид записей в details.field (groups.service.ts).
+const GROUP_BLOCKERS = ['students', 'schedule', 'courses', 'exams', 'materials'] as const
+type GroupBlocker = (typeof GROUP_BLOCKERS)[number]
+
+function groupBlockers(e: unknown): GroupBlocker[] {
+  const details = (e as { details?: { field?: string }[] }).details ?? []
+  return GROUP_BLOCKERS.filter((b) => details.some((d) => d.field === b))
+}
+
 function initials(f: string, l: string): string {
   return `${f[0] ?? ''}${l[0] ?? ''}`.toUpperCase()
 }
@@ -63,7 +72,20 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
     },
     onError: (e) => {
       const code = errCode(e)
-      toast.error(code === 'CONFLICT' ? t('groupHasStudents') : tErr(code))
+      if (code !== 'CONFLICT') {
+        toast.error(tErr(code))
+        return
+      }
+      // Сервер отказал и перечислил, что держит группу: студенты, расписание, курсы,
+      // экзамены, материалы. Показываем перечень, чтобы было ясно, что разбирать.
+      const blockers = groupBlockers(e)
+      toast.error(t('groupDeleteBlocked'), {
+        description: blockers.length
+          ? t('groupDeleteBlockedList', {
+              list: blockers.map((b) => t(`groupBlockers.${b}`)).join(', '),
+            })
+          : undefined,
+      })
     },
   })
 
@@ -112,6 +134,8 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
           onClick={() => {
             void confirm({
               title: t('deleteGroupConfirm', { name: group.name }),
+              // Заранее: удаляется только пустая группа, и удаление не отменить.
+              description: t('deleteGroupWarning'),
               destructive: true,
             }).then((ok) => {
               if (ok) deleteMut.mutate()

@@ -764,8 +764,17 @@
     "needFacultyFirst": "Сначала создайте факультет.",
     "groupCreated": "Группа создана",
     "groupDeleted": "Группа удалена",
-    "groupHasStudents": "Нельзя удалить группу со студентами",
+    "groupDeleteBlocked": "Группу нельзя удалить",
+    "groupDeleteBlockedList": "В ней есть: {list}",
+    "groupBlockers": {
+      "students": "студенты",
+      "schedule": "расписание",
+      "courses": "курсы",
+      "exams": "экзамены",
+      "materials": "материалы"
+    },
     "deleteGroupConfirm": "Удалить группу «{name}»?",
+    "deleteGroupWarning": "Удалить можно только пустую группу — без студентов, расписания, курсов, экзаменов и материалов. Удаление необратимо.",
     "noGroups": "Групп пока нет",
     "noGroupsHint": "Добавьте первую группу выше.",
     "hasStarosta": "Есть староста",

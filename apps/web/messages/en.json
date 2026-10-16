@@ -764,8 +764,17 @@
     "needFacultyFirst": "Create a faculty first.",
     "groupCreated": "Group created",
     "groupDeleted": "Group deleted",
-    "groupHasStudents": "Cannot delete a group with students",
+    "groupDeleteBlocked": "The group can’t be deleted",
+    "groupDeleteBlockedList": "It still has: {list}",
+    "groupBlockers": {
+      "students": "students",
+      "schedule": "schedule",
+      "courses": "courses",
+      "exams": "exams",
+      "materials": "materials"
+    },
     "deleteGroupConfirm": "Delete group \"{name}\"?",
+    "deleteGroupWarning": "Only an empty group can be deleted — one without students, schedule, courses, exams or materials. This can’t be undone.",
     "noGroups": "No groups yet",
     "noGroupsHint": "Add the first group above.",
     "hasStarosta": "Has monitor",
