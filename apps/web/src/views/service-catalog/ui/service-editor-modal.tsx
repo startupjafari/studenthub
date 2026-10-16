@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Controller, FormProvider, useForm } from 'react-hook-form'
+import { Controller, FormProvider, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
+import { Info } from 'lucide-react'
 import {
   DeliveryModeSchema,
   UpsertApplicationServiceSchema,
@@ -24,12 +25,14 @@ import {
   type ManagedServiceDetail,
 } from '../../../entities/application-service'
 import {
+  Alert,
+  AlertDescription,
   Button,
   Checkbox,
   FieldError,
   Input,
-  Label,
   Modal,
+  SectionPanel,
   SegmentedTabs,
   Select,
   SelectContent,
@@ -49,6 +52,7 @@ import {
 } from '../lib/form-values'
 import { RequirementsEditor } from './requirements-editor'
 import { FormFieldsEditor } from './form-fields-editor'
+import { Field, OptionRow } from './form-parts'
 
 type Section = 'main' | 'documents' | 'fields'
 
@@ -125,6 +129,10 @@ export function ServiceEditorModal({ service, onClose, onCustomized }: ServiceEd
     }),
   )
 
+  // Счётчики на вкладках: сколько документов и вопросов, видно, не открывая раздел.
+  const requirementsCount = useWatch({ control, name: 'requirements' })?.length ?? 0
+  const fieldsCount = useWatch({ control, name: 'formFields' })?.length ?? 0
+
   const errorLangs = langsWithErrors(errors)
   const deliveryLabel: Record<DeliveryMode, string> = {
     ELECTRONIC: t('deliveryElectronic'),
@@ -141,10 +149,19 @@ export function ServiceEditorModal({ service, onClose, onCustomized }: ServiceEd
     : t('newService')
 
   return (
-    <Modal onClose={onClose} title={title} size="3xl" height="stable">
+    // Окно со вкладками — постоянной высоты (DESIGN_SYSTEM §10.5): переключение разделов не
+    // двигает его под курсором. Тело отдаёт отступы и прокрутку содержимому: вкладки сверху
+    // и кнопки снизу закреплены, прокручивается только раздел между ними.
+    <Modal
+      onClose={onClose}
+      title={title}
+      size="3xl"
+      height="stable"
+      bodyClassName="overflow-hidden p-0"
+    >
       <FormProvider {...form}>
-        <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-5 pt-5">
             <SegmentedTabs<Section>
               aria-label={t('sections')}
               value={section}
@@ -160,10 +177,12 @@ export function ServiceEditorModal({ service, onClose, onCustomized }: ServiceEd
                   label: (
                     <TabLabel text={t('sectionDocuments')} alert={sectionHasError.documents} />
                   ),
+                  count: requirementsCount,
                 },
                 {
                   value: 'fields',
                   label: <TabLabel text={t('sectionFields')} alert={sectionHasError.fields} />,
+                  count: fieldsCount,
                 },
               ]}
             />
@@ -179,145 +198,170 @@ export function ServiceEditorModal({ service, onClose, onCustomized }: ServiceEd
             />
           </div>
 
-          {readOnly && <p className="text-sm text-muted-foreground">{t('templateReadOnly')}</p>}
-
-          <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-4">
-            {section === 'main' && (
-              <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="svc-name">{t('name')}</Label>
-                    <Input
-                      id="svc-name"
-                      aria-invalid={!!errors[`name${lang}`]}
-                      {...register(`name${lang}`)}
-                    />
-                    <FieldError>
-                      {errors[`name${lang}`] ? t('translationRequired') : null}
-                    </FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label>{t('category')}</Label>
-                    <Controller
-                      control={control}
-                      name="categoryId"
-                      render={({ field }) => (
-                        <Select value={field.value || undefined} onValueChange={field.onChange}>
-                          <SelectTrigger
-                            size="md"
-                            aria-label={t('category')}
-                            aria-invalid={!!errors.categoryId}
-                          >
-                            <SelectValue placeholder={t('categoryPick')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(categories.data ?? []).map((c) => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {pickLocale(
-                                  c as unknown as Record<string, unknown>,
-                                  'name',
-                                  locale,
-                                )}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                    <FieldError>{errors.categoryId ? t('categoryRequired') : null}</FieldError>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="svc-code">{t('code')}</Label>
-                    {/* Код — ключ, по которому копия вуза заменяет шаблон; после создания
-                        не меняется (сервер это тоже проверяет). */}
-                    <Input
-                      id="svc-code"
-                      disabled={service !== null}
-                      placeholder="dorm-certificate"
-                      aria-invalid={!!errors.code}
-                      aria-describedby="svc-code-hint"
-                      {...register('code')}
-                    />
-                    <p id="svc-code-hint" className="text-xs text-muted-foreground">
-                      {t('codeHint')}
-                    </p>
-                    <FieldError>{errors.code ? t('codeInvalid') : null}</FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="svc-sla">{t('slaHours')}</Label>
-                    <Input
-                      id="svc-sla"
-                      type="number"
-                      min={1}
-                      aria-invalid={!!errors.slaHours}
-                      {...register('slaHours', { valueAsNumber: true })}
-                    />
-                    <FieldError>{errors.slaHours ? t('slaInvalid') : null}</FieldError>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="svc-desc">{t('description')}</Label>
-                  <Textarea id="svc-desc" rows={3} {...register(`description${lang}`)} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="svc-instr">{t('instructions')}</Label>
-                  <Textarea
-                    id="svc-instr"
-                    rows={3}
-                    placeholder={t('instructionsPlaceholder')}
-                    {...register(`instructions${lang}`)}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <p className="text-sm font-medium">{t('delivery')}</p>
-                  <Controller
-                    control={control}
-                    name="deliveryModes"
-                    render={({ field }) => (
-                      <div className="flex flex-wrap gap-4">
-                        {DeliveryModeSchema.options.map((mode) => (
-                          <label key={mode} className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              checked={field.value.includes(mode)}
-                              onCheckedChange={(v) =>
-                                field.onChange(
-                                  v === true
-                                    ? [...field.value, mode]
-                                    : field.value.filter((m) => m !== mode),
-                                )
-                              }
-                            />
-                            {deliveryLabel[mode]}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  />
-                  <FieldError>{errors.deliveryModes ? t('deliveryRequired') : null}</FieldError>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <Flag name="requiresPickup" label={t('requiresPickup')} />
-                  <Flag
-                    name="facultyScoped"
-                    label={t('facultyScoped')}
-                    hint={t('facultyScopedHint')}
-                  />
-                  <Flag name="active" label={t('active')} hint={t('activeHint')} />
-                </div>
-              </>
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pt-4 pb-5">
+            {readOnly && (
+              <Alert variant="info">
+                <Info aria-hidden />
+                <AlertDescription>{t('templateReadOnly')}</AlertDescription>
+              </Alert>
             )}
 
-            {section === 'documents' && <RequirementsEditor lang={lang} readOnly={readOnly} />}
-            {section === 'fields' && <FormFieldsEditor lang={lang} readOnly={readOnly} />}
-          </fieldset>
+            <fieldset disabled={readOnly} className="flex min-w-0 flex-1 flex-col gap-4">
+              {section === 'main' && (
+                <>
+                  {/* Поля попарно в две равные колонки: у каждой пары одинаковая высота
+                      контролов (общий размер lg) и одинаковое устройство — подпись, поле,
+                      подсказка, ошибка, — поэтому колонки идут ровно друг против друга. */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field
+                      label={t('name')}
+                      htmlFor="svc-name"
+                      error={errors[`name${lang}`] ? t('translationRequired') : null}
+                    >
+                      <Input
+                        id="svc-name"
+                        aria-invalid={!!errors[`name${lang}`]}
+                        {...register(`name${lang}`)}
+                      />
+                    </Field>
+                    <Field
+                      label={t('category')}
+                      htmlFor="svc-category"
+                      error={errors.categoryId ? t('categoryRequired') : null}
+                    >
+                      <Controller
+                        control={control}
+                        name="categoryId"
+                        render={({ field }) => (
+                          <Select value={field.value || undefined} onValueChange={field.onChange}>
+                            <SelectTrigger id="svc-category" aria-invalid={!!errors.categoryId}>
+                              <SelectValue placeholder={t('categoryPick')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(categories.data ?? []).map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {pickLocale(
+                                    c as unknown as Record<string, unknown>,
+                                    'name',
+                                    locale,
+                                  )}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </Field>
 
-          <div className="flex items-center justify-between gap-2 border-t border-border pt-4">
+                    {/* Код — ключ, по которому копия вуза заменяет шаблон; после создания
+                        не меняется (сервер это тоже проверяет). */}
+                    <Field
+                      label={t('code')}
+                      htmlFor="svc-code"
+                      hint={t('codeHint')}
+                      error={errors.code ? t('codeInvalid') : null}
+                    >
+                      <Input
+                        id="svc-code"
+                        disabled={service !== null}
+                        placeholder="dorm-certificate"
+                        aria-invalid={!!errors.code}
+                        aria-describedby="svc-code-hint"
+                        {...register('code')}
+                      />
+                    </Field>
+                    <Field
+                      label={t('slaHours')}
+                      htmlFor="svc-sla"
+                      hint={t('slaHint')}
+                      error={errors.slaHours ? t('slaInvalid') : null}
+                    >
+                      <Input
+                        id="svc-sla"
+                        type="number"
+                        min={1}
+                        aria-invalid={!!errors.slaHours}
+                        aria-describedby="svc-sla-hint"
+                        {...register('slaHours', { valueAsNumber: true })}
+                      />
+                    </Field>
+
+                    <Field label={t('description')} htmlFor="svc-desc">
+                      <Textarea id="svc-desc" rows={4} {...register(`description${lang}`)} />
+                    </Field>
+                    <Field label={t('instructions')} htmlFor="svc-instr">
+                      <Textarea
+                        id="svc-instr"
+                        rows={4}
+                        placeholder={t('instructionsPlaceholder')}
+                        {...register(`instructions${lang}`)}
+                      />
+                    </Field>
+                  </div>
+
+                  {/* Флаги — две панели настроек одной высоты (DESIGN_SYSTEM §10.6): слева
+                      выдача результата, справа обработка заявки. */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <SectionPanel
+                      title={t('delivery')}
+                      subtitle={t('deliveryHint')}
+                      bodyClassName="py-0"
+                    >
+                      <Controller
+                        control={control}
+                        name="deliveryModes"
+                        render={({ field }) => (
+                          <>
+                            {DeliveryModeSchema.options.map((mode) => (
+                              <OptionRow
+                                key={mode}
+                                label={deliveryLabel[mode]}
+                                control={
+                                  <Checkbox
+                                    checked={field.value.includes(mode)}
+                                    onCheckedChange={(v) =>
+                                      field.onChange(
+                                        v === true
+                                          ? [...field.value, mode]
+                                          : field.value.filter((m) => m !== mode),
+                                      )
+                                    }
+                                  />
+                                }
+                              />
+                            ))}
+                          </>
+                        )}
+                      />
+                      <Flag name="requiresPickup" label={t('requiresPickup')} />
+                      <FieldError className="pb-3">
+                        {errors.deliveryModes ? t('deliveryRequired') : null}
+                      </FieldError>
+                    </SectionPanel>
+                    <SectionPanel
+                      title={t('processing')}
+                      subtitle={t('processingHint')}
+                      bodyClassName="py-0"
+                    >
+                      <Flag
+                        name="facultyScoped"
+                        label={t('facultyScoped')}
+                        hint={t('facultyScopedHint')}
+                      />
+                      <Flag name="active" label={t('active')} hint={t('activeHint')} />
+                    </SectionPanel>
+                  </div>
+                </>
+              )}
+
+              {section === 'documents' && <RequirementsEditor lang={lang} readOnly={readOnly} />}
+              {section === 'fields' && <FormFieldsEditor lang={lang} readOnly={readOnly} />}
+            </fieldset>
+          </div>
+
+          {/* Стороны кнопок фиксированы (DESIGN_SYSTEM §10.5): уход слева, подтверждение
+              справа. Ряд закреплён под разделом — на любой вкладке он в одном месте. */}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-4">
             <Button type="button" variant="outline" onClick={onClose}>
               {t('cancel')}
             </Button>
@@ -367,16 +411,16 @@ function Flag({
     <Controller<ServiceFormValues, typeof name>
       name={name}
       render={({ field }) => (
-        <label className="flex items-start gap-2 text-sm">
-          <Checkbox
-            checked={field.value ?? false}
-            onCheckedChange={(v) => field.onChange(v === true)}
-          />
-          <span className="flex flex-col">
-            {label}
-            {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-          </span>
-        </label>
+        <OptionRow
+          label={label}
+          hint={hint}
+          control={
+            <Checkbox
+              checked={field.value ?? false}
+              onCheckedChange={(v) => field.onChange(v === true)}
+            />
+          }
+        />
       )}
     />
   )
