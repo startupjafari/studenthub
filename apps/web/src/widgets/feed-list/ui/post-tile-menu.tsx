@@ -25,6 +25,7 @@ export function PostTileMenu({
   canDelete,
   isMine,
   onDeleted,
+  triggerClassName,
 }: {
   post: FeedPost
   canModerate: boolean
@@ -33,6 +34,8 @@ export function PostTileMenu({
   isMine: boolean
   /** Вызывается после удаления — лайтбоксу нужно закрыться, он показывает удалённый пост. */
   onDeleted?: () => void
+  /** Оформление кнопки «•••» — например, светлая на затемнении поверх фото в сетке. */
+  triggerClassName?: string
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
@@ -112,7 +115,10 @@ export function PostTileMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className={cn(
+          'flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+          triggerClassName,
+        )}
       >
         <MoreHorizontal className="size-4" aria-hidden />
       </button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type Ref } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { BarChart3 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { PollCard } from './poll-card'
 import { PollCreateModal } from './poll-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { useProgressive } from './use-progressive'
 
 interface Props {
   userId: string
@@ -50,6 +51,16 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
         : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
   }, [polls, filter, sort])
+  const { shown, pending, sentinelRef } = useProgressive(visible.length, 10, `${filter}|${sort}`)
+  const counts = useMemo(
+    () => ({
+      all: polls.length,
+      active: polls.filter((p) => !p.closed && p.status === 'PUBLISHED').length,
+      closed: polls.filter((p) => p.closed).length,
+      DRAFT: polls.filter((p) => p.status === 'DRAFT').length,
+    }),
+    [polls],
+  )
 
   const modal = creating && <PollCreateModal userId={userId} onClose={() => setCreating(false)} />
 
@@ -58,25 +69,9 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
       <>
         {modal}
         <ContentLayout sidebar={<FilterSkeleton groups={2} />}>
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 xl:grid-cols-2" aria-hidden>
             {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5"
-              >
-                <div className="flex items-center gap-2">
-                  <Skeleton className="size-9 rounded-full" />
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <Skeleton className="h-3.5 w-1/3" />
-                    <Skeleton className="h-3 w-1/4" />
-                  </div>
-                </div>
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-11 w-full rounded-xl" />
-                <Skeleton className="h-11 w-full rounded-xl" />
-                <Skeleton className="h-11 w-full rounded-xl" />
-                <Skeleton className="mt-1 h-3 w-1/3" />
-              </div>
+              <PollSkeleton key={i} />
             ))}
           </div>
         </ContentLayout>
@@ -103,22 +98,26 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
           active={filter === 'all'}
           onClick={() => setFilter('all')}
           label={t('filterAll')}
+          count={counts.all}
         />
         <FilterOption
           active={filter === 'active'}
           onClick={() => setFilter('active')}
           label={t('pollActive')}
+          count={counts.active}
         />
         <FilterOption
           active={filter === 'closed'}
           onClick={() => setFilter('closed')}
           label={t('pollClosed')}
+          count={counts.closed}
         />
         {isOwner && (
           <FilterOption
             active={filter === 'DRAFT'}
             onClick={() => setFilter('DRAFT')}
             label={t('filterDrafts')}
+            count={counts.DRAFT}
           />
         )}
       </FilterGroup>
@@ -142,13 +141,45 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
             {t('nothingFound')}
           </p>
         ) : (
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            {visible.map((poll) => (
+          // Карточки ряда — одной высоты: подвал с участниками стоит на одной линии.
+          <div className="grid gap-4 xl:grid-cols-2">
+            {visible.slice(0, shown).map((poll) => (
               <PollCard key={poll.id} poll={poll} isOwner={isOwner} />
+            ))}
+            {Array.from({ length: pending }, (_, j) => (
+              <PollSkeleton key={`pending-${j}`} ref={j === 0 ? sentinelRef : undefined} />
             ))}
           </div>
         )}
       </ContentLayout>
     </>
+  )
+}
+
+// Скелетон карточки опроса — той же формы, что и карточка: строка статуса, вопрос, три
+// варианта и подвал. Догруженные опросы встают на его место без сдвига соседей.
+function PollSkeleton({ ref }: { ref?: Ref<HTMLDivElement> }) {
+  return (
+    <div
+      ref={ref}
+      className="flex flex-col gap-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
+      aria-hidden
+    >
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-5 w-14 rounded-full" />
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="ml-auto h-3 w-12" />
+      </div>
+      <Skeleton className="h-5 w-3/4" />
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-10 w-full rounded-xl" />
+        <Skeleton className="h-10 w-full rounded-xl" />
+        <Skeleton className="h-10 w-full rounded-xl" />
+      </div>
+      <div className="mt-auto flex items-center justify-between border-t border-border pt-3">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-8 w-28 rounded-xl" />
+      </div>
+    </div>
   )
 }

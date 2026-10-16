@@ -6,7 +6,8 @@ import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
 import { fetchAuthorPosts, postKeys, type FeedPost } from '../../../entities/post'
 import { PostGrid } from '../../feed-list'
-import { Button, EmptyState, Skeleton } from '../../../shared/ui'
+import { EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
+import { useInfiniteScroll } from '../../../shared/lib'
 import { PostCreateModal } from './post-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
@@ -22,7 +23,9 @@ interface Props {
 type SortMode = 'new' | 'popular'
 type StatusFilter = 'all' | 'PUBLISHED' | 'DRAFT' | 'SCHEDULED'
 
-// Вкладка «Посты»: слева — сортировка и быстрые фильтры, справа — сетка карточек-публикаций.
+const PAGE_SIZE = 20
+
+// Вкладка «Посты»: слева — сортировка и быстрые фильтры, справа — мозаика публикаций.
 export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const [creating, setCreating] = useState(false)
@@ -37,12 +40,24 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
 
   const q = useInfiniteQuery({
     queryKey: postKeys.author(userId),
-    queryFn: ({ pageParam }) => fetchAuthorPosts(userId, { limit: 20, cursor: pageParam }),
+    queryFn: ({ pageParam }) => fetchAuthorPosts(userId, { limit: PAGE_SIZE, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
 
   const posts = (q.data?.pages ?? []).flatMap((p) => p.items)
+  // Следующая страница подгружается сама, когда низ мозаики подходит к экрану; пока она в
+  // пути, её места заняты скелетонами (сколько осталось, но не больше страницы).
+  const loadMoreRef = useInfiniteScroll<HTMLDivElement>({
+    hasNext: !!q.hasNextPage,
+    loading: q.isFetchingNextPage,
+    onLoad: () => void q.fetchNextPage(),
+  })
+  const total = q.data?.pages[0]?.total
+  // Хотя бы один скелетон, пока есть следующая страница: на нём висит маячок подгрузки.
+  const pending = q.hasNextPage
+    ? Math.max(1, Math.min(PAGE_SIZE, total !== undefined ? total - posts.length : PAGE_SIZE))
+    : 0
   const sorted = useMemo(() => {
     const filtered =
       isOwner && statusFilter !== 'all' ? posts.filter((p) => p.status === statusFilter) : posts
@@ -59,28 +74,13 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
       <>
         {modal}
         <ContentLayout sidebar={<FilterSkeleton />}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <article
-                key={i}
-                className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
-              >
-                <Skeleton className="aspect-[4/3] w-full rounded-none" />
-                <div className="flex flex-col gap-3 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <Skeleton className="h-4 w-2/3" />
-                    <Skeleton className="h-3 w-14" />
-                  </div>
-                  <div className="flex items-center gap-4 border-t border-border pt-3">
-                    <Skeleton className="h-5 w-10 rounded-full" />
-                    <Skeleton className="h-5 w-10 rounded-full" />
-                    <Skeleton className="size-5 rounded-full" />
-                    <Skeleton className="ml-auto h-5 w-10 rounded-full" />
-                  </div>
-                </div>
-              </article>
+          <MosaicGrid aria-hidden>
+            {Array.from({ length: 14 }).map((_, i) => (
+              <MosaicTile key={i} index={i}>
+                <Skeleton className="size-full rounded-none" />
+              </MosaicTile>
             ))}
-          </div>
+          </MosaicGrid>
         </ContentLayout>
       </>
     )
@@ -139,19 +139,8 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
     <>
       {modal}
       <ContentLayout sidebar={sidebar}>
-        <div className="flex flex-col gap-4">
-          <PostGrid posts={sorted} />
-          {q.hasNextPage && (
-            <Button
-              type="button"
-              variant="outline"
-              className="mx-auto w-fit"
-              loading={q.isFetchingNextPage}
-              onClick={() => void q.fetchNextPage()}
-            >
-              {t('loadMorePosts')}
-            </Button>
-          )}
+        <div className="flex flex-col">
+          <PostGrid posts={sorted} pending={pending} pendingRef={loadMoreRef} />
         </div>
       </ContentLayout>
     </>

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type Ref } from 'react'
 import dynamic from 'next/dynamic'
 import type { FeedPost } from '../../../entities/post'
+import { MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
 import { PostTile } from './post-tile'
 
 // Лайтбокс (портал, галерея, видео, свайпы, мутации) грузится только при открытии поста —
@@ -11,29 +12,46 @@ const PostLightbox = dynamic(() => import('./post-lightbox').then((m) => m.PostL
   ssr: false,
 })
 
-// Сетка постов (Instagram-стиль): квадратные плитки 3-в-ряд, клик открывает лайтбокс.
-export function PostGrid({ posts }: { posts: FeedPost[] }) {
-  const [open, setOpen] = useState<{ index: number; focusComment: boolean } | null>(null)
+// Сетка постов (Instagram-стиль): мозаика из квадратных, высоких и широких плиток, клик
+// открывает лайтбокс со всеми действиями. `pending` — скелетоны в хвосте на местах
+// следующей страницы: подгруженные посты встают точно на них. `pendingRef` вешается на
+// ПЕРВЫЙ скелетон — маячок подгрузки: под хвостом он оказался бы на экраны ниже, и
+// читатель смотрел бы на скелетоны, а страница так и не запрашивалась.
+export function PostGrid({
+  posts,
+  pending = 0,
+  pendingRef,
+}: {
+  posts: FeedPost[]
+  pending?: number
+  pendingRef?: Ref<HTMLDivElement>
+}) {
+  const [open, setOpen] = useState<number | null>(null)
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <MosaicGrid>
         {posts.map((post, i) => (
-          <PostTile
-            key={post.id}
-            post={post}
-            onOpen={() => setOpen({ index: i, focusComment: false })}
-            onOpenComment={() => setOpen({ index: i, focusComment: true })}
-          />
+          <PostTile key={post.id} post={post} index={i} onOpen={() => setOpen(i)} />
         ))}
-      </div>
+        {Array.from({ length: pending }, (_, j) => (
+          <MosaicTile
+            key={`pending-${j}`}
+            ref={j === 0 ? pendingRef : undefined}
+            index={posts.length + j}
+            aria-hidden
+          >
+            <Skeleton className="size-full rounded-none" />
+          </MosaicTile>
+        ))}
+      </MosaicGrid>
 
       {open !== null && (
         <PostLightbox
           posts={posts}
-          index={open.index}
-          focusComment={open.focusComment}
-          onIndex={(i) => setOpen({ index: i, focusComment: false })}
+          index={open}
+          focusComment={false}
+          onIndex={setOpen}
           onClose={() => setOpen(null)}
         />
       )}
