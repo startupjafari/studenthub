@@ -40,6 +40,7 @@ function setup() {
       create: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'f1', variants: [] }),
     },
     chat: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -100,6 +101,12 @@ function setup() {
   }
   const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('chat-media') }
+  // Описание медиа собирает MediaService (его спека — media.service.spec.ts); здесь важно,
+  // что оно выдаётся только вместе с проверенной ссылкой.
+  const media = {
+    describeOne: jest.fn().mockResolvedValue({ status: 'READY', sources: [] }),
+    describe: jest.fn().mockResolvedValue(new Map()),
+  }
   // set→'OK' = флаг захвачен, провижининг официальных чатов выполняется (как до троттлинга).
   // incr/expire — антифлуд отправки (assertNotFlooding): 1 = первое сообщение в окне.
   const redis = {
@@ -121,8 +128,9 @@ function setup() {
     config as unknown as ConfigService<EnvVars, true>,
     redis as never,
     exportRegistry as never,
+    media as never,
   )
-  return { service, prisma, queue, realtime, files, posts, config, redis, exportRegistry }
+  return { service, prisma, queue, realtime, files, posts, config, redis, exportRegistry, media }
 }
 
 const user = (sub: string): JwtPayload => ({
@@ -470,13 +478,14 @@ describe('ChatsService.getAttachmentUrl — доступ по членству',
   })
 
   it('не участник чата → WRONG_SCOPE, presigned не выдаётся', async () => {
-    const { service, prisma, files } = setup()
+    const { service, prisma, files, media } = setup()
     files.findOrThrow.mockResolvedValue({ id: 'f1', messageId: 'm1' })
     prisma.message.findUnique.mockResolvedValue({ chatId: 'c1' })
     prisma.chatMember.findUnique.mockResolvedValue(null)
     const err = await service.getAttachmentUrl('u1', 'f1').catch((e) => e)
     expect(err.code).toBe('WRONG_SCOPE')
     expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(media.describeOne).not.toHaveBeenCalled()
   })
 
   it('участник → выдаёт presigned URL', async () => {
@@ -488,6 +497,7 @@ describe('ChatsService.getAttachmentUrl — доступ по членству',
     const link = await service.getAttachmentUrl('u1', 'f1')
     expect(link.url).toBe('https://minio/url')
     expect(Date.parse(link.expiresAt)).toBeGreaterThan(Date.now())
+    expect(link.status).toBe('READY')
   })
 })
 
