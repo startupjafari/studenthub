@@ -485,7 +485,9 @@ describe('ChatsService.getAttachmentUrl — доступ по членству',
     prisma.message.findUnique.mockResolvedValue({ chatId: 'c1' })
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
     files.getPresignedUrl.mockResolvedValue('https://minio/url')
-    expect(await service.getAttachmentUrl('u1', 'f1')).toBe('https://minio/url')
+    const link = await service.getAttachmentUrl('u1', 'f1')
+    expect(link.url).toBe('https://minio/url')
+    expect(Date.parse(link.expiresAt)).toBeGreaterThan(Date.now())
   })
 })
 
