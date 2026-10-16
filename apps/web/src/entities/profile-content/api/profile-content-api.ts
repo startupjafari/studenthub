@@ -1,3 +1,4 @@
+import type { MediaInfo } from '../../../shared/api'
 import type { AxiosProgressEvent } from 'axios'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import type {
@@ -26,7 +27,9 @@ export const profileContentKeys = {
   albums: (userId: string) => ['profile-content', 'albums', userId] as const,
 }
 
-export interface ProfileMedia {
+// Поля описания медиа (заглушка, копии, постер, HLS) — от медиа-системы; у ответа старого
+// API их нет, отсюда Partial.
+export interface ProfileMedia extends Partial<MediaInfo> {
   id: string
   type: 'PHOTO' | 'VIDEO'
   mime: string

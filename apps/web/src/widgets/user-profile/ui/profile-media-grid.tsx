@@ -27,7 +27,7 @@ import {
   uploadProfileMediaAuto,
   type ProfileMedia,
 } from '../../../entities/profile-content'
-import { Card, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
+import { Card, EmptyState, MediaImage, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
@@ -369,11 +369,15 @@ export function ProfileMediaGrid({
                       aria-label={t('tabPhotos')}
                       className="block w-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
                     >
-                      {/* Внешний домен MinIO — next/image не оптимизирует, используем обычный img. */}
-                      <img
+                      {/* Внешний домен MinIO — next/image не оптимизирует. Плитка берёт копию
+                          своей ширины (медиа-система), а заглушка видна до прихода байтов. */}
+                      <MediaImage
                         src={m.url}
+                        media={m}
                         alt=""
-                        className="aspect-square w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 200px"
+                        className="aspect-square w-full"
+                        imgClassName="transition-transform duration-300 ease-out group-hover:scale-105"
                       />
                     </button>
                     {isOwner && (
@@ -509,7 +513,11 @@ function VideoTile({
   onDelete?: () => void
   deleteLabel: string
 }) {
-  const [duration, setDuration] = useState<number | null>(null)
+  const [measured, setMeasured] = useState<number | null>(null)
+  // Длительность — с сервера (медиа-система), иначе из метаданных самого ролика.
+  const duration = media.durationMs ? media.durationMs / 1000 : measured
+  // Постер — картинка: плитке не нужно тянуть начало ролика ради первого кадра.
+  const poster = media.posterUrl ?? media.poster?.at(-1)?.url
   return (
     <Card className="group relative overflow-hidden p-0">
       <button
@@ -518,14 +526,28 @@ function VideoTile({
         aria-label={label}
         className="relative block w-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
       >
-        <video
-          src={media.url}
-          muted
-          preload="metadata"
-          poster={media.posterUrl ?? undefined}
-          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-          className="aspect-video w-full bg-neutral-900 object-cover"
-        />
+        {poster ? (
+          <MediaImage
+            src={poster}
+            // Выбранная владельцем обложка — одна картинка; кадр воркера — набор копий.
+            media={
+              media.posterUrl
+                ? { placeholder: media.placeholder }
+                : { ...media, sources: media.poster }
+            }
+            alt=""
+            sizes="(max-width: 640px) 100vw, 360px"
+            className="aspect-video w-full bg-neutral-900"
+          />
+        ) : (
+          <video
+            src={media.url}
+            muted
+            preload="metadata"
+            onLoadedMetadata={(e) => setMeasured(e.currentTarget.duration)}
+            className="aspect-video w-full bg-neutral-900 object-cover"
+          />
+        )}
         <span className="absolute inset-0 flex items-center justify-center bg-black/15 transition-colors group-hover:bg-black/30">
           {/* Цвет значка — постоянный тёмный, а не `text-foreground`: кружок белый в обеих
               темах, и в тёмной «▶» цвета текста сливался с ним. */}
