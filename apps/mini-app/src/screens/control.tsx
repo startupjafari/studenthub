@@ -856,6 +856,9 @@ function NotificationsCard({
       }
     >
       <p className="hint">{t('notifHint')}</p>
+      {/* Сервер считает часы по поясу платформы, а не по часам телефона: админ в отъезде
+          должен видеть, что «22–8» — это ночь в Алматы, а не у него. */}
+      <p className="hint">{t('notifTimeZone')}</p>
 
       <p className="hint">{t('notifQuiet')}</p>
       <div className="chips-grid">

@@ -9,6 +9,7 @@ import type {
   SetSeasonInput,
   SetSectionsInput,
 } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -35,6 +36,9 @@ const CACHE_TTL_SEC = 60
 // цена, которую платит включение режима: столько он доходит до инстанса, который его не
 // включал. Для остановки на четверть часа это незаметно.
 const MAINTENANCE_MEMO_MS = 5_000
+
+/** Кто может дежурить: команда платформы — те же роли, которым уходят уведомления. */
+const DUTY_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
 export interface LocalizedText {
   ru: string
@@ -353,6 +357,10 @@ export class PlatformService {
    * мог быть назначен руками, и молча снимать его вместе с расписанием — не то, о чём
    * просили. Первым дежурным ставим первого в списке, если дежурного ещё нет: очередь,
    * которая начнёт работать только через неделю, выглядит как сломанная.
+   *
+   * В очередь ставят только тех, кому бот может написать: сотрудник платформы с
+   * действующей привязкой Telegram. Иначе — 422: дежурный без привязки молча глушит
+   * уведомления команде.
    */
   async setDuty(
     userId: string,
@@ -361,7 +369,25 @@ export class PlatformService {
   ): Promise<{ dutyUserId: string | null; rotation: string[] }> {
     const unique = [...new Set(rotation)]
     const current = await this.read()
-    const duty = current?.dutyUserId ?? unique[0] ?? null
+    const reachable = await this.reachable(unique)
+
+    // Проверяются только ДОБАВЛЕННЫЕ: тот, кто уже стоит в очереди и с тех пор отвязал
+    // Telegram, в списке мини-аппа не виден, и убрать его оттуда нельзя — строгая проверка
+    // всего списка заперла бы очередь навсегда. Такого крон просто пропускает.
+    const known = new Set(current?.dutyRotation ?? [])
+    const rejected = unique.filter((id) => !known.has(id) && !reachable.has(id))
+    if (rejected.length > 0) {
+      throw new AppException(
+        'VALIDATION_ERROR',
+        'В очередь можно поставить только сотрудника платформы с привязанным Telegram',
+        rejected.map((id) => ({
+          field: `rotation.${rotation.indexOf(id)}`,
+          message: 'Нет активной привязки Telegram',
+        })),
+      )
+    }
+
+    const duty = current?.dutyUserId ?? unique.find((id) => reachable.has(id)) ?? null
 
     const { state: _state, before } = await this.write(userId, {
       dutyRotation: unique,
@@ -383,27 +409,55 @@ export class PlatformService {
    *
    * Позиция ищется по текущему дежурному, а не хранится числом: номер смены пришлось бы
    * чинить руками каждый раз, когда список правят, а по имени всё сходится само. Дежурный
-   * не из списка (назначили руками на выходные) — начинаем с начала.
+   * не из списка (назначили руками на выходные) — начинаем с начала. Тех, кому бот не
+   * может написать, пропускаем.
    */
   async rotateDuty(now: Date = new Date()): Promise<string | null> {
     const row = await this.read()
     const rotation = row?.dutyRotation ?? []
     if (rotation.length < 2) return null
 
+    // Круг от следующего за текущим. Кому бот не может написать (отвязал Telegram,
+    // заблокирован, удалён, ушёл из команды), того пропускаем: дежурство, переданное ему,
+    // означало бы неделю, в которую уведомления о жалобах не доходят до дежурного.
     const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
-    const next = rotation[(index + 1) % rotation.length]
-    // `next` пуст только если очередь изменилась между чтением и этой строкой; передавать
-    // дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить команду без
-    // адресата уведомлений.
-    if (!next || next === row?.dutyUserId) return null
+    const order = rotation.map((_, step) => rotation[(index + 1 + step) % rotation.length]!)
+    const reachable = await this.reachable(rotation)
+    const next = order.find((id) => reachable.has(id))
+    // Передавать дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить
+    // команду без адресата уведомлений.
+    if (!next) {
+      this.logger.warn('rotateDuty: в очереди нет никого с привязанным Telegram — смена пропущена')
+      return null
+    }
+    if (next === row?.dutyUserId) return null
 
     await this.write(row?.updatedById ?? next, { dutyUserId: next })
     await this.audit.record({
       action: 'platform.duty.rotate',
       entity: 'PlatformState',
-      metadata: { to: next, at: now.toISOString() },
+      metadata: { to: next, at: now.toISOString(), skipped: order.indexOf(next) },
     })
     return next
+  }
+
+  /**
+   * Кому из перечисленных бот может написать: сотрудник платформы, не удалён, не
+   * заблокирован, привязка Telegram действует. Те же условия, что у рассылки в
+   * TelegramNotifyService: дежурный, до которого она не дойдёт, хуже, чем никакого.
+   */
+  private async reachable(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set()
+    const rows = await this.prisma.telegramAccount.findMany({
+      where: {
+        userId: { in: ids },
+        revokedAt: null,
+        user: { role: { in: [...DUTY_ROLES] }, isBlocked: false, deletedAt: null },
+      },
+      select: { userId: true },
+      take: ids.length,
+    })
+    return new Set(rows.map((row) => row.userId))
   }
 
   /**
@@ -464,6 +518,24 @@ export class PlatformService {
     input: SetNotificationsInput,
     ctx: RequestContext = {},
   ): Promise<PublicPlatformState> {
+    // Нового дежурного проверяем так же, как очередь: назначенный, которому бот не может
+    // написать, превращает «только дежурному» в «никому». Прежнее значение не проверяем —
+    // правка тихих часов не должна падать из-за того, что дежурный с тех пор отвязался
+    // (до команды такие уведомления всё равно дойдут, см. TelegramNotifyService).
+    if (input.dutyUserId !== null) {
+      const current = await this.read()
+      if (
+        input.dutyUserId !== current?.dutyUserId &&
+        !(await this.reachable([input.dutyUserId])).has(input.dutyUserId)
+      ) {
+        throw new AppException(
+          'VALIDATION_ERROR',
+          'Дежурным можно назначить только сотрудника платформы с привязанным Telegram',
+          [{ field: 'dutyUserId', message: 'Нет активной привязки Telegram' }],
+        )
+      }
+    }
+
     const { state, before } = await this.write(userId, {
       quietFrom: input.quietFrom,
       quietTo: input.quietTo,

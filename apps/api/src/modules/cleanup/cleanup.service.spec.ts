@@ -1,5 +1,6 @@
 import { InviteStatus } from '@prisma/client'
 import { CleanupService } from './cleanup.service'
+import { platformHour } from '../../common/telegram/telegram-notify.service'
 
 type Mock = jest.Mock
 
@@ -550,7 +551,7 @@ describe('CleanupService.sendDailyDigest', () => {
       quietTo: null,
       muted: [],
       dutyUserId: null,
-      digestHour: (new Date().getHours() + 1) % 24,
+      digestHour: (platformHour(new Date()) + 1) % 24,
     })
 
     await expect(c.service.sendDailyDigest()).resolves.toBe(0)
@@ -573,7 +574,7 @@ describe('CleanupService.sendDailyDigest', () => {
       quietTo: null,
       muted: [],
       dutyUserId: null,
-      digestHour: new Date().getHours(),
+      digestHour: platformHour(new Date()),
     })
 
     await expect(c.service.sendDailyDigest()).resolves.toBe(1)
@@ -628,6 +629,15 @@ describe('CleanupService.liftExpiredBlocks', () => {
 })
 
 describe('CleanupService.rotateDuty', () => {
+  // «По понедельникам в 9» — по часам команды: в UTC смена приходилась на 14:00 по Алматы.
+  it('смена дежурства идёт по поясу платформы', () => {
+    const options = Reflect.getMetadata(
+      'SCHEDULE_CRON_OPTIONS',
+      CleanupService.prototype.rotateDuty,
+    ) as { timeZone?: string }
+    expect(options.timeZone).toBe('Asia/Almaty')
+  })
+
   // Крон только зовёт владельца состояния: логика очереди живёт в PlatformService, и
   // дублировать её в планировщике значило бы завести второе место, где она разъедется.
   it('передаёт дежурство через состояние платформы', async () => {

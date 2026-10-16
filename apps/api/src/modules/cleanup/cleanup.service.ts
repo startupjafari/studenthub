@@ -20,9 +20,13 @@ import { ComplaintsService } from '../complaints/complaints.service'
 import { DemoRequestsService } from '../onboarding/demo-requests.service'
 import { CompaniesService } from '../career/companies.service'
 import { countServerErrors } from '../../common/monitoring/error-rate'
-import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
+import { TelegramNotifyService, platformHour } from '../../common/telegram/telegram-notify.service'
 import { digestText, humanAge } from '../../common/telegram/digest'
-import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
+import {
+  PLATFORM_STATE,
+  PLATFORM_TIME_ZONE,
+  type PlatformStateReader,
+} from '../platform/platform.constants'
 import { MediaService } from '../media/media.service'
 import { variantOwnerId } from '../media/media-keys'
 
@@ -244,8 +248,9 @@ export class CleanupService {
 
   // Передача дежурства: по понедельникам в 9 утра дежурным становится следующий в
   // очереди. Раньше дежурного назначали руками — то есть он оставался прежним, пока
-  // кто-нибудь не вспоминал, что дежурит уже месяц.
-  @Cron('0 9 * * 1', { name: 'rotateDuty' })
+  // кто-нибудь не вспоминал, что дежурит уже месяц. Девять утра — по часам команды, а не
+  // сервера: в UTC смена приходилась на 14:00 по Алматы.
+  @Cron('0 9 * * 1', { name: 'rotateDuty', timeZone: PLATFORM_TIME_ZONE })
   async rotateDuty(): Promise<string | null> {
     return this.locks.run('rotateDuty', LOCK_TTL_MS.rotateDuty, async () => {
       const next = await this.platform.rotateDuty()
@@ -661,7 +666,8 @@ export class CleanupService {
 
   private async sendDailyDigestTask(): Promise<number> {
     const policy = await this.platform.notificationPolicy()
-    if (policy.digestHour === null || policy.digestHour !== new Date().getHours()) return 0
+    // Час — по поясу платформы: «сводка утром» по часам сервера приходила в 14:05 по Алматы.
+    if (policy.digestHour === null || policy.digestHour !== platformHour(new Date())) return 0
 
     // Числа спрашиваем у модулей-владельцев, а не считаем здесь: тот же ответ отдаёт
     // команда бота `/queue`, и две копии запроса разошлись бы при первой же правке

@@ -39,7 +39,12 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
   }
 }
 
-function setup(stored: PlatformState | null = null, cached: string | null = null) {
+function setup(
+  stored: PlatformState | null = null,
+  cached: string | null = null,
+  // Кому бот НЕ может написать: нет привязки Telegram, заблокирован, удалён, не команда.
+  unreachable: string[] = [],
+) {
   // Что именно ушло в БД — записываем отдельно: проверять срок удобнее по значению,
   // а не через матчер поверх аргументов мока.
   const updates: Partial<PlatformState>[] = []
@@ -55,6 +60,14 @@ function setup(stored: PlatformState | null = null, cached: string | null = null
       findFirst: jest.fn().mockResolvedValue(null),
     },
     user: { findMany: jest.fn().mockResolvedValue([]) },
+    // Дежурство проверяет, дойдёт ли до человека бот: отвечаем всеми, кроме недоступных.
+    telegramAccount: {
+      findMany: jest.fn(({ where }: { where: { userId: { in: string[] } } }) =>
+        Promise.resolve(
+          where.userId.in.filter((id) => !unreachable.includes(id)).map((userId) => ({ userId })),
+        ),
+      ),
+    },
     platformState: {
       findUnique: jest.fn().mockResolvedValue(stored),
       // upsert отвечает записанным поверх текущей строки — как настоящая БД.
@@ -614,5 +627,127 @@ describe('PlatformService — дежурство по очереди', () => {
   it('очередь короче двух — передавать некому', async () => {
     const { service } = setup(row({ dutyUserId: 'a', dutyRotation: ['a'] }))
     await expect(service.rotateDuty()).resolves.toBeNull()
+  })
+})
+
+describe('PlatformService — дежурный, которому бот не может написать', () => {
+  // Дежурный без привязки превращает «только дежурному» в «никому»: жалобы теряются молча.
+  it('не ставит в очередь человека без привязки Telegram', async () => {
+    const { service, updates } = setup(row(), null, ['b'])
+
+    const error = await service.setDuty('admin', ['a', 'b']).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(AppException)
+    expect((error as AppException).code).toBe('VALIDATION_ERROR')
+    expect((error as AppException).details).toEqual([
+      { field: 'rotation.1', message: expect.any(String) },
+    ])
+    expect(updates).toHaveLength(0)
+  })
+
+  it('доступность проверяет теми же условиями, что и рассылка', async () => {
+    const { service, prisma } = setup(row())
+
+    await service.setDuty('admin', ['a', 'b'])
+
+    expect(prisma.telegramAccount.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: { in: ['a', 'b'] },
+          revokedAt: null,
+          user: {
+            role: { in: ['PLATFORM_ADMIN', 'PLATFORM_MODERATOR'] },
+            isBlocked: false,
+            deletedAt: null,
+          },
+        },
+      }),
+    )
+  })
+
+  // Отвязавшийся после постановки в очередь в списке мини-аппа уже не виден — строгая
+  // проверка всего списка не дала бы убрать из очереди вообще никого.
+  it('не отвергает того, кто уже стоял в очереди и с тех пор отвязался', async () => {
+    const { service, updates } = setup(row({ dutyRotation: ['a', 'b', 'c'] }), null, ['a'])
+
+    await service.setDuty('admin', ['a', 'b'])
+
+    expect(updates.at(-1)).toMatchObject({ dutyRotation: ['a', 'b'] })
+  })
+
+  it('первым дежурным ставит первого, кому бот может написать', async () => {
+    const { service, updates } = setup(row({ dutyRotation: ['a', 'b'] }), null, ['a'])
+
+    await service.setDuty('admin', ['a', 'b'])
+
+    expect(updates.at(-1)?.dutyUserId).toBe('b')
+  })
+
+  it('ротация пропускает тех, кому бот не может написать', async () => {
+    const { service, updates, audit } = setup(
+      row({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] }),
+      null,
+      ['b'],
+    )
+
+    await expect(service.rotateDuty()).resolves.toBe('c')
+    expect(updates.at(-1)?.dutyUserId).toBe('c')
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'platform.duty.rotate',
+        metadata: expect.objectContaining({ to: 'c', skipped: 1 }),
+      }),
+    )
+  })
+
+  // Передать дежурство «никому» хуже, чем оставить прежнего: до команды дойдёт и так.
+  it('если в очереди никому не написать — смену пропускает', async () => {
+    const { service, updates } = setup(
+      row({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] }),
+      null,
+      ['a', 'b', 'c'],
+    )
+
+    await expect(service.rotateDuty()).resolves.toBeNull()
+    expect(updates).toHaveLength(0)
+  })
+
+  it('единственный доступный — текущий дежурный: оставляет его', async () => {
+    const { service, updates } = setup(row({ dutyUserId: 'a', dutyRotation: ['a', 'b'] }), null, [
+      'b',
+    ])
+
+    await expect(service.rotateDuty()).resolves.toBeNull()
+    expect(updates).toHaveLength(0)
+  })
+
+  const SETTINGS = { quietFrom: 22, quietTo: 8, muted: [], digestHour: 9 }
+
+  it('не назначает дежурным человека без привязки Telegram', async () => {
+    const { service, updates } = setup(row(), null, ['z'])
+
+    await expect(
+      service.setNotifications('admin', { ...SETTINGS, dutyUserId: 'z' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    expect(updates).toHaveLength(0)
+  })
+
+  it('назначает дежурным сотрудника с привязкой', async () => {
+    const { service, updates } = setup(row())
+
+    await service.setNotifications('admin', { ...SETTINGS, dutyUserId: 'a' })
+
+    expect(updates.at(-1)?.dutyUserId).toBe('a')
+  })
+
+  // Правка тихих часов не должна падать из-за дежурного, отвязавшегося после назначения:
+  // до команды уведомления дойдут и так.
+  it('не проверяет прежнего дежурного, если его не меняли', async () => {
+    const { service, updates, prisma } = setup(row({ dutyUserId: 'a' }), null, ['a'])
+
+    await service.setNotifications('admin', { ...SETTINGS, dutyUserId: 'a' })
+
+    expect(updates.at(-1)).toMatchObject({ dutyUserId: 'a', quietFrom: 22 })
+    expect(prisma.telegramAccount.findMany).not.toHaveBeenCalled()
   })
 })
