@@ -77,6 +77,7 @@ function setup(
   }
   // Медиа-система: постановку в обработку проверяем как вызов, сама она — в media.service.spec.ts.
   const media = {
+    initialStatus: jest.fn().mockReturnValue('NONE'),
     schedule: jest.fn().mockResolvedValue(undefined),
     scheduleCopy: jest.fn().mockResolvedValue(undefined),
     purgeVariants: jest.fn().mockResolvedValue(undefined),

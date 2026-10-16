@@ -38,6 +38,7 @@ describe('FileService (integration, реальный MinIO)', () => {
     // Медиа-обработку здесь не проверяем (тестовый бакет не медийный): заглушка вместо
     // MediaService, иначе тест тянул бы за собой очереди и Redis.
     const media = {
+      initialStatus: () => 'NONE',
       schedule: async () => undefined,
       scheduleCopy: async () => undefined,
       purgeVariants: async () => undefined,

@@ -61,6 +61,11 @@ const FILE_SELECT = {
   // Размеры изображения: клиент резервирует под снимок точное место (иначе вёрстка прыгает).
   width: true,
   height: true,
+  // Медиа-система: PENDING у свежей загрузки — варианты в работе, клиент пока показывает
+  // оригинал; заглушка и длительность появятся после обработки.
+  mediaStatus: true,
+  placeholder: true,
+  durationMs: true,
   createdAt: true,
 } as const
 
@@ -164,6 +169,7 @@ export class FileService {
         height: dims?.height,
         // Обрезаем до лимита колонки; пустое имя не сохраняем.
         name: name?.slice(0, 255) || null,
+        mediaStatus: this.media.initialStatus(bucket, detected.mime),
       },
       select: FILE_SELECT,
     })
@@ -449,6 +455,7 @@ export class FileService {
         materialId: params.materialId,
         messageId: params.messageId,
         name: params.name?.slice(0, 255) || null,
+        mediaStatus: this.media.initialStatus(params.bucket, detected.mime),
       },
       select: FILE_SELECT,
     })
@@ -529,6 +536,7 @@ export class FileService {
         width: source.width ?? null,
         height: source.height ?? null,
         name: source.name ?? null,
+        mediaStatus: this.media.initialStatus(source.bucket, source.mime),
       },
       select: FILE_SELECT,
     })

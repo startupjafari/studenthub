@@ -81,13 +81,27 @@ export class MediaService {
   }
 
   /**
-   * Поставить файл в обработку. Вызывается сразу после создания записи File; HTTP-запрос
-   * не ждёт ничего, кроме записи статуса. Повторный вызов безопасен: jobId детерминирован.
+   * Статус для новой записи File: PENDING, если медиа будет обработано. Ставится прямо при
+   * создании записи — ответ на загрузку сразу честный, и лишней записи в БД нет.
    */
-  async schedule(file: { id: string; bucket: string; mime: string }): Promise<void> {
+  initialStatus(bucket: string, mime: string): MediaStatus {
+    return this.kindOf(bucket, mime) ? MediaStatus.PENDING : MediaStatus.NONE
+  }
+
+  /**
+   * Поставить файл в обработку. Вызывается сразу после создания записи File; HTTP-запрос
+   * ничего не ждёт. Повторный вызов безопасен: jobId детерминирован.
+   */
+  async schedule(file: {
+    id: string
+    bucket: string
+    mime: string
+    mediaStatus?: MediaStatus
+  }): Promise<void> {
     const kind = this.kindOf(file.bucket, file.mime)
     if (!kind) return
-    if (!(await this.markPending(file.id))) return
+    // Запись создана сразу с PENDING (initialStatus) — второй update не нужен.
+    if (file.mediaStatus !== MediaStatus.PENDING && !(await this.markPending(file.id))) return
     await this.enqueue(kind, MEDIA_JOBS.PROCESS, { fileId: file.id }, `media_${file.id}`)
   }
 
@@ -97,10 +111,10 @@ export class MediaService {
    */
   async scheduleCopy(
     sourceId: string,
-    target: { id: string; bucket: string; mime: string },
+    target: { id: string; bucket: string; mime: string; mediaStatus?: MediaStatus },
   ): Promise<void> {
     if (!this.kindOf(target.bucket, target.mime)) return
-    if (!(await this.markPending(target.id))) return
+    if (target.mediaStatus !== MediaStatus.PENDING && !(await this.markPending(target.id))) return
     // Копирование — секунды при любом типе, поэтому в «быструю» очередь.
     await this.enqueue(
       'image',
