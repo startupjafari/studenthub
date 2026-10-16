@@ -48,7 +48,7 @@ SCOPE: only these files (plus their tests / i18n messages apps/web/messages/{ru,
 PROJECT RULES (from AGENTS.md / docs/*_RULES.md):
 
 - Match surrounding code style and comment density; comments and user-facing strings in Russian; every user-facing string via i18n keys (ru, kk, en).
-- API changes must stay backward compatible (web, iOS, Android and the Telegram mini-app share the API): additive optional fields/params only. If you add/change endpoints or schemas, update docs/PROJECT.md and regenerate apps/api/openapi.json (`rm -f apps/api/tsconfig*.tsbuildinfo && pnpm --filter api build && pnpm --filter api run openapi`). A breaking change → don't do it, report it.
+- API changes must stay backward compatible (web, iOS, Android and the Telegram mini-app share the API): additive optional fields/params only. If you add/change endpoints or schemas, regenerate apps/api/openapi.json (`rm -f apps/api/tsconfig*.tsbuildinfo && pnpm --filter api build && pnpm --filter api run openapi`). DO NOT edit docs/PROJECT.md (other agents work in parallel) — put the exact sentence(s) the docs need into your summary under «Документация:». A breaking change → don't do it, report it.
 - Migration needed → edit prisma/schema/*.prisma and write the SQL file prisma/migrations/<YYYYMMDDHHMMSS>_<name>/migration.sql by hand (or `pnpm exec prisma migrate diff --from-schema-datamodel … --script` without touching a DB). NEVER apply migrations, never run db push / migrate dev / reset against any database.
 - No new dependencies. No git commands that change state (no commit/stash/checkout/reset) — the orchestrator commits. No dev servers, no full builds of web.
 - findMany always with take; authorization/scope from JWT, never from the body.
